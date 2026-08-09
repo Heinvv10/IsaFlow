@@ -25,7 +25,7 @@ import {
 } from './tools/writeInvoices';
 import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
 import { suggestBankAllocationTool } from './tools/writeBank';
-import { allocateBankTransactionTool } from './tools/writeBankAllocate';
+import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
 
 export const MCP_TOOLS = [
   // read (16)
@@ -45,7 +45,7 @@ export const MCP_TOOLS = [
   listBankTransactionsTool,
   getMatchCandidatesTool,
   vatStatusTool,
-  // write (7) — drafts + suggest are write; post/finalize/allocate additionally require write:post
+  // write (8) — drafts + suggest are write; post/finalize/allocate/reverse additionally require write:post
   createDraftInvoiceTool,
   createDraftQuoteTool,
   createDraftJournalTool,
@@ -53,6 +53,7 @@ export const MCP_TOOLS = [
   postJournalTool,
   finalizeInvoiceTool,
   allocateBankTransactionTool,
+  reverseBankAllocationTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

@@ -7,7 +7,10 @@
  * and reversible via reverse_bank_allocation.
  */
 import type { McpTool } from '../types';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import {
+  allocateTransaction,
+  reverseReconciledTransaction,
+} from '@/modules/accounting/services/bank/bankAllocationService';
 import { mcpPostingAgent } from '../postingAgent';
 import { ok, safeErrorText, toolError } from './toolHelpers';
 
@@ -64,6 +67,34 @@ export const allocateBankTransactionTool: McpTool = {
       });
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to allocate the transaction.'));
+    }
+  },
+};
+
+export const reverseBankAllocationTool: McpTool = {
+  name: 'reverse_bank_allocation',
+  description:
+    'Undo an allocation: reverses the posted journal and returns the bank transaction to unallocated. Use to correct a wrong allocation — the original and its reversal both remain in the audit trail.',
+  scope: 'write:bank-tx',
+  write: true,
+  requiresPost: true,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      transaction_id: { type: 'string' },
+      idempotency_key: { type: 'string' },
+    },
+    required: ['transaction_id', 'idempotency_key'],
+    additionalProperties: false,
+  },
+  handler: async (args, ctx) => {
+    const txId = typeof args.transaction_id === 'string' ? args.transaction_id.trim() : '';
+    if (!txId) return toolError('transaction_id is required');
+    try {
+      await reverseReconciledTransaction(ctx.companyId, txId, ctx.userId);  // tenant from ctx ONLY
+      return ok({ transaction_id: txId, reversed: true });
+    } catch (err) {
+      return toolError(safeErrorText(err, 'Failed to reverse the allocation.'));
     }
   },
 };

@@ -4,7 +4,7 @@
  * Per tool: happy path calls the service with ctx.companyId + ctx.userId and
  * the draft/unposted intent; token-scan + additionalProperties:false extended
  * to write tools. Manifest: exactly post_journal + finalize_invoice +
- * allocate_bank_transaction carry requiresPost. (The registry's
+ * allocate_bank_transaction + reverse_bank_allocation carry requiresPost. (The registry's
  * scope/write:post/idempotency FENCE is proven generically in registry.test.ts
  * — not re-tested here. allocate_bank_transaction's own behaviour is covered
  * in writeBankAllocate.test.ts, same pattern as bankMatchTool.test.ts.)
@@ -286,9 +286,11 @@ describe('write-tool manifest invariants', () => {
     }
   });
 
-  it('exactly post_journal + finalize_invoice + allocate_bank_transaction require write:post', () => {
+  it('exactly post_journal + finalize_invoice + allocate_bank_transaction + reverse_bank_allocation require write:post', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
-    expect(requiresPost).toEqual(['allocate_bank_transaction', 'finalize_invoice', 'post_journal']);
+    expect(requiresPost).toEqual([
+      'allocate_bank_transaction', 'finalize_invoice', 'post_journal', 'reverse_bank_allocation',
+    ]);
   });
 
   it('no write tool accepts a company identifier in its schema', () => {
