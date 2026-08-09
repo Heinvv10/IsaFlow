@@ -1,3 +1,5 @@
+import { parse as parseConnectionString } from 'pg-connection-string';
+
 // ENCRYPTION_KEY is required — the app must not start without encryption configured.
 // All fields encrypted at rest (tokens, secrets) depend on this key being present.
 // PORTAL_JWT_SECRET added (pentest L3) — used by both AFS portal and legacy AR
@@ -61,28 +63,37 @@ const PRIVILEGED_DB_URL_VARS = [
   'MIGRATION_ADMIN_DATABASE_URL',
 ] as const;
 
-function databaseNameOf(varName: string, value: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`${varName} is not a valid database connection URL`);
-  }
-  const name = parsed.pathname.replace(/^\//, '');
-  if (!name) {
-    throw new Error(`${varName} does not name a database`);
-  }
-  return name;
+// Resolve the database a connection string actually targets using the same
+// parser pg itself uses. Hand-rolling this with `new URL()` diverges from the
+// driver in ways that defeat the check: a `socket:` URL carries its database in
+// `?db=`, not the path, so two sockets differing only by database would compare
+// equal — the very false negative this guard exists to prevent. The driver also
+// percent-decodes the path, so `/isa%66low` and `/isaflow` are one database.
+// Returns null when the string names no database: libpq then defaults it to the
+// connecting role's name, which cannot be compared across two different roles.
+function databaseNameOf(value: string): string | null {
+  return parseConnectionString(value).database ?? null;
 }
 
 function assertPrivilegedPoolsTargetAppDatabase(): void {
-  const appDb = databaseNameOf('DATABASE_URL', process.env.DATABASE_URL as string);
+  const appDb = databaseNameOf(process.env.DATABASE_URL as string);
   for (const varName of PRIVILEGED_DB_URL_VARS) {
     const value = process.env[varName];
     // MIGRATION_ADMIN_DATABASE_URL is optional; PLATFORM_ADMIN_DATABASE_URL is
     // already guaranteed present by REQUIRED_VARS above.
     if (!value) continue;
-    const db = databaseNameOf(varName, value);
+    const db = databaseNameOf(value);
+    if (appDb === null || db === null) {
+      // At least one URL leaves the database implicit, so each connection falls
+      // back to its own role name and there is nothing to compare. Warn instead
+      // of throwing — this configuration boots today, and a guard must not turn
+      // a working deploy into a startup failure.
+      process.stderr.write(
+        `[env] Cannot verify ${varName} targets the same database as DATABASE_URL: ` +
+          'one of them does not name a database explicitly.\n'
+      );
+      continue;
+    }
     if (db !== appDb) {
       throw new Error(
         `${varName} targets database "${db}" but DATABASE_URL targets "${appDb}" — ` +

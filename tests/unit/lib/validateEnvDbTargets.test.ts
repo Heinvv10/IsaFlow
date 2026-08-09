@@ -71,8 +71,41 @@ describe('validateEnv — privileged pool database targets', () => {
     expect(() => validateEnv()).not.toThrow();
   });
 
-  it('throws when a privileged URL is unparseable', () => {
+  it('rejects a garbage privileged URL as a mismatch', () => {
     process.env.PLATFORM_ADMIN_DATABASE_URL = 'not-a-url';
     expect(() => validateEnv()).toThrow(/PLATFORM_ADMIN_DATABASE_URL/);
+  });
+
+  // The database of a `socket:` URL lives in `?db=`, not the path. Parsing with
+  // `new URL()` yields the socket directory for both of these, comparing equal
+  // and letting a genuine cross-database mismatch through undetected.
+  it('detects a mismatch between socket URLs differing only by ?db=', () => {
+    process.env.DATABASE_URL = 'socket:/var/run/postgresql?db=isaflow';
+    process.env.PLATFORM_ADMIN_DATABASE_URL = 'socket:/var/run/postgresql?db=isaflow_dev';
+    expect(() => validateEnv()).toThrow(/isaflow_dev/);
+  });
+
+  it('accepts socket URLs naming the same database', () => {
+    process.env.DATABASE_URL = 'socket:/var/run/postgresql?db=isaflow';
+    process.env.PLATFORM_ADMIN_DATABASE_URL = 'socket:/var/run/postgresql?db=isaflow';
+    expect(() => validateEnv()).not.toThrow();
+  });
+
+  it('treats percent-encoded and plain spellings of one database as equal', () => {
+    process.env.PLATFORM_ADMIN_DATABASE_URL =
+      `postgresql://platform_admin@db.internal:7772/isa%66low?sslmode=disable`;
+    expect(() => validateEnv()).not.toThrow();
+  });
+
+  // libpq defaults an unnamed database to the connecting role's name. That is a
+  // configuration which boots, so the guard must warn rather than kill startup.
+  it('warns but does not throw when a privileged URL names no database', () => {
+    process.env.PLATFORM_ADMIN_DATABASE_URL = 'postgresql://platform_admin@db.internal:7772';
+    expect(() => validateEnv()).not.toThrow();
+  });
+
+  it('warns but does not throw when DATABASE_URL names no database', () => {
+    process.env.DATABASE_URL = 'postgresql://app_user@db.internal:7772';
+    expect(() => validateEnv()).not.toThrow();
   });
 });
