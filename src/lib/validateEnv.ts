@@ -63,34 +63,46 @@ const PRIVILEGED_DB_URL_VARS = [
   'MIGRATION_ADMIN_DATABASE_URL',
 ] as const;
 
-// Resolve the database a connection string actually targets using the same
-// parser pg itself uses. Hand-rolling this with `new URL()` diverges from the
-// driver in ways that defeat the check: a `socket:` URL carries its database in
-// `?db=`, not the path, so two sockets differing only by database would compare
-// equal — the very false negative this guard exists to prevent. The driver also
-// percent-decodes the path, so `/isa%66low` and `/isaflow` are one database.
-// Returns null when the string names no database: libpq then defaults it to the
-// connecting role's name, which cannot be compared across two different roles.
-function databaseNameOf(value: string): string | null {
-  return parseConnectionString(value).database ?? null;
+// Resolve the database a connection string will actually reach, mirroring pg's
+// own order in ConnectionParameters: the string's database, else PGDATABASE,
+// else the connecting role's name. Two details matter.
+//
+// Parse with pg's parser rather than `new URL()`: a `socket:` URL carries its
+// database in `?db=`, not the path, so two sockets differing only by database
+// would compare equal — the exact false negative this guard exists to prevent.
+// The parser also percent-decodes, so `/isa%66low` and `/isaflow` are one name.
+//
+// And never treat a missing database as "nothing to compare". A pathless
+// PLATFORM_ADMIN_DATABASE_URL sends the admin pool to a database named after
+// the `platform_admin` role while the app uses `isaflow` — a real divergence,
+// and precisely the one-character typo this guard exists to catch. Resolving
+// the fallback makes that comparable instead of waving it through.
+//
+// validateEnvDbTargets.test.ts pins this against pg's real ConnectionParameters
+// so the two cannot drift apart.
+function effectiveDatabaseOf(value: string): string | null {
+  const parsed = parseConnectionString(value);
+  for (const candidate of [parsed.database, process.env.PGDATABASE, parsed.user]) {
+    if (typeof candidate === 'string' && candidate.length > 0) return candidate;
+  }
+  return null;
 }
 
 function assertPrivilegedPoolsTargetAppDatabase(): void {
-  const appDb = databaseNameOf(process.env.DATABASE_URL as string);
+  const appDb = effectiveDatabaseOf(process.env.DATABASE_URL as string);
   for (const varName of PRIVILEGED_DB_URL_VARS) {
     const value = process.env[varName];
     // MIGRATION_ADMIN_DATABASE_URL is optional; PLATFORM_ADMIN_DATABASE_URL is
     // already guaranteed present by REQUIRED_VARS above.
     if (!value) continue;
-    const db = databaseNameOf(value);
+    const db = effectiveDatabaseOf(value);
     if (appDb === null || db === null) {
-      // At least one URL leaves the database implicit, so each connection falls
-      // back to its own role name and there is nothing to compare. Warn instead
-      // of throwing — this configuration boots today, and a guard must not turn
-      // a working deploy into a startup failure.
+      // Neither a database, PGDATABASE, nor a role name is available, so pg
+      // would fall back to the OS user we cannot read here. Warn rather than
+      // throw: this is unresolvable, not a detected mismatch.
       process.stderr.write(
         `[env] Cannot verify ${varName} targets the same database as DATABASE_URL: ` +
-          'one of them does not name a database explicitly.\n'
+          'neither names a database, PGDATABASE, or a role.\n'
       );
       continue;
     }

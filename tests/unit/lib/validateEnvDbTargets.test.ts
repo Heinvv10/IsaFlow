@@ -29,6 +29,9 @@ beforeEach(() => {
   saved = { ...process.env };
   for (const [k, v] of Object.entries(REQUIRED)) process.env[k] = v;
   delete process.env.MIGRATION_ADMIN_DATABASE_URL;
+  // PGDATABASE participates in pg's resolution order, so a stray value would
+  // silently change what every case below resolves to.
+  delete process.env.PGDATABASE;
   process.env.NODE_ENV = 'test';
 });
 
@@ -97,15 +100,70 @@ describe('validateEnv — privileged pool database targets', () => {
     expect(() => validateEnv()).not.toThrow();
   });
 
-  // libpq defaults an unnamed database to the connecting role's name. That is a
-  // configuration which boots, so the guard must warn rather than kill startup.
-  it('warns but does not throw when a privileged URL names no database', () => {
+  // pg defaults an unnamed database to the connecting role's name. That is a
+  // real divergence, not an incomparable one: the admin pool would land on a
+  // database called `platform_admin` while the app uses `isaflow`. Dropping the
+  // trailing /dbname is the exact typo this guard exists to catch, so it must
+  // fail boot rather than emit a warning that scrolls past in the logs.
+  it('throws when a privileged URL omits its database and falls back to the role', () => {
+    process.env.PLATFORM_ADMIN_DATABASE_URL = 'postgresql://platform_admin@db.internal:7772';
+    expect(() => validateEnv()).toThrow(/platform_admin/);
+  });
+
+  it('throws when DATABASE_URL omits its database and falls back to the role', () => {
+    process.env.DATABASE_URL = 'postgresql://app_user@db.internal:7772';
+    expect(() => validateEnv()).toThrow(/app_user/);
+  });
+
+  it('accepts a pathless pair that PGDATABASE resolves to one database', () => {
+    process.env.PGDATABASE = 'isaflow';
+    process.env.DATABASE_URL = 'postgresql://app_user@db.internal:7772';
     process.env.PLATFORM_ADMIN_DATABASE_URL = 'postgresql://platform_admin@db.internal:7772';
     expect(() => validateEnv()).not.toThrow();
   });
 
-  it('warns but does not throw when DATABASE_URL names no database', () => {
-    process.env.DATABASE_URL = 'postgresql://app_user@db.internal:7772';
+  it('does not let PGDATABASE mask an explicitly named mismatch', () => {
+    process.env.PGDATABASE = 'isaflow';
+    process.env.PLATFORM_ADMIN_DATABASE_URL =
+      'postgresql://platform_admin@db.internal:7772/isaflow_dev';
+    expect(() => validateEnv()).toThrow(/isaflow_dev/);
+  });
+
+  it('warns without throwing when no database, PGDATABASE, or role is available', () => {
+    process.env.DATABASE_URL = 'postgresql://db.internal:7772';
+    process.env.PLATFORM_ADMIN_DATABASE_URL = 'postgresql://db.internal:7772';
+    expect(() => validateEnv()).not.toThrow();
+  });
+});
+
+/**
+ * The guard is only as good as its agreement with the driver. Pin the
+ * resolution order against pg's real ConnectionParameters — the class
+ * `new pg.Pool({ connectionString })` builds — so a future pg change that moves
+ * the PGDATABASE/role fallback breaks this test instead of silently making the
+ * guard check something the driver does not do.
+ */
+describe('effective database resolution matches pg.ConnectionParameters', () => {
+  const CASES: Array<{ url: string; pgdatabase?: string }> = [
+    { url: 'postgresql://platform_admin@db.internal:7772/isaflow' },
+    { url: 'postgresql://platform_admin@db.internal:7772' },
+    { url: 'postgresql://platform_admin@db.internal:7772', pgdatabase: 'isaflow_dev' },
+    { url: 'postgresql://platform_admin@db.internal:7772/isaflow', pgdatabase: 'isaflow_dev' },
+    { url: 'socket:/var/run/postgresql?db=isaflow' },
+    { url: 'postgresql://platform_admin@db.internal:7772/isa%66low' },
+  ];
+
+  it.each(CASES)('resolves $url the same way pg does', async ({ url, pgdatabase }) => {
+    if (pgdatabase === undefined) delete process.env.PGDATABASE;
+    else process.env.PGDATABASE = pgdatabase;
+
+    const { default: ConnectionParameters } = await import('pg/lib/connection-parameters.js');
+    const pgResolved = new ConnectionParameters({ connectionString: url }).database;
+
+    // Same inputs through validateEnv: a mismatch against a DATABASE_URL pinned
+    // to pg's own answer would throw; agreement must not.
+    process.env.DATABASE_URL = url;
+    process.env.PLATFORM_ADMIN_DATABASE_URL = `postgresql://someone@db.internal:7772/${pgResolved}`;
     expect(() => validateEnv()).not.toThrow();
   });
 });
