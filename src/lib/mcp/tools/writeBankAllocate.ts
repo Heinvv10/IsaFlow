@@ -11,8 +11,13 @@ import {
   allocateTransaction,
   reverseReconciledTransaction,
 } from '@/modules/accounting/services/bank/bankAllocationService';
+import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import {
+  customerBelongsToCompany,
+  supplierBelongsToCompany,
+} from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingAgent } from '../postingAgent';
-import { ok, safeErrorText, toolError } from './toolHelpers';
+import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
 
 // inputSchema.enum is NOT enforced by the MCP transport (schema is passed
 // through to getManifest() only) — this array is the actual runtime gate.
@@ -36,6 +41,14 @@ type VatCode = (typeof VAT_CODES)[number];
 // explicitly — see pages/api/accounting/bank-transactions-action.ts.
 const ENTITY_REQUIRED: readonly AllocType[] = ['supplier', 'customer'];
 
+// allocateTransaction reads contraAccountId ONLY in its `account` branch —
+// supplier/customer resolve their contra side from getSystemAccountId
+// ('payable'/'receivable'). Requiring it everywhere made the agent invent a GL
+// account for a supplier payment that then went unused. The REST route over the
+// same service already gets this right (bank-transactions-action.ts: required
+// for account/transfer only).
+const CONTRA_REQUIRED: readonly AllocType[] = ['account'];
+
 export const allocateBankTransactionTool: McpTool = {
   name: 'allocate_bank_transaction',
   description:
@@ -47,7 +60,11 @@ export const allocateBankTransactionTool: McpTool = {
     type: 'object',
     properties: {
       transaction_id: { type: 'string' },
-      contra_account_id: { type: 'string' },
+      contra_account_id: {
+        type: 'string',
+        description:
+          'GL account UUID the other side of the transaction is booked to. Required for alloc_type "account" (the default); ignored for supplier/customer, which post to the AP/AR control account.',
+      },
       description: { type: 'string' },
       alloc_type: { type: 'string', enum: [...ALLOC_TYPES] },
       entity_id: { type: 'string' },
@@ -55,14 +72,13 @@ export const allocateBankTransactionTool: McpTool = {
       vat_code: { type: 'string', enum: [...VAT_CODES] },
       idempotency_key: { type: 'string' },
     },
-    required: ['transaction_id', 'contra_account_id', 'idempotency_key'],
+    required: ['transaction_id', 'idempotency_key'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
     const txId = typeof args.transaction_id === 'string' ? args.transaction_id.trim() : '';
     const contra = typeof args.contra_account_id === 'string' ? args.contra_account_id.trim() : '';
     if (!txId) return toolError('transaction_id is required');
-    if (!contra) return toolError('contra_account_id is required');
 
     const rawAllocType = args.alloc_type;
     let allocType: AllocType = 'account';
@@ -86,12 +102,38 @@ export const allocateBankTransactionTool: McpTool = {
     if (ENTITY_REQUIRED.includes(allocType) && !entityId) {
       return toolError(`entity_id is required for ${allocType} allocation`);
     }
+    if (CONTRA_REQUIRED.includes(allocType) && !contra) {
+      return toolError(`contra_account_id is required for ${allocType} allocation`);
+    }
+
+    // ── Ownership ─────────────────────────────────────────────────────────
+    // These ids arrive from the agent, and NOTHING downstream re-checks the
+    // tenant: allocateTransaction looks the contra account up only to build a
+    // display label, sets it null on zero rows, and posts the line anyway;
+    // there is no composite (id, company_id) FK to catch it. A foreign
+    // contra_account_id therefore books this company's bank money into another
+    // tenant's account, and a foreign entity_id books it against another
+    // tenant's creditor/debtor.
+    //
+    // The error text is deliberately identical to a genuine miss (NOT_FOUND).
+    // A distinguishable "belongs to another company" reply would turn this
+    // tool into an existence oracle: an agent could probe UUIDs and learn
+    // which ones are real in tenants it cannot read.
+    if (contra && !(await accountsBelongToCompany(ctx.companyId, [contra]))) {
+      return toolError(NOT_FOUND);
+    }
+    if (allocType === 'supplier' && !(await supplierBelongsToCompany(ctx.companyId, entityId))) {
+      return toolError(NOT_FOUND);
+    }
+    if (allocType === 'customer' && !(await customerBelongsToCompany(ctx.companyId, entityId))) {
+      return toolError(NOT_FOUND);
+    }
 
     try {
       const result = await allocateTransaction(
         ctx.companyId,                                            // tenant from ctx ONLY
         txId,
-        contra,
+        contra || null,   // null for supplier/customer — the service ignores it there
         ctx.userId,
         typeof args.description === 'string' ? args.description : undefined,
         allocType,

@@ -9,6 +9,7 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
+import { mcpPostingAgent } from '../postingAgent';
 import { ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 function parseLines(raw: unknown): JournalLineInput[] | null {
@@ -74,10 +75,17 @@ export const createDraftJournalTool: McpTool = {
       return toolError('One or more account_id values are not GL accounts in your company.');
     }
     try {
+      // Stamp the agent. Without meta, createJournalEntry falls back to
+      // defaultHumanMeta(userId) and the entry lands as human:<userId> — agent
+      // work affirmatively labelled as the token owner's own work, and
+      // invisible to list_agent_postings (which filters posting_agent LIKE
+      // 'mcp:%'). Drafts count: post_journal does not restamp, so an unstamped
+      // draft stays mislabelled after it is posted.
       const entry = await createJournalEntry(
         ctx.companyId,
         { entryDate, description: strArg(args, 'memo'), lines },
         ctx.userId,
+        { postingAgent: mcpPostingAgent('create_draft_journal') },
       );
       return ok(entry);
     } catch (err) {

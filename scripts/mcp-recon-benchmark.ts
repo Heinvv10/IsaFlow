@@ -45,15 +45,31 @@
  */
 import { sql } from '@/lib/neon';
 
-async function main(): Promise<number> {
-  const [companyId, from, to] = process.argv.slice(2);
-  if (!companyId || !from || !to) {
-    process.stderr.write('Usage: bun scripts/mcp-recon-benchmark.ts <companyId> <from> <to>\n');
-    return 2;
-  }
+/** Correction rate at or above this fails the gate. */
+export const CORRECTION_THRESHOLD_PCT = 5;
 
-  process.stdout.write(`company: ${companyId}\nwindow: ${from} to ${to}\n`);
+export interface BenchmarkCounts {
+  /** Agent-originated postings in the window (denominator). */
+  total: number;
+  /** How many of THOSE SAME rows carry reversed_at (numerator). */
+  reversed: number;
+}
 
+export interface BenchmarkDecision {
+  measured: boolean;
+  /** Correction rate as a percentage; null when nothing was measured. */
+  rate: number | null;
+  verdict: 'PASS' | 'FAIL' | 'NOT MEASURED';
+  exitCode: 0 | 1 | 3;
+}
+
+/**
+ * Counts numerator and denominator in ONE uncapped query over ONE population.
+ * Exported so a test can read the SQL this actually runs — every one of the
+ * three header bugs was a property of this query text, not of the arithmetic,
+ * so a test against a re-typed copy would not have caught any of them.
+ */
+export async function fetchCounts(companyId: string, from: string, to: string): Promise<BenchmarkCounts> {
   const rows = (await sql`
     SELECT COUNT(*)::int AS total,
            COUNT(*) FILTER (WHERE je.reversed_at IS NOT NULL)::int AS reversed
@@ -65,27 +81,57 @@ async function main(): Promise<number> {
       AND je.entry_date <= ${to}::DATE
   `) as { total: number; reversed: number }[];
 
-  const total = rows[0]?.total ?? 0;
-  const reversed = rows[0]?.reversed ?? 0;
+  return { total: rows[0]?.total ?? 0, reversed: rows[0]?.reversed ?? 0 };
+}
 
-  if (total === 0) {
+/** Pure verdict + exit code. Zero postings is its own outcome, never a PASS. */
+export function decide({ total, reversed }: BenchmarkCounts): BenchmarkDecision {
+  if (total === 0) return { measured: false, rate: null, verdict: 'NOT MEASURED', exitCode: 3 };
+  const rate = (reversed / total) * 100;
+  return rate < CORRECTION_THRESHOLD_PCT
+    ? { measured: true, rate, verdict: 'PASS', exitCode: 0 }
+    : { measured: true, rate, verdict: 'FAIL', exitCode: 1 };
+}
+
+async function main(): Promise<number> {
+  const [companyId, from, to] = process.argv.slice(2);
+  if (!companyId || !from || !to) {
+    process.stderr.write('Usage: bun scripts/mcp-recon-benchmark.ts <companyId> <from> <to>\n');
+    return 2;
+  }
+
+  process.stdout.write(`company: ${companyId}\nwindow: ${from} to ${to}\n`);
+
+  const counts = await fetchCounts(companyId, from, to);
+  const decision = decide(counts);
+
+  if (!decision.measured) {
     process.stdout.write(
       'agent postings: 0\n' +
         'BENCHMARK NOT MEASURED — 0 agent postings in this window; nothing was evaluated\n',
     );
-    return 3;
+    return decision.exitCode;
   }
 
-  const rate = (reversed / total) * 100;
-
   process.stdout.write(
-    `agent postings: ${total}\nreversed (corrections): ${reversed}\ncorrection rate: ${rate.toFixed(2)}%\n`,
+    `agent postings: ${counts.total}\nreversed (corrections): ${counts.reversed}\n` +
+      `correction rate: ${(decision.rate ?? 0).toFixed(2)}%\n`,
   );
-  process.stdout.write(rate < 5 ? 'BENCHMARK PASS (<5%)\n' : 'BENCHMARK FAIL (>=5%)\n');
-  return rate < 5 ? 0 : 1;
+  process.stdout.write(
+    decision.verdict === 'PASS'
+      ? `BENCHMARK PASS (<${CORRECTION_THRESHOLD_PCT}%)\n`
+      : `BENCHMARK FAIL (>=${CORRECTION_THRESHOLD_PCT}%)\n`,
+  );
+  return decision.exitCode;
 }
 
-main().then((code) => { process.exitCode = code; }).catch((err: unknown) => {
-  process.stderr.write(`${err instanceof Error ? err.stack : String(err)}\n`);
-  process.exitCode = 1;
-});
+// Only run main when invoked directly, not when imported by tests — the CLI
+// contract (argv in, stdout + exit code out) is unchanged.
+// `import.meta.main` is a Bun extension; cast to avoid tsc complaints
+// (mirrors scripts/apply-migrations.ts).
+if ((import.meta as { main?: boolean }).main) {
+  main().then((code) => { process.exitCode = code; }).catch((err: unknown) => {
+    process.stderr.write(`${err instanceof Error ? err.stack : String(err)}\n`);
+    process.exitCode = 1;
+  });
+}

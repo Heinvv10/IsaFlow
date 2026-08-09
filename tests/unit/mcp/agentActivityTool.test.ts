@@ -70,4 +70,45 @@ describe('list_agent_postings', () => {
   it('tells the agent in its description that status does not signal reversal', () => {
     expect(listAgentPostingsTool.description).toMatch(/reversed/i);
   });
+
+  // ── Finding 5: the description was not true of what the query returns ─────
+  // It said "every journal entry this connector posted". The query filters
+  // posting_agent LIKE 'mcp:%' company-wide (any connection), matches on
+  // entry_date rather than when the tool ran, and — now that
+  // create_draft_journal stamps too — returns UNPOSTED drafts as well. An
+  // agent trusting the old wording would read an empty page as "the agent did
+  // nothing", or a draft as a posted entry.
+  it('describes the actual population: entry date, drafts included, company-wide', () => {
+    const d = listAgentPostingsTool.description;
+
+    expect(d).toMatch(/entry date/i);
+    expect(d).toMatch(/draft/i);
+    expect(d).toMatch(/limit|max/i);
+    expect(d).not.toMatch(/every journal entry this connector posted/i);
+  });
+
+  // The catch path an agent hits when the range is malformed at the DB level.
+  it('turns a service rejection into an isError result rather than throwing', async () => {
+    vi.mocked(listAgentPostings).mockRejectedValue(new Error('invalid date range'));
+
+    const res = await listAgentPostingsTool.handler({ from: '2026-08-01', to: '2026-08-31' }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toContain('invalid date range');
+  });
+
+  it('generic-ifies a pg driver error — no schema names, no SQLSTATE, no stack', async () => {
+    vi.mocked(listAgentPostings).mockRejectedValue(
+      Object.assign(new Error('column je.posting_agentx does not exist'), { code: '42703' }),
+    );
+
+    const res = await listAgentPostingsTool.handler({ from: '2026-08-01', to: '2026-08-31' }, ctx);
+
+    expect(res.isError).toBe(true);
+    const text = res.content[0]!.text;
+    expect(text).toBe('Failed to list agent postings.');
+    expect(text).not.toContain('posting_agentx');
+    expect(text).not.toContain('column');
+    expect(text).not.toContain('42703');
+  });
 });

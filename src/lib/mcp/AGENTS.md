@@ -48,6 +48,21 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
 - Posting tools (`requiresPost`) additionally need the `write:post` scope —
   default-off, explicit user opt-in at consent/PAT-mint (Hein decision,
   2026-07-18 — do not re-open).
+- **Ownership is the tool handler's job.** Any id an agent supplies that
+  becomes a foreign key (`account_id`, `customer_id`, `entity_id`,
+  `contra_account_id`) must be checked against `ctx.companyId` BEFORE the
+  service call — `accountsBelongToCompany` / `customerBelongsToCompany` /
+  `supplierBelongsToCompany`. The services do not re-check the tenant and
+  there is no composite `(id, company_id)` FK, so nothing downstream stops a
+  cross-tenant write. Refuse with the shared `NOT_FOUND` constant: a distinct
+  "belongs to another company" reply is an existence oracle.
+- **Every posting path stamps `mcp:<tool>:v1`.** `createJournalEntry` and the
+  services that wrap it fall back to `defaultHumanMeta(userId)` when no meta
+  is passed, which labels agent work as `human:<userId>` and hides it from
+  `list_agent_postings` (filters `posting_agent LIKE 'mcp:%'`). Drafts count —
+  `post_journal` does not restamp. Service-side the stamp travels as an
+  optional last-positional `opts?: { postingAgent?: string }` so non-MCP
+  callers keep human attribution.
 - Tests live in `tests/unit/mcp/` (vitest includes only `tests/unit/**`).
 
 ## Recent changes
