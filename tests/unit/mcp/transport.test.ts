@@ -142,19 +142,25 @@ describe('/api/mcp transport', () => {
     expect(hasFeature).not.toHaveBeenCalled();
   });
 
-  it('initialize → protocol version, server info, tools capability', async () => {
+  // serverInfo.icons is SEP-973 (2025-11-25) — the server states its own branding
+  it('initialize → protocol version, server info + icons, tools capability', async () => {
     const res = makeRes();
     await route(makeReq('POST', rpc('initialize', {})) as never, res);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      jsonrpc: '2.0',
-      id: 1,
-      result: {
-        protocolVersion: '2025-06-18',
-        serverInfo: { name: 'isaflow', version: '1.0.0', title: 'IsaFlow Accounting' },
-        capabilities: { tools: { listChanged: false } },
-      },
-    });
+    const result = (res.body as Record<string, unknown>).result as Record<string, unknown>;
+    expect(res.body).toMatchObject({ jsonrpc: '2.0', id: 1 });
+    expect(result.protocolVersion).toBe('2025-06-18');
+    expect(result.capabilities).toEqual({ tools: { listChanged: false } });
+
+    const serverInfo = result.serverInfo as Record<string, unknown>;
+    // Exact key set — toMatchObject alone would let a stray field through.
+    expect(Object.keys(serverInfo).sort()).toEqual(['icons', 'name', 'title', 'version']);
+    expect(serverInfo).toMatchObject({ name: 'isaflow', version: '1.0.0', title: 'IsaFlow Accounting' });
+    // Absolute URIs — a remote client has no base for a relative path.
+    expect(serverInfo.icons).toEqual([
+      { src: expect.stringMatching(/^https?:\/\/[^/]+\/icons\/icon-192\.png$/), mimeType: 'image/png', sizes: ['192x192'] },
+      { src: expect.stringMatching(/^https?:\/\/[^/]+\/icons\/icon-512\.png$/), mimeType: 'image/png', sizes: ['512x512'] },
+    ]);
   });
 
   it('ping → empty result; notifications/initialized → 202 no body', async () => {
