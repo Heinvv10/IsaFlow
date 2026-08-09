@@ -110,6 +110,20 @@ describe('mirror-agent-docs', () => {
     );
   });
 
+  it('terminates on a self-referential directory symlink instead of recursing forever', async () => {
+    const directory = await createFixture();
+    const nestedDirectory = path.join(directory, 'src', 'module');
+    await mkdir(nestedDirectory, { recursive: true });
+    await writeFile(path.join(nestedDirectory, '.claude.md'), '# Nested instructions\n');
+    // loop: src/module/self -> src/module
+    await symlink(nestedDirectory, path.join(nestedDirectory, 'self'));
+
+    const result = runMirrorCommand(directory);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Generated 2 agent document mirror(s).');
+  });
+
   it('fails loudly when two canonical sources claim the same mirror', async () => {
     const directory = await createFixture();
     // a root .claude.md beside CLAUDE.md — both would target ./AGENTS.md

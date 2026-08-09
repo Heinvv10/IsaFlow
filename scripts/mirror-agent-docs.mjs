@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 
-import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const excludedDirectories = new Set([
   '.claude',
   '.git',
   '.next',
+  '.venv',
   '.worktrees',
   'coverage',
   'node_modules',
+  'venv',
   'worktrees',
 ]);
 
@@ -24,6 +26,11 @@ function renderMirror(sourcePath, canonicalLabel, content) {
     content;
 }
 
+// A broken symlink has nothing to mirror; a symlink loop is caught by `visited`
+// below. Any other stat() failure (permissions, I/O) is a real problem and must
+// surface rather than silently shrinking the set of drift-checked mirrors.
+const IGNORABLE_STAT_ERRORS = new Set(['ENOENT', 'ELOOP', 'ENAMETOOLONG']);
+
 /** Dirent type for a symlink is neither file nor directory, so a symlinked
  *  `.claude.md` (or a symlinked directory containing one) would be skipped
  *  silently and never drift-checked. Resolve those through stat(). */
@@ -36,13 +43,21 @@ async function resolveEntryKind(entry, entryPath) {
     const target = await stat(entryPath);
     if (target.isDirectory()) return 'directory';
     if (target.isFile()) return 'file';
-  } catch {
-    return 'other'; // broken symlink — nothing to mirror
+  } catch (error) {
+    if (IGNORABLE_STAT_ERRORS.has(error?.code)) return 'other';
+    throw error;
   }
   return 'other';
 }
 
-async function findNestedSources(rootDirectory, directory = rootDirectory, sources = []) {
+async function findNestedSources(rootDirectory, directory = rootDirectory, sources = [], visited = new Set()) {
+  // Following directory symlinks means a link pointing at an ancestor would
+  // recurse forever. Key on the resolved path so each real directory is
+  // walked exactly once.
+  const resolved = await realpath(directory);
+  if (visited.has(resolved)) return sources;
+  visited.add(resolved);
+
   const entries = await readdir(directory, { withFileTypes: true });
 
   for (const entry of entries) {
@@ -51,7 +66,7 @@ async function findNestedSources(rootDirectory, directory = rootDirectory, sourc
 
     if (kind === 'directory') {
       if (!excludedDirectories.has(entry.name)) {
-        await findNestedSources(rootDirectory, entryPath, sources);
+        await findNestedSources(rootDirectory, entryPath, sources, visited);
       }
       continue;
     }
