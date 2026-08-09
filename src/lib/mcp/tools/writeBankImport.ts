@@ -1,0 +1,152 @@
+/**
+ * MCP write tools: import a bank statement / undo that import.
+ *
+ * These create bank transactions but POST NOTHING — the auto-post sweep is
+ * suppressed in bankStatementImportService, so every agent-caused posting
+ * still arrives through allocate_bank_transaction, which stamps mcp:* and is
+ * reversible. That is why neither tool sets requiresPost.
+ */
+import type { McpTool } from '../types';
+import {
+  bankGlAccountBelongsToCompany,
+  importStatementForAgent,
+  undoImportBatch,
+} from '@/modules/accounting/services/bank/bankStatementImportService';
+import type { StatementFileType } from '@/modules/accounting/services/bank/bankStatementParseService';
+import { checkRateLimit } from '@/lib/rateLimit';
+import { NOT_FOUND, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+
+// inputSchema.enum is NOT enforced by the MCP transport — it is passed through
+// to getManifest() only. This array is the actual runtime gate.
+//
+// 'pdf' is deliberately absent even though parseStatement supports it: base64
+// inflates a scan well past the transport's body cap, and the agent produces
+// OFX rather than scans. An unlisted value must be rejected, never coerced —
+// parseStatement would otherwise fall through to its CSV branch and try to
+// detect a bank format in an OFX document.
+const FILE_TYPES = ['ofx', 'csv', 'qif', 'mt940'] as const;
+type AgentFileType = (typeof FILE_TYPES)[number];
+
+// A 1mb statement can insert thousands of rows. The transport's own limit
+// (120 req/min per company) bounds request count but not write pressure;
+// bank-transactions-bulk-commit caps its own commits at 60/hour for the same
+// reason, so the agent path gets the same ceiling.
+const IMPORT_MAX_PER_HOUR = 60;
+
+export const importBankStatementTool: McpTool = {
+  name: 'import_bank_statement',
+  description:
+    'Import a bank statement (OFX, CSV, QIF or MT940) into a bank account. Transactions already present are skipped by content hash, so re-sending the same statement is safe. Creates transactions only — it posts no journals; allocate them afterwards with allocate_bank_transaction. Use dry_run to see what would land before writing.',
+  scope: 'write:bank-tx',
+  write: true,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      bank_account_id: { type: 'string' },
+      file_type: { type: 'string', enum: [...FILE_TYPES] },
+      content: { type: 'string', description: 'Raw statement text.' },
+      statement_date: { type: 'string', description: 'YYYY-MM-DD — the statement closing date.' },
+      bank_format: {
+        type: 'string',
+        description: 'Optional hint (e.g. "fnb", "absa") when CSV auto-detection fails.',
+      },
+      dry_run: {
+        type: 'boolean',
+        description: 'Parse and report new/duplicate counts without writing anything.',
+      },
+      idempotency_key: { type: 'string' },
+    },
+    required: ['bank_account_id', 'file_type', 'content', 'statement_date', 'idempotency_key'],
+    additionalProperties: false,
+  },
+  handler: async (args, ctx) => {
+    const bankAccountId = strArg(args, 'bank_account_id');
+    const content = strArg(args, 'content');
+    const statementDate = strArg(args, 'statement_date');
+    const rawFileType = args.file_type;
+
+    if (!bankAccountId) return toolError('bank_account_id is required');
+    if (typeof rawFileType !== 'string' || !FILE_TYPES.includes(rawFileType as AgentFileType)) {
+      return toolError(`file_type must be one of: ${FILE_TYPES.join(', ')}`);
+    }
+    if (!content) return toolError('content is required');
+    // bank_import_batches.statement_date is NOT NULL — without it the insert
+    // fails inside the transaction after parsing has already been paid for.
+    if (!statementDate) return toolError('statement_date is required (YYYY-MM-DD)');
+
+    // Ownership. Nothing downstream re-checks the tenant: importParsedTransactions
+    // writes whatever bank_account_id it is handed, and migration 446 dropped the
+    // FK on bank_import_batches, so a foreign id would land this company's
+    // statement in another tenant's account. The error text is deliberately
+    // identical to a genuine miss — a distinguishable reply would turn the tool
+    // into an existence oracle for accounts the caller cannot read.
+    if (!(await bankGlAccountBelongsToCompany(ctx.companyId, bankAccountId))) {
+      return toolError(NOT_FOUND);
+    }
+
+    if (!(await checkRateLimit(`mcp-bank-import:${ctx.companyId}`, {
+      max: IMPORT_MAX_PER_HOUR, windowSecs: 3600,
+    }))) {
+      return toolError('Import rate limit reached — try again later.');
+    }
+
+    try {
+      const result = await importStatementForAgent({
+        companyId: ctx.companyId,                                  // tenant from ctx ONLY
+        bankAccountId,
+        fileType: rawFileType as StatementFileType,
+        content,
+        statementDate,
+        bankFormat: strArg(args, 'bank_format') as never,
+        dryRun: args.dry_run === true,
+        importedBy: 'mcp:import_bank_statement:v1',
+        sourceFilename: 'mcp-import',
+      });
+
+      return ok({
+        batch_id: result.batchId,
+        dry_run: args.dry_run === true,
+        imported: result.imported,
+        duplicates: result.duplicates,
+        date_range: result.dateRange,
+        net_total: result.netTotal,
+        parse_errors: result.parseErrors,
+      });
+    } catch (err) {
+      return toolError(safeErrorText(err, 'Failed to import the statement.'));
+    }
+  },
+};
+
+export const undoBankImportTool: McpTool = {
+  name: 'undo_bank_import',
+  description:
+    'Undo an import batch by deleting its transactions. Only transactions still unallocated are removed; any already allocated are left untouched and reported back — reverse those with reverse_bank_allocation first if you need a complete undo.',
+  scope: 'write:bank-tx',
+  write: true,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      batch_id: { type: 'string' },
+      idempotency_key: { type: 'string' },
+    },
+    required: ['batch_id', 'idempotency_key'],
+    additionalProperties: false,
+  },
+  handler: async (args, ctx) => {
+    const batchId = strArg(args, 'batch_id');
+    if (!batchId) return toolError('batch_id is required');
+
+    try {
+      const result = await undoImportBatch(ctx.companyId, batchId);  // tenant from ctx ONLY
+      if (result === null) return toolError(NOT_FOUND);
+      return ok({
+        batch_id: batchId,
+        deleted: result.deleted,
+        refused_allocated: result.refused,
+      });
+    } catch (err) {
+      return toolError(safeErrorText(err, 'Failed to undo the import.'));
+    }
+  },
+};

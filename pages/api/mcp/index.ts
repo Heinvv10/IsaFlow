@@ -51,11 +51,14 @@ import {
 
 const MAX_BATCH_SIZE = 20;
 
-// Bound the request body to 32kb (a batch of ≤20 small JSON-RPC calls) instead
-// of Next's 1MB default — same spirit as the /api/oauth/* 8kb caps, sized up
-// for batches.
+// Bound the request body to Next's 1MB default. It was 32kb (a batch of ≤20
+// small JSON-RPC calls) until import_bank_statement, which carries a whole
+// statement file: 32kb fits only ~150-250 OFX transactions, well under a
+// months-long catch-up on a busy account. The endpoint stays rate-limited at
+// 120 req/min per company and 300 per IP, so the worst case this widens is
+// ~9.6mb/min to ~300mb/min per IP rather than anything unbounded.
 export const config = {
-  api: { bodyParser: { sizeLimit: '32kb' } },
+  api: { bodyParser: { sizeLimit: '1mb' } },
 };
 
 function appOrigin(): string {

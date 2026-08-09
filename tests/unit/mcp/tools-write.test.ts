@@ -401,7 +401,13 @@ describe('write-tool manifest invariants', () => {
     for (const name of WRITE_NAMES) {
       corpus += JSON.stringify(await tool(name).handler(argsByTool[name]!, ctx()));
     }
-    for (const needle of ['pat_', 'oat_', 'ort_', 'cls_', 'Bearer ', 'apikey', 'Set-Cookie']) {
+    // Token-boundary matching — see the same scan in tools-read.test.ts.
+    // "import_bank_statement" contains "ort_" as a substring but is not a
+    // credential; a leaked token starts its own token and is still caught.
+    for (const prefix of ['pat_', 'oat_', 'ort_', 'cls_']) {
+      expect(corpus).not.toMatch(new RegExp(`(?:^|[^A-Za-z0-9_])${prefix}[A-Za-z0-9]`));
+    }
+    for (const needle of ['Bearer ', 'apikey', 'Set-Cookie']) {
       expect(corpus).not.toContain(needle);
     }
   });

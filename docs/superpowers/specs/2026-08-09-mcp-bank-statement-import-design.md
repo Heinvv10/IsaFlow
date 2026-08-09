@@ -113,6 +113,37 @@ UUIDs are real in tenants the caller cannot read.
    reports 1 refused.
 5. `dry_run: true` → zero rows written, counts still returned.
 
+## Found during implementation
+
+**A "bank account" here is a `gl_accounts` row with `account_subtype='bank'`,
+not a `bank_accounts` row.** `bank_transactions.bank_account_id` references
+`gl_accounts` (migration 203) while `bank_import_batches` originally referenced
+`bank_accounts` (442) — and `importParsedTransactions` writes the same id to
+both. Migration 446 resolved it by dropping the batch FK outright ("drop the
+broken FK so writes succeed"). The ownership check therefore mirrors
+`bank-transactions-bulk-commit`: active, `account_subtype='bank'`, in-company.
+Because that FK is gone, nothing downstream would catch a foreign id.
+
+**A per-company rate limit was added** (60/hour), mirroring
+`bank-transactions-bulk-commit`. The transport's 120/min bounds request count
+but not write pressure, and a 1mb statement can insert thousands of rows.
+
+**The credential token-scan guard was tightened, not weakened.**
+`tools-read.test.ts` and `tools-write.test.ts` scanned the manifest for the raw
+substrings `pat_`, `oat_`, `ort_`, `cls_`. `import_bank_statement` contains
+`ort_`, and so would any future `report_*` or `export_*` tool. The scan now
+requires a token boundary before the prefix and a credential character after
+it, which was verified to still match `{"token":"ort_1a2b3c4d"}`, a bare
+`ort_…`, and `pat_abc123` in prose, while no longer matching legitimate tool
+names.
+
+**The sibling dedup query is missing `company_id`.**
+`bank-transactions-bulk-commit` filters its duplicate lookup on
+`bank_account_id` and date only. The account is company-scoped so it is not
+exploitable there, but it breaks the repo's "company_id on every query" rule.
+The new service scopes correctly; the endpoint is left alone as out of scope
+for this change.
+
 ## Out of scope
 
 Statement data here originates from an LLM reading Sage, not from a bank feed;

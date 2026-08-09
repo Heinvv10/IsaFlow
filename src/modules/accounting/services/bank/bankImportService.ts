@@ -133,6 +133,14 @@ export async function importParsedTransactions(
     sourceFilename?: string;
     importedBy?: string;
     bulkContext?: BulkImportContext;
+    /**
+     * Skip the auto-provisional posting sweep below. Set by the agent import
+     * path: sweep() attributes its postings to the system user, so an agent
+     * import would otherwise create journals that never appear in
+     * list_agent_postings and cannot be undone through the agent-activity
+     * surface. Agent postings arrive via allocate_bank_transaction instead.
+     */
+    skipAutoPost?: boolean;
   } = {},
 ): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
   try {
@@ -240,20 +248,22 @@ export async function importParsedTransactions(
     await relinkTransferCounterparts(companyId, bankAccountId);
 
     // Auto-provisional posting for outflows (best-effort)
-    try {
-      const outflowIds = (await sql`
-        SELECT id FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND import_batch_id = ${batchId}::UUID
-          AND amount < 0
-          AND status = 'imported'
-      `) as { id: string }[];
-      if (outflowIds.length > 0) {
-        const systemUser = '00000000-0000-0000-0000-000000000000';
-        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
+    if (!options.skipAutoPost) {
+      try {
+        const outflowIds = (await sql`
+          SELECT id FROM bank_transactions
+          WHERE company_id = ${companyId}::UUID
+            AND import_batch_id = ${batchId}::UUID
+            AND amount < 0
+            AND status = 'imported'
+        `) as { id: string }[];
+        if (outflowIds.length > 0) {
+          const systemUser = '00000000-0000-0000-0000-000000000000';
+          await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
+        }
+      } catch (provErr) {
+        log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
       }
-    } catch (provErr) {
-      log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
     }
 
     return {

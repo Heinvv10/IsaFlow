@@ -276,7 +276,16 @@ describe('suite-wide invariants', () => {
       const r = await t.handler(happyArgs[t.name] ?? {}, ctx());
       corpus += JSON.stringify(r);
     }
-    for (const needle of ['pat_', 'oat_', 'ort_', 'oac_', 'cls_', 'Bearer ', 'apikey', 'Set-Cookie']) {
+    // Credential prefixes are matched at a token boundary rather than as bare
+    // substrings. "import_bank_statement" contains "ort_", as would any future
+    // report_* or export_* tool — a substring scan flags those as leaked
+    // credentials. A real credential starts its token (`"token":"ort_1a2b…"`),
+    // so require a non-word character before the prefix and credential
+    // characters after it. Still catches a token anywhere in the corpus.
+    for (const prefix of ['pat_', 'oat_', 'ort_', 'oac_', 'cls_']) {
+      expect(corpus).not.toMatch(new RegExp(`(?:^|[^A-Za-z0-9_])${prefix}[A-Za-z0-9]`));
+    }
+    for (const needle of ['Bearer ', 'apikey', 'Set-Cookie']) {
       expect(corpus).not.toContain(needle);
     }
   });
