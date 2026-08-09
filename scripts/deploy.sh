@@ -58,9 +58,17 @@ if sudo test -f /home/velo/isaflow/.env.local; then
   fi
   # instrumentation.ts runs validateEnv() during page-data collection. Without
   # these in the build env the build dies with a generic ENOENT on pages-manifest.
+  #
+  # PLATFORM_ADMIN_DATABASE_URL is deliberately NOT pulled from prod here.
+  # validateEnv now requires it to name the same database as DATABASE_URL, and
+  # DATABASE_URL during a build comes from the workspace .env.local (isaflow_dev)
+  # — so importing prod's value (isaflow) makes the build fail its own guard.
+  # The workspace file already defines all four of these, and none is a
+  # NEXT_PUBLIC_* var, so none is inlined into the artifact; they exist purely to
+  # satisfy the boot check while building. The real prod values reach the app at
+  # runtime through the systemd EnvironmentFile, not through this build.
   export ENCRYPTION_KEY=$(sudo grep -E '^ENCRYPTION_KEY=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
   export PORTAL_JWT_SECRET=$(sudo grep -E '^PORTAL_JWT_SECRET=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
-  export PLATFORM_ADMIN_DATABASE_URL=$(sudo grep -E '^PLATFORM_ADMIN_DATABASE_URL=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
   export IMPERSONATION_JWT_SECRET=$(sudo grep -E '^IMPERSONATION_JWT_SECRET=' /home/velo/isaflow/.env.local | tail -1 | cut -d= -f2-)
   echo "Build URL: NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL"
 fi
