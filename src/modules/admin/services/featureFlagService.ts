@@ -131,6 +131,9 @@ export async function getCompanyEffectiveFeatures(
     }
 
     return {
+      // The admin Features tab posts this back as `feature_id` to set or clear
+      // an override — omitting it made every toggle a silent 400.
+      id,
       code: r.code as string,
       name: r.name as string,
       enabled,
