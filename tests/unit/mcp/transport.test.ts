@@ -146,15 +146,36 @@ describe('/api/mcp transport', () => {
     const res = makeRes();
     await route(makeReq('POST', rpc('initialize', {})) as never, res);
     expect(res.statusCode).toBe(200);
-    expect(res.body).toEqual({
-      jsonrpc: '2.0',
-      id: 1,
-      result: {
-        protocolVersion: '2025-06-18',
-        serverInfo: { name: 'isaflow', version: '1.0.0', title: 'IsaFlow Accounting' },
-        capabilities: { tools: { listChanged: false } },
-      },
+    const result = (res.body as Record<string, unknown>).result as Record<string, unknown>;
+    expect(res.body).toMatchObject({ jsonrpc: '2.0', id: 1 });
+    expect(result.protocolVersion).toBe('2025-06-18');
+    expect(result.capabilities).toEqual({ tools: { listChanged: false } });
+    expect(result.serverInfo).toMatchObject({
+      name: 'isaflow',
+      version: '1.0.0',
+      title: 'IsaFlow Accounting',
     });
+  });
+
+  // SEP-973 (spec revision 2025-11-25): a server advertises its own branding
+  // through serverInfo.icons. Without it, clients fall back to scraping a
+  // favicon off the domain — which for app.isaflow.co.za walked up to co.za
+  // and rendered the .co.za registry's logo in the connector list.
+  it('initialize → serverInfo.icons advertises absolute PNG branding URLs', async () => {
+    const res = makeRes();
+    await route(makeReq('POST', rpc('initialize', {})) as never, res);
+
+    const serverInfo = ((res.body as Record<string, unknown>).result as Record<string, unknown>)
+      .serverInfo as { icons?: Array<Record<string, unknown>> };
+    expect(Array.isArray(serverInfo.icons)).toBe(true);
+    expect(serverInfo.icons).toHaveLength(2);
+
+    for (const icon of serverInfo.icons!) {
+      // Absolute URI — a relative path is unresolvable for a remote client.
+      expect(String(icon.src)).toMatch(/^https?:\/\/.+\/icons\/icon-(192|512)\.png$/);
+      expect(icon.mimeType).toBe('image/png');
+    }
+    expect(serverInfo.icons!.map((icon) => icon.sizes)).toEqual([['192x192'], ['512x512']]);
   });
 
   it('ping → empty result; notifications/initialized → 202 no body', async () => {
