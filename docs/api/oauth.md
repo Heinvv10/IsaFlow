@@ -116,11 +116,22 @@ Refresh tokens are **single-use**. The response includes a fresh `refresh_token`
 |---|---|
 | `read:reports` | Trial balance, income statement, balance sheet, etc. |
 | `read:invoices` | List and view customer/supplier invoices |
-| `write:invoices` | Create, edit, post invoices |
+| `write:invoices` | Create and edit invoices (drafts) |
 | `read:bank-tx` | View imported bank statements and allocations |
-| `write:bank-tx` | Allocate, edit, post bank transactions |
-| `write:journals` | Post General Ledger journal entries |
+| `write:bank-tx` | Work with bank transactions — suggestions and allocation |
+| `write:journals` | Create General Ledger journal entries (drafts) |
+| `read:contacts` | List customers and suppliers, including balances |
+| `read:vat` | Current VAT201 period summary and VAT return status |
+| `write:post` | **Post & finalize & allocate — irreversible.** Post journals, finalize documents, and allocate bank transactions. An allocation posts an AP/AR journal, records a customer payment as confirmed, and marks a supplier invoice paid. See below. |
 | `offline_access` | **Required for refresh tokens.** Without this, `refresh_token` is omitted from the token response. |
+
+`write:post` is a second gate, not a substitute for the domain scope. A posting operation
+needs **both** — e.g. allocating a bank transaction needs `write:bank-tx` *and*
+`write:post`. On its own, a `write:*` scope only creates drafts and suggestions.
+
+`write:post` is also shown **unchecked on the consent screen even when you request it**;
+the user must tick it. Build for the case where you asked for it and did not get it —
+inspect the granted `scope` in the token response rather than assuming.
 
 Request only the scopes you need — users can see exactly what you're asking for and may decline.
 

@@ -3,9 +3,11 @@
  *
  * Per tool: happy path calls the service with ctx.companyId + ctx.userId and
  * the draft/unposted intent; token-scan + additionalProperties:false extended
- * to write tools. Manifest: exactly post_journal + finalize_invoice carry
- * requiresPost. (The registry's scope/write:post/idempotency FENCE is proven
- * generically in registry.test.ts — not re-tested here.)
+ * to write tools. Manifest: exactly post_journal + finalize_invoice +
+ * allocate_bank_transaction + reverse_bank_allocation carry requiresPost. (The registry's
+ * scope/write:post/idempotency FENCE is proven generically in registry.test.ts
+ * — not re-tested here. allocate_bank_transaction's own behaviour is covered
+ * in writeBankAllocate.test.ts, same pattern as bankMatchTool.test.ts.)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -36,8 +38,15 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({ createQuote: v
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
-vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({ customerBelongsToCompany: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
+  customerBelongsToCompany: vi.fn(),
+  supplierBelongsToCompany: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  allocateTransaction: vi.fn(),
+  reverseReconciledTransaction: vi.fn(),
+}));
 
 import {
   createDraftCustomerInvoice,
@@ -48,8 +57,12 @@ import { createQuote } from '@/modules/accounting/services/ar/quoteService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
-import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import {
+  customerBelongsToCompany,
+  supplierBelongsToCompany,
+} from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
@@ -82,8 +95,9 @@ const KEY = { idempotency_key: 'k1' };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: FK ownership checks pass (customer/accounts belong to the company).
+  // Default: FK ownership checks pass (customer/supplier/accounts belong to the company).
   vi.mocked(customerBelongsToCompany).mockResolvedValue(true);
+  vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
   vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
 });
 
@@ -159,7 +173,27 @@ describe('create_draft_journal', () => {
         ],
       }),
       USER_ID,
+      { postingAgent: 'mcp:create_draft_journal:v1' },
     );
+  });
+
+  // ── Attribution: the draft path must not post as the token owner ──────────
+  // createJournalEntry falls back to defaultHumanMeta(userId) when meta is
+  // omitted, so an unstamped draft lands as human:<userId>: agent work
+  // affirmatively labelled as the human's own, and invisible to
+  // list_agent_postings (posting_agent LIKE 'mcp:%'). post_journal does not
+  // restamp, so the mislabel survives posting.
+  it('stamps the draft with the MCP tool, not the human default', async () => {
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-1', status: 'draft' } as never);
+    await tool('create_draft_journal').handler({
+      date: '2026-06-30',
+      lines: [{ account_id: 'acc-1', debit: 1, credit: 0 }, { account_id: 'acc-2', debit: 0, credit: 1 }],
+      ...KEY,
+    }, ctx());
+
+    const meta = vi.mocked(createJournalEntry).mock.calls[0]![3];
+    expect(meta).toEqual({ postingAgent: 'mcp:create_draft_journal:v1' });
+    expect(meta?.postingAgent).not.toContain('human:');
   });
 
   it('rejects a line whose account_id belongs to another company (no create)', async () => {
@@ -212,9 +246,54 @@ describe('post_journal / finalize_invoice (post tools)', () => {
   });
 
   it('finalize_invoice approves the draft via ctx company + user', async () => {
-    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: 'je-9' });
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: 'je-9', evidenceDocumentId: null });
     parseOk(await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx()));
-    expect(approveCustomerInvoice).toHaveBeenCalledWith(COMPANY_ID, 'inv-1', USER_ID);
+    expect(approveCustomerInvoice).toHaveBeenCalledWith(
+      COMPANY_ID, 'inv-1', USER_ID, { postingAgent: 'mcp:finalize_invoice:v1' },
+    );
+  });
+
+  // Approval POSTS the AR journal. Unstamped, that journal reads as
+  // human:<userId> and never appears in list_agent_postings — the review
+  // surface would show nothing while the agent had posted revenue.
+  it('finalize_invoice stamps the AR journal as agent work, not the token owner', async () => {
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: 'je-9', evidenceDocumentId: null });
+    await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx());
+
+    const opts = vi.mocked(approveCustomerInvoice).mock.calls[0]![3];
+    expect(opts?.postingAgent).toBe('mcp:finalize_invoice:v1');
+    expect(opts?.postingAgent).not.toContain('human:');
+  });
+
+  it('every MCP posting path stamps mcp:<tool>:v1 — none silently defaults to human', async () => {
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-1' } as never);
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: null, evidenceDocumentId: null });
+    vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' } } as never);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+
+    await tool('create_draft_journal').handler({
+      date: '2026-06-30',
+      lines: [{ account_id: 'a', debit: 1, credit: 0 }, { account_id: 'b', debit: 0, credit: 1 }], ...KEY,
+    }, ctx());
+    await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx());
+    await tool('allocate_bank_transaction').handler({ transaction_id: 'tx-1', contra_account_id: 'acc-1', ...KEY }, ctx());
+    await tool('reverse_bank_allocation').handler({ transaction_id: 'tx-1', ...KEY }, ctx());
+
+    const stamps = [
+      vi.mocked(createJournalEntry).mock.calls[0]![3]?.postingAgent,
+      vi.mocked(approveCustomerInvoice).mock.calls[0]![3]?.postingAgent,
+      vi.mocked(allocateTransaction).mock.calls[0]![12]?.postingAgent,
+      vi.mocked(reverseReconciledTransaction).mock.calls[0]![3]?.postingAgent,
+    ];
+
+    expect(stamps).toEqual([
+      'mcp:create_draft_journal:v1',
+      'mcp:finalize_invoice:v1',
+      'mcp:allocate_bank_transaction:v1',
+      'mcp:reverse_bank_allocation:v1',
+    ]);
+    // list_agent_postings filters posting_agent LIKE 'mcp:%'; anything else is invisible to it.
+    for (const s of stamps) expect(s).toMatch(/^mcp:/);
   });
 });
 
@@ -268,9 +347,10 @@ describe('write-tool manifest invariants', () => {
   const WRITE_NAMES = [
     'create_draft_invoice', 'create_draft_quote', 'create_draft_journal',
     'suggest_bank_allocation', 'post_journal', 'finalize_invoice',
+    'allocate_bank_transaction', 'reverse_bank_allocation',
   ];
 
-  it('all six write tools are write:true with additionalProperties:false + idempotency_key', () => {
+  it('all eight write tools are write:true with additionalProperties:false + idempotency_key', () => {
     for (const name of WRITE_NAMES) {
       const t = tool(name);
       expect(t.write).toBe(true);
@@ -281,9 +361,11 @@ describe('write-tool manifest invariants', () => {
     }
   });
 
-  it('exactly post_journal + finalize_invoice require write:post', () => {
+  it('exactly post_journal + finalize_invoice + allocate_bank_transaction + reverse_bank_allocation require write:post', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
-    expect(requiresPost).toEqual(['finalize_invoice', 'post_journal']);
+    expect(requiresPost).toEqual([
+      'allocate_bank_transaction', 'finalize_invoice', 'post_journal', 'reverse_bank_allocation',
+    ]);
   });
 
   it('no write tool accepts a company identifier in its schema', () => {
@@ -302,6 +384,8 @@ describe('write-tool manifest invariants', () => {
     vi.mocked(bulkCategorize).mockResolvedValue({ categorized: 0 } as never);
     vi.mocked(postJournalEntry).mockResolvedValue({ id: 'je-1' } as never);
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: null });
+    vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' } } as never);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
     const argsByTool: Record<string, Record<string, unknown>> = {
       create_draft_invoice: { customer_id: 'c', items: [{ description: 'x', unit_price: 1 }], ...KEY },
@@ -310,6 +394,8 @@ describe('write-tool manifest invariants', () => {
       suggest_bank_allocation: { transaction_ids: ['t1'], ...KEY },
       post_journal: { journal_id: 'je-1', ...KEY },
       finalize_invoice: { invoice_id: 'inv-1', ...KEY },
+      allocate_bank_transaction: { transaction_id: 'tx-1', contra_account_id: 'acc-1', ...KEY },
+      reverse_bank_allocation: { transaction_id: 'tx-1', ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

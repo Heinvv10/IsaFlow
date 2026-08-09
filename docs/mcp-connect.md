@@ -54,24 +54,41 @@ Authorization: Bearer pat_xxxxxxxx… → https://app.isaflow.co.za/api/mcp
 
 | Capability | Scope | Notes |
 |---|---|---|
-| Read reports, invoices, contacts, bank, VAT | `read:*` | Safe, read-only |
-| Create **draft** invoices / quotes / journals, suggest bank allocations | `write:invoices`, `write:journals`, `write:bank-tx` | Nothing is posted or sent |
-| **Post** journals, **finalize** invoices | `write:post` | **Irreversible.** Off by default — you must tick it explicitly at connect time |
+| Read reports, invoices, contacts, bank, VAT; review what the agent posted | `read:*` | Safe, read-only |
+| Create **draft** invoices / quotes / journals, suggest bank allocations | `write:invoices`, `write:journals`, `write:bank-tx` | On their own these create drafts and suggestions only. Every tool that actually posts carries a `write:*` scope **and** additionally requires `write:post` — so holding `write:bank-tx` alone still cannot post anything |
+| **Post** journals, **finalize** invoices, **allocate** and **reverse** bank transactions | `write:post` | **Irreversible except by a reversing entry.** Off by default — you must tick it explicitly at connect time |
 
 `write:post` is **unchecked by default even if the client asks for it**. Grant it only to
-integrations you trust to make irreversible GL entries. The server enforces this — a
-client cannot silently obtain it.
+integrations you trust to write to your ledger. The server enforces this — a client
+cannot silently obtain it.
+
+What `write:post` actually allows, in full: posting journals, finalizing (approving)
+customer invoices, and allocating bank transactions on the agent's own initiative. **A
+bank allocation is not just a categorisation** — it posts an AP/AR journal, records a
+customer payment as `confirmed`, and marks the matching supplier invoice paid.
+
+Everything the agent posts is stamped with the tool that posted it, so you can review the
+whole set with `list_agent_postings` and undo an allocation with
+`reverse_bank_allocation`. A reversal posts a contra entry; the original and its reversal
+both stay in the audit trail.
 
 ## Tools
 
-**Read (15):** `company_profile`, `trial_balance`, `profit_and_loss`, `balance_sheet`,
+**Read (17):** `company_profile`, `trial_balance`, `profit_and_loss`, `balance_sheet`,
 `aged_debtors`, `aged_creditors`, `search_gl`, `list_invoices`, `get_invoice`,
 `list_quotes`, `list_customers`, `list_suppliers`, `bank_accounts_status`,
-`list_bank_transactions`, `vat_status`.
+`list_bank_transactions`, `get_match_candidates`, `vat_status`, `list_agent_postings`.
 
-**Write (6):** `create_draft_invoice`, `create_draft_quote`, `create_draft_journal`,
-`suggest_bank_allocation` (drafts/suggestions only), `post_journal`, `finalize_invoice`
-(the last two need `write:post`).
+**Write (8):** `create_draft_invoice`, `create_draft_quote`, `create_draft_journal`,
+`suggest_bank_allocation` (drafts/suggestions only), plus `post_journal`,
+`finalize_invoice`, `allocate_bank_transaction`, `reverse_bank_allocation` — **those four
+need `write:post`.**
+
+Two of the **read** tools are the review loop around that: `get_match_candidates`
+(`read:bank-tx`) shows the scored shortlist for one bank transaction before anything is
+allocated, and `list_agent_postings` (`read:reports`) lists every entry an MCP tool
+created in a date range — by entry date, drafts included — so you can check it, or
+reverse it, afterwards.
 
 Write tools require an `idempotency_key` — reusing the same key returns the original
 result instead of acting twice.
@@ -88,5 +105,9 @@ result instead of acting twice.
   flow, or your token expired. Reconnect.
 - **`MCP connector not enabled for this company`** — the `mcp_connector` flag is off for
   your company; contact your administrator.
-- **A posting tool is rejected** — your connection wasn't granted `write:post`.
-  Reconnect and tick the posting permission.
+- **A posting tool is rejected** — your connection wasn't granted `write:post`. This
+  covers `allocate_bank_transaction` and `reverse_bank_allocation` too, not only
+  `post_journal` / `finalize_invoice`. Reconnect and tick the posting permission.
+- **The agent allocated something wrongly** — call `list_agent_postings` for the date
+  range to find it, then `reverse_bank_allocation` on the bank transaction. Rows already
+  showing `reversed: true` have been corrected; reversing them again is refused.

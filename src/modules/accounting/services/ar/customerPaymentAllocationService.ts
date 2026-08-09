@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
+import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
@@ -134,10 +135,18 @@ export async function cancelCustomerPayment(
   }
 }
 
+/**
+ * @param opts.postingAgent Stamp for the AR journal this posts. Optional and
+ *   last-positional so every existing caller keeps its current
+ *   `human:<userId>` attribution; only callers that are NOT a human clicking
+ *   Approve (the MCP finalize_invoice tool) pass it. Mirrors the
+ *   reverseJournalEntry / reverseReconciledTransaction opts pattern.
+ */
 export async function postCustomerInvoiceToGL(
   companyId: string,
   invoiceId: string,
   userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<string> {
   try {
     const invRows = (await sql`
@@ -188,7 +197,7 @@ export async function postCustomerInvoiceToGL(
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       lines,
-    }, userId);
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
 
     const safeUserId = await resolveUserUuid(userId);
 

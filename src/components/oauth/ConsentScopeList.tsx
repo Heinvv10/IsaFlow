@@ -19,7 +19,11 @@ const SCOPE_LABELS: Record<OAuthScope, string> = {
   'read:reports': 'Read your financial reports',
   'read:contacts': 'Read your customers and suppliers',
   'read:vat': 'Read your VAT status',
-  'write:post': 'Post journals and finalize documents (irreversible)',
+  // Copy tracks what the grant actually permits: it now also unlocks automated
+  // bank allocation, which posts AP/AR journals, records customer payments as
+  // confirmed, and marks supplier invoices paid. Keep in step with
+  // PAT_SCOPE_META['write:post'].
+  'write:post': 'Post journals, finalize documents, and allocate bank transactions to your ledger (irreversible)',
   'offline_access': 'Stay connected (refresh access in the background)',
 };
 
