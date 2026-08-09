@@ -28,6 +28,22 @@ export async function customerBelongsToCompany(companyId: string, customerId: st
   return rows.length > 0;
 }
 
+/**
+ * True only if the supplier belongs to companyId. Mirror of
+ * customerBelongsToCompany for the AP side: bank allocation resolves the
+ * supplier name by id and posts against the AP control account, so a foreign
+ * supplier_id would book this company's payment against another tenant's
+ * creditor (and leak that supplier's name back in the journal description).
+ */
+export async function supplierBelongsToCompany(companyId: string, supplierId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM suppliers
+    WHERE id = ${supplierId}::uuid AND company_id = ${companyId} AND deleted_at IS NULL
+    LIMIT 1
+  `) as Row[];
+  return rows.length > 0;
+}
+
 export async function listCustomers(companyId: string, search?: string | null): Promise<Row[]> {
   const searchTerm = search && search.trim() ? `%${search.trim()}%` : null;
 

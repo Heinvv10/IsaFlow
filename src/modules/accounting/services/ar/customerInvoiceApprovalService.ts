@@ -48,10 +48,17 @@ export interface ApproveCustomerInvoiceResult {
   evidenceDocumentId: string | null;
 }
 
+/**
+ * @param opts.postingAgent Stamp for the GL journal approval posts. Optional
+ *   and last-positional: the HTTP route (a human clicking Approve) omits it
+ *   and keeps `human:<userId>`; the MCP finalize_invoice tool passes its own
+ *   stamp so agent-approved invoices show up in list_agent_postings.
+ */
 export async function approveCustomerInvoice(
   companyId: string,
   invoiceId: string,
   userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<ApproveCustomerInvoiceResult> {
   // Guard the transition in the UPDATE: only draft/pending_approval invoices
   // may be approved. Re-approving a cancelled invoice would re-add it to AR
@@ -72,7 +79,7 @@ export async function approveCustomerInvoice(
   // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output)
   let glJournalEntryId: string | null = null;
   try {
-    glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId);
+    glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId, opts);
     log.info('Customer invoice GL posted on approve', { id: invoiceId, glJournalEntryId });
   } catch (glErr) {
     log.error('GL posting failed on invoice approve (invoice still approved)', { id: invoiceId, error: glErr });

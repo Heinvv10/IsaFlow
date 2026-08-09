@@ -12,6 +12,7 @@ import {
 import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 interface LineIn {
@@ -166,7 +167,16 @@ export const finalizeInvoiceTool: McpTool = {
     const invoiceId = strArg(args, 'invoice_id');
     if (!invoiceId) return toolError('invoice_id is required');
     try {
-      const result = await approveCustomerInvoice(ctx.companyId, invoiceId, ctx.userId);
+      // Approval POSTS the AR journal. Unstamped it lands as human:<userId> —
+      // the agent's posting attributed to the token owner and missing from
+      // list_agent_postings, the only surface that answers "what did the agent
+      // do to my books?".
+      const result = await approveCustomerInvoice(
+        ctx.companyId,
+        invoiceId,
+        ctx.userId,
+        { postingAgent: mcpPostingAgent('finalize_invoice') },
+      );
       return ok(result);
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to finalize invoice.'));

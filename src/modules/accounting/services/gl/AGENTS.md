@@ -17,7 +17,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/gl/*` and b
 ## Main function signatures
 - `createJournalEntry(companyId, input, meta?): Promise<JournalEntry>` — draft with lines (calls `validateJournalEntry`).
 - `postJournalEntry(companyId, id, userId): Promise<JournalEntry>` — balance + period guards, UPDATE status → posted.
-- `reverseJournalEntry(companyId, id, userId): Promise<JournalEntry>` — mirror entry, original marked reversed.
+- `reverseJournalEntry(companyId, id, userId, opts?: { postingAgent? }): Promise<JournalEntry>` — mirror entry, original marked reversed. `opts.postingAgent` stamps the CONTRA; omit it and the contra keeps `defaultHumanMeta(userId)` (`human:<userId>`). Automated callers must pass it or their correction is invisible to every `posting_agent` review surface.
 - `getTrialBalance(companyId, fiscalPeriodId, costCentreId?): Promise<TrialBalanceRow[]>` — flat array; API wraps as `{ rows, totalDebit, totalCredit }`.
 - `getChartOfAccounts(companyId, includeInactive?)`; `createAccount / updateAccount / deleteAccount`.
 - `closePeriod / lockPeriod / reopenPeriod / closeYear(companyId, fiscalYear, userId)`.

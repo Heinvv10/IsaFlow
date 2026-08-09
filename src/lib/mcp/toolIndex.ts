@@ -16,7 +16,9 @@ import {
 import { getInvoiceTool, listInvoicesTool, listQuotesTool } from './tools/invoices';
 import { listCustomersTool, listSuppliersTool } from './tools/contacts';
 import { bankAccountsStatusTool, listBankTransactionsTool } from './tools/bank';
+import { getMatchCandidatesTool } from './tools/bankMatch';
 import { vatStatusTool } from './tools/vat';
+import { listAgentPostingsTool } from './tools/agentActivity';
 import {
   createDraftInvoiceTool,
   createDraftQuoteTool,
@@ -24,9 +26,10 @@ import {
 } from './tools/writeInvoices';
 import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
 import { suggestBankAllocationTool } from './tools/writeBank';
+import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
 
 export const MCP_TOOLS = [
-  // read (15)
+  // read (17)
   companyProfileTool,
   trialBalanceTool,
   profitAndLossTool,
@@ -41,14 +44,18 @@ export const MCP_TOOLS = [
   listSuppliersTool,
   bankAccountsStatusTool,
   listBankTransactionsTool,
+  getMatchCandidatesTool,
   vatStatusTool,
-  // write (6) — drafts + suggest are write; post/finalize additionally require write:post
+  listAgentPostingsTool,
+  // write (8) — drafts + suggest are write; post/finalize/allocate/reverse additionally require write:post
   createDraftInvoiceTool,
   createDraftQuoteTool,
   createDraftJournalTool,
   suggestBankAllocationTool,
   postJournalTool,
   finalizeInvoiceTool,
+  allocateBankTransactionTool,
+  reverseBankAllocationTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

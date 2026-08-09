@@ -139,7 +139,12 @@ describe('customer-invoices-detail POST action guards', () => {
     // Even the happy path must go through the status-guarded UPDATE.
     expectApproveGuard(sqlMock.mock.calls[0]!);
     expect(result.kind).toBe('success');
-    expect(postGlMock).toHaveBeenCalledWith(COMPANY_ID, INV_ID, USER_ID);
+    // This route is a human clicking Approve, so it must NOT supply a posting
+    // agent — the AR journal keeps its human:<userId> attribution. Only the
+    // MCP finalize_invoice tool passes one.
+    const glCall = postGlMock.mock.calls[0]!;
+    expect(glCall.slice(0, 3)).toEqual([COMPANY_ID, INV_ID, USER_ID]);
+    expect((glCall[3] as { postingAgent?: string } | undefined)?.postingAgent).toBeUndefined();
   });
 
   it('maps a closed-period reversal error on cancel to a 400, not a 500', async () => {

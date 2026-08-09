@@ -74,7 +74,21 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
   }
 }
 
-export async function reverseJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
+/**
+ * Post the contra entry that reverses `id`.
+ *
+ * `opts.postingAgent` stamps the CONTRA (the original keeps whatever it was
+ * posted with). A reversal is a real posted journal, so an automated caller
+ * that does not stamp it lands on `human:<userId>` and its correction becomes
+ * invisible to every posting_agent-based review surface. Callers that pass
+ * nothing keep exactly that human default.
+ */
+export async function reverseJournalEntry(
+  companyId: string,
+  id: string,
+  userId: string,
+  opts?: { postingAgent?: string },
+): Promise<JournalEntry> {
   try {
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);
@@ -105,7 +119,7 @@ export async function reverseJournalEntry(companyId: string, id: string, userId:
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,
       lines: reversalLines,
-    }, userId, defaultHumanMeta(userId));
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
 
     await postJournalEntry(companyId, reversalEntry.id, userId);
 

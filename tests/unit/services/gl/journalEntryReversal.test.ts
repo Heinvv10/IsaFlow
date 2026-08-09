@@ -126,3 +126,40 @@ describe('reverseJournalEntry — semantics', () => {
     expect(mockCreate).not.toHaveBeenCalled();
   });
 });
+
+describe('reverseJournalEntry — contra attribution', () => {
+  function primeHappyPath() {
+    mockGetById
+      .mockResolvedValueOnce(originalEntry())
+      .mockResolvedValueOnce(contraEntryDraft());
+    mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID, entryNumber: 'JE-2026-00002' });
+    mockSql
+      .mockResolvedValueOnce([{ status: 'open' }])
+      .mockResolvedValueOnce([{ entry_number: 'JE-2026-00002', status: 'posted' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+  }
+
+  it('stamps the contra with a caller-supplied posting agent instead of the human default', async () => {
+    primeHappyPath();
+
+    await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID, {
+      postingAgent: 'mcp:reverse_bank_allocation:v1',
+    });
+
+    // The contra is a real posted journal. If it carries human:<userId> the
+    // agent's own correction is invisible to list_agent_postings — the one
+    // operation the attribution safety model cannot afford to lose.
+    expect(mockCreate.mock.calls[0]![3]).toEqual({
+      postingAgent: 'mcp:reverse_bank_allocation:v1',
+    });
+  });
+
+  it('keeps the human default when no posting agent is supplied (existing callers)', async () => {
+    primeHappyPath();
+
+    await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
+
+    expect(mockCreate.mock.calls[0]![3]).toEqual({ postingAgent: 'human' });
+  });
+});

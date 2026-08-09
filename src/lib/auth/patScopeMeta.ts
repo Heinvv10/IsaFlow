@@ -46,7 +46,7 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     desc: 'Current VAT201 period summary and VAT return status',
   },
   'write:post': {
-    label: 'Post & finalize (irreversible)',
-    desc: 'Allows this token to POST journals and finalize documents — irreversible entries. Grant only if you trust this integration.',
+    label: 'Post, finalize & allocate (irreversible)',
+    desc: 'Allows this token to POST journals, finalize documents, and allocate bank transactions on its own — an allocation posts an AP/AR journal, records a customer payment as confirmed, and marks a supplier invoice paid. All irreversible except by a reversing entry. Grant only if you trust this integration.',
   },
 };
