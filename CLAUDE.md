@@ -2,13 +2,15 @@
 
 ## Project
 
-Next.js 14 + TypeScript accounting SaaS. Multi-tenant (every query scoped by `company_id`). Deployed to `app.isaflow.co.za`. Package manager: **bun**.
+Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tenant (every query scoped by `company_id`). Deployed to `app.isaflow.co.za`. Package manager: **bun**.
+
+**Stack:** Next.js 14 (Pages Router) · TypeScript strict · React 19 · Tailwind · Vitest 4 · Playwright. Auth is GoTrue (Supabase Auth); `withAuth` sets user + company + transaction GUCs.
 
 ## Runtime
 
 - Node.js `>=20.12.0` is required for local tooling and tests. Vitest 4/Rolldown imports `node:util` `styleText`, which is unavailable in Node 20.11.x and older.
 - Bun `>=1.3.0` is required. This repo pins `packageManager` to `bun@1.3.2`.
-- Use `.nvmrc` before installing dependencies: `nvm use` (or install `20.12.0` first).
+- Use `.nvmrc` before installing dependencies: `nvm use` (or install `20.12.0` first), then `bun install`.
 
 ## Critical Rules (ALL code, ALL agents)
 
@@ -29,6 +31,20 @@ Next.js 14 + TypeScript accounting SaaS. Multi-tenant (every query scoped by `co
 - **Migrations**: Use the next unused 3-digit prefix. Never reuse an existing prefix. Use `244b_` style suffix if inserting between existing numbers.
 - **Git**: No `--no-verify`, no force-push to `master`, no amending published commits. Stage by explicit path — never `git add -A` (parallel sessions leave untracked files in the tree).
 - **Deploys**: `bash scripts/deploy.sh` enforces the lint ratchet and migration-naming gate. Production deploys are blocked during business hours (08:00–17:00 SAST, Mon–Fri) without explicit approval.
+
+## Repo layout
+
+```
+src/
+├── modules/      # Domain modules (see table below)
+├── lib/          # Shared utilities (neon, logger, apiResponse, auth)
+└── components/   # Shared UI (AppLayout, accountingNavConfig)
+pages/
+├── api/          # API routes (Next.js Pages API)
+└── accounting/   # UI pages
+scripts/migrations/sql/   # Numbered SQL migrations
+tests/{unit,e2e}/         # Vitest unit + Playwright E2E
+```
 
 ## Modules (`src/modules/`)
 
@@ -76,10 +92,11 @@ bash scripts/deploy.sh  # Deploy
 - Unit tests: Vitest in `tests/unit/services/`
 - E2E: Playwright in `tests/e2e/`
 - TDD enforced: tests FIRST, implementation second
+- **CI gate**: `bun run ci` runs type-check + lint + agent-docs + security-guards + unit tests + migration-naming + production build. **Required before any PR.**
 
 ## Module docs (sibling `.claude.md` files)
 
-Module-level rules live in `.claude.md` files next to each module and API-route group. `CLAUDE.md` and every `.claude.md` are canonical; generate their `AGENTS.md` mirrors with `bun run agent-docs:generate`, and verify drift with `bun run agent-docs:check`. When adding a new module with ≥4 files, add a sibling `.claude.md` (purpose / caller contract / main signatures / business rules / recent changes).
+Module-level rules live in `.claude.md` files next to each module and API-route group — 54 of them, covering all of `src/modules/*` and every API route group under `pages/api/accounting/*`. `CLAUDE.md` and every `.claude.md` are canonical; generate their `AGENTS.md` mirrors with `bun run agent-docs:generate`, and verify drift with `bun run agent-docs:check`. Codex/Cursor/Copilot walk the tree and compose the sibling `AGENTS.md` mirrors with this root file. When adding a new module with ≥4 files, add a sibling `.claude.md` (purpose / caller contract / main signatures / business rules / recent changes).
 
 ## Plugins Active
 

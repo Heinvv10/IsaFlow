@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const excludedDirectories = new Set([
@@ -24,20 +24,39 @@ function renderMirror(sourcePath, canonicalLabel, content) {
     content;
 }
 
+/** Dirent type for a symlink is neither file nor directory, so a symlinked
+ *  `.claude.md` (or a symlinked directory containing one) would be skipped
+ *  silently and never drift-checked. Resolve those through stat(). */
+async function resolveEntryKind(entry, entryPath) {
+  if (entry.isDirectory()) return 'directory';
+  if (entry.isFile()) return 'file';
+  if (!entry.isSymbolicLink()) return 'other';
+
+  try {
+    const target = await stat(entryPath);
+    if (target.isDirectory()) return 'directory';
+    if (target.isFile()) return 'file';
+  } catch {
+    return 'other'; // broken symlink — nothing to mirror
+  }
+  return 'other';
+}
+
 async function findNestedSources(rootDirectory, directory = rootDirectory, sources = []) {
   const entries = await readdir(directory, { withFileTypes: true });
 
   for (const entry of entries) {
     const entryPath = path.join(directory, entry.name);
+    const kind = await resolveEntryKind(entry, entryPath);
 
-    if (entry.isDirectory()) {
+    if (kind === 'directory') {
       if (!excludedDirectories.has(entry.name)) {
         await findNestedSources(rootDirectory, entryPath, sources);
       }
       continue;
     }
 
-    if (entry.isFile() && entry.name === '.claude.md') {
+    if (kind === 'file' && entry.name === '.claude.md') {
       sources.push(entryPath);
     }
   }
@@ -76,6 +95,24 @@ async function findMirrorDefinitions(rootDirectory) {
       mirrorLabel,
       content: await readFile(sourcePath, 'utf8'),
     });
+  }
+
+  // Two sources claiming one mirror can never both be satisfied: generate
+  // would last-write-wins and check would report a permanent, unfixable STALE.
+  // The live case is a root `.claude.md` sitting beside `CLAUDE.md` — both
+  // target ./AGENTS.md. Fail loudly instead of oscillating.
+  const seen = new Map();
+  for (const definition of definitions) {
+    const claimed = seen.get(definition.mirrorPath);
+    if (claimed) {
+      throw new Error(
+        `Two canonical sources target the same mirror ${definition.mirrorLabel}: ` +
+          `${toPosixPath(path.relative(rootDirectory, claimed))} and ` +
+          `${toPosixPath(path.relative(rootDirectory, definition.sourcePath))}. ` +
+          'Remove one — a mirror can only have a single source.',
+      );
+    }
+    seen.set(definition.mirrorPath, definition.sourcePath);
   }
 
   return definitions;

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -72,5 +72,53 @@ describe('mirror-agent-docs', () => {
 
     expect(result.status).toBe(1);
     expect(result.stdout).toContain('STALE: AGENTS.md');
+  });
+
+  it('rejects unknown arguments with exit code 2 and a usage message', async () => {
+    const directory = await createFixture();
+
+    const result = runMirrorCommand(directory, '--fix');
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('Usage: node scripts/mirror-agent-docs.mjs [--check]');
+  });
+
+  it('prunes excluded directories instead of mirroring vendored sources', async () => {
+    const directory = await createFixture();
+    const vendored = path.join(directory, 'node_modules', 'some-package');
+    await mkdir(vendored, { recursive: true });
+    await writeFile(path.join(vendored, '.claude.md'), '# Vendored instructions\n');
+
+    execFileSync(process.execPath, [scriptPath], { cwd: directory });
+
+    await expect(readFile(path.join(vendored, 'AGENTS.md'), 'utf8')).rejects.toThrow();
+    expect(runMirrorCommand(directory, '--check').status).toBe(0);
+  });
+
+  it('discovers a symlinked .claude.md source rather than skipping it silently', async () => {
+    const directory = await createFixture();
+    const nestedDirectory = path.join(directory, 'src', 'module');
+    await mkdir(nestedDirectory, { recursive: true });
+    const realSource = path.join(directory, 'shared-instructions.md');
+    await writeFile(realSource, '# Shared instructions\n');
+    await symlink(realSource, path.join(nestedDirectory, '.claude.md'));
+
+    execFileSync(process.execPath, [scriptPath], { cwd: directory });
+
+    await expect(readFile(path.join(nestedDirectory, 'AGENTS.md'), 'utf8')).resolves.toContain(
+      '# Shared instructions',
+    );
+  });
+
+  it('fails loudly when two canonical sources claim the same mirror', async () => {
+    const directory = await createFixture();
+    // a root .claude.md beside CLAUDE.md — both would target ./AGENTS.md
+    await writeFile(path.join(directory, '.claude.md'), '# Competing instructions\n');
+
+    const generate = runMirrorCommand(directory);
+
+    expect(generate.status).toBe(1);
+    expect(generate.stderr).toContain('target the same mirror');
+    expect(runMirrorCommand(directory, '--check').status).toBe(1);
   });
 });
