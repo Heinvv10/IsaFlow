@@ -40,7 +40,10 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ 
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({ customerBelongsToCompany: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn() }));
-vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({ allocateTransaction: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  allocateTransaction: vi.fn(),
+  reverseReconciledTransaction: vi.fn(),
+}));
 
 import {
   createDraftCustomerInvoice,
@@ -53,7 +56,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
@@ -272,10 +275,10 @@ describe('write-tool manifest invariants', () => {
   const WRITE_NAMES = [
     'create_draft_invoice', 'create_draft_quote', 'create_draft_journal',
     'suggest_bank_allocation', 'post_journal', 'finalize_invoice',
-    'allocate_bank_transaction',
+    'allocate_bank_transaction', 'reverse_bank_allocation',
   ];
 
-  it('all seven write tools are write:true with additionalProperties:false + idempotency_key', () => {
+  it('all eight write tools are write:true with additionalProperties:false + idempotency_key', () => {
     for (const name of WRITE_NAMES) {
       const t = tool(name);
       expect(t.write).toBe(true);
@@ -310,6 +313,7 @@ describe('write-tool manifest invariants', () => {
     vi.mocked(postJournalEntry).mockResolvedValue({ id: 'je-1' } as never);
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: null });
     vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' } } as never);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
     const argsByTool: Record<string, Record<string, unknown>> = {
       create_draft_invoice: { customer_id: 'c', items: [{ description: 'x', unit_price: 1 }], ...KEY },
@@ -319,6 +323,7 @@ describe('write-tool manifest invariants', () => {
       post_journal: { journal_id: 'je-1', ...KEY },
       finalize_invoice: { invoice_id: 'inv-1', ...KEY },
       allocate_bank_transaction: { transaction_id: 'tx-1', contra_account_id: 'acc-1', ...KEY },
+      reverse_bank_allocation: { transaction_id: 'tx-1', ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

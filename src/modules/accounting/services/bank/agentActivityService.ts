@@ -24,6 +24,7 @@ export async function listAgentPostings(
   companyId: string,
   fromDate: string,
   toDate: string,
+  limit = 50,
 ): Promise<AgentPosting[]> {
   const rows = (await sql`
     SELECT je.id, je.entry_number, je.entry_date, je.description,
@@ -39,6 +40,7 @@ export async function listAgentPostings(
     GROUP BY je.id, je.entry_number, je.entry_date, je.description,
              je.posting_agent, je.status
     ORDER BY je.entry_date DESC, je.entry_number DESC
+    LIMIT ${limit}
   `) as DbRow[];
 
   return rows.map((r) => ({

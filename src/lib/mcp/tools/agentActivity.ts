@@ -5,14 +5,14 @@
  */
 import type { McpTool } from '../types';
 import { listAgentPostings } from '@/modules/accounting/services/bank/agentActivityService';
-import { ok, safeErrorText, toolError } from './toolHelpers';
+import { clampLimit, ok, safeErrorText, toolError } from './toolHelpers';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const listAgentPostingsTool: McpTool = {
   name: 'list_agent_postings',
   description:
-    'Every journal entry this connector posted in a date range, with the tool that posted it. Use to review what the agent did before accepting or reversing it.',
+    'Every journal entry this connector posted in a date range, with the tool that posted it. Use to review what the agent did before accepting or reversing it. Max 100 rows.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -20,6 +20,7 @@ export const listAgentPostingsTool: McpTool = {
     properties: {
       from: { type: 'string', description: 'YYYY-MM-DD' },
       to: { type: 'string', description: 'YYYY-MM-DD' },
+      limit: { type: 'integer', minimum: 1, maximum: 100 },
     },
     required: ['from', 'to'],
     additionalProperties: false,
@@ -31,7 +32,9 @@ export const listAgentPostingsTool: McpTool = {
       return toolError('from and to are required, formatted YYYY-MM-DD');
     }
     try {
-      const rows = await listAgentPostings(ctx.companyId, from, to); // tenant from ctx ONLY
+      // tenant from ctx ONLY; limit clamped here — inputSchema bounds are not
+      // runtime-enforced (see toolHelpers.clampLimit / bank.ts).
+      const rows = await listAgentPostings(ctx.companyId, from, to, clampLimit(args, 50, 100));
       return ok({ postings: rows, count: rows.length });
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to list agent postings.'));
