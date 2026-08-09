@@ -93,10 +93,13 @@ export default function AdminFeaturesPage() {
       setSelected(new Set());
       await load();
     } catch (err) {
+      // Reload FIRST: load() opens with setError(''), so setting the message
+      // before it would wipe the very failure this block exists to report.
+      // load() never throws — it owns its try/catch — so this order is safe.
+      await load();
       setError(err instanceof Error
         ? `Bulk update failed — some flags may not have updated (${err.message})`
         : 'Bulk update failed — some flags may not have updated');
-      await load();
     } finally {
       setBulkWorking(false);
     }
