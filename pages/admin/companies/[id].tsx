@@ -9,6 +9,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
 import { apiFetch } from '@/lib/apiFetch';
+import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
@@ -78,13 +79,10 @@ interface CompanyUser {
   last_login: string | null;
 }
 
-interface CompanyFeature {
-  id: string;
-  code: string;
-  name: string;
-  enabled: boolean;
-  source: 'global' | 'plan' | 'override';
-}
+// Deliberately the server's own type, not a local copy. A local duplicate that
+// claimed an `id` the API never sent is what made every feature toggle post
+// `feature_id: undefined` and silently 400.
+type CompanyFeature = CompanyEffectiveFeature;
 
 const STATUS_BADGE: Record<string, string> = {
   active:    'bg-teal-500/10 text-teal-600 dark:text-teal-400',
@@ -285,31 +283,49 @@ export default function AdminCompanyDetailPage() {
     finally { setActionLoading(false); }
   }
 
+  /** apiFetch resolves on 4xx/5xx — without this the failure never reaches a catch. */
+  async function throwIfFailed(res: Response, fallback: string): Promise<void> {
+    if (res.ok) return;
+    const text = await res.text();
+    let message = fallback;
+    try {
+      const json = JSON.parse(text) as { message?: string; error?: { message?: string } };
+      message = json.message || json.error?.message || message;
+    } catch { /* non-JSON error body — keep default */ }
+    throw new Error(message);
+  }
+
   async function handleFeatureToggle(feature: CompanyFeature) {
     if (!id || typeof id !== 'string') return;
-    setFeatureActionId(feature.id);
+    setFeatureActionId(feature.id); setActionError('');
     try {
-      await apiFetch(`/api/admin/companies/${id}/features`, {
+      const res = await apiFetch(`/api/admin/companies/${id}/features`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id, enabled: !feature.enabled, reason: 'Toggled via admin' }),
       });
+      await throwIfFailed(res, `Failed to toggle ${feature.name}`);
       void loadFeatures();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : `Failed to toggle ${feature.name}`);
+    }
     finally { setFeatureActionId(null); }
   }
 
   async function handleFeatureClearOverride(feature: CompanyFeature) {
     if (!id || typeof id !== 'string') return;
-    setFeatureActionId(feature.id);
+    setFeatureActionId(feature.id); setActionError('');
     try {
-      await apiFetch(`/api/admin/companies/${id}/features`, {
+      const res = await apiFetch(`/api/admin/companies/${id}/features`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id }),
       });
+      await throwIfFailed(res, `Failed to reset ${feature.name}`);
       void loadFeatures();
-    } catch { /* ignore */ }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : `Failed to reset ${feature.name}`);
+    }
     finally { setFeatureActionId(null); }
   }
 

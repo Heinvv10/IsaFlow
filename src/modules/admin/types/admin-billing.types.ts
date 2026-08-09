@@ -86,6 +86,8 @@ export interface CompanyFeatureOverride {
 }
 
 export interface CompanyEffectiveFeature {
+  /** feature_flags.id — sent back as `feature_id` when setting/clearing an override. */
+  id: string;
   code: string;
   name: string;
   enabled: boolean;
