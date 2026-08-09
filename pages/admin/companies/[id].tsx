@@ -8,7 +8,7 @@ import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { ConfirmModal } from '@/components/admin/ConfirmModal';
 import { CompanyBillingTab } from '@/components/admin/companies/CompanyBillingTab';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import type { CompanyEffectiveFeature } from '@/modules/admin/types/admin-billing.types';
 import { formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
@@ -283,18 +283,6 @@ export default function AdminCompanyDetailPage() {
     finally { setActionLoading(false); }
   }
 
-  /** apiFetch resolves on 4xx/5xx — without this the failure never reaches a catch. */
-  async function throwIfFailed(res: Response, fallback: string): Promise<void> {
-    if (res.ok) return;
-    const text = await res.text();
-    let message = fallback;
-    try {
-      const json = JSON.parse(text) as { message?: string; error?: { message?: string } };
-      message = json.message || json.error?.message || message;
-    } catch { /* non-JSON error body — keep default */ }
-    throw new Error(message);
-  }
-
   async function handleFeatureToggle(feature: CompanyFeature) {
     if (!id || typeof id !== 'string') return;
     setFeatureActionId(feature.id); setActionError('');
@@ -304,7 +292,7 @@ export default function AdminCompanyDetailPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id, enabled: !feature.enabled, reason: 'Toggled via admin' }),
       });
-      await throwIfFailed(res, `Failed to toggle ${feature.name}`);
+      await assertOk(res, `Failed to toggle ${feature.name}`);
       void loadFeatures();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : `Failed to toggle ${feature.name}`);
@@ -321,7 +309,7 @@ export default function AdminCompanyDetailPage() {
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ feature_id: feature.id }),
       });
-      await throwIfFailed(res, `Failed to reset ${feature.name}`);
+      await assertOk(res, `Failed to reset ${feature.name}`);
       void loadFeatures();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : `Failed to reset ${feature.name}`);

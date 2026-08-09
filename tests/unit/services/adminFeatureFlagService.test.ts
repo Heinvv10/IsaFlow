@@ -80,7 +80,11 @@ describe('getCompanyEffectiveFeatures', () => {
 
     await getCompanyEffectiveFeatures(COMPANY);
 
-    const interpolated = vi.mocked(sql).mock.calls.flatMap((call) => call.slice(1));
-    expect(interpolated).toContain(COMPANY);
+    // Per query, not flattened across all three — a flattened check would still
+    // pass if the company filter landed on the wrong statement.
+    const [flagsQuery, planQuery, overridesQuery] = vi.mocked(sql).mock.calls;
+    expect(flagsQuery.slice(1)).toEqual([]); // catalogue query is tenant-agnostic
+    expect(planQuery.slice(1)).toEqual([COMPANY]);
+    expect(overridesQuery.slice(1)).toEqual([COMPANY]);
   });
 });

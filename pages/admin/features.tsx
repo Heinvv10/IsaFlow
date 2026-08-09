@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { AlertCircle, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
 import {
   FeatureFlagRow,
@@ -78,19 +78,25 @@ export default function AdminFeaturesPage() {
     if (selected.size === 0) return;
     setBulkWorking(true);
     try {
+      // Each apiFetch resolves on 4xx, so without assertOk a per-flag rejection
+      // would leave this reporting success for flags that never changed.
       await Promise.all(
-        Array.from(selected).map((id) =>
-          apiFetch(`/api/admin/features/${id}`, {
+        Array.from(selected).map(async (id) => {
+          const res = await apiFetch(`/api/admin/features/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
             body: JSON.stringify({ is_global: isGlobal }),
-          })
-        )
+          });
+          await assertOk(res, 'Bulk update failed');
+        })
       );
       setSelected(new Set());
       await load();
-    } catch {
-      setError('Bulk update failed — some flags may not have updated');
+    } catch (err) {
+      setError(err instanceof Error
+        ? `Bulk update failed — some flags may not have updated (${err.message})`
+        : 'Bulk update failed — some flags may not have updated');
+      await load();
     } finally {
       setBulkWorking(false);
     }

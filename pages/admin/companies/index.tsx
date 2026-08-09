@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { BulkActionsBar } from '@/components/admin/companies/BulkActionsBar';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
@@ -171,27 +171,32 @@ export default function AdminCompaniesPage() {
     }
   }
 
+  // The row reload does NOT surface a rejected suspend/activate: apiFetch
+  // resolves on 4xx, so without assertOk the row simply reloads unchanged and
+  // the admin is left believing the action succeeded.
   async function handleSuspend(e: React.MouseEvent, companyId: string) {
     e.stopPropagation();
-    setActionLoading(companyId + ':suspend');
+    setActionLoading(companyId + ':suspend'); setError('');
     try {
-      await apiFetch(`/api/admin/companies/${companyId}/suspend`, {
+      const res = await apiFetch(`/api/admin/companies/${companyId}/suspend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Request': 'true' },
         body: JSON.stringify({ reason: 'Suspended by admin' }),
       });
+      await assertOk(res, 'Suspend failed');
       void load(search, status, page, sortBy, sortDir);
-    } catch { /* surfaced via row reload */ }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Suspend failed'); }
     finally { setActionLoading(null); }
   }
 
   async function handleActivate(e: React.MouseEvent, companyId: string) {
     e.stopPropagation();
-    setActionLoading(companyId + ':activate');
+    setActionLoading(companyId + ':activate'); setError('');
     try {
-      await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      const res = await apiFetch(`/api/admin/companies/${companyId}/activate`, { method: 'POST', headers: { 'X-Admin-Request': 'true' } });
+      await assertOk(res, 'Activate failed');
       void load(search, status, page, sortBy, sortDir);
-    } catch { /* surfaced via row reload */ }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Activate failed'); }
     finally { setActionLoading(null); }
   }
 

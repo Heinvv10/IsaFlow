@@ -83,6 +83,38 @@ function isRefreshUrl(url: string): boolean {
   return url.split(/[?#]/)[0] === REFRESH_URL;
 }
 
+/** Error carrying the HTTP status, so callers can branch on it (retry, backoff)
+ *  rather than string-matching a message. */
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
+/**
+ * Throw on a failed response, using the server's own message when it sent one.
+ *
+ * `apiFetch` RESOLVES on 4xx/5xx — it only intercepts 401 to refresh — so
+ * `await apiFetch(...)` inside a try/catch catches nothing on an error status.
+ * Every mutating caller must pass its response through here, or the failure is
+ * silently discarded and the UI looks like a dead button.
+ */
+export async function assertOk(res: Response, fallback: string): Promise<void> {
+  if (res.ok) return;
+
+  let message = fallback;
+  try {
+    const json = JSON.parse(await res.text()) as {
+      message?: string;
+      error?: { message?: string };
+    };
+    message = json.message || json.error?.message || fallback;
+  } catch { /* empty or non-JSON body — keep the caller's fallback */ }
+
+  throw new ApiRequestError(message, res.status);
+}
+
 export async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   const init = buildRequest(options);
   const res = await fetch(url, init);
