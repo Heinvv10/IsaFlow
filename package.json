@@ -10,6 +10,8 @@
     "lint": "eslint src pages --report-unused-disable-directives",
     "type-check": "tsc --noEmit",
     "check:routes": "node scripts/check-duplicate-next-routes.mjs",
+    "agent-docs:generate": "node scripts/mirror-agent-docs.mjs",
+    "agent-docs:check": "node scripts/mirror-agent-docs.mjs --check",
     "test:unit": "node scripts/check-runtime.mjs && bun run check:routes && vitest run",
     "test:unit:watch": "node scripts/check-runtime.mjs && vitest",
     "test:e2e": "playwright test --config playwright-test.config.ts",
