@@ -3,9 +3,11 @@
  *
  * Per tool: happy path calls the service with ctx.companyId + ctx.userId and
  * the draft/unposted intent; token-scan + additionalProperties:false extended
- * to write tools. Manifest: exactly post_journal + finalize_invoice carry
- * requiresPost. (The registry's scope/write:post/idempotency FENCE is proven
- * generically in registry.test.ts — not re-tested here.)
+ * to write tools. Manifest: exactly post_journal + finalize_invoice +
+ * allocate_bank_transaction carry requiresPost. (The registry's
+ * scope/write:post/idempotency FENCE is proven generically in registry.test.ts
+ * — not re-tested here. allocate_bank_transaction's own behaviour is covered
+ * in writeBankAllocate.test.ts, same pattern as bankMatchTool.test.ts.)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -38,6 +40,7 @@ vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ 
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({ customerBelongsToCompany: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({ allocateTransaction: vi.fn() }));
 
 import {
   createDraftCustomerInvoice,
@@ -50,6 +53,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
@@ -268,9 +272,10 @@ describe('write-tool manifest invariants', () => {
   const WRITE_NAMES = [
     'create_draft_invoice', 'create_draft_quote', 'create_draft_journal',
     'suggest_bank_allocation', 'post_journal', 'finalize_invoice',
+    'allocate_bank_transaction',
   ];
 
-  it('all six write tools are write:true with additionalProperties:false + idempotency_key', () => {
+  it('all seven write tools are write:true with additionalProperties:false + idempotency_key', () => {
     for (const name of WRITE_NAMES) {
       const t = tool(name);
       expect(t.write).toBe(true);
@@ -281,9 +286,9 @@ describe('write-tool manifest invariants', () => {
     }
   });
 
-  it('exactly post_journal + finalize_invoice require write:post', () => {
+  it('exactly post_journal + finalize_invoice + allocate_bank_transaction require write:post', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
-    expect(requiresPost).toEqual(['finalize_invoice', 'post_journal']);
+    expect(requiresPost).toEqual(['allocate_bank_transaction', 'finalize_invoice', 'post_journal']);
   });
 
   it('no write tool accepts a company identifier in its schema', () => {
@@ -302,6 +307,7 @@ describe('write-tool manifest invariants', () => {
     vi.mocked(bulkCategorize).mockResolvedValue({ categorized: 0 } as never);
     vi.mocked(postJournalEntry).mockResolvedValue({ id: 'je-1' } as never);
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: null });
+    vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' } } as never);
 
     const argsByTool: Record<string, Record<string, unknown>> = {
       create_draft_invoice: { customer_id: 'c', items: [{ description: 'x', unit_price: 1 }], ...KEY },
@@ -310,6 +316,7 @@ describe('write-tool manifest invariants', () => {
       suggest_bank_allocation: { transaction_ids: ['t1'], ...KEY },
       post_journal: { journal_id: 'je-1', ...KEY },
       finalize_invoice: { invoice_id: 'inv-1', ...KEY },
+      allocate_bank_transaction: { transaction_id: 'tx-1', contra_account_id: 'acc-1', ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
