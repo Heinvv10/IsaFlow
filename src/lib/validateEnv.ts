@@ -78,13 +78,18 @@ const PRIVILEGED_DB_URL_VARS = [
 // sends the admin pool to a database named after its role. Requiring the name
 // outright is both simpler and stricter than resolving the fallback. Every
 // environment already names it, so nothing legitimate is rejected.
-function requireDatabaseName(varName: string, value: string): string {
+// `expected` is the database DATABASE_URL resolved to, so the example in the
+// message is the name this variable actually has to carry. Without it the hint
+// is a hardcoded literal, and an operator who pastes it verbatim in dev clears
+// this check only to trip the mismatch check on the next line. Absent when
+// validating DATABASE_URL itself — there is no resolved name to suggest yet.
+function requireDatabaseName(varName: string, value: string, expected?: string): string {
   const database = parseConnectionString(value).database;
   if (typeof database !== 'string' || database.length === 0) {
     throw new Error(
-      `${varName} must name a database explicitly (e.g. …:5432/isaflow). Without one, ` +
-        'Postgres falls back to PGDATABASE or the role name, which silently sends this ' +
-        'pool to a different database than the application.'
+      `${varName} must name a database explicitly (e.g. …:5432/${expected ?? 'isaflow'}). ` +
+        'Without one, Postgres falls back to PGDATABASE or the role name, which silently ' +
+        'sends this pool to a different database than the application.'
     );
   }
   return database;
@@ -97,7 +102,7 @@ function assertPrivilegedPoolsTargetAppDatabase(): void {
     // MIGRATION_ADMIN_DATABASE_URL is optional; PLATFORM_ADMIN_DATABASE_URL is
     // already guaranteed present by REQUIRED_VARS above.
     if (!value) continue;
-    const db = requireDatabaseName(varName, value);
+    const db = requireDatabaseName(varName, value, appDb);
     if (db !== appDb) {
       throw new Error(
         `${varName} targets database "${db}" but DATABASE_URL targets "${appDb}" — ` +

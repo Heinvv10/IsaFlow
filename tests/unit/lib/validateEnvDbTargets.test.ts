@@ -110,6 +110,15 @@ describe('validateEnv — privileged pool database targets', () => {
     expect(() => validateEnv()).toThrow(/PLATFORM_ADMIN_DATABASE_URL must name a database/);
   });
 
+  // The example must be the database this variable actually needs, not a
+  // literal — pasting the hint verbatim should clear both checks, not just this
+  // one. Pinned against a non-default name so a hardcoded example fails here.
+  it('suggests the database DATABASE_URL resolved to, not a hardcoded name', () => {
+    process.env.DATABASE_URL = `${BASE}/isaflow_staging?sslmode=disable`;
+    process.env.PLATFORM_ADMIN_DATABASE_URL = 'postgresql://platform_admin@db.internal:7772';
+    expect(() => validateEnv()).toThrow(/e\.g\. …:5432\/isaflow_staging/);
+  });
+
   it('throws when DATABASE_URL omits its database', () => {
     process.env.DATABASE_URL = 'postgresql://app_user@db.internal:7772';
     expect(() => validateEnv()).toThrow(/DATABASE_URL must name a database/);
