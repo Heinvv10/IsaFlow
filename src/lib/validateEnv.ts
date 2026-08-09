@@ -63,49 +63,41 @@ const PRIVILEGED_DB_URL_VARS = [
   'MIGRATION_ADMIN_DATABASE_URL',
 ] as const;
 
-// Resolve the database a connection string will actually reach, mirroring pg's
-// own order in ConnectionParameters: the string's database, else PGDATABASE,
-// else the connecting role's name. Two details matter.
+// Read the database a connection string names, and require that it names one.
 //
-// Parse with pg's parser rather than `new URL()`: a `socket:` URL carries its
-// database in `?db=`, not the path, so two sockets differing only by database
-// would compare equal — the exact false negative this guard exists to prevent.
-// The parser also percent-decodes, so `/isa%66low` and `/isaflow` are one name.
+// Parse with pg's own parser rather than `new URL()`: a `socket:` URL carries
+// its database in `?db=`, not the path, so two sockets differing only by
+// database would compare equal — the exact false negative this guard exists to
+// prevent. The parser also percent-decodes, so `/isa%66low` and `/isaflow` are
+// one name.
 //
-// And never treat a missing database as "nothing to compare". A pathless
-// PLATFORM_ADMIN_DATABASE_URL sends the admin pool to a database named after
-// the `platform_admin` role while the app uses `isaflow` — a real divergence,
-// and precisely the one-character typo this guard exists to catch. Resolving
-// the fallback makes that comparable instead of waving it through.
-//
-// validateEnvDbTargets.test.ts pins this against pg's real ConnectionParameters
-// so the two cannot drift apart.
-function effectiveDatabaseOf(value: string): string | null {
-  const parsed = parseConnectionString(value);
-  for (const candidate of [parsed.database, process.env.PGDATABASE, parsed.user]) {
-    if (typeof candidate === 'string' && candidate.length > 0) return candidate;
+// When a string omits its database, pg falls back through PGDATABASE and then
+// the connecting role's name. Deliberately NOT modelled here. Reproducing that
+// order is where this guard kept going wrong, and an implicit database is the
+// same hazard as a mismatched one: `postgresql://platform_admin@host` quietly
+// sends the admin pool to a database named after its role. Requiring the name
+// outright is both simpler and stricter than resolving the fallback. Every
+// environment already names it, so nothing legitimate is rejected.
+function requireDatabaseName(varName: string, value: string): string {
+  const database = parseConnectionString(value).database;
+  if (typeof database !== 'string' || database.length === 0) {
+    throw new Error(
+      `${varName} must name a database explicitly (e.g. …:5432/isaflow). Without one, ` +
+        'Postgres falls back to PGDATABASE or the role name, which silently sends this ' +
+        'pool to a different database than the application.'
+    );
   }
-  return null;
+  return database;
 }
 
 function assertPrivilegedPoolsTargetAppDatabase(): void {
-  const appDb = effectiveDatabaseOf(process.env.DATABASE_URL as string);
+  const appDb = requireDatabaseName('DATABASE_URL', process.env.DATABASE_URL as string);
   for (const varName of PRIVILEGED_DB_URL_VARS) {
     const value = process.env[varName];
     // MIGRATION_ADMIN_DATABASE_URL is optional; PLATFORM_ADMIN_DATABASE_URL is
     // already guaranteed present by REQUIRED_VARS above.
     if (!value) continue;
-    const db = effectiveDatabaseOf(value);
-    if (appDb === null || db === null) {
-      // Neither a database, PGDATABASE, nor a role name is available, so pg
-      // would fall back to the OS user we cannot read here. Warn rather than
-      // throw: this is unresolvable, not a detected mismatch.
-      process.stderr.write(
-        `[env] Cannot verify ${varName} targets the same database as DATABASE_URL: ` +
-          'neither names a database, PGDATABASE, or a role.\n'
-      );
-      continue;
-    }
+    const db = requireDatabaseName(varName, value);
     if (db !== appDb) {
       throw new Error(
         `${varName} targets database "${db}" but DATABASE_URL targets "${appDb}" — ` +
