@@ -56,6 +56,31 @@ describe('allocate_bank_transaction', () => {
 
     expect(res.isError).toBe(true);
   });
+
+  it('rejects alloc_type "transfer" — undocumented, live bank-to-bank-transfer semantics — without touching the ledger', async () => {
+    const res = await allocateBankTransactionTool.handler(
+      { transaction_id: 'tx-1', contra_account_id: 'acc-1', alloc_type: 'transfer', idempotency_key: 'k1' },
+      ctx,
+    );
+
+    expect(res.isError).toBe(true);
+    expect(allocateTransaction).not.toHaveBeenCalled();
+  });
+
+  it('accepts a valid alloc_type and passes it through to the service', async () => {
+    vi.mocked(allocateTransaction).mockResolvedValue({
+      journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' },
+    } as never);
+
+    const res = await allocateBankTransactionTool.handler(
+      { transaction_id: 'tx-1', contra_account_id: 'acc-1', alloc_type: 'supplier', idempotency_key: 'k1' },
+      ctx,
+    );
+
+    expect(res.isError).toBeFalsy();
+    const call = vi.mocked(allocateTransaction).mock.calls[0]!;
+    expect(call[5]).toBe('supplier');
+  });
 });
 
 describe('reverse_bank_allocation', () => {

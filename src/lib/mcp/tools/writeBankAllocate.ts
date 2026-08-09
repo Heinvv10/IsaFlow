@@ -14,6 +14,14 @@ import {
 import { mcpPostingAgent } from '../postingAgent';
 import { ok, safeErrorText, toolError } from './toolHelpers';
 
+// inputSchema.enum is NOT enforced by the MCP transport (schema is passed
+// through to getManifest() only) — this array is the actual runtime gate.
+// AllocationType in bankAllocationService also has a 'transfer' member with
+// live bank-to-bank-transfer semantics; this tool deliberately does not
+// expose it, so it must be rejected here rather than silently coerced.
+const ALLOC_TYPES = ['account', 'supplier', 'customer'] as const;
+type AllocType = (typeof ALLOC_TYPES)[number];
+
 export const allocateBankTransactionTool: McpTool = {
   name: 'allocate_bank_transaction',
   description:
@@ -27,7 +35,7 @@ export const allocateBankTransactionTool: McpTool = {
       transaction_id: { type: 'string' },
       contra_account_id: { type: 'string' },
       description: { type: 'string' },
-      alloc_type: { type: 'string', enum: ['account', 'supplier', 'customer'] },
+      alloc_type: { type: 'string', enum: [...ALLOC_TYPES] },
       entity_id: { type: 'string' },
       invoice_id: { type: 'string' },
       vat_code: { type: 'string', enum: ['standard', 'zero_rated', 'exempt', 'none'] },
@@ -42,8 +50,14 @@ export const allocateBankTransactionTool: McpTool = {
     if (!txId) return toolError('transaction_id is required');
     if (!contra) return toolError('contra_account_id is required');
 
-    const allocType = (typeof args.alloc_type === 'string' ? args.alloc_type : 'account') as
-      'account' | 'supplier' | 'customer';
+    const rawAllocType = args.alloc_type;
+    let allocType: AllocType = 'account';
+    if (rawAllocType !== undefined) {
+      if (typeof rawAllocType !== 'string' || !ALLOC_TYPES.includes(rawAllocType as AllocType)) {
+        return toolError(`alloc_type must be one of: ${ALLOC_TYPES.join(', ')}`);
+      }
+      allocType = rawAllocType as AllocType; // validated by the .includes() check above
+    }
 
     try {
       const result = await allocateTransaction(
