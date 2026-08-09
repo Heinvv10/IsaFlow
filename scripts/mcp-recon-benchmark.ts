@@ -6,6 +6,18 @@
  * Measures the acceptance criterion for the "agent does the work" slice:
  * of the bank allocations the agent posted in the window, what fraction were
  * subsequently reversed? Under 5% passes.
+ *
+ * A window with zero agent postings measures nothing, so it is reported and
+ * exited as its own outcome (NOT MEASURED) rather than folded into PASS —
+ * `total === 0` gives `rate === 0`, and a silent PASS on that is
+ * indistinguishable from a genuinely clean month to anything that only
+ * checks the exit code.
+ *
+ * Exit codes:
+ *   0 = measured, correction rate < 5%  (PASS)
+ *   1 = measured, correction rate >= 5% (FAIL)
+ *   2 = usage error (missing arguments)
+ *   3 = NOT MEASURED — zero agent postings in the window
  */
 import { sql } from '@/lib/neon';
 import { listAgentPostings } from '@/modules/accounting/services/bank/agentActivityService';
@@ -17,7 +29,19 @@ async function main(): Promise<number> {
     return 2;
   }
 
+  process.stdout.write(`company: ${companyId}\nwindow: ${from} to ${to}\n`);
+
   const postings = await listAgentPostings(companyId, from, to);
+  const total = postings.length;
+
+  if (total === 0) {
+    process.stdout.write(
+      'agent postings: 0\n' +
+        'BENCHMARK NOT MEASURED — 0 agent postings in this window; nothing was evaluated\n',
+    );
+    return 3;
+  }
+
   const reversedRows = (await sql`
     SELECT COUNT(*)::int AS n
     FROM gl_journal_entries je
@@ -28,9 +52,8 @@ async function main(): Promise<number> {
       AND je.status = 'reversed'
   `) as { n: number }[];
 
-  const total = postings.length;
   const reversed = reversedRows[0]?.n ?? 0;
-  const rate = total === 0 ? 0 : (reversed / total) * 100;
+  const rate = (reversed / total) * 100;
 
   process.stdout.write(
     `agent postings: ${total}\nreversed (corrections): ${reversed}\ncorrection rate: ${rate.toFixed(2)}%\n`,
