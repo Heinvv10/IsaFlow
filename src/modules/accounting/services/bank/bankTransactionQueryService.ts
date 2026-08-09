@@ -296,8 +296,14 @@ export async function deleteTransactions(companyId: string, bankTxIds: string[])
     const result = (await sql`
       DELETE FROM bank_transactions
       WHERE id = ANY(${bankTxIds}::UUID[]) AND status = 'imported'
-        AND company_id = ${companyId}::UUID`) as Row[];
-    const deleted = result.length ?? bankTxIds.length;
+        AND company_id = ${companyId}::UUID
+      RETURNING id`) as Row[];
+    // RETURNING is required for an accurate count: lib/neon only ever exposes
+    // res.rows, never res.rowCount, so a DELETE without it returns [] and the
+    // count was always 0 (`0 ?? fallback` short-circuits on 0, not just null).
+    // Callers report this number to a user — bank-transactions-action.ts and
+    // undo_bank_import both do.
+    const deleted = result.length;
     log.info('Deleted bank transactions', { count: deleted, ids: bankTxIds }, 'accounting');
     return deleted;
   } catch (err) {

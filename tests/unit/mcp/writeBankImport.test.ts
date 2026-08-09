@@ -150,8 +150,10 @@ describe('undo_bank_import', () => {
     expect(undoBankImportTool.requiresPost).toBeFalsy();
   });
 
-  it('reports the allocated rows it refused to delete rather than claiming a clean undo', async () => {
-    vi.mocked(undoImportBatch).mockResolvedValue({ deleted: 2, refused: 1 } as never);
+  it('reports the rows it refused to delete, by status, rather than claiming a clean undo', async () => {
+    vi.mocked(undoImportBatch).mockResolvedValue({
+      deleted: 2, refused: 2, refusedByStatus: { allocated: 1, reconciled: 1 },
+    } as never);
 
     const res = await undoBankImportTool.handler(
       { batch_id: 'batch-1', idempotency_key: 'k1' }, ctx,
@@ -159,7 +161,28 @@ describe('undo_bank_import', () => {
 
     const payload = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
     expect(payload.deleted).toBe(2);
-    expect(payload.refused_allocated).toBe(1);
+    expect(payload.refused).toBe(2);
+    expect(payload.refused_by_status).toEqual({ allocated: 1, reconciled: 1 });
+  });
+
+  it('rejects an unsupported bank_format rather than passing it to the parser', async () => {
+    const res = await importBankStatementTool.handler(
+      { ...validArgs, file_type: 'csv', bank_format: 'barclays' }, ctx,
+    );
+
+    expect(res.isError).toBe(true);
+    expect(importStatementForAgent).not.toHaveBeenCalled();
+  });
+
+  it('bounds undo write pressure with its own rate limit', async () => {
+    vi.mocked(checkRateLimit).mockResolvedValue(false);
+
+    const res = await undoBankImportTool.handler(
+      { batch_id: 'batch-1', idempotency_key: 'k1' }, ctx,
+    );
+
+    expect(res.isError).toBe(true);
+    expect(undoImportBatch).not.toHaveBeenCalled();
   });
 
   it("refuses another tenant's batch with the same text as a genuine miss", async () => {

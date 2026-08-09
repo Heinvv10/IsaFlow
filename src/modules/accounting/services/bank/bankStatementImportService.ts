@@ -145,8 +145,11 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
   const netTotal = fresh.reduce((sum, tx) => sum + Number(tx.amount), 0);
   const summary = { imported: fresh.length, duplicates, parseErrors, dateRange: range, netTotal };
 
+  // summary.imported is already fresh.length, which is what both cases want:
+  // a dry run reports what would land, and the non-dry-run case is only
+  // reachable here when fresh.length is 0.
   if (args.dryRun || fresh.length === 0) {
-    return { ...summary, batchId: null, imported: args.dryRun ? fresh.length : 0 };
+    return { ...summary, batchId: null };
   }
 
   const result = await importParsedTransactions(
@@ -174,16 +177,21 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
 
 /**
  * Undo an import batch. Deletes only rows still in 'imported' status —
- * deleteTransactions enforces that — and reports how many were left behind
- * because they had already been allocated, so a caller cannot mistake a
- * partial undo for a clean one.
+ * deleteTransactions enforces that — and reports what was left behind so a
+ * caller cannot mistake a partial undo for a clean one.
+ *
+ * The refusals are broken down BY STATUS rather than reported as one
+ * "allocated" number: bank_transactions.status is one of imported/allocated/
+ * matched/reconciled/excluded, and only 'allocated' is undoable with
+ * reverse_bank_allocation. Collapsing them would hand the caller a recovery
+ * instruction that does not apply to a reconciled or excluded row.
  *
  * Returns null when the batch does not belong to this company.
  */
 export async function undoImportBatch(
   companyId: string,
   batchId: string,
-): Promise<{ deleted: number; refused: number } | null> {
+): Promise<{ deleted: number; refused: number; refusedByStatus: Record<string, number> } | null> {
   const batch = (await sql`
     SELECT id FROM bank_import_batches
     WHERE id = ${batchId}::UUID AND company_id = ${companyId}::UUID
@@ -198,8 +206,15 @@ export async function undoImportBatch(
 
   const importedIds = rows.filter((r) => r.status === 'imported').map((r) => String(r.id));
   const refused = rows.length - importedIds.length;
+  const refusedByStatus: Record<string, number> = {};
+  for (const row of rows) {
+    if (row.status === 'imported') continue;
+    refusedByStatus[row.status] = (refusedByStatus[row.status] ?? 0) + 1;
+  }
   const deleted = importedIds.length > 0 ? await deleteTransactions(companyId, importedIds) : 0;
 
-  log.info('Agent bank import undone', { companyId, batchId, deleted, refused }, 'accounting');
-  return { deleted, refused };
+  log.info('Agent bank import undone', {
+    companyId, batchId, deleted, refused, refusedByStatus,
+  }, 'accounting');
+  return { deleted, refused, refusedByStatus };
 }

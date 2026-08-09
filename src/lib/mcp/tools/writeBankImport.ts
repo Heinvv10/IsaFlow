@@ -33,6 +33,18 @@ type AgentFileType = (typeof FILE_TYPES)[number];
 // reason, so the agent path gets the same ceiling.
 const IMPORT_MAX_PER_HOUR = 60;
 
+// Undo can delete a batch as large as the import created, so it gets its own
+// ceiling rather than relying on the transport's 120/min alone.
+const UNDO_MAX_PER_HOUR = 60;
+
+// Same runtime-gate reasoning as FILE_TYPES. 'unknown' is excluded: it is the
+// parser's own "could not detect" sentinel, and passing it back in is treated
+// as "no hint given" — accepting it as a caller value only invites confusion.
+const BANK_FORMATS = [
+  'fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'mt940',
+] as const;
+type AgentBankFormat = (typeof BANK_FORMATS)[number];
+
 export const importBankStatementTool: McpTool = {
   name: 'import_bank_statement',
   description:
@@ -48,6 +60,7 @@ export const importBankStatementTool: McpTool = {
       statement_date: { type: 'string', description: 'YYYY-MM-DD — the statement closing date.' },
       bank_format: {
         type: 'string',
+        enum: [...BANK_FORMATS],
         description: 'Optional hint (e.g. "fnb", "absa") when CSV auto-detection fails.',
       },
       dry_run: {
@@ -70,6 +83,11 @@ export const importBankStatementTool: McpTool = {
       return toolError(`file_type must be one of: ${FILE_TYPES.join(', ')}`);
     }
     if (!content) return toolError('content is required');
+
+    const rawBankFormat = strArg(args, 'bank_format');
+    if (rawBankFormat !== undefined && !BANK_FORMATS.includes(rawBankFormat as AgentBankFormat)) {
+      return toolError(`bank_format must be one of: ${BANK_FORMATS.join(', ')}`);
+    }
     // bank_import_batches.statement_date is NOT NULL — without it the insert
     // fails inside the transaction after parsing has already been paid for.
     if (!statementDate) return toolError('statement_date is required (YYYY-MM-DD)');
@@ -97,7 +115,7 @@ export const importBankStatementTool: McpTool = {
         fileType: rawFileType as StatementFileType,
         content,
         statementDate,
-        bankFormat: strArg(args, 'bank_format') as never,
+        bankFormat: rawBankFormat as AgentBankFormat | undefined,  // validated above
         dryRun: args.dry_run === true,
         importedBy: 'mcp:import_bank_statement:v1',
         sourceFilename: 'mcp-import',
@@ -121,7 +139,7 @@ export const importBankStatementTool: McpTool = {
 export const undoBankImportTool: McpTool = {
   name: 'undo_bank_import',
   description:
-    'Undo an import batch by deleting its transactions. Only transactions still unallocated are removed; any already allocated are left untouched and reported back — reverse those with reverse_bank_allocation first if you need a complete undo.',
+    'Undo an import batch by deleting its transactions. Only transactions still in "imported" status are removed; anything further along is left untouched and reported in refused_by_status. Rows refused as "allocated" can be freed with reverse_bank_allocation; rows that are matched, reconciled or excluded need handling in the UI first.',
   scope: 'write:bank-tx',
   write: true,
   inputSchema: {
@@ -137,13 +155,20 @@ export const undoBankImportTool: McpTool = {
     const batchId = strArg(args, 'batch_id');
     if (!batchId) return toolError('batch_id is required');
 
+    if (!(await checkRateLimit(`mcp-bank-undo:${ctx.companyId}`, {
+      max: UNDO_MAX_PER_HOUR, windowSecs: 3600,
+    }))) {
+      return toolError('Undo rate limit reached — try again later.');
+    }
+
     try {
       const result = await undoImportBatch(ctx.companyId, batchId);  // tenant from ctx ONLY
       if (result === null) return toolError(NOT_FOUND);
       return ok({
         batch_id: batchId,
         deleted: result.deleted,
-        refused_allocated: result.refused,
+        refused: result.refused,
+        refused_by_status: result.refusedByStatus,
       });
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to undo the import.'));

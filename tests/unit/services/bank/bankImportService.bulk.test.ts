@@ -144,3 +144,46 @@ describe('importParsedTransactions — bulk context', () => {
     expect(withTransactionMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * The auto-post gate itself, exercised through the real branch rather than
+ * through a caller's arguments. sweep() attributes its postings to the system
+ * user, so an agent import that reached it would create journals invisible to
+ * list_agent_postings — asserting only that skipAutoPost was *passed* proves
+ * nothing about whether it is honoured.
+ */
+describe('importParsedTransactions — auto-post gate', () => {
+  beforeEach(() => {
+    // clearAllMocks, not just the two locals: sweep is module-mocked, and
+    // without clearing it a call from the previous test counts as this one's.
+    vi.clearAllMocks();
+    withTransactionMock.mockReset();
+    sqlMock.mockReset();
+    // Non-empty: the sweep only runs when the outflow SELECT returns rows.
+    sqlMock.mockResolvedValue([{ id: 'tx-outflow-1' }]);
+    withTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = () => Promise.resolve([]);
+      return fn(tx);
+    });
+  });
+
+  it('runs the sweep by default — the UI import path must keep auto-posting', async () => {
+    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
+
+    await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
+
+    expect(sweep).toHaveBeenCalled();
+    expect(vi.mocked(sweep).mock.calls[0]![2]).toBe('import');
+  });
+
+  it('skipAutoPost suppresses the sweep so an import posts nothing', async () => {
+    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
+
+    await importParsedTransactions(
+      'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
+      { skipAutoPost: true },
+    );
+
+    expect(sweep).not.toHaveBeenCalled();
+  });
+});

@@ -137,7 +137,10 @@ describe('importStatementForAgent', () => {
     expect(values).toContain(COMPANY);
   });
 
-  it('reports parse errors instead of silently importing a partial statement', async () => {
+  it('imports the rows it could parse and surfaces the failed rows alongside them', async () => {
+    // Deliberate: a partial statement IS imported. The unparseable rows are
+    // reported so the caller can decide, not withheld — a bank statement with
+    // one bad line should not block the other 400.
     vi.mocked(parseStatement).mockResolvedValue({
       transactions: [TX_A],
       errors: [{ row: 4, error: 'unparseable amount' }],
@@ -147,6 +150,8 @@ describe('importStatementForAgent', () => {
     const res = await importStatementForAgent(baseArgs);
 
     expect(res.parseErrors).toEqual([{ row: 4, error: 'unparseable amount' }]);
+    expect(res.imported).toBe(1);
+    expect(importParsedTransactions).toHaveBeenCalled();
   });
 
   it('returns an empty result for a statement with no transactions', async () => {
@@ -161,19 +166,28 @@ describe('importStatementForAgent', () => {
 });
 
 describe('undoImportBatch', () => {
-  it('deletes the still-imported rows and reports the allocated ones it refused', async () => {
+  it('deletes the still-imported rows and reports the refusals broken down by status', async () => {
+    // Only 'allocated' is undoable with reverse_bank_allocation; reporting a
+    // reconciled or excluded row as "allocated" would send the caller down a
+    // recovery path that cannot work.
     vi.mocked(sql)
       .mockResolvedValueOnce([{ id: 'batch-1' }] as never)   // batch belongs to company
       .mockResolvedValueOnce([                                 // its transactions
         { id: 'tx-1', status: 'imported' },
         { id: 'tx-2', status: 'imported' },
         { id: 'tx-3', status: 'allocated' },
+        { id: 'tx-4', status: 'reconciled' },
+        { id: 'tx-5', status: 'excluded' },
       ] as never);
     vi.mocked(deleteTransactions).mockResolvedValue(2);
 
     const res = await undoImportBatch(COMPANY, 'batch-1');
 
-    expect(res).toEqual({ deleted: 2, refused: 1 });
+    expect(res).toEqual({
+      deleted: 2,
+      refused: 3,
+      refusedByStatus: { allocated: 1, reconciled: 1, excluded: 1 },
+    });
     expect(deleteTransactions).toHaveBeenCalledWith(COMPANY, ['tx-1', 'tx-2']);
   });
 
