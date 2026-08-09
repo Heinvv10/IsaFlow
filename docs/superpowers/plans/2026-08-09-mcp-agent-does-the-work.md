@@ -514,9 +514,14 @@ git commit -m "feat(mcp): reverse_bank_allocation so agent work is a two-way doo
 ```typescript
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@/lib/neon', () => {
+// Spread the real module so fmtDate stays REAL — the service imports it, and
+// the date behaviour (fmtDate does not roll pg DATEs back a day on this UTC+2
+// server, toISODate does) is exactly what must not be mocked away.
+// Same pattern as tests/unit/services/quoteConvertService.test.ts.
+vi.mock('@/lib/neon', async () => {
+  const original = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
   const sqlFn = Object.assign(vi.fn(), { transaction: vi.fn() });
-  return { sql: sqlFn, withTransaction: vi.fn((cb: (tx: unknown) => unknown) => cb(sqlFn)) };
+  return { ...original, sql: sqlFn };
 });
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
