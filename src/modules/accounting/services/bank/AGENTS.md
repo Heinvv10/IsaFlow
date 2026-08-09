@@ -20,7 +20,9 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/bank/*`. Ev
 - `importBankStatement(companyId, bankAccountId, parsed) / importParsedTransactions(...)`.
 - `startReconciliation(companyId, input) / completeReconciliation / createAdjustmentEntry(companyId, reconId, input)`.
 - `allocateTransaction(companyId, txId, allocationInput, userId)` — posts JE; VAT account via `systemAccountResolver` (subtype) then fallback codes 1140/2120.
-- `splitAllocateTransaction / reverseReconciledTransaction`.
+- `splitAllocateTransaction`.
+- `reverseReconciledTransaction(companyId, bankTxId, userId, opts?: { postingAgent? })` — posts the contra, then resets the tx to `imported`. `opts.postingAgent` is forwarded to `reverseJournalEntry`; omit it and the contra stays `human:<userId>`.
+- `listAgentPostings(companyId, from, to, limit?)` (`agentActivityService`) — journals with `posting_agent LIKE 'mcp:%'`. Returns `reversed` (from `reversed_at`, NOT `status` — reversal never flips status) and `reversalOfId`.
 - `applyRules(companyId, txId)` — rule evaluation by priority ASC (lowest = highest).
 - `buildExpenseJournalFromReceipt(extracted, mapping)` — pure.
 - `extractWithVlm(file) / extractBankStatementWithVlm / extractStatutoryDocWithVlm` — vLLM HTTP call, 120 s default timeout.

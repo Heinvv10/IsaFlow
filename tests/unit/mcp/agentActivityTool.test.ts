@@ -40,4 +40,34 @@ describe('list_agent_postings', () => {
     expect(res.isError).toBe(true);
     expect(listAgentPostings).not.toHaveBeenCalled();
   });
+
+  // ── Finding 2 ────────────────────────────────────────────────────────────
+  // The documented rollback is "list postings, then reverse each". Reversal
+  // does not flip status, so unless the payload distinguishes live from
+  // already-corrected the reviewer re-reverses and the call throws.
+  it('surfaces the reversed flag in the payload so a reviewer can skip what is already corrected', async () => {
+    vi.mocked(listAgentPostings).mockResolvedValue([
+      {
+        journalEntryId: 'je-1', entryNumber: 'JE-1', entryDate: '2026-08-04',
+        description: 'live', postingAgent: 'mcp:allocate_bank_transaction:v1',
+        status: 'posted', reversed: false, reversalOfId: null, amount: 100,
+      },
+      {
+        journalEntryId: 'je-2', entryNumber: 'JE-2', entryDate: '2026-08-04',
+        description: 'already corrected', postingAgent: 'mcp:allocate_bank_transaction:v1',
+        status: 'posted', reversed: true, reversalOfId: null, amount: 250,
+      },
+    ]);
+
+    const res = await listAgentPostingsTool.handler({ from: '2026-08-01', to: '2026-08-31' }, ctx);
+
+    const payload = JSON.parse(res.content[0]!.text) as {
+      postings: { journalEntryId: string; reversed: boolean }[];
+    };
+    expect(payload.postings.map((p) => p.reversed)).toEqual([false, true]);
+  });
+
+  it('tells the agent in its description that status does not signal reversal', () => {
+    expect(listAgentPostingsTool.description).toMatch(/reversed/i);
+  });
 });

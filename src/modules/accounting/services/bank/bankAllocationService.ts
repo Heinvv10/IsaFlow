@@ -469,8 +469,17 @@ export async function splitAllocateTransaction(
 
 // ── Reverse Reconciled ────────────────────────────────────────────────────────
 
+/**
+ * Undo an allocation: post the contra for the matched journal, then return the
+ * bank transaction to 'imported'.
+ *
+ * `opts.postingAgent` is forwarded to the contra journal so an automated caller
+ * (MCP) can attribute its own correction. Omitting opts — every REST and
+ * auto-post-undo call site — leaves the contra on the `human:<userId>` default.
+ */
 export async function reverseReconciledTransaction(
-  companyId: string, bankTxId: string, userId: string
+  companyId: string, bankTxId: string, userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<void> {
   const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
   const tx = txRows[0];
@@ -487,7 +496,7 @@ export async function reverseReconciledTransaction(
       journalEntryId = String(jlRows[0]!.journal_entry_id);
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
-        await reverseJournalEntry(companyId, journalEntryId, userId);
+        await reverseJournalEntry(companyId, journalEntryId, userId, opts);
       } catch (e) {
         throw new Error(`Cannot reverse: ${e instanceof Error ? e.message : 'Journal reversal failed'}`);
       }

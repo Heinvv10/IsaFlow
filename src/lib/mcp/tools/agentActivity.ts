@@ -12,7 +12,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const listAgentPostingsTool: McpTool = {
   name: 'list_agent_postings',
   description:
-    'Every journal entry this connector posted in a date range, with the tool that posted it. Use to review what the agent did before accepting or reversing it. Max 100 rows.',
+    'Every journal entry this connector posted in a date range, with the tool that posted it. Use to review what the agent did before accepting or reversing it. Each row carries reversed: true once a contra has been posted against it — status stays "posted" after a reversal, so reversed is the only signal that a posting has already been corrected; do not reverse those again. reversalOfId is set when the row is itself a reversal contra. Max 100 rows.',
   scope: 'read:reports',
   write: false,
   inputSchema: {

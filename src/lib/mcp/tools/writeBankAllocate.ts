@@ -22,6 +22,20 @@ import { ok, safeErrorText, toolError } from './toolHelpers';
 const ALLOC_TYPES = ['account', 'supplier', 'customer'] as const;
 type AllocType = (typeof ALLOC_TYPES)[number];
 
+// Same reasoning, same runtime gate. bankAllocationService maps any value it
+// doesn't recognise to `undefined` (mapVatType), which posts the line with NO
+// VAT type at all — a typo like 'zero-rated' silently drops the VAT201
+// classification off a journal that still balances. Reject, never coerce.
+const VAT_CODES = ['standard', 'zero_rated', 'exempt', 'none'] as const;
+type VatCode = (typeof VAT_CODES)[number];
+
+// allocateTransaction gates its supplier/customer branches on `allocType &&
+// entityId`; a falsy entityId falls through to the plain GL-account branch and
+// posts a structurally different journal (no AP/AR control account, no match)
+// under a success response. The REST route over the same service rejects this
+// explicitly — see pages/api/accounting/bank-transactions-action.ts.
+const ENTITY_REQUIRED: readonly AllocType[] = ['supplier', 'customer'];
+
 export const allocateBankTransactionTool: McpTool = {
   name: 'allocate_bank_transaction',
   description:
@@ -38,7 +52,7 @@ export const allocateBankTransactionTool: McpTool = {
       alloc_type: { type: 'string', enum: [...ALLOC_TYPES] },
       entity_id: { type: 'string' },
       invoice_id: { type: 'string' },
-      vat_code: { type: 'string', enum: ['standard', 'zero_rated', 'exempt', 'none'] },
+      vat_code: { type: 'string', enum: [...VAT_CODES] },
       idempotency_key: { type: 'string' },
     },
     required: ['transaction_id', 'contra_account_id', 'idempotency_key'],
@@ -59,6 +73,20 @@ export const allocateBankTransactionTool: McpTool = {
       allocType = rawAllocType as AllocType; // validated by the .includes() check above
     }
 
+    const rawVatCode = args.vat_code;
+    let vatCode: VatCode | undefined;
+    if (rawVatCode !== undefined) {
+      if (typeof rawVatCode !== 'string' || !VAT_CODES.includes(rawVatCode as VatCode)) {
+        return toolError(`vat_code must be one of: ${VAT_CODES.join(', ')}`);
+      }
+      vatCode = rawVatCode as VatCode; // validated by the .includes() check above
+    }
+
+    const entityId = typeof args.entity_id === 'string' ? args.entity_id.trim() : '';
+    if (ENTITY_REQUIRED.includes(allocType) && !entityId) {
+      return toolError(`entity_id is required for ${allocType} allocation`);
+    }
+
     try {
       const result = await allocateTransaction(
         ctx.companyId,                                            // tenant from ctx ONLY
@@ -67,8 +95,8 @@ export const allocateBankTransactionTool: McpTool = {
         ctx.userId,
         typeof args.description === 'string' ? args.description : undefined,
         allocType,
-        typeof args.entity_id === 'string' ? args.entity_id : undefined,
-        typeof args.vat_code === 'string' ? args.vat_code : undefined,
+        entityId || undefined,
+        vatCode,
         undefined,
         undefined,
         undefined,
@@ -105,7 +133,16 @@ export const reverseBankAllocationTool: McpTool = {
     const txId = typeof args.transaction_id === 'string' ? args.transaction_id.trim() : '';
     if (!txId) return toolError('transaction_id is required');
     try {
-      await reverseReconciledTransaction(ctx.companyId, txId, ctx.userId);  // tenant from ctx ONLY
+      // The contra journal is stamped too: without it the agent's own
+      // correction posts as human:<userId> and drops out of
+      // list_agent_postings — the corrective mechanism would be the one write
+      // that escapes the attribution model it depends on.
+      await reverseReconciledTransaction(
+        ctx.companyId,                                            // tenant from ctx ONLY
+        txId,
+        ctx.userId,
+        { postingAgent: mcpPostingAgent('reverse_bank_allocation') },
+      );
       return ok({ transaction_id: txId, reversed: true });
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to reverse the allocation.'));

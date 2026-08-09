@@ -16,7 +16,20 @@ export interface AgentPosting {
   entryDate: string;
   description: string;
   postingAgent: string;
+  /** Ledger status. A reversed entry STAYS 'posted' — see `reversed`. */
   status: string;
+  /**
+   * True once a contra has been posted against this entry.
+   *
+   * Reversal here is metadata (reversed_at), never a status flip — flipping it
+   * dropped the original out of posted-only reports while the contra stayed,
+   * driving accounts to the negative of the original
+   * (journalEntryPostingService). So `status` cannot distinguish a live agent
+   * posting from one already corrected, and reversing twice throws.
+   */
+  reversed: boolean;
+  /** Set when this row is ITSELF the contra of another entry. */
+  reversalOfId: string | null;
   amount: number;
 }
 
@@ -28,7 +41,7 @@ export async function listAgentPostings(
 ): Promise<AgentPosting[]> {
   const rows = (await sql`
     SELECT je.id, je.entry_number, je.entry_date, je.description,
-           je.posting_agent, je.status,
+           je.posting_agent, je.status, je.reversed_at, je.reversal_of_id,
            COALESCE(SUM(jl.debit), 0) AS amount
     FROM gl_journal_entries je
     LEFT JOIN gl_journal_lines jl
@@ -38,7 +51,7 @@ export async function listAgentPostings(
       AND je.entry_date >= ${fromDate}::DATE
       AND je.entry_date <= ${toDate}::DATE
     GROUP BY je.id, je.entry_number, je.entry_date, je.description,
-             je.posting_agent, je.status
+             je.posting_agent, je.status, je.reversed_at, je.reversal_of_id
     ORDER BY je.entry_date DESC, je.entry_number DESC
     LIMIT ${limit}
   `) as DbRow[];
@@ -50,6 +63,8 @@ export async function listAgentPostings(
     description: String(r.description ?? ''),
     postingAgent: String(r.posting_agent ?? ''),
     status: String(r.status ?? ''),
+    reversed: r.reversed_at != null,
+    reversalOfId: r.reversal_of_id != null ? String(r.reversal_of_id) : null,
     amount: Number(r.amount ?? 0),
   }));
 }

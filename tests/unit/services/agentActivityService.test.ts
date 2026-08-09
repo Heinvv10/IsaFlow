@@ -47,7 +47,7 @@ describe('listAgentPostings', () => {
     vi.mocked(sql).mockResolvedValue([{
       id: 'je-1', entry_number: 'JE-2026-01', entry_date: new Date(2026, 7, 4),
       description: 'Absa line', posting_agent: 'mcp:allocate_bank_transaction:v1',
-      status: 'posted', amount: '1250.00',
+      status: 'posted', reversed_at: null, reversal_of_id: null, amount: '1250.00',
     }] as never);
 
     const rows = await listAgentPostings('company-1', '2026-08-01', '2026-08-31');
@@ -55,7 +55,49 @@ describe('listAgentPostings', () => {
     expect(rows).toEqual([{
       journalEntryId: 'je-1', entryNumber: 'JE-2026-01', entryDate: '2026-08-04',
       description: 'Absa line', postingAgent: 'mcp:allocate_bank_transaction:v1',
-      status: 'posted', amount: 1250,
+      status: 'posted', reversed: false, reversalOfId: null, amount: 1250,
     }]);
+  });
+
+  // ── Finding 2: a corrected posting must not look identical to a live one ──
+  // Reversal in this codebase does NOT flip status (journalEntryPostingService
+  // :112-118 — flipping it drove reversed accounts to the negative of the
+  // original). So `status` alone cannot tell a reviewer what they have already
+  // corrected, and a second reverse attempt on an already-reversed entry throws.
+  it('flags an already-reversed posting even though its status is still "posted"', async () => {
+    vi.mocked(sql).mockResolvedValue([{
+      id: 'je-1', entry_number: 'JE-2026-01', entry_date: '2026-08-04',
+      description: 'Absa line', posting_agent: 'mcp:allocate_bank_transaction:v1',
+      status: 'posted', reversed_at: new Date(2026, 7, 5), reversal_of_id: null,
+      amount: '1250.00',
+    }] as never);
+
+    const rows = await listAgentPostings('company-1', '2026-08-01', '2026-08-31');
+
+    expect(rows[0]!.status).toBe('posted');
+    expect(rows[0]!.reversed).toBe(true);
+  });
+
+  it('marks a row that is itself a reversal contra via reversal_of_id', async () => {
+    vi.mocked(sql).mockResolvedValue([{
+      id: 'je-2', entry_number: 'JE-2026-02', entry_date: '2026-08-05',
+      description: 'Reversal of JE-2026-01', posting_agent: 'mcp:reverse_bank_allocation:v1',
+      status: 'posted', reversed_at: null, reversal_of_id: 'je-1', amount: '1250.00',
+    }] as never);
+
+    const rows = await listAgentPostings('company-1', '2026-08-01', '2026-08-31');
+
+    expect(rows[0]!.reversed).toBe(false);
+    expect(rows[0]!.reversalOfId).toBe('je-1');
+  });
+
+  it('selects the reversal metadata columns — status alone cannot answer "already corrected?"', async () => {
+    vi.mocked(sql).mockResolvedValue([] as never);
+
+    await listAgentPostings('company-1', '2026-08-01', '2026-08-31');
+
+    const queryText = (vi.mocked(sql).mock.calls[0]![0] as unknown as TemplateStringsArray).join('?');
+    expect(queryText).toMatch(/je\.reversed_at/);
+    expect(queryText).toMatch(/je\.reversal_of_id/);
   });
 });
