@@ -5,6 +5,8 @@
  * claude.ai / Codex self-register before the user ever logs in). Creates
  * PUBLIC clients only: no client_secret, token_endpoint_auth_method 'none',
  * PKCE mandatory at consent (pages/api/oauth/consent.ts) and token exchange.
+ * A client that ASKS for a confidential auth method is downgraded to public
+ * rather than rejected (RFC 7591 §3.2.1) — see the note at that check.
  *
  * Abuse controls: 10 registrations/hour/IP ('oauth-register' bucket),
  * ≤5 redirect URIs, https-only redirect URIs except RFC 8252 loopback
@@ -122,11 +124,14 @@ const handler: NextApiHandler = async (req, res) => {
   if (responseTypes.some((r) => !SUPPORTED_RESPONSE_TYPES.includes(String(r)))) {
     return res.status(400).json(rfcError('invalid_client_metadata', 'Only the code response type is supported'));
   }
-  if (body.token_endpoint_auth_method !== undefined && body.token_endpoint_auth_method !== 'none') {
-    return res.status(400).json(
-      rfcError('invalid_client_metadata', 'Dynamic registration issues public clients only (token_endpoint_auth_method "none")'),
-    );
-  }
+  // token_endpoint_auth_method is deliberately NOT validated. RFC 7591 §3.2.1
+  // lets the AS replace requested metadata with what it will actually honour,
+  // and §3.1 requires the client to use the values returned in the response.
+  // claude.ai's web connector requests 'client_secret_post'; rejecting that
+  // stopped it registering at all ("Couldn't register with IsaFlow's sign-in
+  // service"). We always issue a PUBLIC client and echo 'none' below, so the
+  // client downgrades to PKCE — no secret is ever minted from this
+  // unauthenticated endpoint, which is the property the old 400 protected.
 
   // Global cap — bounds total registrations/hour across ALL IPs so IP rotation
   // can't grow oauth_apps unbounded within the 30-day prune window. Charged
