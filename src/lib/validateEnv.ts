@@ -1,3 +1,5 @@
+import { parse as parseConnectionString } from 'pg-connection-string';
+
 // ENCRYPTION_KEY is required — the app must not start without encryption configured.
 // All fields encrypted at rest (tokens, secrets) depend on this key being present.
 // PORTAL_JWT_SECRET added (pentest L3) — used by both AFS portal and legacy AR
@@ -48,6 +50,68 @@ function assertProductionUrl(name: string, expectedHost?: string): void {
   }
 }
 
+// 2026-08-09 incident: prod's PLATFORM_ADMIN_DATABASE_URL named `isaflow_dev`
+// while DATABASE_URL named `isaflow`. withPlatformAdmin routes every
+// /api/admin/* query through the platform-admin pool (lib/neon prefers the ALS
+// request client), so the whole admin console read and wrote the dev database
+// for ~3.5 months while auth still resolved against prod. A presence check
+// cannot catch that — compare the database names the URLs actually target.
+// Host and port are deliberately NOT compared: reaching the same database via
+// a pooler endpoint on a different port is a legitimate configuration.
+const PRIVILEGED_DB_URL_VARS = [
+  'PLATFORM_ADMIN_DATABASE_URL',
+  'MIGRATION_ADMIN_DATABASE_URL',
+] as const;
+
+// Read the database a connection string names, and require that it names one.
+//
+// Parse with pg's own parser rather than `new URL()`: a `socket:` URL carries
+// its database in `?db=`, not the path, so two sockets differing only by
+// database would compare equal — the exact false negative this guard exists to
+// prevent. The parser also percent-decodes, so `/isa%66low` and `/isaflow` are
+// one name.
+//
+// When a string omits its database, pg falls back through PGDATABASE and then
+// the connecting role's name. Deliberately NOT modelled here. Reproducing that
+// order is where this guard kept going wrong, and an implicit database is the
+// same hazard as a mismatched one: `postgresql://platform_admin@host` quietly
+// sends the admin pool to a database named after its role. Requiring the name
+// outright is both simpler and stricter than resolving the fallback. Every
+// environment already names it, so nothing legitimate is rejected.
+// `expected` is the database DATABASE_URL resolved to, so the example in the
+// message is the name this variable actually has to carry. Without it the hint
+// is a hardcoded literal, and an operator who pastes it verbatim in dev clears
+// this check only to trip the mismatch check on the next line. Absent when
+// validating DATABASE_URL itself — there is no resolved name to suggest yet.
+function requireDatabaseName(varName: string, value: string, expected?: string): string {
+  const database = parseConnectionString(value).database;
+  if (typeof database !== 'string' || database.length === 0) {
+    throw new Error(
+      `${varName} must name a database explicitly (e.g. …:5432/${expected ?? 'isaflow'}). ` +
+        'Without one, Postgres falls back to PGDATABASE or the role name, which silently ' +
+        'sends this pool to a different database than the application.'
+    );
+  }
+  return database;
+}
+
+function assertPrivilegedPoolsTargetAppDatabase(): void {
+  const appDb = requireDatabaseName('DATABASE_URL', process.env.DATABASE_URL as string);
+  for (const varName of PRIVILEGED_DB_URL_VARS) {
+    const value = process.env[varName];
+    // MIGRATION_ADMIN_DATABASE_URL is optional; PLATFORM_ADMIN_DATABASE_URL is
+    // already guaranteed present by REQUIRED_VARS above.
+    if (!value) continue;
+    const db = requireDatabaseName(varName, value, appDb);
+    if (db !== appDb) {
+      throw new Error(
+        `${varName} targets database "${db}" but DATABASE_URL targets "${appDb}" — ` +
+          'privileged pools must use the same database as the application.'
+      );
+    }
+  }
+}
+
 // M7: secrets must be long enough not to be offline-forgeable. PORTAL/EXTENSION
 // secrets are length-checked in their own modules; assert the rest here.
 const MIN_SECRET_LEN = 32;
@@ -64,6 +128,7 @@ export function validateEnv(): void {
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
+  assertPrivilegedPoolsTargetAppDatabase();
   if (process.env.NODE_ENV === 'production') {
     assertProductionUrl('NEXT_PUBLIC_ADMIN_URL', 'admin.isaflow.co.za');
     // M7: enforce minimum secret strength in production only (dev/test may use
