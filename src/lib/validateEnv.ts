@@ -48,6 +48,50 @@ function assertProductionUrl(name: string, expectedHost?: string): void {
   }
 }
 
+// 2026-08-09 incident: prod's PLATFORM_ADMIN_DATABASE_URL named `isaflow_dev`
+// while DATABASE_URL named `isaflow`. withPlatformAdmin routes every
+// /api/admin/* query through the platform-admin pool (lib/neon prefers the ALS
+// request client), so the whole admin console read and wrote the dev database
+// for ~3.5 months while auth still resolved against prod. A presence check
+// cannot catch that — compare the database names the URLs actually target.
+// Host and port are deliberately NOT compared: reaching the same database via
+// a pooler endpoint on a different port is a legitimate configuration.
+const PRIVILEGED_DB_URL_VARS = [
+  'PLATFORM_ADMIN_DATABASE_URL',
+  'MIGRATION_ADMIN_DATABASE_URL',
+] as const;
+
+function databaseNameOf(varName: string, value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${varName} is not a valid database connection URL`);
+  }
+  const name = parsed.pathname.replace(/^\//, '');
+  if (!name) {
+    throw new Error(`${varName} does not name a database`);
+  }
+  return name;
+}
+
+function assertPrivilegedPoolsTargetAppDatabase(): void {
+  const appDb = databaseNameOf('DATABASE_URL', process.env.DATABASE_URL as string);
+  for (const varName of PRIVILEGED_DB_URL_VARS) {
+    const value = process.env[varName];
+    // MIGRATION_ADMIN_DATABASE_URL is optional; PLATFORM_ADMIN_DATABASE_URL is
+    // already guaranteed present by REQUIRED_VARS above.
+    if (!value) continue;
+    const db = databaseNameOf(varName, value);
+    if (db !== appDb) {
+      throw new Error(
+        `${varName} targets database "${db}" but DATABASE_URL targets "${appDb}" — ` +
+          'privileged pools must use the same database as the application.'
+      );
+    }
+  }
+}
+
 // M7: secrets must be long enough not to be offline-forgeable. PORTAL/EXTENSION
 // secrets are length-checked in their own modules; assert the rest here.
 const MIN_SECRET_LEN = 32;
@@ -64,6 +108,7 @@ export function validateEnv(): void {
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
+  assertPrivilegedPoolsTargetAppDatabase();
   if (process.env.NODE_ENV === 'production') {
     assertProductionUrl('NEXT_PUBLIC_ADMIN_URL', 'admin.isaflow.co.za');
     // M7: enforce minimum secret strength in production only (dev/test may use
