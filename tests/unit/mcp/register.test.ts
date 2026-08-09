@@ -194,6 +194,17 @@ describe('POST /api/oauth/register', () => {
       badGrant,
     );
     expect(badGrant.statusCode).toBe(400);
+    expect(badGrant.body!.error).toBe('invalid_client_metadata');
+
+    const badResponse = makeRes();
+    await handler(
+      makeReq({ redirect_uris: ['https://c.example/cb'], response_types: ['token'] }),
+      badResponse,
+    );
+    expect(badResponse.statusCode).toBe(400);
+    expect(badResponse.body!.error).toBe('invalid_client_metadata');
+
+    expect(registerOauthApp).not.toHaveBeenCalled();
   });
 
   it('non-POST → 405', async () => {
