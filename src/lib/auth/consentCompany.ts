@@ -52,8 +52,9 @@ export function resolveConsentCompany(
   const active = activeCompanyId
     ? memberships.find((m) => m.companyId === activeCompanyId)
     : undefined;
-  // memberships is non-empty (guarded above), so [0] is always present —
-  // spelled out rather than asserted so noUncheckedIndexedAccess stays honest.
+  // A cast, deliberately: the length check above already proves [0] exists,
+  // but noUncheckedIndexedAccess can't see that, and destructuring trips it
+  // too — there is no cast-free spelling. The guard is what makes it sound.
   const first = memberships[0] as ConsentCompanyMembership;
   const fallback = memberships.find((m) => m.isDefault) ?? first;
 
