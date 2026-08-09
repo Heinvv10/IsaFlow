@@ -18,6 +18,7 @@ import { listCustomersTool, listSuppliersTool } from './tools/contacts';
 import { bankAccountsStatusTool, listBankTransactionsTool } from './tools/bank';
 import { getMatchCandidatesTool } from './tools/bankMatch';
 import { vatStatusTool } from './tools/vat';
+import { listAgentPostingsTool } from './tools/agentActivity';
 import {
   createDraftInvoiceTool,
   createDraftQuoteTool,
@@ -28,7 +29,7 @@ import { suggestBankAllocationTool } from './tools/writeBank';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
 
 export const MCP_TOOLS = [
-  // read (16)
+  // read (17)
   companyProfileTool,
   trialBalanceTool,
   profitAndLossTool,
@@ -45,6 +46,7 @@ export const MCP_TOOLS = [
   listBankTransactionsTool,
   getMatchCandidatesTool,
   vatStatusTool,
+  listAgentPostingsTool,
   // write (8) — drafts + suggest are write; post/finalize/allocate/reverse additionally require write:post
   createDraftInvoiceTool,
   createDraftQuoteTool,
