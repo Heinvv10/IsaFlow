@@ -208,7 +208,9 @@ In `src/lib/mcp/registry.ts`, import `getMatchCandidatesTool` from `./tools/bank
 
 - [ ] **Step 6: Verify the registry exposes it**
 
-Run: `bunx vitest run tests/unit/mcp/` — all green. (No test pins the tool count, so nothing needs renumbering; the transport test's `length: 21` is an unrelated batch of 21 ping requests.)
+Run: `bunx vitest run tests/unit/mcp/` — all green.
+
+**Registering a tool touches THREE files, not one** (discovered during Task 2): `src/lib/mcp/registry.ts` (or `toolIndex.ts`), `src/lib/mcp/clientMetadata.ts` (`CLIENT_MCP_TOOL_NAMES` — a drift guard asserts `MCP_TOOLS.length === CLIENT_MCP_TOOL_NAMES.length`), and `tests/unit/mcp/tools-read.test.ts`, which pins the **read**-tool count (`expect(READ_TOOLS).toHaveLength(N)`) and its docblock. Read tools bump that number; write tools do not, but every new tool bumps `CLIENT_MCP_TOOL_NAMES`.
 
 - [ ] **Step 7: Commit**
 
