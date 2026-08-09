@@ -17,7 +17,7 @@ Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tena
 
 ## Critical Rules (ALL code, ALL agents)
 
-- **Branch first**: Parallel Claude sessions run on this repo. NEVER edit on `master`. First action of any code-editing task is `git checkout -b <name>`.
+- **Branch first**: Parallel Claude sessions run on this repo — branch isolation is what stops one session's commit sweeping up another's unstaged files. NEVER edit on `master`. First action of any code-editing task is `git checkout -b <name>`.
 - **No stubs**: When a deploy/CI gate fails on a missing module, build the real thing. Never commit `return null` / TODO placeholders to satisfy a typecheck.
 - **Multi-tenant**: ALWAYS add `company_id` to every DB query. Never return data across tenants.
 - **DB**: Postgres on **Supabase** (self-hosted on velo-server). Use `sql` tagged template from `@/lib/neon` (legacy import path — the runtime is pg-backed, not Neon Serverless). NEVER string concatenation.
