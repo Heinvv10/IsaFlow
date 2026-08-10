@@ -11,6 +11,7 @@ import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
+import { debitForTool, refundForTool } from './flowMetering';
 
 function errorResult(text: string): McpToolResult {
   return { content: [{ type: 'text', text }], isError: true };
@@ -110,6 +111,20 @@ export class McpRegistry {
       return result;
     };
 
+    // PAYG debit. Deliberately OUTSIDE the savepoint below: a debit taken
+    // inside it is rolled back automatically when a write tool throws, and the
+    // explicit refund on that same path would then credit the company twice.
+    // Also deliberately AFTER the replay check — a retried idempotent call
+    // returns the stored result without re-running the handler, so charging it
+    // again would bill twice for one operation.
+    const debit = await debitForTool(ctx.companyId, name, args);
+    if (!debit.ok) {
+      return reject(
+        `Insufficient Flows: ${name} costs ${debit.required} and the wallet holds ${debit.balance}. Top up to continue.`,
+        idempotencyKey,
+      );
+    }
+
     try {
       // Write tools run inside a SAVEPOINT: the registry catches a handler
       // throw and returns a 200 isError envelope (MCP protocol), so the
@@ -117,13 +132,24 @@ export class McpRegistry {
       // partial write the service made before throwing. The savepoint rolls
       // that partial write back — matching the REST route's rollback-on-throw
       // (the audit 'error' below runs OUTSIDE it, on the surviving request tx).
-      return tool.write ? await withSavepoint(`mcp_${name}`, runAndAudit) : await runAndAudit();
+      const result = tool.write
+        ? await withSavepoint(`mcp_${name}`, runAndAudit)
+        : await runAndAudit();
+
+      // A handler that returns isError did no work worth charging for. It
+      // never throws, so the savepoint does not roll back and this is the only
+      // place the debit can be undone.
+      if (result.isError && debit.handle) {
+        await refundForTool(ctx.companyId, debit.handle);
+      }
+      return result;
     } catch (err) {
       log.error(
         'MCP tool handler failed',
         { tool: name, companyId: ctx.companyId, err: err instanceof Error ? err.message : String(err) },
         'mcp',
       );
+      if (debit.handle) await refundForTool(ctx.companyId, debit.handle);
       await recordToolCall({
         ctx, tool: name, argsHash, idempotencyKey,
         status: 'error', result: null, durationMs: Date.now() - started,
