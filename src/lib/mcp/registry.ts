@@ -11,6 +11,7 @@ import { withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
+import { debitForTool, refundForTool } from './flowMetering';
 
 function errorResult(text: string): McpToolResult {
   return { content: [{ type: 'text', text }], isError: true };
@@ -110,6 +111,28 @@ export class McpRegistry {
       return result;
     };
 
+    // PAYG debit. Deliberately OUTSIDE the savepoint below: a debit taken
+    // inside it is rolled back automatically when a write tool throws, and the
+    // explicit refund on that same path would then credit the company twice.
+    // Also deliberately AFTER the replay check — a retried idempotent call
+    // returns the stored result without re-running the handler, so charging it
+    // again would bill twice for one operation.
+    const debit = await debitForTool(ctx.companyId, name, args);
+    if (!debit.ok) {
+      // Audited WITHOUT the idempotency key, deliberately. The partial unique
+      // index is (company_id, tool, idempotency_key) with no status column, and
+      // recordToolCall does ON CONFLICT DO NOTHING — so a 'rejected' row here
+      // would permanently occupy the key. The later successful call's 'ok' row
+      // would be silently dropped, and findIdempotentReplay (which matches only
+      // status='ok') would never see it again: every retry of that key would
+      // re-run the handler, creating duplicate documents and duplicate debits.
+      // Running out of Flows must not burn the key.
+      return reject(
+        `Insufficient Flows: ${name} costs ${debit.required} and the wallet holds ${debit.balance}. Top up to continue.`,
+        null,
+      );
+    }
+
     try {
       // Write tools run inside a SAVEPOINT: the registry catches a handler
       // throw and returns a 200 isError envelope (MCP protocol), so the
@@ -117,13 +140,29 @@ export class McpRegistry {
       // partial write the service made before throwing. The savepoint rolls
       // that partial write back — matching the REST route's rollback-on-throw
       // (the audit 'error' below runs OUTSIDE it, on the surviving request tx).
-      return tool.write ? await withSavepoint(`mcp_${name}`, runAndAudit) : await runAndAudit();
+      const result = tool.write
+        ? await withSavepoint(`mcp_${name}`, runAndAudit)
+        : await runAndAudit();
+
+      // Refund when the call cost the company nothing worth billing: an error,
+      // or a success that did no billable work (`billable: false` — e.g. a
+      // statement resend where every row was already imported). Neither throws,
+      // so the savepoint does not roll back and this is the only place the
+      // debit can be undone.
+      const didBillableWork = result.isError !== true && result.billable !== false;
+      if (!didBillableWork && debit.handle) {
+        await refundForTool(ctx.companyId, debit.handle);
+      }
+      // `billable` is registry-internal — never put it on the wire.
+      const { billable: _billable, ...wire } = result;
+      return wire;
     } catch (err) {
       log.error(
         'MCP tool handler failed',
         { tool: name, companyId: ctx.companyId, err: err instanceof Error ? err.message : String(err) },
         'mcp',
       );
+      if (debit.handle) await refundForTool(ctx.companyId, debit.handle);
       await recordToolCall({
         ctx, tool: name, argsHash, idempotencyKey,
         status: 'error', result: null, durationMs: Date.now() - started,
