@@ -50,9 +50,10 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
   2026-07-18 — do not re-open).
 - **Ownership is the tool handler's job.** Any id an agent supplies that
   becomes a foreign key (`account_id`, `customer_id`, `entity_id`,
-  `contra_account_id`) must be checked against `ctx.companyId` BEFORE the
-  service call — `accountsBelongToCompany` / `customerBelongsToCompany` /
-  `supplierBelongsToCompany`. The services do not re-check the tenant and
+  `contra_account_id`, `bank_account_id`) must be checked against
+  `ctx.companyId` BEFORE the service call — `accountsBelongToCompany` /
+  `customerBelongsToCompany` / `supplierBelongsToCompany` /
+  `bankGlAccountBelongsToCompany`. The services do not re-check the tenant and
   there is no composite `(id, company_id)` FK, so nothing downstream stops a
   cross-tenant write. Refuse with the shared `NOT_FOUND` constant: a distinct
   "belongs to another company" reply is an existence oracle.
@@ -67,5 +68,11 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
 
 ## Recent changes
 
+- 2026-08-09: `import_bank_statement` + `undo_bank_import` (27 tools). Both are
+  `write` but NOT `requiresPost` — importing suppresses the auto-post sweep, so
+  postings still only arrive via `allocate_bank_transaction`. The transport body
+  cap moved 32kb → 1mb to fit a statement file; the endpoint's 120/min-per-company
+  and 300/min-per-IP limits are unchanged, and the import tool adds its own
+  60/hour cap mirroring `bank-transactions-bulk-commit`.
 - Phase 2 (2026-07-19): types/registry/audit created with security-proof
   tests; migration 507 `mcp_tool_calls`.

@@ -344,13 +344,14 @@ describe('write-tool failure paths', () => {
 });
 
 describe('write-tool manifest invariants', () => {
-  const WRITE_NAMES = [
-    'create_draft_invoice', 'create_draft_quote', 'create_draft_journal',
-    'suggest_bank_allocation', 'post_journal', 'finalize_invoice',
-    'allocate_bank_transaction', 'reverse_bank_allocation',
-  ];
+  // Derived from the registry, not hand-listed: a hand-listed array silently
+  // stops covering each new write tool, which is exactly what happened when
+  // import_bank_statement and undo_bank_import were added — these invariants
+  // then guarded 8 of 10 tools while still claiming "all eight".
+  const WRITE_NAMES = MCP_TOOLS.filter((t) => t.write).map((t) => t.name);
 
-  it('all eight write tools are write:true with additionalProperties:false + idempotency_key', () => {
+  it('every write tool is registered write:true with additionalProperties:false + idempotency_key', () => {
+    expect(WRITE_NAMES.length).toBeGreaterThanOrEqual(10);
     for (const name of WRITE_NAMES) {
       const t = tool(name);
       expect(t.write).toBe(true);
@@ -396,12 +397,24 @@ describe('write-tool manifest invariants', () => {
       finalize_invoice: { invoice_id: 'inv-1', ...KEY },
       allocate_bank_transaction: { transaction_id: 'tx-1', contra_account_id: 'acc-1', ...KEY },
       reverse_bank_allocation: { transaction_id: 'tx-1', ...KEY },
+      // These two reach services this file does not mock, so they are driven
+      // down their argument-validation path instead. The scan cares about what
+      // ends up in the envelope, and an error envelope is still an envelope.
+      import_bank_statement: { ...KEY },
+      undo_bank_import: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
       corpus += JSON.stringify(await tool(name).handler(argsByTool[name]!, ctx()));
     }
-    for (const needle of ['pat_', 'oat_', 'ort_', 'cls_', 'Bearer ', 'apikey', 'Set-Cookie']) {
+    // Shape-based credential matching — see the same scan in tools-read.test.ts
+    // for why prefix + >=16 alphanumerics beats both a substring scan (false
+    // positive on import_bank_statement) and a boundary rule (misses a token
+    // glued to a preceding word).
+    for (const prefix of ['pat_', 'oat_', 'ort_', 'cls_']) {
+      expect(corpus).not.toMatch(new RegExp(`${prefix}[A-Za-z0-9]{16,}`));
+    }
+    for (const needle of ['Bearer ', 'apikey', 'Set-Cookie']) {
       expect(corpus).not.toContain(needle);
     }
   });

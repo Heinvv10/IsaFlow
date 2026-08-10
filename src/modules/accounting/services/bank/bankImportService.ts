@@ -133,6 +133,24 @@ export async function importParsedTransactions(
     sourceFilename?: string;
     importedBy?: string;
     bulkContext?: BulkImportContext;
+    /**
+     * Insert the batch and its rows, then stop — skip every post-insert side
+     * effect below. Set by the agent import path, for two reasons:
+     *
+     * 1. sweep() attributes its postings to the system user, so an agent
+     *    import would create journals that never appear in
+     *    list_agent_postings and cannot be undone via the agent-activity
+     *    surface. Agent postings arrive through allocate_bank_transaction.
+     * 2. The two transfer auto-link passes are NOT batch-scoped — the second
+     *    one matches on bank_account_id + status='imported' alone — so they
+     *    flip PRE-EXISTING rows the import never created to 'allocated',
+     *    stamping matched_journal_line_id from someone else's transfer
+     *    journal. An agent later "freeing" such a row with
+     *    reverse_bank_allocation would reverse a legitimate journal.
+     *
+     * The UI path leaves this unset and keeps all three behaviours.
+     */
+    skipPostImportEffects?: boolean;
   } = {},
 ): Promise<{ batchId: string; transactionCount: number; errors: Array<{ row: number; error: string }> }> {
   try {
@@ -182,6 +200,15 @@ export async function importParsedTransactions(
       statementDate,
       bulkImportId,
     }, 'accounting');
+
+    // Everything below mutates rows or posts — see skipPostImportEffects.
+    if (options.skipPostImportEffects) {
+      return {
+        batchId,
+        transactionCount: parseResult.transactions.length,
+        errors: parseResult.errors,
+      };
+    }
 
     // Auto-link newly imported transactions that are the opposite leg of an
     // existing transfer allocation on another bank account (same company).

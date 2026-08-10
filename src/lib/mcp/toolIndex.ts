@@ -27,6 +27,7 @@ import {
 import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
 import { suggestBankAllocationTool } from './tools/writeBank';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
+import { importBankStatementTool, undoBankImportTool } from './tools/writeBankImport';
 
 export const MCP_TOOLS = [
   // read (17)
@@ -47,7 +48,8 @@ export const MCP_TOOLS = [
   getMatchCandidatesTool,
   vatStatusTool,
   listAgentPostingsTool,
-  // write (8) — drafts + suggest are write; post/finalize/allocate/reverse additionally require write:post
+  // write (10) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // additionally require write:post. Import posts nothing, so it stays off write:post.
   createDraftInvoiceTool,
   createDraftQuoteTool,
   createDraftJournalTool,
@@ -56,6 +58,8 @@ export const MCP_TOOLS = [
   finalizeInvoiceTool,
   allocateBankTransactionTool,
   reverseBankAllocationTool,
+  importBankStatementTool,
+  undoBankImportTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

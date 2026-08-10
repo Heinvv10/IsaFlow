@@ -27,6 +27,9 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [] }),
 }));
+vi.mock('@/modules/accounting/services/bank/bankTransferLinkService', () => ({
+  relinkTransferCounterparts: vi.fn().mockResolvedValue(0),
+}));
 
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
@@ -142,5 +145,77 @@ describe('importParsedTransactions — bulk context', () => {
 
     expect(result).toEqual({ batchId: '', transactionCount: 0, errors: [] });
     expect(withTransactionMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The auto-post gate itself, exercised through the real branch rather than
+ * through a caller's arguments. sweep() attributes its postings to the system
+ * user, so an agent import that reached it would create journals invisible to
+ * list_agent_postings — asserting only that skipAutoPost was *passed* proves
+ * nothing about whether it is honoured.
+ */
+describe('importParsedTransactions — post-import side-effect gate', () => {
+  beforeEach(() => {
+    // clearAllMocks, not just the two locals: sweep is module-mocked, and
+    // without clearing it a call from the previous test counts as this one's.
+    vi.clearAllMocks();
+    withTransactionMock.mockReset();
+    sqlMock.mockReset();
+    // Non-empty: the sweep only runs when the outflow SELECT returns rows.
+    sqlMock.mockResolvedValue([{ id: 'tx-outflow-1' }]);
+    withTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = () => Promise.resolve([]);
+      return fn(tx);
+    });
+  });
+
+  it('runs the sweep by default — the UI import path must keep auto-posting', async () => {
+    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
+
+    await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
+
+    expect(sweep).toHaveBeenCalled();
+    expect(vi.mocked(sweep).mock.calls[0]![2]).toBe('import');
+  });
+
+  it('skipPostImportEffects suppresses the sweep so an import posts nothing', async () => {
+    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
+
+    await importParsedTransactions(
+      'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
+      { skipPostImportEffects: true },
+    );
+
+    expect(sweep).not.toHaveBeenCalled();
+  });
+
+  it('skipPostImportEffects touches no row the import did not create', async () => {
+    // The two transfer auto-link passes are not batch-scoped — the relink
+    // matches on bank_account_id + status='imported' alone — so leaving them
+    // running would flip PRE-EXISTING rows to 'allocated'.
+    const { relinkTransferCounterparts } =
+      await import('@/modules/accounting/services/bank/bankTransferLinkService');
+
+    await importParsedTransactions(
+      'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
+      { skipPostImportEffects: true },
+    );
+
+    expect(relinkTransferCounterparts).not.toHaveBeenCalled();
+    // No UPDATE ... SET status='allocated' may be issued either.
+    const updates = sqlMock.mock.calls
+      .map((c) => (Array.isArray(c[0]) ? (c[0] as string[]).join('?') : ''))
+      .filter((text) => /UPDATE\s+bank_transactions/i.test(text));
+    expect(updates).toHaveLength(0);
+  });
+
+  it('still runs the transfer relink on the normal UI path', async () => {
+    const { relinkTransferCounterparts } =
+      await import('@/modules/accounting/services/bank/bankTransferLinkService');
+
+    await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
+
+    expect(relinkTransferCounterparts).toHaveBeenCalled();
   });
 });
