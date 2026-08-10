@@ -119,9 +119,17 @@ export class McpRegistry {
     // again would bill twice for one operation.
     const debit = await debitForTool(ctx.companyId, name, args);
     if (!debit.ok) {
+      // Audited WITHOUT the idempotency key, deliberately. The partial unique
+      // index is (company_id, tool, idempotency_key) with no status column, and
+      // recordToolCall does ON CONFLICT DO NOTHING — so a 'rejected' row here
+      // would permanently occupy the key. The later successful call's 'ok' row
+      // would be silently dropped, and findIdempotentReplay (which matches only
+      // status='ok') would never see it again: every retry of that key would
+      // re-run the handler, creating duplicate documents and duplicate debits.
+      // Running out of Flows must not burn the key.
       return reject(
         `Insufficient Flows: ${name} costs ${debit.required} and the wallet holds ${debit.balance}. Top up to continue.`,
-        idempotencyKey,
+        null,
       );
     }
 
@@ -136,13 +144,18 @@ export class McpRegistry {
         ? await withSavepoint(`mcp_${name}`, runAndAudit)
         : await runAndAudit();
 
-      // A handler that returns isError did no work worth charging for. It
-      // never throws, so the savepoint does not roll back and this is the only
-      // place the debit can be undone.
-      if (result.isError && debit.handle) {
+      // Refund when the call cost the company nothing worth billing: an error,
+      // or a success that did no billable work (`billable: false` — e.g. a
+      // statement resend where every row was already imported). Neither throws,
+      // so the savepoint does not roll back and this is the only place the
+      // debit can be undone.
+      const didBillableWork = result.isError !== true && result.billable !== false;
+      if (!didBillableWork && debit.handle) {
         await refundForTool(ctx.companyId, debit.handle);
       }
-      return result;
+      // `billable` is registry-internal — never put it on the wire.
+      const { billable: _billable, ...wire } = result;
+      return wire;
     } catch (err) {
       log.error(
         'MCP tool handler failed',

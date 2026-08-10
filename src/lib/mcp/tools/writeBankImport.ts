@@ -121,7 +121,7 @@ export const importBankStatementTool: McpTool = {
         sourceFilename: 'mcp-import',
       });
 
-      return ok({
+      const envelope = ok({
         batch_id: result.batchId,
         dry_run: args.dry_run === true,
         imported: result.imported,
@@ -130,6 +130,11 @@ export const importBankStatementTool: McpTool = {
         net_total: result.netTotal,
         parse_errors: result.parseErrors,
       });
+      // Nothing was written — every row was already present. The description
+      // tells the agent re-sending is safe, so it must also be free; charging
+      // for a no-op would contradict the dry_run rule directly above it.
+      if (result.batchId === null) envelope.billable = false;
+      return envelope;
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to import the statement.'));
     }

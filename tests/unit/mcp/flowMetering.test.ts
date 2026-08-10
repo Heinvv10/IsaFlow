@@ -6,10 +6,12 @@
  * same operations charge through withFlowMeter in the UI: an agent could pull a
  * trial balance (10 Flows in the app) or create an invoice (3) for free.
  *
- * Rates are UI parity — a tool costs what the equivalent metered endpoint
- * costs, and costs nothing when the UI has no metered equivalent. Corrections
- * are free: charging a company to undo the agent's own mistake is hostile, and
- * it would also discourage using the very controls the safety model rests on.
+ * Pricing is WRITES ONLY. A write costs what the equivalent metered endpoint
+ * costs in the app; every read is free. Full UI parity was the first cut and an
+ * adversarial review priced it out — 10-Flow reads at the endpoint's 120/min
+ * drain a month's budget in under three minutes, from an ordinary retry loop.
+ * Corrections stay free too: charging to undo the agent's own mistake is
+ * hostile and would discourage using the controls the safety model rests on.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -50,14 +52,23 @@ beforeEach(() => {
   vi.mocked(deductFlows).mockResolvedValue({ balanceAfter: 90 } as never);
 });
 
-describe('flowOperationFor — UI parity map', () => {
-  it('charges reports at the same code the metered UI endpoint uses', () => {
-    expect(flowOperationFor('trial_balance', {})).toBe('report.tb');
-    expect(flowOperationFor('profit_and_loss', {})).toBe('report.pnl');
-    expect(flowOperationFor('balance_sheet', {})).toBe('report.bs');
-    expect(flowOperationFor('aged_debtors', {})).toBe('report.age');
-    expect(flowOperationFor('aged_creditors', {})).toBe('report.age');
-    expect(flowOperationFor('vat_status', {})).toBe('vat.return');
+describe('flowOperationFor — writes-only map', () => {
+  it('does not charge for reports, unlike the UI — a 10-Flow read at 120/min drains the wallet', () => {
+    // 10 Flows x 120 calls/min = 1,200/min; the nudge thresholds top out at
+    // 2,900/month, so a month's budget goes in under three minutes, 402s the
+    // human UI sharing the wallet, and would drive auto-topup once v2 payment
+    // tokens exist. Reads are free on this surface.
+    for (const name of [
+      'trial_balance', 'profit_and_loss', 'balance_sheet',
+      'aged_debtors', 'aged_creditors', 'vat_status',
+    ]) {
+      expect(flowOperationFor(name, {})).toBeNull();
+    }
+  });
+
+  it('charges no read tool at all', () => {
+    const charged = MCP_TOOLS.filter((t) => !t.write && flowOperationFor(t.name, {}) !== null);
+    expect(charged.map((t) => t.name)).toEqual([]);
   });
 
   it('charges document creation at the UI rate', () => {
@@ -108,17 +119,17 @@ describe('flowOperationFor — UI parity map', () => {
 
 describe('debitForTool', () => {
   it('charges a PAYG company the catalog cost before the tool runs', async () => {
-    const res = await debitForTool(COMPANY, 'trial_balance', {});
+    const res = await debitForTool(COMPANY, 'create_draft_journal', {});
 
     expect(res.ok).toBe(true);
-    expect(vi.mocked(deductFlows).mock.calls[0]![1]).toBe(10);
-    expect(vi.mocked(deductFlows).mock.calls[0]![2]).toBe('report.tb');
+    expect(vi.mocked(deductFlows).mock.calls[0]![1]).toBe(3);
+    expect(vi.mocked(deductFlows).mock.calls[0]![2]).toBe('journal.create');
   });
 
   it('does not charge a subscription company', async () => {
     vi.mocked(getCompanyPlan).mockResolvedValue({ planCode: 'growth' } as never);
 
-    const res = await debitForTool(COMPANY, 'trial_balance', {});
+    const res = await debitForTool(COMPANY, 'create_draft_journal', {});
 
     expect(res.ok).toBe(true);
     expect(deductFlows).not.toHaveBeenCalled();
@@ -134,41 +145,41 @@ describe('debitForTool', () => {
 
   it('retries once after a successful auto top-up', async () => {
     vi.mocked(deductFlows)
-      .mockRejectedValueOnce(new InsufficientFlowsError(2, 10) as never)
+      .mockRejectedValueOnce(new InsufficientFlowsError(2, 3) as never)
       .mockResolvedValueOnce({ balanceAfter: 90 } as never);
     vi.mocked(triggerAutoTopup).mockResolvedValue({ success: true } as never);
 
-    const res = await debitForTool(COMPANY, 'trial_balance', {});
+    const res = await debitForTool(COMPANY, 'create_draft_journal', {});
 
     expect(res.ok).toBe(true);
     expect(deductFlows).toHaveBeenCalledTimes(2);
   });
 
   it('refuses the call when the wallet is empty and top-up fails', async () => {
-    vi.mocked(deductFlows).mockRejectedValue(new InsufficientFlowsError(2, 10) as never);
+    vi.mocked(deductFlows).mockRejectedValue(new InsufficientFlowsError(2, 3) as never);
     vi.mocked(triggerAutoTopup).mockResolvedValue({ success: false } as never);
 
-    const res = await debitForTool(COMPANY, 'trial_balance', {});
+    const res = await debitForTool(COMPANY, 'create_draft_journal', {});
 
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.balance).toBe(2);
-      expect(res.required).toBe(10);
+      expect(res.required).toBe(3);
     }
   });
 });
 
 describe('refundForTool', () => {
   it('returns the exact amount that was debited', async () => {
-    await refundForTool(COMPANY, { code: 'report.tb', cost: 10 });
+    await refundForTool(COMPANY, { code: 'journal.create', cost: 3 });
 
-    expect(vi.mocked(refundFlows).mock.calls[0]![1]).toBe(10);
-    expect(vi.mocked(refundFlows).mock.calls[0]![2]).toBe('report.tb');
+    expect(vi.mocked(refundFlows).mock.calls[0]![1]).toBe(3);
+    expect(vi.mocked(refundFlows).mock.calls[0]![2]).toBe('journal.create');
   });
 
   it('never throws — a failed refund must not turn into a second failure', async () => {
     vi.mocked(refundFlows).mockRejectedValue(new Error('wallet unavailable'));
 
-    await expect(refundForTool(COMPANY, { code: 'report.tb', cost: 10 })).resolves.toBeUndefined();
+    await expect(refundForTool(COMPANY, { code: 'journal.create', cost: 3 })).resolves.toBeUndefined();
   });
 });

@@ -8,14 +8,19 @@
  * lib/billing/withFlowMeter, which cannot be reused directly because MCP tools
  * are dispatched through one endpoint rather than being Next handlers.
  *
- * Pricing is UI parity, decided with Hein 2026-08-09: a tool costs what the
- * equivalent metered endpoint costs, and costs nothing where the UI has no
- * metered equivalent (quotes, GL search, list views, bank allocation — note
- * `bank.allocate` exists in the catalog but no endpoint uses it).
+ * Pricing: WRITES ONLY. A write costs what the equivalent metered endpoint
+ * costs in the app; every read is free.
  *
- * Corrections are deliberately free. Charging to undo the agent's own mistake
- * is hostile, and it would put a price on the reversal controls the whole
- * agent-safety model depends on.
+ * The first cut was full UI parity, including 10 Flows per report. An
+ * adversarial review priced that out: the MCP endpoint allows 120 calls/min, so
+ * 10-Flow reads drain 1,200 Flows/min and exhaust a month's budget in under
+ * three minutes — from an ordinary retry loop, not an attack. It also 402s the
+ * human UI, which shares the wallet. Reads are cheap to serve and are how an
+ * agent orients itself; charging for them buys little and risks a lot.
+ *
+ * Corrections are free for the same class of reason. Charging to undo the
+ * agent's own mistake is hostile, and it would put a price on the reversal
+ * controls the whole agent-safety model depends on.
  */
 
 import { log } from '@/lib/logger';
@@ -62,15 +67,22 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // surface for every other write.
   list_agent_postings: null,
 
-  // ── Reports: same code and cost as the metered UI endpoints ──────────────
-  trial_balance: 'report.tb',
-  profit_and_loss: 'report.pnl',
-  balance_sheet: 'report.bs',
-  aged_debtors: 'report.age',
-  aged_creditors: 'report.age',
-  // vat_status computes the VAT201 boxes live — the same work
-  // reports-vat-return charges for.
-  vat_status: 'vat.return',
+  // ── Reports: free over MCP, unlike the UI ────────────────────────────────
+  // The app charges 10 for each of these. Carrying that across was the initial
+  // decision and it was reversed on evidence: an agent is not rate-limited the
+  // way a human clicking a report is. At the endpoint's 120 calls/min, 10-Flow
+  // reads drain 1,200 Flows/min — a month's budget (the nudge thresholds top
+  // out at 2,900) inside three minutes. That is reachable by an ordinary retry
+  // loop, it 402s the human UI which shares the wallet, and once v2 payment
+  // tokens exist it would drive triggerAutoTopup into repeated card charges.
+  // Metering writes captures what changes the ledger without handing an agent
+  // a way to empty the wallet by reading.
+  trial_balance: null,
+  profit_and_loss: null,
+  balance_sheet: null,
+  aged_debtors: null,
+  aged_creditors: null,
+  vat_status: null,
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',

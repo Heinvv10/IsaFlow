@@ -37,7 +37,7 @@ vi.mock('@/lib/mcp/flowMetering', () => ({
 }));
 
 import { McpRegistry } from '@/lib/mcp/registry';
-import { findIdempotentReplay } from '@/lib/mcp/audit';
+import { findIdempotentReplay, recordToolCall } from '@/lib/mcp/audit';
 import { debitForTool, refundForTool } from '@/lib/mcp/flowMetering';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
 
@@ -91,6 +91,24 @@ describe('registry metering', () => {
     expect(tool.handler).not.toHaveBeenCalled();
   });
 
+  it('does not burn the idempotency key when the wallet is short', async () => {
+    // The partial unique index is (company_id, tool, idempotency_key) with no
+    // status column and recordToolCall does ON CONFLICT DO NOTHING, so a
+    // 'rejected' row carrying the key would block the later 'ok' row forever.
+    // findIdempotentReplay matches only status='ok', so every retry of that key
+    // would then re-run the handler: duplicate documents, duplicate debits.
+    vi.mocked(debitForTool).mockResolvedValue({
+      ok: false, code: 'journal.create', balance: 0, required: 3,
+    } as never);
+    const tool = makeTool({ name: 'create_draft_journal', write: true, scope: 'write:bank-tx' });
+
+    await registryWith(tool).call('create_draft_journal', { idempotency_key: 'k1' }, ctx);
+
+    const audited = vi.mocked(recordToolCall).mock.calls[0]![0];
+    expect(audited.status).toBe('rejected');
+    expect(audited.idempotencyKey).toBeNull();
+  });
+
   it('does not charge an idempotent replay — one operation, one debit', async () => {
     vi.mocked(findIdempotentReplay).mockResolvedValue({
       status: 'match',
@@ -131,6 +149,24 @@ describe('registry metering', () => {
     await registryWith(makeTool()).call('trial_balance', {}, ctx);
 
     expect(refundForTool).not.toHaveBeenCalled();
+  });
+
+  it('refunds a success that did no billable work, and keeps the flag off the wire', async () => {
+    // Re-sending a statement whose rows are all already imported succeeds and
+    // writes nothing. The tool's own description invites resending, so it must
+    // be free — the same rule the dry_run case follows.
+    const tool = makeTool({
+      handler: vi.fn(async () => ({
+        content: [{ type: 'text' as const, text: '{"imported":0}' }],
+        billable: false,
+      })),
+    });
+
+    const res = await registryWith(tool).call('trial_balance', {}, ctx);
+
+    expect(refundForTool).toHaveBeenCalledWith(COMPANY_ID, HANDLE);
+    // `billable` is registry-internal and is not part of the MCP wire format.
+    expect('billable' in res).toBe(false);
   });
 
   it('takes the debit OUTSIDE the savepoint — inside it, a rollback plus the explicit refund credits twice', async () => {
