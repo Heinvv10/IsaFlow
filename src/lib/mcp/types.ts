@@ -19,6 +19,15 @@ export interface McpToolContext {
 export interface McpToolResult {
   content: Array<{ type: 'text'; text: string }>;
   isError?: boolean;
+  /**
+   * Registry-internal, NOT part of the MCP wire format — registry.call()
+   * strips it before returning. A charged tool sets `false` when the call
+   * succeeded but did no billable work, so the debit is refunded: the obvious
+   * case is re-sending a statement whose rows are all already imported, which
+   * writes nothing and which import_bank_statement's own description invites.
+   * Absent means billable.
+   */
+  billable?: boolean;
 }
 
 export interface McpTool {
