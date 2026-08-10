@@ -120,11 +120,51 @@ describe('importStatementForAgent', () => {
     await importStatementForAgent(baseArgs);
 
     const opts = vi.mocked(importParsedTransactions).mock.calls[0]![4] as {
-      skipAutoPost?: boolean;
+      skipPostImportEffects?: boolean;
       importedBy?: string;
     };
-    expect(opts.skipAutoPost).toBe(true);
+    expect(opts.skipPostImportEffects).toBe(true);
     expect(opts.importedBy).toBe('mcp:import_bank_statement:v1');
+  });
+
+  it('matches a stored negative half-cent amount instead of re-importing it forever', async () => {
+    // amount is NUMERIC(15,2): Postgres stores -25.005 as -25.01 (half away
+    // from zero) while Math.round would hash it as -25.00 (half toward +Inf).
+    // Mismatched hashes mean the row never dedups and lands again every retry.
+    const HALF_CENT = { transactionDate: '2026-04-15', amount: -25.005, description: 'ROUNDING' };
+    vi.mocked(parseStatement).mockResolvedValue(parsed([HALF_CENT]) as never);
+    vi.mocked(sql).mockResolvedValueOnce([
+      { transaction_date: '2026-04-15', amount: -25.01, description: 'ROUNDING' },
+    ] as never);
+
+    const res = await importStatementForAgent(baseArgs);
+
+    expect(res.duplicates).toBe(1);
+    expect(res.imported).toBe(0);
+    expect(importParsedTransactions).not.toHaveBeenCalled();
+  });
+
+  it('refuses an impossible calendar date instead of letting Postgres abort the transaction', async () => {
+    // The OFX/MT940 parsers only reject day > 31, so <DTPOSTED>20260231 yields
+    // a well-formed '2026-02-31'. Interpolated into ::DATE that raises 22008,
+    // aborts the request transaction, and surfaces as a generic failure.
+    vi.mocked(parseStatement).mockResolvedValue(
+      parsed([{ transactionDate: '2026-02-31', amount: -10, description: 'FEB 31' }]) as never,
+    );
+
+    await expect(importStatementForAgent(baseArgs)).rejects.toThrow(/recognisable/i);
+    expect(importParsedTransactions).not.toHaveBeenCalled();
+  });
+
+  it('refuses a statement with no parseable dates rather than importing with dedup off', async () => {
+    // A null date range would query nothing, leave the seen-set empty, and
+    // import every row while still reporting duplicates: 0.
+    vi.mocked(parseStatement).mockResolvedValue(
+      parsed([{ transactionDate: '12026/04/15', amount: -10, description: 'BAD DATE' }]) as never,
+    );
+
+    await expect(importStatementForAgent(baseArgs)).rejects.toThrow(/recognisable/i);
+    expect(importParsedTransactions).not.toHaveBeenCalled();
   });
 
   it('scopes the duplicate lookup by company, not by bank account alone', async () => {
@@ -198,6 +238,21 @@ describe('undoImportBatch', () => {
 
     expect(res).toBeNull();
     expect(deleteTransactions).not.toHaveBeenCalled();
+  });
+
+  it('only reaches agent-created batches — a human UI batch id is not undoable', async () => {
+    // list_bank_transactions hands out import_batch_id for every row, so
+    // without the imported_by filter an agent could read a human's batch id
+    // from a read tool and delete that batch outright.
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
+
+    const res = await undoImportBatch(COMPANY, 'human-ui-batch');
+
+    expect(res).toBeNull();
+    expect(deleteTransactions).not.toHaveBeenCalled();
+    const batchQuery = (vi.mocked(sql).mock.calls[0]![0] as unknown as string[]).join('?');
+    expect(batchQuery).toContain('imported_by');
+    expect(batchQuery).toContain('mcp:%');
   });
 });
 

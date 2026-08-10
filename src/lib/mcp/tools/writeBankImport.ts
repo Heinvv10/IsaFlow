@@ -48,7 +48,7 @@ type AgentBankFormat = (typeof BANK_FORMATS)[number];
 export const importBankStatementTool: McpTool = {
   name: 'import_bank_statement',
   description:
-    'Import a bank statement (OFX, CSV, QIF or MT940) into a bank account. Transactions already present are skipped by content hash, so re-sending the same statement is safe. Creates transactions only — it posts no journals; allocate them afterwards with allocate_bank_transaction. Use dry_run to see what would land before writing.',
+    'Import a bank statement (OFX, CSV, QIF or MT940) into a bank account. Transactions already present are skipped by a (date, amount, description) content hash, so re-sending the same statement is safe. Note the flip side: two genuinely separate transactions on the same day with the same amount and description hash alike, and the second will be skipped as a duplicate — reconcile the closing balance after importing rather than trusting the row count. Creates transactions only: it posts no journals and does not touch transactions it did not create. Allocate afterwards with allocate_bank_transaction. Use dry_run to see what would land before writing.',
   scope: 'write:bank-tx',
   write: true,
   inputSchema: {

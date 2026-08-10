@@ -12,6 +12,17 @@
  * It posts nothing: the auto-post sweep is suppressed so that every
  * agent-caused posting keeps arriving through allocate_bank_transaction,
  * which stamps mcp:* and is reversible.
+ *
+ * KNOWN LIMIT — dedup can discard a genuine transaction. The content hash is
+ * (date, amount, description); bankTransactionHash also accepts `balance`,
+ * which is what distinguishes two same-day, same-amount, same-merchant
+ * transactions, but `bank_transactions` has no balance column so it cannot be
+ * supplied on the DB side. Two identical R25 purchases on one day therefore
+ * hash alike, and a second overlapping statement will count the second one as
+ * a duplicate and drop it. The bias is deliberate: under-importing is visible
+ * in a bank reconciliation, whereas double-importing silently inflates the
+ * ledger. Callers should reconcile the closing balance after importing rather
+ * than trust the row count.
  */
 
 import { sql } from '@/lib/neon';
@@ -69,19 +80,56 @@ export async function bankGlAccountBelongsToCompany(
   return rows.length > 0;
 }
 
+/**
+ * Round to 2dp the way Postgres does, not the way JS does.
+ *
+ * `bank_transactions.amount` is NUMERIC(15,2), and Postgres rounds halves AWAY
+ * FROM ZERO; `Math.round` (which bankTransactionHash uses internally) rounds
+ * halves toward +Infinity. They disagree on every negative half-cent:
+ * -25.005 stores as -25.01 but hashes as -25.00. The stored row and the
+ * statement line it came from then hash differently forever, so the row is
+ * re-imported on every retry — breaking exactly the "re-sending the same
+ * statement is safe" property this service exists to provide.
+ *
+ * Applied to BOTH sides. On the DB side the value is already rounded, so this
+ * is a no-op there; on the parsed side it is the fix.
+ */
+function round2(n: number): number {
+  const scaled = n * 100;
+  return (scaled < 0 ? -Math.round(-scaled) : Math.round(scaled)) / 100;
+}
+
 function hashOf(tx: { transactionDate: string; amount: number; description?: string | null }): string {
   const hashable: HashableTransaction = {
     transactionDate: tx.transactionDate,
-    amount: Number(tx.amount),
+    amount: round2(Number(tx.amount)),
     description: tx.description ?? '',
   };
   return bankTransactionHash(hashable);
 }
 
+/**
+ * The shape check is not enough on its own: the OFX and MT940 parsers only
+ * reject day > 31, so `<DTPOSTED>20260231` becomes the well-formed but
+ * non-existent '2026-02-31'. Interpolated into `${from}::DATE` that raises
+ * SQLSTATE 22008 on the request connection, aborting the surrounding
+ * transaction and surfacing as a generic failure instead of a usable message.
+ * Round-tripping through Date catches it here, where we can say what is wrong.
+ */
+function isRealCalendarDate(d: string): boolean {
+  const [y, m, day] = d.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !day) return false;
+  const probe = new Date(Date.UTC(y, m - 1, day));
+  return probe.getUTCFullYear() === y
+    && probe.getUTCMonth() === m - 1
+    && probe.getUTCDate() === day;
+}
+
 function dateRangeOf(txs: ParsedBankTransaction[]): { from: string; to: string } | null {
   const dates = txs
     .map((t) => t.transactionDate)
-    .filter((d): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d))
+    .filter((d): d is string =>
+      typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d) && isRealCalendarDate(d))
     .sort();
   const from = dates[0];
   const to = dates[dates.length - 1];
@@ -129,8 +177,19 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
   };
   if (parseResult.transactions.length === 0) return empty;
 
+  // A null range means not one parsed row carried a recognisable ISO date.
+  // Continuing would query nothing, leave `seen` empty, and import every row
+  // with dedup silently switched off — the failure mode is a duplicated bank,
+  // and it is invisible because the result still reports duplicates: 0.
+  // Refuse instead. (The parser emits 5-digit years verbatim and Postgres
+  // accepts them, so this is reachable from a malformed statement.)
   const range = dateRangeOf(parseResult.transactions);
-  const seen = range ? await existingHashes(args.companyId, args.bankAccountId, range) : new Set<string>();
+  if (!range) {
+    throw new Error(
+      'No transaction in this statement has a recognisable YYYY-MM-DD date, so duplicates cannot be detected. Check the statement dates and re-send.',
+    );
+  }
+  const seen = await existingHashes(args.companyId, args.bankAccountId, range);
 
   const fresh: ParsedBankTransaction[] = [];
   let duplicates = 0;
@@ -160,8 +219,9 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
     {
       importedBy: args.importedBy,
       sourceFilename: args.sourceFilename,
-      // Importing must not post. See the module comment.
-      skipAutoPost: true,
+      // Insert only: no posting, and no touching rows this import did not
+      // create. See the option's own comment in bankImportService.
+      skipPostImportEffects: true,
     },
   );
 
@@ -192,9 +252,17 @@ export async function undoImportBatch(
   companyId: string,
   batchId: string,
 ): Promise<{ deleted: number; refused: number; refusedByStatus: Record<string, number> } | null> {
+  // imported_by is NOT decoration here — it is the authorisation boundary.
+  // list_bank_transactions returns import_batch_id for every row, so without
+  // this filter an agent can read a human's UI batch id straight out of a read
+  // tool and hard-delete that batch. Deletion is unrecoverable, and with
+  // auto-post off (the default) every row in a human batch is still
+  // 'imported', so the whole batch would go. Undo reaches agent imports only.
   const batch = (await sql`
     SELECT id FROM bank_import_batches
-    WHERE id = ${batchId}::UUID AND company_id = ${companyId}::UUID
+    WHERE id = ${batchId}::UUID
+      AND company_id = ${companyId}::UUID
+      AND imported_by LIKE 'mcp:%'
     LIMIT 1
   `) as Array<{ id: string }>;
   if (batch.length === 0) return null;

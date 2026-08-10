@@ -276,14 +276,16 @@ describe('suite-wide invariants', () => {
       const r = await t.handler(happyArgs[t.name] ?? {}, ctx());
       corpus += JSON.stringify(r);
     }
-    // Credential prefixes are matched at a token boundary rather than as bare
-    // substrings. "import_bank_statement" contains "ort_", as would any future
-    // report_* or export_* tool — a substring scan flags those as leaked
-    // credentials. A real credential starts its token (`"token":"ort_1a2b…"`),
-    // so require a non-word character before the prefix and credential
-    // characters after it. Still catches a token anywhere in the corpus.
+    // Credentials are matched by SHAPE, not as bare substrings. Every token
+    // this repo issues is <prefix>_ + 32 base62 chars (personalAccessTokens.ts,
+    // oauth.ts), so a run of >=16 alphanumerics after the prefix identifies one
+    // wherever it appears — including glued to a preceding word, which a
+    // boundary-based rule misses. Legitimate names never have that shape:
+    // "import_bank_statement" contains "ort_" but only 4 alphanumerics follow
+    // before an underscore, and the same holds for any future report_* /
+    // export_* / sort_* identifier. A plain substring scan flagged all of them.
     for (const prefix of ['pat_', 'oat_', 'ort_', 'oac_', 'cls_']) {
-      expect(corpus).not.toMatch(new RegExp(`(?:^|[^A-Za-z0-9_])${prefix}[A-Za-z0-9]`));
+      expect(corpus).not.toMatch(new RegExp(`${prefix}[A-Za-z0-9]{16,}`));
     }
     for (const needle of ['Bearer ', 'apikey', 'Set-Cookie']) {
       expect(corpus).not.toContain(needle);

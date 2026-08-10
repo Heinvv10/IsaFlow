@@ -144,6 +144,69 @@ exploitable there, but it breaks the repo's "company_id on every query" rule.
 The new service scopes correctly; the endpoint is left alone as out of scope
 for this change.
 
+## What the reviews changed
+
+Two blind rounds. Round 1 (general) found 2 HIGHs; round 2 (adversarial, reviewing
+round 1's fix commit as its own target) found 2 more. Every HIGH was verified
+against source before being accepted, and every fix is mutation-tested — the
+guard is removed from the production code and the suite must fail.
+
+**Round 1.** `deleteTransactions` returned 0 regardless of how many rows it
+deleted (`lib/neon` exposes only `res.rows`; a DELETE without RETURNING gives
+`[]`, and `0 ?? fallback` short-circuits). `undo_bank_import`'s whole contract
+rested on that number, and `bank-transactions-action.ts` had been reporting 0 to
+the UI since it was written. Also: the no-posting guarantee had no test touching
+the real gate — only an assertion that the flag was passed to a mocked callee.
+
+**Round 2, and the more important one.** The design's claim that "import creates
+transactions only" was false in two ways:
+
+- `undo_bank_import` reached *any* batch in the tenant. `list_bank_transactions`
+  returns `import_batch_id` for every row, so an agent could read a human's UI
+  batch id out of a read tool and hard-delete it — without `write:post`, and
+  unrecoverably. Undo is now scoped to `imported_by LIKE 'mcp:%'`.
+- `skipAutoPost` gated only the sweep. The two transfer auto-link passes ran
+  regardless, and the second (`relinkTransferCounterparts`) matches on
+  `bank_account_id + status='imported'` with no batch scope — so an agent import
+  flipped PRE-EXISTING rows to `allocated`, stamping `matched_journal_line_id`
+  from another transaction's transfer journal. The tool then told the agent to
+  free such rows with `reverse_bank_allocation`, which would have posted a contra
+  against a legitimate journal. The option is now `skipPostImportEffects` and
+  gates every post-insert side effect.
+
+**The dedup contract was also wrong**, which mattered because "re-sending the
+same statement is safe" is the tool's headline property:
+
+- `amount` is `NUMERIC(15,2)` and Postgres rounds halves away from zero, while
+  `Math.round` rounds halves toward +∞. `-25.005` stores as `-25.01` and hashed
+  as `-25.00`, so such a row re-imported on every retry. Fixed by rounding both
+  sides the way Postgres does.
+- When no parsed row carried a recognisable ISO date, the date range was `null`,
+  the seen-set was empty, and dedup was silently off while still reporting
+  `duplicates: 0`. Now refused outright.
+- The hash omits `balance` — the field that distinguishes two same-day,
+  same-amount, same-merchant transactions — because `bank_transactions` has no
+  balance column. This is not fixable here and is now documented in the tool
+  description: the bias is toward dropping a genuine duplicate-looking row rather
+  than double-importing, because under-importing shows up in a reconciliation
+  and double-importing silently inflates the ledger.
+
+**Cleared under adversarial probing:** tenant isolation on every traced path
+(including the two places with no FK to catch a bad id); no path posts to
+`gl_journal_entries`/`gl_journal_lines` during an import; uniform error text for
+cross-tenant probes; same-key idempotent replay. The token-scan change was
+specifically cleared — this repo's tokens are prefix + 32 base62 characters, so
+the required trailing `[A-Za-z0-9]` always matches and the prefix is always
+preceded by a non-word character in any serialization.
+
+**Known and accepted, not fixed here:** `importParsedTransactions` writes through
+`withTransaction`, which takes a different pool connection, so the MCP registry's
+savepoint cannot roll an import back — a failure between the batch commit and the
+request commit leaves rows with no audit or idempotency record. And the 1mb body
+allows ~24,900 rows per call, one round-trip each inside one transaction. Both
+predate this change in mechanism but are newly reachable at this scale; they are
+the first things to fix if the tool is used at volume.
+
 ## Out of scope
 
 Statement data here originates from an LLM reading Sage, not from a bank feed;

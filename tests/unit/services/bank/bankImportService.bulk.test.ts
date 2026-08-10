@@ -27,6 +27,9 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/bank/autoPostGateService', () => ({
   sweep: vi.fn().mockResolvedValue({ runId: null, posted: 0, skipped: [] }),
 }));
+vi.mock('@/modules/accounting/services/bank/bankTransferLinkService', () => ({
+  relinkTransferCounterparts: vi.fn().mockResolvedValue(0),
+}));
 
 import { importParsedTransactions } from '@/modules/accounting/services/bank/bankImportService';
 import type { BankCsvParseResult } from '@/modules/accounting/types/bank.types';
@@ -152,7 +155,7 @@ describe('importParsedTransactions — bulk context', () => {
  * list_agent_postings — asserting only that skipAutoPost was *passed* proves
  * nothing about whether it is honoured.
  */
-describe('importParsedTransactions — auto-post gate', () => {
+describe('importParsedTransactions — post-import side-effect gate', () => {
   beforeEach(() => {
     // clearAllMocks, not just the two locals: sweep is module-mocked, and
     // without clearing it a call from the previous test counts as this one's.
@@ -176,14 +179,43 @@ describe('importParsedTransactions — auto-post gate', () => {
     expect(vi.mocked(sweep).mock.calls[0]![2]).toBe('import');
   });
 
-  it('skipAutoPost suppresses the sweep so an import posts nothing', async () => {
+  it('skipPostImportEffects suppresses the sweep so an import posts nothing', async () => {
     const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
 
     await importParsedTransactions(
       'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
-      { skipAutoPost: true },
+      { skipPostImportEffects: true },
     );
 
     expect(sweep).not.toHaveBeenCalled();
+  });
+
+  it('skipPostImportEffects touches no row the import did not create', async () => {
+    // The two transfer auto-link passes are not batch-scoped — the relink
+    // matches on bank_account_id + status='imported' alone — so leaving them
+    // running would flip PRE-EXISTING rows to 'allocated'.
+    const { relinkTransferCounterparts } =
+      await import('@/modules/accounting/services/bank/bankTransferLinkService');
+
+    await importParsedTransactions(
+      'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
+      { skipPostImportEffects: true },
+    );
+
+    expect(relinkTransferCounterparts).not.toHaveBeenCalled();
+    // No UPDATE ... SET status='allocated' may be issued either.
+    const updates = sqlMock.mock.calls
+      .map((c) => (Array.isArray(c[0]) ? (c[0] as string[]).join('?') : ''))
+      .filter((text) => /UPDATE\s+bank_transactions/i.test(text));
+    expect(updates).toHaveLength(0);
+  });
+
+  it('still runs the transfer relink on the normal UI path', async () => {
+    const { relinkTransferCounterparts } =
+      await import('@/modules/accounting/services/bank/bankTransferLinkService');
+
+    await importParsedTransactions('company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31');
+
+    expect(relinkTransferCounterparts).toHaveBeenCalled();
   });
 });
