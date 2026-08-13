@@ -243,7 +243,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   let jeStatus = jeEntry.status;
   if (autoPost) {
     try {
-      await postJournalEntry(jeEntry.id, userId, companyId);
+      // Signature is (companyId, id, userId). This read
+      // (jeEntry.id, userId, companyId) — every argument in the wrong slot, so
+      // the lookup was `WHERE id = <userId> AND company_id = <jeId>`, which
+      // matched nothing and threw "Journal entry not found". The catch below
+      // swallowed it, so auto-post on this path has never actually posted
+      // anything: the entry silently stayed a draft.
+      await postJournalEntry(companyId, jeEntry.id, userId);
       jeStatus = 'posted';
     } catch (postErr) {
       log.warn('Auto-post of expense receipt JE failed — left as draft', {
