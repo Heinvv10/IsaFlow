@@ -152,6 +152,43 @@ describe('receipt-to-journal — zero-VAT receipts', () => {
     expect(validateJournalEntry(lines).valid).toBe(true);
   });
 
+  // Nothing in the repo tested tenant scoping on this route: removing
+  // `AND company_id = ${companyId}` from the captured_documents lookup survived
+  // the entire suite. A document id is a UUID an attacker could hold from
+  // another tenant, and gl_journal_lines has only a plain FK to gl_accounts(id)
+  // with no composite company constraint, so the database would not stop the
+  // resulting journal either.
+  it('scopes the captured-document lookup to the caller company', async () => {
+    stubDb(ZERO_VAT);
+
+    await handler(req(ZERO_VAT), res());
+
+    const docQuery = sqlMock.mock.calls.find(c => {
+      const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
+      return text.includes('FROM captured_documents');
+    });
+    expect(docQuery, 'the route must read captured_documents').toBeDefined();
+
+    const text = (docQuery![0] as unknown as string[]).join('');
+    expect(text).toContain('company_id');
+    // The companyId must actually be BOUND, not just mentioned in the SQL.
+    expect(docQuery!.slice(1)).toContain(COMPANY_ID);
+  });
+
+  it('scopes the captured_documents status update to the caller company', async () => {
+    stubDb(ZERO_VAT);
+
+    await handler(req(ZERO_VAT), res());
+
+    const update = sqlMock.mock.calls.find(c => {
+      const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
+      return text.includes('UPDATE captured_documents');
+    });
+    expect(update).toBeDefined();
+    expect((update![0] as unknown as string[]).join('')).toContain('company_id');
+    expect(update!.slice(1)).toContain(COMPANY_ID);
+  });
+
   it('covers the derived path too, where vatRate 0 makes VAT zero', async () => {
     // subtotal/vatAmount absent → derived from total and vatRate.
     const derived = { ...ZERO_VAT, subtotal: null, vatAmount: null, vatRate: 0 };

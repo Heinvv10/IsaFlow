@@ -155,6 +155,42 @@ describe('capture post-expense — zero-VAT receipts', () => {
     expect(validateJournalEntry(linesFromRoute()).valid).toBe(true);
   });
 
+  // Same untested hole as receipt-to-journal: removing the company_id predicates
+  // from the capture_events / captured_documents lookup survived the whole
+  // suite. The event id is a UUID another tenant could hold.
+  it('scopes the capture-event lookup to the caller company', async () => {
+    stubDb(ZERO_VAT);
+
+    await handler(req(), res());
+
+    const lookup = sqlMock.mock.calls.find(c => {
+      const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
+      return text.includes('FROM capture_events');
+    });
+    expect(lookup, 'the route must read capture_events').toBeDefined();
+
+    const text = (lookup![0] as unknown as string[]).join('');
+    // Both sides of the join are scoped — the document is reachable through the
+    // event, so scoping only one of them still crosses tenants.
+    expect(text).toContain('ce.company_id');
+    expect(text).toContain('cd.company_id');
+    expect(lookup!.slice(1)).toContain(COMPANY_ID);
+  });
+
+  it('scopes the capture_events stamp to the caller company', async () => {
+    stubDb(ZERO_VAT);
+
+    await handler(req(), res());
+
+    const stamp = sqlMock.mock.calls.find(c => {
+      const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
+      return text.includes('UPDATE capture_events');
+    });
+    expect(stamp).toBeDefined();
+    expect((stamp![0] as unknown as string[]).join('')).toContain('company_id');
+    expect(stamp!.slice(1)).toContain(COMPANY_ID);
+  });
+
   it('auto-posts with the arguments in the order postJournalEntry declares', async () => {
     stubDb(ZERO_VAT); // R500, confidence 0.95 → under R5 000 and above 0.80
 
