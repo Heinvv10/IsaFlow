@@ -82,14 +82,24 @@ function inputFromCreate(): { source: string; reference?: string; entryDate: str
 
 const sum = (ls: Line[], k: 'debit' | 'credit') => ls.reduce((t, l) => t + l[k], 0);
 
-/** assets lookup returns one row; every other statement resolves empty. */
-function withAssetRow(assetAccountId: string | null) {
+/**
+ * Stub the asset lookup, the explicit-account COALESCE, and the chart-of-
+ * accounts fallback separately, so a test can have an asset with no explicit
+ * account but a usable company fixed-asset account (the real production shape:
+ * gl_asset_account_id is NULL on every asset and category, and nothing writes
+ * it).
+ */
+function withAssetRow(assetAccountId: string | null, fallbackAccountId: string | null = null) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
+    if (text.includes('COALESCE(a.gl_asset_account_id')) {
+      return Promise.resolve([{ account_id: assetAccountId }]);
+    }
+    if (text.includes('FROM gl_accounts')) {
+      return Promise.resolve(fallbackAccountId ? [{ id: fallbackAccountId }] : []);
+    }
     if (text.includes('FROM assets')) {
-      return Promise.resolve([
-        { id: 'asset-1', asset_number: 'FA-001', name: 'Bakkie', asset_account_id: assetAccountId },
-      ]);
+      return Promise.resolve([{ id: 'asset-1', asset_number: 'FA-001', name: 'Bakkie' }]);
     }
     return Promise.resolve([]);
   }) as never);
@@ -164,11 +174,37 @@ describe('postAssetDisposalToGL', () => {
     expect(lines.every(l => l.debit > 0 || l.credit > 0)).toBe(true);
   });
 
-  it('THROWS when the asset has no GL account rather than posting an unbalanced entry', async () => {
-    withAssetRow(null);
+  it('THROWS when no asset account can be resolved at all, rather than posting an unbalanced entry', async () => {
+    withAssetRow(null, null);
 
-    await expect(postAssetDisposalToGL(COMPANY, base, USER)).rejects.toThrow(/asset account/i);
+    await expect(postAssetDisposalToGL(COMPANY, base, USER)).rejects.toThrow(/fixed-asset account/i);
     expect(createMock).not.toHaveBeenCalled();
+  });
+
+  // Production reality: gl_asset_account_id is NULL on all 6 assets and all 35
+  // categories, and no code path writes either column. Requiring it outright
+  // turned every disposal into a 400 with an instruction users cannot follow,
+  // so the resolver falls back to a company fixed-asset account.
+  it('falls back to the company fixed-asset account when the asset and category have none', async () => {
+    withAssetRow(null, 'acct-coa-fixed-assets');
+
+    const entryId = await postAssetDisposalToGL(COMPANY, base, USER);
+
+    expect(entryId).toBe('je-disposal-1');
+    const lines = linesFromCreate();
+    expect(lines.find(l => l.glAccountId === 'acct-coa-fixed-assets'))
+      .toMatchObject({ debit: 0, credit: 100_000 });
+    expect(sum(lines, 'debit')).toBe(sum(lines, 'credit'));
+  });
+
+  it('prefers the asset/category account over the fallback when one is set', async () => {
+    withAssetRow('acct-explicit', 'acct-coa-fixed-assets');
+
+    await postAssetDisposalToGL(COMPANY, base, USER);
+
+    const lines = linesFromCreate();
+    expect(lines.find(l => l.glAccountId === 'acct-explicit')).toBeDefined();
+    expect(lines.find(l => l.glAccountId === 'acct-coa-fixed-assets')).toBeUndefined();
   });
 
   it('uses the auto_asset_disposal source the CHECK constraint accepts', async () => {

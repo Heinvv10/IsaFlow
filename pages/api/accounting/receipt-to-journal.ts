@@ -10,7 +10,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import {
+  createJournalEntry,
+  postJournalEntry,
+} from '@/modules/accounting/services/gl/journalEntryService';
 import {
   validateReceiptExtraction,
   mapMerchantToExpenseAccount,
@@ -82,43 +86,43 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const receiptType = parseReceiptType(extracted);
   const autoPost = shouldAutoPostReceipt(extracted.totalAmount || 0, extracted.confidence, { maxAmount: 5000, minConfidence: 0.85 });
 
-  // Get fiscal period
-  const [period] = (await sql`
-    SELECT id FROM fiscal_periods
-    WHERE company_id = ${companyId} AND start_date <= ${journalInput.entryDate}::date AND end_date >= ${journalInput.entryDate}::date
-    LIMIT 1
-  `) as Row[];
+  // Create the entry through the validated posting service.
+  //
+  // This used to hand-INSERT the header at `status = autoPost ? 'posted' :
+  // 'draft'` and then append the legs. trg_gl_je_balanced is a BEFORE UPDATE
+  // trigger, so a header landing directly in 'posted' was never balance-checked
+  // — and the legs come from OCR: buildExpenseJournalFromReceipt debits
+  // extracted.subtotal + extracted.vatAmount but credits extracted.totalAmount,
+  // three independently-extracted numbers with no enforced invariant. A till
+  // slip mixing zero-rated and standard-rated items (routine in SA retail)
+  // yields subtotal + vat != total and posted a permanently unbalanced journal.
+  // It was invisible only because 'auto_expense_receipt' was missing from the
+  // source CHECK constraint, so every INSERT died at 23514; migration 509 adds
+  // it, which makes routing through createJournalEntry a prerequisite, not a
+  // tidy-up. createJournalEntry runs validateJournalEntry and resolves the
+  // fiscal period from entryDate itself.
+  const entry = await createJournalEntry(companyId, {
+    entryDate: journalInput.entryDate,
+    description: journalInput.description,
+    source: 'auto_expense_receipt',
+    sourceDocumentId: documentId,
+    lines: journalInput.lines.map(l => ({
+      glAccountId: l.accountId,
+      debit: l.debit,
+      credit: l.credit,
+      description: l.description,
+    })),
+  }, userId);
 
-  // Create journal entry + lines + document link atomically
-  const je = await withTransaction(async (tx) => {
-    const rows = (await tx`
-      INSERT INTO gl_journal_entries (
-        company_id, entry_date, fiscal_period_id, description, source, status, created_by
-      ) VALUES (
-        ${companyId}, ${journalInput.entryDate}::date, ${period?.id || null}::uuid,
-        ${journalInput.description}, 'auto_expense_receipt',
-        ${autoPost ? 'posted' : 'draft'}, ${userId}
-      ) RETURNING id, status
-    `) as Row[];
+  if (autoPost) {
+    await postJournalEntry(companyId, entry.id, userId);
+  }
 
-    if (!rows[0]) throw new Error('Failed to create journal entry');
-    const entry = rows[0] as Row;
+  await sql`
+    UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
+  `;
 
-    for (const line of journalInput.lines) {
-      await tx`
-        INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
-        VALUES (${entry.id}::uuid, ${line.accountId}::uuid, ${line.debit}, ${line.credit}, ${line.description}, ${companyId}::uuid)
-      `;
-    }
-
-    await tx`
-      UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-    `;
-
-    return entry;
-  });
-
-  if (!je) return apiResponse.internalError(res, null, 'Failed to create journal entry');
+  const je = { id: entry.id, status: autoPost ? 'posted' : 'draft' };
 
   log.info('Receipt-to-Journal completed', {
     documentId, journalId: je.id, receiptType, autoPost,

@@ -424,6 +424,17 @@ export async function postClaimToGl(
   companyId: string,
   opts: PostClaimOptions,
 ): Promise<ExpenseClaim | null> {
+  // Lock the claim for the request transaction BEFORE reading its status.
+  // Without this, two concurrent posts both read 'approved', both build the
+  // same legs and both post — two identical journals and a doubled credit to
+  // the reimbursement liability. The status check below is only meaningful
+  // once the row is held: the second request blocks here, then sees 'posted'.
+  await sql`
+    SELECT id FROM expense_claims
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+    FOR UPDATE
+  `;
+
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'approved') {

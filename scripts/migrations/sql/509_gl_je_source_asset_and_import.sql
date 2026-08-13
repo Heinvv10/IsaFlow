@@ -1,9 +1,18 @@
--- Migration 509: admit the four `source` values the code actually emits but
+-- Migration 509: admit four `source` values the code actually emits but
 -- gl_journal_entries_source_check has always rejected.
 --
--- Diffing every source literal emitted by src/ and pages/ against the live
--- constraint turned up exactly four that no INSERT could ever satisfy — each
--- one failing with 23514:
+-- These four are the ones being fixed here; they are NOT the complete set of
+-- rejected literals. 'opening_balance' (pages/api/accounting/opening-balances),
+-- 'bank_transfer' (pages/api/accounting/bank-transfers) and 'year_end'
+-- (yearEndService.ts:228) are also rejected, so those three features are dead
+-- too. They are deliberately NOT added here: each still writes its header
+-- straight to status='posted' without validateJournalEntry, and
+-- trg_gl_je_balanced is BEFORE UPDATE only — admitting the source would
+-- un-gate an unvalidated path. Route them through createJournalEntry first,
+-- then widen this constraint. ('auto_expense_receipt' below is included
+-- precisely because receipt-to-journal.ts was converted in the same change.)
+--
+-- The four fixed here, each failing with 23514:
 --
 --   glCrossModuleHooks.postAssetDisposalToGL          -> 'asset_disposal'
 --   glCrossModuleHooks.postCapitalizationExpenseToGL  -> 'asset_expense'

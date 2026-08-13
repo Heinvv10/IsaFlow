@@ -237,7 +237,58 @@ export async function postDualDepreciationToLedger(
  * of an opaque 500.
  */
 export function missingAssetAccountMessage(assetNumber: string): string {
-  return `Asset ${assetNumber} has no fixed-asset account: set gl_asset_account_id on the asset or its category before disposing`;
+  return `Asset ${assetNumber} has no fixed-asset account to credit, and no leaf account with subtype 'fixed_asset'/'fixed_assets' exists in the chart of accounts. Add one (or set gl_asset_account_id on the asset or its category) before disposing.`;
+}
+
+/**
+ * Resolve the account to credit for an asset's cost:
+ *   asset.gl_asset_account_id → category.gl_asset_account_id → company fallback.
+ *
+ * The fallback exists because neither column is populated anywhere in
+ * production and no code path writes them — requiring them outright turned
+ * every disposal into a 400 with an instruction the product gives no way to
+ * follow. Preferring an explicit per-asset account keeps the precise treatment
+ * available for anyone who does set it.
+ *
+ * `level >= 3` is the important part of the fallback query: levels 1–2 are
+ * header accounts, and the balance-sheet calculation filters them out, so a
+ * credit posted to one balances the journal while silently vanishing from the
+ * statements (the migration 484 incident). Better to refuse than to post
+ * somewhere invisible — one production company's fixed-asset accounts are all
+ * level 1, and it will correctly get the error above rather than a lost credit.
+ *
+ * Returns null when nothing suitable exists.
+ */
+export async function resolveAssetAccountId(
+  companyId: string,
+  assetId: string,
+): Promise<string | null> {
+  const explicit = (await sql`
+    SELECT COALESCE(a.gl_asset_account_id, c.gl_asset_account_id) AS account_id
+    FROM assets a
+    LEFT JOIN asset_categories c ON c.id = a.category_id
+    WHERE a.id = ${assetId} AND a.company_id = ${companyId}::UUID
+  `) as DbRow[];
+
+  if (explicit[0]?.account_id) return String(explicit[0].account_id);
+
+  const fallback = (await sql`
+    SELECT id FROM gl_accounts
+    WHERE company_id = ${companyId}::UUID
+      AND is_active = true
+      AND account_type = 'asset'
+      AND account_subtype IN ('fixed_asset', 'fixed_assets')
+      AND level >= 3
+    ORDER BY is_system_account DESC, account_code
+    LIMIT 1
+  `) as DbRow[];
+
+  if (!fallback[0]) return null;
+
+  log.warn('Asset has no explicit GL account — falling back to the company fixed-asset account', {
+    assetId, companyId, accountId: String(fallback[0].id),
+  }, 'accounting');
+  return String(fallback[0].id);
 }
 
 export class MissingAssetAccountError extends Error {
@@ -286,10 +337,8 @@ export async function postAssetDisposalToGL(
   userId: string
 ): Promise<string | null> {
   const assetRows = (await sql`
-    SELECT a.id, a.asset_number, a.name,
-           COALESCE(a.gl_asset_account_id, c.gl_asset_account_id) AS asset_account_id
+    SELECT a.id, a.asset_number, a.name
     FROM assets a
-    LEFT JOIN asset_categories c ON c.id = a.category_id
     WHERE a.id = ${input.assetId} AND a.company_id = ${companyId}::UUID
   `) as DbRow[];
 
@@ -301,7 +350,7 @@ export async function postAssetDisposalToGL(
   const row = assetRows[0];
   const assetNumber = String(row.asset_number ?? '');
   const assetName = String(row.name ?? '');
-  const assetAccountId = row.asset_account_id ? String(row.asset_account_id) : null;
+  const assetAccountId = await resolveAssetAccountId(companyId, input.assetId);
   const tag = `${assetName} (${assetNumber})`;
 
   // The Cr leg for the whole entry. Without it there is nothing to balance the

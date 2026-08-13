@@ -11,7 +11,11 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateDisposalResult } from '@/modules/accounting/services/items/farDisposalService';
-import { postAssetDisposalToGL, missingAssetAccountMessage } from '@/modules/accounting/services/gl/glCrossModuleHooks';
+import {
+  postAssetDisposalToGL,
+  missingAssetAccountMessage,
+  resolveAssetAccountId,
+} from '@/modules/accounting/services/gl/glCrossModuleHooks';
 
 type Row = Record<string, unknown>;
 
@@ -32,6 +36,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
 
   // Load asset with accumulated depreciation and category data
+  // FOR UPDATE: the already-disposed check below is only meaningful while the
+  // row is held. Two concurrent disposals would otherwise both read
+  // status != 'disposed' and both post a disposal journal for the same asset.
   const assetRows = (await sql`
     SELECT
       a.id, a.asset_number, a.name, a.purchase_price AS cost,
@@ -39,12 +46,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       COALESCE(a.tax_accumulated_depreciation, 0) AS tax_acc_dep,
       a.status,
       a.category_id,
-      a.gl_asset_account_id,
-      COALESCE(a.gl_asset_account_id, c.gl_asset_account_id) AS effective_asset_account_id
+      a.gl_asset_account_id
     FROM assets a
-    LEFT JOIN asset_categories c ON c.id = a.category_id
     WHERE a.id = ${assetId}::UUID
       AND a.company_id = ${companyId}::UUID
+    FOR UPDATE
   `) as Row[];
 
   if (!assetRows[0]) return apiResponse.notFound(res, 'Asset not found');
@@ -55,9 +61,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // The fixed-asset account is the disposal journal's only credit leg. Check it
   // HERE, before the asset_period_ledger write below: withAuth finalises on
   // `statusCode >= 500`, so a 4xx commits — a late 400 would leave the ledger
-  // row behind with no journal. postAssetDisposalToGL enforces the same rule
-  // (MissingAssetAccountError) for callers that don't come through this route.
-  if (!asset.effective_asset_account_id) {
+  // row behind with no journal. Uses the same resolver postAssetDisposalToGL
+  // uses, so this gate and the service can never disagree about what counts as
+  // resolvable (they did while the route ran its own COALESCE and the service
+  // gained a fallback).
+  if (!(await resolveAssetAccountId(companyId, assetId))) {
     return apiResponse.badRequest(res, missingAssetAccountMessage(String(asset.asset_number ?? assetId)));
   }
 

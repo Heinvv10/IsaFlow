@@ -8,8 +8,25 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ImportRow, ImportResult } from './glImportService';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
+import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalLineInput, VatType } from '../../types/gl.types';
 type Row = DbRow;
+
+/**
+ * Thrown for problems found while resolving and validating the file, BEFORE
+ * anything is written: an unmapped account code, or a group that does not
+ * balance.
+ *
+ * The route may only answer 4xx for these. withAuth finalises on
+ * `statusCode >= 500`, so a 4xx COMMITs — reporting a failure that happened
+ * mid-write as a 400 would leave the already-posted groups behind.
+ */
+export class ImportValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ImportValidationError';
+  }
+}
 
 /** One journal's worth of rows, resolved against the chart of accounts. */
 interface ResolvedGroup {
@@ -81,7 +98,7 @@ export async function importJournalEntries(
         if (!accountId) {
           // Was `continue`. The preview endpoint validates codes, but nothing
           // obliges the execute caller to have run it, so enforce it here.
-          throw new Error(
+          throw new ImportValidationError(
             `Import row "${row.description}" (${row.date}) references account code ${code}, which does not exist or is inactive for this company`,
           );
         }
@@ -102,6 +119,23 @@ export async function importJournalEntries(
           ...((row.vatCode?.trim() as VatType) ? { vatType: row.vatCode!.trim() as VatType } : {}),
           ...(ccId ? { costCenterId: ccId } : {}),
         });
+      }
+
+      // Balance-check every group BEFORE any of them is written.
+      //
+      // createJournalEntry validates too, but it does so per group inside the
+      // write loop — group 1 would already be created and posted when group 2
+      // threw, and pages/api/accounting/gl-import.ts turns that throw into a
+      // 400. withAuth finalises on `statusCode >= 500`, so the 400 COMMITs:
+      // the user is told the import failed while a prefix of it stays
+      // permanently posted, and re-uploading the file posts that prefix again
+      // (there is no idempotency key on this path). Rejecting here means an
+      // invalid file is refused with nothing written at all.
+      const validation = validateJournalEntry(lines);
+      if (!validation.valid) {
+        throw new ImportValidationError(
+          `Import group ${firstRow.reference ? `"${firstRow.reference}" ` : ''}(${firstRow.date}) is invalid: ${validation.errors.join('; ')}`,
+        );
       }
 
       resolved.push({

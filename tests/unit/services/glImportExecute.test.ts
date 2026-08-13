@@ -50,7 +50,10 @@ import {
   createJournalEntry,
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
-import { importJournalEntries } from '@/modules/accounting/services/gl/glImportExecuteService';
+import {
+  importJournalEntries,
+  ImportValidationError,
+} from '@/modules/accounting/services/gl/glImportExecuteService';
 import type { ImportRow } from '@/modules/accounting/services/gl/glImportService';
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
@@ -163,6 +166,48 @@ describe('importJournalEntries', () => {
     await expect(importJournalEntries(COMPANY, rows, USER, true)).rejects.toThrow(/9999/);
     expect(createMock).not.toHaveBeenCalled();
     expect(postMock).not.toHaveBeenCalled();
+  });
+
+  // The route (pages/api/accounting/gl-import.ts) answers 400 for an
+  // ImportValidationError, and withAuth COMMITs a 4xx. So every reason to
+  // reject a file must be found BEFORE the first entry is written — otherwise
+  // the user is told the import failed while a prefix of it stays posted, and
+  // re-uploading posts that prefix again (no idempotency key on this path).
+  it('rejects an unbalanced group without writing ANY entry, including earlier valid groups', async () => {
+    withAccounts(ACCOUNTS);
+
+    const rows = [
+      ...balancedPair,                                                          // REF1: valid
+      row({ reference: 'REF2', accountCode: '1000', debit: 500, credit: 0 }),   // REF2: 500 debit
+      row({ reference: 'REF2', accountCode: '4000', debit: 0, credit: 400 }),   // vs 400 credit
+    ];
+
+    await expect(importJournalEntries(COMPANY, rows, USER, true)).rejects.toThrow(/not balanced/i);
+
+    // REF1 must NOT have been created — it is ordered before the bad group.
+    expect(createMock).not.toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('names the offending group so the file can be corrected', async () => {
+    withAccounts(ACCOUNTS);
+
+    await expect(
+      importJournalEntries(COMPANY, [
+        row({ reference: 'REF9', accountCode: '1000', debit: 500, credit: 0 }),
+        row({ reference: 'REF9', accountCode: '4000', debit: 0, credit: 400 }),
+      ], USER, true),
+    ).rejects.toThrow(/REF9/);
+  });
+
+  it('flags validation failures as ImportValidationError so the route may 400 them', async () => {
+    withAccounts(ACCOUNTS);
+
+    // The route keys off this type: anything else propagates to a 500 and rolls
+    // back, because it can only have happened mid-write.
+    await expect(
+      importJournalEntries(COMPANY, [row({ accountCode: '9999', debit: 1, credit: 0 })], USER, true),
+    ).rejects.toBeInstanceOf(ImportValidationError);
   });
 
   it('posts each entry when postImmediately is set', async () => {

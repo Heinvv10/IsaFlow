@@ -314,6 +314,29 @@ describe('postClaimToGl', () => {
     expect(updatedClaim).toBe(false);
   });
 
+  it('locks the claim row before reading its status, so two posts cannot race', async () => {
+    withClaim({ claimDate: '2026-08-13', lines: vatLines });
+
+    await postClaimToGl(CLAIM, COMPANY, {
+      userId: USER,
+      reimbursementAccountId: REIMBURSEMENT,
+      vatInputAccountId: VAT_INPUT,
+    });
+
+    // Without FOR UPDATE the status check is advisory: two concurrent posts
+    // both read 'approved' and both post, doubling the reimbursement credit.
+    const statements = sqlMock.mock.calls.map(c =>
+      Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]),
+    );
+    const lock = statements.find(s => s.includes('FOR UPDATE'));
+    expect(lock, 'postClaimToGl must lock the claim row').toBeDefined();
+    expect(lock).toContain('expense_claims');
+
+    // …and it must come before the status is read, or it protects nothing.
+    expect(statements.findIndex(s => s.includes('FOR UPDATE')))
+      .toBeLessThan(statements.findIndex(s => s.includes('FROM expense_claims') && !s.includes('FOR UPDATE')));
+  });
+
   it('rejects a claim that is not approved', async () => {
     withClaim({ claimDate: '2026-08-13', status: 'draft', lines: vatLines });
 
