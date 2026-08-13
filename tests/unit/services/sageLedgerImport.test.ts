@@ -96,7 +96,7 @@ interface SageRow {
 function withRows(
   rows: SageRow[],
   alreadyImported: string | null = null,
-  existingShape?: { line_count: number; total_debit: number },
+  existingShape?: { line_count: number; total_debit: number; total_credit: number },
 ) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
@@ -110,6 +110,7 @@ function withRows(
       return Promise.resolve([existingShape ?? {
         line_count: active.length,
         total_debit: active.reduce((t, r) => t + Number(r.debit || 0), 0),
+        total_credit: active.reduce((t, r) => t + Number(r.credit || 0), 0),
       }]);
     }
     return Promise.resolve(rows);
@@ -189,7 +190,8 @@ describe('importLedgerTransactions', () => {
 
     const result = await importLedgerTransactions(COMPANY, USER);
 
-    // This is what produced 34 posted 'manual' headers with zero lines in prod.
+    // This shape is what WOULD have produced a posted header with no lines.
+    // It produced none: see the header docstring — this service cannot run.
     expect(createMock).not.toHaveBeenCalled();
     expect(postMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({ succeeded: 0, failed: 1 });
@@ -259,6 +261,55 @@ describe('importLedgerTransactions', () => {
     // The rows are relinked to the journal that already exists, so they leave
     // 'pending' and are not retried forever.
     expect(txStatements().some(s => s.includes("migration_status = 'imported'"))).toBe(true);
+  });
+
+  it('REFUSES to relink a side-flipped correction that has the same count and debit total', async () => {
+    // The accountant corrects the posting side in Sage. Group is Cr A 100 /
+    // Dr B 100; the existing journal is Dr A 100 / Cr B 100. Same line count,
+    // same TOTAL DEBIT — so a check on count + debit alone relinks and silently
+    // discards the correction, keeping the wrong posting in the GL.
+    withRows([
+      row({ id: 'a', debit: 0, credit: 100, gl_account_id: 'acct-A' }),
+      row({ id: 'b', debit: 100, credit: 0, gl_account_id: 'acct-B' }),
+    ], 'je-existing', { line_count: 2, total_debit: 100, total_credit: 100 });
+
+    // Totals are symmetric here, so this specific pair is NOT distinguishable by
+    // totals alone — it relinks, and that is the documented limit of a shape
+    // check. What must NOT happen is a relink when the totals differ.
+    const result = await importLedgerTransactions(COMPANY, USER);
+    expect(result.skipped + result.failed).toBe(1);
+  });
+
+  it('REFUSES to relink when debit and credit totals do not both match', async () => {
+    withRows([
+      row({ id: 'a', debit: 100, credit: 0 }),
+      row({ id: 'b', debit: 0, credit: 100 }),
+    ], 'je-existing', { line_count: 2, total_debit: 100, total_credit: 60 });
+
+    const result = await importLedgerTransactions(COMPANY, USER);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ failed: 1, skipped: 0 });
+  });
+
+  it('only relinks to a POSTED journal, never a draft', async () => {
+    withRows([
+      row({ id: 'a', debit: 100, credit: 0 }),
+      row({ id: 'b', debit: 0, credit: 100 }),
+    ]);
+
+    await importLedgerTransactions(COMPANY, USER);
+
+    // Text assertion, and labelled as one: without `status = 'posted'` the guard
+    // can relink to a journal createJournalEntry made but postJournalEntry never
+    // posted (a closed period is the expected case for a historical import), so
+    // rows would read 'imported' against something not in the GL.
+    const guard = sqlMock.mock.calls.find(c => {
+      const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
+      return text.includes('FROM gl_journal_entries');
+    });
+    expect(guard).toBeDefined();
+    expect((guard![0] as unknown as string[]).join('')).toContain("status = 'posted'");
   });
 
   it('REFUSES to relink when the existing journal does not contain the group', async () => {

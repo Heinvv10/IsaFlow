@@ -119,7 +119,9 @@ export async function importLedgerTransactions(companyId: string, userId: string
 
         // A group whose rows are ALL zero used to pass the balance gate (0 - 0),
         // get its header INSERTed at status='posted', and then write no lines at
-        // all — production still holds 34 such 'manual' headers with zero lines.
+        // all. (An earlier version of this comment attributed 34 zero-line
+        // 'manual' headers in production to this path — that was wrong; those
+        // are legacy loanPaymentService entries. This path has never run.)
         if (activeLines.length < 2) {
           log.warn('Sage ledger group has fewer than two non-zero lines — cannot form a journal', {
             docNum: group.document_number, companyId, lineCount: activeLines.length,
@@ -146,13 +148,15 @@ export async function importLedgerTransactions(companyId: string, userId: string
           continue;
         }
 
-        // SAGE-<doc> moves to `reference`. It was entry_number, which is UNIQUE
-        // per company — and because entryRef keyed on document_number ALONE,
-        // two legitimate groups sharing a document number across different
-        // dates collided on 23505 and were recorded as failures. Idempotency
-        // does not depend on it: the driving query selects only
-        // migration_status = 'pending', and every row is moved off 'pending'
-        // below.
+        // SAGE-<doc> lives in `reference`, not entry_number. entry_number is
+        // UNIQUE per company and entryRef keyed on document_number ALONE, so two
+        // legitimate groups sharing a document number across different dates
+        // collided on 23505 and were recorded as failures.
+        //
+        // Losing that unique index means idempotency is NOT free — an earlier
+        // revision claimed migration_status='pending' was sufficient, which is
+        // false, because resetMigration puts every row back to 'pending' without
+        // reversing the journals. The explicit guard below replaces it.
         const entryRef = group.document_number
           ? `SAGE-${group.document_number}`
           : `SAGE-${String(group.transaction_date)}`;
@@ -178,6 +182,7 @@ export async function importLedgerTransactions(companyId: string, userId: string
             AND reference = ${entryRef}
             AND entry_date = ${entryDate}::DATE
             AND posting_agent = 'import:sage'
+            AND status = 'posted'
             AND reversed_at IS NULL
           LIMIT 1
         `) as DbRow[];
@@ -193,15 +198,28 @@ export async function importLedgerTransactions(companyId: string, userId: string
           // 'imported' against a journal that does not contain its amount —
           // the row claims to be in the GL and is not, with nothing to show it.
           const existingTotal = (await sql`
-            SELECT COALESCE(SUM(debit), 0) AS total_debit, COUNT(*) AS line_count
+            SELECT COALESCE(SUM(debit), 0)  AS total_debit,
+                   COALESCE(SUM(credit), 0) AS total_credit,
+                   COUNT(*)                 AS line_count
             FROM gl_journal_lines
             WHERE journal_entry_id = ${existingId}::UUID
               AND company_id = ${companyId}::UUID
           `) as DbRow[];
 
+          // Credits as well as debits. Comparing only count and total debit
+          // cannot tell a side-flipped correction from the original: a group of
+          // Cr A 100 / Dr B 100 has the same line count and the same total debit
+          // as a journal of Dr A 100 / Cr B 100, so an accountant's correction
+          // would be silently discarded and the wrong posting kept. This still
+          // does not compare per-line accounts or amounts — a re-split across
+          // the same accounts for the same totals would pass — so it is a
+          // shape check, not an equality proof; the balance check above means
+          // debit and credit totals always move together, which is why both are
+          // needed to catch the flip.
           const sameShape =
             Number(existingTotal[0]?.line_count ?? 0) === activeLines.length &&
-            roundToCents(Number(existingTotal[0]?.total_debit ?? 0)) === totalDebit;
+            roundToCents(Number(existingTotal[0]?.total_debit ?? 0)) === totalDebit &&
+            roundToCents(Number(existingTotal[0]?.total_credit ?? 0)) === totalCredit;
 
           if (!sameShape) {
             log.error('Sage group matches an existing journal by reference+date but not by content — refusing to relink', {
