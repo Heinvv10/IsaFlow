@@ -76,13 +76,15 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
    * SCOPE WARNING — this test does NOT prove "no unvalidated INSERT-at-posted
    * path exists". It proves only that these three specific sources stay
    * rejected. The constraint can never gate a path that uses an ALREADY-VALID
-   * source: sageImportService.importLedgerTransactions INSERTs at
-   * status='posted' with source='manual' (always accepted) and never calls
-   * validateJournalEntry, and postAssetDepreciationToGLThrows does the same
-   * with 'auto_depreciation'. Production currently holds 37 posted headers with
-   * zero lines (34 'manual', 3 'auto_expense_claim') — a state trg_gl_je_balanced
-   * cannot produce, since it is BEFORE UPDATE. Converting those writers is
-   * tracked separately; do not read a green run here as coverage of them.
+   * source, so a green run here says nothing about those.
+   *
+   * sageImportService.importLedgerTransactions was one such path
+   * (status='posted', source='manual', no validateJournalEntry) and HAS since
+   * been converted to createJournalEntry/postJournalEntry — see
+   * tests/unit/services/sageLedgerImport.test.ts. postAssetDepreciationToGLThrows
+   * still INSERTs at posted with 'auto_depreciation'; it is balanced by
+   * construction and savepoint-atomic, and its deterministic entry_number is
+   * load-bearing for idempotency, so it was deliberately left alone.
    *
    * These three are emitted by live code and rejected by the constraint, so
    * those features are dead — and they must STAY dead until their code is

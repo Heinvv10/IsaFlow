@@ -129,9 +129,51 @@ export async function importLedgerTransactions(companyId: string, userId: string
         const entryRef = group.document_number
           ? `SAGE-${group.document_number}`
           : `SAGE-${String(group.transaction_date)}`;
+        const entryDate = fmtDate(group.transaction_date);
+
+        // Explicit idempotency guard, keyed on the group's real identity
+        // (reference + date). This used to be implicit: entry_number was
+        // `SAGE-<doc>` under uq_gl_je_company_entry_number, so a re-import hit
+        // 23505 and was counted failed. Moving the tag to `reference` removed
+        // that, and `migration_status = 'pending'` alone does NOT replace it —
+        // resetMigration (sageMigrationCompareService.ts:80) sets every row back
+        // to 'pending' and NULLs gl_journal_entry_id WITHOUT reversing the
+        // journals it created. So import → reset → import posted the entire
+        // ledger twice, both sets balanced, nothing to catch it. Two concurrent
+        // imports had the same effect under READ COMMITTED.
+        //
+        // Keyed on (reference, entry_date) rather than reference alone, which is
+        // what the old entry_number scheme got wrong: it collided for the same
+        // document number on two different dates and failed a legitimate group.
+        const existing = (await sql`
+          SELECT id FROM gl_journal_entries
+          WHERE company_id = ${companyId}::UUID
+            AND reference = ${entryRef}
+            AND entry_date = ${entryDate}::DATE
+            AND posting_agent = 'import:sage'
+            AND reversed_at IS NULL
+          LIMIT 1
+        `) as DbRow[];
+
+        if (existing[0]) {
+          const existingId = String(existing[0].id);
+          log.info('Sage ledger group already imported — relinking instead of re-posting', {
+            docNum: group.document_number, companyId, entryId: existingId,
+          }, 'accounting');
+          await transaction((txSql) =>
+            lines.map(line => txSql`
+              UPDATE sage_ledger_transactions
+              SET migration_status = 'imported', gl_journal_entry_id = ${existingId}::UUID
+              WHERE id = ${line.id}
+                AND company_id = ${companyId}::UUID
+            `)
+          );
+          skipped++;
+          continue;
+        }
 
         const entry = await createJournalEntry(companyId, {
-          entryDate: fmtDate(group.transaction_date),
+          entryDate,
           description: group.description || `Sage import: ${entryRef}`,
           source: 'manual',
           reference: entryRef,
@@ -161,6 +203,22 @@ export async function importLedgerTransactions(companyId: string, userId: string
         succeeded++;
       } catch (err) {
         log.error('Failed to import ledger group', { docNum: group.document_number, error: err }, 'accounting');
+        // Move the rows off 'pending' like the two guarded branches above do.
+        // Left pending, a group that can never succeed (e.g. Sage stores the
+        // contra as debit AND credit on one row, which validateJournalLine
+        // rejects) is silently re-attempted by every future run while the report
+        // says "failed". Worse, a throw AFTER postJournalEntry succeeded — the
+        // status UPDATE is savepointed via sql.transaction, so the journal
+        // survives — would leave rows pending against a posted journal and
+        // duplicate on the next run. (The idempotency guard above now also
+        // catches that case, but the rows should not linger regardless.)
+        try {
+          await markGroupFailed(group.lines);
+        } catch (markErr) {
+          log.error('Could not mark Sage ledger group failed', {
+            docNum: group.document_number, error: markErr,
+          }, 'accounting');
+        }
         failed++;
       }
     }

@@ -73,8 +73,19 @@ interface SageRow {
   ff_project_id?: string | null;
 }
 
-function withRows(rows: SageRow[]) {
-  sqlMock.mockImplementation((() => Promise.resolve(rows)) as never);
+/**
+ * @param rows            pending sage_ledger_transactions
+ * @param alreadyImported id of an existing non-reversed journal for the group,
+ *                        i.e. what the idempotency guard finds on a re-import
+ */
+function withRows(rows: SageRow[], alreadyImported: string | null = null) {
+  sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
+    const text = Array.isArray(strings) ? strings.join('') : String(strings);
+    if (text.includes('FROM gl_journal_entries')) {
+      return Promise.resolve(alreadyImported ? [{ id: alreadyImported }] : []);
+    }
+    return Promise.resolve(rows);
+  }) as never);
 }
 
 /** Statements handed to `transaction()` — used to inspect status updates. */
@@ -198,6 +209,43 @@ describe('importLedgerTransactions', () => {
 
     expect(createMock).toHaveBeenCalledTimes(2);
     expect(result).toMatchObject({ succeeded: 2, failed: 0 });
+  });
+
+  // The tag used to live in entry_number under uq_gl_je_company_entry_number,
+  // so a second import hit 23505. Moving it to `reference` removed that, and
+  // migration_status='pending' does NOT replace it: resetMigration sets every
+  // row back to 'pending' and NULLs gl_journal_entry_id WITHOUT reversing the
+  // journals, so import → reset → import posted the whole ledger twice, both
+  // sets balanced and nothing to catch it.
+  it('does NOT re-post a group that already has a journal — it relinks', async () => {
+    withRows([
+      row({ id: 'a', debit: 100, credit: 0 }),
+      row({ id: 'b', debit: 0, credit: 100 }),
+    ], 'je-existing');
+
+    const result = await importLedgerTransactions(COMPANY, USER);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ succeeded: 0, skipped: 1 });
+    // The rows are relinked to the journal that already exists, so they leave
+    // 'pending' and are not retried forever.
+    expect(txStatements().some(s => s.includes("migration_status = 'imported'"))).toBe(true);
+  });
+
+  it('marks rows failed when the group throws, so it is not silently retried forever', async () => {
+    withRows([
+      row({ id: 'a', debit: 100, credit: 0 }),
+      row({ id: 'b', debit: 0, credit: 100 }),
+    ]);
+    createMock.mockRejectedValue(new Error('A line must have a non-zero debit or credit amount'));
+
+    const result = await importLedgerTransactions(COMPANY, USER);
+
+    // The generic catch used to leave rows on 'pending': a group that can never
+    // succeed was re-attempted by every future run while the report said failed.
+    expect(result).toMatchObject({ failed: 1 });
+    expect(txStatements().some(s => s.includes("migration_status = 'failed'"))).toBe(true);
   });
 
   it('records a group as failed when posting throws, without claiming success', async () => {
