@@ -193,6 +193,45 @@ describe('postClaimToGl', () => {
     expect(postMock).not.toHaveBeenCalled();
   });
 
+  // A claim can total to NEGATIVE VAT when it carries credit-note lines. The
+  // guard was `totalVat > 0`, which let that case past the check and into the
+  // `totalVat !== 0` leg, where the non-null assertion on vatInputAccountId
+  // handed createJournalEntry an undefined glAccountId — still failing closed,
+  // but on a generic validation error rather than this actionable one.
+  const creditNoteLines: ClaimLineRow[] = [
+    { id: 'l1', amount: -1150, vat_amount: -150, gl_account_id: 'acct-travel' },
+  ];
+
+  it('REFUSES a negative-VAT claim with no VAT input account', async () => {
+    withClaim({ claimDate: '2026-08-13', lines: creditNoteLines });
+
+    await expect(
+      postClaimToGl(CLAIM, COMPANY, { userId: USER, reimbursementAccountId: REIMBURSEMENT }),
+    ).rejects.toThrow(/VAT input account/i);
+
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('posts a negative-VAT claim with the legs flipped to the correct sides', async () => {
+    withClaim({ claimDate: '2026-08-13', lines: creditNoteLines });
+
+    await postClaimToGl(CLAIM, COMPANY, {
+      userId: USER,
+      reimbursementAccountId: REIMBURSEMENT,
+      vatInputAccountId: VAT_INPUT,
+    });
+
+    const { lines } = createInput();
+    // Mirror image of the normal claim: expense and VAT credited, the
+    // reimbursement liability debited.
+    expect(lines.find(l => l.glAccountId === 'acct-travel')).toMatchObject({ debit: 0, credit: 1000 });
+    expect(lines.find(l => l.glAccountId === VAT_INPUT)).toMatchObject({ debit: 0, credit: 150 });
+    expect(lines.find(l => l.glAccountId === REIMBURSEMENT)).toMatchObject({ debit: 1150, credit: 0 });
+    expect(sum(lines, 'debit')).toBe(sum(lines, 'credit'));
+    // No negative amounts — validateJournalLine rejects them outright.
+    expect(lines.every(l => l.debit >= 0 && l.credit >= 0)).toBe(true);
+  });
+
   it('posts a zero-VAT claim without needing a VAT account', async () => {
     withClaim({
       claimDate: '2026-08-13',

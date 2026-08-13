@@ -236,12 +236,14 @@ export async function postDualDepreciationToLedger(
  * `instanceof` to answer 400 with the fix ("set gl_asset_account_id") instead
  * of an opaque 500.
  */
+export function missingAssetAccountMessage(assetNumber: string): string {
+  return `Asset ${assetNumber} has no fixed-asset account: set gl_asset_account_id on the asset or its category before disposing`;
+}
+
 export class MissingAssetAccountError extends Error {
   readonly assetNumber: string;
   constructor(assetNumber: string) {
-    super(
-      `Asset ${assetNumber} has no fixed-asset account: set gl_asset_account_id on the asset or its category before disposing`,
-    );
+    super(missingAssetAccountMessage(assetNumber));
     this.name = 'MissingAssetAccountError';
     this.assetNumber = assetNumber;
   }

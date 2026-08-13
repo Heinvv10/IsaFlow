@@ -11,7 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateDisposalResult } from '@/modules/accounting/services/items/farDisposalService';
-import { postAssetDisposalToGL, MissingAssetAccountError } from '@/modules/accounting/services/gl/glCrossModuleHooks';
+import { postAssetDisposalToGL, missingAssetAccountMessage } from '@/modules/accounting/services/gl/glCrossModuleHooks';
 
 type Row = Record<string, unknown>;
 
@@ -58,10 +58,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // row behind with no journal. postAssetDisposalToGL enforces the same rule
   // (MissingAssetAccountError) for callers that don't come through this route.
   if (!asset.effective_asset_account_id) {
-    return apiResponse.badRequest(
-      res,
-      new MissingAssetAccountError(String(asset.asset_number ?? assetId)).message,
-    );
+    return apiResponse.badRequest(res, missingAssetAccountMessage(String(asset.asset_number ?? assetId)));
   }
 
   const cost = Number(asset.cost);
@@ -112,7 +109,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // to swallow its errors and return null, which let this route answer 200 with
   // journalEntryId: null — an asset retired from the register with no journal.
   // It throws now, and withAuth rolls back on the resulting 5xx, taking the
-  // asset_disposals row written above with it.
+  // asset_period_ledger row and the assets.disposal_type update above with it.
   //
   // Note the 400 for a missing asset account is raised BEFORE any write (see
   // above), not from a catch here: withAuth finalises on `statusCode >= 500`,

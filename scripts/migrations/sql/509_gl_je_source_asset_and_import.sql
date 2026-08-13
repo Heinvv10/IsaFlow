@@ -26,8 +26,16 @@
 -- uses any of the four — none could ever have been written — so there is no
 -- data to backfill.
 --
--- 'auto_loan_payment' is already permitted by the live constraint and is
--- restated here so the rewritten list stays a superset of the old one.
+-- The list below was built by reading the LIVE constraint (pg_get_constraintdef
+-- on both dev and prod), not by extending migration 422's list, because the two
+-- have drifted: 422 is the last migration in this repo that defines the
+-- constraint and it omits 'auto_bank_transfer', yet both live databases accept
+-- that value — it was added out-of-band at some point. bankAllocationService.ts
+-- emits it for inter-account transfers, so had this migration extended 422's
+-- text instead, it would have SILENTLY REVOKED a source that is in active use
+-- and broken bank transfers. Restating the full live list makes a
+-- migrations-only rebuild converge on what production actually enforces.
+-- 'auto_loan_payment' is likewise already live and restated for the same reason.
 --
 -- Idempotent: the constraint is dropped IF EXISTS before being re-added.
 

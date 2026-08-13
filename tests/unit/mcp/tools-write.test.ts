@@ -33,6 +33,11 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceCreateService', () => (
 }));
 vi.mock('@/modules/accounting/services/ar/customerInvoiceApprovalService', () => ({
   approveCustomerInvoice: vi.fn(),
+  // finalize_invoice does `err instanceof InvoiceNotApprovableError` to decide
+  // whether a failure is safe to report as a tool error or must be rethrown so
+  // the registry's SAVEPOINT rolls the write back. Omitting it from this mock
+  // makes that `instanceof` throw a TypeError against undefined.
+  InvoiceNotApprovableError: class InvoiceNotApprovableError extends Error {},
 }));
 vi.mock('@/modules/accounting/services/ar/quoteService', () => ({ createQuote: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn() }));
@@ -52,7 +57,10 @@ import {
   createDraftCustomerInvoice,
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
-import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
+import {
+  approveCustomerInvoice,
+  InvoiceNotApprovableError,
+} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
@@ -320,11 +328,26 @@ describe('write-tool failure paths', () => {
     expect(r.content[0]!.text).toContain('status'); // application error surfaced
   });
 
+  // The fixture must be an InvoiceNotApprovableError, which is what the service
+  // actually throws for this case (customerInvoiceApprovalService.ts:76) — a
+  // plain Error here never matched production. finalize_invoice now rethrows
+  // anything that is NOT that typed error, so the write-tool SAVEPOINT can roll
+  // back a failure that happened AFTER the status UPDATE. Only the pre-write
+  // guard, where the guarded UPDATE matched zero rows, is a safe tool error.
   it('finalize_invoice: already-cancelled → safe tool error', async () => {
-    vi.mocked(approveCustomerInvoice).mockRejectedValue(new Error('Invoice is not in an approvable state'));
+    vi.mocked(approveCustomerInvoice).mockRejectedValue(
+      new InvoiceNotApprovableError('Invoice is not in an approvable state'),
+    );
     const r = await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('approvable');
+  });
+
+  it('finalize_invoice: GL post failure PROPAGATES so the savepoint rolls back', async () => {
+    vi.mocked(approveCustomerInvoice).mockRejectedValue(new Error('Cannot post to closed fiscal period'));
+    await expect(
+      tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx()),
+    ).rejects.toThrow(/closed fiscal period/);
   });
 
   it('generic-ifies pg driver errors (with a SQLSTATE code) — no schema leak', async () => {

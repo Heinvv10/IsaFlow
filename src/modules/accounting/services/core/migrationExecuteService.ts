@@ -3,14 +3,9 @@
  * Uses existing migrationCoaService and migrationContactService patterns.
  */
 
-import { sql, transaction, fmtDate } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import {
-  createJournalEntry,
-  postJournalEntry,
-} from '@/modules/accounting/services/gl/journalEntryService';
-import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
-import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
+import { postOpeningBalances } from './migrationOpeningBalanceService';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 
@@ -92,83 +87,13 @@ export async function executeMigration(
   }
 
   // 2. Set opening balances via a single journal entry.
-  //
-  // Every account is resolved before anything is written, and the entry is
-  // posted only if the whole set balances. The previous shape did
-  // `if (glRows.length === 0) continue;` — an account that failed to import in
-  // step 1 silently vanished from the journal while the others kept their
-  // balances, and the entry went in via a hand-rolled INSERT already at
-  // status='posted' (trg_gl_je_balanced fires only on UPDATE), so nothing
-  // caught the resulting lopsided opening trial balance.
-  //
-  // Nothing is plugged to a suspense or equity account: a source file whose
-  // trial balance does not sum to zero is a data problem the operator has to
-  // see, and fabricating the difference as equity would bury it.
-  const balanceAccounts = accounts.filter(a => a.openingBalance !== 0 && a.sourceCode && a.mappedType);
-  if (balanceAccounts.length > 0) {
-    try {
-      const lines: JournalLineInput[] = [];
-      const unresolved: string[] = [];
-
-      for (const acct of balanceAccounts) {
-        const glRows = (await sql`
-          SELECT id FROM gl_accounts
-          WHERE company_id = ${companyId}::UUID AND account_code = ${acct.sourceCode}
-          LIMIT 1
-        `) as DbRow[];
-        if (glRows.length === 0) {
-          unresolved.push(`${acct.sourceCode} ${acct.sourceName}`);
-          continue;
-        }
-        const glId = String(glRows[0]!.id);
-        const isDebitNormal = acct.mappedNormalBalance === 'debit';
-        const debit  = isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0;
-        const credit = !isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0;
-        lines.push({
-          glAccountId: glId,
-          debit,
-          credit,
-          description: `Opening balance — ${source}`,
-        });
-      }
-
-      if (unresolved.length > 0) {
-        // Dropping these and posting the remainder is what produced an
-        // unbalanced opening trial balance. Refuse the whole journal.
-        throw new Error(
-          `no GL account was created for ${unresolved.join('; ')} — opening balances not imported (fix the account import, then re-run)`,
-        );
-      }
-
-      if (lines.length > 0) {
-        const totalDebit = roundToCents(lines.reduce((s, l) => s + l.debit, 0));
-        const totalCredit = roundToCents(lines.reduce((s, l) => s + l.credit, 0));
-        const difference = roundToCents(totalDebit - totalCredit);
-        if (difference !== 0) {
-          throw new Error(
-            `source trial balance does not sum to zero — debits R${totalDebit.toFixed(2)} vs credits R${totalCredit.toFixed(2)} (difference R${Math.abs(difference).toFixed(2)}); opening balances not imported`,
-          );
-        }
-
-        // createJournalEntry batches header + lines into one transaction and
-        // runs validateJournalEntry; postJournalEntry re-validates and checks
-        // the fiscal period is open. Deliberately NOT wrapped in
-        // withTransaction — that acquires a separate pool client and would
-        // deadlock against rows locked by the request-scoped transaction.
-        const entry = await createJournalEntry(companyId, {
-          entryDate: fmtDate(new Date()),
-          description: `Opening balances imported from ${source}`,
-          source: 'auto_migration',
-          reference: `OB-${source.toUpperCase()}`,
-          lines,
-        }, userId, { postingAgent: `system:migration:${source}` });
-
-        await postJournalEntry(companyId, entry.id, userId);
-        openingBalancesSet = lines.length;
-      }
-    } catch (err) {
-      errors.push(`Opening balances: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  // Extracted to migrationOpeningBalanceService — it either posts the whole
+  // balanced set or throws without writing anything; the throw is reported
+  // through the errors[] channel rather than failing the entire migration.
+  try {
+    openingBalancesSet = await postOpeningBalances(companyId, userId, source, accounts);
+  } catch (err) {
+    errors.push(`Opening balances: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // 3. Import customers

@@ -441,7 +441,13 @@ export async function postClaimToGl(
   // stayed at gross — a posted journal short by exactly the VAT, with nothing
   // to catch it (the header was INSERTed straight into status='posted', and
   // trg_gl_je_balanced only fires on UPDATE). Refuse instead.
-  if (totalVat > 0 && !opts.vatInputAccountId) {
+  // `!== 0`, not `> 0`: a claim carrying credit-note lines can total to NEGATIVE
+  // VAT, which still needs the VAT account (as a credit). Guarding on `> 0` let
+  // that case through to the `totalVat !== 0` leg below, where the non-null
+  // assertion on vatInputAccountId would hand createJournalEntry an undefined
+  // glAccountId. It still failed closed, but on a generic validation error
+  // instead of this actionable one.
+  if (totalVat !== 0 && !opts.vatInputAccountId) {
     throw new ClaimNotPostableError(
       `Claim ${claim.claimNumber} carries R${totalVat.toFixed(2)} VAT but no VAT input account was supplied — cannot post a balanced entry`,
     );
@@ -474,6 +480,8 @@ export async function postClaimToGl(
   }
 
   if (totalVat !== 0) {
+    // Non-null is guaranteed by the `totalVat !== 0 && !vatInputAccountId`
+    // guard above, which throws before reaching here.
     lines.push({
       glAccountId: opts.vatInputAccountId!,
       debit: totalVat > 0 ? totalVat : 0,
