@@ -3,8 +3,14 @@
  * Uses existing migrationCoaService and migrationContactService patterns.
  */
 
-import { sql, transaction, withTransaction } from '@/lib/neon';
+import { sql, transaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import {
+  createJournalEntry,
+  postJournalEntry,
+} from '@/modules/accounting/services/gl/journalEntryService';
+import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
+import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 
@@ -85,52 +91,79 @@ export async function executeMigration(
     }
   }
 
-  // 2. Set opening balances via journal entry (atomic: roll back header if any line fails)
+  // 2. Set opening balances via a single journal entry.
+  //
+  // Every account is resolved before anything is written, and the entry is
+  // posted only if the whole set balances. The previous shape did
+  // `if (glRows.length === 0) continue;` — an account that failed to import in
+  // step 1 silently vanished from the journal while the others kept their
+  // balances, and the entry went in via a hand-rolled INSERT already at
+  // status='posted' (trg_gl_je_balanced fires only on UPDATE), so nothing
+  // caught the resulting lopsided opening trial balance.
+  //
+  // Nothing is plugged to a suspense or equity account: a source file whose
+  // trial balance does not sum to zero is a data problem the operator has to
+  // see, and fabricating the difference as equity would bury it.
   const balanceAccounts = accounts.filter(a => a.openingBalance !== 0 && a.sourceCode && a.mappedType);
   if (balanceAccounts.length > 0) {
     try {
-      // Resolve GL account IDs before entering the transaction (read-only lookups)
-      type LineData = { glId: string; debit: number; credit: number };
-      const lines: LineData[] = [];
+      const lines: JournalLineInput[] = [];
+      const unresolved: string[] = [];
+
       for (const acct of balanceAccounts) {
         const glRows = (await sql`
           SELECT id FROM gl_accounts
           WHERE company_id = ${companyId}::UUID AND account_code = ${acct.sourceCode}
           LIMIT 1
         `) as DbRow[];
-        if (glRows.length === 0) continue;
+        if (glRows.length === 0) {
+          unresolved.push(`${acct.sourceCode} ${acct.sourceName}`);
+          continue;
+        }
         const glId = String(glRows[0]!.id);
         const isDebitNormal = acct.mappedNormalBalance === 'debit';
         const debit  = isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0;
         const credit = !isDebitNormal && acct.openingBalance > 0 ? acct.openingBalance : 0;
-        lines.push({ glId, debit, credit });
+        lines.push({
+          glAccountId: glId,
+          debit,
+          credit,
+          description: `Opening balance — ${source}`,
+        });
+      }
+
+      if (unresolved.length > 0) {
+        // Dropping these and posting the remainder is what produced an
+        // unbalanced opening trial balance. Refuse the whole journal.
+        throw new Error(
+          `no GL account was created for ${unresolved.join('; ')} — opening balances not imported (fix the account import, then re-run)`,
+        );
       }
 
       if (lines.length > 0) {
-        await withTransaction(async (tx) => {
-          const jeRows = (await tx`
-            INSERT INTO gl_journal_entries (
-              company_id, entry_date, reference, description, status, created_by,
-              posting_agent
-            ) VALUES (
-              ${companyId}::UUID,
-              CURRENT_DATE,
-              ${'OB-' + source.toUpperCase()},
-              ${'Opening balances imported from ' + source},
-              'posted',
-              ${userId}::UUID,
-              ${'system:migration:' + source}
-            ) RETURNING id
-          `) as DbRow[];
+        const totalDebit = roundToCents(lines.reduce((s, l) => s + l.debit, 0));
+        const totalCredit = roundToCents(lines.reduce((s, l) => s + l.credit, 0));
+        const difference = roundToCents(totalDebit - totalCredit);
+        if (difference !== 0) {
+          throw new Error(
+            `source trial balance does not sum to zero — debits R${totalDebit.toFixed(2)} vs credits R${totalCredit.toFixed(2)} (difference R${Math.abs(difference).toFixed(2)}); opening balances not imported`,
+          );
+        }
 
-          const jeId = String(jeRows[0]!.id);
-          for (const line of lines) {
-            await tx`
-              INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
-              VALUES (${jeId}::UUID, ${line.glId}::UUID, ${line.debit}, ${line.credit}, ${'Opening balance — ' + source}, ${companyId}::UUID)
-            `;
-          }
-        });
+        // createJournalEntry batches header + lines into one transaction and
+        // runs validateJournalEntry; postJournalEntry re-validates and checks
+        // the fiscal period is open. Deliberately NOT wrapped in
+        // withTransaction — that acquires a separate pool client and would
+        // deadlock against rows locked by the request-scoped transaction.
+        const entry = await createJournalEntry(companyId, {
+          entryDate: fmtDate(new Date()),
+          description: `Opening balances imported from ${source}`,
+          source: 'auto_migration',
+          reference: `OB-${source.toUpperCase()}`,
+          lines,
+        }, userId, { postingAgent: `system:migration:${source}` });
+
+        await postJournalEntry(companyId, entry.id, userId);
         openingBalancesSet = lines.length;
       }
     } catch (err) {

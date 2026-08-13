@@ -18,8 +18,14 @@
  * Evidence stamp: JE.posting_agent = 'human:<userId>' or 'ai:expense-claim'.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import {
+  createJournalEntry,
+  postJournalEntry,
+} from '@/modules/accounting/services/gl/journalEntryService';
+import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
+import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 
 type Row = Record<string, unknown>;
 
@@ -67,15 +73,22 @@ export interface ExpenseClaim {
   lines?: ExpenseClaimLine[];
 }
 
+/**
+ * pg hands back a Date at LOCAL midnight for a DATE column. The old body ran
+ * `v.toISOString().slice(0, 10)`, which on this UTC+2 host renders that as the
+ * previous day — and claimDate becomes the journal's entryDate, so a claim
+ * dated the 1st filed its journal into the prior month. fmtDate reads the local
+ * calendar fields instead.
+ */
 function toISODate(v: unknown): string {
+  if (v instanceof Date) return fmtDate(v);
   if (!v) return '';
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
   const s = String(v);
   // Already YYYY-MM-DD or ISO-like
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  // JS Date.toString() format — convert
+  // JS Date.toString() format — parse to a local Date, then format locally.
   const d = new Date(s);
-  return isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
+  return isNaN(d.getTime()) ? s : fmtDate(d);
 }
 
 function mapLine(row: Row): ExpenseClaimLine {
@@ -384,6 +397,22 @@ export async function cancelClaim(id: string, companyId: string): Promise<Expens
 
 // ─── Posting to GL ────────────────────────────────────────────────────────────
 
+/**
+ * Thrown for the checks postClaimToGl makes BEFORE it writes anything: wrong
+ * status, a line with no GL account, VAT with no VAT input account.
+ *
+ * The distinction matters because withAuth finalises on `statusCode >= 500`, so
+ * a 4xx COMMITs. Answering 400 is only safe while nothing has been written —
+ * a failure after createJournalEntry has to reach a 5xx so the request
+ * transaction rolls the draft entry back instead of leaving it orphaned.
+ */
+export class ClaimNotPostableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ClaimNotPostableError';
+  }
+}
+
 export interface PostClaimOptions {
   userId: string;
   reimbursementAccountId: string;     // CR leg — typically "Employee reimbursements" liability
@@ -398,76 +427,86 @@ export async function postClaimToGl(
   const claim = await getClaim(id, companyId);
   if (!claim) return null;
   if (claim.status !== 'approved') {
-    throw new Error(`Cannot post claim in status '${claim.status}'`);
+    throw new ClaimNotPostableError(`Cannot post claim in status '${claim.status}'`);
   }
   if (!claim.lines || claim.lines.length === 0) {
-    throw new Error('Claim has no lines');
+    throw new ClaimNotPostableError('Claim has no lines');
   }
 
-  const totalVat = claim.lines.reduce((s, l) => s + Number(l.vatAmount), 0);
-  const totalGross = claim.lines.reduce((s, l) => s + Number(l.amount), 0);
+  const totalVat = roundToCents(claim.lines.reduce((s, l) => s + Number(l.vatAmount), 0));
+  const totalGross = roundToCents(claim.lines.reduce((s, l) => s + Number(l.amount), 0));
 
-  // Create the journal entry header. source_document_id stays null (many
-  // docs); source_document_line_id on each line carries the per-slip link.
-  const [je] = (await sql`
-    INSERT INTO gl_journal_entries (
-      company_id, entry_date, description, source, reference,
-      posting_agent, extraction_confidence, created_by, status, posted_at, posted_by
-    ) VALUES (
-      ${companyId}::uuid, ${claim.claimDate}::date,
-      ${'Expense claim ' + claim.claimNumber}, 'auto_expense_claim',
-      ${claim.claimNumber}, ${'human:' + opts.userId}, NULL,
-      ${opts.userId}, 'posted', NOW(), ${opts.userId}
-    )
-    RETURNING id
-  `) as Row[];
-  const jeId = je!.id as string;
+  // The VAT debit used to be conditional on vatInputAccountId being supplied.
+  // When it wasn't, the entry lost that leg while the reimbursement credit
+  // stayed at gross — a posted journal short by exactly the VAT, with nothing
+  // to catch it (the header was INSERTed straight into status='posted', and
+  // trg_gl_je_balanced only fires on UPDATE). Refuse instead.
+  if (totalVat > 0 && !opts.vatInputAccountId) {
+    throw new ClaimNotPostableError(
+      `Claim ${claim.claimNumber} carries R${totalVat.toFixed(2)} VAT but no VAT input account was supplied — cannot post a balanced entry`,
+    );
+  }
+
+  // Build every leg before anything is written. The old shape INSERTed the
+  // posted header first and threw on the first bad line, leaving a posted,
+  // line-less entry behind.
+  const lines: JournalLineInput[] = [];
 
   for (const line of claim.lines) {
     if (!line.glAccountId) {
-      throw new Error(`Line ${line.id} has no gl_account_id — set it before posting`);
+      throw new ClaimNotPostableError(`Line ${line.id} has no gl_account_id — set it before posting`);
     }
-    const netAmount = Number(line.amount) - Number(line.vatAmount);
-    await sql`
-      INSERT INTO gl_journal_lines (
-        journal_entry_id, company_id, gl_account_id, debit, credit,
-        description, project_id, cost_center_id
-      ) VALUES (
-        ${jeId}::uuid, ${companyId}::uuid, ${line.glAccountId}::uuid,
-        ${netAmount}, 0, ${line.description ?? claim.claimNumber},
-        ${line.projectId ? `${line.projectId}` : null}::uuid,
-        ${line.costCentreId ? `${line.costCentreId}` : null}::uuid
-      )
-    `;
+    const netAmount = roundToCents(Number(line.amount) - Number(line.vatAmount));
+    // A wholly-VAT line nets to zero; validateJournalLine rejects a line with
+    // neither debit nor credit, and the entry still balances without it because
+    // the VAT leg below carries the whole amount.
+    if (netAmount === 0) continue;
+    lines.push({
+      glAccountId: line.glAccountId,
+      // A credit note captured on a claim arrives as a negative amount; posting
+      // it as a negative debit fails validateJournalLine, so flip the side.
+      debit: netAmount > 0 ? netAmount : 0,
+      credit: netAmount < 0 ? -netAmount : 0,
+      description: line.description ?? claim.claimNumber,
+      ...(line.projectId ? { projectId: line.projectId } : {}),
+      ...(line.costCentreId ? { costCenterId: line.costCentreId } : {}),
+    });
   }
 
-  if (totalVat > 0 && opts.vatInputAccountId) {
-    await sql`
-      INSERT INTO gl_journal_lines (
-        journal_entry_id, company_id, gl_account_id, debit, credit, description
-      ) VALUES (
-        ${jeId}::uuid, ${companyId}::uuid, ${opts.vatInputAccountId}::uuid,
-        ${totalVat}, 0, ${'VAT Input ' + claim.claimNumber}
-      )
-    `;
+  if (totalVat !== 0) {
+    lines.push({
+      glAccountId: opts.vatInputAccountId!,
+      debit: totalVat > 0 ? totalVat : 0,
+      credit: totalVat < 0 ? -totalVat : 0,
+      description: `VAT Input ${claim.claimNumber}`,
+    });
   }
 
   // Credit the reimbursement liability for the gross amount
-  await sql`
-    INSERT INTO gl_journal_lines (
-      journal_entry_id, company_id, gl_account_id, debit, credit, description
-    ) VALUES (
-      ${jeId}::uuid, ${companyId}::uuid, ${opts.reimbursementAccountId}::uuid,
-      0, ${totalGross}, ${'Reimbursement due — ' + claim.claimNumber}
-    )
-  `;
+  lines.push({
+    glAccountId: opts.reimbursementAccountId,
+    debit: totalGross < 0 ? -totalGross : 0,
+    credit: totalGross > 0 ? totalGross : 0,
+    description: `Reimbursement due — ${claim.claimNumber}`,
+  });
+
+  // source_document_id stays null at the header — a claim has many source docs.
+  const entry = await createJournalEntry(companyId, {
+    entryDate: claim.claimDate,
+    description: `Expense claim ${claim.claimNumber}`,
+    source: 'auto_expense_claim',
+    reference: claim.claimNumber,
+    lines,
+  }, opts.userId);
+
+  await postJournalEntry(companyId, entry.id, opts.userId);
 
   await sql`
     UPDATE expense_claims
-    SET status = 'posted', posted_je_id = ${jeId}::uuid, posted_at = NOW()
+    SET status = 'posted', posted_je_id = ${entry.id}::uuid, posted_at = NOW()
     WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
   `;
 
-  log.info('expense claim posted to GL', { id, jeId, total: totalGross }, 'expense-claims');
+  log.info('expense claim posted to GL', { id, jeId: entry.id, total: totalGross }, 'expense-claims');
   return await getClaim(id, companyId);
 }

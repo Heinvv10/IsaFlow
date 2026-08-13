@@ -11,7 +11,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateDisposalResult } from '@/modules/accounting/services/items/farDisposalService';
-import { postAssetDisposalToGL } from '@/modules/accounting/services/gl/glCrossModuleHooks';
+import { postAssetDisposalToGL, MissingAssetAccountError } from '@/modules/accounting/services/gl/glCrossModuleHooks';
 
 type Row = Record<string, unknown>;
 
@@ -39,8 +39,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       COALESCE(a.tax_accumulated_depreciation, 0) AS tax_acc_dep,
       a.status,
       a.category_id,
-      a.gl_asset_account_id
+      a.gl_asset_account_id,
+      COALESCE(a.gl_asset_account_id, c.gl_asset_account_id) AS effective_asset_account_id
     FROM assets a
+    LEFT JOIN asset_categories c ON c.id = a.category_id
     WHERE a.id = ${assetId}::UUID
       AND a.company_id = ${companyId}::UUID
   `) as Row[];
@@ -49,6 +51,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const asset = assetRows[0];
   if (asset.status === 'disposed') return apiResponse.badRequest(res, 'Asset is already disposed');
+
+  // The fixed-asset account is the disposal journal's only credit leg. Check it
+  // HERE, before the asset_period_ledger write below: withAuth finalises on
+  // `statusCode >= 500`, so a 4xx commits — a late 400 would leave the ledger
+  // row behind with no journal. postAssetDisposalToGL enforces the same rule
+  // (MissingAssetAccountError) for callers that don't come through this route.
+  if (!asset.effective_asset_account_id) {
+    return apiResponse.badRequest(
+      res,
+      new MissingAssetAccountError(String(asset.asset_number ?? assetId)).message,
+    );
+  }
 
   const cost = Number(asset.cost);
   const policyAccDep = Number(asset.policy_acc_dep ?? 0);
@@ -94,6 +108,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     `;
   }
 
+  // A GL failure here must fail the whole disposal. postAssetDisposalToGL used
+  // to swallow its errors and return null, which let this route answer 200 with
+  // journalEntryId: null — an asset retired from the register with no journal.
+  // It throws now, and withAuth rolls back on the resulting 5xx, taking the
+  // asset_disposals row written above with it.
+  //
+  // Note the 400 for a missing asset account is raised BEFORE any write (see
+  // above), not from a catch here: withAuth finalises on `statusCode >= 500`,
+  // so a 4xx COMMITs — 400-ing at this point would persist the disposal row
+  // without its journal, which is the bug being fixed.
   const entryId = await postAssetDisposalToGL(companyId, {
     assetId,
     policyAccDep,
