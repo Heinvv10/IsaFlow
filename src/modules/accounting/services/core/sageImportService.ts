@@ -8,8 +8,13 @@
  * missing NOT NULL company_id columns.
  */
 
-import { sql, transaction } from '@/lib/neon';
+import { sql, transaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import {
+  createJournalEntry,
+  postJournalEntry,
+} from '@/modules/accounting/services/gl/journalEntryService';
+import { roundToCents } from '@/modules/accounting/utils/doubleEntry';
 import type { MigrationRun } from './sageMigrationService';
 import { startRun, completeRun, failRun } from './sageMigrationService';
 import type { DbRow } from '@/types/db';
@@ -61,77 +66,97 @@ export async function importLedgerTransactions(companyId: string, userId: string
     let failed = 0;
     let skipped = 0;
 
+    /** Mark every line of a group failed, scoped by company_id (BL-40). */
+    const markGroupFailed = async (groupLines: DbRow[]) => {
+      await transaction((txSql) =>
+        groupLines.map(line => txSql`
+          UPDATE sage_ledger_transactions
+          SET migration_status = 'failed'
+          WHERE id = ${line.id}
+            AND company_id = ${companyId}::UUID
+        `)
+      );
+    };
+
     for (const group of groups) {
       try {
         const lines = group.lines;
         if (lines.length === 0) { skipped++; continue; }
 
-        const totalDebit = lines.reduce((s: number, l: DbRow) => s + Number(l.debit || 0), 0);
-        const totalCredit = lines.reduce((s: number, l: DbRow) => s + Number(l.credit || 0), 0);
+        // Zero-value rows cannot be journal lines (validateJournalLine rejects a
+        // line with neither debit nor credit) and contribute nothing to the
+        // balance, so drop them here rather than after the header exists.
+        const activeLines = lines.filter(
+          l => Number(l.debit || 0) !== 0 || Number(l.credit || 0) !== 0,
+        );
 
-        if (Math.abs(totalDebit - totalCredit) > 0.02) {
-          // BL-40: UPDATE scoped by company_id to prevent touching other-tenant rows
-          await transaction((txSql) =>
-            lines.map(line => txSql`
-              UPDATE sage_ledger_transactions
-              SET migration_status = 'failed'
-              WHERE id = ${line.id}
-                AND company_id = ${companyId}::UUID
-            `)
-          );
+        // A group whose rows are ALL zero used to pass the balance gate (0 - 0),
+        // get its header INSERTed at status='posted', and then write no lines at
+        // all — production still holds 34 such 'manual' headers with zero lines.
+        if (activeLines.length < 2) {
+          log.warn('Sage ledger group has fewer than two non-zero lines — cannot form a journal', {
+            docNum: group.document_number, companyId, lineCount: activeLines.length,
+          }, 'accounting');
+          await markGroupFailed(lines);
           failed++;
           continue;
         }
 
+        const totalDebit = roundToCents(activeLines.reduce((t, l) => t + Number(l.debit || 0), 0));
+        const totalCredit = roundToCents(activeLines.reduce((t, l) => t + Number(l.credit || 0), 0));
+
+        // EXACT, not the old `> 0.02` tolerance. That tolerance let a group of
+        // Dr 100.00 / Cr 100.02 through into a header INSERTed directly at
+        // status='posted' — and trg_gl_je_balanced is BEFORE UPDATE, so nothing
+        // downstream ever checked it. Two cents per document is not a rounding
+        // artefact to absorb; it is a source-data problem to report.
+        if (totalDebit !== totalCredit) {
+          log.warn('Sage ledger group does not balance', {
+            docNum: group.document_number, companyId, totalDebit, totalCredit,
+          }, 'accounting');
+          await markGroupFailed(lines);
+          failed++;
+          continue;
+        }
+
+        // SAGE-<doc> moves to `reference`. It was entry_number, which is UNIQUE
+        // per company — and because entryRef keyed on document_number ALONE,
+        // two legitimate groups sharing a document number across different
+        // dates collided on 23505 and were recorded as failures. Idempotency
+        // does not depend on it: the driving query selects only
+        // migration_status = 'pending', and every row is moved off 'pending'
+        // below.
         const entryRef = group.document_number
           ? `SAGE-${group.document_number}`
-          : `SAGE-${group.transaction_date}`;
+          : `SAGE-${String(group.transaction_date)}`;
 
-        // BL-40: Added company_id to INSERT — was missing, causing NOT NULL violation
-        const entry = (await sql`
-          INSERT INTO gl_journal_entries (
-            entry_number, entry_date, description, source, status, created_by, company_id,
-            posting_agent
-          ) VALUES (
-            ${entryRef}, ${group.transaction_date},
-            ${group.description || `Sage import: ${entryRef}`},
-            'manual', 'posted', ${userId}, ${companyId}::UUID,
-            'import:sage'
-          ) RETURNING id
-        `) as DbRow[];
+        const entry = await createJournalEntry(companyId, {
+          entryDate: fmtDate(group.transaction_date),
+          description: group.description || `Sage import: ${entryRef}`,
+          source: 'manual',
+          reference: entryRef,
+          lines: activeLines.map(line => ({
+            glAccountId: String(line.gl_account_id),
+            debit: Number(line.debit || 0),
+            credit: Number(line.credit || 0),
+            description: String(line.description || group.description || ''),
+            ...(line.ff_project_id ? { projectId: String(line.ff_project_id) } : {}),
+          })),
+        }, userId, { postingAgent: 'import:sage' });
 
-        const entryId = String(entry[0]!.id);
+        await postJournalEntry(companyId, entry.id, userId);
 
-        // Batch all line inserts + status updates into one HTTP round-trip
-        const activeLines = lines.filter(l => Number(l.debit || 0) !== 0 || Number(l.credit || 0) !== 0);
-        if (activeLines.length > 0) {
-          await transaction((txSql) =>
-            activeLines.flatMap(line => {
-              const debit = Number(line.debit || 0);
-              const credit = Number(line.credit || 0);
-              const projectId = line.ff_project_id || null;
-              const lineInsert = projectId
-                ? txSql`
-                    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, project_id, company_id)
-                    VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
-                      ${line.description || group.description || ''}, ${projectId}::UUID, ${companyId}::UUID)
-                  `
-                : txSql`
-                    INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
-                    VALUES (${entryId}::UUID, ${line.gl_account_id}::UUID, ${debit}, ${credit},
-                      ${line.description || group.description || ''}, ${companyId}::UUID)
-                  `;
-              // BL-40: UPDATE scoped by company_id
-              const statusUpdate = txSql`
-                UPDATE sage_ledger_transactions
-                SET migration_status = 'imported', gl_journal_entry_id = ${entryId}::UUID
-                WHERE id = ${line.id}
-                  AND company_id = ${companyId}::UUID
-              `;
-              return [lineInsert, statusUpdate];
-            })
-          );
-        }
+        // Every row of the group is moved off 'pending' — including the
+        // zero-value ones excluded from the journal, which would otherwise be
+        // re-selected by every subsequent run.
+        await transaction((txSql) =>
+          lines.map(line => txSql`
+            UPDATE sage_ledger_transactions
+            SET migration_status = 'imported', gl_journal_entry_id = ${entry.id}::UUID
+            WHERE id = ${line.id}
+              AND company_id = ${companyId}::UUID
+          `)
+        );
 
         succeeded++;
       } catch (err) {
