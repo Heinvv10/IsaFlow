@@ -1,108 +1,165 @@
 /**
- * A zero-VAT receipt must still post.
+ * A zero-VAT receipt must still post — proven against the ROUTES, not a copy.
  *
  * buildExpenseJournalFromReceipt emits its VAT leg unconditionally
- * (receiptToJournalService.ts:141). validateReceiptExtraction only WARNS when
- * vatAmount is null — it accepts a zero — so a zero-rated or exempt receipt
- * (bank charges, basic foodstuffs, a foreign supplier) produces a leg of
- * { debit: 0, credit: 0 }.
+ * (receiptToJournalService.ts), and validateReceiptExtraction only WARNS on a
+ * null vatAmount, not a zero one. So a zero-rated or exempt receipt (bank
+ * charges, basic foodstuffs, a foreign supplier) yields a leg of
+ * { debit: 0, credit: 0 }. That was harmless while the routes hand-INSERTed
+ * their lines; once they went through createJournalEntry it became fatal,
+ * because validateJournalLine rejects a line with neither debit nor credit.
  *
- * That was harmless while the route hand-INSERTed its lines. Routing
- * receipt-to-journal through createJournalEntry made it fatal:
- * validateJournalLine rejects a line with neither debit nor credit, so every
- * zero-VAT receipt would have 500'd. The callers filter zero-value legs before
- * handing the lines over — the same guard expenseClaimService applies with
- * `if (netAmount === 0) continue`.
- *
- * This pins the contract the two routes depend on: the raw build DOES produce
- * an unusable leg, and filtering it yields a journal that validates and still
- * balances. If the builder ever stops emitting the empty leg, the first
- * assertion fails and the filters can go.
+ * The first version of this file re-implemented the routes' filter locally and
+ * asserted against its own copy. Deleting the filter from BOTH production
+ * routes left the entire 5118-test suite green — it protected nothing. These
+ * tests import the real handlers and use the REAL builder, mocking only the
+ * database and the posting service, so the assertion is on what the route
+ * actually hands to createJournalEntry.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { NextApiResponse } from 'next';
 
-import { buildExpenseJournalFromReceipt } from '@/modules/accounting/services/bank/receiptToJournalService';
+vi.mock('@/lib/logger', () => ({
+  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
+vi.mock('@/lib/auth', () => ({
+  withAuth: (fn: unknown) => fn,
+  withWriteAccess: (fn: unknown) => fn,
+}));
+vi.mock('@/lib/auth/withCsrf', () => ({ withCsrf: (fn: unknown) => fn }));
+vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (fn: unknown) => fn }));
+vi.mock('@/lib/apiResponse', () => ({
+  apiResponse: {
+    success: vi.fn((_res: unknown, data: unknown) => ({ kind: 'success', data })),
+    badRequest: vi.fn((_res: unknown, error: string) => ({ kind: 'badRequest', error })),
+    notFound: vi.fn((_res: unknown, entity: string) => ({ kind: 'notFound', entity })),
+    methodNotAllowed: vi.fn(() => ({ kind: 'methodNotAllowed' })),
+    internalError: vi.fn(() => ({ kind: 'internalError' })),
+  },
+}));
+
+const { sqlMock, createMock, postMock } = vi.hoisted(() => ({
+  sqlMock: Object.assign(vi.fn(), { transaction: vi.fn() }),
+  createMock: vi.fn(),
+  postMock: vi.fn(),
+}));
+
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  withTransaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(sqlMock)),
+  fmtDate: (d: unknown) => String(d),
+}));
+vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
+  createJournalEntry: createMock,
+  postJournalEntry: postMock,
+}));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
+  getSystemAccountId: vi.fn(async (key: string) => `acct-${key}`),
+}));
+
+// receiptToJournalService is deliberately NOT mocked — the whole point is that
+// the REAL builder emits the zero leg the route has to filter.
+import handler from '../../../pages/api/accounting/receipt-to-journal';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
-import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
-const ACCOUNTS = {
-  expenseAccountId: 'acct-expense',
-  vatInputAccountId: 'acct-vat-input',
-  bankAccountId: 'acct-bank',
+const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
+const USER_ID = 'bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb';
+const DOC_ID = 'cccccccc-0000-0000-0000-cccccccccccc';
+
+type Line = { glAccountId: string; debit: number; credit: number };
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const res = () => ({} as NextApiResponse<any>);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function req(extracted: Record<string, unknown>): any {
+  return {
+    method: 'POST',
+    companyId: COMPANY_ID,
+    user: { id: USER_ID },
+    body: { documentId: DOC_ID },
+    query: {},
+    __extracted: extracted,
+  };
+}
+
+function stubDb(extracted: Record<string, unknown>) {
+  sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
+    const text = Array.isArray(strings) ? strings.join('') : String(strings);
+    if (text.includes('FROM captured_documents')) {
+      return Promise.resolve([{ extracted_data: extracted, status: 'pending' }]);
+    }
+    if (text.includes('FROM gl_accounts')) return Promise.resolve([]);
+    return Promise.resolve([]);
+  }) as never);
+}
+
+/** The lines the ROUTE handed to createJournalEntry. */
+function linesFromRoute(): Line[] {
+  return (createMock.mock.calls[0]![1] as { lines: Line[] }).lines;
+}
+
+const ZERO_VAT = {
+  totalAmount: 500,
+  subtotal: 500,
+  vatAmount: 0,
+  vatRate: 0,
+  date: '2026-08-13',
+  vendorName: 'Standard Bank',
+  confidence: 0.95,
 };
 
-/** The shape the two posting routes build before handing lines to the service. */
-function toJournalLines(lines: Array<{ accountId: string; debit: number; credit: number }>) {
-  return lines
-    .filter(l => l.debit !== 0 || l.credit !== 0)
-    .map(l => ({ glAccountId: l.accountId, debit: l.debit, credit: l.credit }));
-}
+beforeEach(() => {
+  vi.clearAllMocks();
+  createMock.mockResolvedValue({ id: 'je-1', status: 'draft' });
+  postMock.mockResolvedValue({ id: 'je-1', status: 'posted' });
+});
 
-function extracted(over: Partial<ExtractedDocument>): ExtractedDocument {
-  return {
-    totalAmount: 500,
-    subtotal: 500,
-    vatAmount: 0,
-    vatRate: 0,
-    date: '2026-08-13',
-    vendorName: 'Standard Bank',
-    confidence: 0.95,
-    ...over,
-  } as ExtractedDocument;
-}
+describe('receipt-to-journal — zero-VAT receipts', () => {
+  it('does not hand createJournalEntry a zero/zero leg', async () => {
+    stubDb(ZERO_VAT);
 
-describe('zero-VAT receipts', () => {
-  it('the builder emits an unusable zero/zero VAT leg', () => {
-    const built = buildExpenseJournalFromReceipt(extracted({}), ACCOUNTS);
+    await handler(req(ZERO_VAT), res());
 
-    const vatLeg = built.lines.find(l => l.accountId === ACCOUNTS.vatInputAccountId);
-    expect(vatLeg).toMatchObject({ debit: 0, credit: 0 });
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const lines = linesFromRoute();
+    // Mutation check for this file: delete the route's `.filter(...)` and this
+    // assertion goes red.
+    expect(lines.every(l => l.debit !== 0 || l.credit !== 0)).toBe(true);
+    expect(lines.find(l => l.glAccountId === 'acct-vat_input')).toBeUndefined();
   });
 
-  it('passing that leg through unfiltered would be REJECTED (this is the 500)', () => {
-    const built = buildExpenseJournalFromReceipt(extracted({}), ACCOUNTS);
+  it('what the route passes actually validates and balances', async () => {
+    stubDb(ZERO_VAT);
 
-    const unfiltered = built.lines.map(l => ({
-      glAccountId: l.accountId, debit: l.debit, credit: l.credit,
-    }));
-    const result = validateJournalEntry(unfiltered);
+    await handler(req(ZERO_VAT), res());
 
-    expect(result.valid).toBe(false);
-    expect(result.errors.join(' ')).toMatch(/non-zero debit or credit/);
-  });
-
-  it('filtering zero-value legs yields a valid, balanced entry', () => {
-    const built = buildExpenseJournalFromReceipt(extracted({}), ACCOUNTS);
-
-    const result = validateJournalEntry(toJournalLines(built.lines));
-
+    const result = validateJournalEntry(linesFromRoute());
     expect(result.valid).toBe(true);
     expect(result.totalDebit).toBe(500);
     expect(result.totalCredit).toBe(500);
   });
 
-  it('also covers the derived path, where vatRate 0 makes VAT zero', () => {
-    // subtotal/vatAmount absent → derived from total and vatRate.
-    const built = buildExpenseJournalFromReceipt(
-      extracted({ subtotal: null, vatAmount: null, vatRate: 0 }),
-      ACCOUNTS,
-    );
+  it('keeps all three legs for a standard-rated receipt — nothing over-filtered', async () => {
+    const standard = { ...ZERO_VAT, totalAmount: 1150, subtotal: 1000, vatAmount: 150, vatRate: 15 };
+    stubDb(standard);
 
-    expect(built.lines.find(l => l.accountId === ACCOUNTS.vatInputAccountId))
-      .toMatchObject({ debit: 0, credit: 0 });
-    expect(validateJournalEntry(toJournalLines(built.lines)).valid).toBe(true);
+    await handler(req(standard), res());
+
+    const lines = linesFromRoute();
+    expect(lines).toHaveLength(3);
+    expect(lines.find(l => l.glAccountId === 'acct-vat_input')).toMatchObject({ debit: 150 });
+    expect(validateJournalEntry(lines).valid).toBe(true);
   });
 
-  it('leaves a standard-rated receipt fully intact — nothing is dropped', () => {
-    const built = buildExpenseJournalFromReceipt(
-      extracted({ totalAmount: 1150, subtotal: 1000, vatAmount: 150, vatRate: 15 }),
-      ACCOUNTS,
-    );
+  it('covers the derived path too, where vatRate 0 makes VAT zero', async () => {
+    // subtotal/vatAmount absent → derived from total and vatRate.
+    const derived = { ...ZERO_VAT, subtotal: null, vatAmount: null, vatRate: 0 };
+    stubDb(derived);
 
-    const lines = toJournalLines(built.lines);
-    expect(lines).toHaveLength(3);
-    const result = validateJournalEntry(lines);
-    expect(result.valid).toBe(true);
-    expect(result.totalDebit).toBe(1150);
+    await handler(req(derived), res());
+
+    expect(linesFromRoute().every(l => l.debit !== 0 || l.credit !== 0)).toBe(true);
+    expect(validateJournalEntry(linesFromRoute()).valid).toBe(true);
   });
 });

@@ -6,7 +6,7 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -66,7 +66,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // resolvable (they did while the route ran its own COALESCE and the service
   // gained a fallback).
   if (!(await resolveAssetAccountId(companyId, assetId))) {
-    return apiResponse.badRequest(res, missingAssetAccountMessage(String(asset.asset_number ?? assetId)));
+    return apiResponse.badRequest(res, missingAssetAccountMessage(String(asset.asset_number ?? assetId), assetId));
   }
 
   const cost = Number(asset.cost);
@@ -146,4 +146,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withCsrf(withErrorHandler(handler)));
+// withWriteAccess (owner/admin/manager) was missing: this route posts a GL
+// journal and retires an asset, but was the only one of the accounting posting
+// routes a `viewer` could call. receipt-to-journal, gl-import, expense-claims
+// post and the sibling gl-account writer all carry it.
+export default withAuth(withCsrf(withErrorHandler(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))));

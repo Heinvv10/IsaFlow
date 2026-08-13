@@ -20,7 +20,7 @@ import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateLeafAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
+import { validateAssetCostAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
 
 type Row = Record<string, unknown>;
 
@@ -40,12 +40,15 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (!UUID_RE.test(glAssetAccountId)) {
       return apiResponse.badRequest(res, 'glAssetAccountId must be a UUID or null');
     }
-    // Must be a leaf asset account in THIS company. gl_journal_lines has only a
-    // plain FK to gl_accounts(id) with no composite company constraint, so the
-    // database would not stop a cross-tenant id on its own; and a header
-    // account would take the disposal credit somewhere the balance sheet
-    // filters out (migration 484).
-    const check = await validateLeafAccount(glAssetAccountId, companyId, 'asset');
+    // Gate exactly what resolveAssetAccountId will later accept: a leaf,
+    // active, fixed-asset-cost account in THIS company. Checking less would
+    // store a value the disposal then refuses (a dead end for the operator) or
+    // accept Bank / Accounts Receivable — both leaf assets — so the disposal
+    // would credit Bank for the full cost with no cash movement, balancing
+    // perfectly and surfacing nothing. gl_journal_lines has only a plain FK to
+    // gl_accounts(id) with no composite company constraint, so the tenant check
+    // has to happen here.
+    const check = await validateAssetCostAccount(glAssetAccountId, companyId);
     if (!check.ok) return apiResponse.badRequest(res, `glAssetAccountId invalid: ${check.reason}`);
   }
 

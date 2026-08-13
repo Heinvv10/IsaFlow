@@ -23,6 +23,7 @@ import {
   parseReceiptType,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,27 +102,47 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // it, which makes routing through createJournalEntry a prerequisite, not a
   // tidy-up. createJournalEntry runs validateJournalEntry and resolves the
   // fiscal period from entryDate itself.
+  // Drop zero-value legs. buildExpenseJournalFromReceipt always emits a VAT
+  // leg, and a zero-rated or exempt receipt (bank charges, basic foodstuffs, a
+  // foreign supplier) extracts vatAmount = 0 — validateReceiptExtraction only
+  // warns on a NULL vatAmount, not a zero one. validateJournalLine rejects a
+  // line with neither debit nor credit, so passing it through would 500 every
+  // zero-VAT receipt. Dropping it cannot unbalance the entry: the leg is worth
+  // nothing on both sides. Same guard as expenseClaimService's
+  // `if (netAmount === 0) continue`.
+  const postableLines = journalInput.lines
+    .filter(l => l.debit !== 0 || l.credit !== 0)
+    .map(l => ({
+      glAccountId: l.accountId,
+      debit: l.debit,
+      credit: l.credit,
+      description: l.description,
+    }));
+
+  // Check the extraction actually balances BEFORE calling createJournalEntry.
+  // The legs come from OCR — subtotal, vatAmount and totalAmount are extracted
+  // independently with no enforced invariant, and a till slip mixing zero-rated
+  // and standard-rated items (routine in SA retail) yields
+  // subtotal + vat != total. createJournalEntry would reject it, but as a throw
+  // that withErrorHandler masks into a generic 500, leaving the operator with
+  // "internal error" on a document that is merely mis-extracted. Answering 400
+  // here is safe precisely because nothing has been written yet — the route
+  // only reads up to this point. (After this line a 4xx would COMMIT a partial
+  // write, which is why the failures below propagate instead.)
+  const preCheck = validateJournalEntry(postableLines);
+  if (!preCheck.valid) {
+    return apiResponse.badRequest(
+      res,
+      `Receipt does not balance — check the extracted amounts: ${preCheck.errors.join('; ')}`,
+    );
+  }
+
   const entry = await createJournalEntry(companyId, {
     entryDate: journalInput.entryDate,
     description: journalInput.description,
     source: 'auto_expense_receipt',
     sourceDocumentId: documentId,
-    // Drop zero-value legs. buildExpenseJournalFromReceipt always emits a VAT
-    // leg, and a zero-rated or exempt receipt (bank charges, basic foodstuffs,
-    // a foreign supplier) extracts vatAmount = 0 — validateReceiptExtraction
-    // only warns on a NULL vatAmount, not a zero one. validateJournalLine
-    // rejects a line with neither debit nor credit, so passing it through
-    // would 500 every zero-VAT receipt. Dropping it cannot unbalance the entry:
-    // the leg is worth nothing on both sides. Same guard as
-    // expenseClaimService's `if (netAmount === 0) continue`.
-    lines: journalInput.lines
-      .filter(l => l.debit !== 0 || l.credit !== 0)
-      .map(l => ({
-        glAccountId: l.accountId,
-        debit: l.debit,
-        credit: l.credit,
-        description: l.description,
-      })),
+    lines: postableLines,
   }, userId);
 
   if (autoPost) {

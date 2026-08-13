@@ -64,3 +64,51 @@ export async function validateLeafAccount(
   }
   return { ok: true };
 }
+
+/** Subtypes that represent fixed-asset COST (not accumulated depreciation). */
+const FIXED_ASSET_SUBTYPES = ['fixed_asset', 'fixed_assets'];
+
+/**
+ * Everything an account must satisfy to be the credit leg of a disposal
+ * journal — i.e. to be storable in assets.gl_asset_account_id.
+ *
+ * This exists so the WRITER gates exactly what resolveAssetAccountId will later
+ * accept. They disagreed once: the writer checked only leaf + type='asset' +
+ * company while the resolver additionally required is_active, so a PATCH could
+ * return 200 storing an inactive account and the subsequent disposal would 400
+ * telling the operator to set the very account they had just set. And with only
+ * `type='asset'`, an asset could be pointed at Bank or Accounts Receivable —
+ * both leaves, both assets — so a disposal would credit Bank for the full cost
+ * with no cash movement. It balances, so nothing surfaces.
+ */
+export async function validateAssetCostAccount(
+  accountId: string,
+  companyId: string,
+): Promise<LeafAccountCheck> {
+  const base = await validateLeafAccount(accountId, companyId, 'asset');
+  if (!base.ok) return base;
+
+  const rows = (await sql`
+    SELECT account_code, account_subtype, is_active
+    FROM gl_accounts
+    WHERE id = ${accountId}::uuid AND company_id = ${companyId}::uuid
+    LIMIT 1
+  `) as Array<{ account_code: string; account_subtype: string | null; is_active: boolean | null }>;
+
+  const acct = rows[0];
+  if (!acct) return { ok: false, reason: 'Account not found' };
+
+  if (!acct.is_active) {
+    return {
+      ok: false,
+      reason: `Account ${acct.account_code} is inactive — reactivate it before using it as an asset account`,
+    };
+  }
+  if (!acct.account_subtype || !FIXED_ASSET_SUBTYPES.includes(acct.account_subtype)) {
+    return {
+      ok: false,
+      reason: `Account ${acct.account_code} has subtype '${acct.account_subtype ?? 'none'}'; a disposal credits fixed-asset cost, so it must be one of ${FIXED_ASSET_SUBTYPES.join(' / ')}`,
+    };
+  }
+  return { ok: true };
+}

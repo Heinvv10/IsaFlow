@@ -236,8 +236,14 @@ export async function postDualDepreciationToLedger(
  * `instanceof` to answer 400 with the fix ("set gl_asset_account_id") instead
  * of an opaque 500.
  */
-export function missingAssetAccountMessage(assetNumber: string): string {
-  return `Asset ${assetNumber} has no fixed-asset account to credit. Set the GL asset account on the asset (PATCH /api/accounting/assets/${assetNumber}/gl-account) or on its category, then dispose.`;
+/**
+ * @param assetNumber human-facing label (FA-001)
+ * @param assetId     UUID — the gl-account endpoint keys on the id, and 404s on
+ *                    anything that is not a UUID, so the remediation URL must
+ *                    NOT interpolate assetNumber.
+ */
+export function missingAssetAccountMessage(assetNumber: string, assetId: string): string {
+  return `Asset ${assetNumber} has no active fixed-asset account to credit. Set one with PATCH /api/accounting/assets/${assetId}/gl-account, then dispose.`;
 }
 
 /**
@@ -299,8 +305,8 @@ export async function resolveAssetAccountId(
 
 export class MissingAssetAccountError extends Error {
   readonly assetNumber: string;
-  constructor(assetNumber: string) {
-    super(missingAssetAccountMessage(assetNumber));
+  constructor(assetNumber: string, assetId: string) {
+    super(missingAssetAccountMessage(assetNumber, assetId));
     this.name = 'MissingAssetAccountError';
     this.assetNumber = assetNumber;
   }
@@ -364,7 +370,7 @@ export async function postAssetDisposalToGL(
   // the asset keeps its cost on the balance sheet and the operator gets told to
   // set gl_asset_account_id on the asset or its category.
   if (!assetAccountId) {
-    throw new MissingAssetAccountError(assetNumber);
+    throw new MissingAssetAccountError(assetNumber, input.assetId);
   }
 
   const accumDepId = await getSystemAccountId('accumulated_depreciation', companyId);
