@@ -72,6 +72,42 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
     expect(GL_ENTRY_SOURCES).toContain('auto_expense_receipt');
   });
 
+  /**
+   * These three are emitted by live code and rejected by the constraint, so
+   * those features are dead — and they must STAY dead until their code is
+   * converted.
+   *
+   *   'opening_balance' — pages/api/accounting/opening-balances.ts
+   *   'bank_transfer'   — pages/api/accounting/bank-transfers.ts
+   *   'year_end'        — gl/yearEndService.ts
+   *
+   * Each still INSERTs its header straight to status='posted' without
+   * validateJournalEntry, and trg_gl_je_balanced is BEFORE UPDATE only, so
+   * nothing would check the result. Admitting the source would un-gate an
+   * unvalidated posting path — exactly what happened when migration 509 added
+   * 'auto_expense_receipt' and receipt-to-journal.ts had to be converted in the
+   * same change to stay safe.
+   *
+   * The constraint is currently the only thing protecting the ledger from
+   * these three. Without this test the next person debugging their 23514 fixes
+   * it by widening the list, which is the trap. Convert the code first, then
+   * delete the relevant line here.
+   */
+  it('keeps the three unconverted direct-INSERT sources OUT of the union and the constraint', () => {
+    const allowed = new Set(sourcesInConstraint(latestSourceConstraintSql()));
+
+    for (const dead of ['opening_balance', 'bank_transfer', 'year_end']) {
+      expect(
+        GL_ENTRY_SOURCES as readonly string[],
+        `${dead}: convert its writer to createJournalEntry before adding it`,
+      ).not.toContain(dead);
+      expect(
+        allowed.has(dead),
+        `${dead}: admitting this source un-gates an unvalidated INSERT-at-posted path`,
+      ).toBe(false);
+    }
+  });
+
   it('no longer carries the pre-509 spellings the constraint never accepted', () => {
     expect(GL_ENTRY_SOURCES as readonly string[]).not.toContain('asset_disposal');
     expect(GL_ENTRY_SOURCES as readonly string[]).not.toContain('asset_expense');

@@ -163,8 +163,20 @@ export class McpRegistry {
         'mcp',
       );
       if (debit.handle) await refundForTool(ctx.companyId, debit.handle);
+      // Audited WITHOUT the idempotency key — same reasoning as the
+      // insufficient-Flows reject above. The partial unique index is
+      // (company_id, tool, idempotency_key) and recordToolCall does
+      // ON CONFLICT DO NOTHING, so an 'error' row carrying the real key
+      // permanently occupies that slot: the retry's successful 'ok' row is
+      // silently dropped, and because findIdempotentReplay matches only
+      // status='ok', every later retry of that key re-runs the handler instead
+      // of replaying. A failed call must not burn the key.
+      //
+      // This became reachable for finalize_invoice once it stopped swallowing
+      // its GL failures (a swallowed error returned an isError envelope and
+      // never reached this catch at all).
       await recordToolCall({
-        ctx, tool: name, argsHash, idempotencyKey,
+        ctx, tool: name, argsHash, idempotencyKey: null,
         status: 'error', result: null, durationMs: Date.now() - started,
       });
       return errorResult(GENERIC_FAILURE);

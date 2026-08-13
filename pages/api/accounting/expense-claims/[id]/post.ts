@@ -6,7 +6,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { postClaimToGl, ClaimNotPostableError } from '@/modules/accounting/services/expense/expenseClaimService';
-import { sql } from '@/lib/neon';
+import { validateLeafAccount } from '@/modules/accounting/services/gl/leafAccountValidator';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -15,51 +15,6 @@ interface PostBody {
   vatInputAccountId?: string | null;
 }
 
-interface AccountRow {
-  id: string;
-  account_code: string;
-  account_type: string;
-  is_leaf: boolean;
-}
-
-async function validateLeafAccount(
-  accountId: string,
-  companyId: string,
-  expectedType: AccountRow['account_type'] | AccountRow['account_type'][],
-): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const rows = (await sql`
-    SELECT
-      ga.id,
-      ga.account_code,
-      ga.account_type,
-      NOT EXISTS (
-        SELECT 1 FROM gl_accounts ch
-         WHERE ch.parent_account_id = ga.id
-           AND ch.company_id = ga.company_id
-      ) AS is_leaf
-    FROM gl_accounts ga
-    WHERE ga.id = ${accountId}::uuid
-      AND ga.company_id = ${companyId}::uuid
-    LIMIT 1
-  `) as AccountRow[];
-
-  const acct = rows[0];
-  if (!acct) return { ok: false, reason: 'Account not found' };
-  if (!acct.is_leaf) {
-    return {
-      ok: false,
-      reason: `Account ${acct.account_code} is a parent header (has child accounts) — pick a leaf account`,
-    };
-  }
-  const allowed = Array.isArray(expectedType) ? expectedType : [expectedType];
-  if (!allowed.includes(acct.account_type)) {
-    return {
-      ok: false,
-      reason: `Account ${acct.account_code} type=${acct.account_type}; expected ${allowed.join(' or ')}`,
-    };
-  }
-  return { ok: true };
-}
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? '', ['POST']);

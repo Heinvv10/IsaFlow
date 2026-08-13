@@ -106,12 +106,22 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     description: journalInput.description,
     source: 'auto_expense_receipt',
     sourceDocumentId: documentId,
-    lines: journalInput.lines.map(l => ({
-      glAccountId: l.accountId,
-      debit: l.debit,
-      credit: l.credit,
-      description: l.description,
-    })),
+    // Drop zero-value legs. buildExpenseJournalFromReceipt always emits a VAT
+    // leg, and a zero-rated or exempt receipt (bank charges, basic foodstuffs,
+    // a foreign supplier) extracts vatAmount = 0 — validateReceiptExtraction
+    // only warns on a NULL vatAmount, not a zero one. validateJournalLine
+    // rejects a line with neither debit nor credit, so passing it through
+    // would 500 every zero-VAT receipt. Dropping it cannot unbalance the entry:
+    // the leg is worth nothing on both sides. Same guard as
+    // expenseClaimService's `if (netAmount === 0) continue`.
+    lines: journalInput.lines
+      .filter(l => l.debit !== 0 || l.credit !== 0)
+      .map(l => ({
+        glAccountId: l.accountId,
+        debit: l.debit,
+        credit: l.credit,
+        description: l.description,
+      })),
   }, userId);
 
   if (autoPost) {

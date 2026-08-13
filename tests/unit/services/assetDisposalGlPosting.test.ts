@@ -89,14 +89,16 @@ const sum = (ls: Line[], k: 'debit' | 'credit') => ls.reduce((t, l) => t + l[k],
  * gl_asset_account_id is NULL on every asset and category, and nothing writes
  * it).
  */
-function withAssetRow(assetAccountId: string | null, fallbackAccountId: string | null = null) {
+function withAssetRow(assetAccountId: string | null, accountBelongsToCompany = true) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
     if (text.includes('COALESCE(a.gl_asset_account_id')) {
       return Promise.resolve([{ account_id: assetAccountId }]);
     }
+    // The ownership guard: the resolved account must be an active account of
+    // this company.
     if (text.includes('FROM gl_accounts')) {
-      return Promise.resolve(fallbackAccountId ? [{ id: fallbackAccountId }] : []);
+      return Promise.resolve(accountBelongsToCompany ? [{ '?column?': 1 }] : []);
     }
     if (text.includes('FROM assets')) {
       return Promise.resolve([{ id: 'asset-1', asset_number: 'FA-001', name: 'Bakkie' }]);
@@ -174,37 +176,33 @@ describe('postAssetDisposalToGL', () => {
     expect(lines.every(l => l.debit > 0 || l.credit > 0)).toBe(true);
   });
 
-  it('THROWS when no asset account can be resolved at all, rather than posting an unbalanced entry', async () => {
-    withAssetRow(null, null);
+  it('THROWS when the asset has no GL account rather than posting an unbalanced entry', async () => {
+    withAssetRow(null);
 
     await expect(postAssetDisposalToGL(COMPANY, base, USER)).rejects.toThrow(/fixed-asset account/i);
     expect(createMock).not.toHaveBeenCalled();
   });
 
-  // Production reality: gl_asset_account_id is NULL on all 6 assets and all 35
-  // categories, and no code path writes either column. Requiring it outright
-  // turned every disposal into a 400 with an instruction users cannot follow,
-  // so the resolver falls back to a company fixed-asset account.
-  it('falls back to the company fixed-asset account when the asset and category have none', async () => {
-    withAssetRow(null, 'acct-coa-fixed-assets');
+  it('does NOT guess a company fixed-asset account', async () => {
+    withAssetRow(null);
 
-    const entryId = await postAssetDisposalToGL(COMPANY, base, USER);
-
-    expect(entryId).toBe('je-disposal-1');
-    const lines = linesFromCreate();
-    expect(lines.find(l => l.glAccountId === 'acct-coa-fixed-assets'))
-      .toMatchObject({ debit: 0, credit: 100_000 });
-    expect(sum(lines, 'debit')).toBe(sum(lines, 'credit'));
+    // An earlier revision fell back to the first fixed-asset leaf by account
+    // code, which credited "1210 Equipment" for every asset — disposing a
+    // vehicle booked its cost to Equipment. It balanced, so nothing surfaced,
+    // while the per-class IAS 16 cost reconciliation quietly stopped tying.
+    // Refusing is correct; PATCH .../gl-account is how the account gets set.
+    await expect(postAssetDisposalToGL(COMPANY, base, USER)).rejects.toThrow();
+    expect(createMock).not.toHaveBeenCalled();
   });
 
-  it('prefers the asset/category account over the fallback when one is set', async () => {
-    withAssetRow('acct-explicit', 'acct-coa-fixed-assets');
+  it('REFUSES an account that does not belong to this company', async () => {
+    // asset_categories is a GLOBAL table with no company_id but a per-company
+    // gl_asset_account_id, and gl_journal_lines has only a plain FK to
+    // gl_accounts(id) — so nothing else would stop a cross-tenant credit.
+    withAssetRow('acct-other-tenant', false);
 
-    await postAssetDisposalToGL(COMPANY, base, USER);
-
-    const lines = linesFromCreate();
-    expect(lines.find(l => l.glAccountId === 'acct-explicit')).toBeDefined();
-    expect(lines.find(l => l.glAccountId === 'acct-coa-fixed-assets')).toBeUndefined();
+    await expect(postAssetDisposalToGL(COMPANY, base, USER)).rejects.toThrow(/fixed-asset account/i);
+    expect(createMock).not.toHaveBeenCalled();
   });
 
   it('uses the auto_asset_disposal source the CHECK constraint accepts', async () => {

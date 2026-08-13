@@ -217,13 +217,21 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       description: journalInput.description,
       source: 'auto_expense_receipt',
       sourceDocumentId: documentId,
-      lines: journalInput.lines.map(l => ({
-        glAccountId: l.accountId,
-        debit: l.debit,
-        credit: l.credit,
-        description: l.description,
-        costCenterId: costCentreId,
-      })),
+      // Drop zero-value legs — buildExpenseJournalFromReceipt always emits a
+      // VAT leg, and a zero-rated or exempt receipt extracts vatAmount = 0,
+      // which validateJournalLine rejects. Dropping it cannot unbalance the
+      // entry. Pre-existing here (this path was already dead on the source
+      // CHECK, so it never surfaced); fixed alongside receipt-to-journal.ts,
+      // which migration 509 makes live.
+      lines: journalInput.lines
+        .filter(l => l.debit !== 0 || l.credit !== 0)
+        .map(l => ({
+          glAccountId: l.accountId,
+          debit: l.debit,
+          credit: l.credit,
+          description: l.description,
+          costCenterId: costCentreId,
+        })),
     },
     userId,
   );

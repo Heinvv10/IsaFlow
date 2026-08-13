@@ -237,58 +237,64 @@ export async function postDualDepreciationToLedger(
  * of an opaque 500.
  */
 export function missingAssetAccountMessage(assetNumber: string): string {
-  return `Asset ${assetNumber} has no fixed-asset account to credit, and no leaf account with subtype 'fixed_asset'/'fixed_assets' exists in the chart of accounts. Add one (or set gl_asset_account_id on the asset or its category) before disposing.`;
+  return `Asset ${assetNumber} has no fixed-asset account to credit. Set the GL asset account on the asset (PATCH /api/accounting/assets/${assetNumber}/gl-account) or on its category, then dispose.`;
 }
 
 /**
  * Resolve the account to credit for an asset's cost:
- *   asset.gl_asset_account_id → category.gl_asset_account_id → company fallback.
+ *   asset.gl_asset_account_id, else its category's.
  *
- * The fallback exists because neither column is populated anywhere in
- * production and no code path writes them — requiring them outright turned
- * every disposal into a 400 with an instruction the product gives no way to
- * follow. Preferring an explicit per-asset account keeps the precise treatment
- * available for anyone who does set it.
+ * Returns null when neither is set — the caller must then refuse, NOT guess.
  *
- * `level >= 3` is the important part of the fallback query: levels 1–2 are
- * header accounts, and the balance-sheet calculation filters them out, so a
- * credit posted to one balances the journal while silently vanishing from the
- * statements (the migration 484 incident). Better to refuse than to post
- * somewhere invisible — one production company's fixed-asset accounts are all
- * level 1, and it will correctly get the error above rather than a lost credit.
+ * An earlier revision fell back to "the company's first fixed-asset leaf
+ * account" so that disposals were not blocked while the columns were
+ * unpopulated. That was wrong: ordered by account code it picked `1210
+ * Equipment` for every asset, so disposing a vehicle credited Equipment. The
+ * journal balanced and total PPE was right, so nothing surfaced — but the
+ * per-class IAS 16 cost reconciliation silently stopped tying, and the only
+ * trace was a log line. A wrong number that balances is worse than a refusal,
+ * because it is not discoverable.
  *
- * Returns null when nothing suitable exists.
+ * The real remedy was a way to SET the column, which now exists:
+ *   PATCH /api/accounting/assets/[assetId]/gl-account
+ *
+ * There is deliberately NO equivalent writer for the category column.
+ * asset_categories has no company_id — it is a global reference table shared by
+ * every tenant — yet gl_asset_account_id on it is a per-company GL account id.
+ * A writer would therefore let one company set the account every other
+ * company's disposals credit. It is NULL on all 35 rows today, so the hazard is
+ * latent; the ownership guard below keeps it that way by refusing any resolved
+ * account that does not belong to the caller's company. gl_journal_lines has
+ * only a plain FK to gl_accounts(id) with no composite company constraint, so
+ * the database would not catch this on its own.
  */
 export async function resolveAssetAccountId(
   companyId: string,
   assetId: string,
 ): Promise<string | null> {
-  const explicit = (await sql`
+  const rows = (await sql`
     SELECT COALESCE(a.gl_asset_account_id, c.gl_asset_account_id) AS account_id
     FROM assets a
     LEFT JOIN asset_categories c ON c.id = a.category_id
     WHERE a.id = ${assetId} AND a.company_id = ${companyId}::UUID
   `) as DbRow[];
 
-  if (explicit[0]?.account_id) return String(explicit[0].account_id);
+  const candidate = rows[0]?.account_id ? String(rows[0].account_id) : null;
+  if (!candidate) return null;
 
-  const fallback = (await sql`
-    SELECT id FROM gl_accounts
-    WHERE company_id = ${companyId}::UUID
-      AND is_active = true
-      AND account_type = 'asset'
-      AND account_subtype IN ('fixed_asset', 'fixed_assets')
-      AND level >= 3
-    ORDER BY is_system_account DESC, account_code
-    LIMIT 1
+  const owned = (await sql`
+    SELECT 1 FROM gl_accounts
+    WHERE id = ${candidate}::UUID AND company_id = ${companyId}::UUID AND is_active = true
   `) as DbRow[];
 
-  if (!fallback[0]) return null;
+  if (owned.length === 0) {
+    log.error('Asset GL account does not belong to this company — refusing to post', {
+      assetId, companyId, accountId: candidate,
+    }, 'accounting');
+    return null;
+  }
 
-  log.warn('Asset has no explicit GL account — falling back to the company fixed-asset account', {
-    assetId, companyId, accountId: String(fallback[0].id),
-  }, 'accounting');
-  return String(fallback[0].id);
+  return candidate;
 }
 
 export class MissingAssetAccountError extends Error {
