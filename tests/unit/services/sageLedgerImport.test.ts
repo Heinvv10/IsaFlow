@@ -1,22 +1,37 @@
 /**
  * Sage ledger import must post exactly-balanced journals, or none.
  *
- * importLedgerTransactions groups sage_ledger_transactions by document number +
- * date and posts one journal per group. Three defects, all reachable from
- * `POST /api/accounting/sage-migration-action {"action":"import_ledger"}`:
+ * ⚠️ READ THIS BEFORE TRUSTING THE SCENARIOS BELOW. importLedgerTransactions
+ * CANNOT CURRENTLY RUN: it selects slt.document_number / slt.sage_account_id /
+ * slt.ff_project_id and joins sage_accounts on sa.sage_account_id, and none of
+ * those columns exist — the live table is (id, sage_id, account_code,
+ * transaction_date, description, debit, credit, reference, gl_journal_entry_id,
+ * migration_status, imported_at, company_id). The first statement throws 42703.
+ * Production has 0 rows in sage_ledger_transactions and 0 journals with
+ * posting_agent='import:sage', and nothing in the repo writes that table.
+ *
+ * These tests therefore fabricate a table shape that does not exist. They pin
+ * the SERVICE LOGIC so a future schema reconciliation cannot ship the old
+ * unvalidated behaviour back; they do NOT demonstrate anything about production
+ * today. An earlier version of this docstring claimed the defects were
+ * "reachable from POST /api/accounting/sage-migration-action" and that this path
+ * produced 34 zero-line headers in production. Both were wrong — those 34
+ * headers are legacy loanPaymentService entries (posting_agent='legacy:human',
+ * 2026-04-20, demo company).
+ *
+ * The three logic defects the service DID have:
  *
  *  1. The balance gate was `Math.abs(totalDebit - totalCredit) > 0.02`, so a
- *     group of Dr 100.00 / Cr 100.02 passed. The header was INSERTed straight
- *     into status='posted', and trg_gl_je_balanced is BEFORE UPDATE, so nothing
- *     downstream ever checked it. Migration 509's source CHECK cannot help here
+ *     group of Dr 100.00 / Cr 100.02 would pass. The header was INSERTed
+ *     straight into status='posted', and trg_gl_je_balanced is BEFORE UPDATE,
+ *     so nothing downstream checked it. Migration 509's source CHECK cannot help
  *     either — this path writes source='manual', which has always been valid.
  *  2. A group whose rows are ALL zero passed that gate (0 - 0 <= 0.02), got its
  *     posted header, and then wrote NO lines, because `activeLines` filtered
- *     them all out. Production holds 34 posted 'manual' headers with zero
- *     lines, a state the BEFORE-UPDATE trigger cannot produce.
+ *     them all out.
  *  3. entry_number was `SAGE-<document_number>` — UNIQUE per company, and keyed
  *     on the document number ALONE, so two legitimate groups sharing a document
- *     number on different dates collided (23505) and were logged as failures.
+ *     number on different dates would collide (23505) and be logged as failures.
  *
  * The whole group is now validated before anything is written, and posts
  * through createJournalEntry/postJournalEntry.
@@ -78,11 +93,24 @@ interface SageRow {
  * @param alreadyImported id of an existing non-reversed journal for the group,
  *                        i.e. what the idempotency guard finds on a re-import
  */
-function withRows(rows: SageRow[], alreadyImported: string | null = null) {
+function withRows(
+  rows: SageRow[],
+  alreadyImported: string | null = null,
+  existingShape?: { line_count: number; total_debit: number },
+) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
     if (text.includes('FROM gl_journal_entries')) {
       return Promise.resolve(alreadyImported ? [{ id: alreadyImported }] : []);
+    }
+    // Content check behind the relink: does the existing journal actually hold
+    // this group's lines? Defaults to matching the group being imported.
+    if (text.includes('FROM gl_journal_lines')) {
+      const active = rows.filter(r => Number(r.debit) !== 0 || Number(r.credit) !== 0);
+      return Promise.resolve([existingShape ?? {
+        line_count: active.length,
+        total_debit: active.reduce((t, r) => t + Number(r.debit || 0), 0),
+      }]);
     }
     return Promise.resolve(rows);
   }) as never);
@@ -231,6 +259,24 @@ describe('importLedgerTransactions', () => {
     // The rows are relinked to the journal that already exists, so they leave
     // 'pending' and are not retried forever.
     expect(txStatements().some(s => s.includes("migration_status = 'imported'"))).toBe(true);
+  });
+
+  it('REFUSES to relink when the existing journal does not contain the group', async () => {
+    // Sage re-syncs a correcting third line onto the same document and date,
+    // the operator resets, and the re-import finds the 2-line journal. Relinking
+    // blind would mark the new line 'imported' against a journal that does not
+    // hold its amount — the row claims to be in the GL and is not.
+    withRows([
+      row({ id: 'a', debit: 100, credit: 0 }),
+      row({ id: 'b', debit: 0, credit: 60 }),
+      row({ id: 'c', debit: 0, credit: 40 }),
+    ], 'je-existing', { line_count: 2, total_debit: 100 });
+
+    const result = await importLedgerTransactions(COMPANY, USER);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ failed: 1, skipped: 0 });
+    expect(txStatements().some(s => s.includes("migration_status = 'failed'"))).toBe(true);
   });
 
   it('marks rows failed when the group throws, so it is not silently retried forever', async () => {

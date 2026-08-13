@@ -99,6 +99,25 @@ function linesFromRoute(): Line[] {
   return (createMock.mock.calls[0]![1] as { lines: Line[] }).lines;
 }
 
+/**
+ * Assert `company_id` is bound in the WHERE clause specifically.
+ *
+ * An earlier version asserted only that the token appeared somewhere in the SQL
+ * and the value somewhere in the bind list. That is not falsifiable: moving
+ * `company_id = ${companyId}` from the WHERE into the SET clause keeps both
+ * assertions green while the statement re-parents any tenant's row whose UUID
+ * the caller holds. Proven by mutation.
+ */
+function expectScopedToCompany(call: unknown[] | undefined, label: string) {
+  expect(call, `${label}: statement not found`).toBeDefined();
+  const text = (call![0] as unknown as string[]).join('?');
+  const whereIdx = text.toUpperCase().lastIndexOf('WHERE');
+  expect(whereIdx, `${label}: no WHERE clause`).toBeGreaterThan(-1);
+  const whereClause = text.slice(whereIdx);
+  expect(whereClause, `${label}: company_id is not in the WHERE clause`).toContain('company_id');
+  expect(call!.slice(1), `${label}: companyId is not bound`).toContain(COMPANY_ID);
+}
+
 const ZERO_VAT = {
   totalAmount: 500,
   subtotal: 500,
@@ -184,9 +203,7 @@ describe('receipt-to-journal — zero-VAT receipts', () => {
       const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
       return text.includes('UPDATE captured_documents');
     });
-    expect(update).toBeDefined();
-    expect((update![0] as unknown as string[]).join('')).toContain('company_id');
-    expect(update!.slice(1)).toContain(COMPANY_ID);
+    expectScopedToCompany(update, 'captured_documents stamp');
   });
 
   it('covers the derived path too, where vatRate 0 makes VAT zero', async () => {

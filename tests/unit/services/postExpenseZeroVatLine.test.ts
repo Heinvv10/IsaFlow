@@ -54,6 +54,13 @@ vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
 }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
   postJournalEntry: postMock,
+  // The route narrows on `err instanceof ClosedFiscalPeriodError` to decide
+  // whether to swallow (leave the journal a draft) or rethrow. Omitting the
+  // class from this mock leaves it `undefined` in the module under test, so any
+  // test that drove postMock to reject would die on
+  // "Right-hand side of 'instanceof' is not callable" — testing the mock's
+  // shape instead of the route's behaviour.
+  ClosedFiscalPeriodError: class ClosedFiscalPeriodError extends Error {},
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccountId: vi.fn(async (key: string) => `acct-${key}`),
@@ -66,6 +73,7 @@ vi.mock('@/modules/accounting/services/expense/expenseClaimService', () => ({
 // receiptToJournalService stays REAL — the point is that the genuine builder
 // emits the zero leg this route must filter.
 import handler from '../../../pages/api/accounting/capture/[id]/post-expense';
+import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
@@ -105,6 +113,25 @@ function stubDb(extracted: Record<string, unknown>) {
 
 function linesFromRoute(): Line[] {
   return (createMock.mock.calls[0]![1] as { lines: Line[] }).lines;
+}
+
+/**
+ * Assert `company_id` is bound in the WHERE clause specifically.
+ *
+ * An earlier version asserted only that the token appeared somewhere in the SQL
+ * and the value somewhere in the bind list. That is not falsifiable: moving
+ * `company_id = ${companyId}` from the WHERE into the SET clause keeps both
+ * assertions green while the statement re-parents any tenant's row whose UUID
+ * the caller holds. Proven by mutation.
+ */
+function expectScopedToCompany(call: unknown[] | undefined, label: string) {
+  expect(call, `${label}: statement not found`).toBeDefined();
+  const text = (call![0] as unknown as string[]).join('?');
+  const whereIdx = text.toUpperCase().lastIndexOf('WHERE');
+  expect(whereIdx, `${label}: no WHERE clause`).toBeGreaterThan(-1);
+  const whereClause = text.slice(whereIdx);
+  expect(whereClause, `${label}: company_id is not in the WHERE clause`).toContain('company_id');
+  expect(call!.slice(1), `${label}: companyId is not bound`).toContain(COMPANY_ID);
 }
 
 const ZERO_VAT = {
@@ -186,9 +213,29 @@ describe('capture post-expense — zero-VAT receipts', () => {
       const text = Array.isArray(c[0]) ? (c[0] as string[]).join('') : String(c[0]);
       return text.includes('UPDATE capture_events');
     });
-    expect(stamp).toBeDefined();
-    expect((stamp![0] as unknown as string[]).join('')).toContain('company_id');
-    expect(stamp!.slice(1)).toContain(COMPANY_ID);
+    expectScopedToCompany(stamp, 'capture_events stamp');
+  });
+
+  it('leaves the journal a draft when the period is closed, and still responds', async () => {
+    stubDb(ZERO_VAT);
+    postMock.mockRejectedValue(new ClosedFiscalPeriodError('Cannot post to closed fiscal period'));
+
+    const result = await handler(req(), res());
+
+    // A closed period is a legitimate outcome — same end state as autoPost being
+    // false — so it is swallowed and the draft survives for later posting.
+    expect(result).toMatchObject({ kind: 'success' });
+    expect((result as { data: { journalEntry: { status: string } } }).data.journalEntry.status).toBe('draft');
+  });
+
+  it('RETHROWS any other posting failure rather than stamping over it', async () => {
+    stubDb(ZERO_VAT);
+    // A Postgres error here aborts the request transaction; continuing would run
+    // the capture stamps against a dead transaction and answer 200 for writes
+    // that can never commit.
+    postMock.mockRejectedValue(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+
+    await expect(handler(req(), res())).rejects.toThrow(/deadlock/);
   });
 
   it('auto-posts with the arguments in the order postJournalEntry declares', async () => {

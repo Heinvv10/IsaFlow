@@ -24,8 +24,32 @@ import { computeFingerprint } from '../capture/captureDeduplicationService';
 // ── Ledger Transaction Import ───────────────────────────────────────────────
 
 /**
- * Import sage_ledger_transactions as GL journal entries
- * Groups by document_number + transaction_date into balanced entries
+ * Import sage_ledger_transactions as GL journal entries.
+ * Groups by document_number + transaction_date into balanced entries.
+ *
+ * ⚠️ THIS FUNCTION CANNOT CURRENTLY RUN. The query below selects
+ * `slt.document_number`, `slt.sage_account_id` and `slt.ff_project_id`, and
+ * joins `sage_accounts` on `sa.sage_account_id` — none of those columns exist.
+ * The live table is (id, sage_id, account_code, transaction_date, description,
+ * debit, credit, reference, gl_journal_entry_id, migration_status, imported_at,
+ * company_id), so the first statement throws 42703 and the run fails. Verified
+ * against production: 0 rows in sage_ledger_transactions, 0 journals with
+ * posting_agent='import:sage', and nothing in the repo INSERTs into that table.
+ * The whole Sage ledger import is orphaned code pending a schema reconciliation.
+ *
+ * The validation below (exact balance, >= 2 non-zero lines, idempotent relink,
+ * posting through createJournalEntry) is therefore correct-but-unreached. It is
+ * kept rather than deleted because the schema repair is a separate decision, and
+ * shipping the repair onto the old unvalidated INSERT would reintroduce a path
+ * that can post unbalanced straight to status='posted'.
+ *
+ * KNOWN GAP if this is ever revived: the idempotency guard is a bare SELECT with
+ * no lock and no unique index behind it, so two concurrent runs can both miss
+ * and both post. Fix that with a partial unique index on
+ * (company_id, reference, entry_date) WHERE posting_agent = 'import:sage'
+ * AND reversed_at IS NULL, or take pg_advisory_xact_lock on the company at the
+ * top of the run. Not added now: an index guarding unreachable code is cost
+ * without benefit, and the correct shape depends on the reconciled schema.
  */
 export async function importLedgerTransactions(companyId: string, userId: string): Promise<MigrationRun> {
   const runId = await startRun('ledger_import', userId, companyId);
@@ -79,6 +103,9 @@ export async function importLedgerTransactions(companyId: string, userId: string
     };
 
     for (const group of groups) {
+      // Tracks whether this group's journal actually reached the ledger, so the
+      // catch below knows whether marking the rows 'failed' is safe.
+      let posted = false;
       try {
         const lines = group.lines;
         if (lines.length === 0) { skipped++; continue; }
@@ -157,6 +184,37 @@ export async function importLedgerTransactions(companyId: string, userId: string
 
         if (existing[0]) {
           const existingId = String(existing[0].id);
+
+          // Relink only if the existing journal actually represents THIS group.
+          // The key is (reference, entry_date), which does not prove the
+          // contents match: if Sage re-syncs a correcting line onto the same
+          // document and date and the operator resets, the group now has more
+          // lines than the journal. Relinking blind would mark the new line
+          // 'imported' against a journal that does not contain its amount —
+          // the row claims to be in the GL and is not, with nothing to show it.
+          const existingTotal = (await sql`
+            SELECT COALESCE(SUM(debit), 0) AS total_debit, COUNT(*) AS line_count
+            FROM gl_journal_lines
+            WHERE journal_entry_id = ${existingId}::UUID
+              AND company_id = ${companyId}::UUID
+          `) as DbRow[];
+
+          const sameShape =
+            Number(existingTotal[0]?.line_count ?? 0) === activeLines.length &&
+            roundToCents(Number(existingTotal[0]?.total_debit ?? 0)) === totalDebit;
+
+          if (!sameShape) {
+            log.error('Sage group matches an existing journal by reference+date but not by content — refusing to relink', {
+              docNum: group.document_number, companyId, entryId: existingId,
+              groupLines: activeLines.length, groupDebit: totalDebit,
+              journalLines: Number(existingTotal[0]?.line_count ?? 0),
+              journalDebit: Number(existingTotal[0]?.total_debit ?? 0),
+            }, 'accounting');
+            await markGroupFailed(lines);
+            failed++;
+            continue;
+          }
+
           log.info('Sage ledger group already imported — relinking instead of re-posting', {
             docNum: group.document_number, companyId, entryId: existingId,
           }, 'accounting');
@@ -187,6 +245,7 @@ export async function importLedgerTransactions(companyId: string, userId: string
         }, userId, { postingAgent: 'import:sage' });
 
         await postJournalEntry(companyId, entry.id, userId);
+        posted = true;
 
         // Every row of the group is moved off 'pending' — including the
         // zero-value ones excluded from the journal, which would otherwise be
@@ -203,21 +262,33 @@ export async function importLedgerTransactions(companyId: string, userId: string
         succeeded++;
       } catch (err) {
         log.error('Failed to import ledger group', { docNum: group.document_number, error: err }, 'accounting');
-        // Move the rows off 'pending' like the two guarded branches above do.
+        // Only mark the rows failed when NOTHING was posted.
+        //
         // Left pending, a group that can never succeed (e.g. Sage stores the
         // contra as debit AND credit on one row, which validateJournalLine
         // rejects) is silently re-attempted by every future run while the report
-        // says "failed". Worse, a throw AFTER postJournalEntry succeeded — the
-        // status UPDATE is savepointed via sql.transaction, so the journal
-        // survives — would leave rows pending against a posted journal and
-        // duplicate on the next run. (The idempotency guard above now also
-        // catches that case, but the rows should not linger regardless.)
-        try {
-          await markGroupFailed(group.lines);
-        } catch (markErr) {
-          log.error('Could not mark Sage ledger group failed', {
-            docNum: group.document_number, error: markErr,
+        // says "failed" — hence marking failed in the normal case.
+        //
+        // But if postJournalEntry already succeeded and the status batch threw
+        // (that batch is savepointed via sql.transaction, so the journal
+        // survives), marking failed is WORSE than leaving them: the driving
+        // query selects only migration_status = 'pending', so 'failed' rows are
+        // never re-selected and the idempotency guard above can never reach them
+        // — stranding a posted journal behind rows that will never be relinked,
+        // recoverable only by resetting the whole company. Leave them pending so
+        // the next run finds the existing journal and relinks.
+        if (posted) {
+          log.error('Sage group posted but could not be linked — rows left pending for relink', {
+            docNum: group.document_number, companyId,
           }, 'accounting');
+        } else {
+          try {
+            await markGroupFailed(group.lines);
+          } catch (markErr) {
+            log.error('Could not mark Sage ledger group failed', {
+              docNum: group.document_number, error: markErr,
+            }, 'accounting');
+          }
         }
         failed++;
       }
