@@ -9,6 +9,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getGroupMembers } from './consolidatedTrialBalanceService';
 import type { DbRow } from '@/types/db';
+import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
 
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
@@ -93,14 +94,32 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
 
     // Batch all 4 queries using company_id = ANY(...) instead of N loops
     const [cashRows, arRows, apRows, plRows] = await Promise.all([
-      sql`SELECT company_id, COALESCE(SUM(current_balance),0) AS cash
-          FROM bank_accounts WHERE company_id = ANY(${companyIds}::UUID[]) AND is_active=true
+      // Cash is SUM(bank_transactions.amount) over bank-subtype GL accounts —
+      // the same definition kpiDashboardService and bankAccountStatusService
+      // use. bank_accounts.current_balance was read here previously, but
+      // bank_accounts is vestigial (0 rows in production) so group cash was
+      // always 0.
+      sql`SELECT bt.company_id, COALESCE(SUM(bt.amount),0) AS cash
+          FROM bank_transactions bt
+          JOIN gl_accounts ga ON ga.id = bt.bank_account_id
+          WHERE bt.company_id = ANY(${companyIds}::UUID[])
+            AND ga.company_id = ANY(${companyIds}::UUID[])
+            AND ga.account_subtype = 'bank' AND ga.is_active = true
+          GROUP BY bt.company_id` as Promise<DbRow[]>,
+      // There is no balance_due column on either invoice table — these queries
+      // threw 42703, taking the whole dashboard down. Outstanding is
+      // total_amount - amount_paid, and the open-status allowlists are the
+      // shared constants the aging reports use ('partial' was never a legal
+      // status, and supplier_invoices has no 'overdue').
+      sql`SELECT company_id, COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) AS ar
+          FROM customer_invoices
+          WHERE company_id = ANY(${companyIds}::UUID[])
+            AND status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
           GROUP BY company_id` as Promise<DbRow[]>,
-      sql`SELECT company_id, COALESCE(SUM(balance_due),0) AS ar
-          FROM customer_invoices WHERE company_id = ANY(${companyIds}::UUID[]) AND status IN ('sent','overdue','partial')
-          GROUP BY company_id` as Promise<DbRow[]>,
-      sql`SELECT company_id, COALESCE(SUM(balance_due),0) AS ap
-          FROM supplier_invoices WHERE company_id = ANY(${companyIds}::UUID[]) AND status IN ('approved','overdue','partial')
+      sql`SELECT company_id, COALESCE(SUM(total_amount - COALESCE(amount_paid,0)),0) AS ap
+          FROM supplier_invoices
+          WHERE company_id = ANY(${companyIds}::UUID[])
+            AND status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
           GROUP BY company_id` as Promise<DbRow[]>,
       sql`SELECT je.company_id, ga.account_type, COALESCE(SUM(jl.debit),0) AS total_debit, COALESCE(SUM(jl.credit),0) AS total_credit
           FROM gl_journal_lines jl JOIN gl_journal_entries je ON je.id=jl.journal_entry_id
