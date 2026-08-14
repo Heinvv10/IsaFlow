@@ -16,6 +16,7 @@ import {
   formatQueryResult, buildSchemaDescription, classifyQueryIntent,
   type SchemaTable,
 } from '@/modules/accounting/services/core/nlQueryService';
+import { enforceTenantScope } from '@/modules/accounting/services/core/nlQueryScopeGuard';
 
 type Row = Record<string, unknown>;
 
@@ -105,11 +106,13 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { intent, message: `Generated SQL was rejected: ${validation.error}`, rows: [], columns: [], summary: 'Query rejected' });
     }
 
-    // Verify company_id appears in an actual "company_id = '<uuid>'" predicate,
-    // not just anywhere in the string (e.g. a comment, alias, or lucky substring).
-    const scopeRegex = new RegExp(`company_id\\s*=\\s*'${companyId}'`, 'i');
-    if (!scopeRegex.test(validation.sanitizedSQL)) {
-      log.warn('NL query missing company_id scope — rejected', { question, companyId }, 'ai');
+    // Enforce tenant isolation at the AST level. A substring regex for
+    // `company_id = '<id>'` is bypassable with an OR branch or a cross-join to an
+    // unscoped alias; enforceTenantScope parses the SQL and requires every table
+    // reference to be provably scoped to the caller's company. See nlQueryScopeGuard.
+    const scope = enforceTenantScope(validation.sanitizedSQL, companyId);
+    if (!scope.ok) {
+      log.warn('NL query failed tenant-scope guard — rejected', { question, companyId, reason: scope.reason }, 'ai');
       return apiResponse.success(res, { intent, message: 'Could not generate a properly scoped query. Please try again.', rows: [], columns: [], summary: 'Scope error' });
     }
 
