@@ -16,7 +16,27 @@ describe('enforceTenantScope — rejects cross-tenant bypasses', () => {
   });
 
   it('rejects a child table cross-joined (ON 1=1) to a scoped parent', () => {
-    const sql = `SELECT p.net_pay FROM employees e JOIN payslips p ON 1=1 WHERE e.company_id = '${CID}'`;
+    const sql = `SELECT cii.description FROM customer_invoices ci JOIN customer_invoice_items cii ON 1=1 WHERE ci.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
+  it('rejects a join to an unscoped alias on a shared-value column (is_active)', () => {
+    const sql = `SELECT c2.email FROM customers c1 JOIN customers c2 ON c1.is_active = c2.is_active WHERE c1.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
+  it('rejects a join to an unscoped alias on a name column', () => {
+    const sql = `SELECT c2.email FROM customers c1 JOIN customers c2 ON c1.name = c2.name WHERE c1.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
+  it('rejects a cross-table join on a non-FK shared column (total_amount)', () => {
+    const sql = `SELECT si.invoice_number FROM customer_invoices ci JOIN supplier_invoices si ON ci.total_amount = si.total_amount WHERE ci.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
+  it('rejects a child table whose FK link cannot be verified (payslips)', () => {
+    const sql = `SELECT p.net_pay FROM employees e JOIN payslips p ON p.employee_id = e.id WHERE e.company_id = '${CID}'`;
     expect(enforceTenantScope(sql, CID).ok).toBe(false);
   });
 
@@ -61,8 +81,13 @@ describe('enforceTenantScope — allows correctly-scoped queries', () => {
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 
-  it('allows a parent-child join scoped via equijoin to a scoped parent', () => {
-    const sql = `SELECT p.net_pay FROM employees e JOIN payslips p ON p.employee_id = e.id WHERE e.company_id = '${CID}'`;
+  it('allows a parent-child join scoped via a real FK->PK edge', () => {
+    const sql = `SELECT cii.description FROM customer_invoices ci JOIN customer_invoice_items cii ON cii.invoice_id = ci.id WHERE ci.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(true);
+  });
+
+  it('allows scope to propagate parent->child (seed on customers, reach invoices via FK)', () => {
+    const sql = `SELECT ci.total_amount FROM customers c JOIN customer_invoices ci ON ci.customer_id = c.id WHERE c.company_id = '${CID}'`;
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 

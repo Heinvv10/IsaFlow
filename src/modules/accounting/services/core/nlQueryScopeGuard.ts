@@ -1,29 +1,36 @@
 /**
  * NL Query Tenant-Scope Guard
  *
- * Defence against cross-tenant data leakage from LLM-generated SQL. The prior
+ * Defence against cross-tenant data leakage from LLM-generated SQL. The original
  * check was a substring regex asserting `company_id = '<id>'` appeared *somewhere*
- * in the query — trivially bypassable with an OR branch
+ * in the query — bypassable with an OR branch
  * (`WHERE company_id = 'own' OR company_id <> 'own'`) or a cross-join to an
  * unscoped alias (`FROM customers c1 JOIN customers c2 ON 1=1`).
  *
  * This guard parses the SQL to an AST and enforces, for EVERY select node
- * (top-level, subqueries, and CTE bodies) independently:
+ * (top-level, subqueries, CTE bodies) independently:
  *   1. No OR operator anywhere in a WHERE clause or JOIN ON condition — so a
  *      scope predicate can never be disjoined away, and the remaining boolean
  *      tree is a pure conjunction we can flatten.
- *   2. A "seed" exists: some table/alias carries an AND-ed equality
- *      `alias.company_id = '<callerCompanyId>'` (matching the caller's own id
- *      exactly — not a hardcoded foreign id).
+ *   2. A "seed" exists: some alias carries an AND-ed equality
+ *      `alias.company_id = '<callerCompanyId>'` matching the caller's own id
+ *      exactly. (A predicate on a non-existent column errors at execution, so
+ *      seed detection by predicate presence is safe.)
  *   3. Every base table referenced by that select is reachable from a seed via
- *      the equijoin graph built from AND-ed `A.col = B.col` predicates. This
- *      rejects cross-joins / bogus joins to unscoped aliases while allowing
- *      legitimate parent→child joins.
+ *      the join graph — where an edge is added ONLY for a predicate `A.x = B.y`
+ *      that matches a real foreign-key→primary-key relationship (see FK_PAIRS).
+ *      Referential integrity to a company-scoped row keeps the join in-tenant;
+ *      an arbitrary equijoin on a shared-value column (`is_active`, `name`,
+ *      `total_amount`) is NOT an FK, builds no edge, and is rejected.
  *
  * Fails closed: any parse error or AST shape we cannot analyse is rejected.
  * Conservative by design — it may reject some benign queries (degrading the AI
  * feature to "please rephrase"), which is the correct trade-off for a
  * cross-tenant financial-data boundary.
+ *
+ * FK_PAIRS is generated from the live schema (see the SQL in the PR); regenerate
+ * when foreign keys among the NL-query allowlisted tables change. Tables/edges
+ * absent here are simply unreachable → their queries are rejected, never leaked.
  */
 import { parse, type Statement } from 'pgsql-ast-parser';
 
@@ -35,7 +42,112 @@ export interface ScopeResult {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Node = any;
 
+/**
+ * Verified FK→PK column pairs among the NL-query allowlisted tables, each stored
+ * as a lexicographically-sorted `tableA.colA|tableB.colB` string so lookup is
+ * orientation-independent. Only pairs whose parent column is the primary key.
+ */
+const FK_PAIRS = new Set<string>([
+  'accounting_budgets.gl_account_id|gl_accounts.id',
+  'asset_categories.gl_asset_account_id|gl_accounts.id',
+  'asset_categories.gl_depreciation_account_id|gl_accounts.id',
+  'asset_categories.gl_expense_account_id|gl_accounts.id',
+  'asset_categories.id|assets.category_id',
+  'asset_depreciation_schedule.asset_id|assets.id',
+  'asset_depreciation_schedule.journal_entry_id|gl_journal_entries.id',
+  'asset_disposals.asset_id|assets.id',
+  'asset_disposals.journal_entry_id|gl_journal_entries.id',
+  'assets.gl_asset_account_id|gl_accounts.id',
+  'assets.gl_depreciation_account_id|gl_accounts.id',
+  'assets.gl_expense_account_id|gl_accounts.id',
+  'bank_accounts.gl_account_id|gl_accounts.id',
+  'bank_categorisation_rules.company_id|gl_accounts.id',
+  'bank_categorisation_rules.company_id|suppliers.id',
+  'bank_categorisation_rules.gl_account_id|gl_accounts.id',
+  'bank_categorisation_rules.supplier_id|suppliers.id',
+  'bank_reconciliations.bank_account_id|gl_accounts.id',
+  'bank_reconciliations.id|bank_transactions.reconciliation_id',
+  'bank_transactions.bank_account_id|gl_accounts.id',
+  'bank_transactions.matched_journal_line_id|gl_journal_lines.id',
+  'bank_transactions.predicted_supplier_id|suppliers.id',
+  'bank_transactions.provisional_je_id|gl_journal_entries.id',
+  'captured_documents.id|customer_invoices.source_document_id',
+  'captured_documents.id|dunning_sends.source_document_id',
+  'captured_documents.id|gl_journal_entries.source_document_id',
+  'captured_documents.id|supplier_invoices.source_document_id',
+  'cost_centres.id|cost_centres.parent_id',
+  'credit_notes.client_id|customers.id',
+  'credit_notes.customer_invoice_id|customer_invoices.id',
+  'credit_notes.gl_journal_entry_id|gl_journal_entries.id',
+  'credit_notes.supplier_id|suppliers.id',
+  'credit_notes.supplier_invoice_id|supplier_invoices.id',
+  'customer_invoice_items.invoice_id|customer_invoices.id',
+  'customer_invoice_items.time_entry_id|time_entries.id',
+  'customer_invoices.customer_id|customers.id',
+  'customer_invoices.id|customer_payment_allocations.invoice_id',
+  'customer_invoices.id|customer_quotes.converted_invoice_id',
+  'customer_invoices.id|customer_sales_orders.invoice_id',
+  'customer_invoices.id|customer_write_offs.invoice_id',
+  'customer_invoices.id|dunning_sends.customer_invoice_id',
+  'customer_payment_allocations.payment_id|customer_payments.id',
+  'customer_payments.bank_account_id|gl_accounts.id',
+  'customer_payments.client_id|customers.id',
+  'customer_payments.gl_journal_entry_id|gl_journal_entries.id',
+  'customer_quote_lines.quote_id|customer_quotes.id',
+  'customer_quotes.client_id|customers.id',
+  'customer_sales_order_items.sales_order_id|customer_sales_orders.id',
+  'customer_sales_orders.customer_id|customers.id',
+  'customer_write_offs.client_id|customers.id',
+  'customer_write_offs.gl_journal_entry_id|gl_journal_entries.id',
+  'customers.id|projects.client_id',
+  'customers.id|recurring_invoices.client_id',
+  'dunning_sends.template_id|dunning_templates.id',
+  'fiscal_periods.id|gl_account_balances.fiscal_period_id',
+  'fiscal_periods.id|gl_journal_entries.fiscal_period_id',
+  'gl_account_balances.gl_account_id|gl_accounts.id',
+  'gl_accounts.id|gl_accounts.parent_account_id',
+  'gl_accounts.id|gl_journal_lines.gl_account_id',
+  'gl_accounts.id|product_categories.gl_cogs_account_id',
+  'gl_accounts.id|product_categories.gl_inventory_account_id',
+  'gl_accounts.id|product_categories.gl_revenue_account_id',
+  'gl_accounts.id|products.gl_cogs_account_id',
+  'gl_accounts.id|products.gl_inventory_account_id',
+  'gl_accounts.id|products.gl_revenue_account_id',
+  'gl_accounts.id|supplier_invoice_items.gl_account_id',
+  'gl_accounts.id|supplier_payment_batches.bank_account_id',
+  'gl_accounts.id|supplier_payments.bank_account_id',
+  'gl_journal_entries.id|gl_journal_entries.reversal_of_id',
+  'gl_journal_entries.id|gl_journal_lines.journal_entry_id',
+  'gl_journal_entries.id|stock_adjustments.journal_entry_id',
+  'gl_journal_entries.id|supplier_invoices.gl_journal_entry_id',
+  'gl_journal_entries.id|supplier_payment_batches.gl_journal_entry_id',
+  'gl_journal_entries.id|supplier_payments.gl_journal_entry_id',
+  'gl_journal_entries.id|vat_adjustments.gl_journal_entry_id',
+  'gl_journal_entries.id|vat_returns.journal_entry_id',
+  'leave_applications.leave_type_id|leave_types.id',
+  'leave_balances.leave_type_id|leave_types.id',
+  'product_categories.id|product_categories.parent_id',
+  'product_categories.id|products.category_id',
+  'products.id|stock_adjustments.product_id',
+  'project_time_entries.project_id|projects.id',
+  'purchase_orders.supplier_id|suppliers.id',
+  'supplier_invoice_items.supplier_invoice_id|supplier_invoices.id',
+  'supplier_invoices.id|supplier_payment_allocations.invoice_id',
+  'supplier_invoices.supplier_id|suppliers.id',
+  'supplier_payment_allocations.payment_id|supplier_payments.id',
+  'supplier_payments.supplier_id|suppliers.id',
+  'supplier_purchase_order_items.purchase_order_id|supplier_purchase_orders.id',
+  'supplier_purchase_orders.supplier_id|suppliers.id',
+]);
+
 const fail = (reason: string): ScopeResult => ({ ok: false, reason });
+
+function isFkEdge(tableA: string, colA: string, tableB: string, colB: string): boolean {
+  const a = `${tableA}.${colA}`;
+  const b = `${tableB}.${colB}`;
+  const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+  return FK_PAIRS.has(key);
+}
 
 /** Unwrap a value expression through casts to reach an underlying string literal. */
 function stringLiteralValue(expr: Node): string | null {
@@ -45,30 +157,15 @@ function stringLiteralValue(expr: Node): string | null {
   return null;
 }
 
-/** A qualified column reference like `alias.company_id`, or unqualified `company_id`. */
+/** A column reference like `alias.col`, or unqualified `col`. */
 function columnRef(expr: Node): { table: string | null; column: string } | null {
   if (expr && expr.type === 'ref' && typeof expr.name === 'string') {
-    return { table: expr.table?.name ?? null, column: expr.name };
+    return { table: expr.table?.name ? String(expr.table.name).toLowerCase() : null, column: expr.name.toLowerCase() };
   }
   return null;
 }
 
-/**
- * Flatten an AND-tree into its conjuncts. Returns null if any OR is encountered
- * anywhere in the tree (fail-closed signal).
- */
-function flattenConjuncts(expr: Node, out: Node[]): boolean {
-  if (!expr) return true;
-  if (expr.type === 'binary' && expr.op === 'OR') return false;
-  if (expr.type === 'binary' && expr.op === 'AND') {
-    return flattenConjuncts(expr.left, out) && flattenConjuncts(expr.right, out);
-  }
-  // Guard against OR nested inside other expression shapes (e.g. NOT (a OR b)).
-  if (containsOr(expr)) return false;
-  out.push(expr);
-  return true;
-}
-
+/** True if an OR operator appears anywhere in the node tree. */
 function containsOr(node: Node): boolean {
   if (!node || typeof node !== 'object') return false;
   if (node.type === 'binary' && node.op === 'OR') return true;
@@ -81,6 +178,18 @@ function containsOr(node: Node): boolean {
     }
   }
   return false;
+}
+
+/** Flatten an AND-tree into conjuncts. Returns false if any OR is present. */
+function flattenConjuncts(expr: Node, out: Node[]): boolean {
+  if (!expr) return true;
+  if (expr.type === 'binary' && expr.op === 'OR') return false;
+  if (expr.type === 'binary' && expr.op === 'AND') {
+    return flattenConjuncts(expr.left, out) && flattenConjuncts(expr.right, out);
+  }
+  if (containsOr(expr)) return false;
+  out.push(expr);
+  return true;
 }
 
 /** Collect every object with `type === 'select'` anywhere in the AST. */
@@ -113,29 +222,24 @@ function collectCteNames(node: Node, out: Set<string>): void {
 /** Validate a single select node's tenant scoping. */
 function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): ScopeResult {
   const from = sel.from;
-  if (!from || !Array.isArray(from)) return { ok: true }; // e.g. SELECT 1 — no table, nothing to scope
+  if (!from || !Array.isArray(from)) return { ok: true }; // e.g. SELECT 1 — no table
 
-  // Base tables (aliases) that require scoping. Subquery/derived-table FROM
-  // entries are validated as their own select node elsewhere, so they are safe
-  // sources here; CTE references are validated in their WITH body.
-  const requiredAliases = new Set<string>();
-  const singleTableAliases: string[] = [];
+  // alias -> real table name, for base tables only. Derived tables / functions /
+  // CTE refs are validated elsewhere (their inner selects are walked) and are
+  // treated as safe sources here.
+  const aliasTable = new Map<string, string>();
   for (const entry of from) {
     if (!entry || typeof entry !== 'object') return fail('unrecognised FROM entry');
-    if (entry.type !== 'table') {
-      // derived table / function / values — its internals are validated via the
-      // global select walk; do not require reachability for its alias.
-      continue;
-    }
-    const tableName: string = entry.name?.name ?? '';
-    const alias: string = (entry.name?.alias ?? tableName).toLowerCase();
-    if (cteNames.has(tableName.toLowerCase())) continue; // CTE ref — already validated
-    requiredAliases.add(alias);
-    singleTableAliases.push(alias);
+    if (entry.type !== 'table') continue;
+    const tableName = String(entry.name?.name ?? '').toLowerCase();
+    const alias = String(entry.name?.alias ?? tableName).toLowerCase();
+    if (cteNames.has(tableName)) continue; // CTE ref — validated in its body
+    if (!tableName) return fail('unnamed table');
+    aliasTable.set(alias, tableName);
   }
-  if (requiredAliases.size === 0) return { ok: true };
+  if (aliasTable.size === 0) return { ok: true };
 
-  // Gather all boolean conditions: the WHERE plus every JOIN ON. Any OR => reject.
+  // All boolean conditions: WHERE + every JOIN ON. Any OR => reject.
   const conjuncts: Node[] = [];
   if (sel.where && !flattenConjuncts(sel.where, conjuncts)) {
     return fail('OR in WHERE clause is not permitted');
@@ -147,7 +251,7 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
     }
   }
 
-  // Seeds: aliases with an AND-ed `alias.company_id = '<companyId>'` predicate.
+  const onlyAlias = aliasTable.size === 1 ? [...aliasTable.keys()][0]! : null;
   const seeds = new Set<string>();
   const edges = new Map<string, Set<string>>();
   const addEdge = (a: string, b: string) => {
@@ -157,38 +261,34 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
     edges.get(b)!.add(a);
   };
 
-  const onlyAlias = requiredAliases.size === 1 ? singleTableAliases[0]! : null;
-
   for (const c of conjuncts) {
     if (!c || c.type !== 'binary' || c.op !== '=') continue;
     const left = columnRef(c.left);
     const right = columnRef(c.right);
 
-    // Scope seed: company_id = '<callerId>'
-    if (left && left.column.toLowerCase() === 'company_id') {
-      const val = stringLiteralValue(c.right);
-      if (val === companyId) {
-        const a = left.table ? left.table.toLowerCase() : onlyAlias;
-        if (a) seeds.add(a);
-      }
+    // Seed: company_id = '<callerId>'
+    if (left && left.column === 'company_id' && stringLiteralValue(c.right) === companyId) {
+      const a = left.table ?? onlyAlias;
+      if (a && aliasTable.has(a)) seeds.add(a);
     }
-    if (right && right.column.toLowerCase() === 'company_id') {
-      const val = stringLiteralValue(c.left);
-      if (val === companyId) {
-        const a = right.table ? right.table.toLowerCase() : onlyAlias;
-        if (a) seeds.add(a);
-      }
+    if (right && right.column === 'company_id' && stringLiteralValue(c.left) === companyId) {
+      const a = right.table ?? onlyAlias;
+      if (a && aliasTable.has(a)) seeds.add(a);
     }
 
-    // Equijoin edge: A.col = B.col (both qualified column refs)
+    // FK edge: both sides qualified, and the (table,col) pair is a real FK→PK.
     if (left && right && left.table && right.table) {
-      addEdge(left.table.toLowerCase(), right.table.toLowerCase());
+      const tl = aliasTable.get(left.table);
+      const tr = aliasTable.get(right.table);
+      if (tl && tr && isFkEdge(tl, left.column, tr, right.column)) {
+        addEdge(left.table, right.table);
+      }
     }
   }
 
   if (seeds.size === 0) return fail('no company_id scope bound to the caller company');
 
-  // Reachability: every required alias must connect to some seed via equijoins.
+  // Reachability from seeds over FK edges.
   const reached = new Set<string>(seeds);
   const queue = [...seeds];
   while (queue.length) {
@@ -201,10 +301,8 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
     }
   }
 
-  for (const alias of requiredAliases) {
-    if (!reached.has(alias)) {
-      return fail(`table alias '${alias}' is not tenant-scoped`);
-    }
+  for (const alias of aliasTable.keys()) {
+    if (!reached.has(alias)) return fail(`table alias '${alias}' is not tenant-scoped`);
   }
   return { ok: true };
 }
