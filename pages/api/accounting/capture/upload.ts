@@ -16,6 +16,7 @@ import { validateCaptureApiKey, extractBearerToken } from '@/lib/auth/captureApi
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { sha256, storeCapturedBytes } from '@/lib/documentStorage';
+import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { routeEvent } from '@/modules/accounting/services/capture/captureRouterService';
 
 export const config = { api: { bodyParser: false } };
@@ -114,6 +115,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     const buffer = fileBuffers.get(file);
     if (!buffer || buffer.length === 0) {
       log.warn('upload: empty buffer for file', { name: file.originalFilename }, 'capture-upload');
+      continue;
+    }
+
+    // Cross-validate actual file bytes against the declared MIME — prevents polyglot
+    // files from passing a MIME allowlist check before reaching capture routing.
+    if (!magicBytesMatchMime(buffer, mimeType)) {
+      log.warn('upload: magic-byte mismatch', { mimeType, name: file.originalFilename }, 'capture-upload');
       continue;
     }
 
