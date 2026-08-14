@@ -10,7 +10,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import {
+  createJournalEntry,
+  postJournalEntry,
+} from '@/modules/accounting/services/gl/journalEntryService';
 import {
   validateReceiptExtraction,
   mapMerchantToExpenseAccount,
@@ -19,6 +23,7 @@ import {
   parseReceiptType,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 import type { ExtractedDocument } from '@/modules/accounting/types/documentCapture.types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -82,43 +87,73 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   const receiptType = parseReceiptType(extracted);
   const autoPost = shouldAutoPostReceipt(extracted.totalAmount || 0, extracted.confidence, { maxAmount: 5000, minConfidence: 0.85 });
 
-  // Get fiscal period
-  const [period] = (await sql`
-    SELECT id FROM fiscal_periods
-    WHERE company_id = ${companyId} AND start_date <= ${journalInput.entryDate}::date AND end_date >= ${journalInput.entryDate}::date
-    LIMIT 1
-  `) as Row[];
+  // Create the entry through the validated posting service.
+  //
+  // This used to hand-INSERT the header at `status = autoPost ? 'posted' :
+  // 'draft'` and then append the legs. trg_gl_je_balanced is a BEFORE UPDATE
+  // trigger, so a header landing directly in 'posted' was never balance-checked
+  // — and the legs come from OCR: buildExpenseJournalFromReceipt debits
+  // extracted.subtotal + extracted.vatAmount but credits extracted.totalAmount,
+  // three independently-extracted numbers with no enforced invariant. A till
+  // slip mixing zero-rated and standard-rated items (routine in SA retail)
+  // yields subtotal + vat != total and posted a permanently unbalanced journal.
+  // It was invisible only because 'auto_expense_receipt' was missing from the
+  // source CHECK constraint, so every INSERT died at 23514; migration 509 adds
+  // it, which makes routing through createJournalEntry a prerequisite, not a
+  // tidy-up. createJournalEntry runs validateJournalEntry and resolves the
+  // fiscal period from entryDate itself.
+  // Drop zero-value legs. buildExpenseJournalFromReceipt always emits a VAT
+  // leg, and a zero-rated or exempt receipt (bank charges, basic foodstuffs, a
+  // foreign supplier) extracts vatAmount = 0 — validateReceiptExtraction only
+  // warns on a NULL vatAmount, not a zero one. validateJournalLine rejects a
+  // line with neither debit nor credit, so passing it through would 500 every
+  // zero-VAT receipt. Dropping it cannot unbalance the entry: the leg is worth
+  // nothing on both sides. Same guard as expenseClaimService's
+  // `if (netAmount === 0) continue`.
+  const postableLines = journalInput.lines
+    .filter(l => l.debit !== 0 || l.credit !== 0)
+    .map(l => ({
+      glAccountId: l.accountId,
+      debit: l.debit,
+      credit: l.credit,
+      description: l.description,
+    }));
 
-  // Create journal entry + lines + document link atomically
-  const je = await withTransaction(async (tx) => {
-    const rows = (await tx`
-      INSERT INTO gl_journal_entries (
-        company_id, entry_date, fiscal_period_id, description, source, status, created_by
-      ) VALUES (
-        ${companyId}, ${journalInput.entryDate}::date, ${period?.id || null}::uuid,
-        ${journalInput.description}, 'auto_expense_receipt',
-        ${autoPost ? 'posted' : 'draft'}, ${userId}
-      ) RETURNING id, status
-    `) as Row[];
+  // Check the extraction actually balances BEFORE calling createJournalEntry.
+  // The legs come from OCR — subtotal, vatAmount and totalAmount are extracted
+  // independently with no enforced invariant, and a till slip mixing zero-rated
+  // and standard-rated items (routine in SA retail) yields
+  // subtotal + vat != total. createJournalEntry would reject it, but as a throw
+  // that withErrorHandler masks into a generic 500, leaving the operator with
+  // "internal error" on a document that is merely mis-extracted. Answering 400
+  // here is safe precisely because nothing has been written yet — the route
+  // only reads up to this point. (After this line a 4xx would COMMIT a partial
+  // write, which is why the failures below propagate instead.)
+  const preCheck = validateJournalEntry(postableLines);
+  if (!preCheck.valid) {
+    return apiResponse.badRequest(
+      res,
+      `Receipt does not balance — check the extracted amounts: ${preCheck.errors.join('; ')}`,
+    );
+  }
 
-    if (!rows[0]) throw new Error('Failed to create journal entry');
-    const entry = rows[0] as Row;
+  const entry = await createJournalEntry(companyId, {
+    entryDate: journalInput.entryDate,
+    description: journalInput.description,
+    source: 'auto_expense_receipt',
+    sourceDocumentId: documentId,
+    lines: postableLines,
+  }, userId);
 
-    for (const line of journalInput.lines) {
-      await tx`
-        INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, debit, credit, description, company_id)
-        VALUES (${entry.id}::uuid, ${line.accountId}::uuid, ${line.debit}, ${line.credit}, ${line.description}, ${companyId}::uuid)
-      `;
-    }
+  if (autoPost) {
+    await postJournalEntry(companyId, entry.id, userId);
+  }
 
-    await tx`
-      UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
-    `;
+  await sql`
+    UPDATE captured_documents SET status = 'matched' WHERE id = ${documentId}::uuid AND company_id = ${companyId}
+  `;
 
-    return entry;
-  });
-
-  if (!je) return apiResponse.internalError(res, null, 'Failed to create journal entry');
+  const je = { id: entry.id, status: autoPost ? 'posted' : 'draft' };
 
   log.info('Receipt-to-Journal completed', {
     documentId, journalId: je.id, receiptType, autoPost,

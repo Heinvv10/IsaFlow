@@ -245,12 +245,12 @@ export async function createJournalEntry(
       sql`
         INSERT INTO gl_journal_entries (
           id, company_id, entry_date, fiscal_period_id, description, source,
-          source_document_id, created_by,
+          source_document_id, reference, created_by,
           posting_agent, source_document_hash, extraction_confidence
         ) VALUES (
           ${entryId}::UUID, ${companyId}::UUID, ${input.entryDate}, ${fiscalPeriodId || null},
           ${input.description || null}, ${input.source || 'manual'},
-          ${input.sourceDocumentId || null}, ${safeUserId}::UUID,
+          ${input.sourceDocumentId || null}, ${input.reference || null}, ${safeUserId}::UUID,
           ${resolvedMeta.postingAgent},
           ${resolvedMeta.sourceDocumentHash ?? null},
           ${resolvedMeta.extractionConfidence ?? null}

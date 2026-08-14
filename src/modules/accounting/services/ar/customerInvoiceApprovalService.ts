@@ -76,14 +76,16 @@ export async function approveCustomerInvoice(
     throw new InvoiceNotApprovableError(`Cannot approve an invoice with status '${String(cur[0]!.status)}'`);
   }
 
-  // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output)
-  let glJournalEntryId: string | null = null;
-  try {
-    glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId, opts);
-    log.info('Customer invoice GL posted on approve', { id: invoiceId, glJournalEntryId });
-  } catch (glErr) {
-    log.error('GL posting failed on invoice approve (invoice still approved)', { id: invoiceId, error: glErr });
-  }
+  // Post to GL on approve (accrual accounting: DR AR, CR Revenue, CR VAT Output).
+  //
+  // This must NOT be swallowed. A caught failure used to leave the invoice
+  // 'approved' — and therefore in AR — with gl_journal_entry_id NULL and no
+  // journal behind it, so AR and the GL disagreed by the invoice total with
+  // nothing surfacing the divergence. Letting it propagate matches the AP side
+  // (supplierInvoiceWorkflowService.approveSupplierInvoice) and lets withAuth
+  // roll the request transaction back, taking the status UPDATE above with it.
+  const glJournalEntryId = await postCustomerInvoiceToGL(companyId, invoiceId, userId, opts);
+  log.info('Customer invoice GL posted on approve', { id: invoiceId, glJournalEntryId });
 
   // PRD-06 Phase 1: seal the rendered PDF as evidence on approve.
   // Non-blocking: if storage is flaky the status transition still succeeds;

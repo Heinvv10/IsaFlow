@@ -9,7 +9,10 @@ import {
   createDraftCustomerInvoice,
   InvoiceLineValidationError,
 } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
-import { approveCustomerInvoice } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
+import {
+  approveCustomerInvoice,
+  InvoiceNotApprovableError,
+} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createQuote } from '@/modules/accounting/services/ar/quoteService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingAgent } from '../postingAgent';
@@ -179,7 +182,21 @@ export const finalizeInvoiceTool: McpTool = {
       );
       return ok(result);
     } catch (err) {
-      return toolError(safeErrorText(err, 'Failed to finalize invoice.'));
+      // Only the pre-write guard may be turned into a tool error here.
+      //
+      // approveCustomerInvoice flips the invoice to 'approved' and THEN posts
+      // the GL journal. Catching a post failure and returning toolError() means
+      // the handler does not throw, so the registry's write-tool SAVEPOINT
+      // (registry.ts) releases instead of rolling back, and the transport's 200
+      // makes bearerPipeline COMMIT — leaving the invoice approved and in AR
+      // with no journal behind it. That is exactly the AR/GL divergence
+      // approveCustomerInvoice now throws to prevent, so the throw has to reach
+      // the registry.
+      //
+      // InvoiceNotApprovableError is safe to report precisely: it is raised when
+      // the guarded UPDATE matched zero rows, so nothing was written.
+      if (err instanceof InvoiceNotApprovableError) return toolError(err.message);
+      throw err;
     }
   },
 };

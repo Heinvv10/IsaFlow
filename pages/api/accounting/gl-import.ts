@@ -11,6 +11,7 @@ import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, 
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { importJournalEntries, type ImportRow } from '@/modules/accounting/services/gl/glImportService';
+import { ImportValidationError } from '@/modules/accounting/services/gl/glImportExecuteService';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -43,9 +44,19 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     );
     return apiResponse.success(res, result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Import failed';
     log.error('Failed to import journal entries', { error: err }, 'gl-import-api');
-    return apiResponse.badRequest(res, message);
+    // Only file-validation problems may be answered with a 400. They are raised
+    // while resolving the file, before the first entry is written.
+    //
+    // Anything else happened mid-write — entries may already be created and
+    // posted. withAuth finalises on `statusCode >= 500`, so a 400 here would
+    // COMMIT that partial import while telling the user it failed, and the
+    // re-upload would post the committed prefix a second time (this path has no
+    // idempotency key). Propagate so the request 500s and rolls back.
+    if (err instanceof ImportValidationError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    throw err;
   }
 }
 
