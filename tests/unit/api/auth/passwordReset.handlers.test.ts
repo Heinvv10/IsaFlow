@@ -35,6 +35,12 @@ vi.mock('@/lib/auth/gotrue', () => ({
   adminGetUserByEmail: (...a: unknown[]) => adminGetUserByEmail(...a),
 }));
 
+const revokeAllSessions = vi.fn(async () => undefined);
+vi.mock('@/lib/auth/sessionRevocation', () => ({
+  revokeAllSessions: (...a: unknown[]) => revokeAllSessions(...a),
+  rotateSessionRevokingOthers: vi.fn(),
+}));
+
 const sendEmail = vi.fn(async () => ({ success: true }));
 vi.mock('@/modules/accounting/services/core/emailService', () => ({ sendEmail: (...a: unknown[]) => sendEmail(...a) }));
 vi.mock('@/lib/email-templates-shared', () => ({ emailLayout: (s: string) => s, ctaButton: (l: string, u: string) => `${l}:${u}` }));
@@ -88,12 +94,34 @@ describe('POST /api/auth/do-reset-password', () => {
 
   it('updates the password and returns 200 for a valid token', async () => {
     consumePasswordResetToken.mockResolvedValueOnce({ userId: 'user-9' });
-    adminUpdateUser.mockResolvedValueOnce({ id: 'user-9' });
+    adminUpdateUser.mockResolvedValueOnce({ id: 'user-9', email: 'u9@example.com' });
     const { req, res } = mockReqRes({ recoveryToken: 'good', newPassword: VALID_PW });
     await (doResetHandler as unknown as Handler)(req, res);
     expect(adminUpdateUser).toHaveBeenCalledWith('user-9', { password: VALID_PW });
     expect(res.statusCode).toBe(200);
     expect(res.body.success).toBe(true);
+  });
+
+  it('SECURITY: revokes ALL sessions after a successful reset', async () => {
+    consumePasswordResetToken.mockResolvedValueOnce({ userId: 'user-9' });
+    adminUpdateUser.mockResolvedValueOnce({ id: 'user-9', email: 'u9@example.com' });
+    const { req, res } = mockReqRes({ recoveryToken: 'good', newPassword: VALID_PW });
+    await (doResetHandler as unknown as Handler)(req, res);
+    // The whole point of a reset: stale GoTrue refresh tokens must be revoked,
+    // keyed to the account whose password just changed.
+    expect(revokeAllSessions).toHaveBeenCalledWith('u9@example.com', VALID_PW);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('SECURITY: fails closed (500) when session revocation fails after the reset', async () => {
+    consumePasswordResetToken.mockResolvedValueOnce({ userId: 'user-9' });
+    adminUpdateUser.mockResolvedValueOnce({ id: 'user-9', email: 'u9@example.com' });
+    revokeAllSessions.mockRejectedValueOnce(new Error('gotrue unreachable'));
+    const { req, res } = mockReqRes({ recoveryToken: 'good', newPassword: VALID_PW });
+    await (doResetHandler as unknown as Handler)(req, res);
+    // Never report the account secured when stale sessions may still be live.
+    expect(res.statusCode).toBe(500);
+    expect(res.body.error?.code).toBe('RESET_FAILED');
   });
 
   it('returns 500 (not a misleading 400) when the update fails AFTER the token is spent', async () => {
