@@ -27,6 +27,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { StatementNotImportableError } from './bankStatementImportErrors';
 import { parseStatement, type StatementFileType } from './bankStatementParseService';
 import { importParsedTransactions } from './bankImportService';
 import { deleteTransactions } from './bankTransactionQueryService';
@@ -185,7 +186,7 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
   // accepts them, so this is reachable from a malformed statement.)
   const range = dateRangeOf(parseResult.transactions);
   if (!range) {
-    throw new Error(
+    throw new StatementNotImportableError(
       'No transaction in this statement has a recognisable YYYY-MM-DD date, so duplicates cannot be detected. Check the statement dates and re-send.',
     );
   }
@@ -286,3 +287,5 @@ export async function undoImportBatch(
   }, 'accounting');
   return { deleted, refused, refusedByStatus };
 }
+
+export { StatementNotImportableError };
