@@ -18,8 +18,13 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { cache } from '@/lib/cache';
 import { CACHE_KEYS } from '@/lib/cache-keys';
+import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 
 type BulkAction = 'activate' | 'deactivate' | 'export';
+
+// Aligned with supplier-invoices-bulk-action.ts (z.array(UUID).min(1).max(200))
+// and statement-bulk-email.ts (MAX_BATCH_SIZE = 100).
+const MAX_BATCH_SIZE = 200;
 
 interface BulkRequestBody {
   ids: string[];
@@ -78,6 +83,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'ids must be a non-empty array');
   }
 
+  if (ids.length > MAX_BATCH_SIZE) {
+    return apiResponse.badRequest(res, `ids must not exceed ${MAX_BATCH_SIZE} items`);
+  }
+
   if (!action || !['activate', 'deactivate', 'export'].includes(action)) {
     return apiResponse.badRequest(res, 'action must be one of: activate, deactivate, export');
   }
@@ -126,6 +135,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND company_id = ${companyId}
         AND deleted_at IS NULL
       ORDER BY name ASC
+      LIMIT ${EXPORT_ROW_CEILING}
     `) as CustomerRow[];
 
     const csv = buildCsv(rows);
