@@ -10,6 +10,7 @@ Group=root
 # root: the prod env file (/home/velo/isaflow/.env.local) is velo:velo 0600 and
 # holds DATABASE_URL. velo has no read access to /srv/storage/backups/isaflow
 # either. Kept oneshot + no network exposure.
+Environment=ALERT_EMAIL=hein@velocityfibre.co.za
 ExecStart=/opt/isaflow-ops/backup-isaflow.sh
 StandardOutput=journal
 StandardError=journal

@@ -139,3 +139,58 @@ find "$BACKUP_DIR" -maxdepth 1 -name 'monthly-*.dump'          -mtime "+$MONTHLY
 SIZE=$(stat -c %s "$DUMP")
 JE=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM gl_journal_entries")
 log "Backup OK: $DUMP (${SIZE} bytes, $TOC_ENTRIES toc entries, $JE journal entries)"
+
+# ── PITR health ─────────────────────────────────────────────────────────────
+# The WAL stream is the half of PITR that can fail QUIETLY. The pg_hba rule it
+# depends on lives in the container's writable layer, so `docker compose up
+# --force-recreate` reverts it and pg_receivewal simply stops reconnecting.
+# Checked here because this job already has a working alert path.
+WAL_DIR="${ISAFLOW_WAL_DIR:-$BACKUP_DIR/wal}"
+SLOT="${ISAFLOW_WAL_SLOT:-isaflow_wal_archive}"
+PITR_PROBLEMS=""
+
+# Read the two fields separately. An earlier version concatenated them and
+# pattern-matched `*/t`, but active::text renders 'true' in Postgres, not 't' —
+# so the check reported INACTIVE on a perfectly healthy slot every night. A
+# monitor that cries wolf nightly is worse than no monitor, because the real
+# alert gets ignored with the rest.
+SLOT_ACTIVE=$(psql "$DATABASE_URL" -tAc \
+  "SELECT active FROM pg_replication_slots WHERE slot_name = '$SLOT'" 2>/dev/null | tr -d '[:space:]')
+SLOT_WAL_STATUS=$(psql "$DATABASE_URL" -tAc \
+  "SELECT coalesce(wal_status,'unknown') FROM pg_replication_slots WHERE slot_name = '$SLOT'" 2>/dev/null | tr -d '[:space:]')
+
+if [[ -z "$SLOT_ACTIVE" ]]; then
+  PITR_PROBLEMS+="- replication slot '$SLOT' does not exist — WAL archiving is NOT running.\n"
+elif [[ "$SLOT_WAL_STATUS" == "lost" ]]; then
+  # The 4GB cap invalidated it: production was protected, PITR was not.
+  PITR_PROBLEMS+="- replication slot '$SLOT' is LOST (exceeded max_slot_wal_keep_size). There is a PITR GAP; take a fresh base backup.\n"
+elif [[ "$SLOT_ACTIVE" != "t" && "$SLOT_ACTIVE" != "true" ]]; then
+  PITR_PROBLEMS+="- replication slot '$SLOT' is INACTIVE (active=$SLOT_ACTIVE) — isaflow-wal-archive.service is not streaming.\n"
+fi
+
+if [[ -d "$WAL_DIR" ]]; then
+  NEWEST=$(find "$WAL_DIR" -type f -newermt '-2 hours' 2>/dev/null | head -1)
+  [[ -z "$NEWEST" ]] && PITR_PROBLEMS+="- no WAL segment written in the last 2h — the stream is stalled.\n"
+else
+  PITR_PROBLEMS+="- WAL directory $WAL_DIR is missing.\n"
+fi
+
+if [[ -n "$PITR_PROBLEMS" ]]; then
+  log "PITR HEALTH DEGRADED:"
+  printf '%b' "$PITR_PROBLEMS" | sed 's/^/  /'
+  {
+    echo "The nightly dump succeeded, but point-in-time recovery is degraded:"
+    echo ""
+    printf '%b' "$PITR_PROBLEMS"
+    echo ""
+    echo "Most likely cause: the isaflow-supabase-db container was recreated,"
+    echo "reverting the pg_hba replication rule (it is in the container's"
+    echo "writable layer, not a bind mount). Re-add it and restart"
+    echo "isaflow-wal-archive.service — see scripts/ops/README.md."
+    echo ""
+    echo "Daily dumps are unaffected; only PITR is."
+  } | "$SCRIPT_DIR/alert-email.py" "IsaFlow PITR degraded (dumps still OK)" \
+    || log "alert-email.py failed while reporting PITR degradation"
+else
+  log "PITR health OK (slot $SLOT active, WAL fresh)"
+fi

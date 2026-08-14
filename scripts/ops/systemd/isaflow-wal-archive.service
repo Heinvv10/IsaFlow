@@ -1,0 +1,23 @@
+[Unit]
+Description=IsaFlow continuous WAL archiving for PITR (pg_receivewal)
+Documentation=https://github.com/Heinvv10/IsaFlow/blob/master/scripts/ops/README.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=ALERT_EMAIL=hein@velocityfibre.co.za
+ExecStart=/opt/isaflow-ops/wal-archive-isaflow.sh
+# Restart=always: this is the durability path. A stalled receiver cannot fill
+# the server's disk (max_slot_wal_keep_size=4GB invalidates the slot instead),
+# but it DOES create a PITR gap, so recover automatically and fast.
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-wal-archive
+
+[Install]
+WantedBy=multi-user.target
