@@ -158,9 +158,97 @@ Two traps were found here and are fixed, but worth knowing if you touch it:
   `mail.isaflow.co.za`, so SNI must be overridden via `SMTP_TLS_SERVERNAME`
   (the app's nodemailer transport does the same with `tlsServername`).
 
+## PITR (point-in-time recovery)
+
+Added 2026-08-14. Three pieces:
+
+| piece | unit | schedule |
+|---|---|---|
+| logical dump | `isaflow-backup` | daily 01:30 |
+| **physical base** | `isaflow-basebackup` | weekly Sun 02:15 |
+| **continuous WAL** | `isaflow-wal-archive` | always running |
+
+The daily `pg_dump` is a *logical* backup and **cannot** be used for PITR — you
+cannot replay WAL onto a `pg_restore`'d database. PITR = physical base + WAL.
+Both kinds are kept because they answer different questions: the dump is
+portable and selectively restorable; the base+WAL pair can land you on a
+specific second.
+
+### The pg_hba dependency — read this before debugging "PITR stopped"
+
+Physical replication needs an entry the Supabase image does not ship. One line
+was added on 2026-08-14 to `/etc/postgresql/pg_hba.conf` **inside the
+isaflow-supabase-db container**:
+
+```
+host    replication     postgres        172.28.0.1/32           scram-sha-256
+```
+
+`172.28.0.1` is the docker bridge gateway — how a connection from the host to
+the published port appears to the container. Scoped `/32` and password-auth,
+deliberately not `trust`, because other containers share `172.28.0.0/16`.
+
+**That file is in the container's writable layer, not a bind mount.** It
+survives `docker restart` but a `docker compose up --force-recreate` or an image
+upgrade reverts it, and WAL archiving silently stops. Making it permanent needs
+a compose bind-mount plus a DB container recreate, i.e. downtime — not done.
+
+Instead the nightly backup asserts PITR health and emails on: missing slot,
+inactive slot, `wal_status = lost`, or no WAL written in 2h. So the revert is
+loud. Revert file if you need the original: `pg_hba.conf.bak-pre-pitr-20260814`.
+
+### Why the replication slot cannot take production down
+
+A slot normally risks filling the server's disk, because the server retains WAL
+the slot hasn't consumed. This server has `max_slot_wal_keep_size = 4GB`, so
+Postgres **invalidates the slot** instead of running out of space. Production is
+protected; the cost is a PITR gap, which the nightly check reports as
+`wal_status = lost`. If you see that: take a fresh base backup immediately.
+
+### Restoring to a point in time
+
+This procedure was executed end-to-end on 2026-08-14 against the real backup —
+recovery reached consistency and every table matched live.
+
+```bash
+W=/srv/storage/backups/isaflow/pitr-restore
+sudo mkdir -p $W/data $W/wal
+
+# 1. base
+sudo tar -xzf /srv/storage/backups/isaflow/base/latest/base.tar.gz -C $W/data
+
+# 2. WAL (decompressed; skip .partial)
+sudo sh -c 'for f in /srv/storage/backups/isaflow/wal/*.gz; do
+  case "$f" in *.partial) continue;; esac
+  gunzip -c "$f" > '"$W"'/wal/$(basename "$f" .gz); done'
+
+# 3. recovery target — omit recovery_target_time to replay everything
+sudo sh -c "cat >> $W/data/postgresql.auto.conf <<'EOF'
+restore_command = 'cp /wal/%f %p'
+recovery_target_time = '2026-08-14 03:00:00+02'
+recovery_target_action = 'promote'
+EOF
+touch $W/data/recovery.signal; chmod 0700 $W/data"
+
+# 4. bring it up on a scratch port — NEVER over production
+sudo docker run -d --name isaflow-pitr-restore   -v $W/data:/var/lib/postgresql/data -v $W/wal:/wal:ro   -p 127.0.0.1:7999:5432 supabase/postgres:15.8.1.085
+
+sudo docker logs isaflow-pitr-restore 2>&1 | grep -E 'consistent recovery|archive recovery complete'
+```
+
+Then verify before trusting it — row counts, and that the ledger balances:
+
+```sql
+SELECT count(*) FROM (
+  SELECT je.company_id FROM gl_journal_entries je
+  JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+  WHERE je.status='posted' GROUP BY je.company_id
+  HAVING round(sum(jl.debit)::numeric,2) <> round(sum(jl.credit)::numeric,2)) x;  -- must be 0
+```
+
 ## Not covered
 
-- **No PITR.** These are daily snapshots; worst-case loss is ~24h of writes.
-  WAL archiving is the next step if that window is too wide.
 - **Off-host copy.** `/srv/storage` is a different disk, not a different
-  machine. A host loss still loses the backups.
+  machine. A host loss still loses every backup. Blocked on a destination:
+  there is no SSH key to `fibreflow-wa-vps` and no rclone/restic/cloud
+  credentials on this box.
