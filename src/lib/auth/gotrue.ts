@@ -91,12 +91,30 @@ export async function refresh(refreshToken: string): Promise<GoTrueTokenResponse
   return res.json() as Promise<GoTrueTokenResponse>;
 }
 
-export async function logout(accessToken: string): Promise<void> {
-  await gotrueFetch(
-    '/logout',
+// GoTrue /logout scopes (verified against this deployment, GoTrue @ :7770):
+//   'global'  — revoke EVERY refresh token for the token's user (default).
+//   'others'  — revoke every session EXCEPT the presented one (keeps the caller).
+//   'local'   — revoke only the presented session.
+// Empirically: scope=others → 204, the presented refresh token still refreshes
+// (200) while every other refresh token is revoked (400); scope=global → 204,
+// the presented token is revoked too (400).
+export type LogoutScope = 'global' | 'local' | 'others';
+
+/**
+ * Sign a user out of GoTrue sessions. THROWS on any non-2xx response so callers
+ * can treat a failed revocation as a real error instead of silently assuming
+ * sessions were cleared — a stateless HS256 refresh token stays live until
+ * GoTrue actually revokes it here.
+ */
+export async function logout(accessToken: string, scope: LogoutScope = 'global'): Promise<void> {
+  const res = await gotrueFetch(
+    `/logout?scope=${scope}`,
     { method: 'POST' },
     { apikey: getEnv('SUPABASE_ANON_KEY'), Authorization: `Bearer ${accessToken}` }
   );
+  if (!res.ok) {
+    throw new Error(`gotrue logout failed: ${res.status} ${await res.text().catch(() => '')}`);
+  }
 }
 
 export interface AdminCreateUserInput {

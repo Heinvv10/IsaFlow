@@ -3,7 +3,10 @@ import type { NextApiHandler } from 'next';
 import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { signIn, adminUpdateUser } from '@/lib/auth/gotrue';
+import { rotateSessionRevokingOthers } from '@/lib/auth/sessionRevocation';
+import { setAuthCookies, parseCookies, REMEMBER_ME_COOKIE } from '@/lib/auth/cookies';
 import { withRateLimit } from '@/lib/rateLimit';
+import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
@@ -26,13 +29,46 @@ const handler: NextApiHandler = async (req, res) => {
   if (!user.email) {
     return res.status(400).json({ success: false, error: { code: 'NO_EMAIL', message: 'User email missing in token' } });
   }
+  const email = user.email;
   try {
     // Re-auth by signing in with the current password — GoTrue will reject if wrong.
-    await signIn(user.email, currentPassword);
+    await signIn(email, currentPassword);
   } catch {
     return res.status(400).json({ success: false, error: { code: 'WRONG_PASSWORD', message: 'Current password is incorrect' } });
   }
   await adminUpdateUser(user.id, { password: newPassword });
+
+  // SECURITY: adminUpdateUser only rotates the password hash — GoTrue's
+  // stateless HS256 refresh tokens survive it, so without this a stolen token
+  // keeps refreshing indefinitely after the victim "secures" the account.
+  // Revoke every OTHER session, then re-issue THIS caller's cookies from the
+  // surviving fresh session so their current browser stays signed in.
+  try {
+    const fresh = await rotateSessionRevokingOthers(email, newPassword);
+    const persistent = parseCookies(req)[REMEMBER_ME_COOKIE] !== '0';
+    setAuthCookies(res, {
+      accessToken: fresh.access_token,
+      refreshToken: fresh.refresh_token,
+      expiresIn: fresh.expires_in,
+      persistent,
+    });
+  } catch (err) {
+    // Fail closed: the password WAS changed, but we could not confirm the other
+    // sessions were revoked. Never tell the user the account is fully secured
+    // when a stale session might still be live.
+    log.error(
+      'change-password: session revocation failed after password update',
+      { userId: user.id, message: err instanceof Error ? err.message : String(err) },
+      'Auth',
+    );
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'SESSION_REVOKE_FAILED',
+        message: 'Your password was changed, but we could not sign out your other sessions. Please try again or sign out of all devices.',
+      },
+    });
+  }
   return res.status(200).json({ success: true, data: null });
 };
 
