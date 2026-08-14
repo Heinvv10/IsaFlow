@@ -94,6 +94,16 @@ describe('enforceTenantScope — rejects cross-tenant bypasses', () => {
     expect(enforceTenantScope('SELECT FROM WHERE lol', CID).ok).toBe(false);
   });
 
+  it('rejects a set-returning function in FROM (non-table/non-subquery entry)', () => {
+    const sql = `SELECT n FROM unnest(ARRAY[1,2,3]) AS t(n)`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
+  it('rejects a comma-join to an unscoped table', () => {
+    const sql = `SELECT s.name FROM customers c, suppliers s WHERE c.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
   it('rejects a company_id IN (...) list (only equality to caller id is a seed)', () => {
     const sql = `SELECT name FROM customers WHERE company_id IN ('${CID}', '${OTHER}')`;
     expect(enforceTenantScope(sql, CID).ok).toBe(false);
@@ -128,6 +138,11 @@ describe('enforceTenantScope — allows correctly-scoped queries', () => {
 
   it('allows a scoped CTE consumed by the outer select', () => {
     const sql = `WITH t AS (SELECT id, total_amount FROM customer_invoices WHERE company_id = '${CID}') SELECT SUM(total_amount) FROM t`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(true);
+  });
+
+  it('allows a comma-join tied by a real FK in WHERE', () => {
+    const sql = `SELECT ci.total_amount, c.name FROM customer_invoices ci, customers c WHERE ci.customer_id = c.id AND ci.company_id = '${CID}'`;
     expect(enforceTenantScope(sql, CID).ok).toBe(true);
   });
 });
