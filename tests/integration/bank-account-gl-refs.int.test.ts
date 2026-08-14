@@ -163,6 +163,34 @@ describe('bank accounts resolve through gl_accounts, not the vestigial bank_acco
       );
     });
 
+    it('does not name another tenant GL account when a row points across companies', async () => {
+      // bank_account_id's FK targets gl_accounts(id) alone, so this row is
+      // legal at the DB level: it belongs to COMPANY_A but points at
+      // COMPANY_B's bank account. The join must not surface B's account name.
+      await admin.query(
+        `INSERT INTO bank_transactions
+           (company_id, bank_account_id, transaction_date, amount, description, status)
+         VALUES ($1, $2, CURRENT_DATE, 12.34, 'BA Fixture cross-tenant pointer', 'imported')`,
+        [COMPANY_A, GL_BANK_B]
+      );
+      try {
+        const result = await runReport(COMPANY_A, {
+          dataSource: 'bank_transactions',
+          columns: [{ field: 'amount' }, { field: 'bank_account' }],
+        } as Parameters<typeof runReport>[1]);
+
+        const leaked = result.rows.filter(r => r.bank_account === 'BA Fixture Cheque B');
+        expect(leaked).toHaveLength(0);
+        // The row itself still appears — only the foreign account name is withheld.
+        expect(result.rows.some(r => Number(r.amount) === 12.34 && r.bank_account === null)).toBe(true);
+      } finally {
+        await admin.query(
+          `DELETE FROM bank_transactions WHERE company_id = $1 AND bank_account_id = $2`,
+          [COMPANY_A, GL_BANK_B]
+        );
+      }
+    });
+
     it('scopes rows to the requesting company', async () => {
       const result = await runReport(COMPANY_B, {
         dataSource: 'bank_transactions',

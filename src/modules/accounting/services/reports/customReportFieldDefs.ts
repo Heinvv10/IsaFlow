@@ -130,8 +130,12 @@ export function getBaseQuery(dataSource: string): string {
       return `FROM supplier_invoices si
         LEFT JOIN suppliers s ON s.id = si.supplier_id`;
     case 'bank_transactions':
+      // $1 is always companyId (see customReportRunner). bank_account_id's FK
+      // targets gl_accounts(id) alone, not (id, company_id), so nothing at the
+      // DB level stops a row pointing at another tenant's GL account — scope
+      // the join too rather than relying on RLS alone.
       return `FROM bank_transactions bt
-        LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id`;
+        LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id AND ga.company_id = $1`;
     case 'customers':
       return `FROM customers c`;
     case 'suppliers':
