@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { checkReportRateLimit } from '@/lib/rateLimit';
 import { exportCaseWareTB } from '@/modules/accounting/services/reports/casewareExportService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -22,6 +23,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!periodStart || !periodEnd) {
     return apiResponse.badRequest(res, 'period_start and period_end are required');
+  }
+
+  if (!(await checkReportRateLimit(companyId, 'caseware-export'))) {
+    log.warn('CaseWare export rate limit exceeded', { companyId }, 'rateLimit');
+    return apiResponse.tooManyRequests(res, 'Too many export requests. Please try again shortly.');
   }
 
   log.info('CaseWare export requested', { companyId, periodStart, periodEnd }, 'caseware-export-api');

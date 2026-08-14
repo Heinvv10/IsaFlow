@@ -150,6 +150,25 @@ export async function checkSendRateLimit(
   );
 }
 
+/**
+ * Per-company throttle for expensive report/export/PDF endpoints (pentest
+ * MEDIUM: heavy report/export/PDF routes — PDF rendering, large SQL
+ * aggregations — were gated only by auth, with no request-frequency limit,
+ * letting a scripted authenticated client drive sustained CPU/memory as a
+ * same-tenant resource-exhaustion DoS). Generous window so normal interactive
+ * use (clicking "export" a few times while reviewing a report) never trips
+ * it. Returns true when ALLOWED, false when it should be 429'd.
+ */
+export async function checkReportRateLimit(
+  companyId: string,
+  name: string,
+  opts: { max?: number; windowSecs?: number } = {},
+): Promise<boolean> {
+  const max = opts.max ?? 25;
+  const windowSecs = opts.windowSecs ?? 900;
+  return checkRateLimit(`report:${name}:co:${companyId}`, { max, windowSecs });
+}
+
 // ---------------------------------------------------------------------------
 // Middleware wrapper (convenience helper for simple IP-based limiting)
 // ---------------------------------------------------------------------------
