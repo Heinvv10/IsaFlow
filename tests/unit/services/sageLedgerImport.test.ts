@@ -96,7 +96,8 @@ interface SageRow {
 function withRows(
   rows: SageRow[],
   alreadyImported: string | null = null,
-  existingShape?: { line_count: number; total_debit: number; total_credit: number },
+  /** Lines the existing journal holds; defaults to exactly the group's own. */
+  existingLines?: Array<{ gl_account_id: string; debit: number; credit: number }>,
 ) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
@@ -107,11 +108,11 @@ function withRows(
     // this group's lines? Defaults to matching the group being imported.
     if (text.includes('FROM gl_journal_lines')) {
       const active = rows.filter(r => Number(r.debit) !== 0 || Number(r.credit) !== 0);
-      return Promise.resolve([existingShape ?? {
-        line_count: active.length,
-        total_debit: active.reduce((t, r) => t + Number(r.debit || 0), 0),
-        total_credit: active.reduce((t, r) => t + Number(r.credit || 0), 0),
-      }]);
+      return Promise.resolve(existingLines ?? active.map(r => ({
+        gl_account_id: r.gl_account_id,
+        debit: Number(r.debit || 0),
+        credit: Number(r.credit || 0),
+      })));
     }
     return Promise.resolve(rows);
   }) as never);
@@ -263,28 +264,51 @@ describe('importLedgerTransactions', () => {
     expect(txStatements().some(s => s.includes("migration_status = 'imported'"))).toBe(true);
   });
 
-  it('REFUSES to relink a side-flipped correction that has the same count and debit total', async () => {
+  it('REFUSES to relink a side-flipped correction', async () => {
     // The accountant corrects the posting side in Sage. Group is Cr A 100 /
     // Dr B 100; the existing journal is Dr A 100 / Cr B 100. Same line count,
-    // same TOTAL DEBIT — so a check on count + debit alone relinks and silently
-    // discards the correction, keeping the wrong posting in the GL.
+    // same total debit, same total credit — indistinguishable by totals, which
+    // is why the guard compares per-line (account, debit, credit) instead.
     withRows([
       row({ id: 'a', debit: 0, credit: 100, gl_account_id: 'acct-A' }),
       row({ id: 'b', debit: 100, credit: 0, gl_account_id: 'acct-B' }),
-    ], 'je-existing', { line_count: 2, total_debit: 100, total_credit: 100 });
+    ], 'je-existing', [
+      { gl_account_id: 'acct-A', debit: 100, credit: 0 },
+      { gl_account_id: 'acct-B', debit: 0, credit: 100 },
+    ]);
 
-    // Totals are symmetric here, so this specific pair is NOT distinguishable by
-    // totals alone — it relinks, and that is the documented limit of a shape
-    // check. What must NOT happen is a relink when the totals differ.
     const result = await importLedgerTransactions(COMPANY, USER);
-    expect(result.skipped + result.failed).toBe(1);
+
+    // Assert the REFUSAL specifically. An earlier version asserted
+    // `skipped + failed === 1`, which is true whether the guard refuses or
+    // relinks — exactly one group is processed either way — so it passed under
+    // both branches of the behaviour it claimed to test.
+    expect(result).toMatchObject({ failed: 1, skipped: 0 });
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('RELINKS when the existing journal holds exactly the same lines', async () => {
+    // The counterpart: the guard must not refuse a genuine re-import, or the
+    // refusal above would be satisfied by a guard that rejects everything.
+    withRows([
+      row({ id: 'a', debit: 100, credit: 0, gl_account_id: 'acct-A' }),
+      row({ id: 'b', debit: 0, credit: 100, gl_account_id: 'acct-B' }),
+    ], 'je-existing');
+
+    const result = await importLedgerTransactions(COMPANY, USER);
+
+    expect(result).toMatchObject({ skipped: 1, failed: 0 });
+    expect(createMock).not.toHaveBeenCalled();
   });
 
   it('REFUSES to relink when debit and credit totals do not both match', async () => {
     withRows([
       row({ id: 'a', debit: 100, credit: 0 }),
       row({ id: 'b', debit: 0, credit: 100 }),
-    ], 'je-existing', { line_count: 2, total_debit: 100, total_credit: 60 });
+    ], 'je-existing', [
+      { gl_account_id: 'acct-1', debit: 100, credit: 0 },
+      { gl_account_id: 'acct-1', debit: 0, credit: 60 },
+    ]);
 
     const result = await importLedgerTransactions(COMPANY, USER);
 
@@ -321,7 +345,10 @@ describe('importLedgerTransactions', () => {
       row({ id: 'a', debit: 100, credit: 0 }),
       row({ id: 'b', debit: 0, credit: 60 }),
       row({ id: 'c', debit: 0, credit: 40 }),
-    ], 'je-existing', { line_count: 2, total_debit: 100 });
+    ], 'je-existing', [
+      { gl_account_id: 'acct-1', debit: 100, credit: 0 },
+      { gl_account_id: 'acct-1', debit: 0, credit: 100 },
+    ]);
 
     const result = await importLedgerTransactions(COMPANY, USER);
 

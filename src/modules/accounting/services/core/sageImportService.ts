@@ -197,36 +197,57 @@ export async function importLedgerTransactions(companyId: string, userId: string
           // lines than the journal. Relinking blind would mark the new line
           // 'imported' against a journal that does not contain its amount —
           // the row claims to be in the GL and is not, with nothing to show it.
-          const existingTotal = (await sql`
-            SELECT COALESCE(SUM(debit), 0)  AS total_debit,
-                   COALESCE(SUM(credit), 0) AS total_credit,
-                   COUNT(*)                 AS line_count
+          // Compare the journal's LINES, not its totals. (An earlier revision
+          // compared count + SUM(debit) + SUM(credit) and claimed the credit
+          // conjunct caught a side flip. It was arithmetically incapable of it —
+          // see below — and its test asserted `skipped + failed === 1`, which
+          // holds whether the guard refuses or relinks.)
+          //
+          // Totals cannot detect a side flip. The balance check above guarantees
+          // totalDebit === totalCredit for the group, and `status = 'posted'`
+          // guarantees the same for the journal (enforce_balanced_entry is a
+          // BEFORE UPDATE trigger on the draft→posted flip), so
+          // `existing.total_debit === totalDebit` implies
+          // `existing.total_credit === totalCredit` — a second totals conjunct
+          // is arithmetically incapable of adding information. An earlier
+          // revision added exactly that redundant check and credited it with
+          // catching the flip; it could not.
+          //
+          // A per-line multiset of (account, debit, credit) does catch it:
+          // Cr A 100 / Dr B 100 and Dr A 100 / Cr B 100 have identical counts
+          // and identical totals but different lines.
+          const existingLines = (await sql`
+            SELECT gl_account_id, debit, credit
             FROM gl_journal_lines
             WHERE journal_entry_id = ${existingId}::UUID
               AND company_id = ${companyId}::UUID
           `) as DbRow[];
 
-          // Credits as well as debits. Comparing only count and total debit
-          // cannot tell a side-flipped correction from the original: a group of
-          // Cr A 100 / Dr B 100 has the same line count and the same total debit
-          // as a journal of Dr A 100 / Cr B 100, so an accountant's correction
-          // would be silently discarded and the wrong posting kept. This still
-          // does not compare per-line accounts or amounts — a re-split across
-          // the same accounts for the same totals would pass — so it is a
-          // shape check, not an equality proof; the balance check above means
-          // debit and credit totals always move together, which is why both are
-          // needed to catch the flip.
-          const sameShape =
-            Number(existingTotal[0]?.line_count ?? 0) === activeLines.length &&
-            roundToCents(Number(existingTotal[0]?.total_debit ?? 0)) === totalDebit &&
-            roundToCents(Number(existingTotal[0]?.total_credit ?? 0)) === totalCredit;
+          const fingerprint = (rows: Array<{ acct: string; dr: number; cr: number }>) =>
+            rows
+              .map(r => `${r.acct}|${roundToCents(r.dr).toFixed(2)}|${roundToCents(r.cr).toFixed(2)}`)
+              .sort()
+              .join(';');
+
+          const sameShape = fingerprint(
+            existingLines.map(l => ({
+              acct: String(l.gl_account_id),
+              dr: Number(l.debit || 0),
+              cr: Number(l.credit || 0),
+            })),
+          ) === fingerprint(
+            activeLines.map(l => ({
+              acct: String(l.gl_account_id),
+              dr: Number(l.debit || 0),
+              cr: Number(l.credit || 0),
+            })),
+          );
 
           if (!sameShape) {
             log.error('Sage group matches an existing journal by reference+date but not by content — refusing to relink', {
               docNum: group.document_number, companyId, entryId: existingId,
               groupLines: activeLines.length, groupDebit: totalDebit,
-              journalLines: Number(existingTotal[0]?.line_count ?? 0),
-              journalDebit: Number(existingTotal[0]?.total_debit ?? 0),
+              journalLines: existingLines.length,
             }, 'accounting');
             await markGroupFailed(lines);
             failed++;

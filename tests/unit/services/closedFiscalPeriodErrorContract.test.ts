@@ -2,23 +2,30 @@
  * postJournalEntry must throw ClosedFiscalPeriodError — the TYPE, not just a
  * message — when the target period is not open.
  *
- * Three separate consumers narrow on that class to decide whether a failure is
+ * FOUR consumers narrow on that class to decide whether a failure is
  * recoverable or fatal:
  *
- *   capture/[id]/post-expense.ts   swallow → leave the journal a draft, else rethrow
- *   bankRulesMatchingService.ts    skip the auto-post, else propagate
- *   closeRunService.ts             same pattern
+ *   capture/[id]/post-expense.ts        swallow → leave the journal a draft
+ *   bankRulesMatchingService.ts         delete the draft, count the skip, continue
+ *   closeRunService.ts                  same pattern
+ *   customer-invoices-detail.ts:211     map to a 400 instead of a 500
  *
- * None of them was protected. Every existing test that involves the class
- * constructs it in its own mock and feeds it to the consumer, so the consumers'
- * `instanceof` checks are self-consistent by construction: replacing the real
- * `throw new ClosedFiscalPeriodError(status)` in journalEntryPostingService with
- * a plain `throw new Error(...)` left the entire 5137-test suite green while
- * silently converting all three call sites from "handle gracefully" to
- * "propagate as a 500".
+ * Replacing the real `throw new ClosedFiscalPeriodError(status)` in
+ * journalEntryPostingService with a plain `throw new Error(...)` left the entire
+ * 5137-test suite green while silently converting every one of them from
+ * "handle gracefully" to "propagate". Every test that involved the class
+ * constructed it in its own mock and fed it to the consumer, so the `instanceof`
+ * checks were self-consistent by construction and none of them noticed.
  *
- * This pins the contract at its source, which is the only place that protects
- * all three consumers at once.
+ * SCOPE: this file pins the THROW — that postJournalEntry raises the class, not
+ * merely a message. It does NOT pin that each consumer still narrows on it; a
+ * consumer's `instanceof` block can be deleted without failing anything here.
+ * That needs a test per consumer, and they exist:
+ *   closeRunService.test.ts:160, postExpenseZeroVatLine.test.ts, and
+ *   bankRulesClosedPeriod.test.ts (added because that one was unprotected —
+ *   deleting its narrowing left the full suite green).
+ *   customer-invoices-detail is covered by customerInvoiceDetailAction.test.ts,
+ *   which deliberately imports the real class for exactly this reason.
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
