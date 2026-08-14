@@ -1,0 +1,11 @@
+[Unit]
+Description=Trigger isaflow-basebackup.service weekly Sun 02:15 SAST
+
+[Timer]
+# Sunday 02:15 — after the daily dump (01:30), before the restore drill (04:30).
+OnCalendar=Sun *-*-* 02:15:00 Africa/Johannesburg
+Persistent=true
+Unit=isaflow-basebackup.service
+
+[Install]
+WantedBy=timers.target
