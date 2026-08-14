@@ -11,6 +11,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { checkReportRateLimit } from '@/lib/rateLimit';
 import { getAccountTransactions } from '@/modules/accounting/services/reports/transactionReportingService';
 import { csvCell } from '@/lib/csv';
 
@@ -25,6 +26,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!accountCode) return apiResponse.badRequest(res, 'account_code is required');
   if (!periodStart) return apiResponse.badRequest(res, 'period_start is required');
   if (!periodEnd) return apiResponse.badRequest(res, 'period_end is required');
+
+  if (!(await checkReportRateLimit(companyId, 'account-transactions-export'))) {
+    log.warn('Account transactions export rate limit exceeded', { companyId }, 'rateLimit');
+    return apiResponse.tooManyRequests(res, 'Too many export requests. Please try again shortly.');
+  }
 
   try {
     const report = await getAccountTransactions(companyId, accountCode, periodStart, periodEnd);

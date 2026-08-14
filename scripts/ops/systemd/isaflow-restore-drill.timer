@@ -1,0 +1,12 @@
+[Unit]
+Description=Trigger isaflow-restore-drill.service weekly Sun 04:30 SAST
+
+[Timer]
+# Sunday 04:30 — after signum-restore-drill (Sun 04:00) so the two never
+# contend for the same Postgres instance.
+OnCalendar=Sun *-*-* 04:30:00 Africa/Johannesburg
+Persistent=true
+Unit=isaflow-restore-drill.service
+
+[Install]
+WantedBy=timers.target

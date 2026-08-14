@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { clampLimit } from '@/lib/pagination';
 import {
   getExchangeRates,
   setExchangeRate,
@@ -44,7 +45,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const rates = await getExchangeRates(companyId, {
       fromCurrency: from ? String(from) : undefined,
       toCurrency: to ? String(to) : undefined,
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      limit: clampLimit(req.query.limit, 100, 1000),
     });
     return apiResponse.success(res, rates);
   }

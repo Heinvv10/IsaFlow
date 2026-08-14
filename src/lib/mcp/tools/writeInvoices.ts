@@ -13,10 +13,10 @@ import {
   approveCustomerInvoice,
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
-import { createQuote } from '@/modules/accounting/services/ar/quoteService';
+import { createQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingAgent } from '../postingAgent';
-import { NOT_FOUND, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
 
 interface LineIn {
   description: string;
@@ -95,8 +95,18 @@ export const createDraftInvoiceTool: McpTool = {
       });
       return ok(result);
     } catch (err) {
+      // Pre-write only. InvoiceLineValidationError is raised while validating
+      // the lines, before the first INSERT, so nothing was written.
+      //
+      // Everything else must propagate. createDraftCustomerInvoice guards only
+      // the invoice-number retry with a savepoint; the line items are inserted
+      // OUTSIDE it, so a failing line leaves a committed invoice header with no
+      // detail — an AR document carrying a total and nothing to justify it.
+      // Swallowing that into toolError() means the handler returns normally,
+      // the registry's write-tool savepoint RELEASES instead of rolling back,
+      // and the transport's 200 makes bearerPipeline COMMIT the partial row.
       if (err instanceof InvoiceLineValidationError) return toolError(err.message);
-      return toolError('Failed to create invoice');
+      throw err;
     }
   },
 };
@@ -144,8 +154,13 @@ export const createDraftQuoteTool: McpTool = {
       );
       return ok(quote);
     } catch (err) {
-      // LineValidationError (plain Error) carries a safe message; pg errors are generic.
-      return toolError(safeErrorText(err, 'Failed to create quote.'));
+      // Pre-write only, same reasoning as create_draft_invoice above.
+      // createQuote INSERTs the quote header and then loops the lines with no
+      // transaction and no savepoint at all, so a failing line leaves a
+      // committed header with partial lines unless this throw reaches the
+      // registry's savepoint.
+      if (err instanceof LineValidationError) return toolError(err.message);
+      throw err;
     }
   },
 };
