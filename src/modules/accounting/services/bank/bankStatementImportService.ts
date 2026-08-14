@@ -185,7 +185,7 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
   // accepts them, so this is reachable from a malformed statement.)
   const range = dateRangeOf(parseResult.transactions);
   if (!range) {
-    throw new Error(
+    throw new StatementNotImportableError(
       'No transaction in this statement has a recognisable YYYY-MM-DD date, so duplicates cannot be detected. Check the statement dates and re-send.',
     );
   }
@@ -233,6 +233,26 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
   }, 'accounting');
 
   return { ...summary, batchId: result.batchId || null };
+}
+
+/**
+ * Thrown for problems found BEFORE importStatementForAgent writes anything —
+ * currently an unparseable date range.
+ *
+ * Typed rather than a bare Error because the MCP tool has to tell "this
+ * statement is unusable, here is why" apart from "the import failed part-way".
+ * The first is safe to report as a tool error; the second MUST propagate, or
+ * the registry's write-tool savepoint never fires and the partial import
+ * commits (the transport answers 200, so bearerPipeline COMMITs).
+ *
+ * The write boundary is importParsedTransactions below — everything above it
+ * is parsing and SELECTs.
+ */
+export class StatementNotImportableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StatementNotImportableError';
+  }
 }
 
 /**
