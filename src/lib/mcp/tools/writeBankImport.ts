@@ -13,7 +13,7 @@ import {
   undoImportBatch,
 } from '@/modules/accounting/services/bank/bankStatementImportService';
 import type { StatementFileType } from '@/modules/accounting/services/bank/bankStatementParseService';
-import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportService';
+import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { NOT_FOUND, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
@@ -138,13 +138,24 @@ export const importBankStatementTool: McpTool = {
       return envelope;
     } catch (err) {
       // Pre-write only. StatementNotImportableError is raised while parsing,
-      // before importParsedTransactions writes anything.
+      // before importParsedTransactions writes anything, so it is safe to
+      // report precisely.
       //
-      // importStatementForAgent has NO transaction and NO savepoint of its own,
-      // so a failure part-way through the insert leaves a partially imported
-      // statement — which then feeds reconciliation as if it were complete.
-      // The registry's write-tool savepoint is the only thing that rolls that
-      // back, and it only fires if this throws.
+      // NOTE on what the rethrow does and does NOT buy here. Unlike
+      // create_draft_invoice/quote below, the import itself is already atomic:
+      // importParsedTransactions (bankImportService.ts) wraps the batch row and
+      // every bank_transactions insert in withTransaction. So there is no
+      // partial-import exposure to close.
+      //
+      // And the registry's savepoint could not close one anyway — withTransaction
+      // takes a SEPARATE pooled connection with its own BEGIN/COMMIT, while the
+      // savepoint acts on the ALS-bound request connection. Anything committed
+      // there is beyond ROLLBACK TO SAVEPOINT. Do not add a write after this
+      // call assuming the outer savepoint protects it; it does not.
+      //
+      // The rethrow is kept because a database failure should be recorded by the
+      // registry as a failed call (status='error', debit refunded) rather than
+      // dressed up as a tidy tool error.
       if (err instanceof StatementNotImportableError) return toolError(err.message);
       throw err;
     }

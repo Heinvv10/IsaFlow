@@ -15,8 +15,12 @@
  *                          header carrying a total with no detail.
  *   create_draft_quote     header INSERT then a line loop, no transaction and
  *                          no savepoint at all → header with partial lines.
- *   import_bank_statement  no transaction or savepoint whatsoever → a partially
- *                          imported statement that then feeds reconciliation.
+ * import_bank_statement is DIFFERENT and is included only for the narrowing:
+ * importParsedTransactions already wraps its writes in withTransaction, so
+ * there is no partial-import exposure — and because withTransaction uses a
+ * separate pooled connection, the registry's savepoint could not undo one in
+ * any case. Its rethrow exists so a DB failure is recorded as a failed call
+ * rather than a tidy tool error.
  *
  * finalize_invoice was fixed earlier and is covered by
  * finalizeInvoiceRollback.test.ts. The remaining write tools are safe because
@@ -75,7 +79,7 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 
 import { InvoiceLineValidationError } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
 import { LineValidationError } from '@/modules/accounting/services/ar/quoteService';
-import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportService';
+import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import { createDraftInvoiceTool, createDraftQuoteTool } from '@/lib/mcp/tools/writeInvoices';
 import { importBankStatementTool } from '@/lib/mcp/tools/writeBankImport';
 
@@ -116,9 +120,11 @@ describe('create_draft_invoice', () => {
   });
 
   it('RETHROWS a mid-write failure so the savepoint rolls the header back', async () => {
+    // toThrow(regex) matches the MESSAGE only, so asserting on the pg `code`
+    // property here would be a dead alternative that can never match.
     createInvoiceMock.mockRejectedValue(Object.assign(new Error('null value in column "amount"'), { code: '23502' }));
 
-    await expect(createDraftInvoiceTool.handler(invoiceArgs, ctx())).rejects.toThrow(/23502|amount/);
+    await expect(createDraftInvoiceTool.handler(invoiceArgs, ctx())).rejects.toThrow(/null value in column/);
   });
 
   it('still reports the pre-write line validation precisely', async () => {
@@ -156,7 +162,7 @@ describe('import_bank_statement', () => {
     expect(importBankStatementTool.write).toBe(true);
   });
 
-  it('RETHROWS a mid-import failure so the savepoint discards the partial import', async () => {
+  it('RETHROWS a database failure instead of reporting a tidy tool error', async () => {
     importMock.mockRejectedValue(new Error('connection terminated unexpectedly'));
 
     await expect(importBankStatementTool.handler(importArgs, ctx())).rejects.toThrow(/connection terminated/);

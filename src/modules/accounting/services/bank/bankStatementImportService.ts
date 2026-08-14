@@ -27,6 +27,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { StatementNotImportableError } from './bankStatementImportErrors';
 import { parseStatement, type StatementFileType } from './bankStatementParseService';
 import { importParsedTransactions } from './bankImportService';
 import { deleteTransactions } from './bankTransactionQueryService';
@@ -236,26 +237,6 @@ export async function importStatementForAgent(args: AgentImportArgs): Promise<Ag
 }
 
 /**
- * Thrown for problems found BEFORE importStatementForAgent writes anything —
- * currently an unparseable date range.
- *
- * Typed rather than a bare Error because the MCP tool has to tell "this
- * statement is unusable, here is why" apart from "the import failed part-way".
- * The first is safe to report as a tool error; the second MUST propagate, or
- * the registry's write-tool savepoint never fires and the partial import
- * commits (the transport answers 200, so bearerPipeline COMMITs).
- *
- * The write boundary is importParsedTransactions below — everything above it
- * is parsing and SELECTs.
- */
-export class StatementNotImportableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'StatementNotImportableError';
-  }
-}
-
-/**
  * Undo an import batch. Deletes only rows still in 'imported' status —
  * deleteTransactions enforces that — and reports what was left behind so a
  * caller cannot mistake a partial undo for a clean one.
@@ -306,3 +287,5 @@ export async function undoImportBatch(
   }, 'accounting');
   return { deleted, refused, refusedByStatus };
 }
+
+export { StatementNotImportableError };
