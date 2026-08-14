@@ -169,6 +169,21 @@ describe('buildClientsCsv', () => {
       status: 'onboarding',
     });
   });
+
+  it('neutralizes formula-injection prefixes in user-entered fields', () => {
+    const csv = buildClientsCsv([{
+      legal_name: '=HYPERLINK("http://evil","x")',
+      trading_name: '+1',
+      registration_no: '-1',
+      tax_no: '@SUM(1,1)',
+      billing_model: 'hourly',
+      status: 'active',
+    }]);
+    const lines = csv.split('\n');
+    expect(lines[1]).toBe(
+      '"\'=HYPERLINK(""http://evil"",""x"")",\'+1,\'-1,"\'@SUM(1,1)",hourly,active',
+    );
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

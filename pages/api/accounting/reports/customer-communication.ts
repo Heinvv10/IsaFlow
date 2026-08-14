@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { csvCell } from '@/lib/csv';
 
 interface EmailLogRow {
   id: string;
@@ -28,8 +29,8 @@ function fmtDate(val: Date | string | null | undefined): string {
   return String(val);
 }
 
-function buildCsvRow(fields: string[]): string {
-  return fields.map(f => `"${(f ?? '').replace(/"/g, '""')}"`).join(',');
+export function buildCsvRow(fields: string[]): string {
+  return fields.map(f => csvCell(f)).join(',');
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
