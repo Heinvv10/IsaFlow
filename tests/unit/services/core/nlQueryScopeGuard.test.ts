@@ -35,6 +35,16 @@ describe('enforceTenantScope — rejects cross-tenant bypasses', () => {
     expect(enforceTenantScope(sql, CID).ok).toBe(false);
   });
 
+  it('rejects a LEFT JOIN with the seed in the ON clause (outer join preserves unscoped rows)', () => {
+    const sql = `SELECT ci.invoice_number, ci.total_amount FROM customer_invoices ci LEFT JOIN customers c ON c.id = ci.customer_id AND c.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
+  it('rejects a RIGHT JOIN that preserves an unscoped side', () => {
+    const sql = `SELECT ci.invoice_number FROM customers c RIGHT JOIN customer_invoices ci ON ci.customer_id = c.id WHERE c.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
   it('rejects a child table whose FK link cannot be verified (payslips)', () => {
     const sql = `SELECT p.net_pay FROM employees e JOIN payslips p ON p.employee_id = e.id WHERE e.company_id = '${CID}'`;
     expect(enforceTenantScope(sql, CID).ok).toBe(false);
