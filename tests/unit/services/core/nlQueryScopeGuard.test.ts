@@ -85,6 +85,11 @@ describe('enforceTenantScope — rejects cross-tenant bypasses', () => {
     expect(enforceTenantScope(sql, CID).ok).toBe(false);
   });
 
+  it('rejects a join that abuses company_id as if it were an FK column', () => {
+    const sql = `SELECT bcr.id FROM gl_accounts ga JOIN bank_categorisation_rules bcr ON bcr.company_id = ga.id WHERE ga.company_id = '${CID}'`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
   it('fails closed on unparseable SQL', () => {
     expect(enforceTenantScope('SELECT FROM WHERE lol', CID).ok).toBe(false);
   });
