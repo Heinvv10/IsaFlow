@@ -239,7 +239,18 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
   }
   if (aliasTable.size === 0) return { ok: true };
 
-  // All boolean conditions: WHERE + every JOIN ON. Any OR => reject.
+  // Only INNER joins are sound: an outer join (LEFT/RIGHT/FULL) preserves the
+  // rows of one side regardless of the ON predicate, so a seed or FK edge in the
+  // ON does not actually filter the preserved side to the tenant. A CROSS join
+  // has no ON at all. Reject anything that is not a plain INNER JOIN.
+  for (const entry of from) {
+    const jt = entry?.join?.type;
+    if (jt && jt !== 'INNER JOIN') {
+      return fail(`join type '${jt}' is not permitted`);
+    }
+  }
+
+  // All boolean conditions: WHERE + every INNER JOIN ON. Any OR => reject.
   const conjuncts: Node[] = [];
   if (sel.where && !flattenConjuncts(sel.where, conjuncts)) {
     return fail('OR in WHERE clause is not permitted');
