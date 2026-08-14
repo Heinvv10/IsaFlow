@@ -14,6 +14,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
+import { escapeCsv } from '@/lib/csv';
 
 export type BillingModel = 'hourly' | 'fixed' | 'retainer';
 export type ClientStatus = 'prospect' | 'onboarding' | 'active' | 'inactive' | 'archived';
@@ -63,25 +64,16 @@ const CSV_HEADER = [
 
 // ─── CSV utilities (pure) ─────────────────────────────────────────────────────
 
-function escapeCsvField(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  const str = String(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
-
 export function buildClientsCsv(rows: ClientExportRow[]): string {
   const lines: string[] = [CSV_HEADER.join(',')];
   for (const r of rows) {
     lines.push([
-      escapeCsvField(r.legal_name),
-      escapeCsvField(r.trading_name),
-      escapeCsvField(r.registration_no),
-      escapeCsvField(r.tax_no),
-      escapeCsvField(r.billing_model),
-      escapeCsvField(r.status),
+      escapeCsv(r.legal_name),
+      escapeCsv(r.trading_name),
+      escapeCsv(r.registration_no),
+      escapeCsv(r.tax_no),
+      escapeCsv(r.billing_model),
+      escapeCsv(r.status),
     ].join(','));
   }
   return lines.join('\n');
