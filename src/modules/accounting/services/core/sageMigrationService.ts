@@ -238,6 +238,23 @@ export async function autoMapAccounts(companyId: string, userId: string): Promis
 
 export async function mapAccount(companyId: string, sageAccountId: string, glAccountId: string | null, notes?: string): Promise<void> {
   if (glAccountId) {
+    // The GL account must belong to THIS company. The caller-supplied id is
+    // only `z.string().optional()` at the route, gl_journal_lines has a plain FK
+    // to gl_accounts(id) with no composite company constraint, and
+    // createJournalEntry does not check ownership either — so mapping a Sage
+    // account to another tenant's GL account produced a posted journal whose
+    // line carried company A but an account belonging to B. trialBalanceService
+    // joins on `ga.company_id = jl.company_id`, so that leg is silently DROPPED
+    // from A's trial balance: a balanced journal whose TB is permanently out,
+    // with no error anywhere.
+    const owned = (await sql`
+      SELECT 1 FROM gl_accounts
+      WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID
+    `) as Row[];
+    if (owned.length === 0) {
+      throw new Error(`GL account ${glAccountId} does not belong to this company`);
+    }
+
     const result = (await sql`UPDATE sage_accounts SET gl_account_id = ${glAccountId}::UUID, mapping_status = 'manual',
       mapping_notes = ${notes || 'Manually mapped'} WHERE sage_account_id = ${sageAccountId} AND company_id = ${companyId}::UUID RETURNING sage_account_id`) as Row[];
     if (result.length === 0) throw new Error(`Sage account not found: ${sageAccountId}`);

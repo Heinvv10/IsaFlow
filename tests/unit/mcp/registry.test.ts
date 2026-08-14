@@ -240,6 +240,24 @@ describe('McpRegistry — fence order', () => {
     expect(auditInserts().some((c) => c.values.includes('error'))).toBe(true);
   });
 
+  it('a failed handler is audited WITHOUT the idempotency key, so a retry is not burned', async () => {
+    const handler = vi.fn(async () => { throw new Error('GL post failed'); });
+    registry.register(makeTool({ name: 'w', write: true, scope: 'write:invoices', handler }));
+
+    await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes(['write:invoices']));
+
+    // The partial unique index is (company_id, tool, idempotency_key) and
+    // recordToolCall does ON CONFLICT DO NOTHING. An 'error' row carrying the
+    // real key permanently occupies that slot: the retry's successful 'ok' row
+    // is silently dropped, and since findIdempotentReplay matches only
+    // status='ok', every later retry re-runs the handler instead of replaying.
+    // Same reasoning as the insufficient-Flows reject path, which already
+    // passes null.
+    const errorRow = auditInserts().find((c) => c.values.includes('error'));
+    expect(errorRow, 'the failure must still be audited').toBeDefined();
+    expect(errorRow!.values).not.toContain('k1');
+  });
+
   it('READ tools are NOT savepoint-wrapped (no writes to roll back)', async () => {
     registry.register(makeTool({ handler: vi.fn(async () => ({ content: [{ type: 'text' as const, text: '"ok"' }] })) }));
     await registry.call('t', {}, ctxWithScopes(['read:reports']));

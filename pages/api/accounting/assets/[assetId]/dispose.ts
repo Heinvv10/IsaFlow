@@ -6,12 +6,16 @@
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
+import { withAuth, withWriteAccess, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateDisposalResult } from '@/modules/accounting/services/items/farDisposalService';
-import { postAssetDisposalToGL } from '@/modules/accounting/services/gl/glCrossModuleHooks';
+import {
+  postAssetDisposalToGL,
+  missingAssetAccountMessage,
+  resolveAssetAccountId,
+} from '@/modules/accounting/services/gl/glCrossModuleHooks';
 
 type Row = Record<string, unknown>;
 
@@ -32,6 +36,9 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (!disposalDate) return apiResponse.badRequest(res, 'disposalDate is required');
 
   // Load asset with accumulated depreciation and category data
+  // FOR UPDATE: the already-disposed check below is only meaningful while the
+  // row is held. Two concurrent disposals would otherwise both read
+  // status != 'disposed' and both post a disposal journal for the same asset.
   const assetRows = (await sql`
     SELECT
       a.id, a.asset_number, a.name, a.purchase_price AS cost,
@@ -43,12 +50,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     FROM assets a
     WHERE a.id = ${assetId}::UUID
       AND a.company_id = ${companyId}::UUID
+    FOR UPDATE
   `) as Row[];
 
   if (!assetRows[0]) return apiResponse.notFound(res, 'Asset not found');
 
   const asset = assetRows[0];
   if (asset.status === 'disposed') return apiResponse.badRequest(res, 'Asset is already disposed');
+
+  // The fixed-asset account is the disposal journal's only credit leg. Check it
+  // HERE, before the asset_period_ledger write below: withAuth finalises on
+  // `statusCode >= 500`, so a 4xx commits — a late 400 would leave the ledger
+  // row behind with no journal. Uses the same resolver postAssetDisposalToGL
+  // uses, so this gate and the service can never disagree about what counts as
+  // resolvable (they did while the route ran its own COALESCE and the service
+  // gained a fallback).
+  if (!(await resolveAssetAccountId(companyId, assetId))) {
+    return apiResponse.badRequest(res, missingAssetAccountMessage(String(asset.asset_number ?? assetId), assetId));
+  }
 
   const cost = Number(asset.cost);
   const policyAccDep = Number(asset.policy_acc_dep ?? 0);
@@ -94,6 +113,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     `;
   }
 
+  // A GL failure here must fail the whole disposal. postAssetDisposalToGL used
+  // to swallow its errors and return null, which let this route answer 200 with
+  // journalEntryId: null — an asset retired from the register with no journal.
+  // It throws now, and withAuth rolls back on the resulting 5xx, taking the
+  // asset_period_ledger row and the assets.disposal_type update above with it.
+  //
+  // Note the 400 for a missing asset account is raised BEFORE any write (see
+  // above), not from a catch here: withAuth finalises on `statusCode >= 500`,
+  // so a 4xx COMMITs — 400-ing at this point would persist the disposal row
+  // without its journal, which is the bug being fixed.
   const entryId = await postAssetDisposalToGL(companyId, {
     assetId,
     policyAccDep,
@@ -117,4 +146,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   });
 }
 
-export default withAuth(withCsrf(withErrorHandler(handler)));
+// withWriteAccess (owner/admin/manager) was missing: this route posts a GL
+// journal and retires an asset, but was the only one of the accounting posting
+// routes a `viewer` could call. receipt-to-journal, gl-import, expense-claims
+// post and the sibling gl-account writer all carry it.
+export default withAuth(withCsrf(withErrorHandler(withWriteAccess(handler as Parameters<typeof withWriteAccess>[0]))));
