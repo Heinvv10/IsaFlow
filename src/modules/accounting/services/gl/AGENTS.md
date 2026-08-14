@@ -6,7 +6,7 @@
 ## Modules
 - **Journal entries**: `journalEntryCrudService.ts` (create/list/get/filter), `journalEntryPostingService.ts` (post/reverse), `journalEntryMeta.ts` (evidence/agent meta), `journalEntryService.ts` (legacy facade re-export).
 - **Chart of accounts**: `chartOfAccountsService.ts`, `chartOfAccountsImportService.ts`, `systemAccountResolver.ts` (resolves VAT Input/Output, retained earnings, etc. by `account_subtype`, 1-min per-company cache).
-- **Period management**: `fiscalPeriodService.ts`, `monthEndCloseService.ts` (pure checklist logic), `yearEndService.ts`, `continuousCloseService.ts`.
+- **Period management**: `fiscalPeriodService.ts`, `monthEndCloseService.ts` (pure checklist logic), `yearEndService.ts`, `continuousCloseService.ts` (pure planning), `continuousCloseQueryService.ts` (its four work-queue reads).
 - **Import + recurring**: `glImportService.ts`, `glImportExecuteService.ts`, `recurringJournalService.ts`.
 - **Reporting primitives**: `trialBalanceService.ts`, `transactionLedgerService.ts`.
 - **Workflow**: `approvalService.ts`, `glCrossModuleHooks.ts` (FAR depreciation/disposal → GL).
@@ -38,7 +38,10 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/gl/*` and b
 - `src/modules/accounting/utils/doubleEntry.ts` — `validateJournalEntry`.
 - `scripts/migrations/sql/329_*`, `*journal*`, `*fiscal*`, `422_auto_expense_claim_je_source.sql`.
 
+- Continuous close reads bank work queues by `bank_transactions.status`, not by a boolean. There is no `matched` or `gl_account_id` column and `'pending'` is not a legal status: the CHECK allows `imported | provisional | allocated | matched | reconciled | excluded`. "Awaiting work" is `status = 'imported'`, matching `bankReconciliationService.unmatched_count`.
+
 ## Recent changes
+- 2026-08-14: `continuousCloseQueryService.ts` extracted from `pages/api/accounting/continuous-close.ts`; its SQL referenced four non-existent columns/values and returned 42703 on every call.
 - 2026-04-22: evidence-first ledger backend — stamping + line-items + drill APIs (PRD-05).
 - 2026-04-19: PRD-04 dual-track FAR engine hooks into GL.
 - 2026-04-17: automatic double-entry posting + audit trail.
