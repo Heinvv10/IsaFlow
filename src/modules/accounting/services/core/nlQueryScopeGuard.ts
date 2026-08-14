@@ -62,8 +62,6 @@ const FK_PAIRS = new Set<string>([
   'assets.gl_depreciation_account_id|gl_accounts.id',
   'assets.gl_expense_account_id|gl_accounts.id',
   'bank_accounts.gl_account_id|gl_accounts.id',
-  'bank_categorisation_rules.company_id|gl_accounts.id',
-  'bank_categorisation_rules.company_id|suppliers.id',
   'bank_categorisation_rules.gl_account_id|gl_accounts.id',
   'bank_categorisation_rules.supplier_id|suppliers.id',
   'bank_reconciliations.bank_account_id|gl_accounts.id',
@@ -140,6 +138,16 @@ const FK_PAIRS = new Set<string>([
   'supplier_purchase_order_items.purchase_order_id|supplier_purchase_orders.id',
   'supplier_purchase_orders.supplier_id|suppliers.id',
 ]);
+
+// Invariant: the tenant key `company_id` is NEVER a modeled FK edge. An edge
+// exists only to propagate scope across a real FK->PK join; allowing a
+// `company_id` column as an edge endpoint would let a non-tenant-preserving
+// join mark an alias reachable. Fail loudly at load if regeneration violates it.
+for (const pair of FK_PAIRS) {
+  if (/(^|\|)[a-z_]+\.company_id($|\|)/.test(pair)) {
+    throw new Error(`nlQueryScopeGuard: FK_PAIRS must not contain a company_id edge: ${pair}`);
+  }
+}
 
 const fail = (reason: string): ScopeResult => ({ ok: false, reason });
 
