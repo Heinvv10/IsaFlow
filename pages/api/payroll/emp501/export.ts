@@ -12,14 +12,26 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { escapeCsv } from '@/lib/csv';
 
 type Row = DbRow;
 
-function escapeCsvField(val: string): string {
-  if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-    return `"${val.replace(/"/g, '""')}"`;
-  }
-  return val;
+/** Build the e@syFile-style CSV. Exported for unit testing (formula-injection safety). */
+export function buildEmp501Csv(rows: Row[]): string {
+  const header = 'employee_name,irp5_number,gross_income,paye,uif,sdl';
+  const lines = rows.map((r, idx) => {
+    const name = `${r.first_name} ${r.last_name}`;
+    const irp5Number = r.tax_number ? String(r.tax_number) : `IRP5-${String(idx + 1).padStart(4, '0')}`;
+    return [
+      escapeCsv(name),
+      escapeCsv(irp5Number),
+      Number(r.gross_income).toFixed(2),
+      Number(r.total_paye).toFixed(2),
+      Number(r.total_uif).toFixed(2),
+      Number(r.total_sdl).toFixed(2),
+    ].join(',');
+  });
+  return [header, ...lines].join('\n');
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): Promise<void> {
@@ -59,21 +71,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
     ORDER BY pe.last_name, pe.first_name
   `) as Row[];
 
-  const header = 'employee_name,irp5_number,gross_income,paye,uif,sdl';
-  const lines = rows.map((r, idx) => {
-    const name = `${r.first_name} ${r.last_name}`;
-    const irp5Number = r.tax_number ? String(r.tax_number) : `IRP5-${String(idx + 1).padStart(4, '0')}`;
-    return [
-      escapeCsvField(name),
-      escapeCsvField(irp5Number),
-      Number(r.gross_income).toFixed(2),
-      Number(r.total_paye).toFixed(2),
-      Number(r.total_uif).toFixed(2),
-      Number(r.total_sdl).toFixed(2),
-    ].join(',');
-  });
-
-  const csv = [header, ...lines].join('\n');
+  const csv = buildEmp501Csv(rows);
   const filename = `EMP501_${taxYear - 1}_${taxYear}.csv`;
 
   res.setHeader('Content-Type', 'text/csv');

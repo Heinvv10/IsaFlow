@@ -30,6 +30,33 @@ async function verifyGroupAccess(groupId: string, userId: string): Promise<boole
   return rows.length > 0;
 }
 
+// verifyGroupAccess only proves the caller belongs to SOME company in the group.
+// It does NOT prove that a body-supplied source/target companyId is itself in the
+// group — without this, a group member can POST an arbitrary company UUID and forge
+// an intercompany_transactions row that leaks that tenant's name via later JOINs
+// (pentest MEDIUM — cross-tenant record forgery). Gate every body-supplied companyId
+// on active group membership (left_date IS NULL) before it reaches the INSERT.
+async function verifyCompanyInGroup(groupId: string, companyId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM company_group_members
+    WHERE group_id = ${groupId}::UUID AND company_id = ${companyId}::UUID AND left_date IS NULL
+    LIMIT 1
+  `) as Record<string, unknown>[];
+  return rows.length > 0;
+}
+
+// A journal-entry id is a company-scoped resource; scope the existence check by the
+// (already group-verified) owning company so a caller cannot bind an unrelated
+// tenant's journal entry into the intercompany row.
+async function journalEntryBelongsToCompany(journalEntryId: string, companyId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1 FROM gl_journal_entries
+    WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
+    LIMIT 1
+  `) as Record<string, unknown>[];
+  return rows.length > 0;
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
@@ -73,6 +100,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'groupId, sourceCompanyId, targetCompanyId, transactionType, amount, transactionDate required');
     }
     if (!(await verifyGroupAccess(gId as string, userId))) return apiResponse.forbidden(res, 'Access denied to this group');
+
+    // Both source and target companies must be active members of the group — reject
+    // forged/foreign companyIds before they reach the INSERT (cross-tenant forgery).
+    if (!(await verifyCompanyInGroup(gId as string, sourceCompanyId as string))) {
+      return apiResponse.forbidden(res, 'sourceCompanyId is not a member of this group');
+    }
+    if (!(await verifyCompanyInGroup(gId as string, targetCompanyId as string))) {
+      return apiResponse.forbidden(res, 'targetCompanyId is not a member of this group');
+    }
+
+    // Optional journal-entry links must belong to their respective (verified) company.
+    if (sourceJournalEntryId && !(await journalEntryBelongsToCompany(sourceJournalEntryId as string, sourceCompanyId as string))) {
+      return apiResponse.forbidden(res, 'sourceJournalEntryId does not belong to sourceCompanyId');
+    }
+    if (targetJournalEntryId && !(await journalEntryBelongsToCompany(targetJournalEntryId as string, targetCompanyId as string))) {
+      return apiResponse.forbidden(res, 'targetJournalEntryId does not belong to targetCompanyId');
+    }
+
     const tx = await createIntercompanyTransaction({
       groupId: gId,
       sourceCompanyId,

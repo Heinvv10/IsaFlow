@@ -1,0 +1,14 @@
+[Unit]
+Description=IsaFlow weekly restore drill (proves the backup restores and the ledger balances)
+Documentation=https://github.com/Heinvv10/IsaFlow/blob/master/scripts/ops/README.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=ALERT_EMAIL=hein@velocityfibre.co.za
+ExecStart=/opt/isaflow-ops/restore-drill-isaflow.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-restore-drill

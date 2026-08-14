@@ -21,6 +21,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { log } from '@/lib/logger';
 import { logAdminAction } from '@/modules/admin/services/auditService';
 import { getIp } from '@/utils/getIp';
+import { magicBytesMatchMime } from '@/lib/fileMagic';
 import { parseSarsCodesXlsxBuffer } from '@/modules/admin/services/sarsCodesParser';
 import {
   importRows,
@@ -29,10 +30,12 @@ import {
 
 export const config = { api: { bodyParser: false } };
 
+// application/octet-stream is deliberately excluded — it's the wildcard many
+// clients send for any binary and would neutralize this allowlist. The
+// magic-byte check below is the real gate against non-XLSX payloads.
 const ALLOWED_MIME = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-excel',
-  'application/octet-stream',
 ];
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -86,6 +89,14 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'Could not read uploaded file');
   } finally {
     try { fs.unlinkSync(uploaded.filepath); } catch { /* ignore */ }
+  }
+
+  // Cross-validate actual file bytes against the declared MIME — XLSX is a ZIP/OOXML
+  // container (PK\x03\x04 signature), so this rejects any non-ZIP payload that slipped
+  // past the client-controlled mimetype allowlist.
+  const mimeType = uploaded.mimetype ?? '';
+  if (!magicBytesMatchMime(buffer, mimeType)) {
+    return apiResponse.badRequest(res, 'File content does not match declared type');
   }
 
   const parsed = await parseSarsCodesXlsxBuffer(buffer);

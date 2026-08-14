@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
+import { checkReportRateLimit } from '@/lib/rateLimit';
 import {
   buildReportPack,
   type PackType,
@@ -38,6 +39,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method || '', ['POST']);
 
   const { companyId } = req as CompanyAuthedRequest;
+  if (!(await checkReportRateLimit(companyId, 'reports-pdf'))) {
+    log.warn('Report PDF export rate limit exceeded', { companyId }, 'rateLimit');
+    return apiResponse.tooManyRequests(res, 'Too many report exports. Please try again shortly.');
+  }
+
   const { type, from, to } = req.body as { type: string; from: string; to: string };
 
   if (!type || !VALID_TYPES.includes(type as PackType)) {
@@ -87,10 +93,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const pdfBuffer = await buildReportPackPdf(pack, type as PackType, from, to, company);
 
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader(
-    'Content-Disposition',
-    `attachment; filename="report-pack-${type}-${from}-to-${to}.pdf"`,
-  );
+  res.setHeader('Content-Disposition', `attachment; filename="report-pack-${type}-${from}-to-${to}.pdf"`);
   res.send(pdfBuffer);
 }
 

@@ -18,15 +18,21 @@ import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { cache } from '@/lib/cache';
 import { CACHE_KEYS } from '@/lib/cache-keys';
+import { escapeCsv } from '@/lib/csv';
+import { EXPORT_ROW_CEILING } from '@/lib/pagination';
 
 type BulkAction = 'activate' | 'deactivate' | 'export';
+
+// Aligned with supplier-invoices-bulk-action.ts (z.array(UUID).min(1).max(200))
+// and statement-bulk-email.ts (MAX_BATCH_SIZE = 100).
+const MAX_BATCH_SIZE = 200;
 
 interface BulkRequestBody {
   ids: string[];
   action: BulkAction;
 }
 
-interface CustomerRow {
+export interface CustomerRow {
   id: string;
   name: string;
   email: string | null;
@@ -36,27 +42,18 @@ interface CustomerRow {
   is_active: boolean;
 }
 
-function escapeCsvField(value: string | number | boolean | null | undefined): string {
-  if (value === null || value === undefined) return '';
-  const str = String(value);
-  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
-
-function buildCsv(rows: CustomerRow[]): string {
+export function buildCsv(rows: CustomerRow[]): string {
   const header = ['Name', 'Email', 'Phone', 'Payment Terms (days)', 'Credit Limit', 'Active'];
   const lines: string[] = [header.join(',')];
   for (const r of rows) {
     lines.push(
       [
-        escapeCsvField(r.name),
-        escapeCsvField(r.email),
-        escapeCsvField(r.phone),
-        escapeCsvField(r.payment_terms),
-        escapeCsvField(r.credit_limit),
-        escapeCsvField(r.is_active ? 'Yes' : 'No'),
+        escapeCsv(r.name),
+        escapeCsv(r.email),
+        escapeCsv(r.phone),
+        escapeCsv(r.payment_terms),
+        escapeCsv(r.credit_limit),
+        escapeCsv(r.is_active ? 'Yes' : 'No'),
       ].join(','),
     );
   }
@@ -76,6 +73,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!Array.isArray(ids) || ids.length === 0) {
     return apiResponse.badRequest(res, 'ids must be a non-empty array');
+  }
+
+  if (ids.length > MAX_BATCH_SIZE) {
+    return apiResponse.badRequest(res, `ids must not exceed ${MAX_BATCH_SIZE} items`);
   }
 
   if (!action || !['activate', 'deactivate', 'export'].includes(action)) {
@@ -126,6 +127,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND company_id = ${companyId}
         AND deleted_at IS NULL
       ORDER BY name ASC
+      LIMIT ${EXPORT_ROW_CEILING}
     `) as CustomerRow[];
 
     const csv = buildCsv(rows);

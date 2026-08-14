@@ -39,7 +39,12 @@ vi.mock('@/modules/accounting/services/ar/customerInvoiceApprovalService', () =>
   // makes that `instanceof` throw a TypeError against undefined.
   InvoiceNotApprovableError: class InvoiceNotApprovableError extends Error {},
 }));
-vi.mock('@/modules/accounting/services/ar/quoteService', () => ({ createQuote: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
+  createQuote: vi.fn(),
+  // create_draft_quote narrows on this to decide swallow-vs-rethrow; omitting
+  // it leaves `instanceof` testing against undefined.
+  LineValidationError: class LineValidationError extends Error {},
+}));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
@@ -61,7 +66,7 @@ import {
   approveCustomerInvoice,
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
-import { createQuote } from '@/modules/accounting/services/ar/quoteService';
+import { createQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
@@ -306,8 +311,13 @@ describe('post_journal / finalize_invoice (post tools)', () => {
 });
 
 describe('write-tool failure paths', () => {
-  it('create_draft_quote: service rejection → safe tool error', async () => {
-    vi.mocked(createQuote).mockRejectedValue(new Error('Line quantities must be positive'));
+  // The fixture must be a LineValidationError — that is what quoteService
+  // actually throws for this case (quoteService.ts:110), and it is raised
+  // BEFORE the header INSERT so nothing was written. A plain Error here never
+  // matched production, and create_draft_quote now rethrows anything untyped so
+  // the registry's savepoint can discard a partial quote.
+  it('create_draft_quote: line-validation rejection → safe tool error', async () => {
+    vi.mocked(createQuote).mockRejectedValue(new LineValidationError('Line quantities must be positive'));
     const r = await tool('create_draft_quote').handler(
       { customer_name: 'A', items: [{ description: 'x', unit_price: 1 }], ...KEY }, ctx(),
     );

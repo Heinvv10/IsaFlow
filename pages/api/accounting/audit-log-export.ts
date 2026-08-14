@@ -8,6 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
+import { checkReportRateLimit } from '@/lib/rateLimit';
 import {
   getAuditLog,
   logAuditOrThrow,
@@ -26,6 +27,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
+    if (!(await checkReportRateLimit(companyId, 'audit-log-export'))) {
+      log.warn('Audit log export rate limit exceeded', { companyId }, 'rateLimit');
+      return apiResponse.tooManyRequests(res, 'Too many export requests. Please try again shortly.');
+    }
+
     try {
       const {
         entity_type,

@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { clampLimit } from '@/lib/pagination';
 
 type Row = DbRow;
 
@@ -66,7 +67,8 @@ export async function toggleCurrency(companyId: string, code: string, isActive: 
 export async function getExchangeRates(companyId: string, filters?: {
   fromCurrency?: string; toCurrency?: string; limit?: number;
 }): Promise<ExchangeRate[]> {
-  const limit = filters?.limit || 100;
+  // Defense in depth: even if a future caller forgets to clamp, cap here too.
+  const limit = clampLimit(filters?.limit, 100, 1000);
 
   if (filters?.fromCurrency && filters?.toCurrency) {
     const rows = (await sql`
