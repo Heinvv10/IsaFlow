@@ -1,0 +1,16 @@
+[Unit]
+Description=IsaFlow production database backup (pg_dump -Fc to /srv/storage)
+Documentation=https://github.com/Heinvv10/IsaFlow/blob/master/scripts/ops/README.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+# root: the prod env file (/home/velo/isaflow/.env.local) is velo:velo 0600 and
+# holds DATABASE_URL. velo has no read access to /srv/storage/backups/isaflow
+# either. Kept oneshot + no network exposure.
+ExecStart=/opt/isaflow-ops/backup-isaflow.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isaflow-backup

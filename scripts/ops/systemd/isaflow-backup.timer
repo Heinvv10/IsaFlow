@@ -1,0 +1,13 @@
+[Unit]
+Description=Trigger isaflow-backup.service daily at 01:30 SAST
+
+[Timer]
+# 01:30 sits clear of the other jobs on this host: 02:03 ar-matview-refresh,
+# 02:30 qfc-pg, 02:33 fraud-scan, 03:00 signum-backup.
+OnCalendar=*-*-* 01:30:00 Africa/Johannesburg
+Persistent=true
+RandomizedDelaySec=120
+Unit=isaflow-backup.service
+
+[Install]
+WantedBy=timers.target
