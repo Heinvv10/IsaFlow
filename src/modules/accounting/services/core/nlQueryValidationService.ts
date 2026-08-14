@@ -39,7 +39,7 @@ const FORBIDDEN_PATTERNS: Array<{ label: string; regex: RegExp }> = [
 ];
 
 // Tables that NL queries are permitted to access
-const ALLOWED_TABLES = new Set([
+export const ALLOWED_TABLES = new Set([
   'gl_journal_entries', 'gl_journal_lines', 'gl_accounts', 'gl_account_balances',
   'recurring_journals',
   'customers', 'customer_invoices', 'customer_invoice_items',

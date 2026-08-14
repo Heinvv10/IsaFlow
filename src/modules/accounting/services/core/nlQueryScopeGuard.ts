@@ -33,6 +33,7 @@
  * absent here are simply unreachable → their queries are rejected, never leaked.
  */
 import { parse, type Statement } from 'pgsql-ast-parser';
+import { ALLOWED_TABLES } from './nlQueryValidationService';
 
 export interface ScopeResult {
   ok: boolean;
@@ -192,33 +193,6 @@ function flattenConjuncts(expr: Node, out: Node[]): boolean {
   return true;
 }
 
-/** Collect every object with `type === 'select'` anywhere in the AST. */
-function collectSelects(node: Node, out: Node[]): void {
-  if (!node || typeof node !== 'object') return;
-  if (node.type === 'select') out.push(node);
-  for (const key of Object.keys(node)) {
-    const v = node[key];
-    if (Array.isArray(v)) v.forEach((x) => collectSelects(x, out));
-    else if (v && typeof v === 'object') collectSelects(v, out);
-  }
-}
-
-/** Collect CTE alias names defined by any WITH node; these are safe FROM sources. */
-function collectCteNames(node: Node, out: Set<string>): void {
-  if (!node || typeof node !== 'object') return;
-  if (node.type === 'with' && Array.isArray(node.bind)) {
-    for (const b of node.bind) {
-      const name = b?.alias?.name;
-      if (typeof name === 'string') out.add(name.toLowerCase());
-    }
-  }
-  for (const key of Object.keys(node)) {
-    const v = node[key];
-    if (Array.isArray(v)) v.forEach((x) => collectCteNames(x, out));
-    else if (v && typeof v === 'object') collectCteNames(v, out);
-  }
-}
-
 /** Validate a single select node's tenant scoping. */
 function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): ScopeResult {
   const from = sel.from;
@@ -319,6 +293,61 @@ function validateSelect(sel: Node, companyId: string, cteNames: Set<string>): Sc
 }
 
 /**
+ * Recursively validate every select node, threading the set of CTE names that
+ * are LEXICALLY in scope. A CTE name is a safe FROM source only for selects
+ * within the WITH that defines it — NOT globally. (A global set let a CTE named
+ * after a real table, defined in a nested subquery, shadow the outer real table
+ * and skip its scope check — a cross-tenant read.)
+ */
+function walk(node: Node, companyId: string, inScope: Set<string>): ScopeResult {
+  if (Array.isArray(node)) {
+    for (const x of node) {
+      const r = walk(x, companyId, inScope);
+      if (!r.ok) return r;
+    }
+    return { ok: true };
+  }
+  if (!node || typeof node !== 'object') return { ok: true };
+
+  if (node.type === 'with') {
+    const names = new Set(inScope);
+    if (Array.isArray(node.bind)) {
+      for (const b of node.bind) {
+        const name = b?.alias?.name ? String(b.alias.name).toLowerCase() : null;
+        if (name) {
+          // Defence in depth: a CTE may not reuse a real allowlisted table name.
+          if (ALLOWED_TABLES.has(name)) return fail(`CTE '${name}' shadows a real table`);
+          names.add(name);
+        }
+      }
+      for (const b of node.bind) {
+        const r = walk(b?.statement, companyId, names);
+        if (!r.ok) return r;
+      }
+    }
+    return walk(node.in, companyId, names);
+  }
+
+  if (node.type === 'select') {
+    const r = validateSelect(node, companyId, inScope);
+    if (!r.ok) return r;
+    // Recurse into nested expressions (subqueries in columns/where/from) with
+    // the same scope; a nested WITH extends scope for its own subtree.
+    for (const key of Object.keys(node)) {
+      const child = walk(node[key], companyId, inScope);
+      if (!child.ok) return child;
+    }
+    return { ok: true };
+  }
+
+  for (const key of Object.keys(node)) {
+    const r = walk(node[key], companyId, inScope);
+    if (!r.ok) return r;
+  }
+  return { ok: true };
+}
+
+/**
  * Enforce that `sql` can only read the caller's own tenant data.
  * Returns { ok: true } only if every select node is provably tenant-scoped.
  */
@@ -338,16 +367,5 @@ export function enforceTenantScope(sql: string, companyId: string): ScopeResult 
     return fail('only SELECT / WITH queries are permitted');
   }
 
-  const cteNames = new Set<string>();
-  collectCteNames(top, cteNames);
-
-  const selects: Node[] = [];
-  collectSelects(top, selects);
-  if (selects.length === 0) return fail('no SELECT found');
-
-  for (const sel of selects) {
-    const result = validateSelect(sel, companyId, cteNames);
-    if (!result.ok) return result;
-  }
-  return { ok: true };
+  return walk(top, companyId, new Set<string>());
 }
