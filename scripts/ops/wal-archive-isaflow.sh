@@ -27,18 +27,23 @@ set -euo pipefail
 WAL_DIR="${ISAFLOW_WAL_DIR:-/srv/storage/backups/isaflow/wal}"
 PROD_ENV="${ISAFLOW_PROD_ENV:-/home/velo/isaflow/.env.local}"
 SLOT="${ISAFLOW_WAL_SLOT:-isaflow_wal_archive}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-pgconn.sh
+source "$SCRIPT_DIR/lib-pgconn.sh"
 
 umask 077
 
 log() { echo "[$(date -u +%H:%M:%SZ)] $*"; }
 
-DATABASE_URL=$(grep -E "^DATABASE_URL=" "$PROD_ENV" | head -1 | cut -d= -f2-)
-[[ -n "${DATABASE_URL:-}" ]] || { log "ERROR: DATABASE_URL not found in $PROD_ENV"; exit 2; }
+# PGPASSWORD via env, never argv: this is a Restart=always long-lived process,
+# so a password in its command line sits permanently in a world-readable
+# /proc/<pid>/cmdline. See lib-pgconn.sh.
+load_pg_conn "$PROD_ENV" || exit 2
 
 # Replication is permitted from the bridge gateway only, which is what a
 # connection to 127.0.0.1 on the published port presents as. The tailnet
 # address (100.96.203.105) is deliberately NOT permitted.
-REPL_URL=$(echo "$DATABASE_URL" | sed 's|@100\.96\.203\.105:|@127.0.0.1:|')
+REPL_URL=$(echo "$PG_URL" | sed 's|@100\.96\.203\.105:|@127.0.0.1:|')
 
 mkdir -p "$WAL_DIR"
 

@@ -18,23 +18,25 @@ BACKUP_DIR="${ISAFLOW_BACKUP_DIR:-/srv/storage/backups/isaflow}"
 PROD_ENV="${ISAFLOW_PROD_ENV:-/home/velo/isaflow/.env.local}"
 TEST_DB="${ISAFLOW_RESTORE_TEST_DB:-isaflow_restore_test}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-pgconn.sh
+source "$SCRIPT_DIR/lib-pgconn.sh"
 
 log() { echo "[$(date -u +%H:%M:%SZ)] $*"; }
 
-DATABASE_URL=$(grep -E "^DATABASE_URL=" "$PROD_ENV" | head -1 | cut -d= -f2-)
-if [[ -z "${DATABASE_URL:-}" ]]; then
-  echo "ERROR: DATABASE_URL not found in $PROD_ENV" >&2
-  exit 2
+# The scratch database name is fixed, so a manual run overlapping the scheduled
+# one would have each dropping the other's database mid-restore — a spurious
+# failure, and a confusing one. Serialise instead.
+exec 9>"/var/lock/isaflow-restore-drill.lock"
+if ! flock -n 9; then
+  log "another restore drill is already running — exiting"
+  exit 0
 fi
 
-# Build maintenance + scratch URLs from the app URL. Strip any ?params first,
-# then swap the database name.
-APP_URL="${DATABASE_URL%%\?*}"
-URL_PARAMS=""
-[[ "$DATABASE_URL" == *\?* ]] && URL_PARAMS="?${DATABASE_URL#*\?}"
-URL_BASE="${APP_URL%/*}"
-MAINT_URL="$URL_BASE/postgres$URL_PARAMS"
-TEST_URL="$URL_BASE/$TEST_DB$URL_PARAMS"
+load_pg_conn "$PROD_ENV" || exit 2
+
+# Sibling-database URLs built from the password-free base.
+MAINT_URL="$PG_URL_BASE/postgres$PG_URL_PARAMS"
+TEST_URL="$PG_URL_BASE/$TEST_DB$PG_URL_PARAMS"
 
 # Refuse to run if the scratch name resolves to something real. Dropping the
 # production database because of a config typo is the one failure this script

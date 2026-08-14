@@ -33,16 +33,21 @@ PROD_ENV="${ISAFLOW_PROD_ENV:-/home/velo/isaflow/.env.local}"
 DAILY_RETENTION_DAYS=30
 MONTHLY_RETENTION_DAYS=400          # ~13 months of 1st-of-month dumps
 TS=$(date -u +%Y%m%d_%H%M%SZ)
-DAY_OF_MONTH=$(date -u +%d)
+# SAST, not UTC: the timer fires 01:30 SAST = 23:30 UTC the PREVIOUS day, so a
+# UTC day-of-month would keep the monthly copy on the 2nd, never the 1st.
+DAY_OF_MONTH=$(TZ=Africa/Johannesburg date +%d)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-pgconn.sh
+source "$SCRIPT_DIR/lib-pgconn.sh"
 
-# Tables whose row counts are recorded and later re-asserted by the drill.
-# Ledger tables first — a backup that restores but loses journal lines is not
-# a backup of an accounting system.
-MANIFEST_TABLES=(
-  gl_journal_entries gl_journal_lines gl_accounts
-  companies customer_invoices supplier_invoices bank_transactions
-)
+# The manifest records a row count for EVERY public table, not a hand-picked
+# few. An earlier version listed seven; the drill therefore proved nothing about
+# the other 275 (payroll, audit_log, company_users, VAT…), and the archive gate
+# below is far too coarse to notice — a real dump has ~3100 TOC entries, so
+# dropping dozens of tables would still clear a floor of 100.
+# LEDGER_TABLES are additionally asserted to be non-empty: a "successful" dump
+# of an empty ledger is the failure this is here to catch.
+LEDGER_TABLES=(gl_journal_entries gl_journal_lines gl_accounts companies)
 
 log() { echo "[$(date -u +%H:%M:%SZ)] $*"; }
 
@@ -67,16 +72,15 @@ trap 'on_error $LINENO' ERR
 # DATABASE_URL lives in the prod env file (velo:velo 0600). `set -a; source` is
 # deliberately NOT used: that file holds multi-line and unquoted values that
 # break a naive source. Pull the one key we need.
-DATABASE_URL=$(grep -E "^DATABASE_URL=" "$PROD_ENV" | head -1 | cut -d= -f2-)
-if [[ -z "${DATABASE_URL:-}" ]]; then
-  log "ERROR: DATABASE_URL not found in $PROD_ENV"
-  false
-fi
+# Sets PGPASSWORD (env, not argv) plus a password-free PG_URL. A URL carrying
+# the password would land in /proc/<pid>/cmdline, which is 0444 on this host —
+# readable by every local account. See lib-pgconn.sh.
+load_pg_conn "$PROD_ENV" || false
 
 # Guard against ever dumping the DEV database into the prod backup directory —
 # they differ only by db NAME on the same host:port, which has bitten this
 # project before (the admin console ran on isaflow_dev for 3.5 months).
-DB_NAME=$(psql "$DATABASE_URL" -tAc "SELECT current_database()")
+DB_NAME=$(psql "$PG_URL" -tAc "SELECT current_database()")
 if [[ "$DB_NAME" != "isaflow" ]]; then
   log "ERROR: refusing to run — expected database 'isaflow', got '$DB_NAME'"
   false
@@ -88,7 +92,7 @@ DUMP="$BACKUP_DIR/isaflow-$TS.dump"
 MANIFEST="$BACKUP_DIR/isaflow-$TS.manifest.json"
 
 log "Dumping $DB_NAME (custom format)..."
-pg_dump --format=custom --compress=9 --file="$DUMP.tmp" "$DATABASE_URL"
+pg_dump --format=custom --compress=9 --file="$DUMP.tmp" "$PG_URL"
 
 # Verify the archive is READABLE before it is allowed to become "the backup".
 # A truncated dump is silent until the day you need it; pg_restore --list walks
@@ -111,16 +115,27 @@ log "Writing row-count manifest..."
   echo "  \"toc_entries\": $TOC_ENTRIES,"
   echo "  \"tables\": {"
   first=1
-  for t in "${MANIFEST_TABLES[@]}"; do
-    c=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM $t" 2>/dev/null || echo -1)
+  while IFS= read -r t; do
+    [[ -z "$t" ]] && continue
+    c=$(psql "$PG_URL" -tAc "SELECT count(*) FROM \"$t\"" 2>/dev/null || echo -1)
     [[ $first -eq 1 ]] && first=0 || echo ","
     printf '    "%s": %s' "$t" "$c"
-  done
+  done < <(psql "$PG_URL" -tAc "
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = 'public' ORDER BY tablename")
   echo ""
   echo "  }"
   echo "}"
 } > "$MANIFEST.tmp"
 mv "$MANIFEST.tmp" "$MANIFEST"
+
+for t in "${LEDGER_TABLES[@]}"; do
+  n=$(psql "$PG_URL" -tAc "SELECT count(*) FROM \"$t\"")
+  if [[ "$n" -eq 0 ]]; then
+    log "ERROR: $t is empty — refusing to publish this as the latest backup"
+    false
+  fi
+done
 
 ln -sfn "$DUMP"     "$BACKUP_DIR/latest.dump"
 ln -sfn "$MANIFEST" "$BACKUP_DIR/latest.manifest.json"
@@ -137,7 +152,7 @@ find "$BACKUP_DIR" -maxdepth 1 -name 'isaflow-*.manifest.json' -mtime "+$DAILY_R
 find "$BACKUP_DIR" -maxdepth 1 -name 'monthly-*.dump'          -mtime "+$MONTHLY_RETENTION_DAYS" -delete
 
 SIZE=$(stat -c %s "$DUMP")
-JE=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM gl_journal_entries")
+JE=$(psql "$PG_URL" -tAc "SELECT count(*) FROM gl_journal_entries")
 log "Backup OK: $DUMP (${SIZE} bytes, $TOC_ENTRIES toc entries, $JE journal entries)"
 
 # ── PITR health ─────────────────────────────────────────────────────────────
@@ -154,9 +169,9 @@ PITR_PROBLEMS=""
 # so the check reported INACTIVE on a perfectly healthy slot every night. A
 # monitor that cries wolf nightly is worse than no monitor, because the real
 # alert gets ignored with the rest.
-SLOT_ACTIVE=$(psql "$DATABASE_URL" -tAc \
+SLOT_ACTIVE=$(psql "$PG_URL" -tAc \
   "SELECT active FROM pg_replication_slots WHERE slot_name = '$SLOT'" 2>/dev/null | tr -d '[:space:]')
-SLOT_WAL_STATUS=$(psql "$DATABASE_URL" -tAc \
+SLOT_WAL_STATUS=$(psql "$PG_URL" -tAc \
   "SELECT coalesce(wal_status,'unknown') FROM pg_replication_slots WHERE slot_name = '$SLOT'" 2>/dev/null | tr -d '[:space:]')
 
 if [[ -z "$SLOT_ACTIVE" ]]; then
@@ -173,6 +188,17 @@ if [[ -d "$WAL_DIR" ]]; then
   [[ -z "$NEWEST" ]] && PITR_PROBLEMS+="- no WAL segment written in the last 2h — the stream is stalled.\n"
 else
   PITR_PROBLEMS+="- WAL directory $WAL_DIR is missing.\n"
+fi
+
+# A base backup is the other half of PITR. If its timer silently stops, the
+# newest base ages past basebackup-isaflow.sh's 35-day retention, gets pruned,
+# and the WAL has nothing left to replay onto — with no alert anywhere.
+BASE_DIR="${ISAFLOW_BASEBACKUP_DIR:-$BACKUP_DIR/base}"
+if [[ -d "$BASE_DIR" ]]; then
+  RECENT_BASE=$(find "$BASE_DIR" -maxdepth 1 -type d -name '20*Z' -newermt '-10 days' 2>/dev/null | head -1)
+  [[ -z "$RECENT_BASE" ]] && PITR_PROBLEMS+="- no physical base backup in the last 10 days (weekly timer) — WAL has nothing to replay onto.\n"
+else
+  PITR_PROBLEMS+="- base-backup directory $BASE_DIR is missing.\n"
 fi
 
 if [[ -n "$PITR_PROBLEMS" ]]; then

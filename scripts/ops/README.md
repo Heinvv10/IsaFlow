@@ -109,7 +109,10 @@ At ~9 MB per dump this is negligible against 2.8T free.
    not a superuser here).
 3. Every table's row count matches the **manifest written at dump time** — not
    live, which moves between the dump and the drill and could only ever be
-   compared approximately.
+   compared approximately. The manifest covers **every table in `public`** (281
+   at time of writing). An earlier version listed seven by hand, which proved
+   nothing about the other 275; the archive gate (`TOC_ENTRIES`) is far too
+   coarse to notice, since a real dump has ~3100 entries.
 4. The **restored ledger balances**: zero companies where posted debits ≠
    credits. A restore that loses journal *lines* keeps entry counts intact and
    silently unbalances every company, so row counts alone would not catch it.
@@ -252,3 +255,15 @@ SELECT count(*) FROM (
   machine. A host loss still loses every backup. Blocked on a destination:
   there is no SSH key to `fibreflow-wa-vps` and no rclone/restic/cloud
   credentials on this box.
+
+- **Automated proof of PITR.** The weekly drill restores the **logical dump**
+  only. The base+WAL path was proven end-to-end by hand on 2026-08-14 (procedure
+  above) but nothing re-proves it on a schedule, so a regression in the physical
+  path would surface only when someone needed it. The nightly health check
+  covers the *inputs* — slot active, WAL fresh, a base backup within 10 days —
+  not a replay.
+
+- **Schedule note.** 01:30 SAST also coincides with a pre-existing FibreFlow
+  `pg_dump` cron (`/srv/data/backups/supabase/backup.sh`). Different database,
+  different port, no correctness interaction — but the two do share disk
+  bandwidth.

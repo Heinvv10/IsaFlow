@@ -7,7 +7,7 @@
 # because WAL cannot be replayed onto a pg_restore'd database. PITR needs a
 # physical base plus the WAL stream from wal-archive-isaflow.sh.
 #
-# Kept weekly rather than daily: at ~200MB physical per copy this is the right
+# Kept weekly rather than daily: at ~135MB physical per copy this is the right
 # trade against 2.8T, and the WAL stream covers every point between bases.
 # =============================================================================
 
@@ -20,6 +20,8 @@ PROD_ENV="${ISAFLOW_PROD_ENV:-/home/velo/isaflow/.env.local}"
 RETENTION_DAYS=35            # > the 30d WAL retention, so the oldest WAL always has a base
 TS=$(date -u +%Y%m%d_%H%M%SZ)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib-pgconn.sh
+source "$SCRIPT_DIR/lib-pgconn.sh"
 
 log() { echo "[$(date -u +%H:%M:%SZ)] $*"; }
 
@@ -42,9 +44,8 @@ on_error() {
 }
 trap 'on_error $LINENO' ERR
 
-DATABASE_URL=$(grep -E "^DATABASE_URL=" "$PROD_ENV" | head -1 | cut -d= -f2-)
-[[ -n "${DATABASE_URL:-}" ]] || { log "ERROR: DATABASE_URL not found"; false; }
-REPL_URL=$(echo "$DATABASE_URL" | sed 's|@100\.96\.203\.105:|@127.0.0.1:|')
+load_pg_conn "$PROD_ENV" || false
+REPL_URL=$(echo "$PG_URL" | sed 's|@100\.96\.203\.105:|@127.0.0.1:|')
 
 mkdir -p "$BASE_DIR"
 rm -rf "$BASE_DIR/$TS.tmp"
