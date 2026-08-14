@@ -13,6 +13,40 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-08-14 — Pentest Remediation Batch + GL / Ops Hardening
+
+**Security — pentest findings closed**
+
+- `nl-query`: tenant scope guard rebuilt at AST level — FK→PK edge restriction, non-INNER join rejection, CTE shadow bypass fix, `company_id` stripped from FK edge set (CRITICAL)
+- `csv`: formula injection neutralized in EMP501, customers-bulk, and two hand-rolled exporters
+- `upload`: magic-byte validation on all file upload paths (pentest M5/M6)
+- `auth`: stale GoTrue sessions revoked on password change/reset
+- `intercompany`: cross-tenant record forgery rejected on intercompany create
+- `bulk-email`: statement-bulk-email rate-limited (email-bomb DoS prevention)
+- `reports`: heavy report/export/PDF endpoints throttled (MEDIUM)
+- `input-limits`: exchange-rates LIMIT clamped; customers-bulk batch size capped
+
+**GL**
+
+- All direct-INSERT posting paths routed through the validated posting service (#244)
+
+**MCP**
+
+- Three write tools no longer commit partial writes on failure (#247)
+
+**Ops**
+
+- Daily prod DB backup, PITR, and weekly restore drill configured (#245)
+
+**Bug fixes**
+
+- `reports`: stop reading the vestigial `bank_accounts` table (#249)
+- `close`: continuous-close queries repaired — written against a non-existent schema (#248)
+
+Migrations: **509** (`gl_je_source_asset_and_import`)
+
+---
+
 ## 2026-06-12 — MT940 Bank Import + Auth/Email Fixes
 
 **Bank import (Dotbiz Pilot — WS-F groundwork)**
