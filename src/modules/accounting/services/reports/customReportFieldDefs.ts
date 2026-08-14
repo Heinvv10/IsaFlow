@@ -63,7 +63,10 @@ const BANK_TRANSACTIONS: FieldDef[] = [
   { field: 'reference',     label: 'Reference',     type: 'text',     sortable: false, filterable: true,  totalable: false, sqlExpr: 'bt.reference' },
   { field: 'amount',        label: 'Amount',        type: 'currency', sortable: true,  filterable: true,  totalable: true,  sqlExpr: 'bt.amount' },
   { field: 'status',        label: 'Status',        type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'bt.status' },
-  { field: 'bank_account',  label: 'Bank Account',  type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'ba.name' },
+  // bank_transactions.bank_account_id references gl_accounts(id), and
+  // gl_accounts names its label column account_name. The old `ba.name` against
+  // bank_accounts was a 42703 on every run.
+  { field: 'bank_account',  label: 'Bank Account',  type: 'text',     sortable: true,  filterable: true,  totalable: false, sqlExpr: 'ga.account_name' },
 ];
 
 const CUSTOMERS: FieldDef[] = [
@@ -128,7 +131,7 @@ export function getBaseQuery(dataSource: string): string {
         LEFT JOIN suppliers s ON s.id = si.supplier_id`;
     case 'bank_transactions':
       return `FROM bank_transactions bt
-        LEFT JOIN bank_accounts ba ON ba.id = bt.bank_account_id`;
+        LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id`;
     case 'customers':
       return `FROM customers c`;
     case 'suppliers':

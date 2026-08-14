@@ -9,6 +9,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { countBankAccounts } from '@/modules/accounting/services/bank/hasBankAccountService';
 
 interface CompanyRow {
   logo_data: string | null;
@@ -34,6 +35,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     try {
       const rows = (await q) as CountRow[];
       return Number(rows[0]?.count ?? 0);
+    } catch (err) {
+      log.warn('Setup guide probe failed', { error: err }, 'setup-guide');
+      return 0;
+    }
+  };
+
+  const safeNumber = async (q: Promise<number>): Promise<number> => {
+    try {
+      return await q;
     } catch (err) {
       log.warn('Setup guide probe failed', { error: err }, 'setup-guide');
       return 0;
@@ -66,7 +76,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     openingCount,
   ] = await Promise.all([
     safeCompany(),
-    safeCount(sql`SELECT COUNT(*) AS count FROM bank_accounts WHERE company_id = ${companyId}`),
+    // A bank account is a gl_accounts row with account_subtype='bank'. Counting
+    // the vestigial bank_accounts table (0 rows in production) meant the
+    // 'bank-account' task could never be marked complete.
+    safeNumber(countBankAccounts(companyId)),
     safeCount(sql`SELECT COUNT(*) AS count FROM bank_transactions WHERE company_id = ${companyId}`),
     safeCount(sql`SELECT COUNT(*) AS count FROM customer_invoices WHERE company_id = ${companyId}`),
     safeCount(sql`SELECT COUNT(*) AS count FROM customers WHERE company_id = ${companyId}`),
