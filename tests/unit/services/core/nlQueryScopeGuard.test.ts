@@ -75,6 +75,16 @@ describe('enforceTenantScope — rejects cross-tenant bypasses', () => {
     expect(enforceTenantScope(sql, CID).ok).toBe(false);
   });
 
+  it('rejects CTE-name shadowing of a real table in a nested subquery', () => {
+    const sql = `SELECT c.id, c.name, c.company_id FROM customers c WHERE 1 = (SELECT 1 FROM (WITH customers AS (SELECT 1 AS n) SELECT n FROM customers) q LIMIT 1)`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
+  it('rejects a CTE that reuses a real allowlisted table name (defence in depth)', () => {
+    const sql = `WITH customers AS (SELECT 1 AS n) SELECT n FROM customers`;
+    expect(enforceTenantScope(sql, CID).ok).toBe(false);
+  });
+
   it('fails closed on unparseable SQL', () => {
     expect(enforceTenantScope('SELECT FROM WHERE lol', CID).ok).toBe(false);
   });
