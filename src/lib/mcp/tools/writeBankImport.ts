@@ -13,6 +13,7 @@ import {
   undoImportBatch,
 } from '@/modules/accounting/services/bank/bankStatementImportService';
 import type { StatementFileType } from '@/modules/accounting/services/bank/bankStatementParseService';
+import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportService';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { NOT_FOUND, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
@@ -136,7 +137,16 @@ export const importBankStatementTool: McpTool = {
       if (result.batchId === null) envelope.billable = false;
       return envelope;
     } catch (err) {
-      return toolError(safeErrorText(err, 'Failed to import the statement.'));
+      // Pre-write only. StatementNotImportableError is raised while parsing,
+      // before importParsedTransactions writes anything.
+      //
+      // importStatementForAgent has NO transaction and NO savepoint of its own,
+      // so a failure part-way through the insert leaves a partially imported
+      // statement — which then feeds reconciliation as if it were complete.
+      // The registry's write-tool savepoint is the only thing that rolls that
+      // back, and it only fires if this throws.
+      if (err instanceof StatementNotImportableError) return toolError(err.message);
+      throw err;
     }
   },
 };
