@@ -33,6 +33,8 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/reports/*`,
 - VAT return uses GL journal lines tagged with `vat_code` + `vat_amount`; don't double-count by joining `customer_invoices` or `supplier_invoices`.
 - Consolidation: eliminations scoped to parent company; intercompany balances removed via `intercompanyService` before roll-up.
 - Custom reports: `customReportRunner` compiles user-defined field defs into parameterised SQL — all params bound, no interpolation.
+- **A bank account is a `gl_accounts` row with `account_subtype='bank'`, never a `bank_accounts` row.** `bank_transactions.bank_account_id` FKs to `gl_accounts(id)`; `bank_accounts` is vestigial metadata (0 rows in production). Cash = `SUM(bank_transactions.amount)` over active bank-subtype GL accounts.
+- **Outstanding AR/AP is `total_amount - COALESCE(amount_paid,0)`.** There is no `balance_due` column on either invoice table. Always gate on the shared `AR_OPEN_STATUSES` / `AP_OPEN_STATUSES` from `@/lib/constants/invoiceStatuses` — `'partial'` is not a legal status on either table, and `supplier_invoices` has no `'overdue'`.
 - Facade files (`sarsService`, `kpiService`) re-export; add logic to the split services.
 - Date handling: pg returns `Date` objects from timestamp columns — all report formatters accept both `Date` and ISO string.
 
@@ -42,6 +44,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/reports/*`,
 - `scripts/migrations/sql/329_*` (jl.company_id), `*vat*`, `*consolidation*`, `*custom_report*`.
 
 ## Recent changes
+- 2026-08-14: `getGroupDashboardStats` repaired — it threw 42703 on every call (`balance_due` does not exist) and its cash figure read the vestigial `bank_accounts` table, so group cash was always 0. Now sums `bank_transactions.amount` over bank-subtype GL accounts and uses `AR_OPEN_STATUSES`/`AP_OPEN_STATUSES` with `total_amount - amount_paid`. `customReportFieldDefs` `bank_account` field also fixed: it selected `ba.name`, a column `bank_accounts` does not have, so every custom report on `bank_transactions` 42703'd.
 - 2026-07-06: Phase 4 SARS ISV VAT201 e-filing. `sarsEfiling{Config,Client,Repo,SubmissionService}` behind `SARS_EFILING_ENABLED` — dark by default. `submitVAT201ToSars` re-runs `getVatExceptions` and REFUSES (audited) unless clean + non-degraded; `pollVAT201Status` maps SARS status→submission status. Wire format PROVISIONAL until Hein completes SARS ISV registration (`docs/sars/2026-07-VAT201-isv-dossier.md`); contract-tested vs an in-process mock server only.
 - 2026-06-11: `vatExceptionsService` + `vatExceptionsTypes` added (Dotbiz Workstream A) — reuses `generateVAT201` for box totals so the recon matches the VAT201 page to the cent.
 - 2026-06-11 (refinements): `generateVAT201` returns `degradedSources: string[]` (source queries it swallowed — non-empty means box totals are incomplete; exceptions report surfaces `degradedData` and the panel warns 'do not file'). Mismatch rows carry `reason: 'amount_mismatch' | 'je_not_posted'` (draft-JE invoices are posting gaps, not mismatches). Unposted-VAT footnote aggregates the supplier side from `supplier_invoice_items` when present (field10 source parity), header `tax_amount` fallback.

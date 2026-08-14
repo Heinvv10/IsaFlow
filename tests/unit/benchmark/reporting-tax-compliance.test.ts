@@ -325,10 +325,14 @@ describe('getBaseQuery', () => {
     expect(q).toContain('suppliers s');
   });
 
-  it('returns a FROM clause for bank_transactions', () => {
+  it('returns a FROM clause for bank_transactions joined to gl_accounts', () => {
     const q = getBaseQuery('bank_transactions');
     expect(q).toContain('bank_transactions bt');
-    expect(q).toContain('bank_accounts ba');
+    // bank_account_id references gl_accounts(id). This assertion previously
+    // pinned a join to bank_accounts, which made every bank_transactions
+    // report fail with 42703.
+    expect(q).toContain('gl_accounts ga ON ga.id = bt.bank_account_id');
+    expect(q).not.toContain('bank_accounts');
   });
 
   it('returns a simple FROM clause for customers', () => {
