@@ -37,7 +37,7 @@ import {
   getUnmappedAccounts,
 } from '@/modules/accounting/services/reports/groupCompanyService';
 
-// Uses withAuth (not withAuth) because group operations span multiple companies.
+// Uses withAuth (not withCompany) because group operations span multiple companies.
 // Security is provided by verifyGroupAccess() before every operation — groupId is
 // always validated against company_group_members joined with company_users.
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -75,8 +75,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'mappings' && groupId) {
       const companyId = req.query.company_id as string | undefined;
       if (companyId) {
-        const membership = (await verifyCompanyMembership(companyId)) ? [true] : [];
-        if (!membership[0]) return apiResponse.forbidden(res, 'Access denied to the specified company');
+        if (!(await verifyCompanyMembership(companyId))) {
+          return apiResponse.forbidden(res, 'Access denied to the specified company');
+        }
       }
       const mappings = await getCoaMappings(groupId, companyId);
       return apiResponse.success(res, { items: mappings });
@@ -85,8 +86,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'unmapped' && groupId) {
       const companyId = req.query.company_id as string;
       if (!companyId) return apiResponse.badRequest(res, 'company_id required');
-      const membership = (await verifyCompanyMembership(companyId)) ? [true] : [];
-      if (!membership[0]) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      if (!(await verifyCompanyMembership(companyId))) {
+        return apiResponse.forbidden(res, 'Access denied to the specified company');
+      }
       const unmapped = await getUnmappedAccounts(groupId, companyId);
       return apiResponse.success(res, { items: unmapped });
     }

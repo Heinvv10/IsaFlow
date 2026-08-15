@@ -18,7 +18,7 @@ import {
 } from '@/modules/accounting/services/reports/groupCompanyService';
 import { userBelongsToGroup } from '@/modules/accounting/services/core/companyAccessService';
 
-// Uses withAuth (not withAuth) because intercompany transactions cross company
+// Uses withAuth (not withCompany) because intercompany transactions cross company
 // boundaries. Security is provided by verifyGroupAccess() which ensures the user
 // belongs to at least one company in the group before any read or write.
 // Delegates to companyAccessService — this was an inline copy that compared

@@ -6,10 +6,12 @@
 //   ERROR: operator does not exist: character varying = uuid
 // at runtime — never at compile time, because the SQL is a template string.
 //
-// Three such joins shipped to production and broke credit-note PDF generation,
-// approval listings and practice timesheet reports. These probes execute the
-// join shapes against the live schema, so a future schema change that flips one
-// of these columns to uuid fails here instead of in production.
+// One such join shipped to production and broke credit-note PDF generation
+// (credit_notes.approved_by, uncast). The approvalService and practiceReports
+// joins listed below already carried the correct ::TEXT and were never broken —
+// they are probed here to keep them that way. These probes execute the join
+// shapes against the live schema, so a future schema change that flips one of
+// these columns to uuid fails here instead of in production.
 //
 // `scripts/ci/audit-user-id-casts.ts` is the static half of the same guard;
 // this file is the half that catches schema drift the source cannot reveal.
@@ -35,7 +37,8 @@ const JOINS: Array<{ site: string; table: string; column: string; cast: string }
   { site: 'invite/[token]',                          table: 'company_invitations',      column: 'invited_by',     cast: '' },
   { site: 'payrollEmployeeHistoryService',           table: 'payroll_employee_history',  column: 'changed_by',     cast: '' },
   { site: 'auditService',                            table: 'admin_audit_log',          column: 'admin_user_id',  cast: '' },
-  // uuid columns — MUST be cast to text (these were the three broken joins)
+  // uuid columns — MUST be cast to text. Only creditNotePdfBuilder was actually
+  // missing its cast; the other three were already correct.
   { site: 'creditNotePdfBuilder',                    table: 'credit_notes',             column: 'approved_by',    cast: '::TEXT' },
   { site: 'approvalService (requested_by)',          table: 'approval_requests',        column: 'requested_by',   cast: '::TEXT' },
   { site: 'approvalService (decided_by)',            table: 'approval_requests',        column: 'decided_by',     cast: '::TEXT' },
