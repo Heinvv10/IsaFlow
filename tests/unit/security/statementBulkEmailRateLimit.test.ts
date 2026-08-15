@@ -78,8 +78,30 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
 
     await (statementBulkEmail as Handler)(req, makeRes());
 
-    expect(checkSendRateLimitMock).toHaveBeenCalledWith(req, COMPANY, 'statement-bulk-email');
+    expect(checkSendRateLimitMock).toHaveBeenCalledWith(req, COMPANY, 'statement-bulk-email', {
+      count: 2,
+    });
     expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
     expect(sendStatementEmail).not.toHaveBeenCalled();
+  });
+
+  it('weights the limiter cost by customerIds.length (cost-weighting fix)', async () => {
+    checkSendRateLimitMock.mockResolvedValue(false);
+    const req = {
+      method: 'POST',
+      query: {},
+      body: {
+        customerIds: Array.from({ length: 47 }, (_, i) => `c${i}`),
+        asAtDate: '2026-08-14',
+      },
+      companyId: COMPANY,
+      user: { id: 'u1' },
+    } as unknown as NextApiRequest;
+
+    await (statementBulkEmail as Handler)(req, makeRes());
+
+    expect(checkSendRateLimitMock).toHaveBeenCalledWith(req, COMPANY, 'statement-bulk-email', {
+      count: 47,
+    });
   });
 });

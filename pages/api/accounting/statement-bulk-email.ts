@@ -57,11 +57,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const { companyId } = req as CompanyAuthedRequest;
 
-  const sendAllowed = await checkSendRateLimit(req, companyId, 'statement-bulk-email');
-  if (!sendAllowed) {
-    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
-  }
-
   const body = req.body as {
     customerIds?: unknown;
     asAtDate?: unknown;
@@ -97,6 +92,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const asAtDate = body.asAtDate;
   const message =
     typeof body.message === 'string' ? body.message : undefined;
+
+  // Validated/capped (MAX_BATCH_SIZE) batch size — charge the limiter one
+  // unit per recipient so a 100-recipient batch can't be used to bypass the
+  // effective ceiling implied by companyMax/ipMax/dailyMax.
+  const sendAllowed = await checkSendRateLimit(req, companyId, 'statement-bulk-email', {
+    count: customerIds.length,
+  });
+  if (!sendAllowed) {
+    return apiResponse.tooManyRequests(res, 'Too many send requests. Please try again later.');
+  }
 
   // IDOR guard — verify all IDs belong to this company
   const owned = (await sql`

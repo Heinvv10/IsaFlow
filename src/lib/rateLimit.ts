@@ -22,6 +22,13 @@ import { log } from '@/lib/logger';
 export interface RateLimitOptions {
   max: number;
   windowSecs: number;
+  /**
+   * Units to charge this call against the counter (default 1). Used to
+   * weight rate-limit cost by batch size — e.g. a bulk-email call sending
+   * N recipients should consume N units, not 1, so batching can't be used
+   * to bypass the effective ceiling implied by `max`.
+   */
+  cost?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,22 +60,27 @@ export function clearRateLimitCache(): void {
  */
 export async function checkRateLimit(key: string, opts: RateLimitOptions): Promise<boolean> {
   const { max, windowSecs } = opts;
+  const cost = opts.cost ?? 1;
 
-  // Short-circuit: if the LRU copy is fresh and well under the limit, skip DB.
+  // Short-circuit: if the LRU copy is fresh, well under the limit, AND this
+  // call's cost keeps it under the limit, skip the DB round-trip. A call
+  // whose cost alone could push the counter over `max` (e.g. a large batch)
+  // must NOT be admitted by the fast path — it always falls through to the
+  // authoritative DB upsert below.
   const cached = lru.get(key);
-  if (cached && cached.count < Math.floor(max * 0.5)) {
-    cached.count += 1;
+  if (cached && cached.count < Math.floor(max * 0.5) && cached.count + cost <= max) {
+    cached.count += cost;
     return true;
   }
 
   const rows = (await sql`
     INSERT INTO rate_limit_counters (key, count, window_start)
-    VALUES (${key}, 1, NOW())
+    VALUES (${key}, ${cost}, NOW())
     ON CONFLICT (key) DO UPDATE
       SET count = CASE
         WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => ${windowSecs})
-          THEN 1
-        ELSE rate_limit_counters.count + 1
+          THEN ${cost}
+        ELSE rate_limit_counters.count + ${cost}
       END,
       window_start = CASE
         WHEN rate_limit_counters.window_start < NOW() - make_interval(secs => ${windowSecs})
@@ -137,16 +149,17 @@ export async function checkSendRateLimit(
   req: NextApiRequest,
   companyId: string,
   name: string,
-  opts: { ipMax?: number; companyMax?: number; dailyMax?: number } = {},
+  opts: { ipMax?: number; companyMax?: number; dailyMax?: number; count?: number } = {},
 ): Promise<boolean> {
   const ip = getClientIp(req);
   const ipMax = opts.ipMax ?? 30;
   const companyMax = opts.companyMax ?? 60;
   const dailyMax = opts.dailyMax ?? 500;
+  const cost = opts.count ?? 1;
   return (
-    (await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900 })) &&
-    (await checkRateLimit(`send:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900 })) &&
-    (await checkRateLimit(`send:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400 }))
+    (await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900, cost })) &&
+    (await checkRateLimit(`send:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900, cost })) &&
+    (await checkRateLimit(`send:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400, cost }))
   );
 }
 
