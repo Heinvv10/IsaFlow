@@ -116,6 +116,17 @@ describe('pentest M6: POST /api/admin/payroll/sars-codes/import', () => {
     ).toBe(true);
   });
 
+  it('excludes application/vnd.ms-excel (legacy .xls) from the MIME allowlist', async () => {
+    // Dead entry: the magic-byte gate has no CFBF branch and the ExcelJS parser
+    // can't read .xls, so a real .xls upload always 400s downstream anyway.
+    const req = makeReq();
+    const res = makeRes();
+    await (handler as unknown as (r: typeof req, s: typeof res) => Promise<void>)(req, res);
+
+    expect(capturedFilter).not.toBeNull();
+    expect(capturedFilter!({ mimetype: 'application/vnd.ms-excel' })).toBe(false);
+  });
+
   it('rejects a declared-XLSX upload whose bytes are not a ZIP/OOXML container', async () => {
     const req = makeReq();
     const res = makeRes();
