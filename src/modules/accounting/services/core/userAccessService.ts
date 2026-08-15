@@ -65,6 +65,12 @@ function toIso(val: Date | string | null): string | null {
 }
 
 // ── Company Users ─────────────────────────────────────────────────────────────
+//
+// `company_users.user_id` is TEXT and `users.id` is VARCHAR — user identity is a
+// string in this schema, not a uuid. NEVER cast the parameter in a
+// `user_id = ${userId}` comparison to ::UUID: Postgres has no `text = uuid`
+// operator, so the query throws at runtime (500) rather than returning a wrong
+// answer. `company_id` IS a uuid and keeps its cast.
 
 export async function listCompanyUsers(companyId: string): Promise<CompanyUserRecord[]> {
   const rows = (await sql`
@@ -101,7 +107,7 @@ export async function updateCompanyUserRole(
 
   const currentRows = (await sql`
     SELECT role FROM company_users
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID
+    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
   `) as DbRow[];
 
   const currentRole = currentRows[0]?.role as string | undefined;
@@ -115,7 +121,7 @@ export async function updateCompanyUserRole(
   await sql`
     UPDATE company_users
     SET role = ${newRole}
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID
+    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
   `;
   log.info('Company user role updated', { companyId, userId, newRole }, 'accounting');
 }
@@ -123,7 +129,7 @@ export async function updateCompanyUserRole(
 export async function removeCompanyUser(companyId: string, userId: string): Promise<void> {
   const rows = (await sql`
     SELECT role FROM company_users
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID
+    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
   `) as DbRow[];
 
   if ((rows[0]?.role as string | undefined) === 'owner') {
@@ -135,7 +141,7 @@ export async function removeCompanyUser(companyId: string, userId: string): Prom
 
   await sql`
     DELETE FROM company_users
-    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID
+    WHERE company_id = ${companyId}::UUID AND user_id = ${userId}
   `;
   log.info('Company user removed', { companyId, userId }, 'accounting');
 }

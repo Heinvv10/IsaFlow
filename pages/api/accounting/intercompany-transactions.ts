@@ -16,18 +16,15 @@ import {
   matchIntercompanyTransactions,
   getIntercompanyReconciliation,
 } from '@/modules/accounting/services/reports/groupCompanyService';
+import { userBelongsToGroup } from '@/modules/accounting/services/core/companyAccessService';
 
-// Uses withAuth (not withAuth) because intercompany transactions cross company
+// Uses withAuth (not withCompany) because intercompany transactions cross company
 // boundaries. Security is provided by verifyGroupAccess() which ensures the user
 // belongs to at least one company in the group before any read or write.
+// Delegates to companyAccessService — this was an inline copy that compared
+// company_users.user_id (text) to a ::UUID cast, so every request 500'd.
 async function verifyGroupAccess(groupId: string, userId: string): Promise<boolean> {
-  const rows = (await sql`
-    SELECT 1 FROM company_group_members cgm
-    JOIN company_users cu ON cu.company_id = cgm.company_id
-    WHERE cgm.group_id = ${groupId}::UUID AND cu.user_id = ${userId}::UUID
-    LIMIT 1
-  `) as Record<string, unknown>[];
-  return rows.length > 0;
+  return userBelongsToGroup(userId, groupId);
 }
 
 // verifyGroupAccess only proves the caller belongs to SOME company in the group.

@@ -24,6 +24,7 @@ run_step "type-check"        bun run type-check
 run_step "lint"              bun run lint
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh
+run_step "user-id-casts"     bun scripts/ci/audit-user-id-casts.ts
 run_step "unit-tests"        bun run test:unit
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 

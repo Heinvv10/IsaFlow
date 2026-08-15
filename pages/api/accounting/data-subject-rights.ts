@@ -20,14 +20,14 @@ async function getUserPii(userId: string, companyId: string) {
   const userRows = (await sql`
     SELECT id, first_name, last_name, email, created_at, updated_at
     FROM users
-    WHERE id = ${userId}::UUID
+    WHERE id = ${userId}
   `) as Row[];
 
   const companyUserRows = (await sql`
     SELECT cu.role, cu.created_at AS joined_at, c.name AS company_name
     FROM company_users cu
     JOIN companies c ON c.id = cu.company_id
-    WHERE cu.user_id = ${userId}::UUID
+    WHERE cu.user_id = ${userId}
       AND cu.company_id = ${companyId}::UUID
   `) as Row[];
 
@@ -82,7 +82,7 @@ async function handleErasure(req: NextApiRequest, res: NextApiResponse) {
       last_name   = ${placeholder},
       email       = ${`${placeholder}@deleted.invalid`},
       updated_at  = NOW()
-    WHERE id = ${userId}::UUID
+    WHERE id = ${userId}
   `;
 
   log.info('Data subject erasure completed', { userId }, 'data-subject-rights');

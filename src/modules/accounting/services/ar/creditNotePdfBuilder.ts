@@ -33,7 +33,7 @@ export async function generateCreditNotePdf(companyId: string, creditNoteId: str
     LEFT JOIN customers c ON c.id = COALESCE(cn.client_id, cn.customer_id)
     LEFT JOIN suppliers s ON s.id = cn.supplier_id
     LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
-    LEFT JOIN users u ON u.id = cn.approved_by
+    LEFT JOIN users u ON u.id = cn.approved_by::TEXT
     WHERE cn.id = ${creditNoteId}::UUID
       AND cn.company_id = ${companyId}::UUID
   `) as DbRow[];
