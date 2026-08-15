@@ -9,6 +9,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { generateLink } from '@/lib/auth/gotrue-admin-link';
+import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
 
 type Row = DbRow;
 
@@ -57,10 +58,18 @@ export async function resetPassword(userId: string): Promise<{ reset_link: strin
   return { reset_link: action_link };
 }
 
-/** Force logout by deleting all active sessions for a user. */
+/**
+ * Force logout a user. Deleting rows from the app-level `user_sessions` table is
+ * NOT enough: GoTrue access/refresh tokens are stateless HS256 JWTs, so the
+ * target keeps refreshing via /api/auth/refresh until GoTrue itself revokes the
+ * refresh tokens. We revoke those FIRST (fail-closed — if GoTrue can't revoke,
+ * this throws and the app sessions are left intact so the admin sees a real
+ * failure instead of a false "logged out"), THEN clear the app sessions.
+ */
 export async function forceLogout(userId: string): Promise<void> {
+  await adminRevokeAllUserSessions(userId);
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
-  log.info('forceLogout — sessions cleared', { userId }, 'AdminUserActionsService');
+  log.info('forceLogout — GoTrue tokens revoked + app sessions cleared', { userId }, 'AdminUserActionsService');
 }
 
 const ALLOWED_COMPANY_ROLES = ['admin', 'accountant', 'bookkeeper', 'viewer'];
