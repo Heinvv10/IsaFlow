@@ -118,4 +118,46 @@ describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
     const blocked = await checkRateLimit(KEY, { max: 5, windowSecs: 60 });
     expect(blocked).toBe(false);
   });
+
+  it.skipIf(!hasRealDb)('a single call with cost=N increments the DB counter by N', async () => {
+    const allowed = await checkRateLimit(KEY, { max: 100, windowSecs: 60, cost: 40 });
+    expect(allowed).toBe(true);
+    clearRateLimitCache(); // force the next check to read the authoritative DB row
+    const rows = (await sql`SELECT count FROM rate_limit_counters WHERE key = ${KEY}`) as {
+      count: number;
+    }[];
+    expect(rows[0]?.count).toBe(40);
+  });
+
+  it.skipIf(!hasRealDb)(
+    'rejects a single high-cost call that alone would exceed max, without ever admitting via the LRU fast path',
+    async () => {
+      // Prime the LRU with a low count so the (pre-fix) fast-path guard
+      // `cached.count < max*0.5` alone would have been satisfied.
+      await checkRateLimit(KEY, { max: 50, windowSecs: 60, cost: 1 });
+      // A single call costing more than the remaining budget must be
+      // rejected — and, since cost alone could exceed max, it must not be
+      // silently admitted by the in-memory LRU short-circuit.
+      const blocked = await checkRateLimit(KEY, { max: 50, windowSecs: 60, cost: 200 });
+      expect(blocked).toBe(false);
+      // The DB must reflect the attempted charge (fell through to the DB
+      // upsert rather than being absorbed by the LRU fast path).
+      clearRateLimitCache();
+      const rows = (await sql`SELECT count FROM rate_limit_counters WHERE key = ${KEY}`) as {
+        count: number;
+      }[];
+      expect(rows[0]?.count).toBeGreaterThan(50);
+    },
+  );
+
+  it.skipIf(!hasRealDb)(
+    'cumulative cost across calls blocks once the running total exceeds max',
+    async () => {
+      const first = await checkRateLimit(KEY, { max: 10, windowSecs: 60, cost: 6 });
+      expect(first).toBe(true);
+      clearRateLimitCache();
+      const second = await checkRateLimit(KEY, { max: 10, windowSecs: 60, cost: 6 });
+      expect(second).toBe(false); // 6 + 6 = 12 > 10
+    },
+  );
 });
