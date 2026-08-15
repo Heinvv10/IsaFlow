@@ -13,6 +13,10 @@ import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
 import {
+  userBelongsToCompany,
+  userBelongsToGroup,
+} from '@/modules/accounting/services/core/companyAccessService';
+import {
   getGroup,
   createGroup,
   updateGroup,
@@ -33,36 +37,24 @@ import {
   getUnmappedAccounts,
 } from '@/modules/accounting/services/reports/groupCompanyService';
 
-// Uses withAuth (not withAuth) because group operations span multiple companies.
+// Uses withAuth (not withCompany) because group operations span multiple companies.
 // Security is provided by verifyGroupAccess() before every operation — groupId is
 // always validated against company_group_members joined with company_users.
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
 
-  // Verify user belongs to at least one company in the group
-  async function verifyGroupAccess(gId: string): Promise<boolean> {
-    const rows = (await sql`
-      SELECT 1 FROM company_group_members cgm
-      JOIN company_users cu ON cu.company_id = cgm.company_id
-      WHERE cgm.group_id = ${gId}::UUID AND cu.user_id = ${userId}::UUID
-      LIMIT 1
-    `) as Record<string, unknown>[];
-    return rows.length > 0;
-  }
+  // Both guards delegate to companyAccessService. They used to be inline copies
+  // that compared company_users.user_id (text) to a ::UUID cast, so every
+  // guarded action on this route 500'd — including adding the first member,
+  // which left a newly created group permanently orphaned.
+  const verifyGroupAccess = (gId: string) => userBelongsToGroup(userId, gId);
 
   // Verify the user is a member of a SPECIFIC company. Body-supplied companyIds
   // (add-member / auto-generate-coa / set-mapping / auto-map) must be gated by this
   // so a group member cannot pull an unrelated tenant's company into the group and
   // read its COA/financials (pentest H1 — cross-tenant IDOR).
-  async function verifyCompanyMembership(cId: string): Promise<boolean> {
-    const rows = (await sql`
-      SELECT 1 FROM company_users
-      WHERE company_id = ${cId}::UUID AND user_id = ${userId}::UUID
-      LIMIT 1
-    `) as Record<string, unknown>[];
-    return rows.length > 0;
-  }
+  const verifyCompanyMembership = (cId: string) => userBelongsToCompany(userId, cId);
 
   // ── GET ────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
@@ -83,8 +75,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'mappings' && groupId) {
       const companyId = req.query.company_id as string | undefined;
       if (companyId) {
-        const membership = await sql`SELECT 1 FROM company_users WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID LIMIT 1` as Record<string, unknown>[];
-        if (!membership[0]) return apiResponse.forbidden(res, 'Access denied to the specified company');
+        if (!(await verifyCompanyMembership(companyId))) {
+          return apiResponse.forbidden(res, 'Access denied to the specified company');
+        }
       }
       const mappings = await getCoaMappings(groupId, companyId);
       return apiResponse.success(res, { items: mappings });
@@ -93,8 +86,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'unmapped' && groupId) {
       const companyId = req.query.company_id as string;
       if (!companyId) return apiResponse.badRequest(res, 'company_id required');
-      const membership = await sql`SELECT 1 FROM company_users WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID LIMIT 1` as Record<string, unknown>[];
-      if (!membership[0]) return apiResponse.forbidden(res, 'Access denied to the specified company');
+      if (!(await verifyCompanyMembership(companyId))) {
+        return apiResponse.forbidden(res, 'Access denied to the specified company');
+      }
       const unmapped = await getUnmappedAccounts(groupId, companyId);
       return apiResponse.success(res, { items: unmapped });
     }

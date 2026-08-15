@@ -13,7 +13,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql } from '@/lib/neon';
+import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
 import {
   getPermissionModules,
   getUserPermissions,
@@ -96,12 +96,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // The target user must already be a member of THIS company. Without this guard an
     // admin could pre-seed permission rows for a user from another tenant, which would
     // take effect if that user later joined this company (pentest H4 — phantom write).
-    const membership = (await sql`
-      SELECT 1 FROM company_users
-      WHERE company_id = ${companyId}::UUID AND user_id = ${userId}::UUID
-      LIMIT 1
-    `) as Record<string, unknown>[];
-    if (!membership[0]) {
+    if (!(await userBelongsToCompany(userId, companyId))) {
       return apiResponse.notFound(res, 'User');
     }
 

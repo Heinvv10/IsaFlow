@@ -60,7 +60,7 @@ export async function createInvitation(
 
     const alreadyMember = (await sql`
       SELECT 1 FROM company_users
-      WHERE company_id = ${companyId}::UUID AND user_id = ${existingUserId}::UUID
+      WHERE company_id = ${companyId}::UUID AND user_id = ${existingUserId}
     `) as DbRow[];
 
     if (alreadyMember.length > 0) {

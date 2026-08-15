@@ -37,6 +37,13 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      # User identity is a string in this schema (users.id varchar,
+      # company_users.user_id text). A ::UUID cast on either throws at RUNTIME,
+      # not compile time, because the SQL is a template string — so neither the
+      # type check nor the lint above can see it. 16 such sites once shipped.
+      - name: User-identity ::UUID casts
+        run: bun scripts/ci/audit-user-id-casts.ts
+
       - name: Unit tests
         run: bun run test:unit
         env:

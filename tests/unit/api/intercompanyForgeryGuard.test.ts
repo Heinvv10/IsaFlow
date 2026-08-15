@@ -58,7 +58,10 @@ function mockReqRes(body: Record<string, unknown>) {
 /** Route the mocked sql calls by the membership/access query text. */
 function installSql(opts: { groupAccess: boolean; membersInGroup: string[] }) {
   sqlMock.mockImplementation(async (strings: readonly string[], ...values: unknown[]) => {
-    const q = strings.join('?');
+    // Collapse runs of whitespace so routing survives SQL re-indentation. Matching
+    // on raw text made this mock break when the guard was extracted to
+    // companyAccessService and its keywords were aligned.
+    const q = strings.join('?').replace(/\s+/g, ' ');
     // verifyGroupAccess: caller belongs to some company in the group
     if (q.includes('JOIN company_users cu ON cu.company_id = cgm.company_id')) {
       return opts.groupAccess ? [{ ok: 1 }] : [];
@@ -96,6 +99,19 @@ describe('intercompany-transactions POST — cross-tenant forgery guard', () => 
 
   it('rejects a create whose sourceCompanyId is not an active group member', async () => {
     installSql({ groupAccess: true, membersInGroup: [TARGET_IN] });
+    const { req, res } = mockReqRes(validBody);
+
+    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(createTxMock).not.toHaveBeenCalled();
+  });
+
+  // Without this case every test set groupAccess:true, so making
+  // userBelongsToGroup return true unconditionally broke nothing — the outer
+  // access guard was not load-bearing in this suite.
+  it('rejects a create when the caller belongs to no company in the group', async () => {
+    installSql({ groupAccess: false, membersInGroup: [SOURCE, TARGET_IN] });
     const { req, res } = mockReqRes(validBody);
 
     await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);

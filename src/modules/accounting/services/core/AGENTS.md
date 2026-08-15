@@ -36,6 +36,8 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 - `importLedgerTransactions(companyId, userId) / importSupplierInvoices(companyId, userId)` — Sage Phase 6 importers.
 
 ## Business rules
+- **User identity is a STRING, never a uuid.** `users.id` is `character varying`; `company_users.user_id` is `text`. NEVER write `user_id = ${x}::UUID` or `users.id = ${x}::UUID` — Postgres has no `text = uuid` operator, so it throws at RUNTIME (500), and neither `tsc` nor eslint can see inside a SQL template string. When joining a uuid column onto `users.id`, cast the **uuid** side: `ON u.id = t.approved_by::TEXT`. `company_id` IS a uuid and keeps its cast. Guarded by `scripts/ci/audit-user-id-casts.ts` (static) + `tests/integration/user-id-join-compat.int.test.ts` (schema probe).
+- **Tenant-membership guards live in `companyAccessService`** — `userBelongsToCompany` / `userBelongsToGroup`. Do not re-inline them into API routes; four routes each kept their own broken copy before this was extracted.
 - `listCompanies` and other admin-only calls must NOT appear in tenant-scoped API paths — enforce via route selection.
 - `logAudit` is fire-and-forget: callers don't await failure; service swallows its own errors to keep write-paths unblocked (but no empty `catch` — logs via `log`).
 - `documentStorageService`: magic-byte check runs before S3 put; entity ownership verified against `companyId` before linking.
@@ -51,6 +53,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 - `scripts/migrations/sql/351_*` (RLS onboarding fix), `*audit*`, `*background_jobs*`, `*captured_documents*`.
 
 ## Recent changes
+- 2026-08-15: `companyAccessService` added (`userBelongsToCompany` / `userBelongsToGroup`), replacing four duplicated inline guards in `company-groups.ts`, `consolidated-reports.ts`, `intercompany-transactions.ts` and `permissions.ts`. **16** `text = uuid` sites fixed — 13 `company_users.user_id = ${x}::UUID`, 2 `users.id = ${x}::UUID`, and 1 uncast `users.id` join. Each threw a 500 on every call, killing group access (so the consolidation dashboard was unreachable even after its queries were repaired in #249), company user management, the pentest-H4 permission guard, POPIA export **and erasure**, and credit-note PDFs. `approvalService` and `practiceReportsService` already carried the correct `::TEXT` and were NOT broken — an earlier draft of this note claimed 18 sites and named them; blind review caught it. New CI step `user-id-casts` blocks the class, with its rules unit-tested in `tests/unit/ci/userIdCastRules.test.ts`.
 - 2026-04-24: fix onboarding broken by mig 351 RLS.
 - 2026-04-24: strip silent swallow-catch fallbacks across AR/AP APIs.
 - 2026-04-24: eliminate Supabase-cutover schema drift + prevent recurrence.
