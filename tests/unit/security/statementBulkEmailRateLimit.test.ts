@@ -79,6 +79,9 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
     await (statementBulkEmail as Handler)(req, makeRes());
 
     expect(checkSendRateLimitMock).toHaveBeenCalledWith(req, COMPANY, 'statement-bulk-email', {
+      ipMax: 30,
+      companyMax: 2_000,
+      dailyMax: 10_000,
       count: 2,
     });
     expect(apiResponse.tooManyRequests).toHaveBeenCalledTimes(1);
@@ -101,6 +104,9 @@ describe('statement-bulk-email — checkSendRateLimit gate', () => {
     await (statementBulkEmail as Handler)(req, makeRes());
 
     expect(checkSendRateLimitMock).toHaveBeenCalledWith(req, COMPANY, 'statement-bulk-email', {
+      ipMax: 30,
+      companyMax: 2_000,
+      dailyMax: 10_000,
       count: 47,
     });
   });

@@ -168,11 +168,16 @@ export async function checkSendRateLimit(
   const ipMax = opts.ipMax ?? 30;
   const companyMax = opts.companyMax ?? 60;
   const dailyMax = opts.dailyMax ?? 500;
-  const cost = opts.count ?? 1;
+  // `count` is EMAIL VOLUME (recipients in this call). It weights the per-company
+  // and per-day buckets, which are volume budgets. The per-IP bucket is a
+  // request-RATE limiter (abuse from one source) — one API call is one request
+  // regardless of recipient count, so it is always charged 1. Charging the IP
+  // bucket per-recipient would wrongly block a single legitimate large batch.
+  const volumeCost = opts.count ?? 1;
   return (
-    (await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900, cost })) &&
-    (await checkRateLimit(`send:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900, cost })) &&
-    (await checkRateLimit(`send:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400, cost }))
+    (await checkRateLimit(`send:${name}:ip:${ip}`, { max: ipMax, windowSecs: 900, cost: 1 })) &&
+    (await checkRateLimit(`send:${name}:co:${companyId}`, { max: companyMax, windowSecs: 900, cost: volumeCost })) &&
+    (await checkRateLimit(`send:${name}:co:${companyId}:day`, { max: dailyMax, windowSecs: 86_400, cost: volumeCost }))
   );
 }
 

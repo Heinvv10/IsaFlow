@@ -93,10 +93,16 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const message =
     typeof body.message === 'string' ? body.message : undefined;
 
-  // Validated/capped (MAX_BATCH_SIZE) batch size — charge the limiter one
-  // unit per recipient so a 100-recipient batch can't be used to bypass the
-  // effective ceiling implied by companyMax/ipMax/dailyMax.
+  // Charge the per-company / per-day VOLUME buckets one unit per recipient so a
+  // batch can't be used to blow past a real email ceiling; the per-IP bucket
+  // stays request-rate (one call = one request). companyMax/dailyMax are email
+  // volumes here (not request counts), sized to allow legitimate statement runs
+  // (batches are capped at MAX_BATCH_SIZE=100) while bounding an abusive loop.
+  // Tunable if a large tenant's monthly run needs more headroom.
   const sendAllowed = await checkSendRateLimit(req, companyId, 'statement-bulk-email', {
+    ipMax: 30, // requests / 15 min per IP (cost 1 each)
+    companyMax: 2_000, // emails / 15 min per company
+    dailyMax: 10_000, // emails / day per company
     count: customerIds.length,
   });
   if (!sendAllowed) {
