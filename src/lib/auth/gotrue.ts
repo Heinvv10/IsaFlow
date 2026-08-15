@@ -122,18 +122,32 @@ export async function logout(accessToken: string, scope: LogoutScope = 'global')
  * same JWT_SECRET GoTrue uses (HS256). ADMIN-ONLY: this authorises a global
  * sign-out for a target user WITHOUT their password. GoTrue's global /logout
  * reads only the `sub` claim, so no live session row is required and no new
- * session is created by minting this token. The 60s lifetime is only long
- * enough to survive the single /logout call it is minted for.
+ * session is created by minting this token.
+ *
+ * SECURITY: this forges a token that `verifyToken`/`withAuth` would accept as
+ * the target user (they check only the HS256 signature + `sub`), i.e. an
+ * impersonation primitive. It is therefore:
+ *   - module-private (NOT exported) — the only caller is
+ *     `adminRevokeAllUserSessions` below; do not export or reuse it;
+ *   - as short-lived as possible (15s — enough for the single same-host /logout
+ *     round-trip, far below a usable session window);
+ *   - tagged `isaflow_purpose: 'admin-logout'` so a future `withAuth` guard can
+ *     reject admin-minted tokens on the app's own auth path if ever desired.
+ * It is never logged, returned, or stored.
  */
-export async function mintUserAccessToken(userId: string, email?: string): Promise<string> {
+async function mintUserAccessToken(userId: string, email?: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const claims: Record<string, unknown> = { aud: 'authenticated', role: 'authenticated' };
+  const claims: Record<string, unknown> = {
+    aud: 'authenticated',
+    role: 'authenticated',
+    isaflow_purpose: 'admin-logout',
+  };
   if (email) claims.email = email;
   return new SignJWT(claims)
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setSubject(userId)
     .setIssuedAt(now)
-    .setExpirationTime(now + 60)
+    .setExpirationTime(now + 15)
     .sign(jwtKey());
 }
 
