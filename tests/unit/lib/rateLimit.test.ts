@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import type { NextApiRequest } from 'next';
-import { getClientIp, checkRateLimit, clearRateLimitCache } from '@/lib/rateLimit';
+import { getClientIp, checkRateLimit, clampCost, clearRateLimitCache } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
 import { isDbReachable } from '../helpers/dbReachable';
 
@@ -161,3 +161,25 @@ describe('checkRateLimit — Neon-backed persistence (BL-21)', () => {
     },
   );
 });
+
+
+describe('clampCost — positive-integer guard', () => {
+  it('passes valid positive integers through', () => {
+    expect(clampCost(1)).toBe(1);
+    expect(clampCost(40)).toBe(40);
+  });
+  it('defaults undefined to 1', () => {
+    expect(clampCost(undefined)).toBe(1);
+  });
+  it('clamps zero and negatives to 1', () => {
+    expect(clampCost(0)).toBe(1);
+    expect(clampCost(-5)).toBe(1);
+  });
+  it('clamps NaN and Infinity to 1 (Math.max(1,NaN) footgun)', () => {
+    expect(clampCost(Number.NaN)).toBe(1);
+    expect(clampCost(Number.POSITIVE_INFINITY)).toBe(1);
+  });
+  it('truncates fractional costs', () => {
+    expect(clampCost(2.9)).toBe(2);
+  });
+})
