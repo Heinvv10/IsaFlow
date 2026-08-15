@@ -33,9 +33,13 @@ export const config = { api: { bodyParser: false } };
 // application/octet-stream is deliberately excluded — it's the wildcard many
 // clients send for any binary and would neutralize this allowlist. The
 // magic-byte check below is the real gate against non-XLSX payloads.
+//
+// application/vnd.ms-excel (legacy CFBF .xls) is also excluded: the magic-byte
+// gate has no CFBF branch and parseSarsCodesXlsxBuffer (ExcelJS xlsx.load) can't
+// read .xls anyway, so a real .xls upload would always 400 at the gate below —
+// keeping it in the allowlist was dead code.
 const ALLOWED_MIME = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-excel',
 ];
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
