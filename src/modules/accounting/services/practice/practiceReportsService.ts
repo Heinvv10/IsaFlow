@@ -97,7 +97,7 @@ export async function getStaffUtilisation(
            SUM(CASE WHEN te.billable THEN te.hours ELSE 0 END)::NUMERIC AS billable_hours,
            SUM(CASE WHEN te.billable THEN COALESCE(te.line_total, 0) ELSE 0 END)::NUMERIC AS billable_value
     FROM time_entries te
-    LEFT JOIN users u ON u.id = te.user_id::TEXT
+    LEFT JOIN users u ON u.id = te.user_id::TEXT::TEXT
     WHERE te.company_id = ${companyId}::UUID
       AND te.entry_date BETWEEN ${dateFrom}::DATE AND ${dateTo}::DATE
       AND te.practice_client_id IS NOT NULL

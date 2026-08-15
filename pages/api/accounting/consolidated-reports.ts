@@ -9,7 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql } from '@/lib/neon';
+import { userBelongsToGroup } from '@/modules/accounting/services/core/companyAccessService';
 import {
   getConsolidatedTrialBalance,
   getConsolidatedIncomeStatement,
@@ -22,24 +22,17 @@ import {
   autoGenerateEliminations,
 } from '@/modules/accounting/services/reports/consolidatedReportingService';
 
-// Uses withAuth (not withAuth) because consolidated reports aggregate data from
-// multiple companies in a group. Security is provided by verifyGroupAccess() which
-// ensures the user belongs to at least one company in the group before any read.
+// Uses withAuth (not withCompany) because consolidated reports aggregate data
+// from multiple companies in a group. Security comes from userBelongsToGroup(),
+// which ensures the caller belongs to at least one company in the group before
+// any read. That guard used to be an inline copy here that compared
+// company_users.user_id (text) to a ::UUID cast, so every request 500'd.
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
   const action = (req.query.action || req.body?.action) as string | undefined;
   const groupId = req.query.group_id as string;
 
-  // Verify user belongs to at least one company in this group
-  async function verifyGroupAccess(gId: string): Promise<boolean> {
-    const rows = (await sql`
-      SELECT 1 FROM company_group_members cgm
-      JOIN company_users cu ON cu.company_id = cgm.company_id
-      WHERE cgm.group_id = ${gId}::UUID AND cu.user_id = ${userId}::UUID
-      LIMIT 1
-    `) as Record<string, unknown>[];
-    return rows.length > 0;
-  }
+  const verifyGroupAccess = (gId: string) => userBelongsToGroup(userId, gId);
 
   if (req.method === 'GET') {
     if (!groupId) return apiResponse.badRequest(res, 'group_id required');
