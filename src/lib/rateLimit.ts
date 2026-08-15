@@ -58,18 +58,31 @@ export function clearRateLimitCache(): void {
  * shared across all pods. A 5-second LRU short-circuit avoids the DB round-
  * trip for low-pressure keys.
  */
+/**
+ * Clamp a rate-limit `cost` to a positive integer. A shared primitive must never
+ * let a caller pass a negative / zero / NaN / Infinity / fractional cost that
+ * would decrement or corrupt the shared counter. Note `Math.max(1, NaN)` is NaN,
+ * so the finite guard is required — do not simplify to `Math.max(1, trunc)`.
+ */
+export function clampCost(cost: number | undefined): number {
+  const t = Math.trunc(cost ?? 1);
+  return Number.isFinite(t) && t > 0 ? t : 1;
+}
+
 export async function checkRateLimit(key: string, opts: RateLimitOptions): Promise<boolean> {
   const { max, windowSecs } = opts;
-  const cost = opts.cost ?? 1;
+  const cost = clampCost(opts.cost);
 
-  // Short-circuit: if the LRU copy is fresh, well under the limit, AND this
-  // call's cost keeps it under the limit, skip the DB round-trip. A call
-  // whose cost alone could push the counter over `max` (e.g. a large batch)
-  // must NOT be admitted by the fast path — it always falls through to the
-  // authoritative DB upsert below.
+  // Short-circuit ONLY for the common cost === 1 case: if the LRU copy is fresh
+  // and well under the limit, skip the DB round-trip. Cost-weighted calls
+  // (cost > 1, e.g. bulk email) always fall through to the authoritative DB
+  // upsert — they are low-frequency, so the round-trip is cheap, and admitting
+  // up to `cost` units from a per-process LRU that can trail the shared DB
+  // counter by the cache window would widen the cross-pod race precisely where
+  // a wrong admission is expensive.
   const cached = lru.get(key);
-  if (cached && cached.count < Math.floor(max * 0.5) && cached.count + cost <= max) {
-    cached.count += cost;
+  if (cost === 1 && cached && cached.count < Math.floor(max * 0.5)) {
+    cached.count += 1;
     return true;
   }
 
