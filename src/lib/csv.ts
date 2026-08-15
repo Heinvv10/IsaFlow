@@ -41,7 +41,7 @@ export function csvVal(value: string | number | null | undefined): string {
 export function escapeCsv(value: string | number | null | undefined): string {
   if (value == null) return '';
   const raw = sanitizeFormulaInjection(String(value));
-  if (raw.includes(',') || raw.includes('"') || raw.includes('\n')) {
+  if (raw.includes(',') || raw.includes('"') || raw.includes('\n') || raw.includes('\r')) {
     return `"${raw.replace(/"/g, '""')}"`;
   }
   return raw;
