@@ -12,7 +12,7 @@ import {
   MONTHS,
 } from './types';
 import { GroupMembersSection } from './GroupMembersSection';
-import { createGroupBody } from './groupRequests';
+import { createGroupBody, updateGroupBody } from './groupRequests';
 
 interface Props {
   group: CompanyGroup | null;
@@ -63,7 +63,12 @@ export function GroupDetailsTab({
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(group),
+        body: JSON.stringify(updateGroupBody(group.id, {
+          name: group.name,
+          holdingCompanyId: group.holdingCompanyId,
+          defaultCurrency: group.defaultCurrency,
+          financialYearStart: group.financialYearStart,
+        })),
       });
       if (!res.ok) throw new Error('Update failed');
       onFlash('Group updated', 'success');

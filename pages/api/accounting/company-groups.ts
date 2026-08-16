@@ -212,6 +212,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { groupId, ...updates } = req.body;
     if (!groupId) return apiResponse.badRequest(res, 'groupId required');
     if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+    // Same cross-tenant injection vector the create branch guards (pentest H1):
+    // holdingCompanyId arrives in the body. This path was unreachable while the
+    // UI sent `id` instead of `groupId`, so fixing that casing would otherwise
+    // have activated an ungated body-supplied companyId.
+    if (updates.holdingCompanyId && !(await verifyCompanyMembership(updates.holdingCompanyId))) {
+      return apiResponse.forbidden(res, 'Access denied to the specified holding company');
+    }
     const group = await updateGroup(groupId, updates);
     return apiResponse.success(res, group);
   }

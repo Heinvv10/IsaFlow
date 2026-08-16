@@ -93,6 +93,32 @@ export function autoMapBody(groupId: string, companyId: string) {
 }
 
 /**
+ * PUT (no action) — update an existing group.
+ *
+ * `handleUpdateGroup` used to `JSON.stringify(group)` directly. The service
+ * `CompanyGroup` names its key `id`, but the route destructures `groupId`, so
+ * `groupId` was always undefined and editing a group 400'd every time.
+ *
+ * Sends only the four editable fields. `updateGroup` ignores anything else, but
+ * forwarding `id` / `isActive` / `createdBy` invites a future mass-assignment
+ * bug if that ever changes.
+ */
+export function updateGroupBody(groupId: string, updates: {
+  name: string;
+  holdingCompanyId: string | null;
+  defaultCurrency: string;
+  financialYearStart: number;
+}) {
+  return {
+    groupId,
+    name: updates.name,
+    holdingCompanyId: updates.holdingCompanyId,
+    defaultCurrency: updates.defaultCurrency,
+    financialYearStart: updates.financialYearStart,
+  };
+}
+
+/**
  * DELETE uses snake_case QUERY parameters, not a camelCase body — the route
  * reads `req.query.member_id` / `req.query.group_id`. Built here so the two
  * conventions cannot be confused at a call site.

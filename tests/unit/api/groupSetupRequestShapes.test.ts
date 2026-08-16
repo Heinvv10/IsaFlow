@@ -35,6 +35,7 @@ const svc = {
   createGroup: vi.fn(async () => ({ id: 'g1' })),
   addMember: vi.fn(async () => ({ id: 'm1' })),
   updateMember: vi.fn(async () => ({ id: 'm1' })),
+  updateGroup: vi.fn(async () => ({ id: 'g1' })),
   removeMember: vi.fn(async () => undefined),
   createGroupAccount: vi.fn(async () => ({ id: 'a1' })),
   updateGroupAccount: vi.fn(async () => ({ id: 'a1' })),
@@ -56,7 +57,7 @@ vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({
   getGroup: vi.fn(async () => ({ id: 'g1' })),
   listGroupsForUser: vi.fn(async () => []),
   createGroup: (...a: unknown[]) => svc.createGroup(...(a as [])),
-  updateGroup: vi.fn(async () => ({ id: 'g1' })),
+  updateGroup: (...a: unknown[]) => svc.updateGroup(...(a as [])),
   deleteGroup: vi.fn(async () => undefined),
   addMember: (...a: unknown[]) => svc.addMember(...(a as [])),
   updateMember: (...a: unknown[]) => svc.updateMember(...(a as [])),
@@ -76,7 +77,7 @@ vi.mock('@/modules/accounting/services/reports/groupCompanyService', () => ({
 
 import handler from '../../../pages/api/accounting/company-groups';
 import {
-  createGroupBody, addMemberBody, updateMemberBody, autoGenerateCoaBody,
+  createGroupBody, updateGroupBody, addMemberBody, updateMemberBody, autoGenerateCoaBody,
   createGroupAccountBody, updateGroupAccountBody, setMappingBody, autoMapBody,
   removeMemberQuery,
 } from '@/components/accounting/group/groupRequests';
@@ -178,6 +179,29 @@ describe('group setup: every UI request shape is accepted by the route', () => {
     expect(svc.setCoaMapping).toHaveBeenCalledWith(GROUP, COMPANY, 'ca1', 'ga1');
   });
 
+  it('update-group (plain PUT, no action) — sends groupId, not the raw group object', async () => {
+    // GroupDetailsTab handleUpdateGroup used to JSON.stringify(group) directly.
+    // CompanyGroup's key is `id`; the route destructures `groupId`, so editing an
+    // existing group 400'd every time. No test covered the no-action PUT branch.
+    const c = call('PUT', updateGroupBody(GROUP, {
+      name: 'Incendio Global', holdingCompanyId: COMPANY, defaultCurrency: 'ZAR', financialYearStart: 3,
+    }));
+    await c.run();
+    expect(c.res.statusCode).toBe(200);
+    expect(svc.updateGroup).toHaveBeenCalledWith(GROUP, expect.objectContaining({
+      name: 'Incendio Global', holdingCompanyId: COMPANY,
+    }));
+  });
+
+  it('update-group does not forward id/isActive/createdBy into the update', async () => {
+    const body = updateGroupBody(GROUP, {
+      name: 'x', holdingCompanyId: null, defaultCurrency: 'ZAR', financialYearStart: 3,
+    });
+    expect(body).not.toHaveProperty('id');
+    expect(body).not.toHaveProperty('isActive');
+    expect(body).not.toHaveProperty('createdBy');
+  });
+
   it('auto-map', async () => {
     // GroupMappingTab handleAutoMap
     const c = call('POST', autoMapBody(GROUP, COMPANY));
@@ -222,5 +246,19 @@ describe('the old snake_case bodies must NOT be silently accepted', () => {
     const put = call('PUT', { action: 'not-a-real-action', groupId: GROUP });
     await put.run();
     expect(put.res.statusCode).toBe(400);
+  });
+
+  it('update-group rejects a holding company the caller does not belong to', async () => {
+    // This path was unreachable while the UI sent `id`, so fixing the casing
+    // would otherwise have activated an ungated body-supplied companyId
+    // (the same vector the create branch guards — pentest H1).
+    const access = await import('@/modules/accounting/services/core/companyAccessService');
+    vi.mocked(access.userBelongsToCompany).mockResolvedValueOnce(false);
+    const c = call('PUT', updateGroupBody(GROUP, {
+      name: 'x', holdingCompanyId: 'foreign-company', defaultCurrency: 'ZAR', financialYearStart: 3,
+    }));
+    await c.run();
+    expect(c.res.statusCode).toBe(403);
+    expect(svc.updateGroup).not.toHaveBeenCalled();
   });
 });
