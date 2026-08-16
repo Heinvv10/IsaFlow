@@ -43,6 +43,34 @@ export interface SimpleCompany {
   name: string;
 }
 
+/**
+ * Row shape returned by GET /api/accounting/companies?action=user-companies —
+ * i.e. `CompanyUser` from `companyMapper.ts`. Declared here so the mapping below
+ * is a compile-time contract instead of an `any` from `res.json()`.
+ */
+export interface UserCompanyRow {
+  companyId: string;
+  companyName: string;
+  role?: string;
+  isDefault?: boolean;
+}
+
+/**
+ * Adapts the API's camelCase rows to the `{ id, name }` shape the group
+ * components render.
+ *
+ * The bug this exists to prevent: the page fed `res.json()` (typed `any`)
+ * straight into `SimpleCompany[]`, so every `c.id` / `c.name` was `undefined`.
+ * The Holding Company and add-member pickers rendered a list of blank options —
+ * right number of entries, no labels and no values — and TypeScript could not
+ * see it because the lie happened inside an untyped JSON parse.
+ */
+export function toSimpleCompanies(rows: readonly UserCompanyRow[]): SimpleCompany[] {
+  return rows
+    .filter(r => Boolean(r?.companyId))
+    .map(r => ({ id: r.companyId, name: r.companyName }));
+}
+
 export type GroupSetupTab = 'details' | 'coa' | 'mapping';
 
 export const INPUT_CLS =
