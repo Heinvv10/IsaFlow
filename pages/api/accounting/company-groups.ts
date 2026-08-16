@@ -162,19 +162,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'auto-map') {
       const { groupId, companyId } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
-      // A group created without a holding company has no members yet, so
-      // verifyGroupAccess cannot pass and the first member could never be added
-      // — the group stayed orphaned forever. The creator may bootstrap it.
-      // verifyCompanyMembership below still prevents pulling in a foreign tenant.
-      const mayAddMember =
-        (await verifyGroupAccess(groupId)) || (await userCreatedGroup(userId, groupId));
-      if (!mayAddMember) return apiResponse.forbidden(res, 'Access denied to this group');
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
       const count = await autoMapAccounts(groupId, companyId);
       return apiResponse.success(res, { mappedCount: count });
     }
 
-    // Default POST: create group
+    // An unrecognised action must NOT fall through to create-group. The COA tab
+    // used to POST action:'add-account' — no such action — and the fall-through
+    // created a COMPANY GROUP named after the GL account while reporting
+    // "Account added". Reject unknown actions explicitly.
+    if (action) return apiResponse.badRequest(res, `Unknown action: ${action}`);
+
+    // Default POST (no action): create group
     const { name, holdingCompanyId, defaultCurrency, financialYearStart } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
     // createGroup auto-enrolls holdingCompanyId as a group member, so it is the same
@@ -205,6 +205,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const account = await updateGroupAccount(accountId, updates, accountGroupId);
       return apiResponse.success(res, account);
     }
+
+    // Same fall-through hazard as POST: 'update-account' was not a real action.
+    if (action) return apiResponse.badRequest(res, `Unknown action: ${action}`);
 
     const { groupId, ...updates } = req.body;
     if (!groupId) return apiResponse.badRequest(res, 'groupId required');

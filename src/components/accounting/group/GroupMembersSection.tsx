@@ -10,6 +10,7 @@ import {
   INPUT_CLS, LABEL_CLS, BTN_PRIMARY, BTN_SECONDARY, SECTION_CLS,
   CONSOLIDATION_METHODS,
 } from './types';
+import { addMemberBody, updateMemberBody, removeMemberQuery } from './groupRequests';
 
 interface Props {
   group: CompanyGroup;
@@ -22,23 +23,23 @@ interface Props {
 export function GroupMembersSection({ group, members, availableCompanies, onRefresh, onFlash }: Props) {
   const [saving, setSaving] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
-  const [newMember, setNewMember] = useState({ company_id: '', ownership_pct: 100, consolidation_method: 'full' });
+  const [newMember, setNewMember] = useState({ companyId: '', ownershipPct: 100, consolidationMethod: 'full' });
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
-  const [editMember, setEditMember] = useState({ ownership_pct: 100, consolidation_method: 'full' });
+  const [editMember, setEditMember] = useState({ ownershipPct: 100, consolidationMethod: 'full' });
 
   const handleAddMember = async () => {
-    if (!newMember.company_id) return;
+    if (!newMember.companyId) return;
     setSaving(true);
     try {
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'add-member', group_id: group.id, ...newMember }),
+        body: JSON.stringify(addMemberBody(group.id, newMember)),
       });
       if (!res.ok) throw new Error('Add member failed');
       onFlash('Member added', 'success');
       setShowAddMember(false);
-      setNewMember({ company_id: '', ownership_pct: 100, consolidation_method: 'full' });
+      setNewMember({ companyId: '', ownershipPct: 100, consolidationMethod: 'full' });
       await onRefresh();
     } catch {
       onFlash('Failed to add member', 'error');
@@ -53,7 +54,7 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update-member', member_id: memberId, ...editMember }),
+        body: JSON.stringify(updateMemberBody(group.id, memberId, editMember)),
       });
       if (!res.ok) throw new Error('Update failed');
       onFlash('Member updated', 'success');
@@ -70,7 +71,7 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
     if (!confirm('Remove this member from the group?')) return;
     try {
       const res = await apiFetch(
-        `/api/accounting/company-groups?action=remove-member&member_id=${memberId}`,
+        removeMemberQuery(group.id, memberId),
         { method: 'DELETE' },
       );
       if (!res.ok) throw new Error('Remove failed');
@@ -97,8 +98,8 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
               <label className={LABEL_CLS}>Company *</label>
               <select
                 className={INPUT_CLS}
-                value={newMember.company_id}
-                onChange={e => setNewMember({ ...newMember, company_id: e.target.value })}
+                value={newMember.companyId}
+                onChange={e => setNewMember({ ...newMember, companyId: e.target.value })}
               >
                 <option value="">-- Select Company --</option>
                 {availableCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -108,23 +109,23 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
               <label className={LABEL_CLS}>Ownership %</label>
               <input
                 type="number" min={0} max={100} className={INPUT_CLS}
-                value={newMember.ownership_pct}
-                onChange={e => setNewMember({ ...newMember, ownership_pct: Number(e.target.value) })}
+                value={newMember.ownershipPct}
+                onChange={e => setNewMember({ ...newMember, ownershipPct: Number(e.target.value) })}
               />
             </div>
             <div>
               <label className={LABEL_CLS}>Consolidation Method</label>
               <select
                 className={INPUT_CLS}
-                value={newMember.consolidation_method}
-                onChange={e => setNewMember({ ...newMember, consolidation_method: e.target.value as 'full' | 'proportionate' | 'equity' })}
+                value={newMember.consolidationMethod}
+                onChange={e => setNewMember({ ...newMember, consolidationMethod: e.target.value as 'full' | 'proportionate' | 'equity' })}
               >
                 {CONSOLIDATION_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => void handleAddMember()} disabled={saving || !newMember.company_id} className={BTN_PRIMARY}>
+            <button onClick={() => void handleAddMember()} disabled={saving || !newMember.companyId} className={BTN_PRIMARY}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add
             </button>
             <button onClick={() => setShowAddMember(false)} className={BTN_SECONDARY}>Cancel</button>
@@ -149,26 +150,26 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
             <tbody>
               {members.map(m => (
                 <tr key={m.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                  <td className="py-3 text-[var(--ff-text-primary)]">{m.company_name}</td>
+                  <td className="py-3 text-[var(--ff-text-primary)]">{m.companyName}</td>
                   <td className="py-3 text-[var(--ff-text-secondary)]">
                     {editingMemberId === m.id ? (
                       <input type="number" min={0} max={100} className={INPUT_CLS + ' w-20'}
-                        value={editMember.ownership_pct}
-                        onChange={e => setEditMember({ ...editMember, ownership_pct: Number(e.target.value) })}
+                        value={editMember.ownershipPct}
+                        onChange={e => setEditMember({ ...editMember, ownershipPct: Number(e.target.value) })}
                       />
-                    ) : `${m.ownership_pct}%`}
+                    ) : `${m.ownershipPct}%`}
                   </td>
                   <td className="py-3 text-[var(--ff-text-secondary)]">
                     {editingMemberId === m.id ? (
-                      <select className={INPUT_CLS + ' w-40'} value={editMember.consolidation_method}
-                        onChange={e => setEditMember({ ...editMember, consolidation_method: e.target.value as 'full' | 'proportionate' | 'equity' })}
+                      <select className={INPUT_CLS + ' w-40'} value={editMember.consolidationMethod}
+                        onChange={e => setEditMember({ ...editMember, consolidationMethod: e.target.value as 'full' | 'proportionate' | 'equity' })}
                       >
                         {CONSOLIDATION_METHODS.map(cm => <option key={cm.value} value={cm.value}>{cm.label}</option>)}
                       </select>
-                    ) : (CONSOLIDATION_METHODS.find(cm => cm.value === m.consolidation_method)?.label ?? m.consolidation_method)}
+                    ) : (CONSOLIDATION_METHODS.find(cm => cm.value === m.consolidationMethod)?.label ?? m.consolidationMethod)}
                   </td>
                   <td className="py-3 text-[var(--ff-text-tertiary)]">
-                    {new Date(m.joined_at).toLocaleDateString()}
+                    {new Date(m.joinedDate).toLocaleDateString()}
                   </td>
                   <td className="py-3 text-right">
                     {editingMemberId === m.id ? (
@@ -187,7 +188,7 @@ export function GroupMembersSection({ group, members, availableCompanies, onRefr
                         <button
                           onClick={() => {
                             setEditingMemberId(m.id);
-                            setEditMember({ ownership_pct: m.ownership_pct, consolidation_method: m.consolidation_method });
+                            setEditMember({ ownershipPct: m.ownershipPct, consolidationMethod: m.consolidationMethod });
                           }}
                           className="p-1.5 rounded hover:bg-[var(--ff-bg-primary)] text-[var(--ff-text-secondary)]" title="Edit"
                         >

@@ -2,40 +2,30 @@
  * Shared types and constants for Group Setup components
  */
 
-export interface CompanyGroup {
-  id: string;
-  name: string;
-  holding_company_id: string | null;
-  default_currency: string;
-  financial_year_start: number;
-  created_at: string;
-}
+/**
+ * The API's response types are RE-EXPORTED from the service layer, never
+ * redeclared here.
+ *
+ * They used to be redeclared in snake_case (`company_id`, `ownership_pct`, …)
+ * while every mapper in the service layer emits camelCase (`companyId`,
+ * `ownershipPct`, …). Because the page fed `await res.json()` — typed `any` —
+ * straight into these types, tsc saw a match that did not exist and the UI
+ * silently rendered `undefined`: blank company pickers, a members table with no
+ * names, and an "already a member" filter that never excluded anyone.
+ *
+ * Re-exporting means a field rename in the service is now a compile error here.
+ * `import type` is erased at build time, so this pulls no service code into the
+ * client bundle.
+ */
+export type { CompanyGroup, GroupMember } from '@/modules/accounting/services/reports/groupCrudService';
+export type { GroupAccount, CoaMapping } from '@/modules/accounting/services/reports/groupCoaMappingService';
 
-export interface GroupMember {
+/** Company account with no group mapping yet — shape returned by `getUnmappedAccounts`. */
+export interface UnmappedAccount {
   id: string;
-  company_id: string;
-  company_name: string;
-  ownership_pct: number;
-  consolidation_method: 'full' | 'proportionate' | 'equity';
-  joined_at: string;
-}
-
-export interface GroupAccount {
-  id: string;
-  code: string;
-  name: string;
-  account_type: string;
-  sub_type: string | null;
-  level: number;
-}
-
-export interface AccountMapping {
-  company_account_id: string;
-  company_account_code: string;
-  company_account_name: string;
-  group_account_id: string | null;
-  group_account_code: string | null;
-  group_account_name: string | null;
+  accountCode: string;
+  accountName: string;
+  accountType: string;
 }
 
 export interface SimpleCompany {

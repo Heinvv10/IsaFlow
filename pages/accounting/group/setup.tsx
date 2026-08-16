@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 import { GroupDetailsTab } from '@/components/accounting/group/GroupDetailsTab';
 import { GroupCoaTab } from '@/components/accounting/group/GroupCoaTab';
 import { GroupMappingTab } from '@/components/accounting/group/GroupMappingTab';
-import type { CompanyGroup, GroupMember, GroupAccount, AccountMapping, SimpleCompany, GroupSetupTab, UserCompanyRow } from '@/components/accounting/group/types';
+import type { CompanyGroup, GroupMember, GroupAccount, CoaMapping, SimpleCompany, GroupSetupTab, UserCompanyRow } from '@/components/accounting/group/types';
 import { toSimpleCompanies } from '@/components/accounting/group/types';
 
 const TABS: { key: GroupSetupTab; label: string; icon: typeof Layers }[] = [
@@ -30,7 +30,7 @@ export default function GroupSetupPage() {
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [groupAccounts, setGroupAccounts] = useState<GroupAccount[]>([]);
   const [loadingCoa, setLoadingCoa] = useState(false);
-  const [mappings, setMappings] = useState<AccountMapping[]>([]);
+  const [mappings, setMappings] = useState<CoaMapping[]>([]);
   const [loadingMappings, setLoadingMappings] = useState(false);
   const [mappingCompanyId, setMappingCompanyId] = useState('');
 

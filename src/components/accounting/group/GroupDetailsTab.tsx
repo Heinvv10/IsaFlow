@@ -12,6 +12,7 @@ import {
   MONTHS,
 } from './types';
 import { GroupMembersSection } from './GroupMembersSection';
+import { createGroupBody } from './groupRequests';
 
 interface Props {
   group: CompanyGroup | null;
@@ -29,10 +30,10 @@ export function GroupDetailsTab({
 }: Props) {
   const [saving, setSaving] = useState(false);
   const [createForm, setCreateForm] = useState({
-    name: '', holding_company_id: '', default_currency: 'ZAR', financial_year_start: 3,
+    name: '', holdingCompanyId: '', defaultCurrency: 'ZAR', financialYearStart: 3,
   });
 
-  const memberCompanyIds = new Set(members.map(m => m.company_id));
+  const memberCompanyIds = new Set(members.map(m => m.companyId));
   const availableCompanies = userCompanies.filter(c => !memberCompanyIds.has(c.id));
 
   const handleCreateGroup = async () => {
@@ -42,7 +43,7 @@ export function GroupDetailsTab({
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(createForm),
+        body: JSON.stringify(createGroupBody(createForm)),
       });
       if (!res.ok) throw new Error('Create failed');
       onFlash('Group created', 'success');
@@ -92,8 +93,8 @@ export function GroupDetailsTab({
             <label className={LABEL_CLS}>Holding Company</label>
             <select
               className={INPUT_CLS}
-              value={createForm.holding_company_id}
-              onChange={e => setCreateForm({ ...createForm, holding_company_id: e.target.value })}
+              value={createForm.holdingCompanyId}
+              onChange={e => setCreateForm({ ...createForm, holdingCompanyId: e.target.value })}
             >
               <option value="">-- Select --</option>
               {userCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -103,16 +104,16 @@ export function GroupDetailsTab({
             <label className={LABEL_CLS}>Default Currency</label>
             <input
               className={INPUT_CLS}
-              value={createForm.default_currency}
-              onChange={e => setCreateForm({ ...createForm, default_currency: e.target.value })}
+              value={createForm.defaultCurrency}
+              onChange={e => setCreateForm({ ...createForm, defaultCurrency: e.target.value })}
             />
           </div>
           <div>
             <label className={LABEL_CLS}>Financial Year Start</label>
             <select
               className={INPUT_CLS}
-              value={createForm.financial_year_start}
-              onChange={e => setCreateForm({ ...createForm, financial_year_start: Number(e.target.value) })}
+              value={createForm.financialYearStart}
+              onChange={e => setCreateForm({ ...createForm, financialYearStart: Number(e.target.value) })}
             >
               {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
             </select>
@@ -147,8 +148,8 @@ export function GroupDetailsTab({
             <label className={LABEL_CLS}>Holding Company</label>
             <select
               className={INPUT_CLS}
-              value={group.holding_company_id ?? ''}
-              onChange={e => onGroupChange({ ...group, holding_company_id: e.target.value || null })}
+              value={group.holdingCompanyId ?? ''}
+              onChange={e => onGroupChange({ ...group, holdingCompanyId: e.target.value || null })}
             >
               <option value="">-- None --</option>
               {userCompanies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -156,14 +157,14 @@ export function GroupDetailsTab({
           </div>
           <div>
             <label className={LABEL_CLS}>Default Currency</label>
-            <input className={INPUT_CLS} value={group.default_currency} onChange={e => onGroupChange({ ...group, default_currency: e.target.value })} />
+            <input className={INPUT_CLS} value={group.defaultCurrency} onChange={e => onGroupChange({ ...group, defaultCurrency: e.target.value })} />
           </div>
           <div>
             <label className={LABEL_CLS}>Financial Year Start</label>
             <select
               className={INPUT_CLS}
-              value={group.financial_year_start}
-              onChange={e => onGroupChange({ ...group, financial_year_start: Number(e.target.value) })}
+              value={group.financialYearStart}
+              onChange={e => onGroupChange({ ...group, financialYearStart: Number(e.target.value) })}
             >
               {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
             </select>
