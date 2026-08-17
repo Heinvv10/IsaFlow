@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiJson } from '@/lib/apiFetch';
 import { DollarSign, Loader2, AlertCircle } from 'lucide-react';
 
 interface Currency {
@@ -24,13 +24,9 @@ export default function CurrenciesPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/currencies');
-      const json = await res.json();
-      if (!res.ok || json.success === false) {
-        setError(json.message || 'Failed to load currencies');
-        return;
-      }
-      setCurrencies(json.data?.currencies ?? []);
+      // The handler returns the currency array as `data` directly; there is no
+      // `data.currencies` wrapper, so this list always rendered empty.
+      setCurrencies(await apiJson('/api/accounting/currencies'));
     } catch {
       setError('Failed to load currencies');
     } finally {

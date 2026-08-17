@@ -8,6 +8,7 @@
  */
 
 import { clearTenantClientState } from './auth/clearTenantClientState';
+import type { ResponseFor } from './apiRoutes';
 
 const COMPANY_STORAGE_KEY = 'isaflow_active_company';
 const CSRF_COOKIE = 'isaflow_csrf';
@@ -141,4 +142,56 @@ export async function apiFetch(url: string, options?: RequestInit): Promise<Resp
   // alongside the access cookie; rebuild headers fresh.
   const replayInit = buildRequest(options);
   return fetch(url, replayInit);
+}
+
+/** Thrown when the server replied 2xx but the body was not the standard
+ *  `{ success, data }` envelope — e.g. an HTML error page from a proxy, or a
+ *  handler that bypasses `apiResponse`. Surfacing this beats silently handing
+ *  the caller an `undefined` that only fails three lines later. */
+export class ApiEnvelopeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ApiEnvelopeError';
+  }
+}
+
+/**
+ * Typed JSON fetch: performs the request, throws on a non-OK status, verifies
+ * the `apiResponse` envelope, and returns the unwrapped `data` payload.
+ *
+ * The return type is INFERRED FROM THE URL via the registry in `apiRoutes.ts`.
+ * There is deliberately no `<T>` parameter to pass: a caller-supplied type is
+ * just a guess, and a confirmed-but-wrong guess is the exact defect this
+ * replaces (see `project_api_envelope_defect_class`). Register the route
+ * instead, and let a wrong field name be a compile error.
+ *
+ * Unregistered routes return `unknown`, which cannot be used without
+ * narrowing — so this is a ratchet, not a convention.
+ *
+ * @throws {ApiRequestError} on any non-2xx status, carrying the server message.
+ * @throws {ApiEnvelopeError} on a 2xx that is not a `{ success, data }` envelope.
+ */
+export async function apiJson<U extends string>(
+  url: U,
+  options?: RequestInit,
+): Promise<ResponseFor<U>> {
+  const res = await apiFetch(url, options);
+  await assertOk(res, `Request to ${url} failed`);
+
+  // 204 No Content is a legitimate success with no body.
+  if (res.status === 204) return undefined as ResponseFor<U>;
+
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new ApiEnvelopeError(`${url} returned a non-JSON body`);
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || !('data' in parsed)) {
+    throw new ApiEnvelopeError(`${url} returned a body without a 'data' envelope`);
+  }
+
+  return (parsed as { data: ResponseFor<U> }).data;
 }

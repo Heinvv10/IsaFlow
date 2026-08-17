@@ -2,10 +2,16 @@
  * LoginAsModal
  * Two-step modal for the "Login As" / user impersonation flow.
  * Step 1: Confirmation — shows target user name and warns the action is logged.
- * Step 2: Result — shows open-in-app and copy-token actions.
+ * Step 2: Result — offers to open the impersonated session in the main app.
+ *
+ * Impersonation is COOKIE-based: the API sets the stash cookies on a shared
+ * parent domain (`COOKIE_DOMAIN`) and returns only a redirect path. There is no
+ * token to display or copy — the previous version of this modal rendered a
+ * copy-token button for a value the API has never returned, which is why the
+ * flow appeared to fail after it had already succeeded server-side.
  */
 
-import { Loader2, LogIn, CheckCircle2, Copy, X } from 'lucide-react';
+import { Loader2, LogIn, CheckCircle2, X } from 'lucide-react';
 
 interface TargetUser {
   first_name: string;
@@ -15,21 +21,20 @@ interface TargetUser {
 
 interface Props {
   user:          TargetUser;
-  token:         string | null;
+  /** Set once the session exists; drives the step-1 → step-2 transition. */
+  redirectUrl:   string | null;
   loading:       boolean;
   onConfirm:     () => void;
   onOpenTab:     () => void;
-  onCopyToken:   () => void;
   onClose:       () => void;
 }
 
 export function LoginAsModal({
   user,
-  token,
+  redirectUrl,
   loading,
   onConfirm,
   onOpenTab,
-  onCopyToken,
   onClose,
 }: Props) {
   return (
@@ -43,7 +48,7 @@ export function LoginAsModal({
           <X className="w-5 h-5" />
         </button>
 
-        {!token ? (
+        {!redirectUrl ? (
           /* Step 1 — Confirmation */
           <>
             <div className="flex items-center gap-3 mb-4">
@@ -103,8 +108,7 @@ export function LoginAsModal({
 
             <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
               Open the main app as{' '}
-              <span className="font-semibold">{user.first_name} {user.last_name}</span>,
-              or copy the token for manual use.
+              <span className="font-semibold">{user.first_name} {user.last_name}</span>.
             </p>
 
             <div className="flex gap-2">
@@ -112,14 +116,7 @@ export function LoginAsModal({
                 onClick={onOpenTab}
                 className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-teal-600 hover:bg-teal-700 text-white transition-colors"
               >
-                <LogIn className="w-4 h-4" /> Open app.isaflow.co.za
-              </button>
-              <button
-                onClick={onCopyToken}
-                className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                title="Copy impersonation token"
-              >
-                <Copy className="w-4 h-4" />
+                <LogIn className="w-4 h-4" /> Open impersonated session
               </button>
             </div>
           </>

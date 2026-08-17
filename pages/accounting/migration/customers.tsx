@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 
 const CUSTOMER_FIELDS = [
   'name', 'email', 'phone', 'vat_number', 'registration_number',
@@ -77,9 +77,10 @@ export default function CustomersImportPage() {
     setIsImporting(true);
     setError('');
     try {
-      const sessionRes = await apiFetch('/api/accounting/migration/session');
-      const sessionJson = await sessionRes.json();
-      const sessionId = sessionJson.data?.id;
+      // The envelope is { session: {...} | null } — reading `data.id` always
+      // yielded undefined, so this flow always failed with "No active session."
+      const { session } = await apiJson('/api/accounting/migration/session');
+      const sessionId = session?.id;
       if (!sessionId) throw new Error('No active migration session');
 
       const customers = rows.map(r => ({
