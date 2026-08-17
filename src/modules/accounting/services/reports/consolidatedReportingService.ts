@@ -21,7 +21,7 @@ export type { ConsolidatedIncomeStatement, ConsolidatedBalanceSheet } from './co
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-interface EntitySummary {
+export interface EntitySummary {
   companyId: string; companyName: string; revenue: number;
   expenses: number; netProfit: number; cashPosition: number;
 }

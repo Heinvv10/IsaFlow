@@ -8,6 +8,8 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import type { GroupDashboardStats } from '@/modules/accounting/services/reports/consolidatedReportingService';
+import type { CompanyGroup as ServiceCompanyGroup } from '@/modules/accounting/services/reports/groupCrudService';
 import {
   Building2, ChevronDown, Plus, Loader2, AlertCircle,
   TrendingUp, DollarSign, Landmark, CreditCard, ArrowRight,
@@ -15,9 +17,16 @@ import {
 } from 'lucide-react';
 import { GroupEntityTable } from '@/components/accounting/group/GroupEntityTable';
 
-interface CompanyGroup { id: string; name: string; holdingCompanyName: string; memberCount: number }
-interface EntitySummary { companyId: string; companyName: string; revenue: number; expenses: number; netProfit: number; cashPosition: number }
-interface GroupDashboardData { combinedCash: number; combinedRevenue: number; combinedAR: number; combinedAP: number; entities: EntitySummary[] }
+// These shapes are the API's, not this page's. They used to be redeclared here
+// with invented field names — `entities` where the API returns `entitySummaries`,
+// `combinedCash`/`combinedAR`/`combinedAP` where it returns
+// `combinedCashPosition`/`combinedARTotal`/`combinedAPTotal`. Because
+// `await res.json()` is `any`, tsc saw a match that did not exist and
+// `dashData.entities` was undefined, so GroupEntityTable crashed on
+// `entities.length`. The page had never rendered with a group before, so nothing
+// caught it.
+type CompanyGroup = ServiceCompanyGroup & { memberCount: number; holdingCompanyName: string | null };
+type GroupDashboardData = GroupDashboardStats;
 
 const fmtCurrency = (n: number) => 'R ' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 const fmtCompact = (n: number) => {
@@ -35,10 +44,10 @@ const QUICK_LINKS = [
 ];
 
 const STAT_CARDS = [
-  { key: 'combinedCash', label: 'Combined Cash', sub: 'Across all entities', Icon: Landmark },
+  { key: 'combinedCashPosition', label: 'Combined Cash', sub: 'Across all entities', Icon: Landmark },
   { key: 'combinedRevenue', label: 'Combined Revenue', sub: 'Current period', Icon: TrendingUp },
-  { key: 'combinedAR', label: 'Outstanding AR', sub: 'Accounts receivable', Icon: DollarSign },
-  { key: 'combinedAP', label: 'Outstanding AP', sub: 'Accounts payable', Icon: CreditCard },
+  { key: 'combinedARTotal', label: 'Outstanding AR', sub: 'Accounts receivable', Icon: DollarSign },
+  { key: 'combinedAPTotal', label: 'Outstanding AP', sub: 'Accounts payable', Icon: CreditCard },
 ] as const;
 
 export default function GroupDashboardPage() {
@@ -85,7 +94,7 @@ export default function GroupDashboardPage() {
 
   const selectedGroup = groups.find(g => g.id === selectedGroupId) ?? null;
 
-  const totals = (dashData?.entities ?? []).reduce(
+  const totals = (dashData?.entitySummaries ?? []).reduce(
     (acc, e) => ({ revenue: acc.revenue + e.revenue, expenses: acc.expenses + e.expenses, netProfit: acc.netProfit + e.netProfit, cashPosition: acc.cashPosition + e.cashPosition }),
     { revenue: 0, expenses: 0, netProfit: 0, cashPosition: 0 },
   );
@@ -171,7 +180,7 @@ export default function GroupDashboardPage() {
               <div className="flex items-center justify-between flex-wrap gap-3 p-4 rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
                 <div>
                   <p className="text-sm font-medium text-[var(--ff-text-primary)]">{selectedGroup.name}</p>
-                  <p className="text-xs text-[var(--ff-text-tertiary)]">Holding: {selectedGroup.holdingCompanyName} &middot; {selectedGroup.memberCount} {selectedGroup.memberCount === 1 ? 'entity' : 'entities'}</p>
+                  <p className="text-xs text-[var(--ff-text-tertiary)]">{selectedGroup.holdingCompanyName ? `Holding: ${selectedGroup.holdingCompanyName} · ` : ''}{selectedGroup.memberCount} {selectedGroup.memberCount === 1 ? 'entity' : 'entities'}</p>
                 </div>
                 <Link href="/accounting/group/setup" className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--ff-border-primary)] text-sm text-[var(--ff-text-secondary)] hover:text-teal-500 hover:border-teal-500/50 transition-colors">
                   <Settings className="h-3.5 w-3.5" /> Manage Group
@@ -191,7 +200,7 @@ export default function GroupDashboardPage() {
                 ))}
               </div>
 
-              <GroupEntityTable entities={dashData.entities} totals={totals} />
+              <GroupEntityTable entities={dashData.entitySummaries} totals={totals} />
 
               <div>
                 <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-3">Consolidated Reports</h2>
