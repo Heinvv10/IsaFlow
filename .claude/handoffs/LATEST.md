@@ -1,87 +1,108 @@
-# Handoff — MCP Connector LIVE in prod; NEXT SESSION = expand its features (Tier 1 / VAT201 wedge)
+> **There is a second open handoff:** `.claude/handoffs/2026-08-17-0941-mcp-connector-next-features.md` (MCP connector — next-features roadmap, Tier 1 payments vs VAT201 wedge). Read it if continuing that work. NOTE: it references master @ `16b0b7f2`, which is stale — master is now `6b81b3c8`.
 
-**Project:** IsaFlow — master @ `16b0b7f2` (origin in sync).
+# Handoff — 2026-08-17 09:55 SAST
 
-## ▶ NEXT SESSION — build more MCP features (user asked to do this in a fresh session)
-The connector is shipped, live, and proven end-to-end (both PAT + OAuth, real user on a real company). The next body of work is **expanding what the connector can do**. Full grounded roadmap in memory **`project_mcp_next_features`** (Tier 1 daily-loop actions / Tier 2 SA-compliance filing wedge / Tier 3 MCP-native + governance).
+**Project:** IsaFlow
+**Branch:** `master`, clean, in sync with `origin/master` @ `6b81b3c8`
+**Session goal:** Continue from the prior handoff; ended up fixing the group-companies feature end to end, which uncovered a systemic API-envelope defect class. **Next session's job: triage and fix that class.**
 
-**Start by:** plan the first slice on Opus (grill-me → writing-plans), then execute phase-by-phase exactly like the original build (phase branch → TDD per tool → blind `/review` → merge → dark deploy → enable per pilot). **Recommended first slice:** confirm with Hein between two options —
-1. **Tier 1 payments/allocations** — `record_customer_receipt`/`record_supplier_payment`/`allocate_payment` + `reconcile_bank_transaction` + `create_credit_note`. Completes the accountant's daily loop; low-risk (drafts+confirms); all backed by existing `ar`/`ap`/`bank` services.
-2. **VAT201 filing flagship** — `vat201_prepare`+`vat201_submit` via existing `reports/vat201Service.ts` + `sarsEfilingSubmissionService.ts`. THE market differentiator ("Claude, file my VAT"). High-stakes → give it its **own scope `write:file-sars` + an approval gate**, don't reuse `write:post`.
+## Status
 
-Current tools: 21 in `src/lib/mcp/tools/*.ts`; registry/scope-fence/audit `src/lib/mcp/{registry,audit}.ts`; scopes `src/lib/auth/{oauthScopes,patScopes,consentScopes}.ts`. Most new tools = "expose an existing service." Follow CLAUDE.md invariants (company_id scoping, tenant id from ctx not args, readOnly asserted at registry, no token material in responses/audit/errors).
+Production = master = **`6b81b3c8`**, deployed 2026-08-17 09:46:59 SAST (business hours, on Hein's explicit instruction). 0 migrations, golden paths 12/12, integrity 15/15, 0 restarts, 0 journal errors. Rollback target **`cb4476fc`** at `/home/velo/isaflow-rollback`.
 
-**Prod pilot state to know:** `mcp_connector` currently enabled for **BOTH ISAFlow Demo AND Brightsphere Technologies** (`d27bac33`, Hein's real Sage client — enabled during a UI demo this session; no active tokens exist for it). `MCP_DCR_ENABLED=true` is set globally in prod env (OAuth works). To re-dark Brightsphere: admin → Companies → Brightsphere → Features → toggle "MCP Connector" off (or delete its `company_feature_overrides` row).
+The group-companies feature now works and **was verified in a real browser** — `/accounting/group` renders Incendio Global with 3 entities, populated stat cards and a reconciling entity table, zero console errors. Screenshot at `/tmp/claude-1003/-home-hein-Workspace-IsaFlow/2ff16a3a-fb35-43c8-9ae3-43ba4c5ecf40/scratchpad/group-renders.png` (temp — copy it if you need it).
 
----
-## ✅ Prior session — the connector build (COMPLETE, shipped, live)
+**The open work is a defect class, not a feature.** A blind-review repo sweep (~483 `.json()` call sites) found **13 HIGH/HIGH-MEDIUM UI bugs** where a call site re-guesses the API response envelope. Full detail in memory: **`project_api_envelope_defect_class`**.
 
-**Plan:** `docs/superpowers/plans/2026-07-18-mcp-connector.md` (all 46 boxes ticked).
-**Goal (done):** Ship the hosted MCP server so Claude/Codex can operate IsaFlow accounting via OAuth/PAT under the tenant/RLS model — built dark, deployed to prod, activated for a pilot.
+## What got done this session
 
-## Status: SUCCESS — build complete + **Gate C validated live** (Hein-authorised 2026-07-19). Only the browser-OAuth click-through remains.
+Four PRs, all merged and deployed:
 
-The entire buildable programme is **merged to master and dark** behind the per-company `mcp_connector` flag (+ `MCP_DCR_ENABLED` for dynamic registration). Seven PRs merged, all blind-reviewed; Gate A (programme review) + Gate B (pentest) findings fixed; Gate C **run live on dev and passed**; Gate D automated checks green. Nothing is blocking; prod is untouched.
+| PR | Squash | What |
+|---|---|---|
+| #248 | `f631ad70` | continuous-close 42703 — 4 dead schema references |
+| #249 | `3e20746f` | vestigial `bank_accounts` table read in 3 live call sites |
+| #250 | `1f75cddb` | 16 user-identity `::UUID` casts throwing `text = uuid` |
+| #251 | `cb4476fc` | group setup surface — 9 casing/action breakages |
+| #252 | `6b81b3c8` | group dashboard page crash + 5th envelope instance |
 
-**Gate C live validation (2026-07-19, dev only):** ran a fresh dev server (isolated git worktree at master `0dca5e36`, port 3210, `MCP_DCR_ENABLED=true`) against the real `isaflow_dev` DB with `mcp_connector` armed for the Demo company, driven by two minted PATs (with/without `write:post`). PASSED: `scripts/mcp-smoke.sh` = `MCP smoke OK`; 21 tools; `trial_balance` 18 rows; `create_draft_journal` → draft `a7150db3`; **`post_journal` rejected without `write:post`, posted with it** (DB: posted, balanced 100=100); audit rows carry the correct PAT jti (rejection audited `rejected`); cross-tenant `get_invoice` → generic "Not found"; FK-ownership rejects foreign account/customer; idempotency replay returns the stored result (no double-post); DCR → 201 public client. **Teardown clean** — server stopped, worktree/DCR-client removed, PATs revoked, Demo flag returned to dark. The only piece a PAT can't exercise is the **browser OAuth consent UI** (a real `claude mcp add` login) — everything it gates is proven via PAT scopes.
+Also deployed the 8 pentest fixes that were merged-but-undeployed at session start (incl. a live cross-tenant NL-query bypass).
 
-## What shipped (all merged to master)
+New CI step **`user-id-casts`** (`scripts/ci/audit-user-id-casts.ts` + `userIdCastRules.ts`, 14 own unit tests) wired into BOTH `scripts/ci/run-ci.sh` and `.github/workflows/ci.yml`.
 
-| PR | Phase | What |
-|----|-------|------|
-| **#224** `8c5440e1` | 0 | PRD-10 auth test suite (PAT/OAuth/dual-wrapper/withScope) — 41→155 tests; proved the boundary before building on it. |
-| **#225** `6b1c0a90` | 1 | OAuth discovery (RFC 8414/9728) + RFC 7591 dynamic client registration (public/PKCE-only, dark via `MCP_DCR_ENABLED`). Mig **506** `oauth_dynamic_clients` (+ `mcp_connector` flag). |
-| **#226** `41659686` | 2 | JSON-RPC transport `/api/mcp` (Bearer-only, flag-gated, rate-limited) + registry (scope fence/audit/idempotency) + strict `withBearerAuth` + **15 read tools**. Mig **507** `mcp_tool_calls`. Extracted 5 inline-SQL route bodies into shared services. |
-| **#227** `a093b681` | 3 | `write:post` scope (explicit unchecked opt-in) + **6 write tools** (drafts for all; `post_journal`/`finalize_invoice` behind `write:post`). Extracted invoice create/approve into services. |
-| **#228** `fdbc0b96` | 4 | Connect panel `/accounting/settings/integrations-mcp` (flag-gated) + `docs/mcp-connect.md` + `scripts/mcp-smoke.sh`. |
-| **#229** `d900b5a2` | 5-GateA | Programme-review fixes: commit-before-flush buffering, idempotency args-hash conflict, audit `ON CONFLICT`, sequential batch + per-RPC rate-limit, `authorize.tsx` split, savepoint-wrap write handlers. |
-| **#230** `34091636` | 5-GateB | Pentest fixes: advisory-lock against concurrent double-post, log-scrubber for `client_secret`/`refresh_token`, FK-ownership validation on `customer_id`/`account_id`, `/api/mcp` body cap. |
+**Incendio Global group created in prod** (`ac239a4d-b912-4fdf-9f0b-94507304cbd8`): Brightsphere, H10 Holdings, Velocity Fibre. `holding_company_id` is **NULL by Hein's decision** — Incendio itself is the holding company and has no company record in IsaFlow. **Do not create an Incendio tenant or set a holding company without asking.**
 
-**21 tools total** (15 read + 6 write). Core: `src/lib/mcp/**` (registry/audit/transport/tools), `src/lib/auth/{withBearerAuth,bearerPipeline,consentScopes,oauthScopes,patScopes}.ts`, `pages/api/mcp/index.ts`, `pages/api/oauth/{register,metadata,resource-metadata}.ts`.
+## What's next
 
-## Verification evidence
+**Triage and fix the API-envelope defect class.** Read `project_api_envelope_defect_class` in memory first.
 
-- **CI:** `bun run ci` GREEN on every merged PR and on final master. Full unit suite **4844 pass** / 3 skip; `tsc --noEmit` clean.
-- **Gate A (blind full-programme review):** 2 independent reviewers over the 8464-line union diff → 2 P1 + 3 P2, all fixed (PR #229), re-reviewed APPROVED.
-- **Gate B (targeted pentest):** 3 adversarial agents → **2 CRIT / 0 HIGH / 4 MEDIUM / 3 LOW**. Both CRIT + the exploitable MEDIUM + a LOW fixed (PR #230), blind-review APPROVED. **Report: `~/.claude/scratchpad/2026-07-19_pentest-isaflow-mcp/report.md`.**
-  - CRIT-1 concurrent double-post (unlocked replay-check) → `pg_advisory_xact_lock` before replay; DB-verified.
-  - CRIT-2 `client_secret`/`refresh_token` logged plaintext on `/api/oauth/token` → scrubber keys+fragments.
-  - MEDIUM cross-consent FK leak (foreign `customer_id`/`account_id`) → ownership validation at the MCP write boundary.
-- **Gate D (regression+integrity, automated):** CI green; local integrity **12/15** — the 3 fails (530 reconciled-txn mismatches, 6 fiscal-period, 1 cross-tenant GL line created 2026-04-13 via `auto_supplier_invoice`) are **pre-existing test-company data artifacts**, none from the dark schema-only MCP work (prod Demo is 15/15 per deployment history).
-- **Smoke:** `scripts/mcp-smoke.sh` written + syntax-checked (not yet run live — needs dev + a PAT).
+### Confirmed by direct code inspection (6)
 
-## Gate C browser-OAuth click-through — DONE ✅ (2026-07-19) + found & fixed a real bug (mig 508, PR #232)
+| # | File | Reads | API returns | Symptom |
+|---|---|---|---|---|
+| 1 | `pages/admin/users/[id].tsx:158` | `json.data.token` | `pages/api/admin/users/[id]/impersonate.ts:116` → `{data:{redirect}}`, never a token (auth is cookie-based) | **Admin "Login As" 100% broken** — always throws `'No token returned'` AFTER the impersonation succeeded server-side |
+| 2 | `src/components/dashboard/widgets/VatSummaryWidget.tsx:52-56` | `output_vat`/`outputVat`/`input_vat`/`inputVat`/`net_vat`/`netVat` | `vatReturnService.ts:187-189` → `outputVAT`/`inputVAT`/`netVAT` (full-caps VAT) | **Dashboard VAT always R0.00** |
+| 3 | `pages/accounting/settings/currencies.tsx:33` | `json.data?.currencies` | `pages/api/accounting/currencies.ts:20` → `apiResponse.success(res, currencies)` = bare array | Currencies list always empty |
+| 4-6 | `pages/accounting/migration/{ar-invoices,customers,opening-balances}.tsx` | `sessionJson.data?.id` | `pages/api/accounting/migration/session.ts:31,46` → `{data:{session:{...}}}` | **3 of 4 migration flows always fail "No active session."** `migration/index.tsx:76` unwraps correctly (`json.data.session ?? json.data`) — proves the other three are the regression, not shape ambiguity |
 
-Ran the full browser OAuth consent flow live on dev (`isaflow_dev`, isolated worktree at master, `MCP_DCR_ENABLED=true`, `mcp_connector` armed for Demo, DCR public client via PKCE). Drove it via playwriter against a real Chrome: login (Demo user) → `/oauth/authorize` → **consent screen renders with `write:post` opt-in checkbox UNCHECKED by default** → ticked it → Authorise → captured `code` → PKCE token exchange → `oat_` token with `scope=read:reports write:journals write:post` (proving the browser tick flows write:post server-side) → MCP `initialize`, `tools/list`=21, `trial_balance`, `create_draft_journal` (JE-2026-01666), **`post_journal` succeeded, DB posted + balanced 150.00=150.00**; audit rows carry `token_jti` + `oauth_app_id`.
+### Reported by the sweep, NOT independently verified (7) — verify before fixing
 
-**The browser flow surfaced a REAL BUG that PAT-based Gate C could never hit:** every OAuth auth-code exchange WITHOUT `offline_access` 500'd on `null value in column "refresh_token_prefix" ... violates not-null constraint` (issueTokens inserts NULL refresh columns when offline_access absent; mig 469 made the col NOT NULL, mig 470 nulled the two SIBLING refresh cols but MISSED prefix). The atomic consume UPDATE burned the code before the throw. PATs bypass issueTokens; unit tests mock the INSERT — invisible until a real exchange. **Fixed: migration 508 (`DROP NOT NULL`) + integration regression test, PR #232 (`02896ade`), blind-review APPROVED, merged to master.** CI: type-check/lint/unit/security-guards/migration-naming/build all PASS (the 9 integration-suite failures under local `bun run ci` are pre-existing HTTP-route tests needing a live server — skipped in the deploy gate when `DATABASE_URL` unset; this branch touches none of them; the new OAuth test passes 2/2).
+- `pages/accounting/expenses/[id].tsx:117` — `json.data?.accounts`; GL account dropdown always empty
+- `pages/accounting/batch-payments/[batchId].tsx:178` — `batch.payments`; claim is the mapper never sets it at all
+- `src/components/.../CaptureApiKeysSection.tsx` + `ThreeWayMatchPanel.tsx` — `json.error` assumed string, actually `{code,message}` → React "objects are not valid as a child" **crash**
+- `pages/accounting/capture/settings.tsx` — inbox address never shows
+- `pages/accounting/suppliers/[supplierId]/rules.tsx` — cost-centre picker never renders
+- `src/components/.../TimeEntryForm.tsx` — templates/work-items/rate all broken
+- `OverviewTab.tsx` (provisional-entries banner), `DetailsTab.tsx` + `company-settings.tsx` (documents tab empty)
+- plus ~10 LOW `{error:string}` vs `{error:{code,message}}` → `[object Object]` toasts across practice/bank/financial-years pages
 
-**Full Gate C teardown done:** dev servers (3301/3210) killed by PID, worktree removed, DCR client + oauth_authorisations + codes deleted (cascade), test journal + lines removed, 5 audit rows removed, throwaway app-user (+company_users) deleted, throwaway GoTrue user deleted via admin API, Demo `mcp_connector` override removed → **feature fully dark again** (is_global=false, 0 overrides).
+## Open questions / blockers
 
-## PROD DEPLOY DONE ✅ (2026-07-19 15:07 SAST, Hein-approved, Sunday → BH gate N/A)
+- **HEIN'S DECISION, still unanswered: structural fix vs patch round.** Options put to him: (a) build a typed `apiFetch<T>()` forcing callers to import the real response type, plus a CI guard banning bare `.json()` casts, THEN sweep; (b) fix the worst 3-4 now (Login-As, VAT widget, migration sessions) and defer the structural work; (c) catalogue and decide later. **My recommendation was (a)** — this class was declared closed twice and was wrong twice; fixing 13 sites against the same untyped floor yields a 14th. Counter-argument: the typed-client work is day-shaped, and three of the bugs are user-facing and cheap now.
+- **Proposed CI guard shape** (narrow, to stay decidable): flag files that BOTH declare a local `interface`/`type` AND contain `res.json()` / `json.data ?? json`, requiring an explicit opt-out comment. Precedent that worked: `scripts/ci/audit-user-id-casts.ts`.
+- **Off-host backup destination** — unchanged, asked repeatedly across sessions, still unanswered. Daily dumps + weekly base + continuous WAL + Sunday restore drill all exist but ALL on this one machine. Options: `fibreflow-wa-vps` over Tailscale, or cloud object storage.
 
-`bash scripts/deploy.sh` → **prod now at `7f209f76`** (from `d0f9ed85`). Migs **506+507+508 applied to prod** (`toApply: 506,507,508 → Applied 3`; prod `oauth_authorisations.refresh_token_prefix` now nullable). Build integrity 1135 pages-manifest entries (clean full build); CI gate green (type-check/lint/security-guards/unit/migration-naming; integration skipped, DATABASE_URL unset); schema-drift OK (281 tables); rollback snapshot of `d0f9ed85` taken. **Post-deploy verification PASSED: golden-paths 12/12 green + integrity green**; live health `status=ok, db=ok`. MCP connector is LIVE but **DARK** (`mcp_connector` global=false + 0 company overrides; `MCP_DCR_ENABLED` unset in prod env) — zero behavior change for existing users. (Note: the `:3200` local dev server was stopped for a clean build — restart with `bun run dev` if needed.)
+## Context the next session needs
 
-## GO-LIVE DONE ✅ (Hein-approved) — Demo pilot fully activated in prod
+- **The defect is NOT scoped by directory.** Two sweeps were scoped by folder and both missed live bugs. The defect shape is "a UI file declares its own copy of an API response shape and feeds an untyped `res.json()` into it". Sweep repo-wide by shape.
+- **The fix pattern that works:** stop redeclaring — import or re-export the service's own exported type. In #252, deleting one local redeclaration surfaced **26 compile errors** that had all been silent `undefined` reads. tsc becomes the guard once the local type is gone.
+- **A test asserting a hardcoded fixture against a TYPE is decorative.** Mine passed 8/8 with the production page reverted to the exact crash, while its own comment claimed it would fail. Blind review caught it. Test the real service against the real schema; let tsc guard field names. Deleted file: `tests/unit/components/groupDashboardContract.test.ts`.
+- **A dead code path hides its own bugs.** Three times this session, repairing a path exposed the next defect behind it: #250's guard threw before #249's repaired queries ran; #251's casing fix would have activated an ungated `holdingCompanyId` (pentest-H1 vector); #252's crash only became reachable once #250 and the group creation both landed. When reviving a dead path, re-review every guard it passes and every field it forwards.
+- **"The SQL works" is not "the route works", and "the API works" is not "the page renders."** I reported the group dashboard fixed twice on query-level proof. It crashed on the first real browser load. For anything user-facing, load it.
+- **Integration-test baseline is 33 failures / 14 files** (`api/health`, `api/zod-validation`, `csp-headers`, `rls-policy-coverage`) — pre-existing, need a running dev server + GoTrue. `bun run ci` exits 1 because of them. Compare the failing FILE SET against `origin/master`, not the pass count.
+- **`bun run ci` runs integration only if `DATABASE_URL` is exported.** In a bare shell it silently skips. `.env.local` cannot be `source`d (line 34 `SMTP_FROM=ISAFlow <noreply@...>` is unquoted).
+- **Query params on `/api/accounting/company-groups` are snake_case; JSON bodies are camelCase.** Deliberate, not a tidy-up target — the DELETE branches read `req.query.member_id`. `src/components/accounting/group/groupRequests.ts` encodes both.
+- **Fixture UUIDs must be valid hex.** `...cu01` and `...bas0` were both rejected (`u`, `s` are not hex). Cost two round trips.
+- **`pgrep -f "next dev|next-server"` self-matches your own shell** whose cmdline contains the pattern. It produced three false "dev server running" alarms. Verify via `/proc/PID/cwd` and `ls -la /proc/PID`, or check the listening port owner. Port 3200 belongs to **ApexSignal**, not IsaFlow.
+- **Deploy timing:** a ~6-minute deploy started after ~07:52 on a weekday WILL cross the 08:00 gate. Don't treat "started before 08:00" as "finished before 08:00".
+- **Read the rollback target off the deploy log's `Snapshotting current release (SHA)` line.** I twice stated a stale prod SHA from memory; the snapshot line is the authority.
 
-Both switches flipped and verified live:
-- **`mcp_connector` enabled=true for Demo** (`00000000-…-0001`, prod feature id `bcff6f6c`) — verified via a read-only prod Demo PAT: `tools/list`=21 + `trial_balance` OK, then PAT revoked.
-- **`MCP_DCR_ENABLED=true`** appended to `/home/velo/isaflow/.env.local` + `systemctl restart isaflow` — verified `POST /api/oauth/register`→**201** public PKCE client (was 503). Health ok post-restart.
+### DO NOT RESURRECT
 
-Real users can now connect: `claude mcp add --transport http isaflow https://app.isaflow.co.za/api/mcp` → browser OAuth (login as a Demo user → consent → tick `write:post`) **or** a `pat_` token. All test artifacts cleaned (verify PAT + smoke DCR clients deleted).
+- **`userCreatedGroup` on the `auto-map` handler** — it was applied there by accident (Python `str.replace()` has no count limit and `auto-map` had a byte-identical guard block), reverted after review. `auto-map` is membership-only. `userCreatedGroup` exists ONLY to let a group creator add the FIRST member, and must NOT be folded into `userBelongsToGroup`, which fronts consolidated financial reads and stays membership-only.
+- **`listGroups()`** in `groupCrudService.ts` — unscoped, returns every tenant's groups. No caller; documented as a footgun. Use `listGroupsForUser(userId)`.
+- **A local `interface` mirroring an API response** anywhere in `pages/` or `src/components/` — that IS the defect class.
 
-**Rollback the go-live:** delete the Demo `company_feature_overrides` row (feature `bcff6f6c`) to turn the connector off for Demo; remove the `MCP_DCR_ENABLED=true` line from `/home/velo/isaflow/.env.local` + restart to re-dark DCR (a `.env.local.pre-mcpdcr-*` backup was saved).
+## Git state
 
-## What's left — all Hein-only
+- **Uncommitted:** clean (`.claude/audit-manifest.json` and `.claude/handoffs/LATEST.md` were modified earlier this session and have since been committed/superseded)
+- **Unpushed commits:** none
+- **Stashes:** 16, all pre-dating this session
+- **Worktrees:** 15
 
-1. **Onboard real pilot clients:** repeat the per-company activation (enable `mcp_connector` override for each pilot company) — runbook in memory `project_mcp_pilot_ops`. Demo is the proven template.
+## Session teardown
 
-**Closed in code (nothing left for you here):** the 4 pentest MEDIUM/LOW hardening residuals — DCR global flood cap, reserved brand-name filter, company-scoped shared read joins, pre-auth IP throttle on `/api/mcp` — all merged in **PR #231 (`8072f6e0`)**, blind-review APPROVED. Data-cleanup note (not code): the join-scoping now correctly excludes the pre-existing corrupt Britech cross-tenant GL line (created 2026-04-13) from Britech's own reports — that one row should be reversed/remediated in the data whenever convenient.
+Nothing from this session is running. These belong to **other projects** and were already running — do not kill them:
+- PID 1195412 / 1195418 — `next dev` in `/home/hein/Workspace/FF_Next.js-actions` (FibreFlow)
+- PID 3147030 — `next dev` in `/home/hein/Workspace/FF_Next.js-histstock` (FibreFlow)
 
-## Notes / deviations captured in PRs
-- Plan assumed migs 506/507; 506 taken by Phase-1 DCR so the audit table shipped as **507**.
-- Plan's tool table listed 15 read tools not 14; built 15. `create_draft_journal` uses `account_id` (GL UUID) not `account_code` (service reality).
-- 8 route anchors had inline SQL (no service) → extracted verbatim into shared services; routes delegate, response shapes unchanged.
-- Pre-existing 300-line-cap debt untouched: `oauth.ts` (593), `personal-tokens.tsx`, `chartOfAccountsService.ts` (467) — noted, not newly caused (this programme net-shrank `oauth.ts` and split `authorize.tsx` back under cap).
+No `gh run watch`, no test DB containers, no IsaFlow dev server.
 
-**Standing HEIN-owned items unchanged from prior handoff:** super_admin pw rotation (admin123 still accepted), SMTP_PASS, rate-limit cron, SARS ISV channel arming.
+## Where to resume
+
+```bash
+git fetch origin && git log origin/master --oneline -5
+curl -s https://app.isaflow.co.za/api/health
+```
+
+Then read memory `project_api_envelope_defect_class`, and **ask Hein the structural-vs-patch question before writing code** — it changes the shape of the whole task.
