@@ -9,6 +9,7 @@ import {
   CompanyGroup, GroupAccount, SimpleCompany,
   INPUT_CLS, LABEL_CLS, BTN_PRIMARY, BTN_SECONDARY, SECTION_CLS,
 } from './types';
+import { autoGenerateCoaBody, createGroupAccountBody, updateGroupAccountBody } from './groupRequests';
 
 interface Props {
   group: CompanyGroup | null;
@@ -28,7 +29,7 @@ export function GroupCoaTab({
   const [editAccountName, setEditAccountName] = useState('');
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [newAccount, setNewAccount] = useState({
-    code: '', name: '', account_type: 'asset', sub_type: '', level: 1,
+    accountCode: '', accountName: '', accountType: 'asset', accountSubtype: '', level: 1,
   });
 
   if (!group) {
@@ -44,7 +45,7 @@ export function GroupCoaTab({
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'auto-generate-coa', group_id: group.id, source_company_id: coaSourceCompany }),
+        body: JSON.stringify(autoGenerateCoaBody(group.id, coaSourceCompany)),
       });
       if (!res.ok) throw new Error('Auto-generate failed');
       onFlash('Group COA generated from company', 'success');
@@ -58,7 +59,7 @@ export function GroupCoaTab({
   };
 
   const handleAddGroupAccount = async () => {
-    if (!newAccount.code.trim() || !newAccount.name.trim()) {
+    if (!newAccount.accountCode.trim() || !newAccount.accountName.trim()) {
       onFlash('Code and name are required', 'error');
       return;
     }
@@ -67,12 +68,12 @@ export function GroupCoaTab({
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'add-account', group_id: group.id, ...newAccount }),
+        body: JSON.stringify(createGroupAccountBody(group.id, newAccount)),
       });
       if (!res.ok) throw new Error('Add account failed');
       onFlash('Account added', 'success');
       setShowAddAccount(false);
-      setNewAccount({ code: '', name: '', account_type: 'asset', sub_type: '', level: 1 });
+      setNewAccount({ accountCode: '', accountName: '', accountType: 'asset', accountSubtype: '', level: 1 });
       await onAccountsRefresh();
     } catch {
       onFlash('Failed to add account', 'error');
@@ -86,7 +87,7 @@ export function GroupCoaTab({
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'update-account', account_id: accountId, name: editAccountName }),
+        body: JSON.stringify(updateGroupAccountBody(group.id, accountId, editAccountName)),
       });
       if (!res.ok) throw new Error('Update failed');
       setEditingAccountId(null);
@@ -134,15 +135,15 @@ export function GroupCoaTab({
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div>
               <label className={LABEL_CLS}>Code *</label>
-              <input className={INPUT_CLS} value={newAccount.code} onChange={e => setNewAccount({ ...newAccount, code: e.target.value })} />
+              <input className={INPUT_CLS} value={newAccount.accountCode} onChange={e => setNewAccount({ ...newAccount, accountCode: e.target.value })} />
             </div>
             <div>
               <label className={LABEL_CLS}>Name *</label>
-              <input className={INPUT_CLS} value={newAccount.name} onChange={e => setNewAccount({ ...newAccount, name: e.target.value })} />
+              <input className={INPUT_CLS} value={newAccount.accountName} onChange={e => setNewAccount({ ...newAccount, accountName: e.target.value })} />
             </div>
             <div>
               <label className={LABEL_CLS}>Type</label>
-              <select className={INPUT_CLS} value={newAccount.account_type} onChange={e => setNewAccount({ ...newAccount, account_type: e.target.value })}>
+              <select className={INPUT_CLS} value={newAccount.accountType} onChange={e => setNewAccount({ ...newAccount, accountType: e.target.value })}>
                 <option value="asset">Asset</option>
                 <option value="liability">Liability</option>
                 <option value="equity">Equity</option>
@@ -152,7 +153,7 @@ export function GroupCoaTab({
             </div>
             <div>
               <label className={LABEL_CLS}>Sub-type</label>
-              <input className={INPUT_CLS} value={newAccount.sub_type} onChange={e => setNewAccount({ ...newAccount, sub_type: e.target.value })} />
+              <input className={INPUT_CLS} value={newAccount.accountSubtype} onChange={e => setNewAccount({ ...newAccount, accountSubtype: e.target.value })} />
             </div>
             <div>
               <label className={LABEL_CLS}>Level</label>
@@ -191,7 +192,7 @@ export function GroupCoaTab({
             <tbody>
               {groupAccounts.map(a => (
                 <tr key={a.id} className="border-b border-[var(--ff-border-primary)] last:border-0">
-                  <td className="py-2 text-[var(--ff-text-primary)] font-mono text-xs">{a.code}</td>
+                  <td className="py-2 text-[var(--ff-text-primary)] font-mono text-xs">{a.accountCode}</td>
                   <td className="py-2 text-[var(--ff-text-primary)]">
                     {editingAccountId === a.id ? (
                       <div className="flex items-center gap-2">
@@ -213,15 +214,15 @@ export function GroupCoaTab({
                       <span
                         className="cursor-pointer hover:text-teal-400 transition-colors"
                         style={{ paddingLeft: `${(a.level - 1) * 16}px` }}
-                        onClick={() => { setEditingAccountId(a.id); setEditAccountName(a.name); }}
+                        onClick={() => { setEditingAccountId(a.id); setEditAccountName(a.accountName); }}
                         title="Click to edit"
                       >
-                        {a.name}
+                        {a.accountName}
                       </span>
                     )}
                   </td>
-                  <td className="py-2 text-[var(--ff-text-secondary)] capitalize">{a.account_type}</td>
-                  <td className="py-2 text-[var(--ff-text-tertiary)]">{a.sub_type || '-'}</td>
+                  <td className="py-2 text-[var(--ff-text-secondary)] capitalize">{a.accountType}</td>
+                  <td className="py-2 text-[var(--ff-text-tertiary)]">{a.accountSubtype || '-'}</td>
                   <td className="py-2 text-[var(--ff-text-tertiary)]">{a.level}</td>
                 </tr>
               ))}

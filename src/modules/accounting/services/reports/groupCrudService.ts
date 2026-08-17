@@ -64,6 +64,42 @@ export function mapMember(r: DbRow): GroupMember {
 
 // ── Group CRUD ───────────────────────────────────────────────────────────────
 
+/**
+ * Groups the user can see: those with a member company they belong to, PLUS
+ * those they created. The creator clause matters because a group created without
+ * a holding company has no members yet — an INNER JOIN dropped it from this list
+ * entirely, so its creator could not reach the page that adds members, and the
+ * group was permanently orphaned.
+ *
+ * `created_by` is a uuid column and user ids are strings, so the COLUMN is cast
+ * to text — never the parameter to ::UUID.
+ *
+ * Multi-tenant: this IS the tenant filter for the group list. Prefer it over
+ * `listGroups()` below, which is unscoped.
+ */
+export async function listGroupsForUser(userId: string): Promise<CompanyGroup[]> {
+  const rows = (await sql`
+    SELECT cg.*,
+           COUNT(DISTINCT cgm2.id) FILTER (WHERE cgm2.left_date IS NULL)::int AS member_count
+    FROM company_groups cg
+    LEFT JOIN company_group_members cgm ON cgm.group_id = cg.id
+    LEFT JOIN company_users cu
+           ON cu.company_id = cgm.company_id
+          AND cu.user_id = ${userId}
+    LEFT JOIN company_group_members cgm2 ON cgm2.group_id = cg.id
+    WHERE cg.is_active = true
+      AND (cu.user_id IS NOT NULL OR cg.created_by::TEXT = ${userId})
+    GROUP BY cg.id
+    ORDER BY cg.name
+  `) as DbRow[];
+  return rows.map((r: DbRow) => ({ ...mapGroup(r), memberCount: Number(r.member_count) }));
+}
+
+/**
+ * UNSCOPED — returns every active group across all tenants. No current caller;
+ * it is only re-exported by `groupCompanyService`. Do NOT wire this into a
+ * tenant-facing route: use `listGroupsForUser` instead.
+ */
 export async function listGroups(): Promise<CompanyGroup[]> {
   const rows = (await sql`
     SELECT cg.*,

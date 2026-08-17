@@ -42,6 +42,34 @@ export async function userBelongsToCompany(userId: string, companyId: string): P
  * of them grants access to the consolidated view — that is the intended
  * consolidation model, not a gap.
  */
+/**
+ * True when the user created the group.
+ *
+ * Used ONLY to unblock adding the FIRST member. `userBelongsToGroup` requires an
+ * existing member company, so a group created without a holding company (the
+ * field is optional) could never gain its first member and was permanently
+ * orphaned — invisible in the list and unreachable by every guarded action.
+ *
+ * Deliberately NOT folded into `userBelongsToGroup`: group reads aggregate
+ * financials across member companies, and that must stay strictly
+ * membership-based. Creating a group must not by itself grant read access to
+ * whatever companies later join it.
+ *
+ * `created_by` is a uuid column while user ids are strings, so the COLUMN is
+ * cast to text — never the parameter to ::UUID.
+ */
+export async function userCreatedGroup(userId: string, groupId: string): Promise<boolean> {
+  const rows = (await sql`
+    SELECT 1
+    FROM   company_groups
+    WHERE  id = ${groupId}::UUID
+      AND  created_by::TEXT = ${userId}
+    LIMIT  1
+  `) as Record<string, unknown>[];
+
+  return rows.length > 0;
+}
+
 export async function userBelongsToGroup(userId: string, groupId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1
