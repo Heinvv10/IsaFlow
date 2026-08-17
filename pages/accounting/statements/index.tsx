@@ -13,6 +13,7 @@ import {
   CustomerStatementTable,
   type CustomerRow,
 } from '@/components/accounting/statements/CustomerStatementTable';
+import { buildCustomerEmailMap } from '@/components/accounting/statements/customerEmails';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -62,9 +63,13 @@ export default function StatementsPage() {
 
       const balances = ((stmtJson.data ?? stmtJson) as { customers?: CustomerRow[] }).customers ?? [];
 
-      const emailMap = new Map<string, string | null>();
-      const custList = ((custJson.data ?? custJson) as { customers?: Array<{ id: string; email?: string | null }> }).customers ?? [];
-      for (const c of custList) emailMap.set(c.id, c.email ?? null);
+      // /api/accounting/customers returns the rows as a BARE ARRAY, not
+      // `{ customers: [...] }`. Reading `.customers` left this map empty, so every
+      // customer looked like it had no email and the bulk-email feature could
+      // never select anyone. See buildCustomerEmailMap.
+      const custEmails = buildCustomerEmailMap(
+        (custJson.data ?? custJson) as Parameters<typeof buildCustomerEmailMap>[0],
+      );
 
       // AR aging: AgingBucket has entityId + days30..days120Plus buckets
       const agingItems = ((agingJson.data ?? agingJson) as AgingBucket[] | { items?: AgingBucket[] });
@@ -82,7 +87,7 @@ export default function StatementsPage() {
       const rows: CustomerRow[] = balances.map(b => ({
         client_id: b.client_id,
         client_name: b.client_name,
-        email: emailMap.get(b.client_id) ?? null,
+        email: custEmails.get(b.client_id) ?? null,
         total_invoiced: b.total_invoiced,
         total_paid: b.total_paid,
         balance: b.balance,

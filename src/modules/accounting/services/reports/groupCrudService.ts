@@ -77,11 +77,13 @@ export function mapMember(r: DbRow): GroupMember {
  * Multi-tenant: this IS the tenant filter for the group list. Prefer it over
  * `listGroups()` below, which is unscoped.
  */
-export async function listGroupsForUser(userId: string): Promise<CompanyGroup[]> {
+export async function listGroupsForUser(userId: string): Promise<Array<CompanyGroup & { holdingCompanyName: string | null }>> {
   const rows = (await sql`
     SELECT cg.*,
+           hc.name AS holding_company_name,
            COUNT(DISTINCT cgm2.id) FILTER (WHERE cgm2.left_date IS NULL)::int AS member_count
     FROM company_groups cg
+    LEFT JOIN companies hc ON hc.id = cg.holding_company_id
     LEFT JOIN company_group_members cgm ON cgm.group_id = cg.id
     LEFT JOIN company_users cu
            ON cu.company_id = cgm.company_id
@@ -89,10 +91,16 @@ export async function listGroupsForUser(userId: string): Promise<CompanyGroup[]>
     LEFT JOIN company_group_members cgm2 ON cgm2.group_id = cg.id
     WHERE cg.is_active = true
       AND (cu.user_id IS NOT NULL OR cg.created_by::TEXT = ${userId})
-    GROUP BY cg.id
+    -- hc.name must be grouped explicitly: Postgres infers functional dependency
+    -- only from the grouped table's own primary key, never through a join.
+    GROUP BY cg.id, hc.name
     ORDER BY cg.name
   `) as DbRow[];
-  return rows.map((r: DbRow) => ({ ...mapGroup(r), memberCount: Number(r.member_count) }));
+  return rows.map((r: DbRow) => ({
+    ...mapGroup(r),
+    memberCount: Number(r.member_count),
+    holdingCompanyName: r.holding_company_name != null ? String(r.holding_company_name) : null,
+  }));
 }
 
 /**
