@@ -11,13 +11,14 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql } from '@/lib/neon';
 import {
   userBelongsToCompany,
   userBelongsToGroup,
+  userCreatedGroup,
 } from '@/modules/accounting/services/core/companyAccessService';
 import {
   getGroup,
+  listGroupsForUser,
   createGroup,
   updateGroup,
   deleteGroup,
@@ -100,16 +101,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, group);
     }
 
-    const groups = (await sql`
-      SELECT cg.*, COUNT(cgm2.id) FILTER (WHERE cgm2.left_date IS NULL)::int AS member_count
-      FROM company_groups cg
-      JOIN company_group_members cgm ON cgm.group_id = cg.id
-      JOIN company_users cu ON cu.company_id::TEXT = cgm.company_id::TEXT
-      LEFT JOIN company_group_members cgm2 ON cgm2.group_id = cg.id
-      WHERE cu.user_id::TEXT = ${userId} AND cg.is_active = true
-      GROUP BY cg.id
-      ORDER BY cg.name
-    `) as Record<string, unknown>[];
+    // Scoped in listGroupsForUser: member-company membership OR group creator.
+    // The creator clause is what stops a memberless group from being orphaned.
+    const groups = await listGroupsForUser(userId);
     return apiResponse.success(res, { items: groups });
   }
 
@@ -118,7 +112,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (action === 'add-member') {
       const { groupId, companyId, ownershipPct, consolidationMethod } = req.body;
       if (!groupId || !companyId) return apiResponse.badRequest(res, 'groupId and companyId required');
-      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+      // A group created without a holding company has no members yet, so
+      // verifyGroupAccess cannot pass and the first member could never be added
+      // — the group stayed orphaned forever. The creator may bootstrap it.
+      // verifyCompanyMembership below still prevents pulling in a foreign tenant.
+      const mayAddMember =
+        (await verifyGroupAccess(groupId)) || (await userCreatedGroup(userId, groupId));
+      if (!mayAddMember) return apiResponse.forbidden(res, 'Access denied to this group');
       if (!(await verifyCompanyMembership(companyId))) return apiResponse.forbidden(res, 'Access denied to the specified company');
       const member = await addMember(groupId, companyId, {
         ownershipPct: ownershipPct ?? 100,
@@ -168,7 +168,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, { mappedCount: count });
     }
 
-    // Default POST: create group
+    // An unrecognised action must NOT fall through to create-group. The COA tab
+    // used to POST action:'add-account' — no such action — and the fall-through
+    // created a COMPANY GROUP named after the GL account while reporting
+    // "Account added". Reject unknown actions explicitly.
+    if (action) return apiResponse.badRequest(res, `Unknown action: ${action}`);
+
+    // Default POST (no action): create group
     const { name, holdingCompanyId, defaultCurrency, financialYearStart } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
     // createGroup auto-enrolls holdingCompanyId as a group member, so it is the same
@@ -200,9 +206,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.success(res, account);
     }
 
+    // Same fall-through hazard as POST: 'update-account' was not a real action.
+    if (action) return apiResponse.badRequest(res, `Unknown action: ${action}`);
+
     const { groupId, ...updates } = req.body;
     if (!groupId) return apiResponse.badRequest(res, 'groupId required');
     if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
+    // Same cross-tenant injection vector the create branch guards (pentest H1):
+    // holdingCompanyId arrives in the body. This path was unreachable while the
+    // UI sent `id` instead of `groupId`, so fixing that casing would otherwise
+    // have activated an ungated body-supplied companyId.
+    if (updates.holdingCompanyId && !(await verifyCompanyMembership(updates.holdingCompanyId))) {
+      return apiResponse.forbidden(res, 'Access denied to the specified holding company');
+    }
     const group = await updateGroup(groupId, updates);
     return apiResponse.success(res, group);
   }

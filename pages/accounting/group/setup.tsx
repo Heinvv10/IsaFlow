@@ -10,7 +10,8 @@ import { log } from '@/lib/logger';
 import { GroupDetailsTab } from '@/components/accounting/group/GroupDetailsTab';
 import { GroupCoaTab } from '@/components/accounting/group/GroupCoaTab';
 import { GroupMappingTab } from '@/components/accounting/group/GroupMappingTab';
-import type { CompanyGroup, GroupMember, GroupAccount, AccountMapping, SimpleCompany, GroupSetupTab } from '@/components/accounting/group/types';
+import type { CompanyGroup, GroupMember, GroupAccount, CoaMapping, SimpleCompany, GroupSetupTab, UserCompanyRow } from '@/components/accounting/group/types';
+import { toSimpleCompanies } from '@/components/accounting/group/types';
 
 const TABS: { key: GroupSetupTab; label: string; icon: typeof Layers }[] = [
   { key: 'details', label: 'Group Details', icon: Users },
@@ -29,7 +30,7 @@ export default function GroupSetupPage() {
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [groupAccounts, setGroupAccounts] = useState<GroupAccount[]>([]);
   const [loadingCoa, setLoadingCoa] = useState(false);
-  const [mappings, setMappings] = useState<AccountMapping[]>([]);
+  const [mappings, setMappings] = useState<CoaMapping[]>([]);
   const [loadingMappings, setLoadingMappings] = useState(false);
   const [mappingCompanyId, setMappingCompanyId] = useState('');
 
@@ -70,7 +71,11 @@ export default function GroupSetupPage() {
     try {
       const res = await apiFetch('/api/accounting/companies?action=user-companies');
       const json = await res.json();
-      setUserCompanies(json.data?.items ?? json.data ?? []);
+      // The API returns camelCase rows (companyId/companyName). Feeding them
+      // straight in left every id/name undefined, so the Holding Company and
+      // add-member pickers rendered blank options.
+      const rows: UserCompanyRow[] = json.data?.items ?? json.data ?? [];
+      setUserCompanies(toSimpleCompanies(rows));
     } catch (e) {
       log.warn('Group setup step failed', { error: e }, 'group');
     }

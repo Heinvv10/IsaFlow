@@ -6,15 +6,16 @@ import { useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import {
-  CompanyGroup, GroupMember, GroupAccount, AccountMapping,
+  CompanyGroup, GroupMember, GroupAccount, CoaMapping,
   INPUT_CLS, LABEL_CLS, BTN_SECONDARY, SECTION_CLS,
 } from './types';
+import { setMappingBody, autoMapBody } from './groupRequests';
 
 interface Props {
   group: CompanyGroup | null;
   members: GroupMember[];
   groupAccounts: GroupAccount[];
-  mappings: AccountMapping[];
+  mappings: CoaMapping[];
   loading: boolean;
   mappingCompanyId: string;
   onCompanyChange: (companyId: string) => void;
@@ -28,7 +29,7 @@ export function GroupMappingTab({
 }: Props) {
   const [autoMapping, setAutoMapping] = useState(false);
 
-  const mappedCount = mappings.filter(m => m.group_account_id).length;
+  const mappedCount = mappings.filter(m => m.groupAccountId).length;
   const totalMappings = mappings.length;
 
   if (!group) {
@@ -43,13 +44,7 @@ export function GroupMappingTab({
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'set-mapping',
-          group_id: group.id,
-          company_id: mappingCompanyId,
-          company_account_id: companyAccountId,
-          group_account_id: groupAccountId || null,
-        }),
+        body: JSON.stringify(setMappingBody(group.id, mappingCompanyId, companyAccountId, groupAccountId || null)),
       });
       if (!res.ok) throw new Error('Mapping failed');
       await onMappingsRefresh(mappingCompanyId);
@@ -65,7 +60,7 @@ export function GroupMappingTab({
       const res = await apiFetch('/api/accounting/company-groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'auto-map', group_id: group.id, company_id: mappingCompanyId }),
+        body: JSON.stringify(autoMapBody(group.id, mappingCompanyId)),
       });
       if (!res.ok) throw new Error('Auto-map failed');
       onFlash('Auto-mapping complete', 'success');
@@ -104,7 +99,7 @@ export function GroupMappingTab({
         >
           <option value="">-- Select a member company --</option>
           {members.map(m => (
-            <option key={m.company_id} value={m.company_id}>{m.company_name}</option>
+            <option key={m.companyId} value={m.companyId}>{m.companyName}</option>
           ))}
         </select>
       </div>
@@ -132,25 +127,25 @@ export function GroupMappingTab({
             </thead>
             <tbody>
               {mappings.map(m => (
-                <tr key={m.company_account_id} className="border-b border-[var(--ff-border-primary)] last:border-0">
+                <tr key={m.companyAccountId} className="border-b border-[var(--ff-border-primary)] last:border-0">
                   <td className="py-2 text-[var(--ff-text-primary)]">
-                    <span className="font-mono text-xs text-[var(--ff-text-tertiary)] mr-2">{m.company_account_code}</span>
-                    {m.company_account_name}
+                    <span className="font-mono text-xs text-[var(--ff-text-tertiary)] mr-2">{m.companyAccountCode}</span>
+                    {m.companyAccountName}
                   </td>
                   <td className="py-2">
                     <select
                       className={INPUT_CLS}
-                      value={m.group_account_id ?? ''}
-                      onChange={e => void handleSetMapping(m.company_account_id, e.target.value)}
+                      value={m.groupAccountId ?? ''}
+                      onChange={e => void handleSetMapping(m.companyAccountId, e.target.value)}
                     >
                       <option value="">-- Unmapped --</option>
                       {groupAccounts.map(ga => (
-                        <option key={ga.id} value={ga.id}>{ga.code} — {ga.name}</option>
+                        <option key={ga.id} value={ga.id}>{ga.accountCode} — {ga.accountName}</option>
                       ))}
                     </select>
                   </td>
                   <td className="py-2">
-                    {m.group_account_id ? (
+                    {m.groupAccountId ? (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-teal-500/10 text-teal-400">
                         Mapped
                       </span>

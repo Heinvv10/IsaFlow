@@ -7,6 +7,7 @@
 export type { CompanyGroup, GroupMember } from './groupCrudService';
 export {
   listGroups,
+  listGroupsForUser,
   getGroup,
   createGroup,
   updateGroup,
