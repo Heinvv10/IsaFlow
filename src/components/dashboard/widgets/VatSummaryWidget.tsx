@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { Percent, Calendar } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiJson } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 
 interface VatData {
@@ -46,19 +46,17 @@ export function VatSummaryWidget() {
     async function load() {
       const { start, end } = currentPeriod();
       try {
-        const res = await apiFetch(
+        // The service returns full-caps `outputVAT`/`inputVAT`/`netVAT`. This
+        // call site used to try six snake_case/camelCase spellings, none of
+        // which matched, so the widget silently rendered R0.00 for every
+        // tenant. The field names are now checked against the service type.
+        const d = await apiJson(
           `/api/accounting/reports-vat-return?period_start=${start}&period_end=${end}`
         );
-        const json = (await res.json()) as { data?: {
-          output_vat?: number; outputVat?: number;
-          input_vat?: number; inputVat?: number;
-          net_vat?: number; netVat?: number;
-        } };
-        const d = json.data ?? {};
         setData({
-          outputVat: d.output_vat ?? d.outputVat ?? 0,
-          inputVat: d.input_vat ?? d.inputVat ?? 0,
-          netVat: d.net_vat ?? d.netVat ?? 0,
+          outputVat: d.outputVAT,
+          inputVat: d.inputVAT,
+          netVat: d.netVAT,
           periodStart: start,
           periodEnd: end,
         });

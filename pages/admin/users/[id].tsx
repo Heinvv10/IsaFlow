@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, apiJson } from '@/lib/apiFetch';
 import { useAdminHref } from '@/hooks/useAdminPrefix';
 import {
   ArrowLeft, AlertCircle, Loader2, User, CheckCircle2,
@@ -65,7 +65,7 @@ export default function AdminUserDetailPage() {
   const [confirmAction, setConfirmAction]         = useState<string | null>(null);
   const [toast, setToast]                         = useState<string | null>(null);
   const [loginAsModalOpen, setLoginAsModalOpen]   = useState(false);
-  const [loginAsToken, setLoginAsToken]           = useState<string | null>(null);
+  const [loginAsRedirect, setLoginAsRedirect]     = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(msg: string) {
@@ -149,15 +149,15 @@ export default function AdminUserDetailPage() {
     if (!user || !id || typeof id !== 'string') return;
     setActionLoading(true); setActionError('');
     try {
-      const res  = await apiFetch(`/api/admin/users/${id}/impersonate`, {
+      // Impersonation is cookie-based: this call sets the stash cookies on the
+      // shared parent domain and returns only where to go. It never returns a
+      // token — reading one here made the UI report failure after the session
+      // had already been created server-side.
+      const { redirect } = await apiJson(`/api/admin/users/${id}/impersonate`, {
         method:  'POST',
         headers: { 'X-Admin-Request': 'true' },
       });
-      const json = await res.json() as { data?: { token?: string }; message?: string; error?: { message?: string } };
-      if (!res.ok) throw new Error(json.error?.message || json.message || 'Failed');
-      const token = json.data?.token ?? null;
-      if (!token) throw new Error('No token returned');
-      setLoginAsToken(token);
+      setLoginAsRedirect(redirect);
       setLoginAsModalOpen(true);
     } catch (err) {
       log.error('Login-as impersonation failed', { userId: user.id, error: err }, 'admin-ui');
@@ -166,21 +166,21 @@ export default function AdminUserDetailPage() {
   }
 
   function openImpersonationTab() {
-    if (!loginAsToken) return;
-    const url = `https://app.isaflow.co.za/impersonate?token=${encodeURIComponent(loginAsToken)}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    if (loginAsRedirect === null) return;
+    // Defensive: the API hardcodes '/accounting', but the type only promises a
+    // string and this opens a tab as another user. Require a same-origin
+    // relative path so a future server change cannot turn this into an open
+    // redirect. `//evil.com` is rejected — it is protocol-relative, not local.
+    const isLocalPath = loginAsRedirect.startsWith('/') && !loginAsRedirect.startsWith('//');
+    if (!isLocalPath) {
+      log.error('Refusing non-local impersonation redirect', { redirect: loginAsRedirect }, 'admin-ui');
+      setActionError('Server returned an unexpected redirect target');
+      return;
+    }
+    const appOrigin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
+    window.open(`${appOrigin}${loginAsRedirect}`, '_blank', 'noopener,noreferrer');
     setLoginAsModalOpen(false);
     showToast('Impersonation session opened in new tab');
-  }
-
-  async function copyTokenToClipboard() {
-    if (!loginAsToken) return;
-    try {
-      await navigator.clipboard.writeText(loginAsToken);
-      showToast('Token copied to clipboard');
-    } catch {
-      setActionError('Clipboard access denied — copy the token manually');
-    }
   }
 
   async function handleToggleSuspend() {
@@ -266,7 +266,7 @@ export default function AdminUserDetailPage() {
                 onClick={() => {
                   if (!user) return;
                   if (user.role === 'super_admin') { setActionError('Cannot login as another super_admin'); return; }
-                  setLoginAsModalOpen(true); setLoginAsToken(null);
+                  setLoginAsModalOpen(true); setLoginAsRedirect(null);
                 }}
                 disabled={actionLoading}
                 className={`${btnBase} border-amber-400 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10`}
@@ -342,12 +342,11 @@ export default function AdminUserDetailPage() {
       {loginAsModalOpen && user && (
         <LoginAsModal
           user={user}
-          token={loginAsToken}
+          redirectUrl={loginAsRedirect}
           loading={actionLoading}
           onConfirm={() => void handleLoginAs()}
           onOpenTab={openImpersonationTab}
-          onCopyToken={() => void copyTokenToClipboard()}
-          onClose={() => { setLoginAsModalOpen(false); setLoginAsToken(null); }}
+          onClose={() => { setLoginAsModalOpen(false); setLoginAsRedirect(null); }}
         />
       )}
     </AdminLayout>
