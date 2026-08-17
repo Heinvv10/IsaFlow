@@ -66,3 +66,19 @@ export async function p7() {
   // @ts-expect-error unknown is not indexable — forces the caller to register or narrow
   return u.anything;
 }
+
+// 8. The dynamic segment binds ONE path segment only. A deeper path that merely
+//    shares the prefix and suffix must NOT inherit the impersonate type — that
+//    would be this registry recreating the very defect it exists to prevent.
+export async function p8() {
+  const other = await apiJson('/api/admin/users/abc/roles/impersonate');
+  // @ts-expect-error must resolve to `unknown`, NOT to { redirect: string }
+  return other.redirect;
+}
+
+// 9. A query string must not defeat the dynamic matcher either.
+export async function p9(id: string) {
+  const r = await apiJson(`/api/admin/users/${id}/impersonate?foo=1`, { method: 'POST' });
+  const redirect: string = r.redirect;
+  return redirect;
+}

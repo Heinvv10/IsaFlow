@@ -39,8 +39,14 @@ import type { MigrationSession } from '@/modules/accounting/services/core/migrat
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 
 /**
- * Routes with a fixed path. Key = exact pathname (no query string — query
- * strings are handled by the matcher in `apiFetch.ts`).
+ * ONE TYPE PER URL, REGARDLESS OF METHOD.
+ * Matching is by pathname only — `apiJson` does not know the HTTP verb. A
+ * route's registered type must therefore hold for EVERY method served at that
+ * path. `/api/accounting/migration/session` qualifies: its GET and its POST
+ * both return `{ session }`. If you ever add a method whose payload differs,
+ * do NOT register the shared path — split the handler onto its own path, or
+ * the second method silently inherits the first one's type and you have
+ * recreated the confirmed-but-wrong guess this registry exists to prevent.
  */
 interface StaticRoutes {
   '/api/accounting/currencies': Currency[];
@@ -49,28 +55,54 @@ interface StaticRoutes {
 }
 
 /**
- * Routes containing a dynamic segment, expressed as template-literal types.
- * A concrete URL like `/api/admin/users/abc-123/impersonate` structurally
- * extends the pattern, so inference still resolves.
+ * Routes with a dynamic segment. Write the variable part as `{}` — the matcher
+ * below binds it to exactly ONE path segment.
+ *
+ * A bare `` `/api/admin/users/${string}/impersonate` `` index signature would
+ * be wrong: `${string}` spans slashes, so a future
+ * `/api/admin/users/{id}/roles/impersonate` returning a different envelope
+ * would silently inherit this type. That is precisely the defect class this
+ * file exists to close, so the matcher rejects any binding containing `/`.
  */
-type DynamicRoutes = {
-  [K in `/api/admin/users/${string}/impersonate`]: { redirect: string };
-};
+interface DynamicRoutes {
+  '/api/admin/users/{}/impersonate': { redirect: string };
+}
 
 export type ApiRouteMap = StaticRoutes & DynamicRoutes;
 
 export type KnownRoute = keyof ApiRouteMap;
 
+/** A single path segment: any string that does not span a `/` boundary. */
+type Segment<S extends string> = S extends `${string}/${string}` ? never : S;
+
+/** Strip a trailing query string or hash so callers can build URLs freely. */
+type Path<U extends string> = U extends `${infer P}?${string}`
+  ? P
+  : U extends `${infer P}#${string}`
+    ? P
+    : U;
+
+type MatchStatic<P extends string> = {
+  [K in keyof StaticRoutes]: P extends K ? K : never;
+}[keyof StaticRoutes];
+
+type MatchDynamic<P extends string> = {
+  [K in keyof DynamicRoutes]: K extends `${infer Pre}{}${infer Post}`
+    ? P extends `${Pre}${infer Bound}${Post}`
+      ? [Segment<Bound>] extends [never]
+        ? never
+        : K
+      : never
+    : never;
+}[keyof DynamicRoutes];
+
 /**
- * Resolve a concrete request URL to its registered route key.
- *
- * Tolerates a trailing query string or hash so callers can keep building URLs
- * with template literals. Resolves to `never` for unregistered routes, which
- * `apiJson` maps to `unknown`.
+ * Resolve a concrete request URL to its registered route key, or `never` when
+ * the route is not registered (which `ResponseFor` maps to `unknown`).
  */
-export type RouteFor<U extends string> = {
-  [K in KnownRoute]: U extends K | `${K}?${string}` | `${K}#${string}` ? K : never;
-}[KnownRoute];
+export type RouteFor<U extends string> =
+  | MatchStatic<Path<U>>
+  | MatchDynamic<Path<U>>;
 
 /**
  * The unwrapped `data` payload for a given request URL — or `unknown` when the

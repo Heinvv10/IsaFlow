@@ -166,7 +166,17 @@ export default function AdminUserDetailPage() {
   }
 
   function openImpersonationTab() {
-    if (!loginAsRedirect) return;
+    if (loginAsRedirect === null) return;
+    // Defensive: the API hardcodes '/accounting', but the type only promises a
+    // string and this opens a tab as another user. Require a same-origin
+    // relative path so a future server change cannot turn this into an open
+    // redirect. `//evil.com` is rejected — it is protocol-relative, not local.
+    const isLocalPath = loginAsRedirect.startsWith('/') && !loginAsRedirect.startsWith('//');
+    if (!isLocalPath) {
+      log.error('Refusing non-local impersonation redirect', { redirect: loginAsRedirect }, 'admin-ui');
+      setActionError('Server returned an unexpected redirect target');
+      return;
+    }
     const appOrigin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
     window.open(`${appOrigin}${loginAsRedirect}`, '_blank', 'noopener,noreferrer');
     setLoginAsModalOpen(false);

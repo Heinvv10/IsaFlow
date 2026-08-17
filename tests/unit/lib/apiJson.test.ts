@@ -80,10 +80,14 @@ describe('apiJson', () => {
     await expect(apiJson('/api/accounting/currencies')).rejects.toThrow(ApiEnvelopeError);
   });
 
-  it('treats 204 No Content as success with no payload', async () => {
+  it('fails loudly on a 204 rather than casting an empty body to the payload type', async () => {
+    // Returning `undefined as ResponseFor<U>` would type an absent value as a
+    // full payload, so the caller crashes on first property access with no
+    // compile-time warning. No registered route returns 204; if one is added,
+    // this throw is how we find out.
     mockFetch(new Response(null, { status: 204 }));
 
-    await expect(apiJson('/api/accounting/currencies')).resolves.toBeUndefined();
+    await expect(apiJson('/api/accounting/currencies')).rejects.toThrow(ApiEnvelopeError);
   });
 
   it('does not confuse a null data payload with a missing envelope', async () => {

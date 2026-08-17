@@ -48,7 +48,9 @@ export function LoginAsModal({
           <X className="w-5 h-5" />
         </button>
 
-        {!redirectUrl ? (
+        {/* Null, not falsy: an empty-string redirect is still a created
+            session, and truthiness would silently strand the admin on step 1. */}
+        {redirectUrl === null ? (
           /* Step 1 — Confirmation */
           <>
             <div className="flex items-center gap-3 mb-4">

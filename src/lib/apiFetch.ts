@@ -178,9 +178,12 @@ export async function apiJson<U extends string>(
   const res = await apiFetch(url, options);
   await assertOk(res, `Request to ${url} failed`);
 
-  // 204 No Content is a legitimate success with no body.
-  if (res.status === 204) return undefined as ResponseFor<U>;
-
+  // NOTE: a 204 is deliberately NOT special-cased into `undefined`. Casting an
+  // empty body to `ResponseFor<U>` would lie to the type system — the caller
+  // would hold something typed as a full payload that is actually undefined,
+  // and crash on first property access with no compile-time warning. No
+  // registered route returns 204 today; if one ever does, it fails loudly
+  // below and can be given a type that admits the empty case.
   const text = await res.text();
   let parsed: unknown;
   try {
