@@ -13,6 +13,18 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-08-17 — Group Setup + Dashboard Repair
+
+**Group consolidated reporting**
+
+- `group/setup`: company pickers rendered blank options — `api/companies?action=user-companies` returns camelCase but setup.tsx fed untyped `res.json()` into snake_case types; fixed at parse boundary with `toSimpleCompanies`, correcting all four render sites in one place (#251)
+- `group/setup`: memberless group permanently orphaned — `listGroupsForUser` INNER JOIN excluded it and `add-member` gated on an existing member; LEFT JOIN + creator bootstrap added; `userCreatedGroup` not folded into `userBelongsToGroup` to preserve read-access boundary (#251)
+- `group/setup`: 7 route actions 400'd — UI sent snake_case bodies, routes destructure camelCase; `groupRequests.ts` typed body builders fix all call sites; unknown POST/PUT actions now rejected (previously a GL account payload could create a company group) (#251)
+- `group/setup`: group edit (plain-PUT) always 400'd — page forwarded `id`, route destructures `groupId`; also closed a latent ungated `holdingCompanyId` body-assignment hole exposed when the path became reachable (#251)
+- `group/dashboard`: crashed on first render — page declared its own response types with invented field names mismatching the API (`entities` vs `entitySummaries`, etc.); now uses `GroupDashboardStats` from the service (#252)
+
+---
+
 ## 2026-08-14 — Pentest Remediation Batch + GL / Ops Hardening
 
 **Security — pentest findings closed**
