@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { GroupDashboardStats } from '@/modules/accounting/services/reports/consolidatedReportingService';
+import type { CompanyGroup as ServiceCompanyGroup } from '@/modules/accounting/services/reports/groupCrudService';
 import {
   Building2, ChevronDown, Plus, Loader2, AlertCircle,
   TrendingUp, DollarSign, Landmark, CreditCard, ArrowRight,
@@ -24,7 +25,7 @@ import { GroupEntityTable } from '@/components/accounting/group/GroupEntityTable
 // `dashData.entities` was undefined, so GroupEntityTable crashed on
 // `entities.length`. The page had never rendered with a group before, so nothing
 // caught it.
-interface CompanyGroup { id: string; name: string; holdingCompanyName: string | null; memberCount: number }
+type CompanyGroup = ServiceCompanyGroup & { memberCount: number; holdingCompanyName: string | null };
 type GroupDashboardData = GroupDashboardStats;
 
 const fmtCurrency = (n: number) => 'R ' + new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
