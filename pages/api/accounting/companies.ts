@@ -25,6 +25,18 @@ import {
  * arbitrary company records is explicitly gated on role === 'super_admin'.
  * See docs/audits/2026-04-14/04-code-quality.md#Q-005 for rationale.
  */
+/**
+ * `vat_period` is free text in the schema and is read by the VAT signals via
+ * normalizeVatSetting, which silently treats anything unrecognised as
+ * bi-monthly. Reject junk at the door instead of filing VAT201 reminders for a
+ * company whose cadence was a typo. 'none' = not a VAT vendor.
+ */
+const VALID_VAT_PERIODS = ['monthly', 'bi-monthly', 'none'];
+function isValidVatPeriod(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return true;
+  return typeof value === 'string' && VALID_VAT_PERIODS.includes(value.trim().toLowerCase());
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userId = (req as AuthenticatedNextApiRequest).user.id;
 
@@ -74,6 +86,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       financialYearStart, vatPeriod, defaultCurrency,
     } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
+    if (!isValidVatPeriod(vatPeriod)) {
+      return apiResponse.badRequest(res, "vatPeriod must be 'monthly', 'bi-monthly' or 'none'");
+    }
     const company = await createCompany(
       {
         name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
@@ -89,6 +104,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'PUT') {
     const { id, ...updates } = req.body;
     if (!id) return apiResponse.badRequest(res, 'id is required');
+    if (!isValidVatPeriod(updates.vatPeriod)) {
+      return apiResponse.badRequest(res, "vatPeriod must be 'monthly', 'bi-monthly' or 'none'");
+    }
     // Verify user is owner or admin of this company
     const userCompanies = await getUserCompanies(userId);
     const membership = userCompanies.find(c => c.companyId === id);

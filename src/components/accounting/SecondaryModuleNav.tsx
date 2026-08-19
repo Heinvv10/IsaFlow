@@ -6,13 +6,16 @@
 import { useRouter } from 'next/router';
 import { ModuleNav } from '@/components/layout/ModuleNav';
 import { moduleSectionsToTabs, getActiveSectionId, MODULE_BY_ID } from './navSections/secondaryNav';
+import { stripVatNav } from './navSections/vatNav';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 export function SecondaryModuleNav({ moduleId }: { moduleId: string }) {
   const router = useRouter();
+  const { isRegistered } = useVatRegistration();
   const moduleTab = MODULE_BY_ID[moduleId];
   if (!moduleTab) return null;
 
-  const tabs = moduleSectionsToTabs(moduleTab);
+  const tabs = stripVatNav(moduleSectionsToTabs(moduleTab), isRegistered);
   const activeId = getActiveSectionId(moduleTab, router.asPath);
 
   return (

@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
 
 interface WorkbenchMetrics {
   unreconciledBankTxns: number;
@@ -128,6 +130,10 @@ function SkeletonCard() {
 }
 
 export function WorkbenchSection() {
+  const { isRegistered } = useVatRegistration();
+  // The VAT estimate card means nothing to a company that is not a VAT vendor.
+  const cards = isRegistered ? CARDS : CARDS.filter((c) => !isVatSurfaceHref(c.href));
+
   const [metrics, setMetrics] = useState<WorkbenchMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -179,8 +185,8 @@ export function WorkbenchSection() {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
         {loading
-          ? CARDS.map((c) => <SkeletonCard key={c.key} />)
-          : CARDS.map((card) => {
+          ? cards.map((c) => <SkeletonCard key={c.key} />)
+          : cards.map((card) => {
               const value = metrics?.[card.key] ?? 0;
               const severity = card.severity(value);
               const styles = SEVERITY_STYLES[severity];

@@ -14,10 +14,12 @@ import { VAT201SubmitModal } from '@/components/accounting/sars/VAT201SubmitModa
 import { VAT201ExceptionsPanel } from '@/components/accounting/sars/VAT201ExceptionsPanel';
 import { VAT201SarsSubmit } from '@/components/accounting/sars/VAT201SarsSubmit';
 import {
-  vatQuickPeriods, defaultVatQuickPeriod, normalizeVatAlignment, normalizeVatCadence,
+  vatQuickPeriods, defaultVatQuickPeriod, normalizeVatAlignment, normalizeVatSetting,
   type VatQuickPeriod,
 } from '@/modules/bureau/services/vatPeriodHelper';
 import { useCompany } from '@/contexts/CompanyContext';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
 
 interface VAT201Invoice {
@@ -39,6 +41,7 @@ const fmt = (n: number) =>
 
 export default function VAT201Page() {
   const { activeCompany } = useCompany();
+  const { isRegistered } = useVatRegistration();
   const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
   const [vatPeriod, setVatPeriod] = useState<'monthly' | 'bi-monthly'>('bi-monthly');
   const [quickPeriods, setQuickPeriods] = useState<VatQuickPeriod[]>([]);
@@ -74,7 +77,13 @@ export default function VAT201Page() {
         if (cancelled || !res.ok || !json.data) return;
         const c = json.data as Record<string, unknown>;
         const a = normalizeVatAlignment((c.vatPeriodAlignment ?? c.vat_period_alignment) as string | undefined);
-        const vp = normalizeVatCadence((c.vatPeriod ?? c.vat_period) as string | undefined);
+        const setting = normalizeVatSetting(
+          (c.vatPeriod ?? c.vat_period) as string | undefined,
+          (c.vatSystemType ?? c.vat_system_type) as string | undefined,
+        );
+        // Non-vendors render the notice instead; leave the period state alone.
+        if (setting === 'none') return;
+        const vp = setting;
         setAlignment(a); setVatPeriod(vp);
         setQuickPeriods(vatQuickPeriods(new Date().getUTCFullYear(), vp, a));
         const def = defaultVatQuickPeriod(vp, a, new Date());
@@ -184,15 +193,17 @@ export default function VAT201Page() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
-          <VAT201PeriodSelector
+          {!isRegistered && <NotVatRegisteredNotice surface="The VAT201 return" />}
+
+          {isRegistered && <VAT201PeriodSelector
             from={from} to={to} loading={loading} vatPeriod={vatPeriod} alignment={alignment}
             quickPeriods={quickPeriods}
             onFromChange={setFrom} onToChange={setTo}
             onQuickSelect={(f, t) => { setFrom(f); setTo(t); }}
             onGenerate={generate}
-          />
+          />}
 
-          {data && (
+          {isRegistered && data && (
             <>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-1">

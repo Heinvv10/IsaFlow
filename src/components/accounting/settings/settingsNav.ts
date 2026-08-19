@@ -82,3 +82,11 @@ export const SETTINGS_NAV: SettingsNavGroup[] = [
     ],
   },
 ];
+
+/** Every valid tab id — lets callers validate a `?tab=` query param. */
+export const TAB_IDS: TabId[] = SETTINGS_NAV.flatMap((g) => g.items.map((i) => i.id));
+
+/** Narrow an untrusted `?tab=` value to a TabId, or null if it is not one. */
+export function parseTabId(raw: unknown): TabId | null {
+  return typeof raw === 'string' && (TAB_IDS as string[]).includes(raw) ? (raw as TabId) : null;
+}

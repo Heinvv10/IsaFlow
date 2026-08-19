@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 
 interface VAT201Transaction {
   journalEntryId: string;
@@ -117,6 +119,7 @@ function BoxRow({ box, section }: { box: VAT201Box; section: 'output' | 'input' 
 }
 
 export default function VATReturnPage() {
+  const { isRegistered } = useVatRegistration();
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
@@ -145,6 +148,17 @@ export default function VATReturnPage() {
 
   const outputWithActivity = report?.outputBoxes.filter(b => Math.abs(b.amount) > 0.01) || [];
   const inputWithActivity = report?.inputBoxes.filter(b => Math.abs(b.amount) > 0.01) || [];
+
+  // Non-vendors never file VAT — show why instead of an empty VAT surface.
+  if (!isRegistered) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          <NotVatRegisteredNotice surface="The VAT return report" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>

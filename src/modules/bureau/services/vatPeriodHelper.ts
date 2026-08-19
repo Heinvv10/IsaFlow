@@ -12,11 +12,22 @@
  * irrelevant for them. Returns are due by the 25th of the month following
  * the period end.
  *
+ * A company that is NOT a VAT vendor is recorded by `vat_system_type = 'none'`
+ * (mig 245 — the "No VAT" option in company settings). `vat_period = 'none'`
+ * is accepted as an equivalent because the onboarding wizard writes the
+ * cadence field; either value means the same thing, so a company can never be
+ * half-registered. `normalizeVatSetting` is the only way in: it returns 'none'
+ * for such rows, so every caller is forced by the type system to decide what a
+ * non-vendor sees before it can reach a cadence-taking function.
+ *
  * Legacy rows store cadence with mixed casing ('Bi-Monthly'); always go
  * through the normalizers.
  */
 export type VatAlignment = 'odd' | 'even';
+/** Filing cadence of a registered VAT vendor. */
 export type VatCadence = 'monthly' | 'bi-monthly';
+/** Stored VAT setting — a cadence, or 'none' for a non-vendor. */
+export type VatSetting = VatCadence | 'none';
 
 export interface VatPeriod {
   /** YYYY-MM-DD, first day of the period. */
@@ -37,8 +48,37 @@ export interface VatQuickPeriod {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-export function normalizeVatCadence(raw: string | null | undefined): VatCadence {
-  return raw?.toLowerCase() === 'monthly' ? 'monthly' : 'bi-monthly';
+function isNone(raw: string | null | undefined): boolean {
+  const v = raw?.trim().toLowerCase();
+  return v === 'none' || v === 'not-registered' || v === 'not registered' || v === 'n/a';
+}
+
+/**
+ * Normalise a company's stored VAT configuration.
+ *
+ * NULL/'' means "never configured", which for an SA business defaults to the
+ * bi-monthly Category A cycle — the pre-existing behaviour, deliberately kept
+ * so existing companies are unaffected. Opting out is always explicit.
+ *
+ * @param vatPeriod - `companies.vat_period` ('monthly' | 'bi-monthly' | 'none').
+ * @param vatSystemType - `companies.vat_system_type` ('invoice' | 'payment' | 'none').
+ *   Optional so callers that only hold the cadence still compile; pass it
+ *   wherever the column is available.
+ */
+export function normalizeVatSetting(
+  vatPeriod: string | null | undefined,
+  vatSystemType?: string | null,
+): VatSetting {
+  if (isNone(vatSystemType) || isNone(vatPeriod)) return 'none';
+  return vatPeriod?.trim().toLowerCase() === 'monthly' ? 'monthly' : 'bi-monthly';
+}
+
+/** False only when the company has explicitly opted out of VAT. */
+export function isVatRegistered(
+  vatPeriod: string | null | undefined,
+  vatSystemType?: string | null,
+): boolean {
+  return normalizeVatSetting(vatPeriod, vatSystemType) !== 'none';
 }
 
 export function normalizeVatAlignment(raw: string | null | undefined): VatAlignment {

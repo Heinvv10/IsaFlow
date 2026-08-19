@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   expectedVatPeriodAsOf,
-  normalizeVatCadence,
+  normalizeVatSetting,
+  isVatRegistered,
   normalizeVatAlignment,
   vatQuickPeriods,
   defaultVatQuickPeriod,
@@ -55,19 +56,48 @@ describe('expectedVatPeriodAsOf', () => {
   });
 });
 
-describe('normalizeVatCadence', () => {
+describe('normalizeVatSetting', () => {
   it('maps monthly case-insensitively', () => {
-    expect(normalizeVatCadence('monthly')).toBe('monthly');
-    expect(normalizeVatCadence('Monthly')).toBe('monthly');
-    expect(normalizeVatCadence('MONTHLY')).toBe('monthly');
+    expect(normalizeVatSetting('monthly')).toBe('monthly');
+    expect(normalizeVatSetting('Monthly')).toBe('monthly');
+    expect(normalizeVatSetting('MONTHLY')).toBe('monthly');
   });
 
   it('defaults everything else to bi-monthly (incl. legacy capitalized rows)', () => {
-    expect(normalizeVatCadence('bi-monthly')).toBe('bi-monthly');
-    expect(normalizeVatCadence('Bi-Monthly')).toBe('bi-monthly');
-    expect(normalizeVatCadence(null)).toBe('bi-monthly');
-    expect(normalizeVatCadence(undefined)).toBe('bi-monthly');
-    expect(normalizeVatCadence('')).toBe('bi-monthly');
+    expect(normalizeVatSetting('bi-monthly')).toBe('bi-monthly');
+    expect(normalizeVatSetting('Bi-Monthly')).toBe('bi-monthly');
+    expect(normalizeVatSetting(null)).toBe('bi-monthly');
+    expect(normalizeVatSetting(undefined)).toBe('bi-monthly');
+    expect(normalizeVatSetting('')).toBe('bi-monthly');
+  });
+
+  it("returns 'none' when the cadence column says the company is not a vendor", () => {
+    expect(normalizeVatSetting('none')).toBe('none');
+    expect(normalizeVatSetting('None')).toBe('none');
+    expect(normalizeVatSetting(' not-registered ')).toBe('none');
+    expect(normalizeVatSetting('n/a')).toBe('none');
+  });
+
+  it("returns 'none' when vat_system_type says so, whatever the cadence", () => {
+    expect(normalizeVatSetting('monthly', 'none')).toBe('none');
+    expect(normalizeVatSetting('bi-monthly', 'none')).toBe('none');
+    expect(normalizeVatSetting(null, 'none')).toBe('none');
+  });
+
+  it('keeps the cadence for registered vendors on either accounting basis', () => {
+    expect(normalizeVatSetting('monthly', 'invoice')).toBe('monthly');
+    expect(normalizeVatSetting('bi-monthly', 'payment')).toBe('bi-monthly');
+    expect(normalizeVatSetting(null, 'invoice')).toBe('bi-monthly');
+  });
+});
+
+describe('isVatRegistered', () => {
+  it('is false only when a column explicitly opts out', () => {
+    expect(isVatRegistered('none')).toBe(false);
+    expect(isVatRegistered('monthly', 'none')).toBe(false);
+    expect(isVatRegistered('bi-monthly', 'invoice')).toBe(true);
+    expect(isVatRegistered(null)).toBe(true);
+    expect(isVatRegistered(undefined, undefined)).toBe(true);
   });
 });
 
