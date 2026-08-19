@@ -28,9 +28,11 @@
   `annual_turnover_cents` today.
 - Prod plans: `trial` R0, `payg` R0, `starter` R299, `professional` R599,
   `enterprise` R1499.
-- `waitlistPromotionService.promoteWaitlistSignup` passes `plan_id` to
-  `createCompany`, which writes the **dead** `companies.plan_id` column — so the
-  admin promote path's plan assignment is also ineffective.
+- ~~`promoteWaitlistSignup` passes `plan_id` to `createCompany`, which writes the
+  dead `companies.plan_id` column.~~ **WRONG — corrected in review.**
+  `createCompany` (`adminCompanyService.ts:289-294`) never writes
+  `companies.plan_id`; it already inserts the `subscriptions` row itself when
+  `plan_id` is set. The promote path was correct all along.
 
 ## Work
 
@@ -70,9 +72,12 @@ Delete `src/components/auth/InviteRegisterForm.tsx` only.
 and `pages/login.tsx` both call it (GET for invite metadata, POST for an
 already-signed-in user to join). Keep it.
 
-### 7. Fix promote to match
-`promoteWaitlistSignup` creates the `subscriptions` row via the shared helper
-rather than setting the dead `companies.plan_id`.
+### 7. ~~Fix promote to match~~ — DROPPED
+Based on the false premise above. Promote already creates the subscription via
+`createCompany`; adding a second INSERT produced duplicate conflicting rows
+(caught in blind review). Promote now only shares the PAYG/plan *policy*
+functions, not the write. A regression test asserts promote issues no
+`INSERT INTO subscriptions` of its own.
 
 ### 8. Team notification
 Keep the signup notification email (currently `pages/api/waitlist.ts:137` →

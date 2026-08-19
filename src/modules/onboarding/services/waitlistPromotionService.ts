@@ -265,17 +265,6 @@ export async function promoteWaitlistSignup(
     payg_eligible:         seed.paygEligible,
   });
 
-  // The app reads a company's plan from `subscriptions`, not the vestigial
-  // `companies.plan_id` that createCompany writes — so without this row the
-  // promoted tenant has no effective plan at all.
-  if (planId) {
-    await sql`
-      INSERT INTO subscriptions
-        (company_id, plan_id, status, billing_cycle, current_period_start)
-      VALUES (${created.id}::uuid, ${planId}::uuid, 'active', 'monthly', NOW())
-    `;
-  }
-
   await sql`
     UPDATE waitlist_signups
        SET promoted_at         = NOW(),

@@ -1,7 +1,7 @@
 // pages/api/auth/register.ts
 import type { NextApiHandler } from 'next';
 import pg from 'pg';
-import { adminCreateUser, adminGetUserByEmail, signIn } from '@/lib/auth/gotrue';
+import { adminCreateUser, adminDeleteUser, adminGetUserByEmail, signIn } from '@/lib/auth/gotrue';
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { withRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
@@ -30,13 +30,13 @@ const MAX_TURNOVER_CENTS = 10_000_000_000_000;
  * Declared annual turnover (whole ZAR, as typed by the user) → cents.
  * Returns null for absent/blank/unparseable input — undeclared, NOT zero.
  */
-function parseTurnoverToCents(raw: unknown): number | null {
+function parseTurnoverToCents(raw: unknown): number | null | 'invalid' {
   if (raw === null || raw === undefined || raw === '') return null;
   const numeric =
     typeof raw === 'number' ? raw : Number(String(raw).replace(/[,\s]/g, ''));
-  if (!Number.isFinite(numeric) || numeric < 0) return null;
+  if (!Number.isFinite(numeric) || numeric < 0) return 'invalid';
   const cents = Math.round(numeric * 100);
-  return cents > MAX_TURNOVER_CENTS ? null : cents;
+  return cents > MAX_TURNOVER_CENTS ? 'invalid' : cents;
 }
 
 function adminPool(): pg.Pool {
@@ -71,6 +71,14 @@ const handler: NextApiHandler = async (req, res) => {
 
   const cleanEmail = (email as string).toLowerCase().trim();
   const cleanSignupType: SignupType = signupType === 'accountant' ? 'accountant' : 'direct';
+
+  const turnoverCents = parseTurnoverToCents(annualTurnover);
+  if (turnoverCents === 'invalid') {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'BAD_REQUEST', message: 'Annual turnover must be a positive amount in rands' },
+    });
+  }
 
   // A1-6: per-email registration throttle. The per-IP limit (export below) is
   // defeated by IP rotation; a per-email cap slows enumeration/abuse that probes
@@ -122,7 +130,7 @@ const handler: NextApiHandler = async (req, res) => {
       lastName: typeof lastName === 'string' ? lastName : null,
       companyName: (companyName as string).trim(),
       phone: typeof phone === 'string' && phone.trim() ? phone.trim() : null,
-      annualTurnoverCents: parseTurnoverToCents(annualTurnover),
+      annualTurnoverCents: turnoverCents,
       signupType: cleanSignupType,
     });
     newCompanyId = provisioned.companyId;
@@ -141,7 +149,19 @@ const handler: NextApiHandler = async (req, res) => {
         'auth',
       ),
     );
-    // Clean up the GoTrue user so the email isn't stuck in a half-created state
+    // Delete the GoTrue user so the email isn't stuck in a half-created state.
+    // The adminGetUserByEmail pre-check above would otherwise see the orphan and
+    // reject every future attempt to register this address.
+    await adminDeleteUser(gotrueUser.id).catch((cleanupErr: unknown) =>
+      log.error(
+        'orphaned GoTrue user cleanup failed — this email can no longer register',
+        {
+          userId: gotrueUser.id,
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        },
+        'auth',
+      ),
+    );
     log.warn('register rollback', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
     throw err;
   } finally {
@@ -170,7 +190,11 @@ const handler: NextApiHandler = async (req, res) => {
       `<li><strong>Type:</strong> ${cleanSignupType}</li>` +
       `<li><strong>Company ID:</strong> ${newCompanyId}</li>` +
       `</ul>`,
-    _log: { companyId: newCompanyId, emailType: 'other' },
+    // companyId null: this is an INTERNAL ops notification. Logging it against
+    // the new tenant would surface "ISAFlow signup: <their email>" addressed to
+    // our ops inbox inside their own Customer Communication report, which
+    // filters email_log by company_id.
+    _log: { companyId: null, emailType: 'other' },
   }).catch((err: unknown) => {
     log.error('signup notification email failed', {
       error: err instanceof Error ? err.message : String(err),
