@@ -13,6 +13,22 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-08-19 — Self-Serve Signup + Email Verification
+
+**Auth**
+
+- Self-serve registration opened; waitlist gate removed from `/register` — new tenants land on a 14-day trial with `payg_eligible` derived from declared turnover at signup (#254)
+- Email verification flow added (`/verify-email`, `emailVerificationService`) — signup issues a one-time token; account activates on verification (#254)
+- Tenant provisioning extracted into shared `tenantProvisioningService` — self-serve and waitlist-promotion paths share one write path so plan/PAYG policy cannot drift (#254)
+- `waitlistPromotionService`: double `INSERT INTO subscriptions` on promotion fixed — `createCompany` already inserts the row; adding a second wrote a conflicting `status='active'` row (#254)
+- Orphaned GoTrue users on failed provisioning now actually deleted (prior `catch` block called nothing) (#254)
+- Signup notification no longer logged under the new tenant's `company_id` (would have appeared in their Customer Communication report) (#254)
+- `InviteRegisterForm` (dead duplicate of `/accept-invite`) deleted; `?invite=` now redirects to the real acceptance page (#254)
+
+Migrations: **510** (`auth_email_verification_tokens`)
+
+---
+
 ## 2026-08-17 — Group Setup + Dashboard Repair
 
 **Group consolidated reporting**
