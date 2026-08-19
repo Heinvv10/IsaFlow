@@ -5,6 +5,39 @@ import { adminCreateUser, adminGetUserByEmail, signIn } from '@/lib/auth/gotrue'
 import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
 import { withRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
+import { sendEmail } from '@/modules/accounting/services/core/emailService';
+import {
+  provisionTenant,
+  type SignupType,
+} from '@/modules/onboarding/services/tenantProvisioningService';
+
+/** Where new-signup notifications land. Same address the waitlist form notifies. */
+const NOTIFY_TO = 'ai@velocityfibre.co.za';
+
+/** Escape untrusted values before they go into the notification email body. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Sanity ceiling on declared turnover: R100bn. Above this it's a typo or junk. */
+const MAX_TURNOVER_CENTS = 10_000_000_000_000;
+
+/**
+ * Declared annual turnover (whole ZAR, as typed by the user) → cents.
+ * Returns null for absent/blank/unparseable input — undeclared, NOT zero.
+ */
+function parseTurnoverToCents(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const numeric =
+    typeof raw === 'number' ? raw : Number(String(raw).replace(/[,\s]/g, ''));
+  if (!Number.isFinite(numeric) || numeric < 0) return null;
+  const cents = Math.round(numeric * 100);
+  return cents > MAX_TURNOVER_CENTS ? null : cents;
+}
 
 function adminPool(): pg.Pool {
   const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
@@ -25,7 +58,8 @@ const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } });
   }
-  const { email, password, firstName, lastName, companyName } = req.body ?? {};
+  const { email, password, firstName, lastName, companyName, signupType, annualTurnover, phone } =
+    req.body ?? {};
   for (const [name, v] of [['email', email], ['password', password], ['companyName', companyName]] as const) {
     if (typeof v !== 'string' || v.trim().length < 2) {
       return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: `${name} required` } });
@@ -36,6 +70,7 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   const cleanEmail = (email as string).toLowerCase().trim();
+  const cleanSignupType: SignupType = signupType === 'accountant' ? 'accountant' : 'direct';
 
   // A1-6: per-email registration throttle. The per-IP limit (export below) is
   // defeated by IP rotation; a per-email cap slows enumeration/abuse that probes
@@ -72,29 +107,32 @@ const handler: NextApiHandler = async (req, res) => {
     email_confirm: true,
   });
 
-  // 2. Bootstrap tx: create company + owner membership + profile shadow
+  // 2. Bootstrap tx: company + trial subscription + owner membership + profile.
+  //    All of it goes through provisionTenant so self-serve signup and the admin
+  //    waitlist promote apply identical plan/PAYG policy.
   const admin = adminPool();
   const client = await admin.connect();
   let newCompanyId = '';
   try {
     await client.query('BEGIN');
-    const company = await client.query<{ id: string }>(
-      `INSERT INTO companies (name, is_active) VALUES ($1, true) RETURNING id`,
-      [companyName]
-    );
-    newCompanyId = company.rows[0]!.id;
-    await client.query(
-      `INSERT INTO company_users (company_id, user_id, role, is_default)
-       VALUES ($1::uuid, $2, 'owner', true)`,
-      [newCompanyId, gotrueUser.id]
-    );
-    await client.query(
-      `INSERT INTO users (id, email, first_name, last_name, is_active, role)
-       VALUES ($1, $2, $3, $4, true, 'admin')
-       ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`,
-      [gotrueUser.id, cleanEmail, firstName ?? null, lastName ?? null]
-    );
+    const provisioned = await provisionTenant(client, {
+      ownerUserId: gotrueUser.id,
+      email: cleanEmail,
+      firstName: typeof firstName === 'string' ? firstName : null,
+      lastName: typeof lastName === 'string' ? lastName : null,
+      companyName: (companyName as string).trim(),
+      phone: typeof phone === 'string' && phone.trim() ? phone.trim() : null,
+      annualTurnoverCents: parseTurnoverToCents(annualTurnover),
+      signupType: cleanSignupType,
+    });
+    newCompanyId = provisioned.companyId;
     await client.query('COMMIT');
+    log.info('self-serve signup provisioned', {
+      companyId:         newCompanyId,
+      paygEligible:      provisioned.paygEligible,
+      suggestedPlanCode: provisioned.suggestedPlanCode,
+      signupType:        cleanSignupType,
+    }, 'auth');
   } catch (err) {
     await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
       log.error(
@@ -119,6 +157,26 @@ const handler: NextApiHandler = async (req, res) => {
     expiresIn: tok.expires_in,
   });
   setActiveCompanyCookie(res, newCompanyId);
+
+  // Fire-and-forget team notification — never fail a signup because SMTP is down.
+  sendEmail({
+    to: NOTIFY_TO,
+    subject: `ISAFlow signup: ${cleanEmail}`,
+    html:
+      `<p>New self-serve signup.</p>` +
+      `<ul>` +
+      `<li><strong>Email:</strong> ${escapeHtml(cleanEmail)}</li>` +
+      `<li><strong>Company:</strong> ${escapeHtml((companyName as string).trim())}</li>` +
+      `<li><strong>Type:</strong> ${cleanSignupType}</li>` +
+      `<li><strong>Company ID:</strong> ${newCompanyId}</li>` +
+      `</ul>`,
+    _log: { companyId: newCompanyId, emailType: 'other' },
+  }).catch((err: unknown) => {
+    log.error('signup notification email failed', {
+      error: err instanceof Error ? err.message : String(err),
+      companyId: newCompanyId,
+    }, 'auth');
+  });
 
   return res.status(201).json({
     success: true,

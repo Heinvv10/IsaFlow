@@ -18,8 +18,10 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createCompany } from '@/modules/admin/services/adminCompanyService';
-
-const TURNOVER_THRESHOLD_CENTS = 100_000_000; // R1 000 000
+import {
+  isPaygEligible,
+  suggestedPlanCode as policySuggestedPlanCode,
+} from './tenantProvisioningService';
 
 export interface WaitlistSignupRow {
   id: string;
@@ -63,15 +65,10 @@ export async function loadWaitlistSignup(id: string): Promise<WaitlistSignupRow 
  */
 export function buildCompanySeed(signup: WaitlistSignupRow): CompanySeed {
   const turnover = signup.annual_turnover_cents;
-  const paygEligible = turnover !== null && turnover < TURNOVER_THRESHOLD_CENTS;
-
-  // Bureaus don't declare their own turnover, so they don't get auto-PAYG.
-  // Starter suggestion only applies when turnover is declared and >= R1M.
+  // Policy is shared with self-serve signup — see tenantProvisioningService.
+  const paygEligible = isPaygEligible(turnover);
   const suggestedPlanCode: CompanySeed['suggestedPlanCode'] =
-    signup.signup_type === 'accountant' ? null
-      : paygEligible                      ? 'payg'
-      : turnover !== null                 ? 'starter'
-      : null;
+    policySuggestedPlanCode(turnover, signup.signup_type);
 
   const nameFallback = signup.email.split('@')[0] ?? 'company';
   const name = signup.signup_type === 'accountant'
@@ -267,6 +264,17 @@ export async function promoteWaitlistSignup(
     annual_turnover_cents: seed.annualTurnoverCents,
     payg_eligible:         seed.paygEligible,
   });
+
+  // The app reads a company's plan from `subscriptions`, not the vestigial
+  // `companies.plan_id` that createCompany writes — so without this row the
+  // promoted tenant has no effective plan at all.
+  if (planId) {
+    await sql`
+      INSERT INTO subscriptions
+        (company_id, plan_id, status, billing_cycle, current_period_start)
+      VALUES (${created.id}::uuid, ${planId}::uuid, 'active', 'monthly', NOW())
+    `;
+  }
 
   await sql`
     UPDATE waitlist_signups
