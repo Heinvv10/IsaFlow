@@ -3,6 +3,9 @@
  *
  * - An already-registered email must be rejected with a GENERIC message BEFORE
  *   any company is created (no second-company bug, no definitive "email taken").
+ *   "Already registered" means CONFIRMED: an unconfirmed leftover is a squatted
+ *   or abandoned signup that must stay registerable, covered in
+ *   registerLockout.test.ts.
  * - A per-email throttle returns 429 independent of the per-IP limit.
  * - A brand-new email still proceeds to account creation.
  *
@@ -73,7 +76,9 @@ describe('register — A1-6 enumeration + throttle', () => {
 
   it('rejects an already-registered email with a generic 400, before creating anything', async () => {
     checkRateLimitMock.mockResolvedValue(true);
-    getUserMock.mockResolvedValue({ id: 'existing-user' });
+    // Confirmed — a real account. An unconfirmed user is deliberately NOT
+    // treated as registered; see registerLockout.test.ts.
+    getUserMock.mockResolvedValue({ id: 'existing-user', email_confirmed_at: '2026-01-01T00:00:00Z' });
     const res = makeRes();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (handler as any)(makeReq({ ...VALID, email: 'taken@example.com' }), res);
