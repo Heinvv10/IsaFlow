@@ -145,6 +145,25 @@ describe('promoteWaitlistSignup', () => {
     });
   });
 
+  it('never inserts a subscription itself — createCompany owns that write', async () => {
+    // Regression guard: createCompany already inserts the subscriptions row when
+    // plan_id is set. A second INSERT here produced two conflicting rows for the
+    // same company (one trial, one active) — subscriptions has no unique
+    // constraint on company_id, so nothing caught it at the DB level.
+    stubLoadSignup(row);
+    stubPending();
+    stubPlanLookup('plan-payg-uuid');
+    mockCreateCompany.mockResolvedValueOnce({ id: 'company-new', name: 'Acme (Pty) Ltd' });
+    stubUpdateStamp();
+
+    await promoteWaitlistSignup(waitlistId);
+
+    const statements = mockSql.mock.calls
+      .map((call) => (Array.isArray(call[0]) ? (call[0] as string[]).join(' ? ') : ''))
+      .join('\n---\n');
+    expect(statements).not.toMatch(/INSERT\s+INTO\s+subscriptions/i);
+  });
+
   it('honours planCodeOverride over the seed suggestion', async () => {
     stubLoadSignup(row);
     stubPending();
