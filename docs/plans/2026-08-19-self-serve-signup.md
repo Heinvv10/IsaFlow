@@ -83,11 +83,24 @@ functions, not the write. A regression test asserts promote issues no
 Keep the signup notification email (currently `pages/api/waitlist.ts:137` →
 `ai@velocityfibre.co.za`) firing on self-serve registration.
 
-## Out of scope (flagged, not built)
+## Email verification — BUILT (added 2026-08-19 after blind review)
 
-- **Email verification.** `adminCreateUser({ email_confirm: true })` auto-confirms,
-  so at volume anyone can create a tenant on an address they don't own. Only
-  brakes are 5/hr per-IP and 5/hr per-email rate limits. Separate piece of work.
+The reviewer flagged open registration as a HIGH: unbounded tenants, GoTrue
+accounts and ops notifications from unverified addresses. Rather than accept the
+risk, signup now defers everything until the address is confirmed.
+
+- `/api/auth/register` creates the GoTrue user **unconfirmed** and parks the
+  company details in `auth_email_verification_tokens` (migration 510, sha256 of
+  the token only). Returns 202. No company, no subscription, no ops email.
+- `/api/auth/verify-email` consumes the token atomically
+  (`UPDATE ... WHERE consumed_at IS NULL RETURNING`), confirms the address, and
+  only then provisions the tenant and notifies ops.
+- GoTrue rejects sign-in for an unconfirmed address (`400 email_not_confirmed`),
+  verified empirically against the dev instance — the gate is enforced by GoTrue,
+  not by a check we maintain.
+- A junk signup therefore costs one token row and one email, nothing durable.
+
+## Out of scope (flagged, not built)
 - Card-on-file at signup / Paystack checkout.
 - Trial-expiry enforcement and conversion prompts.
 - The waitlist form, API, and admin page stay in place for the 3 existing rows.

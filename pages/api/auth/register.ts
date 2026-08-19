@@ -1,27 +1,12 @@
 // pages/api/auth/register.ts
 import type { NextApiHandler } from 'next';
-import pg from 'pg';
-import { adminCreateUser, adminDeleteUser, adminGetUserByEmail, signIn } from '@/lib/auth/gotrue';
-import { setAuthCookies, setActiveCompanyCookie } from '@/lib/auth/cookies';
+import { adminCreateUser, adminDeleteUser, adminGetUserByEmail } from '@/lib/auth/gotrue';
+import { createEmailVerificationToken } from '@/lib/auth/emailVerificationService';
+import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
 import { withRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
-import {
-  provisionTenant,
-  type SignupType,
-} from '@/modules/onboarding/services/tenantProvisioningService';
-
-/** Where new-signup notifications land. Same address the waitlist form notifies. */
-const NOTIFY_TO = 'ai@velocityfibre.co.za';
-
-/** Escape untrusted values before they go into the notification email body. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+import type { SignupType } from '@/modules/onboarding/services/tenantProvisioningService';
 
 /** Sanity ceiling on declared turnover: R100bn. Above this it's a typo or junk. */
 const MAX_TURNOVER_CENTS = 10_000_000_000_000;
@@ -37,21 +22,6 @@ function parseTurnoverToCents(raw: unknown): number | null | 'invalid' {
   if (!Number.isFinite(numeric) || numeric < 0) return 'invalid';
   const cents = Math.round(numeric * 100);
   return cents > MAX_TURNOVER_CENTS ? 'invalid' : cents;
-}
-
-function adminPool(): pg.Pool {
-  const url = process.env.MIGRATION_ADMIN_DATABASE_URL;
-  if (!url) throw new Error('MIGRATION_ADMIN_DATABASE_URL required for register');
-  return new pg.Pool({
-    connectionString: url,
-    max: 2,
-    ssl:
-      process.env.DATABASE_SSL === 'strict'
-        ? { rejectUnauthorized: true }
-        : process.env.DATABASE_SSL === 'disable'
-          ? false
-          : { rejectUnauthorized: false },
-  });
 }
 
 const handler: NextApiHandler = async (req, res) => {
@@ -108,50 +78,34 @@ const handler: NextApiHandler = async (req, res) => {
     });
   }
 
-  // 1. Create GoTrue user
+  // 1. Create the GoTrue user UNCONFIRMED. GoTrue refuses sign-in for an
+  //    unconfirmed address (400 email_not_confirmed, verified against the dev
+  //    instance), so this account is inert until the emailed link is consumed.
   const gotrueUser = await adminCreateUser({
     email: cleanEmail,
     password: password as string,
-    email_confirm: true,
+    email_confirm: false,
   });
 
-  // 2. Bootstrap tx: company + trial subscription + owner membership + profile.
-  //    All of it goes through provisionTenant so self-serve signup and the admin
-  //    waitlist promote apply identical plan/PAYG policy.
-  const admin = adminPool();
-  const client = await admin.connect();
-  let newCompanyId = '';
+  // 2. Park the tenant details against a single-use token. NOTHING durable is
+  //    created for an unverified address — no company, no subscription, no
+  //    membership, and no ops notification. Registration is public, so an
+  //    unverified signup must cost one row and one email, nothing more.
+  let token: string;
   try {
-    await client.query('BEGIN');
-    const provisioned = await provisionTenant(client, {
-      ownerUserId: gotrueUser.id,
+    ({ token } = await createEmailVerificationToken(gotrueUser.id, {
       email: cleanEmail,
-      firstName: typeof firstName === 'string' ? firstName : null,
-      lastName: typeof lastName === 'string' ? lastName : null,
+      firstName: typeof firstName === 'string' ? firstName.trim() : null,
+      lastName: typeof lastName === 'string' ? lastName.trim() : null,
       companyName: (companyName as string).trim(),
       phone: typeof phone === 'string' && phone.trim() ? phone.trim() : null,
       annualTurnoverCents: turnoverCents,
       signupType: cleanSignupType,
-    });
-    newCompanyId = provisioned.companyId;
-    await client.query('COMMIT');
-    log.info('self-serve signup provisioned', {
-      companyId:         newCompanyId,
-      paygEligible:      provisioned.paygEligible,
-      suggestedPlanCode: provisioned.suggestedPlanCode,
-      signupType:        cleanSignupType,
-    }, 'auth');
+    }));
   } catch (err) {
-    await client.query('ROLLBACK').catch((rollbackErr: unknown) =>
-      log.error(
-        'ROLLBACK failed after transaction error',
-        { error: rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr) },
-        'auth',
-      ),
-    );
-    // Delete the GoTrue user so the email isn't stuck in a half-created state.
-    // The adminGetUserByEmail pre-check above would otherwise see the orphan and
-    // reject every future attempt to register this address.
+    // Delete the GoTrue user rather than leave an unverifiable orphan: the
+    // adminGetUserByEmail pre-check above would otherwise reject every retry,
+    // making this address permanently unregisterable.
     await adminDeleteUser(gotrueUser.id).catch((cleanupErr: unknown) =>
       log.error(
         'orphaned GoTrue user cleanup failed — this email can no longer register',
@@ -162,49 +116,53 @@ const handler: NextApiHandler = async (req, res) => {
         'auth',
       ),
     );
-    log.warn('register rollback', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
     throw err;
-  } finally {
-    client.release();
-    await admin.end();
   }
 
-  // 3. Sign in to get tokens
-  const tok = await signIn(cleanEmail, password as string);
-  setAuthCookies(res, {
-    accessToken: tok.access_token,
-    refreshToken: tok.refresh_token,
-    expiresIn: tok.expires_in,
-  });
-  setActiveCompanyCookie(res, newCompanyId);
-
-  // Fire-and-forget team notification — never fail a signup because SMTP is down.
-  sendEmail({
-    to: NOTIFY_TO,
-    subject: `ISAFlow signup: ${cleanEmail}`,
-    html:
-      `<p>New self-serve signup.</p>` +
-      `<ul>` +
-      `<li><strong>Email:</strong> ${escapeHtml(cleanEmail)}</li>` +
-      `<li><strong>Company:</strong> ${escapeHtml((companyName as string).trim())}</li>` +
-      `<li><strong>Type:</strong> ${cleanSignupType}</li>` +
-      `<li><strong>Company ID:</strong> ${newCompanyId}</li>` +
-      `</ul>`,
-    // companyId null: this is an INTERNAL ops notification. Logging it against
-    // the new tenant would surface "ISAFlow signup: <their email>" addressed to
-    // our ops inbox inside their own Customer Communication report, which
-    // filters email_log by company_id.
-    _log: { companyId: null, emailType: 'other' },
-  }).catch((err: unknown) => {
-    log.error('signup notification email failed', {
+  // 3. Email the verification link. Awaited, unlike forgot-password: there is no
+  //    enumeration timing channel to protect here (an existing email already
+  //    returns a distinct 400 above), and the user needs to know if we could not
+  //    send it — otherwise they wait forever for a mail that never left.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
+  // Fragment, not query string: fragments are never sent to the server, logged,
+  // put in a Referer header, or seen by the analytics tracker on every page.
+  const verifyUrl = `${appUrl}/verify-email#token=${token}`;
+  try {
+    await sendEmail({
+      to: cleanEmail,
+      subject: 'Confirm your email to activate ISAFlow',
+      html: emailLayout(`
+        <h2>Confirm your email</h2>
+        <p>Thanks for signing up for ISAFlow. Confirm this address to activate your account and start your 14-day trial.</p>
+        ${ctaButton('Confirm my email', verifyUrl)}
+        <p style="font-size:12px;color:#94a3b8;">This link expires in 24 hours and can be used once. If you did not sign up for ISAFlow, you can safely ignore this email — no account will be created.</p>
+      `),
+      _log: { companyId: null, emailType: 'other', sentBy: null },
+    });
+  } catch (err) {
+    log.error('verification email failed to send', {
+      userId: gotrueUser.id,
       error: err instanceof Error ? err.message : String(err),
-      companyId: newCompanyId,
     }, 'auth');
-  });
+    return res.status(502).json({
+      success: false,
+      error: {
+        code: 'EMAIL_SEND_FAILED',
+        message: 'We could not send your confirmation email. Please try again shortly.',
+      },
+    });
+  }
 
-  return res.status(201).json({
+  log.info('signup pending verification', {
+    userId: gotrueUser.id,
+    signupType: cleanSignupType,
+  }, 'auth');
+
+  // 202: accepted, not yet complete. No auth cookies — the caller is not signed
+  // in until they confirm.
+  return res.status(202).json({
     success: true,
-    data: { userId: gotrueUser.id, companyId: newCompanyId },
+    data: { pendingVerification: true, email: cleanEmail },
   });
 };
 
