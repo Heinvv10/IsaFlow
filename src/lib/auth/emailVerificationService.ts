@@ -18,7 +18,10 @@
 import crypto from 'crypto';
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import type { SignupType } from '@/modules/onboarding/services/tenantProvisioningService';
+import type {
+  QueryRunner,
+  SignupType,
+} from '@/modules/onboarding/services/tenantProvisioningService';
 
 const VERIFICATION_TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -74,6 +77,25 @@ export async function createEmailVerificationToken(
   return { token, expiresAt };
 }
 
+/**
+ * Invalidate every live token belonging to a user.
+ *
+ * Needed when registration discards an unconfirmed leftover: deleting the
+ * GoTrue user does NOT touch its token rows, and `company_users.user_id` has no
+ * foreign key, so a stale link would still consume successfully and provision a
+ * tenant owned by a user that no longer exists.
+ */
+export async function invalidateVerificationTokensForUser(userId: string): Promise<number> {
+  const rows = (await sql`
+    UPDATE auth_email_verification_tokens
+       SET consumed_at = now()
+     WHERE gotrue_user_id = ${userId}::uuid
+       AND consumed_at IS NULL
+    RETURNING id
+  `) as Array<{ id: string }>;
+  return rows.length;
+}
+
 export interface ConsumedVerification {
   gotrueUserId: string;
   pending: PendingSignup;
@@ -82,27 +104,34 @@ export interface ConsumedVerification {
 /**
  * Atomically consume a verification token, returning the parked signup details.
  *
+ * Runs on a caller-supplied client so it can share the SAME transaction as
+ * tenant provisioning. That is the point: if provisioning fails afterwards, the
+ * consumption rolls back with it and the emailed link still works. Consuming on
+ * a separate connection would burn the token on a failed attempt and strand the
+ * signup with no way to retry.
+ *
  * The UPDATE ... WHERE consumed_at IS NULL RETURNING is the concurrency guard:
- * two simultaneous clicks on the same link both match the row, but only one
- * UPDATE wins and returns a row — so a double-click can never provision two
- * tenants for one signup.
+ * two simultaneous clicks both match the row, but only one UPDATE wins and
+ * returns a row, so a double-click can never provision two tenants.
  *
  * Returns null when the token is unknown, already consumed, or expired. The
  * caller must not distinguish these cases to the user.
  */
 export async function consumeEmailVerificationToken(
+  client: QueryRunner,
   rawToken: string,
 ): Promise<ConsumedVerification | null> {
   const tokenHash = hashToken(rawToken);
 
-  const rows = (await sql`
-    UPDATE auth_email_verification_tokens
-    SET consumed_at = now()
-    WHERE token_hash = ${tokenHash}
-      AND consumed_at IS NULL
-      AND expires_at > now()
-    RETURNING gotrue_user_id, payload
-  `) as Array<{ gotrue_user_id: string; payload: PendingSignup }>;
+  const { rows } = await client.query<{ gotrue_user_id: string; payload: PendingSignup }>(
+    `UPDATE auth_email_verification_tokens
+        SET consumed_at = now()
+      WHERE token_hash = $1
+        AND consumed_at IS NULL
+        AND expires_at > now()
+      RETURNING gotrue_user_id, payload`,
+    [tokenHash],
+  );
 
   const row = rows[0];
   if (!row) {
@@ -114,16 +143,55 @@ export async function consumeEmailVerificationToken(
 }
 
 /**
- * Delete expired, unconsumed tokens. Unverified signups are abandoned far more
- * often than completed ones, so without a sweep this table grows unbounded on
- * an open registration endpoint. Returns the number of rows removed.
+ * Look up an ALREADY-CONSUMED token without changing it.
+ *
+ * Verification finishes with a GoTrue call that sits outside the database
+ * transaction, so it can fail after the tenant is committed. Re-opening the same
+ * link must then be able to finish the job rather than report a dead link — this
+ * is how the endpoint recovers, by recognising "already consumed, tenant exists"
+ * as success instead of failure.
  */
-export async function purgeExpiredVerificationTokens(): Promise<number> {
+export async function findConsumedVerification(
+  rawToken: string,
+): Promise<ConsumedVerification | null> {
   const rows = (await sql`
-    DELETE FROM auth_email_verification_tokens
-    WHERE consumed_at IS NULL
-      AND expires_at < now()
-    RETURNING id
-  `) as Array<{ id: string }>;
-  return rows.length;
+    SELECT gotrue_user_id, payload
+      FROM auth_email_verification_tokens
+     WHERE token_hash = ${hashToken(rawToken)}
+       AND consumed_at IS NOT NULL
+     LIMIT 1
+  `) as Array<{ gotrue_user_id: string; payload: PendingSignup }>;
+
+  const row = rows[0];
+  return row ? { gotrueUserId: row.gotrue_user_id, pending: row.payload } : null;
+}
+
+/**
+ * Delete expired, unconsumed tokens and report which GoTrue users they belonged
+ * to. Unverified signups are abandoned far more often than completed ones, so
+ * without a sweep this table grows unbounded on an open registration endpoint.
+ *
+ * A user id is only reported when it has NO company membership: someone who
+ * verified through a different token owns a real tenant and must never be
+ * offered up for deletion, even though their older token expired unused.
+ */
+export async function purgeExpiredVerificationTokens(): Promise<{
+  removed: number;
+  abandonedUserIds: string[];
+}> {
+  const rows = (await sql`
+    DELETE FROM auth_email_verification_tokens t
+    WHERE t.consumed_at IS NULL
+      AND t.expires_at < now()
+    RETURNING
+      t.gotrue_user_id,
+      NOT EXISTS (
+        SELECT 1 FROM company_users cu WHERE cu.user_id = t.gotrue_user_id
+      ) AS abandoned
+  `) as Array<{ gotrue_user_id: string; abandoned: boolean }>;
+
+  return {
+    removed: rows.length,
+    abandonedUserIds: rows.filter((r) => r.abandoned).map((r) => r.gotrue_user_id),
+  };
 }

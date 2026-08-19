@@ -13,9 +13,13 @@
 import type { NextApiHandler } from 'next';
 import pg from 'pg';
 import { adminUpdateUser } from '@/lib/auth/gotrue';
-import { consumeEmailVerificationToken } from '@/lib/auth/emailVerificationService';
+import {
+  consumeEmailVerificationToken,
+  findConsumedVerification,
+} from '@/lib/auth/emailVerificationService';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
 import { provisionTenant } from '@/modules/onboarding/services/tenantProvisioningService';
+import { sql } from '@/lib/neon';
 import { withRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
@@ -46,6 +50,37 @@ function adminPool(): pg.Pool {
   });
 }
 
+/**
+ * Recover a signup whose token was consumed and tenant committed, but whose
+ * final GoTrue confirmation did not land. Returns null for a genuinely dead
+ * link — a consumed token with no tenant behind it is not recoverable here.
+ *
+ * Tradeoff: re-opening an already-used link now answers 200 with the company id
+ * instead of 410, so whoever holds the link learns that id. Accepted — it is an
+ * opaque UUID, the holder already had the link, and the alternative is stranding
+ * every signup whose confirmation call failed. Provisioning stays single-use
+ * regardless: the atomic consume in the transaction is what guarantees that, not
+ * this lookup.
+ */
+async function recoverAlreadyConsumed(
+  token: string,
+): Promise<{ gotrueUserId: string; companyId: string } | null> {
+  const consumed = await findConsumedVerification(token);
+  if (!consumed) return null;
+
+  const rows = (await sql`
+    SELECT company_id
+      FROM company_users
+     WHERE user_id = ${consumed.gotrueUserId}
+       AND role = 'owner'
+     ORDER BY created_at ASC
+     LIMIT 1
+  `) as Array<{ company_id: string }>;
+
+  const companyId = rows[0]?.company_id;
+  return companyId ? { gotrueUserId: consumed.gotrueUserId, companyId } : null;
+}
+
 const INVALID_TOKEN = {
   success: false,
   error: {
@@ -60,36 +95,56 @@ const handler: NextApiHandler = async (req, res) => {
   }
 
   const { token } = req.body ?? {};
-  if (typeof token !== 'string' || token.length < 16) {
+  // Tokens are 32 random bytes rendered as hex — anything else is not one.
+  if (typeof token !== 'string' || !/^[0-9a-f]{64}$/.test(token)) {
     return res.status(400).json(INVALID_TOKEN);
   }
-
-  // Consume first: the UPDATE ... WHERE consumed_at IS NULL RETURNING is atomic,
-  // so concurrent clicks cannot both proceed to provisioning.
-  const consumed = await consumeEmailVerificationToken(token);
-  if (!consumed) {
-    return res.status(410).json(INVALID_TOKEN);
-  }
-  const { gotrueUserId, pending } = consumed;
-
-  // Mark the address confirmed so GoTrue will accept sign-in for it.
-  await adminUpdateUser(gotrueUserId, { email_confirm: true });
 
   const admin = adminPool();
   const client = await admin.connect();
   let companyId = '';
   let paygEligible = false;
+  let gotrueUserId = '';
+  let email = '';
+  let companyName = '';
+  let signupType = '';
+
   try {
+    // Consumption and provisioning share ONE transaction. If provisioning
+    // throws, the consumption rolls back with it and the emailed link still
+    // works — burning the token on a failed attempt would strand the signup
+    // with no company and no way to retry.
     await client.query('BEGIN');
+    const consumed = await consumeEmailVerificationToken(client, token);
+
+    if (!consumed) {
+      await client.query('ROLLBACK');
+      // Either a dead link, or a retry after the post-commit GoTrue call below
+      // failed. Distinguish by whether the tenant actually exists.
+      const recovered = await recoverAlreadyConsumed(token);
+      if (recovered) {
+        await adminUpdateUser(recovered.gotrueUserId, { email_confirm: true });
+        log.info('verification retry completed a partially-finished signup', {
+          companyId: recovered.companyId,
+        }, 'auth');
+        return res.status(200).json({ success: true, data: { companyId: recovered.companyId } });
+      }
+      return res.status(410).json(INVALID_TOKEN);
+    }
+
+    gotrueUserId = consumed.gotrueUserId;
+    email = consumed.pending.email;
+    companyName = consumed.pending.companyName;
+    signupType = consumed.pending.signupType;
     const provisioned = await provisionTenant(client, {
       ownerUserId: gotrueUserId,
-      email: pending.email,
-      firstName: pending.firstName,
-      lastName: pending.lastName,
-      companyName: pending.companyName,
-      phone: pending.phone,
-      annualTurnoverCents: pending.annualTurnoverCents,
-      signupType: pending.signupType,
+      email,
+      firstName: consumed.pending.firstName,
+      lastName: consumed.pending.lastName,
+      companyName: consumed.pending.companyName,
+      phone: consumed.pending.phone,
+      annualTurnoverCents: consumed.pending.annualTurnoverCents,
+      signupType: consumed.pending.signupType,
     });
     companyId = provisioned.companyId;
     paygEligible = provisioned.paygEligible;
@@ -103,7 +158,6 @@ const handler: NextApiHandler = async (req, res) => {
       ),
     );
     log.error('tenant provisioning failed after verification', {
-      userId: gotrueUserId,
       error: err instanceof Error ? err.message : String(err),
     }, 'auth');
     throw err;
@@ -112,23 +166,39 @@ const handler: NextApiHandler = async (req, res) => {
     await admin.end();
   }
 
-  log.info('signup verified and provisioned', {
-    companyId,
-    paygEligible,
-    signupType: pending.signupType,
-  }, 'auth');
+  // Confirm the address only once the tenant is committed. This is a GoTrue call
+  // and cannot join the transaction, so it is the one step that can fail with
+  // work already durable — hence the recovery path above: re-opening the link
+  // finds the consumed token plus a real tenant and simply retries this.
+  try {
+    await adminUpdateUser(gotrueUserId, { email_confirm: true });
+  } catch (err) {
+    log.error('email confirmation failed after provisioning — user must retry the link', {
+      companyId,
+      error: err instanceof Error ? err.message : String(err),
+    }, 'auth');
+    return res.status(503).json({
+      success: false,
+      error: {
+        code: 'CONFIRMATION_INCOMPLETE',
+        message: 'Your account was created but we could not finish confirming it. Please open the link from your email again.',
+      },
+    });
+  }
+
+  log.info('signup verified and provisioned', { companyId, paygEligible }, 'auth');
 
   // Fire-and-forget ops notification. Only reachable for a verified address, so
   // this cannot be used to flood the ops inbox with junk signups.
   sendEmail({
     to: NOTIFY_TO,
-    subject: `ISAFlow signup: ${pending.email}`,
+    subject: `ISAFlow signup: ${email}`,
     html:
       `<p>New verified self-serve signup.</p>` +
       `<ul>` +
-      `<li><strong>Email:</strong> ${escapeHtml(pending.email)}</li>` +
-      `<li><strong>Company:</strong> ${escapeHtml(pending.companyName)}</li>` +
-      `<li><strong>Type:</strong> ${pending.signupType}</li>` +
+      `<li><strong>Email:</strong> ${escapeHtml(email)}</li>` +
+      `<li><strong>Company:</strong> ${escapeHtml(companyName)}</li>` +
+      `<li><strong>Type:</strong> ${signupType}</li>` +
       `<li><strong>Company ID:</strong> ${companyId}</li>` +
       `</ul>`,
     // companyId null: internal ops mail. Logging it against the new tenant would

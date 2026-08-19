@@ -5,6 +5,12 @@ export interface GoTrueUser {
   id: string;
   email: string;
   created_at?: string;
+  /**
+   * Set once the address is confirmed; absent while unconfirmed. Registration
+   * relies on this to tell a real account from an abandoned or squatted signup
+   * that must be allowed to re-register.
+   */
+  email_confirmed_at?: string;
   user_metadata?: Record<string, unknown>;
   app_metadata?: Record<string, unknown>;
 }

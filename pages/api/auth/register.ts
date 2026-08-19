@@ -1,7 +1,11 @@
 // pages/api/auth/register.ts
 import type { NextApiHandler } from 'next';
-import { adminCreateUser, adminDeleteUser, adminGetUserByEmail } from '@/lib/auth/gotrue';
-import { createEmailVerificationToken } from '@/lib/auth/emailVerificationService';
+import { adminCreateUser, adminDeleteUser, adminGetUserByEmail, type GoTrueUser } from '@/lib/auth/gotrue';
+import {
+  createEmailVerificationToken,
+  invalidateVerificationTokensForUser,
+  purgeExpiredVerificationTokens,
+} from '@/lib/auth/emailVerificationService';
 import { emailLayout, ctaButton } from '@/lib/email-templates-shared';
 import { withRateLimit, checkRateLimit } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
@@ -24,6 +28,36 @@ function parseTurnoverToCents(raw: unknown): number | null | 'invalid' {
   return cents > MAX_TURNOVER_CENTS ? 'invalid' : cents;
 }
 
+/**
+ * Delete expired verification tokens and the unconfirmed GoTrue users behind
+ * them. Only users with no company membership are removed, so anyone who
+ * verified through a different token keeps their account. Never throws.
+ */
+async function sweepAbandonedSignups(): Promise<void> {
+  try {
+    const { removed, abandonedUserIds } = await purgeExpiredVerificationTokens();
+    if (removed === 0) return;
+
+    let deletedUsers = 0;
+    for (const userId of abandonedUserIds) {
+      try {
+        await adminDeleteUser(userId);
+        deletedUsers += 1;
+      } catch (err) {
+        log.warn('could not delete abandoned signup user', {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        }, 'auth');
+      }
+    }
+    log.info('swept abandoned signups', { tokensRemoved: removed, usersDeleted: deletedUsers }, 'auth');
+  } catch (err) {
+    log.error('abandoned-signup sweep failed', {
+      error: err instanceof Error ? err.message : String(err),
+    }, 'auth');
+  }
+}
+
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, error: { code: 'METHOD_NOT_ALLOWED', message: 'POST only' } });
@@ -41,6 +75,12 @@ const handler: NextApiHandler = async (req, res) => {
 
   const cleanEmail = (email as string).toLowerCase().trim();
   const cleanSignupType: SignupType = signupType === 'accountant' ? 'accountant' : 'direct';
+
+  // Opportunistic sweep of abandoned signups. Registration is the only thing
+  // that creates these rows, so it is also the only place their volume grows —
+  // sweeping here keeps the table bounded without standing up a cron. Detached:
+  // a slow or failing sweep must never delay or break a real signup.
+  void sweepAbandonedSignups();
 
   const turnoverCents = parseTurnoverToCents(annualTurnover);
   if (turnoverCents === 'invalid') {
@@ -62,20 +102,53 @@ const handler: NextApiHandler = async (req, res) => {
   // any work. adminCreateUser silently returns the existing user on a 422, which
   // previously let register create a SECOND company + owner membership for that
   // user and then fail at signIn — both an enumeration signal (existing vs new
-  // behaved differently) and a latent data bug. We do not confirm existence; the
-  // message points existing users to sign in without asserting the email is taken.
-  let emailExists = false;
+  // behaved differently) and a latent data bug.
+  //
+  // But "exists" must mean CONFIRMED. Registration is public and proves nothing
+  // about who owns the address, so treating any unconfirmed user as taken lets
+  // anyone permanently squat a stranger's email: the victim could never register
+  // (blocked here), never sign in (unconfirmed), and never verify (they never
+  // got the link). An unconfirmed user is an abandoned or squatted signup with
+  // nothing attached to it — no company, no membership — so it is safe to
+  // discard and let the new request through. A confirmed account is never
+  // touched by this path.
+  let existing: GoTrueUser | null = null;
   try {
-    await adminGetUserByEmail(cleanEmail);
-    emailExists = true;
+    existing = await adminGetUserByEmail(cleanEmail);
   } catch {
-    emailExists = false; // not found (or lookup failed) → proceed with registration
+    existing = null; // not found (or lookup failed) → proceed with registration
   }
-  if (emailExists) {
+
+  if (existing?.email_confirmed_at) {
     return res.status(400).json({
       success: false,
       error: { code: 'REGISTRATION_FAILED', message: 'Unable to complete registration. If you already have an account, please sign in.' },
     });
+  }
+
+  if (existing) {
+    // Unconfirmed leftover. Delete it (which orphans its token rows, swept by
+    // purgeExpiredVerificationTokens) so the address is registerable again.
+    try {
+      // Kill its tokens first. Deleting the GoTrue user does not touch them, and
+      // company_users.user_id has no foreign key — so a leftover link would
+      // still provision a tenant owned by a user that no longer exists.
+      const killed = await invalidateVerificationTokensForUser(existing.id);
+      await adminDeleteUser(existing.id);
+      log.info('discarded unconfirmed signup to allow re-registration', {
+        userId: existing.id,
+        tokensInvalidated: killed,
+      }, 'auth');
+    } catch (err) {
+      log.error('could not discard unconfirmed signup', {
+        userId: existing.id,
+        error: err instanceof Error ? err.message : String(err),
+      }, 'auth');
+      return res.status(503).json({
+        success: false,
+        error: { code: 'REGISTRATION_FAILED', message: 'Unable to complete registration. Please try again shortly.' },
+      });
+    }
   }
 
   // 1. Create the GoTrue user UNCONFIRMED. GoTrue refuses sign-in for an
@@ -119,10 +192,16 @@ const handler: NextApiHandler = async (req, res) => {
     throw err;
   }
 
-  // 3. Email the verification link. Awaited, unlike forgot-password: there is no
-  //    enumeration timing channel to protect here (an existing email already
-  //    returns a distinct 400 above), and the user needs to know if we could not
-  //    send it — otherwise they wait forever for a mail that never left.
+  // 3. Email the verification link. Awaited, unlike forgot-password: the user
+  //    needs to know if we could not send it, otherwise they wait forever for a
+  //    mail that never left.
+  //
+  //    This does leave a timing difference between a confirmed-existing address
+  //    (one lookup, fast 400) and a new one (create + insert + awaited SMTP).
+  //    That channel is redundant here: the 400 above already discloses that a
+  //    confirmed account exists, by design, so timing reveals nothing the
+  //    response body doesn't. forgot-password is the opposite case — it must
+  //    return an identical 200 either way, which is why it detaches the send.
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
   // Fragment, not query string: fragments are never sent to the server, logged,
   // put in a Referer header, or seen by the analytics tracker on every page.
@@ -144,6 +223,20 @@ const handler: NextApiHandler = async (req, res) => {
       userId: gotrueUser.id,
       error: err instanceof Error ? err.message : String(err),
     }, 'auth');
+    // Undo the signup. Without this the address is left holding an unconfirmed
+    // user and a token whose link never arrived — unusable, and (before the
+    // recycle above) unregisterable. Delete the user so a retry starts clean;
+    // its token rows are orphaned and swept by purgeExpiredVerificationTokens.
+    await adminDeleteUser(gotrueUser.id).catch((cleanupErr: unknown) =>
+      log.error(
+        'orphaned GoTrue user cleanup failed after send failure',
+        {
+          userId: gotrueUser.id,
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        },
+        'auth',
+      ),
+    );
     return res.status(502).json({
       success: false,
       error: {

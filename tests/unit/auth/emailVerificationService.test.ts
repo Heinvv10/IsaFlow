@@ -29,9 +29,11 @@ vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: withTransactionMoc
 import {
   createEmailVerificationToken,
   consumeEmailVerificationToken,
+  findConsumedVerification,
   purgeExpiredVerificationTokens,
   type PendingSignup,
 } from '@/lib/auth/emailVerificationService';
+import type { QueryRunner } from '@/modules/onboarding/services/tenantProvisioningService';
 
 const mockSql = sqlMock as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown>>;
 const mockTx = txMock as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown>>;
@@ -96,28 +98,48 @@ describe('createEmailVerificationToken', () => {
   });
 });
 
+/** Records statements so the test can assert on SQL shape, not just outcome. */
+function fakeClient(rows: unknown[]): { client: QueryRunner; calls: Array<{ text: string; values: unknown[] }> } {
+  const calls: Array<{ text: string; values: unknown[] }> = [];
+  const client: QueryRunner = {
+    query: async (text: string, values: unknown[] = []) => {
+      calls.push({ text, values });
+      return { rows } as never;
+    },
+  };
+  return { client, calls };
+}
+
 describe('consumeEmailVerificationToken', () => {
   it('returns the parked signup when the token is live', async () => {
-    mockSql.mockResolvedValueOnce([{ gotrue_user_id: userId, payload: pending }]);
-    const result = await consumeEmailVerificationToken('a'.repeat(64));
+    const { client } = fakeClient([{ gotrue_user_id: userId, payload: pending }]);
+    const result = await consumeEmailVerificationToken(client, 'a'.repeat(64));
     expect(result).toEqual({ gotrueUserId: userId, pending });
+  });
+
+  it('runs on the CALLER\'s client so it shares their transaction', async () => {
+    // If this ran on the module-level `sql` connection instead, a provisioning
+    // failure could not roll the consumption back and the link would be burnt.
+    const { client, calls } = fakeClient([{ gotrue_user_id: userId, payload: pending }]);
+    await consumeEmailVerificationToken(client, 'a'.repeat(64));
+    expect(calls).toHaveLength(1);
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it('looks the token up by hash, never by raw value', async () => {
     const raw = 'b'.repeat(64);
-    mockSql.mockResolvedValueOnce([{ gotrue_user_id: userId, payload: pending }]);
-    await consumeEmailVerificationToken(raw);
+    const { client, calls } = fakeClient([{ gotrue_user_id: userId, payload: pending }]);
+    await consumeEmailVerificationToken(client, raw);
 
-    const call = callsOf(mockSql)[0]!;
-    expect(call.values).toContain(crypto.createHash('sha256').update(raw).digest('hex'));
-    expect(call.values).not.toContain(raw);
+    expect(calls[0]!.values).toContain(crypto.createHash('sha256').update(raw).digest('hex'));
+    expect(calls[0]!.values).not.toContain(raw);
   });
 
   it('consumes atomically — the UPDATE itself excludes used and expired rows', async () => {
-    mockSql.mockResolvedValueOnce([{ gotrue_user_id: userId, payload: pending }]);
-    await consumeEmailVerificationToken('c'.repeat(64));
+    const { client, calls } = fakeClient([{ gotrue_user_id: userId, payload: pending }]);
+    await consumeEmailVerificationToken(client, 'c'.repeat(64));
 
-    const { text } = callsOf(mockSql)[0]!;
+    const { text } = calls[0]!;
     // Single statement: SET consumed_at guarded by consumed_at IS NULL, RETURNING
     // the row. A read-then-write would let two concurrent clicks both win.
     expect(text).toMatch(/UPDATE auth_email_verification_tokens/i);
@@ -128,20 +150,62 @@ describe('consumeEmailVerificationToken', () => {
   });
 
   it('returns null when the token is unknown, already used, or expired', async () => {
+    const { client } = fakeClient([]);
+    expect(await consumeEmailVerificationToken(client, 'd'.repeat(64))).toBeNull();
+  });
+});
+
+describe('findConsumedVerification', () => {
+  it('finds a consumed token so a half-finished signup can be completed', async () => {
+    mockSql.mockResolvedValueOnce([{ gotrue_user_id: userId, payload: pending }]);
+    expect(await findConsumedVerification('e'.repeat(64))).toEqual({
+      gotrueUserId: userId,
+      pending,
+    });
+  });
+
+  it('only matches CONSUMED rows — a live token must go through consume', async () => {
     mockSql.mockResolvedValueOnce([]);
-    expect(await consumeEmailVerificationToken('d'.repeat(64))).toBeNull();
+    await findConsumedVerification('f'.repeat(64));
+    expect(callsOf(mockSql)[0]!.text).toMatch(/consumed_at IS NOT NULL/i);
+  });
+
+  it('does not mutate the row', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await findConsumedVerification('0'.repeat(64));
+    const { text } = callsOf(mockSql)[0]!;
+    expect(text).toMatch(/^\s*SELECT/i);
+    expect(text).not.toMatch(/UPDATE|DELETE/i);
   });
 });
 
 describe('purgeExpiredVerificationTokens', () => {
   it('deletes only unconsumed expired rows and reports the count', async () => {
-    mockSql.mockResolvedValueOnce([{ id: '1' }, { id: '2' }]);
-    const removed = await purgeExpiredVerificationTokens();
+    mockSql.mockResolvedValueOnce([
+      { gotrue_user_id: 'u1', abandoned: true },
+      { gotrue_user_id: 'u2', abandoned: true },
+    ]);
+    const { removed } = await purgeExpiredVerificationTokens();
     expect(removed).toBe(2);
 
     const { text } = callsOf(mockSql)[0]!;
     expect(text).toMatch(/DELETE FROM auth_email_verification_tokens/i);
     expect(text).toMatch(/consumed_at IS NULL/i);
     expect(text).toMatch(/expires_at < now\(\)/i);
+  });
+
+  it('never offers up a user who owns a tenant, even with an expired token', async () => {
+    mockSql.mockResolvedValueOnce([
+      { gotrue_user_id: 'abandoned-user', abandoned: true },
+      { gotrue_user_id: 'real-tenant-owner', abandoned: false },
+    ]);
+    const { abandonedUserIds } = await purgeExpiredVerificationTokens();
+    expect(abandonedUserIds).toEqual(['abandoned-user']);
+  });
+
+  it('decides "abandoned" from company_users, not from the token alone', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await purgeExpiredVerificationTokens();
+    expect(callsOf(mockSql)[0]!.text).toMatch(/NOT EXISTS[\s\S]*company_users/i);
   });
 });
