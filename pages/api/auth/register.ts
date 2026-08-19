@@ -29,30 +29,16 @@ function parseTurnoverToCents(raw: unknown): number | null | 'invalid' {
 }
 
 /**
- * Delete expired verification tokens and the unconfirmed GoTrue users behind
- * them. Only users with no company membership are removed, so anyone who
- * verified through a different token keeps their account. Never throws.
+ * Drop expired verification tokens so the table stays bounded on an open
+ * registration endpoint. Token rows only — deleting the GoTrue users behind them
+ * would race with a signup verifying in the same moment. Never throws.
  */
-async function sweepAbandonedSignups(): Promise<void> {
+async function sweepExpiredTokens(): Promise<void> {
   try {
-    const { removed, abandonedUserIds } = await purgeExpiredVerificationTokens();
-    if (removed === 0) return;
-
-    let deletedUsers = 0;
-    for (const userId of abandonedUserIds) {
-      try {
-        await adminDeleteUser(userId);
-        deletedUsers += 1;
-      } catch (err) {
-        log.warn('could not delete abandoned signup user', {
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        }, 'auth');
-      }
-    }
-    log.info('swept abandoned signups', { tokensRemoved: removed, usersDeleted: deletedUsers }, 'auth');
+    const removed = await purgeExpiredVerificationTokens();
+    if (removed > 0) log.info('swept expired verification tokens', { removed }, 'auth');
   } catch (err) {
-    log.error('abandoned-signup sweep failed', {
+    log.error('expired-token sweep failed', {
       error: err instanceof Error ? err.message : String(err),
     }, 'auth');
   }
@@ -75,12 +61,6 @@ const handler: NextApiHandler = async (req, res) => {
 
   const cleanEmail = (email as string).toLowerCase().trim();
   const cleanSignupType: SignupType = signupType === 'accountant' ? 'accountant' : 'direct';
-
-  // Opportunistic sweep of abandoned signups. Registration is the only thing
-  // that creates these rows, so it is also the only place their volume grows —
-  // sweeping here keeps the table bounded without standing up a cron. Detached:
-  // a slow or failing sweep must never delay or break a real signup.
-  void sweepAbandonedSignups();
 
   const turnoverCents = parseTurnoverToCents(annualTurnover);
   if (turnoverCents === 'invalid') {
@@ -112,6 +92,14 @@ const handler: NextApiHandler = async (req, res) => {
   // nothing attached to it — no company, no membership — so it is safe to
   // discard and let the new request through. A confirmed account is never
   // touched by this path.
+  //
+  // Residual risk, accepted: this converts a permanent squat into a repeatable
+  // one. An attacker who re-registers the address every time the real owner
+  // signs up — before the owner clicks their link — invalidates the owner's
+  // token each round, so the owner's link 410s. They are never permanently
+  // locked out (the next signup works), and the per-email limit caps this at
+  // 5/hour, but it is griefing that a CAPTCHA or a verified-sender check would
+  // close and this does not.
   let existing: GoTrueUser | null = null;
   try {
     existing = await adminGetUserByEmail(cleanEmail);
@@ -245,6 +233,12 @@ const handler: NextApiHandler = async (req, res) => {
       },
     });
   }
+
+  // Opportunistic sweep. Registration is the only thing that creates these rows,
+  // so it is the only place their volume grows — sweeping here keeps the table
+  // bounded without standing up a cron. Fires only on a signup that actually
+  // landed, and detached, so it never delays or breaks the request.
+  void sweepExpiredTokens();
 
   log.info('signup pending verification', {
     userId: gotrueUser.id,

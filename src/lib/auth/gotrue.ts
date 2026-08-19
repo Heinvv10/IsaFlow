@@ -9,6 +9,10 @@ export interface GoTrueUser {
    * Set once the address is confirmed; absent while unconfirmed. Registration
    * relies on this to tell a real account from an abandoned or squatted signup
    * that must be allowed to re-register.
+   *
+   * Shape verified against the running dev GoTrue: an unconfirmed user returns
+   * both `confirmed_at` and `email_confirmed_at` as undefined; confirming sets
+   * both to the same ISO timestamp.
    */
   email_confirmed_at?: string;
   user_metadata?: Record<string, unknown>;

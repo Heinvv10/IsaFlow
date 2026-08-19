@@ -136,6 +136,29 @@ const handler: NextApiHandler = async (req, res) => {
     email = consumed.pending.email;
     companyName = consumed.pending.companyName;
     signupType = consumed.pending.signupType;
+
+    // One tenant per user, enforced here rather than assumed from the token.
+    // Two live tokens can exist for one GoTrue user: concurrent registrations of
+    // the same new address both fall back to the same user (GoTrue 422 →
+    // adminGetUserByEmail), and their token-invalidation UPDATEs can both run
+    // before either INSERT, so neither invalidates the other. Provisioning off
+    // the token alone would then hand that user a second company.
+    const owned = await client.query<{ company_id: string }>(
+      `SELECT company_id FROM company_users
+        WHERE user_id = $1 AND role = 'owner'
+        ORDER BY created_at ASC
+        LIMIT 1`,
+      [gotrueUserId],
+    );
+    if (owned.rows[0]) {
+      await client.query('COMMIT');
+      log.warn('verification skipped provisioning — user already owns a tenant', {
+        companyId: owned.rows[0].company_id,
+      }, 'auth');
+      await adminUpdateUser(gotrueUserId, { email_confirm: true });
+      return res.status(200).json({ success: true, data: { companyId: owned.rows[0].company_id } });
+    }
+
     const provisioned = await provisionTenant(client, {
       ownerUserId: gotrueUserId,
       email,

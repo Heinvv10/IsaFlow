@@ -167,31 +167,23 @@ export async function findConsumedVerification(
 }
 
 /**
- * Delete expired, unconsumed tokens and report which GoTrue users they belonged
- * to. Unverified signups are abandoned far more often than completed ones, so
- * without a sweep this table grows unbounded on an open registration endpoint.
+ * Delete expired, unconsumed tokens. Unverified signups are abandoned far more
+ * often than completed ones, so without a sweep this table grows unbounded on
+ * an open registration endpoint.
  *
- * A user id is only reported when it has NO company membership: someone who
- * verified through a different token owns a real tenant and must never be
- * offered up for deletion, even though their older token expired unused.
+ * Token rows ONLY. An earlier version also reported the GoTrue users behind
+ * them for deletion, which was unsafe: "abandoned" was computed when the DELETE
+ * ran, but the deletes happened afterwards, so a signup that verified in the gap
+ * had its login destroyed underneath a freshly provisioned company. Leaving the
+ * unconfirmed user in place costs nothing — it cannot sign in, and registering
+ * the address again discards it (see /api/auth/register).
  */
-export async function purgeExpiredVerificationTokens(): Promise<{
-  removed: number;
-  abandonedUserIds: string[];
-}> {
+export async function purgeExpiredVerificationTokens(): Promise<number> {
   const rows = (await sql`
-    DELETE FROM auth_email_verification_tokens t
-    WHERE t.consumed_at IS NULL
-      AND t.expires_at < now()
-    RETURNING
-      t.gotrue_user_id,
-      NOT EXISTS (
-        SELECT 1 FROM company_users cu WHERE cu.user_id = t.gotrue_user_id
-      ) AS abandoned
-  `) as Array<{ gotrue_user_id: string; abandoned: boolean }>;
-
-  return {
-    removed: rows.length,
-    abandonedUserIds: rows.filter((r) => r.abandoned).map((r) => r.gotrue_user_id),
-  };
+    DELETE FROM auth_email_verification_tokens
+     WHERE consumed_at IS NULL
+       AND expires_at < now()
+    RETURNING id
+  `) as Array<{ id: string }>;
+  return rows.length;
 }

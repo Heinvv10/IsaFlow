@@ -30,6 +30,7 @@ import {
   createEmailVerificationToken,
   consumeEmailVerificationToken,
   findConsumedVerification,
+  invalidateVerificationTokensForUser,
   purgeExpiredVerificationTokens,
   type PendingSignup,
 } from '@/lib/auth/emailVerificationService';
@@ -181,12 +182,8 @@ describe('findConsumedVerification', () => {
 
 describe('purgeExpiredVerificationTokens', () => {
   it('deletes only unconsumed expired rows and reports the count', async () => {
-    mockSql.mockResolvedValueOnce([
-      { gotrue_user_id: 'u1', abandoned: true },
-      { gotrue_user_id: 'u2', abandoned: true },
-    ]);
-    const { removed } = await purgeExpiredVerificationTokens();
-    expect(removed).toBe(2);
+    mockSql.mockResolvedValueOnce([{ id: '1' }, { id: '2' }]);
+    expect(await purgeExpiredVerificationTokens()).toBe(2);
 
     const { text } = callsOf(mockSql)[0]!;
     expect(text).toMatch(/DELETE FROM auth_email_verification_tokens/i);
@@ -194,18 +191,31 @@ describe('purgeExpiredVerificationTokens', () => {
     expect(text).toMatch(/expires_at < now\(\)/i);
   });
 
-  it('never offers up a user who owns a tenant, even with an expired token', async () => {
-    mockSql.mockResolvedValueOnce([
-      { gotrue_user_id: 'abandoned-user', abandoned: true },
-      { gotrue_user_id: 'real-tenant-owner', abandoned: false },
-    ]);
-    const { abandonedUserIds } = await purgeExpiredVerificationTokens();
-    expect(abandonedUserIds).toEqual(['abandoned-user']);
-  });
-
-  it('decides "abandoned" from company_users, not from the token alone', async () => {
+  it('touches token rows only — never users or companies', async () => {
+    // It once also nominated GoTrue users for deletion, which raced with a
+    // signup verifying in the same moment and destroyed a real customer's login.
     mockSql.mockResolvedValueOnce([]);
     await purgeExpiredVerificationTokens();
-    expect(callsOf(mockSql)[0]!.text).toMatch(/NOT EXISTS[\s\S]*company_users/i);
+
+    const { text } = callsOf(mockSql)[0]!;
+    expect(text).not.toMatch(/company_users|companies|users/i);
+  });
+});
+
+describe('invalidateVerificationTokensForUser', () => {
+  it('consumes every live token for that user', async () => {
+    mockSql.mockResolvedValueOnce([{ id: '1' }]);
+    expect(await invalidateVerificationTokensForUser(userId)).toBe(1);
+
+    const { text, values } = callsOf(mockSql)[0]!;
+    expect(text).toMatch(/UPDATE auth_email_verification_tokens/i);
+    expect(text).toMatch(/consumed_at IS NULL/i);
+    expect(values).toContain(userId);
+  });
+
+  it('is scoped to one user', async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await invalidateVerificationTokensForUser(userId);
+    expect(callsOf(mockSql)[0]!.text).toMatch(/WHERE gotrue_user_id =/i);
   });
 });
