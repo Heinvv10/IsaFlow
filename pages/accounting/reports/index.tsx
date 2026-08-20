@@ -18,6 +18,8 @@ import {
   List, ArrowLeftRight, Gem, Inbox, Send,
 } from 'lucide-react';
 import { FavouriteButton } from '@/components/accounting/reports/FavouriteButton';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
 import { useReportFavourites } from '@/hooks/useReportFavourites';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
@@ -114,7 +116,6 @@ const reports: ReportCard[] = [
 ];
 
 const reportById = new Map(reports.map(r => [r.id, r]));
-const categories = [...new Set(reports.map(r => r.category))];
 
 // Full class strings so Tailwind purge retains them — never use template literals.
 const COLOR_CLASSES: Record<string, { bg: string; bgHover: string; text: string }> = {
@@ -204,10 +205,18 @@ function ReportItem({ report, showDesc }: { report: ReportCard; showDesc: boolea
 export default function ReportsHubPage() {
   const { favourites } = useReportFavourites();
   const { showDesc, toggle: toggleDesc } = useShowDescriptions();
+  const { isRegistered } = useVatRegistration();
+
+  // A company that is not a VAT vendor has no VAT return to run — drop those
+  // cards (and any stale favourite pointing at one) rather than linking to a
+  // page that will only tell them the same thing.
+  const visibleReports = isRegistered ? reports : reports.filter(r => !isVatSurfaceHref(r.href));
+  const visibleCategories = [...new Set(visibleReports.map(r => r.category))];
 
   const favouriteReports = favourites
     .map(id => reportById.get(id))
-    .filter((r): r is ReportCard => r !== undefined);
+    .filter((r): r is ReportCard => r !== undefined)
+    .filter(r => isRegistered || !isVatSurfaceHref(r.href));
 
   return (
     <AppLayout>
@@ -260,13 +269,13 @@ export default function ReportsHubPage() {
           )}
 
           {/* All report categories */}
-          {categories.map(cat => (
+          {visibleCategories.map(cat => (
             <div key={cat}>
               <h2 className="text-sm font-semibold text-[var(--ff-text-secondary)] uppercase tracking-wider mb-3">
                 {cat}
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {reports.filter(r => r.category === cat).map(r => (
+                {visibleReports.filter(r => r.category === cat).map(r => (
                   <ReportItem key={r.id} report={r} showDesc={showDesc} />
                 ))}
               </div>

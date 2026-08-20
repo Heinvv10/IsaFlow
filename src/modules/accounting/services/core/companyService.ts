@@ -45,6 +45,7 @@ export async function createCompany(input: {
   financialYearStart?: number;
   vatPeriod?: string;
   vatPeriodAlignment?: 'odd' | 'even';
+  vatSystemType?: string;
   defaultCurrency?: string;
 }, _userId: string): Promise<Company> {
   // Delegates to the public.create_company_with_owner SECURITY DEFINER helper
@@ -75,6 +76,8 @@ export async function createCompany(input: {
     financialYearStart: input.financialYearStart ?? null,
     vatPeriod: input.vatPeriod ?? null,
     vatPeriodAlignment: input.vatPeriodAlignment ?? null,
+    // Omitted → the SQL function derives it from vatPeriod (mig 513).
+    vatSystemType: input.vatSystemType ?? null,
     defaultCurrency: input.defaultCurrency ?? null,
   });
 

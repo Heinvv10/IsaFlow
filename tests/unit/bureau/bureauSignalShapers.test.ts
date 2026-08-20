@@ -168,6 +168,16 @@ describe('shapeVatDue', () => {
     const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd', vat_period: 'Bi-Monthly' }], [], meta, today);
     expect(items[0]).toMatchObject({ detail: 'Apr–May 2026', dueAt: '2026-06-25' });
   });
+
+  it('emits nothing for a company that is not a VAT vendor (vat_period)', () => {
+    const items = shapeVatDue([{ id: 'c1', vat_period_alignment: 'odd', vat_period: 'none' }], [], meta, today);
+    expect(items).toHaveLength(0);
+  });
+
+  it('emits nothing when vat_system_type says the company is not a VAT vendor', () => {
+    const rows = [{ id: 'c1', vat_period_alignment: 'odd', vat_period: 'bi-monthly', vat_system_type: 'none' }];
+    expect(shapeVatDue(rows, [], meta, today)).toHaveLength(0);
+  });
 });
 
 describe('reduceMonthEnd', () => {

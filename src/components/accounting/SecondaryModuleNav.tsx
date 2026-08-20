@@ -6,14 +6,21 @@
 import { useRouter } from 'next/router';
 import { ModuleNav } from '@/components/layout/ModuleNav';
 import { moduleSectionsToTabs, getActiveSectionId, MODULE_BY_ID } from './navSections/secondaryNav';
+import { stripVatNav } from './navSections/vatNav';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 export function SecondaryModuleNav({ moduleId }: { moduleId: string }) {
   const router = useRouter();
+  const { isRegistered } = useVatRegistration();
   const moduleTab = MODULE_BY_ID[moduleId];
   if (!moduleTab) return null;
 
-  const tabs = moduleSectionsToTabs(moduleTab);
-  const activeId = getActiveSectionId(moduleTab, router.asPath);
+  const tabs = stripVatNav(moduleSectionsToTabs(moduleTab), isRegistered);
+  // Resolve the active section against the STRIPPED module, otherwise a
+  // non-vendor on a direct VAT URL gets an id ('VAT') that no rendered tab
+  // carries and nothing highlights.
+  const strippedModule = stripVatNav([moduleTab], isRegistered)[0] ?? moduleTab;
+  const activeId = getActiveSectionId(strippedModule, router.asPath);
 
   return (
     <div className="border-b border-gray-200 dark:border-gray-800 bg-[var(--ff-canvas-mid)]">

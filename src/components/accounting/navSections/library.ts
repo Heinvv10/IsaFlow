@@ -60,3 +60,17 @@ export const LIBRARY_MODULES: LibraryModule[] = [
   { id: 'payroll',    label: 'Payroll',    description: 'Employees, pay runs & leave',                   href: '/payroll',                              icon: React.createElement(Users, { className: ICON }) },
   { id: 'practice',   label: 'Practice',   description: 'Clients, jobs, time & WIP for your firm',       href: '/accounting/practice/clients',          icon: React.createElement(Briefcase, { className: ICON }) },
 ];
+
+/**
+ * The library grid for a company that is not a VAT vendor: the Tax tile still
+ * exists (EMP201, EMP501, provisional tax, CIPC all live there) but points at
+ * the compliance calendar instead of a VAT return the company never files.
+ */
+export function libraryModulesFor(isVatRegistered: boolean): LibraryModule[] {
+  if (isVatRegistered) return LIBRARY_MODULES;
+  return LIBRARY_MODULES.map((m) =>
+    m.id === 'tax'
+      ? { ...m, description: 'SARS submissions & compliance calendar', href: '/accounting/sars' }
+      : m,
+  );
+}

@@ -225,7 +225,11 @@ export default function OnboardingWizard() {
           bankBranchCode: d.bankBranchCode || undefined,
           bankAccountType: d.bankAccountType,
           financialYearStart: d.financialYearStart,
-          vatPeriod: d.vatPeriod, defaultCurrency: d.defaultCurrency,
+          vatPeriod: d.vatPeriod,
+          // Keep both VAT columns in step from the first write — the AFS
+          // accounting-policy notes read vat_system_type, not vat_period.
+          vatSystemType: d.vatPeriod === 'none' ? 'none' : 'invoice',
+          defaultCurrency: d.defaultCurrency,
         }),
       });
       if (!compRes.ok) {

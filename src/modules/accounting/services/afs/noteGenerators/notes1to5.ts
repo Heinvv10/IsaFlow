@@ -6,6 +6,7 @@ import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum, fiscalRange, getAccountingPolicies, type FrameworkType } from './noteHelpers';
+import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -19,7 +20,8 @@ export async function generateNote1AccountingPolicies(
   log.info('Generating AFS note 1', { companyId, framework }, 'noteGenerators');
 
   const rows = (await sql`
-    SELECT depreciation_method, inventory_valuation_method, default_currency, vat_system_type
+    SELECT depreciation_method, inventory_valuation_method, default_currency,
+           vat_system_type, vat_period
     FROM companies WHERE id = ${companyId}
   `) as DbRow[];
 
@@ -27,14 +29,21 @@ export async function generateNote1AccountingPolicies(
   const depMethod = String(c.depreciation_method ?? 'straight-line');
   const invMethod = String(c.inventory_valuation_method ?? 'weighted average cost');
   const currency = String(c.default_currency ?? 'ZAR');
-  const vatType = String(c.vat_system_type ?? 'invoice');
+  // vat_period/vat_system_type = 'none' means the company is not a VAT vendor;
+  // both columns must go through the normalisers (see vatPeriodHelper).
+  const vatRegistered = isVatRegistered(
+    c.vat_period == null ? null : String(c.vat_period),
+    c.vat_system_type == null ? null : String(c.vat_system_type),
+  );
+  const vatType = normalizeVatBasis(c.vat_system_type == null ? null : String(c.vat_system_type));
   const fw: FrameworkType = framework ?? 'ifrs_smes';
 
   const dataSnapshot: Record<string, unknown> = {
     depreciation_method: depMethod,
     inventory_valuation_method: invMethod,
     default_currency: currency,
-    vat_system_type: vatType,
+    vat_system_type: vatRegistered ? vatType : 'none',
+    vat_registered: vatRegistered,
     fiscal_year: fiscalYear,
     framework: fw,
   };
@@ -45,6 +54,7 @@ export async function generateNote1AccountingPolicies(
     invMethod,
     currency,
     vatBasis: vatType,
+    vatRegistered,
   });
 
   const blocks: NoteContent['blocks'] = [];

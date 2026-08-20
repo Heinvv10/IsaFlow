@@ -33,11 +33,31 @@ function row(overrides: Partial<ComplianceConfigRow> = {}): ComplianceConfigRow 
     cipc_anniversary_month: null,
     vat_period: 'bi-monthly',
     vat_period_alignment: 'odd',
+    vat_system_type: 'invoice',
     ...overrides,
   };
 }
 
 describe('shapeCompliance', () => {
+  it('emits no VAT items for a non-vendor even when vat_enabled is still on', () => {
+    const items = shapeCompliance([row({ vat_enabled: true, vat_period: 'none' })], META, JUN_11);
+    expect(items.filter((i) => i.task.startsWith('VAT'))).toHaveLength(0);
+  });
+
+  it('emits no VAT items when vat_system_type is none', () => {
+    const items = shapeCompliance(
+      [row({ vat_enabled: true, vat_system_type: 'none' })],
+      META,
+      JUN_11,
+    );
+    expect(items.filter((i) => i.task.startsWith('VAT'))).toHaveLength(0);
+  });
+
+  it('still emits VAT items for a registered vendor (control)', () => {
+    const items = shapeCompliance([row({ vat_enabled: true })], META, JUN_11);
+    expect(items.filter((i) => i.task.startsWith('VAT')).length).toBeGreaterThan(0);
+  });
+
   it('maps EMP201 obligations to work items with due date, href and severity', () => {
     const items = shapeCompliance([row({ emp201_enabled: true })], META, JUN_11);
 

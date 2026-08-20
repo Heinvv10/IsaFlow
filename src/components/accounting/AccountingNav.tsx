@@ -5,7 +5,10 @@
 
 import { ModuleNav } from '../layout/ModuleNav';
 import { TABS, getActiveTabId } from './accountingNavConfig';
+import { stripVatNav } from './navSections/vatNav';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 export function AccountingNav() {
-  return <ModuleNav tabs={TABS} getActiveTabId={getActiveTabId} accentColor="teal" />;
+  const { isRegistered } = useVatRegistration();
+  return <ModuleNav tabs={stripVatNav(TABS, isRegistered)} getActiveTabId={getActiveTabId} accentColor="teal" />;
 }

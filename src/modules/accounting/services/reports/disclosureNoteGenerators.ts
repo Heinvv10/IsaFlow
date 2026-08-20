@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import type { DisclosureNote } from './disclosureNoteService';
 import type { DbRow } from '@/types/db';
+import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
 
 
 function fmt(n: number | null | undefined): string {
@@ -21,13 +22,22 @@ function fiscalRange(year: number): { start: string; end: string } {
 
 export async function noteAccountingPolicies(companyId: string, _fiscalYear: number): Promise<DisclosureNote> {
   const rows = await sql`
-    SELECT default_currency, vat_system_type
+    SELECT default_currency, vat_system_type, vat_period
     FROM companies WHERE id = ${companyId}
   ` as DbRow[];
 
   const c = rows[0] ?? {};
   const currency = c.default_currency ?? 'ZAR';
-  const vatType = c.vat_system_type ?? 'invoice';
+  // 'none' in either column means the company is not a VAT vendor — it must
+  // not be described as accounting for VAT on any basis (see vatPeriodHelper).
+  const vatRegistered = isVatRegistered(
+    c.vat_period == null ? null : String(c.vat_period),
+    c.vat_system_type == null ? null : String(c.vat_system_type),
+  );
+  const vatType = normalizeVatBasis(c.vat_system_type == null ? null : String(c.vat_system_type));
+  const vatPolicy = vatRegistered
+    ? `Value Added Tax (VAT) is accounted for on the ${vatType} basis as registered with the South African Revenue Service (SARS).`
+    : 'The entity is not registered for Value Added Tax (VAT) with the South African Revenue Service (SARS). Expenditure is stated inclusive of any non-recoverable VAT incurred.';
   const depMethod = 'straight-line';
   const invMethod = 'weighted average cost';
 
@@ -40,7 +50,7 @@ export async function noteAccountingPolicies(companyId: string, _fiscalYear: num
     ``,
     `Revenue Recognition: Revenue from the sale of goods is recognised when the significant risks and rewards of ownership have passed to the buyer. Revenue from services is recognised in the period in which the services are rendered.`,
     ``,
-    `Taxation: Value Added Tax (VAT) is accounted for on the ${vatType} basis as registered with the South African Revenue Service (SARS).`,
+    `Taxation: ${vatPolicy}`,
   ].join('\n');
 
   return { noteNumber: 1, title: 'Accounting Policies', content, source: 'auto' };

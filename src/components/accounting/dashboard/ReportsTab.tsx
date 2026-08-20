@@ -8,6 +8,8 @@ import { Loader2, BarChart3, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { FiscalPeriod, TrialBalanceRow } from '@/modules/accounting/types/gl.types';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { isVatSurfaceHref } from '@/components/accounting/navSections/vatNav';
 
 const REPORT_LINKS = [
   { href: '/accounting/reports/income-statement', label: 'Income Statement', sub: 'Profit & Loss', hoverColor: 'hover:border-teal-500/50' },
@@ -22,6 +24,8 @@ function fmtCurrency(amount: number): string {
 }
 
 export function ReportsTab() {
+  const { isRegistered } = useVatRegistration();
+  const reportLinks = isRegistered ? REPORT_LINKS : REPORT_LINKS.filter(r => !isVatSurfaceHref(r.href));
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [trialBalance, setTrialBalance] = useState<TrialBalanceRow[]>([]);
@@ -67,7 +71,7 @@ export function ReportsTab() {
     <div className="space-y-6">
       {/* Report Navigation */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {REPORT_LINKS.map(r => (
+        {reportLinks.map(r => (
           <Link key={r.href} href={r.href} className={`p-4 rounded-lg bg-[var(--ff-bg-secondary)] border border-[var(--ff-border-light)] ${r.hoverColor} transition-all no-underline`}>
             <p className="font-medium text-sm text-[var(--ff-text-primary)]">{r.label}</p>
             <p className="text-xs text-[var(--ff-text-tertiary)]">{r.sub}</p>

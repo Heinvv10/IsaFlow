@@ -9,6 +9,7 @@ import { Wallet, Users, Landmark, CheckCircle2, AlertTriangle } from 'lucide-rea
 import { Money } from '@/components/ui';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import type { OwnerCashPosition } from '@/modules/bureau/services/ownerCashPositionService';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 function SectionCard({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
@@ -96,17 +97,22 @@ function VatSection({ pos }: { pos: OwnerCashPosition }) {
 }
 
 export function OwnerCashPanel({ position }: { position: OwnerCashPosition }) {
+  // A non-vendor sets nothing aside for VAT — drop the card instead of
+  // showing "No VAT estimate available", which reads as a failure.
+  const { isRegistered } = useVatRegistration();
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div className={`grid grid-cols-1 gap-3 ${isRegistered ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
       <SectionCard icon={<Wallet className="h-4 w-4 text-teal-500" />} title="Can I pay salaries?">
         <SalariesSection pos={position} />
       </SectionCard>
       <SectionCard icon={<Users className="h-4 w-4 text-indigo-400" />} title="Who owes me?">
         <DebtorsSection pos={position} />
       </SectionCard>
-      <SectionCard icon={<Landmark className="h-4 w-4 text-amber-400" />} title="VAT set-aside">
-        <VatSection pos={position} />
-      </SectionCard>
+      {isRegistered && (
+        <SectionCard icon={<Landmark className="h-4 w-4 text-amber-400" />} title="VAT set-aside">
+          <VatSection pos={position} />
+        </SectionCard>
+      )}
     </div>
   );
 }

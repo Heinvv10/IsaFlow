@@ -38,6 +38,7 @@ export interface Company {
   bankAccountType?: string;
   financialYearStart?: number;
   vatPeriod?: string;
+  vatSystemType?: string;
   defaultCurrency?: string;
   isActive?: boolean;
   // PRD-10 Layer 1: idle-timeout policy in minutes (default 480 = 8h).
@@ -120,6 +121,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
             bankAccountType: c.bank_account_type || c.bankAccountType,
             financialYearStart: c.financial_year_start || c.financialYearStart,
             vatPeriod: c.vat_period || c.vatPeriod,
+            vatSystemType: c.vat_system_type || c.vatSystemType,
             defaultCurrency: c.default_currency || c.defaultCurrency,
             isActive: c.is_active ?? c.isActive ?? true,
             idleTimeoutMinutes: c.idle_timeout_minutes ?? c.idleTimeoutMinutes,

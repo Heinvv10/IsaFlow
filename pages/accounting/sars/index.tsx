@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { formatDate } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 interface ComplianceEvent {
   id?: string;
@@ -75,6 +76,7 @@ const daysUntil = (d: string) => {
 };
 
 export default function SARSDashboard() {
+  const { isRegistered } = useVatRegistration();
   const [events, setEvents] = useState<ComplianceEvent[]>([]);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -171,12 +173,15 @@ export default function SARSDashboard() {
 
               {/* Quick Actions */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <QuickAction
-                  href="/accounting/sars/vat201"
-                  title="Generate VAT201"
-                  description="VAT return for bi-monthly period"
-                  icon={<FileText className="h-5 w-5 text-teal-500" />}
-                />
+                {/* A non-vendor has no VAT201 to generate. */}
+                {isRegistered && (
+                  <QuickAction
+                    href="/accounting/sars/vat201"
+                    title="Generate VAT201"
+                    description="VAT return for the company's filing period"
+                    icon={<FileText className="h-5 w-5 text-teal-500" />}
+                  />
+                )}
                 <QuickAction
                   href="/accounting/sars/emp201"
                   title="Generate EMP201"

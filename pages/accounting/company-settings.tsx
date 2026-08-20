@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Building2, Save, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
@@ -12,7 +13,7 @@ import { useCompany } from '@/contexts/CompanyContext';
 import { Company, DocumentNumber, CompanyDocument } from '@/components/accounting/settings/settingsTypes';
 import { mapApiCompany } from '@/components/accounting/settings/mapApiCompany';
 import { SettingsSidebar } from '@/components/accounting/settings/SettingsSidebar';
-import type { TabId } from '@/components/accounting/settings/settingsNav';
+import { parseTabId, type TabId } from '@/components/accounting/settings/settingsNav';
 import { DetailsTab } from '@/components/accounting/settings/DetailsTab';
 import { GeneralTab } from '@/components/accounting/settings/GeneralTab';
 import { VatTab } from '@/components/accounting/settings/VatTab';
@@ -36,6 +37,15 @@ export default function CompanySettingsPage() {
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('details');
+
+  // Deep links land on the tab they name (e.g. the "not registered for VAT"
+  // notice links to ?tab=vat). Query params are only available after hydration,
+  // so this runs as an effect rather than in the useState initialiser.
+  const router = useRouter();
+  useEffect(() => {
+    const tab = parseTabId(router.query.tab);
+    if (tab) setActiveTab(tab);
+  }, [router.query.tab]);
 
   // Dimensions
   const [enableCC, setEnableCC] = useState(false);

@@ -7,10 +7,10 @@
  * supplied meta map.
  */
 import { sql } from '@/lib/neon';
-import { expectedVatPeriodAsOf, normalizeVatAlignment, normalizeVatCadence } from './vatPeriodHelper';
+import { expectedVatPeriodAsOf, normalizeVatAlignment, normalizeVatSetting } from './vatPeriodHelper';
 import { MONTHS, severityForDate, type WorkItem, type CompanyMeta } from './bureauWorkTypes';
 
-export interface CompanyVatRow { id: string; vat_period_alignment: string | null; vat_period?: string | null; }
+export interface CompanyVatRow { id: string; vat_period_alignment: string | null; vat_period?: string | null; vat_system_type?: string | null; }
 export interface VatReturnRow { company_id: string; period_start: string; period_end: string; }
 
 function vatDetail(periodStart: string, periodEnd: string): string {
@@ -32,10 +32,12 @@ export function shapeVatDue(
   for (const c of companies) {
     const m = meta.get(c.id);
     if (!m) continue;
+    // Non-vendors never owe a VAT201 — no signal, at any severity.
+    const setting = normalizeVatSetting(c.vat_period, c.vat_system_type);
+    if (setting === 'none') continue;
     // Column DEFAULT is 'odd'; null (pre-migration rows) falls through safely.
     const alignment = normalizeVatAlignment(c.vat_period_alignment);
-    const cadence = normalizeVatCadence(c.vat_period);
-    const period = expectedVatPeriodAsOf(alignment, today, cadence);
+    const period = expectedVatPeriodAsOf(alignment, today, setting);
     const covered = returns.some(
       (r) => r.company_id === c.id && r.period_start <= period.periodStart && r.period_end >= period.periodEnd,
     );
@@ -53,7 +55,7 @@ export function shapeVatDue(
 export async function vatDueSignal(companyIds: string[], meta: Map<string, CompanyMeta>, today: Date): Promise<WorkItem[]> {
   const sixMonthsAgo = new Date(today.getTime() - 183 * 24 * 3600 * 1000).toISOString().slice(0, 10);
   const [companies, returns] = await Promise.all([
-    sql`SELECT id, vat_period_alignment, vat_period FROM companies WHERE id = ANY(${companyIds})`,
+    sql`SELECT id, vat_period_alignment, vat_period, vat_system_type FROM companies WHERE id = ANY(${companyIds})`,
     sql`SELECT company_id, period_start::text, period_end::text
           FROM vat_returns
          WHERE company_id = ANY(${companyIds})

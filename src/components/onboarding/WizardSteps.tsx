@@ -41,12 +41,19 @@ export interface WizardData {
   documents: DocFile[];
 }
 
+/** Human labels for the stored vat_period values, used by the review step. */
+const VAT_LABELS: Record<string, string> = {
+  none: 'Not registered',
+  monthly: 'Monthly (Category C)',
+  'bi-monthly': 'Bi-Monthly (Category A/B)',
+};
+
 export const INITIAL_WIZARD: WizardData = {
   name: '', tradingName: '', registrationNumber: '', vatNumber: '', taxNumber: '',
   addressLine1: '', addressLine2: '', city: '', province: '', postalCode: '',
   country: 'South Africa', phone: '', email: '', website: '', logoData: '',
   bankName: '', bankAccountNumber: '', bankBranchCode: '', bankAccountType: 'Current',
-  financialYearStart: 3, vatPeriod: 'Bi-Monthly', defaultCurrency: 'ZAR',
+  financialYearStart: 3, vatPeriod: 'bi-monthly', defaultCurrency: 'ZAR',
   coaTemplate: 'isaflow_standard',
   directors: [],
   cipcDirectors: [],
@@ -470,9 +477,13 @@ export function Step5({ d, set }: { d: WizardData; set: SetFn }) {
         onChange={v => set('financialYearStart', parseInt(v, 10))}>
         {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
       </Select>
-      <Select label="VAT Period" value={d.vatPeriod} onChange={v => set('vatPeriod', v)}>
-        <option value="Monthly">Monthly</option>
-        <option value="Bi-Monthly">Bi-Monthly</option>
+      {/* Values are lowercase to match companies.vat_period as written by
+          company settings — capitalised values left the settings dropdown
+          blank. 'none' is how a non-VAT-vendor opts out of every VAT surface. */}
+      <Select label="VAT Registration" value={d.vatPeriod} onChange={v => set('vatPeriod', v)}>
+        <option value="none">Not registered for VAT</option>
+        <option value="monthly">Registered — Monthly (Category C)</option>
+        <option value="bi-monthly">Registered — Bi-Monthly (Category A/B)</option>
       </Select>
       <Select label="Default Currency" value={d.defaultCurrency} onChange={v => set('defaultCurrency', v)}>
         {['ZAR', 'USD', 'EUR', 'GBP'].map(c => <option key={c} value={c}>{c}</option>)}
@@ -680,7 +691,7 @@ export function Step7({ d }: { d: WizardData }) {
       ])}
       {section('Financial', [
         ['FY Start', MONTHS[d.financialYearStart - 1]],
-        ['VAT Period', d.vatPeriod], ['Currency', d.defaultCurrency],
+        ['VAT', VAT_LABELS[d.vatPeriod] ?? d.vatPeriod], ['Currency', d.defaultCurrency],
         ['COA Template', COA_OPTIONS.find(o => o.id === d.coaTemplate)?.label],
       ])}
       <div>

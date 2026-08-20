@@ -5,9 +5,12 @@
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { LIBRARY_MODULES } from '@/components/accounting/navSections/library';
+import { libraryModulesFor } from '@/components/accounting/navSections/library';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 export default function LibraryPage() {
+  const { isRegistered } = useVatRegistration();
+  const modules = libraryModulesFor(isRegistered);
   return (
     <AppLayout>
       <div className="max-w-5xl mx-auto">
@@ -19,7 +22,7 @@ export default function LibraryPage() {
         </header>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {LIBRARY_MODULES.map((m) => (
+          {modules.map((m) => (
             <Link
               key={m.id}
               href={m.href}

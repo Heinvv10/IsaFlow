@@ -31,6 +31,9 @@ export { withWriteAccess, DEFAULT_WRITE_ROLES, type WriteRole } from './withWrit
 // CSRF gate
 export { withCsrf } from './withCsrf';
 
+// VAT-vendor gate for VAT-only routes (companies with vat_period/vat_system_type = 'none').
+export { withVatVendor, isCompanyVatVendor } from './withVatVendor';
+
 // Module-permission gate
 export { withModulePermission } from './withModulePermission';
 
