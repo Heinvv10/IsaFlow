@@ -65,6 +65,26 @@ describe('stripVatNav', () => {
     expect(stripVatNav([vatTab], true)).toHaveLength(1);
   });
 
+  it('drops a topItems-only tab whose every link was a VAT surface', () => {
+    const tab: Tab = {
+      id: 'x', label: 'X',
+      topItems: [{ label: 'VAT201', href: '/accounting/sars/vat201' }],
+    };
+    expect(stripVatNav([tab], false)).toEqual([]);
+  });
+
+  it('keeps a topItems-only tab that still has a non-VAT link', () => {
+    const tab: Tab = {
+      id: 'x', label: 'X',
+      topItems: [
+        { label: 'VAT201', href: '/accounting/sars/vat201' },
+        { label: 'EMP201', href: '/accounting/sars/emp201' },
+      ],
+    };
+    const kept = stripVatNav([tab], false)[0];
+    expect(kept?.topItems?.map((i) => i.href)).toEqual(['/accounting/sars/emp201']);
+  });
+
   it('drops a section left empty rather than rendering an empty heading', () => {
     const tab: Tab = {
       id: 'x', label: 'X',

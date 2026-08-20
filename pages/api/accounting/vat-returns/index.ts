@@ -18,8 +18,7 @@ import {
   withAuth,
   type CompanyAuthedRequest,
   type AuthenticatedNextApiRequest,
-  withWriteAccess,
-} from '@/lib/auth';
+  withWriteAccess, withVatVendor} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import {
@@ -68,4 +67,4 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'POST']);
 }
 
-export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));
+export default withAuth(withErrorHandler(withVatVendor(withCsrf(withWriteAccess(handler)))));

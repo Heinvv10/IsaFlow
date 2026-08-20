@@ -119,7 +119,7 @@ function BoxRow({ box, section }: { box: VAT201Box; section: 'output' | 'input' 
 }
 
 export default function VATReturnPage() {
-  const { isRegistered } = useVatRegistration();
+  const { isRegistered, known } = useVatRegistration();
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
@@ -150,11 +150,13 @@ export default function VATReturnPage() {
   const inputWithActivity = report?.inputBoxes.filter(b => Math.abs(b.amount) > 0.01) || [];
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.
-  if (!isRegistered) {
+  // While the answer is still unknown, render neither: flashing a VAT form at
+  // a company that turns out not to be a vendor is worse than a blank moment.
+  if (!known || !isRegistered) {
     return (
       <AppLayout>
         <div className="p-6">
-          <NotVatRegisteredNotice surface="The VAT return report" />
+          {known && <NotVatRegisteredNotice surface="The VAT return report" />}
         </div>
       </AppLayout>
     );

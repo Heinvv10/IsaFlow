@@ -25,7 +25,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default function VATAdjustmentsPage() {
-  const { isRegistered } = useVatRegistration();
+  const { isRegistered, known } = useVatRegistration();
   const [items, setItems] = useState<VATAdjustment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -90,11 +90,13 @@ export default function VATAdjustmentsPage() {
   };
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.
-  if (!isRegistered) {
+  // While the answer is still unknown, render neither: flashing a VAT form at
+  // a company that turns out not to be a vendor is worse than a blank moment.
+  if (!known || !isRegistered) {
     return (
       <AppLayout>
         <div className="p-6">
-          <NotVatRegisteredNotice surface="VAT adjustments" />
+          {known && <NotVatRegisteredNotice surface="VAT adjustments" />}
         </div>
       </AppLayout>
     );

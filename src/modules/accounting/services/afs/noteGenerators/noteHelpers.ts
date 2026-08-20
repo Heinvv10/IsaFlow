@@ -362,7 +362,14 @@ const POLICY_BLOCKS: PolicyBlock[] = [
  */
 export function getAccountingPolicies(
   framework: FrameworkType,
-  overrides?: { depMethod?: string; invMethod?: string; currency?: string; vatBasis?: string },
+  overrides?: {
+    depMethod?: string;
+    invMethod?: string;
+    currency?: string;
+    vatBasis?: string;
+    /** False when the company is not a registered VAT vendor. */
+    vatRegistered?: boolean;
+  },
 ): Array<{ heading: string; text: string }> {
   const policies = POLICY_BLOCKS.map((block) => ({
     heading: block.heading,
@@ -377,9 +384,15 @@ export function getAccountingPolicies(
     }
   }
 
-  if (overrides?.vatBasis) {
-    const taxIdx = policies.findIndex((p) => p.heading === 'Taxation');
-    if (taxIdx >= 0) {
+  // A non-vendor must never be described as accounting for VAT on any basis —
+  // that is a false statement in a signed financial statement.
+  const taxIdx = policies.findIndex((p) => p.heading === 'Taxation');
+  if (taxIdx >= 0) {
+    if (overrides?.vatRegistered === false) {
+      policies[taxIdx]!.text +=
+        ' The entity is not registered for Value Added Tax (VAT) with the South African Revenue Service.'
+        + ' Expenditure is stated inclusive of any non-recoverable VAT incurred.';
+    } else if (overrides?.vatBasis) {
       policies[taxIdx]!.text += ` The entity accounts for VAT on the ${overrides.vatBasis} basis.`;
     }
   }

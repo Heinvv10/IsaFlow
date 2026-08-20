@@ -41,7 +41,7 @@ const fmt = (n: number) =>
 
 export default function VAT201Page() {
   const { activeCompany } = useCompany();
-  const { isRegistered } = useVatRegistration();
+  const { isRegistered, known } = useVatRegistration();
   const [alignment, setAlignment] = useState<'odd' | 'even'>('odd');
   const [vatPeriod, setVatPeriod] = useState<'monthly' | 'bi-monthly'>('bi-monthly');
   const [quickPeriods, setQuickPeriods] = useState<VatQuickPeriod[]>([]);
@@ -193,9 +193,9 @@ export default function VAT201Page() {
           {error && <div className="p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">{error}</div>}
           {success && <div className="p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">{success}</div>}
 
-          {!isRegistered && <NotVatRegisteredNotice surface="The VAT201 return" />}
+          {known && !isRegistered && <NotVatRegisteredNotice surface="The VAT201 return" />}
 
-          {isRegistered && <VAT201PeriodSelector
+          {known && isRegistered && <VAT201PeriodSelector
             from={from} to={to} loading={loading} vatPeriod={vatPeriod} alignment={alignment}
             quickPeriods={quickPeriods}
             onFromChange={setFrom} onToChange={setTo}
@@ -203,7 +203,7 @@ export default function VAT201Page() {
             onGenerate={generate}
           />}
 
-          {isRegistered && data && (
+          {known && isRegistered && data && (
             <>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1 bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-1">

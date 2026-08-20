@@ -1,5 +1,6 @@
 import { Company, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
-import { normalizeVatSetting } from '@/modules/bureau/services/vatPeriodHelper';
+import { normalizeVatBasis, normalizeVatSetting } from '@/modules/bureau/services/vatPeriodHelper';
+import { vatSystemSelectionUpdates } from './vatSystemSelection';
 
 interface Props {
   company: Company;
@@ -17,12 +18,13 @@ export function VatTab({ company, onChange }: Props) {
   // cadence, this tab writes the system type). Selecting a system keeps both
   // columns in step so the two can never drift apart from here on.
   const registered = normalizeVatSetting(company.vatPeriod, company.vatSystemType) !== 'none';
+  // A legacy/corrupted vat_system_type that is neither 'invoice' nor 'payment'
+  // must still select SOMETHING, or the group renders with no radio checked
+  // and the user cannot tell what the company is set to.
+  const selectedSystem = registered ? normalizeVatBasis(company.vatSystemType) : 'none';
   const selectVatSystem = (value: string) => {
-    onChange('vatSystemType', value);
-    if (value === 'none') {
-      onChange('vatPeriod', 'none');
-    } else if (normalizeVatSetting(company.vatPeriod) === 'none') {
-      onChange('vatPeriod', 'bi-monthly');
+    for (const u of vatSystemSelectionUpdates(value, company.vatPeriod)) {
+      onChange(u.field, u.value);
     }
   };
 
@@ -37,7 +39,7 @@ export function VatTab({ company, onChange }: Props) {
                 type="radio"
                 name="vatSystem"
                 value={opt.value}
-                checked={opt.value === 'none' ? !registered : registered && company.vatSystemType === opt.value}
+                checked={opt.value === selectedSystem}
                 onChange={e => selectVatSystem(e.target.value)}
                 className="mt-0.5 accent-teal-500"
               />

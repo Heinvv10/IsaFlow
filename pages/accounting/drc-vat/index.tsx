@@ -23,7 +23,7 @@ const fmt = (n: number) => new Intl.NumberFormat('en-ZA', { style: 'currency', c
 const DEFAULT_VAT_RATE = 0.15;
 
 export default function DRCVatPage() {
-  const { isRegistered } = useVatRegistration();
+  const { isRegistered, known } = useVatRegistration();
   const [eligible, setEligible] = useState<Invoice[]>([]);
   const [history, setHistory] = useState<Invoice[]>([]);
   const [tab, setTab] = useState<'eligible' | 'history'>('eligible');
@@ -70,11 +70,13 @@ export default function DRCVatPage() {
   const items = tab === 'eligible' ? eligible : history;
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.
-  if (!isRegistered) {
+  // While the answer is still unknown, render neither: flashing a VAT form at
+  // a company that turns out not to be a vendor is worse than a blank moment.
+  if (!known || !isRegistered) {
     return (
       <AppLayout>
         <div className="p-6">
-          <NotVatRegisteredNotice surface="Domestic reverse-charge VAT" />
+          {known && <NotVatRegisteredNotice surface="Domestic reverse-charge VAT" />}
         </div>
       </AppLayout>
     );

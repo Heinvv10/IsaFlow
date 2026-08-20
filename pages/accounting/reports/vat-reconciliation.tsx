@@ -85,7 +85,7 @@ const fmtMonth = (m: string) => {
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function VatReconciliationPage() {
-  const { isRegistered } = useVatRegistration();
+  const { isRegistered, known } = useVatRegistration();
   const [mode, setMode] = useState<ViewMode>('reconciliation');
   const [from, setFrom] = useState(() => {
     const d = new Date();
@@ -126,11 +126,13 @@ export default function VatReconciliationPage() {
   useEffect(() => { void fetchData(); }, [fetchData]);
 
   // Non-vendors never file VAT — show why instead of an empty VAT surface.
-  if (!isRegistered) {
+  // While the answer is still unknown, render neither: flashing a VAT form at
+  // a company that turns out not to be a vendor is worse than a blank moment.
+  if (!known || !isRegistered) {
     return (
       <AppLayout>
         <div className="p-6">
-          <NotVatRegisteredNotice surface="VAT reconciliation" />
+          {known && <NotVatRegisteredNotice surface="VAT reconciliation" />}
         </div>
       </AppLayout>
     );

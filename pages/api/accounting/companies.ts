@@ -32,9 +32,21 @@ import {
  * company whose cadence was a typo. 'none' = not a VAT vendor.
  */
 const VALID_VAT_PERIODS = ['monthly', 'bi-monthly', 'none'];
-function isValidVatPeriod(value: unknown): boolean {
+export function isValidVatPeriod(value: unknown): boolean {
   if (value === undefined || value === null || value === '') return true;
   return typeof value === 'string' && VALID_VAT_PERIODS.includes(value.trim().toLowerCase());
+}
+
+/**
+ * `vat_system_type` is the other half of the pair — it is the column
+ * `normalizeVatSetting` reads for the 'none' (not-a-VAT-vendor) flag. An
+ * unrecognised value there reads as "registered", so junk must be rejected
+ * here too or the two columns silently disagree.
+ */
+const VALID_VAT_SYSTEM_TYPES = ['invoice', 'payment', 'none'];
+export function isValidVatSystemType(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return true;
+  return typeof value === 'string' && VALID_VAT_SYSTEM_TYPES.includes(value.trim().toLowerCase());
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -83,18 +95,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
       website, addressLine1, addressLine2, city, province, postalCode, country,
       logoData, bankName, bankAccountNumber, bankBranchCode, bankAccountType,
-      financialYearStart, vatPeriod, defaultCurrency,
+      financialYearStart, vatPeriod, vatSystemType, defaultCurrency,
     } = req.body;
     if (!name) return apiResponse.badRequest(res, 'name is required');
     if (!isValidVatPeriod(vatPeriod)) {
       return apiResponse.badRequest(res, "vatPeriod must be 'monthly', 'bi-monthly' or 'none'");
+    }
+    if (!isValidVatSystemType(vatSystemType)) {
+      return apiResponse.badRequest(res, "vatSystemType must be 'invoice', 'payment' or 'none'");
     }
     const company = await createCompany(
       {
         name, tradingName, registrationNumber, vatNumber, taxNumber, email, phone,
         website, addressLine1, addressLine2, city, province, postalCode, country,
         logoData, bankName, bankAccountNumber, bankBranchCode, bankAccountType,
-        financialYearStart, vatPeriod, defaultCurrency,
+        financialYearStart, vatPeriod, vatSystemType, defaultCurrency,
       },
       userId
     );
@@ -106,6 +121,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!id) return apiResponse.badRequest(res, 'id is required');
     if (!isValidVatPeriod(updates.vatPeriod)) {
       return apiResponse.badRequest(res, "vatPeriod must be 'monthly', 'bi-monthly' or 'none'");
+    }
+    if (!isValidVatSystemType(updates.vatSystemType)) {
+      return apiResponse.badRequest(res, "vatSystemType must be 'invoice', 'payment' or 'none'");
     }
     // Verify user is owner or admin of this company
     const userCompanies = await getUserCompanies(userId);

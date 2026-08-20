@@ -4,7 +4,7 @@
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
+import { withAuth, type CompanyAuthedRequest, withWriteAccess, withVatVendor} from '@/lib/auth';
 import { apiResponse } from '@/lib/apiResponse';
 import {
   getVatReconciliation,
@@ -35,4 +35,4 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   return apiResponse.success(res, { type: 'reconciliation', ...recon });
 }
 
-export default withAuth(withErrorHandler(withWriteAccess(handler)));
+export default withAuth(withErrorHandler(withVatVendor(withWriteAccess(handler))));

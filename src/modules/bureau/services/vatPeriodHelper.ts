@@ -73,6 +73,18 @@ export function normalizeVatSetting(
   return vatPeriod?.trim().toLowerCase() === 'monthly' ? 'monthly' : 'bi-monthly';
 }
 
+/**
+ * Accounting basis a registered vendor accounts for VAT on. Only meaningful
+ * when isVatRegistered() is true — callers must check that first, because
+ * 'none' normalises to 'invoice' here rather than inventing a third basis.
+ */
+export type VatBasis = 'invoice' | 'payment';
+
+/** Narrow a stored `companies.vat_system_type` to a basis, defaulting to invoice. */
+export function normalizeVatBasis(vatSystemType: string | null | undefined): VatBasis {
+  return vatSystemType?.trim().toLowerCase() === 'payment' ? 'payment' : 'invoice';
+}
+
 /** False only when the company has explicitly opted out of VAT. */
 export function isVatRegistered(
   vatPeriod: string | null | undefined,

@@ -42,8 +42,13 @@ function stripTab(tab: Tab): Tab | null {
   if (tab.id === 'vat') return null;
   const items = tab.items ? stripItems(tab.items) : undefined;
   const topItems = tab.topItems?.filter((i) => !isVatSurfaceHref(i.href));
-  // A tab whose every link was a VAT surface has nothing left to show.
-  if (tab.items && items!.length === 0 && !(topItems?.length) && (!tab.href || isVatSurfaceHref(tab.href))) {
+
+  // A tab whose every link was a VAT surface has nothing left to show. This
+  // must hold for a tab defined with ONLY topItems as well as one with items —
+  // "had links, has none now" is the condition, not "has an items array".
+  const hadLinks = Boolean(tab.items?.length) || Boolean(tab.topItems?.length);
+  const hasLinks = Boolean(items?.length) || Boolean(topItems?.length);
+  if (hadLinks && !hasLinks && (!tab.href || isVatSurfaceHref(tab.href))) {
     return null;
   }
   return { ...tab, ...(items ? { items } : {}), ...(topItems ? { topItems } : {}) };
