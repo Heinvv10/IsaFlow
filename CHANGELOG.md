@@ -13,6 +13,24 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-08-20 — Non-VAT-Vendor Support
+
+**VAT**
+
+- `vat_system_type = 'none'` / `vat_period = 'none'` now the canonical non-vendor flag — companies that are not registered for VAT no longer receive VAT201 screens, compliance-calendar deadlines, VAT set-asides, or bureau signals (#255)
+- `normalizeVatCadence` replaced by `normalizeVatSetting` — every call site was forced to decide what a non-vendor sees; no silent fall-through to a cadence (#255)
+- `withVatVendor` middleware added — VAT API routes return 403 for non-vendor companies rather than silently returning empty data (#255)
+- Nav items (sidebar, top, secondary, library) and VAT pages (VAT201, VAT return, VAT reconciliation, VAT adjustments, DRC VAT) hidden for non-vendors; VAT settings link kept so companies can re-register (#255)
+- Bureau signals (VAT-due, compliance calendar), SARS dashboard, reports hub, dashboard workbench, and AFS Note 1 all respect the non-vendor flag (#255)
+- Bug: onboarding wizard wrote `Monthly`/`Bi-Monthly` while settings read `monthly`/`bi-monthly` — settings dropdown rendered blank for all wizard-created companies; mig 511 normalises existing rows (#255)
+- Bug: `/accounting/company-settings` ignored `?tab=` query param — "Open VAT settings" deep link always landed on Company Details (#255)
+- Companies API now validates `vat_period` against `monthly`/`bi-monthly`/`none` — typos no longer silently become bi-monthly filing reminders (#255)
+- 20 new unit tests, mutation-proved (#255)
+
+Migrations: **511** (`normalize_vat_period_casing`), **512** (`align_vat_system_type_none`), **513** (`create_company_writes_vat_system_type`)
+
+---
+
 ## 2026-08-19 — Self-Serve Signup + Email Verification
 
 **Auth**
