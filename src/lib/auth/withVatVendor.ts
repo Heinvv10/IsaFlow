@@ -8,6 +8,12 @@
  * authorisation one — hence 403 with an explanatory message rather than a
  * silent empty result.
  *
+ * WRITES ONLY. A company that deregisters for VAT must still be able to read
+ * and export the returns it filed while it was a vendor — SARS requires those
+ * records to be kept for five years, and refusing to serve them would be a
+ * retention problem of our own making. GET/HEAD/OPTIONS therefore pass
+ * through; only state-changing methods are refused.
+ *
  * Registration is read through `isVatRegistered` so this agrees with every
  * other consumer (see vatPeriodHelper): 'none' in EITHER `vat_period` or
  * `vat_system_type` means not a vendor.
@@ -37,12 +43,16 @@ export async function isCompanyVatVendor(companyId: string): Promise<boolean> {
 }
 
 /**
- * Refuse the request with 403 when the authenticated company is not a VAT
- * vendor. Wrap OUTSIDE nothing in particular — it only needs `companyId`, so
- * it composes anywhere inside `withAuth`.
+ * Refuse a state-changing request with 403 when the authenticated company is
+ * not a VAT vendor. Reads pass through (see the note above). It only needs
+ * `companyId`, so it composes anywhere inside `withAuth`.
  */
 export function withVatVendor<T extends NextApiHandler | CompanyApiHandler>(handler: T): T {
   return (async (req: Parameters<T>[0], res: NextApiResponse) => {
+    const method = req.method?.toUpperCase();
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+      return (handler as NextApiHandler)(req, res);
+    }
     const { companyId } = req as CompanyAuthedRequest;
     if (!(await isCompanyVatVendor(companyId))) {
       return apiResponse.forbidden(

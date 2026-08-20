@@ -51,23 +51,44 @@ describe('withVatVendor', () => {
     sqlMock.mockResolvedValue([{ vat_period: 'monthly', vat_system_type: 'invoice' }]);
     const handler = vi.fn();
     const { res } = makeRes();
-    await withVatVendor(handler)({ companyId: COMPANY } as never, res);
+    await withVatVendor(handler)({ companyId: COMPANY, method: 'POST' } as never, res);
     expect(handler).toHaveBeenCalledOnce();
   });
 
-  it('refuses with 403 and never reaches the handler for a non-vendor', async () => {
+  it('refuses a write with 403 and never reaches the handler for a non-vendor', async () => {
     sqlMock.mockResolvedValue([{ vat_period: 'none', vat_system_type: 'none' }]);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+      const handler = vi.fn();
+      const { res, captured } = makeRes();
+      await withVatVendor(handler)({ companyId: COMPANY, method } as never, res);
+      expect(handler, method).not.toHaveBeenCalled();
+      expect(captured.code, method).toBe(403);
+      expect(JSON.stringify(captured.payload)).toContain('not registered for VAT');
+    }
+  });
+
+  it('still serves READS to a company that has deregistered', async () => {
+    // SARS requires five years of records: a company that stops being a VAT
+    // vendor must keep access to the returns it filed while it was one.
+    sqlMock.mockResolvedValue([{ vat_period: 'none', vat_system_type: 'none' }]);
+    for (const method of ['GET', 'HEAD', 'OPTIONS']) {
+      const handler = vi.fn();
+      const { res, captured } = makeRes();
+      await withVatVendor(handler)({ companyId: COMPANY, method } as never, res);
+      expect(handler, method).toHaveBeenCalledOnce();
+      expect(captured.code, method).toBeUndefined();
+    }
+  });
+
+  it('does not even query the database on a read', async () => {
     const handler = vi.fn();
-    const { res, captured } = makeRes();
-    await withVatVendor(handler)({ companyId: COMPANY } as never, res);
-    expect(handler).not.toHaveBeenCalled();
-    expect(captured.code).toBe(403);
-    expect(JSON.stringify(captured.payload)).toContain('not registered for VAT');
+    await withVatVendor(handler)({ companyId: COMPANY, method: 'GET' } as never, makeRes().res);
+    expect(sqlMock).not.toHaveBeenCalled();
   });
 
   it('scopes its lookup to the authenticated company', async () => {
     sqlMock.mockResolvedValue([{ vat_period: 'bi-monthly', vat_system_type: 'invoice' }]);
-    await withVatVendor(vi.fn())({ companyId: COMPANY } as never, makeRes().res);
+    await withVatVendor(vi.fn())({ companyId: COMPANY, method: 'POST' } as never, makeRes().res);
     expect(JSON.stringify(sqlMock.mock.calls[0])).toContain(COMPANY);
   });
 });
