@@ -17,6 +17,8 @@ import {
   type Tab,
   type NavItem,
 } from '../accounting/accountingNavConfig';
+import { stripVatNav } from '../accounting/navSections/vatNav';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
 
 // ─── Shared styles ──────────────────────────────────────────────────────────
 
@@ -163,6 +165,7 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
   const asPath = router.asPath;
   const activeTabId = getActiveTabId(router.pathname, router.query);
 
+  const { isRegistered } = useVatRegistration();
   const [flyout, setFlyout] = useState<{ tabId: string; top: number; left: number } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -178,12 +181,13 @@ export function SidebarNav({ collapsed }: SidebarNavProps) {
     setFlyout({ tabId, top: rect.top, left: rect.right });
   }, [cl]);
 
-  const flyoutTab = flyout ? TABS.find(t => t.id === flyout.tabId) : null;
+  const tabs = stripVatNav(TABS, isRegistered);
+  const flyoutTab = flyout ? tabs.find(t => t.id === flyout.tabId) : null;
 
   return (
     <>
       <nav className="flex-1 overflow-y-auto py-2">
-        {TABS.map(tab => {
+        {tabs.map(tab => {
           const active = activeTabId === tab.id;
           const hasItems = !!(tab.items?.length);
           const isOpen = flyout?.tabId === tab.id;

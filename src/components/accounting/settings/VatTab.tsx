@@ -1,4 +1,6 @@
 import { Company, INPUT_CLS, LABEL_CLS, SECTION_CLS } from './settingsTypes';
+import { normalizeVatBasis, normalizeVatSetting } from '@/modules/bureau/services/vatPeriodHelper';
+import { vatSystemSelectionUpdates } from './vatSystemSelection';
 
 interface Props {
   company: Company;
@@ -12,6 +14,20 @@ const VAT_OPTIONS = [
 ];
 
 export function VatTab({ company, onChange }: Props) {
+  // 'none' in EITHER column means not registered (the wizard writes the
+  // cadence, this tab writes the system type). Selecting a system keeps both
+  // columns in step so the two can never drift apart from here on.
+  const registered = normalizeVatSetting(company.vatPeriod, company.vatSystemType) !== 'none';
+  // A legacy/corrupted vat_system_type that is neither 'invoice' nor 'payment'
+  // must still select SOMETHING, or the group renders with no radio checked
+  // and the user cannot tell what the company is set to.
+  const selectedSystem = registered ? normalizeVatBasis(company.vatSystemType) : 'none';
+  const selectVatSystem = (value: string) => {
+    for (const u of vatSystemSelectionUpdates(value, company.vatPeriod)) {
+      onChange(u.field, u.value);
+    }
+  };
+
   return (
     <>
       <section className={SECTION_CLS}>
@@ -23,8 +39,8 @@ export function VatTab({ company, onChange }: Props) {
                 type="radio"
                 name="vatSystem"
                 value={opt.value}
-                checked={company.vatSystemType === opt.value}
-                onChange={e => onChange('vatSystemType', e.target.value)}
+                checked={opt.value === selectedSystem}
+                onChange={e => selectVatSystem(e.target.value)}
                 className="mt-0.5 accent-teal-500"
               />
               <div>
@@ -36,7 +52,7 @@ export function VatTab({ company, onChange }: Props) {
         </div>
       </section>
 
-      {company.vatSystemType !== 'none' && (
+      {registered && (
         <section className={SECTION_CLS}>
           <h2 className="text-lg font-semibold text-[var(--ff-text-primary)] mb-4">VAT Details</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -46,12 +62,12 @@ export function VatTab({ company, onChange }: Props) {
             </div>
             <div>
               <label className={LABEL_CLS}>VAT Reporting Frequency</label>
-              <select className={INPUT_CLS} value={company.vatPeriod} onChange={e => onChange('vatPeriod', e.target.value)}>
+              <select className={INPUT_CLS} value={normalizeVatSetting(company.vatPeriod)} onChange={e => onChange('vatPeriod', e.target.value)}>
                 <option value="monthly">Monthly</option>
                 <option value="bi-monthly">Bi-Monthly</option>
               </select>
             </div>
-            {company.vatPeriod === 'bi-monthly' && (
+            {normalizeVatSetting(company.vatPeriod) === 'bi-monthly' && (
               <div>
                 <label className={LABEL_CLS}>Bi-Monthly Period Alignment</label>
                 <select className={INPUT_CLS} value={company.vatPeriodAlignment || 'odd'} onChange={e => onChange('vatPeriodAlignment', e.target.value)}>

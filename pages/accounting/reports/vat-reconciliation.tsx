@@ -8,6 +8,8 @@ import { apiFetch } from '@/lib/apiFetch';
 import {
   FileSearch, Loader2, AlertCircle, AlertTriangle, CheckCircle, TrendingUp,
 } from 'lucide-react';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -83,6 +85,7 @@ const fmtMonth = (m: string) => {
 // ── Main Page ───────────────────────────────────────────────────────────────
 
 export default function VatReconciliationPage() {
+  const { isRegistered, known } = useVatRegistration();
   const [mode, setMode] = useState<ViewMode>('reconciliation');
   const [from, setFrom] = useState(() => {
     const d = new Date();
@@ -121,6 +124,19 @@ export default function VatReconciliationPage() {
   }, [mode, from, to]);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
+
+  // Non-vendors never file VAT — show why instead of an empty VAT surface.
+  // While the answer is still unknown, render neither: flashing a VAT form at
+  // a company that turns out not to be a vendor is worse than a blank moment.
+  if (!known || !isRegistered) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          {known && <NotVatRegisteredNotice surface="VAT reconciliation" />}
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>

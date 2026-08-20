@@ -8,6 +8,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Percent, Plus, Check, Loader2 } from 'lucide-react';
 import { ExportCSVButton } from '@/components/shared/ExportCSVButton';
 import { apiFetch } from '@/lib/apiFetch';
+import { useVatRegistration } from '@/hooks/useVatRegistration';
+import { NotVatRegisteredNotice } from '@/components/accounting/NotVatRegisteredNotice';
 
 interface VATAdjustment {
   id: string; adjustmentNumber: string; adjustmentDate: string; vatPeriod?: string;
@@ -23,6 +25,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default function VATAdjustmentsPage() {
+  const { isRegistered, known } = useVatRegistration();
   const [items, setItems] = useState<VATAdjustment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -85,6 +88,19 @@ export default function VATAdjustmentsPage() {
     });
     await load(); setBusy('');
   };
+
+  // Non-vendors never file VAT — show why instead of an empty VAT surface.
+  // While the answer is still unknown, render neither: flashing a VAT form at
+  // a company that turns out not to be a vendor is worse than a blank moment.
+  if (!known || !isRegistered) {
+    return (
+      <AppLayout>
+        <div className="p-6">
+          {known && <NotVatRegisteredNotice surface="VAT adjustments" />}
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>

@@ -12,7 +12,7 @@
  */
 import { sql } from '@/lib/neon';
 import { upcomingObligations, type ObligationKind } from './complianceCalendarEngine';
-import { normalizeVatAlignment, normalizeVatCadence } from './vatPeriodHelper';
+import { normalizeVatAlignment, normalizeVatSetting } from './vatPeriodHelper';
 import { severityForDate, type WorkItem, type CompanyMeta } from './bureauWorkTypes';
 
 export interface ComplianceConfigRow {
@@ -26,6 +26,7 @@ export interface ComplianceConfigRow {
   cipc_anniversary_month: number | null;
   vat_period: string | null;
   vat_period_alignment: string | null;
+  vat_system_type: string | null;
 }
 
 const HREFS: Record<ObligationKind, string> = {
@@ -45,11 +46,14 @@ export function shapeCompliance(
   for (const r of rows) {
     const m = meta.get(r.company_id);
     if (!m) continue;
+    // A non-vendor generates no VAT calendar items even if vat_enabled was
+    // left on from before the company opted out.
+    const setting = normalizeVatSetting(r.vat_period, r.vat_system_type);
     const due = upcomingObligations(
       {
         vat: {
-          enabled: Boolean(r.vat_enabled),
-          period: normalizeVatCadence(r.vat_period),
+          enabled: Boolean(r.vat_enabled) && setting !== 'none',
+          period: setting === 'none' ? 'bi-monthly' : setting,
           alignment: normalizeVatAlignment(r.vat_period_alignment),
         },
         emp201Enabled: Boolean(r.emp201_enabled),
@@ -87,7 +91,7 @@ export async function complianceSignal(
   const rows = (await sql`
     SELECT o.company_id, o.vat_enabled, o.emp201_enabled, o.emp501_enabled,
            o.provisional_tax_enabled, o.cipc_enabled, o.year_end_month,
-           o.cipc_anniversary_month, c.vat_period, c.vat_period_alignment
+           o.cipc_anniversary_month, c.vat_period, c.vat_period_alignment, c.vat_system_type
       FROM company_compliance_obligations o
       JOIN companies c ON c.id = o.company_id
      WHERE o.company_id = ANY(${companyIds})

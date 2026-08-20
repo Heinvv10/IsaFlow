@@ -16,7 +16,7 @@ import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnSer
 import {
   expectedVatPeriodAsOf,
   normalizeVatAlignment,
-  normalizeVatCadence,
+  normalizeVatSetting,
   type VatPeriod,
 } from './vatPeriodHelper';
 import { MONTHS } from './bureauWorkTypes';
@@ -137,13 +137,16 @@ async function nextPayrollSection(
 
 async function vatSection(companyId: string, today: Date): Promise<CashPositionVat | null> {
   const rows = (await sql`
-    SELECT vat_period_alignment, vat_period FROM companies WHERE id = ${companyId}::uuid
-  `) as unknown as Array<{ vat_period_alignment: string | null; vat_period: string | null }>;
+    SELECT vat_period_alignment, vat_period, vat_system_type FROM companies WHERE id = ${companyId}::uuid
+  `) as unknown as Array<{ vat_period_alignment: string | null; vat_period: string | null; vat_system_type: string | null }>;
   if (!rows[0]) return null;
+  // Non-vendors set nothing aside for VAT — the section is omitted entirely.
+  const setting = normalizeVatSetting(rows[0].vat_period, rows[0].vat_system_type);
+  if (setting === 'none') return null;
   const period = expectedVatPeriodAsOf(
     normalizeVatAlignment(rows[0].vat_period_alignment),
     today,
-    normalizeVatCadence(rows[0].vat_period),
+    setting,
   );
   const ret = await getVATReturn(companyId, period.periodStart, period.periodEnd);
   return shapeVatSetAside(ret.netVAT, period);
