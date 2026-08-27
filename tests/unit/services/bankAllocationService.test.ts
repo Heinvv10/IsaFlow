@@ -13,7 +13,12 @@ import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vites
 
 // ── Module mocks ─────────────────────────────────────────────────────────────
 
-vi.mock('@/lib/neon', () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
+// fmtDate is a pure date formatter (no DB) — keep the real one so the
+// allocation date under test is the one production renders.
+vi.mock('@/lib/neon', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/neon')>('@/lib/neon');
+  return { sql: vi.fn(), withTransaction: vi.fn(), fmtDate: actual.fmtDate };
+});
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
