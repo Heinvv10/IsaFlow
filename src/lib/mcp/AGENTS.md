@@ -40,7 +40,14 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
 ## Business rules
 
 - Write tools REQUIRE `args.idempotency_key`; replays return the stored
-  result without re-running the handler. Known bound: two CONCURRENT calls
+  result without re-running the handler. **Only a SUCCESS is stored under the
+  key.** A handler refusal (`isError`) is audited `'rejected'` with a NULL key
+  and no stored result — most refusals are state-dependent ("Not found" for a
+  row that had not committed, "Transaction already allocated"), so the identical
+  call becomes correct once the state is fixed, and a refusal wrote nothing that
+  a re-run could duplicate. Stored under the key it would replay forever: the
+  partial unique index has no status column and `recordToolCall` does
+  `ON CONFLICT DO NOTHING`, so the row occupies the key permanently. Known bound: two CONCURRENT calls
   with the same key can both pass the replay lookup — the partial unique
   index on (company_id, tool, idempotency_key) makes the second audit INSERT
   fail (logged), but the handler will have run twice. Sequential replays are
@@ -102,6 +109,7 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
   names stay distinct — a collision would let a nested call release another
   tool's savepoint.
 
+
 ## Recent changes
 
 - 2026-08-27: **every tool argument that lands in a SQL cast is guarded before the
@@ -119,6 +127,18 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
   tool arguments that reach a cast must be added to the tool's guard spec and to
   `tests/unit/mcp/toolArgCastGuards.test.ts`, which fails if any guard is removed.
 
+- 2026-08-27: PRD-11 §4 follow-ups from the adversarial review —
+  `bank_allocation_batch_lines` (mig 515) records the journal each line posted,
+  and `reverse_bank_allocation_batch` reverses ONLY lines whose transaction
+  still carries that journal; anything re-allocated or already reversed is
+  listed in `skipped` rather than unwound. `allocateTransaction` /
+  `reverseReconciledTransaction` now CLEAR `allocation_batch_id`, so the stamp
+  cannot outlive the allocation it describes. `bulk_allocate_bank_transactions`
+  reports EVERY faulty line (capped at 20) instead of stopping at the first, and
+  every id is checked PER LINE by the shared `guardCastableArgs` before any
+  query — not a second regex. Per-line matters more than per-tool: the batch
+  ownership check sends ONE array for all 500 lines, so a single malformed id
+  fails the query for the whole batch.
 - 2026-08-27: PRD-11 §4 — `bulk_allocate_bank_transactions` (≤500 lines,
   `dry_run`, returns `batch_id` + a journal id per line) and
   `reverse_bank_allocation_batch`. Both are `write` + `requiresPost`, both free

@@ -20,7 +20,7 @@ import {
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { findBankTransactionsByReference } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { mcpPostingAgent } from '../postingAgent';
-import { NOT_FOUND } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs } from './toolHelpers';
 
 // inputSchema.enum is NOT enforced by the MCP transport (schema is passed
 // through to getManifest() only) — this array is the actual runtime gate.
@@ -73,6 +73,29 @@ function str(args: Record<string, unknown>, key: string): string {
   return typeof v === 'string' ? v.trim() : '';
 }
 
+// Every id on a line is a uuid column, and a malformed one reaches pg as
+// `'not-a-uuid'::uuid` — 22P02. The shared `guardCastableArgs` (toolHelpers,
+// PR #266) is the one place that decides what survives a cast, so it is reused
+// here rather than re-implementing the regex: a per-line copy would drift from
+// the guard every other tool uses and from `UUID_RE` in lib/validation.
+//
+// It matters more per-line than per-tool. The batch ownership check sends ONE
+// array for all 500 lines, so a single bad id fails the query for the whole
+// batch, and the agent is told only that something, somewhere, was wrong.
+//
+// `guardCastableArgs` returns a tool RESULT; this module speaks in refusal
+// STRINGS because the bulk caller prefixes each with its line index. Unwrapping
+// keeps the wording identical for the single tool and every bulk line.
+const CASTABLE_LINE_UUIDS = [
+  'transaction_id', 'bank_account_id', 'contra_account_id', 'entity_id', 'invoice_id',
+] as const;
+
+/** The shared guard's refusal text for `args`, or null when every id is usable. */
+function badUuidArg(args: Record<string, unknown>, keys: readonly string[]): string | null {
+  const refusal = guardCastableArgs(args, { uuid: keys });
+  return refusal ? refusal.content[0]!.text : null;
+}
+
 /** Returns the selector, or the error text to refuse with. */
 export function pickTxSelector(args: Record<string, unknown>): TxSelector | string {
   const txId = str(args, 'transaction_id');
@@ -91,6 +114,11 @@ export function pickTxSelector(args: Record<string, unknown>): TxSelector | stri
 
 /** Validates one line's shape. Returns the parsed line or the refusal text. */
 export function parseAllocationLine(args: Record<string, unknown>): AllocationLine | string {
+  // FIRST, before anything else looks at the line: an id that cannot survive
+  // its cast makes every later check meaningless.
+  const badId = badUuidArg(args, CASTABLE_LINE_UUIDS);
+  if (badId) return badId;
+
   const selector = pickTxSelector(args);
   if (typeof selector === 'string') return selector;
 
@@ -129,6 +157,7 @@ export function parseAllocationLine(args: Record<string, unknown>): AllocationLi
   // literal two-space string. Every other id on this line is trimmed the same
   // way; leaving one raw was the inconsistency, not the fix.
   const invoiceId = str(args, 'invoice_id');
+
   const description = typeof args.description === 'string' ? args.description : undefined;
   return {
     selector,
@@ -239,36 +268,3 @@ export async function postAllocationLine(
   );
   return { journalEntryId: result.journalEntryId, transactionId: result.bankTransaction.id };
 }
-
-/** Schema fragment shared by every tool that names a transaction. */
-export const SELECTOR_PROPERTIES = {
-  transaction_id: {
-    type: 'string',
-    description: 'Bank transaction UUID. Supply this OR bank_reference, not both.',
-  },
-  bank_reference: {
-    type: 'string',
-    description:
-      'The reference printed on the bank statement, matched exactly (after trimming). '
-      + 'Use it instead of transaction_id when working from a statement — no id lookup needed. '
-      + 'Must resolve to exactly one transaction; if it does not, the tool lists the candidates.',
-  },
-  bank_account_id: {
-    type: 'string',
-    description: 'Optional: narrows a bank_reference lookup to one bank account.',
-  },
-} as const;
-
-/** Schema fragment for the allocation fields themselves. */
-export const ALLOCATION_PROPERTIES = {
-  contra_account_id: {
-    type: 'string',
-    description:
-      'GL account UUID the other side of the transaction is booked to. Required for alloc_type "account" (the default); ignored for supplier/customer, which post to the AP/AR control account.',
-  },
-  description: { type: 'string' },
-  alloc_type: { type: 'string', enum: [...ALLOC_TYPES] },
-  entity_id: { type: 'string' },
-  invoice_id: { type: 'string' },
-  vat_code: { type: 'string', enum: [...VAT_CODES] },
-} as const;

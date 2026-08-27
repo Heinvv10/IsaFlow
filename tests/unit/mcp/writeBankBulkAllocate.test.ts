@@ -3,10 +3,10 @@
  * first write.
  *
  * Shape, size, duplicates, tenant ownership and dry_run all resolve before any
- * journal is posted, so each must come back as a precise toolError — there is
- * nothing to roll back, and a generic failure would leave the agent guessing
- * which of 500 lines was wrong. The posting path and the all-or-nothing
- * rollback live in writeBankBulkAllocate.posting.test.ts.
+ * journal is posted, so each must come back as a precise toolError: there is
+ * nothing to roll back, and a generic failure leaves the agent guessing which
+ * of 500 lines was wrong. Per-line parsing is in allocationLineParse.test.ts;
+ * posting and rollback in writeBankBulkAllocate.posting.test.ts.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -22,8 +22,8 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () =>
 }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationBatchService', () => ({
   createAllocationBatch: vi.fn(),
-  stampAllocationBatch: vi.fn(),
-  getAllocationBatchTransactionIds: vi.fn(),
+  recordAllocationBatchLines: vi.fn(),
+  getAllocationBatchLines: vi.fn(),
   clearAllocationBatch: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
@@ -38,7 +38,7 @@ import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllo
 import { findBankTransactionsByReference } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import {
   createAllocationBatch,
-  stampAllocationBatch,
+  recordAllocationBatchLines,
 } from '@/modules/accounting/services/bank/bankAllocationBatchService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
@@ -48,14 +48,20 @@ import {
 import { bulkAllocateBankTransactionsTool } from '@/lib/mcp/tools/writeBankBulkAllocate';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
-const BATCH = 'batch-1';
+const BATCH = '0f000000-0000-4000-8000-000000000001';
+// Real UUIDs: every id on a line is a uuid column, and the parser refuses a
+// malformed one before any SQL runs (a 'tx-1'::uuid cast raises 22P02, which
+// the agent only ever sees as the registry's generic failure).
+const TX = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const ACC = (n: number) => `0b000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const FOREIGN = '0aaaaaaa-0000-4000-8000-0000000000bb';
 
 function payload(res: { content: { text: string }[] }): Record<string, unknown> {
   return JSON.parse(res.content[0]!.text) as Record<string, unknown>;
 }
 
 function line(n: number): Record<string, unknown> {
-  return { transaction_id: `tx-${n}`, contra_account_id: 'acc-1' };
+  return { transaction_id: TX(n), contra_account_id: ACC(1) };
 }
 
 beforeEach(() => {
@@ -64,7 +70,7 @@ beforeEach(() => {
   vi.mocked(customersBelongToCompany).mockResolvedValue(true);
   vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
   vi.mocked(createAllocationBatch).mockResolvedValue(BATCH);
-  vi.mocked(stampAllocationBatch).mockResolvedValue(undefined);
+  vi.mocked(recordAllocationBatchLines).mockResolvedValue(undefined);
   vi.mocked(allocateTransaction).mockImplementation(
     (async (_c: string, txId: string) => ({
       journalEntryId: `je-for-${txId}`,
@@ -95,7 +101,7 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
   });
 
   it('refuses more than 500 lines before any ownership query runs', async () => {
-    const allocations = Array.from({ length: 501 }, (_, i) => line(i));
+    const allocations = Array.from({ length: 501 }, (_, i) => line(i));  // one over the cap
     const res = await bulkAllocateBankTransactionsTool.handler(
       { allocations, idempotency_key: 'k1' }, ctx,
     );
@@ -110,17 +116,17 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
       { allocations: [line(1), line(2), line(1)], idempotency_key: 'k1' }, ctx,
     );
     expect(res.isError).toBe(true);
-    expect(JSON.stringify(res.content)).toMatch(/tx-1/);
+    expect(JSON.stringify(res.content)).toContain(TX(1));
     expect(allocateTransaction).not.toHaveBeenCalled();
     expect(createAllocationBatch).not.toHaveBeenCalled();
   });
 
   it('refuses a duplicate that only appears once the bank_reference is resolved', async () => {
     vi.mocked(findBankTransactionsByReference).mockResolvedValue([
-      { id: 'tx-1', transactionDate: '2026-08-01', amount: -100, description: null },
+      { id: TX(1), transactionDate: '2026-08-01', amount: -100, description: null },
     ]);
     const res = await bulkAllocateBankTransactionsTool.handler(
-      { allocations: [line(1), { bank_reference: 'REF1', contra_account_id: 'acc-1' }], idempotency_key: 'k1' },
+      { allocations: [line(1), { bank_reference: 'REF1', contra_account_id: ACC(1) }], idempotency_key: 'k1' },
       ctx,
     );
     expect(res.isError).toBe(true);
@@ -130,7 +136,7 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
   it('refuses a line naming both a transaction_id and a bank_reference', async () => {
     const res = await bulkAllocateBankTransactionsTool.handler(
       {
-        allocations: [{ transaction_id: 'tx-1', bank_reference: 'REF1', contra_account_id: 'acc-1' }],
+        allocations: [{ transaction_id: TX(1), bank_reference: 'REF1', contra_account_id: ACC(1) }],
         idempotency_key: 'k1',
       },
       ctx,
@@ -139,9 +145,42 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
     expect(allocateTransaction).not.toHaveBeenCalled();
   });
 
+  // A 500-line batch with three typos is three round trips if the tool stops at
+  // the first, and each retry re-resolves every reference. The agent can fix
+  // them all at once, so it is told about them all at once.
+  it('reports EVERY faulty line, not just the first', async () => {
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      {
+        allocations: [
+          line(1),
+          { transaction_id: TX(2), alloc_type: 'transfer' },
+          { transaction_id: TX(3), alloc_type: 'supplier' },
+          { contra_account_id: ACC(1) },
+        ],
+        idempotency_key: 'k1',
+      },
+      ctx,
+    );
+    expect(res.isError).toBe(true);
+    const text = res.content[0]!.text;
+    expect(text).toMatch(/allocations\[1\]/);
+    expect(text).toMatch(/allocations\[2\]/);
+    expect(text).toMatch(/allocations\[3\]/);
+    expect(allocateTransaction).not.toHaveBeenCalled();
+  });
+
+  it('caps the error list so a wholly malformed batch cannot answer with 500 lines of prose', async () => {
+    const allocations = Array.from({ length: 60 }, () => ({ alloc_type: 'transfer' }));
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations, idempotency_key: 'k1' }, ctx,
+    );
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/and 40 more/);
+  });
+
   it('names the offending line index so the agent can fix 1 of 500', async () => {
     const res = await bulkAllocateBankTransactionsTool.handler(
-      { allocations: [line(1), { transaction_id: 'tx-2', alloc_type: 'transfer' }], idempotency_key: 'k1' },
+      { allocations: [line(1), { transaction_id: TX(2), alloc_type: 'transfer' }], idempotency_key: 'k1' },
       ctx,
     );
     expect(res.isError).toBe(true);
@@ -149,37 +188,14 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
     expect(allocateTransaction).not.toHaveBeenCalled();
   });
 });
-
-// The pre-extraction handler passed args.invoice_id through raw; the shared
-// parser trims it like every other id on the line. '' was already falsy and
-// behaved the same, but '  ' was not — it reached allocateTransaction as a
-// literal two-space string to match invoice ids against. This pins the change.
-describe('bulk_allocate_bank_transactions — field coercion', () => {
-  it('treats a whitespace-only invoice_id as absent, not as a two-space id', async () => {
-    await bulkAllocateBankTransactionsTool.handler(
-      { allocations: [{ transaction_id: 'tx-1', contra_account_id: 'acc-1', invoice_id: '  ' }], idempotency_key: 'k1' },
-      ctx,
-    );
-    expect(vi.mocked(allocateTransaction).mock.calls[0]![11]).toBeUndefined();
-  });
-
-  it('trims a real invoice_id rather than passing the padding to the matcher', async () => {
-    await bulkAllocateBankTransactionsTool.handler(
-      { allocations: [{ transaction_id: 'tx-1', contra_account_id: 'acc-1', invoice_id: ' inv-1 ' }], idempotency_key: 'k1' },
-      ctx,
-    );
-    expect(vi.mocked(allocateTransaction).mock.calls[0]![11]).toBe('inv-1');
-  });
-});
-
 describe('bulk_allocate_bank_transactions — tenant ownership', () => {
   it('checks every contra account in ONE query, not one per line', async () => {
     await bulkAllocateBankTransactionsTool.handler(
       {
         allocations: [
-          { transaction_id: 'tx-1', contra_account_id: 'acc-1' },
-          { transaction_id: 'tx-2', contra_account_id: 'acc-2' },
-          { transaction_id: 'tx-3', contra_account_id: 'acc-1' },
+          { transaction_id: TX(1), contra_account_id: ACC(1) },
+          { transaction_id: TX(2), contra_account_id: ACC(2) },
+          { transaction_id: TX(3), contra_account_id: ACC(1) },
         ],
         idempotency_key: 'k1',
       },
@@ -188,13 +204,13 @@ describe('bulk_allocate_bank_transactions — tenant ownership', () => {
     expect(accountsBelongToCompany).toHaveBeenCalledTimes(1);
     const [company, ids] = vi.mocked(accountsBelongToCompany).mock.calls[0]!;
     expect(company).toBe('company-1');
-    expect([...(ids as string[])].sort()).toEqual(['acc-1', 'acc-2']);
+    expect([...(ids as string[])].sort()).toEqual([ACC(1), ACC(2)]);
   });
 
   it('refuses a foreign contra account with the generic NOT_FOUND text and posts nothing', async () => {
     vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
     const res = await bulkAllocateBankTransactionsTool.handler(
-      { allocations: [line(1), { transaction_id: 'tx-2', contra_account_id: 'company-B-account' }], idempotency_key: 'k1' },
+      { allocations: [line(1), { transaction_id: TX(2), contra_account_id: FOREIGN }], idempotency_key: 'k1' },
       ctx,
     );
     expect(res.isError).toBe(true);
@@ -207,7 +223,7 @@ describe('bulk_allocate_bank_transactions — tenant ownership', () => {
     vi.mocked(suppliersBelongToCompany).mockResolvedValue(false);
     const res = await bulkAllocateBankTransactionsTool.handler(
       {
-        allocations: [{ transaction_id: 'tx-1', alloc_type: 'supplier', entity_id: 'company-B-supplier' }],
+        allocations: [{ transaction_id: TX(1), alloc_type: 'supplier', entity_id: FOREIGN }],
         idempotency_key: 'k1',
       },
       ctx,
@@ -221,7 +237,7 @@ describe('bulk_allocate_bank_transactions — tenant ownership', () => {
     vi.mocked(customersBelongToCompany).mockResolvedValue(false);
     const res = await bulkAllocateBankTransactionsTool.handler(
       {
-        allocations: [{ transaction_id: 'tx-1', alloc_type: 'customer', entity_id: 'company-B-customer' }],
+        allocations: [{ transaction_id: TX(1), alloc_type: 'customer', entity_id: FOREIGN }],
         idempotency_key: 'k1',
       },
       ctx,
@@ -233,13 +249,12 @@ describe('bulk_allocate_bank_transactions — tenant ownership', () => {
 
   it('reads the tenant from ctx only — a company_id in the args is ignored', async () => {
     await bulkAllocateBankTransactionsTool.handler(
-      { allocations: [line(1)], company_id: 'company-B', idempotency_key: 'k1' }, ctx,
+      { allocations: [line(1)], company_id: FOREIGN, idempotency_key: 'k1' }, ctx,
     );
     expect(vi.mocked(allocateTransaction).mock.calls[0]![0]).toBe('company-1');
     expect(vi.mocked(createAllocationBatch).mock.calls[0]![0]).toBe('company-1');
   });
 });
-
 describe('bulk_allocate_bank_transactions — dry run', () => {
   it('writes nothing at all: no batch, no allocation', async () => {
     const res = await bulkAllocateBankTransactionsTool.handler(
@@ -247,17 +262,17 @@ describe('bulk_allocate_bank_transactions — dry run', () => {
     );
     expect(res.isError).toBeUndefined();
     expect(createAllocationBatch).not.toHaveBeenCalled();
-    expect(stampAllocationBatch).not.toHaveBeenCalled();
+    expect(recordAllocationBatchLines).not.toHaveBeenCalled();
     expect(allocateTransaction).not.toHaveBeenCalled();
   });
 
   it('returns the resolved lines it would post, with no batch id', async () => {
     vi.mocked(findBankTransactionsByReference).mockResolvedValue([
-      { id: 'tx-9', transactionDate: '2026-08-01', amount: -100, description: null },
+      { id: TX(9), transactionDate: '2026-08-01', amount: -100, description: null },
     ]);
     const res = await bulkAllocateBankTransactionsTool.handler(
       {
-        allocations: [line(1), { bank_reference: 'REF9', contra_account_id: 'acc-2' }],
+        allocations: [line(1), { bank_reference: 'REF9', contra_account_id: ACC(2) }],
         dry_run: true,
         idempotency_key: 'k1',
       },
@@ -268,8 +283,8 @@ describe('bulk_allocate_bank_transactions — dry run', () => {
     expect(body.batch_id).toBeNull();
     expect(body.posted).toBe(0);
     expect(body.lines).toEqual([
-      expect.objectContaining({ transaction_id: 'tx-1', contra_account_id: 'acc-1', alloc_type: 'account' }),
-      expect.objectContaining({ transaction_id: 'tx-9', contra_account_id: 'acc-2', alloc_type: 'account' }),
+      expect.objectContaining({ transaction_id: TX(1), contra_account_id: ACC(1), alloc_type: 'account' }),
+      expect.objectContaining({ transaction_id: TX(9), contra_account_id: ACC(2), alloc_type: 'account' }),
     ]);
   });
 

@@ -13,9 +13,8 @@
  */
 import type { McpTool } from '../types';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { ALLOCATION_PROPERTIES, SELECTOR_PROPERTIES } from './allocationSchema';
 import {
-  ALLOCATION_PROPERTIES,
-  SELECTOR_PROPERTIES,
   checkLinesOwnership,
   parseAllocationLine,
   pickTxSelector,

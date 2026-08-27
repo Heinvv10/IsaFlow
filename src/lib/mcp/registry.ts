@@ -119,9 +119,28 @@ export class McpRegistry {
     // would be a second at-rest copy of financial data with no use.
     const runAndAudit = async (): Promise<McpToolResult> => {
       const result = await tool.handler(args, ctx);
+      // A handler REFUSAL is audited as 'rejected' with a NULL key, never as a
+      // replayable 'ok'. Same reasoning as the insufficient-Flows and
+      // handler-throw paths below: the partial unique index is
+      // (company_id, tool, idempotency_key) with no status column and
+      // recordToolCall does ON CONFLICT DO NOTHING, so a row carrying the real
+      // key permanently occupies that slot.
+      //
+      // Stored under the key instead, a refusal replays FOREVER. Most of these
+      // refusals are state-dependent, not argument-dependent — "Not found" for
+      // a batch that had not committed yet, "Transaction already allocated",
+      // an ownership check racing a customer being created. Once the state is
+      // fixed the identical call is still correct, and the agent (which chose
+      // one key per logical operation) would get the stale error back with no
+      // way to tell it apart from a fresh one. Nothing is lost by re-running:
+      // a refusal wrote nothing, so there is no duplicate to protect against.
+      const refused = result.isError === true;
       await recordToolCall({
-        ctx, tool: name, argsHash, idempotencyKey,
-        status: 'ok', result: tool.write ? result : null, durationMs: Date.now() - started,
+        ctx, tool: name, argsHash,
+        idempotencyKey: refused ? null : idempotencyKey,
+        status: refused ? 'rejected' : 'ok',
+        result: tool.write && !refused ? result : null,
+        durationMs: Date.now() - started,
       });
       return result;
     };

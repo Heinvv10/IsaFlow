@@ -15,88 +15,22 @@
  * handler deliberately opens no savepoint of its own: the registry's is the one
  * savepoint the batch runs in.
  */
-import type { McpTool, McpToolContext } from '../types';
+import type { McpTool } from '../types';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import {
   clearAllocationBatch,
   createAllocationBatch,
-  getAllocationBatchTransactionIds,
-  stampAllocationBatch,
+  getAllocationBatchLines,
+  recordAllocationBatchLines,
 } from '@/modules/accounting/services/bank/bankAllocationBatchService';
-import {
-  ALLOCATION_PROPERTIES,
-  SELECTOR_PROPERTIES,
-  type AllocationLine,
-  checkLinesOwnership,
-  parseAllocationLine,
-  postAllocationLine,
-  resolveTxId,
-} from './allocationLine';
+import { ALLOCATION_PROPERTIES, SELECTOR_PROPERTIES } from './allocationSchema';
+import { postAllocationLine } from './allocationLine';
+import { MAX_LINES, prepareAllocationLines } from './bulkAllocationPrepare';
 import { mcpPostingAgent } from '../postingAgent';
-import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const BULK_TOOL = 'bulk_allocate_bank_transactions';
 const REVERSE_TOOL = 'reverse_bank_allocation_batch';
-
-// Each line posts a journal inside one request transaction, so the batch size
-// bounds how long a single connection holds its locks. 500 matches the PRD and
-// keeps the response (one id pair per line) well inside the transport's 1mb cap.
-const MAX_LINES = 500;
-
-interface ResolvedLine {
-  txId: string;
-  line: AllocationLine;
-}
-
-/** Parses, ownership-checks, resolves and de-duplicates. All reads — no writes. */
-async function prepare(
-  args: Record<string, unknown>,
-  ctx: McpToolContext,
-): Promise<ResolvedLine[] | string> {
-  const raw = args.allocations;
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return 'allocations must be a non-empty array';
-  }
-  // Checked BEFORE anything queries: a 5,000-line call must cost one refusal,
-  // not 5,000 rows of reference resolution.
-  if (raw.length > MAX_LINES) {
-    return `allocations holds ${raw.length} lines — at most ${MAX_LINES} per call. Split the batch.`;
-  }
-
-  const lines: AllocationLine[] = [];
-  for (const [i, entry] of raw.entries()) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      return `allocations[${i}] must be an object`;
-    }
-    const parsed = parseAllocationLine(entry as Record<string, unknown>);
-    // The index matters: an agent holding 500 lines cannot act on "alloc_type
-    // must be one of…" without being told which line it belongs to.
-    if (typeof parsed === 'string') return `allocations[${i}]: ${parsed}`;
-    lines.push(parsed);
-  }
-
-  const ownership = await checkLinesOwnership(ctx.companyId, lines);
-  if (ownership) return ownership;
-
-  const resolved: ResolvedLine[] = [];
-  const seen = new Map<string, number>();
-  for (const [i, line] of lines.entries()) {
-    const r = await resolveTxId(line.selector, ctx.companyId);
-    if ('error' in r) return `allocations[${i}]: ${r.error}`;
-    // De-duplicated AFTER resolution, so two lines naming the same row by
-    // different routes (a UUID and its bank_reference) are caught too. Left
-    // through, the second line hits "Transaction already allocated" mid-write
-    // and rolls back the other 499 — a refusal the agent can only fix by
-    // re-sending, and a batch it cannot tell apart from a database failure.
-    const prior = seen.get(r.id);
-    if (prior !== undefined) {
-      return `allocations[${i}] names transaction ${r.id}, already allocated by allocations[${prior}] in this call.`;
-    }
-    seen.set(r.id, i);
-    resolved.push({ txId: r.id, line });
-  }
-  return resolved;
-}
 
 export const bulkAllocateBankTransactionsTool: McpTool = {
   name: BULK_TOOL,
@@ -133,7 +67,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const prepared = await prepare(args, ctx);
+    const prepared = await prepareAllocationLines(args, ctx);
     if (typeof prepared === 'string') return toolError(prepared);
 
     if (args.dry_run === true) {
@@ -173,11 +107,16 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
       lines.push({ transaction_id: result.transactionId, journal_entry_id: result.journalEntryId });
     }
 
-    // After the postings: allocateTransaction updates the same rows, and a
-    // stamp written first would be clobbered by its UPDATE. Throws unless every
-    // row was stamped — a posted journal outside the reversible set is exactly
-    // what the batch id exists to prevent.
-    await stampAllocationBatch(ctx.companyId, batchId, prepared.map((p) => p.txId));
+    // After the postings, for two reasons: allocateTransaction now CLEARS
+    // allocation_batch_id (so a stamp written first would be wiped by its own
+    // UPDATE), and the journal ids being recorded do not exist until the lines
+    // have posted. Throws unless every row was stamped — a posted journal
+    // outside the reversible set is exactly what the batch id exists to prevent.
+    await recordAllocationBatchLines(
+      ctx.companyId,
+      batchId,
+      lines.map((l) => ({ transactionId: l.transaction_id, journalEntryId: l.journal_entry_id })),
+    );
 
     return ok({
       batch_id: batchId,
@@ -193,6 +132,8 @@ export const reverseBankAllocationBatchTool: McpTool = {
   description:
     'Undo a whole bulk allocation: reverses the posted journal behind every transaction in the batch and '
     + 'returns them all to unallocated. ALL OR NOTHING — if any reversal fails, none of them are applied. '
+    + 'Transactions that have moved on since the batch posted (already reversed, or re-allocated to a '
+    + 'different journal) are left untouched and listed in "skipped". '
     + 'The originals and their reversals both remain in the audit trail.',
   scope: 'write:bank-tx',
   write: true,
@@ -212,27 +153,56 @@ export const reverseBankAllocationBatchTool: McpTool = {
   handler: async (args, ctx) => {
     const batchId = strArg(args, 'batch_id');
     if (!batchId) return toolError('batch_id is required');
+    // Shape-checked before the lookup: `${batchId}::uuid` on a malformed value
+    // raises 22P02, which surfaces as the registry's generic failure and tells
+    // the agent nothing about what it sent. Same shared guard every other tool
+    // uses (toolHelpers, PR #266).
+    const badBatchId = guardCastableArgs(args, { uuid: ['batch_id'] });
+    if (badBatchId) return badBatchId;
 
-    const txIds = await getAllocationBatchTransactionIds(ctx.companyId, batchId);
+    const batchLines = await getAllocationBatchLines(ctx.companyId, batchId);
     // Another tenant's batch reads identically to one that never existed.
-    if (txIds === null) return toolError(NOT_FOUND);
-    if (txIds.length === 0) {
-      // The batch exists but nothing still carries its stamp — already reversed.
-      // Reported as a success with reversed: 0 so a retry is harmless.
-      return ok({ batch_id: batchId, reversed: 0, transaction_ids: [] });
+    if (batchLines === null) return toolError(NOT_FOUND);
+
+    // Only lines whose transaction still carries the journal THIS batch posted.
+    // A row that was reversed on its own, or reversed and re-allocated
+    // elsewhere, has moved on: reversing whatever journal happens to sit there
+    // now would unwind a posting this batch never made. Skipped, not refused —
+    // refusing would make a batch permanently unreversible because one row
+    // changed, and the skipped set is reported so nothing is silent.
+    const toReverse = batchLines.filter((l) => l.currentJournalEntryId === l.journalEntryId);
+    const skipped = batchLines
+      .filter((l) => l.currentJournalEntryId !== l.journalEntryId)
+      .map((l) => ({
+        transaction_id: l.transactionId,
+        reason: l.currentJournalEntryId === null
+          ? 'already reversed — no journal on this transaction'
+          : 'allocated to a different journal since this batch posted',
+      }));
+
+    if (toReverse.length === 0) {
+      // Nothing left for this batch to undo. Reported as a success so a retry
+      // (or a second agent) is harmless rather than looking like a failure.
+      return ok({ batch_id: batchId, reversed: 0, transaction_ids: [], skipped });
     }
 
     // No try/catch, same reasoning as the allocate handler: a half-reversed
     // batch is worse than a failed one, and only a throw rolls it back.
-    for (const txId of txIds) {
+    for (const l of toReverse) {
       // The contra journal is stamped too — without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings.
-      await reverseReconciledTransaction(ctx.companyId, txId, ctx.userId, {
+      await reverseReconciledTransaction(ctx.companyId, l.transactionId, ctx.userId, {
         postingAgent: mcpPostingAgent(REVERSE_TOOL),
       });
     }
-    await clearAllocationBatch(ctx.companyId, batchId, txIds);
+    const reversedIds = toReverse.map((l) => l.transactionId);
+    await clearAllocationBatch(ctx.companyId, batchId, reversedIds);
 
-    return ok({ batch_id: batchId, reversed: txIds.length, transaction_ids: txIds });
+    return ok({
+      batch_id: batchId,
+      reversed: reversedIds.length,
+      transaction_ids: reversedIds,
+      skipped,
+    });
   },
 };
