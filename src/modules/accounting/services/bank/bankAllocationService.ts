@@ -286,7 +286,11 @@ export async function allocateTransaction(
             counterparty_account_id = ${counterpartyAccountId}::UUID,
             transfer_journal_entry_id = ${allocType === 'transfer' ? je.id : null}::UUID,
             cc1_id = ${cc1Id || null}::UUID, cc2_id = ${cc2Id || null}::UUID,
-            bu_id = ${buId || null}::UUID, updated_at = NOW()
+            bu_id = ${buId || null}::UUID, updated_at = NOW(),
+            -- A fresh allocation is NOT part of whatever batch previously
+            -- owned this row. Left set, reverse_bank_allocation_batch would
+            -- reverse a journal its batch never posted (PR #263 review).
+            allocation_batch_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
     if (allocType === 'customer' && entityId && paymentUserId) {
@@ -369,7 +373,8 @@ export async function allocateTransaction(
               counterparty_account_id = ${bankAccountId}::UUID,
               transfer_journal_entry_id = ${je.id}::UUID,
               allocated_entity_name = ${allocEntityName},
-              updated_at = NOW()
+              updated_at = NOW(),
+              allocation_batch_id = NULL
           WHERE id = ${cpTxId}::UUID
             AND company_id = ${companyId}::UUID
             AND status = 'imported'
@@ -461,7 +466,8 @@ export async function splitAllocateTransaction(
       await wTx`
         UPDATE bank_transactions
         SET status = 'allocated', matched_journal_line_id = ${journalLineId}::UUID,
-            allocation_type = 'account', allocated_entity_name = 'Split allocation', updated_at = NOW()
+            allocation_type = 'account', allocated_entity_name = 'Split allocation', updated_at = NOW(),
+            allocation_batch_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     });
   }
@@ -514,6 +520,10 @@ export async function reverseReconciledTransaction(
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
           linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
+          -- Reversing one line takes it OUT of its batch: the batch no longer
+          -- owns a journal here, and a later re-allocation must not be swept
+          -- up by reverse_bank_allocation_batch.
+          allocation_batch_id = NULL,
           updated_at = NOW()
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
   } catch (resetErr) {

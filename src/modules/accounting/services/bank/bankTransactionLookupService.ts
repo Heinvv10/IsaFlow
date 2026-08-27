@@ -72,3 +72,26 @@ export async function findBankTransactionsByReference(
       : String(row.description),
   }));
 }
+
+/**
+ * The transaction's current status, or `null` when it does not exist in this
+ * company (another tenant's row reads identically to a missing one).
+ *
+ * Exists so the MCP allocate/reverse tools can refuse an unallocatable row
+ * BEFORE calling the service. The services raise the same refusals themselves,
+ * but by then the tool cannot tell a pre-write refusal from a failure that
+ * struck after a journal was already posted — and the two need opposite
+ * handling: a refusal is reported, a mid-write failure must be rethrown so the
+ * registry's savepoint unwinds it.
+ */
+export async function getBankTransactionStatus(
+  companyId: string,
+  bankTxId: string,
+): Promise<string | null> {
+  const rows = (await sql`
+    SELECT status FROM bank_transactions
+    WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const status = rows[0]?.status;
+  return status === null || status === undefined ? null : String(status);
+}

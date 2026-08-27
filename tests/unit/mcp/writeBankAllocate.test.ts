@@ -8,26 +8,35 @@ vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
-  customerBelongsToCompany: vi.fn(),
-  supplierBelongsToCompany: vi.fn(),
+  customersBelongToCompany: vi.fn(),
+  suppliersBelongToCompany: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
+  findBankTransactionsByReference: vi.fn(),
+  getBankTransactionStatus: vi.fn(),
 }));
 
 import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
-  customerBelongsToCompany,
-  supplierBelongsToCompany,
+  customersBelongToCompany,
+  suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
+import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from '@/lib/mcp/tools/writeBankAllocate';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: the row exists and is in the state the tool under test needs. The
+  // allocate/reverse handlers now answer their pre-write refusals from this
+  // read, so the service call below can rethrow everything.
+  vi.mocked(getBankTransactionStatus).mockResolvedValue('imported');
   // Default: every id belongs to the token's company.
   vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
-  vi.mocked(customerBelongsToCompany).mockResolvedValue(true);
-  vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
+  vi.mocked(customersBelongToCompany).mockResolvedValue(true);
+  vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
 });
 
 describe('allocate_bank_transaction', () => {
@@ -63,10 +72,10 @@ describe('allocate_bank_transaction', () => {
     expect(allocateTransaction).not.toHaveBeenCalled();
   });
 
-  it('surfaces the service refusal for an already-allocated transaction', async () => {
-    vi.mocked(allocateTransaction).mockRejectedValue(
-      new Error('Transaction already allocated — cannot allocate'),
-    );
+  it('refuses an already-allocated transaction without calling the service', async () => {
+    // The refusal moved OUT of the catch and into a pre-write read: only that
+    // way can everything the service throws be rethrown for the savepoint.
+    vi.mocked(getBankTransactionStatus).mockResolvedValue('allocated');
 
     const res = await allocateBankTransactionTool.handler(
       { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', idempotency_key: 'k1' }, ctx,
@@ -208,7 +217,7 @@ describe('allocate_bank_transaction', () => {
     });
 
     it("refuses a supplier entity_id from another tenant, and posts nothing", async () => {
-      vi.mocked(supplierBelongsToCompany).mockResolvedValue(false);
+      vi.mocked(suppliersBelongToCompany).mockResolvedValue(false);
 
       const res = await allocateBankTransactionTool.handler(
         {
@@ -219,12 +228,12 @@ describe('allocate_bank_transaction', () => {
       );
 
       expect(res.isError).toBe(true);
-      expect(supplierBelongsToCompany).toHaveBeenCalledWith('company-1', '7e3efb2c-6422-4c7c-891c-9e28377b91eb');
+      expect(suppliersBelongToCompany).toHaveBeenCalledWith('company-1', ['7e3efb2c-6422-4c7c-891c-9e28377b91eb']);
       expect(allocateTransaction).not.toHaveBeenCalled();
     });
 
     it("refuses a customer entity_id from another tenant, and posts nothing", async () => {
-      vi.mocked(customerBelongsToCompany).mockResolvedValue(false);
+      vi.mocked(customersBelongToCompany).mockResolvedValue(false);
 
       const res = await allocateBankTransactionTool.handler(
         {
@@ -235,7 +244,7 @@ describe('allocate_bank_transaction', () => {
       );
 
       expect(res.isError).toBe(true);
-      expect(customerBelongsToCompany).toHaveBeenCalledWith('company-1', '58a4fa7b-0ead-430d-8acc-071b902f5d2f');
+      expect(customersBelongToCompany).toHaveBeenCalledWith('company-1', ['58a4fa7b-0ead-430d-8acc-071b902f5d2f']);
       expect(allocateTransaction).not.toHaveBeenCalled();
     });
 
@@ -275,7 +284,7 @@ describe('allocate_bank_transaction', () => {
     });
 
     it('gives a supplier id the same generic refusal as a GL account id', async () => {
-      vi.mocked(supplierBelongsToCompany).mockResolvedValue(false);
+      vi.mocked(suppliersBelongToCompany).mockResolvedValue(false);
       const supplier = await allocateBankTransactionTool.handler(
         { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', alloc_type: 'supplier', entity_id: '6f0b1e01-0d39-4bb4-8d88-53f485a3d987', idempotency_key: 'k1' }, ctx,
       );
@@ -358,6 +367,9 @@ describe('allocate_bank_transaction', () => {
 });
 
 describe('reverse_bank_allocation', () => {
+  // Reversal's pre-write check wants a row that HAS an allocation to undo.
+  beforeEach(() => { vi.mocked(getBankTransactionStatus).mockResolvedValue('allocated'); });
+
   it('is a write behind the write:post permission and demands an idempotency key', () => {
     expect(reverseBankAllocationTool.scope).toBe('write:bank-tx');
     expect(reverseBankAllocationTool.requiresPost).toBe(true);
@@ -397,14 +409,17 @@ describe('reverse_bank_allocation', () => {
   });
 
   it('surfaces the refusal when the transaction is not in a reversible state', async () => {
-    vi.mocked(reverseReconciledTransaction).mockRejectedValue(
-      new Error('Can only reverse allocated, matched, or reconciled transactions'),
-    );
+    // Now answered from the pre-write read rather than caught from the service:
+    // reverseReconciledTransaction posts the contra BEFORE resetting the row, so
+    // a catch around it cannot tell this refusal from a half-done reversal.
+    vi.mocked(getBankTransactionStatus).mockResolvedValue('imported');
 
     const res = await reverseBankAllocationTool.handler(
       { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k9' }, ctx,
     );
 
     expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/Can only reverse/);
+    expect(reverseReconciledTransaction).not.toHaveBeenCalled();
   });
 });

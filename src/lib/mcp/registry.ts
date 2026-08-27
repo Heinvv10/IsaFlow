@@ -13,6 +13,21 @@ import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 
+/**
+ * The SAVEPOINT name a write tool runs under.
+ *
+ * withSavepoint validates against /^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/ and THROWS
+ * otherwise — 31 characters total. `mcp_bulk_allocate_bank_transactions` is 35,
+ * so the naive `mcp_${name}` threw before the handler ever ran and every call
+ * came back as GENERIC_FAILURE with nothing pointing at the tool name.
+ * Truncating keeps the prefix traceable; registrySavepointName.test.ts asserts
+ * the truncated names stay distinct, which is what stops one tool releasing
+ * another's savepoint.
+ */
+export function savepointNameFor(toolName: string): string {
+  return `mcp_${toolName}`.slice(0, 31);
+}
+
 function errorResult(text: string): McpToolResult {
   return { content: [{ type: 'text', text }], isError: true };
 }
@@ -88,7 +103,9 @@ export class McpRegistry {
       const replay = await findIdempotentReplay(ctx.companyId, name, idempotencyKey, argsHash);
       if (replay.status === 'match') {
         log.info('MCP: idempotent replay served', { tool: name, companyId: ctx.companyId }, 'mcp');
-        return replay.result;
+        // Stored results may carry registry-internal flags (billable) — strip on replay too.
+        const { billable: _b, wroteNothing: _w, ...replayWire } = replay.result;
+        return replayWire;
       }
       if (replay.status === 'conflict') {
         // Same key, different args — refuse rather than serve the stale result.
@@ -104,9 +121,33 @@ export class McpRegistry {
     // would be a second at-rest copy of financial data with no use.
     const runAndAudit = async (): Promise<McpToolResult> => {
       const result = await tool.handler(args, ctx);
+      // A handler REFUSAL is audited as 'rejected' with a NULL key, never as a
+      // replayable 'ok'. Same reasoning as the insufficient-Flows and
+      // handler-throw paths below: the partial unique index is
+      // (company_id, tool, idempotency_key) with no status column and
+      // recordToolCall does ON CONFLICT DO NOTHING, so a row carrying the real
+      // key permanently occupies that slot.
+      //
+      // Stored under the key instead, a refusal replays FOREVER. Most of these
+      // refusals are state-dependent, not argument-dependent — "Not found" for
+      // a batch that had not committed yet, "Transaction already allocated",
+      // an ownership check racing a customer being created. Once the state is
+      // fixed the identical call is still correct, and the agent (which chose
+      // one key per logical operation) would get the stale error back with no
+      // way to tell it apart from a fresh one. Nothing is lost by re-running:
+      // a refusal wrote nothing, so there is no duplicate to protect against.
+      const refused = result.isError === true;
+      // A success that wrote nothing (a dry run) must not occupy the key
+      // either: the real call that follows carries the same intent and the same
+      // natural key, and would otherwise be served the dry run's "posted: 0"
+      // forever. Handlers set this ONLY when nothing was written.
+      const keyFree = refused || result.wroteNothing === true;
       await recordToolCall({
-        ctx, tool: name, argsHash, idempotencyKey,
-        status: 'ok', result: tool.write ? result : null, durationMs: Date.now() - started,
+        ctx, tool: name, argsHash,
+        idempotencyKey: keyFree ? null : idempotencyKey,
+        status: refused ? 'rejected' : 'ok',
+        result: tool.write && !keyFree ? result : null,
+        durationMs: Date.now() - started,
       });
       return result;
     };
@@ -141,7 +182,7 @@ export class McpRegistry {
       // that partial write back — matching the REST route's rollback-on-throw
       // (the audit 'error' below runs OUTSIDE it, on the surviving request tx).
       const result = tool.write
-        ? await withSavepoint(`mcp_${name}`, runAndAudit)
+        ? await withSavepoint(savepointNameFor(name), runAndAudit)
         : await runAndAudit();
 
       // Refund when the call cost the company nothing worth billing: an error,
@@ -153,8 +194,8 @@ export class McpRegistry {
       if (!didBillableWork && debit.handle) {
         await refundForTool(ctx.companyId, debit.handle);
       }
-      // `billable` is registry-internal — never put it on the wire.
-      const { billable: _billable, ...wire } = result;
+      // Both flags are registry-internal — never put them on the wire.
+      const { billable: _billable, wroteNothing: _wroteNothing, ...wire } = result;
       return wire;
     } catch (err) {
       log.error(
