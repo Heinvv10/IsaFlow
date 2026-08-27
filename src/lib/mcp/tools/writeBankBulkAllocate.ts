@@ -73,7 +73,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     if (args.dry_run === true) {
       // No batch row either: a dry run that left a batch behind would hand the
       // agent an id that reverses nothing.
-      return ok({
+      const preview = ok({
         dry_run: true,
         batch_id: null,
         posted: 0,
@@ -87,6 +87,12 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
           description: line.description ?? null,
         })),
       });
+      // Wrote nothing, so it must not occupy the idempotency key: the real call
+      // that follows carries the same intent and would otherwise be served this
+      // preview forever. Also free — nothing was posted.
+      preview.wroteNothing = true;
+      preview.billable = false;
+      return preview;
     }
 
     // ── Everything below is a WRITE. No try/catch: a throw must reach the
@@ -170,14 +176,21 @@ export const reverseBankAllocationBatchTool: McpTool = {
     // now would unwind a posting this batch never made. Skipped, not refused —
     // refusing would make a batch permanently unreversible because one row
     // changed, and the skipped set is reported so nothing is silent.
-    const toReverse = batchLines.filter((l) => l.currentJournalEntryId === l.journalEntryId);
+    const toReverse = batchLines.filter(
+      (l) => l.transactionExists && l.currentJournalEntryId === l.journalEntryId,
+    );
     const skipped = batchLines
-      .filter((l) => l.currentJournalEntryId !== l.journalEntryId)
+      .filter((l) => !l.transactionExists || l.currentJournalEntryId !== l.journalEntryId)
       .map((l) => ({
         transaction_id: l.transactionId,
-        reason: l.currentJournalEntryId === null
-          ? 'already reversed — no journal on this transaction'
-          : 'allocated to a different journal since this batch posted',
+        reason: !l.transactionExists
+          // Deleted since the batch posted (undo_bank_import, a manual delete).
+          // Reported rather than dropped: a line the batch posted and can no
+          // longer account for is the one a human most needs to see.
+          ? 'transaction no longer exists'
+          : l.currentJournalEntryId === null
+            ? 'already reversed — no journal on this transaction'
+            : 'allocated to a different journal since this batch posted',
       }));
 
     if (toReverse.length === 0) {

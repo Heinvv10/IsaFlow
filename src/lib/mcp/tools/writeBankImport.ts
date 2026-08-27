@@ -15,7 +15,7 @@ import {
 import type { StatementFileType } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 // inputSchema.enum is NOT enforced by the MCP transport — it is passed through
 // to getManifest() only. This array is the actual runtime gate.
@@ -140,6 +140,12 @@ export const importBankStatementTool: McpTool = {
       // tells the agent re-sending is safe, so it must also be free; charging
       // for a no-op would contradict the dry_run rule directly above it.
       if (result.batchId === null) envelope.billable = false;
+      // A dry run wrote nothing, so it must not occupy the idempotency key —
+      // the real import that follows would otherwise be served this preview.
+      // Note this is NOT extended to the all-duplicates case above: that one
+      // opened no batch but still ran the import path, and freeing its key
+      // would let a retry race a concurrent import of the same statement.
+      if (args.dry_run === true) envelope.wroteNothing = true;
       return envelope;
     } catch (err) {
       // Pre-write only. StatementNotImportableError is raised while parsing,
@@ -194,17 +200,19 @@ export const undoBankImportTool: McpTool = {
       return toolError('Undo rate limit reached — try again later.');
     }
 
-    try {
-      const result = await undoImportBatch(ctx.companyId, batchId);  // tenant from ctx ONLY
-      if (result === null) return toolError(NOT_FOUND);
-      return ok({
-        batch_id: batchId,
-        deleted: result.deleted,
-        refused: result.refused,
-        refused_by_status: result.refusedByStatus,
-      });
-    } catch (err) {
-      return toolError(safeErrorText(err, 'Failed to undo the import.'));
-    }
+    // No catch: undoImportBatch DELETEs transactions, so a failure partway
+    // through has already removed rows. Returned as a tool error that write
+    // survives (the registry's savepoint only rolls back on a throw) and, since
+    // a refusal is audited with a NULL idempotency key, the retry deletes again
+    // from a half-undone batch. The not-found case is a return value, not an
+    // exception, so it stays a precise refusal.
+    const result = await undoImportBatch(ctx.companyId, batchId);  // tenant from ctx ONLY
+    if (result === null) return toolError(NOT_FOUND);
+    return ok({
+      batch_id: batchId,
+      deleted: result.deleted,
+      refused: result.refused,
+      refused_by_status: result.refusedByStatus,
+    });
   },
 };

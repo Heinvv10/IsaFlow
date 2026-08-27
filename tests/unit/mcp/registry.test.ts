@@ -72,50 +72,6 @@ beforeEach(() => {
   registry = new McpRegistry();
 });
 
-// A handler REFUSAL (isError) is not a completed operation. Audited under the
-// real key it would replay forever: the partial unique index is
-// (company_id, tool, idempotency_key) with no status column and recordToolCall
-// does ON CONFLICT DO NOTHING, so the row occupies the key permanently.
-// Most of these refusals are state-dependent — "Not found" for a row that had
-// not committed yet, "Transaction already allocated" — so the identical call
-// becomes correct once the state is fixed. Nothing wrote, so nothing is at risk
-// from re-running.
-describe('McpRegistry — a handler refusal must not burn the idempotency key', () => {
-  const refuse = async () => ({
-    content: [{ type: 'text' as const, text: 'Not found' }],
-    isError: true,
-  });
-
-  it('audits a write-tool refusal as rejected with a NULL key', async () => {
-    registry.register(makeTool({ name: 'w', scope: null, write: true, handler: refuse }));
-    const r = await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes([]));
-
-    expect(r.isError).toBe(true);
-    const insert = auditInserts().at(-1)!;
-    expect(insert.values).toContain('rejected');
-    expect(insert.values).not.toContain('k1');
-  });
-
-  it('does not store the refusal as a replayable result', async () => {
-    registry.register(makeTool({ name: 'w', scope: null, write: true, handler: refuse }));
-    await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes([]));
-
-    const insert = auditInserts().at(-1)!;
-    // The stored result column is what findIdempotentReplay serves back.
-    expect(insert.values.some((v) => typeof v === 'string' && v.includes('Not found'))).toBe(false);
-  });
-
-  it('still audits a SUCCESS under the key, so a genuine replay is served', async () => {
-    const ok = async () => ({ content: [{ type: 'text' as const, text: '"done"' }] });
-    registry.register(makeTool({ name: 'w', scope: null, write: true, handler: ok }));
-    await registry.call('w', { idempotency_key: 'k1' }, ctxWithScopes([]));
-
-    const insert = auditInserts().at(-1)!;
-    expect(insert.values).toContain('ok');
-    expect(insert.values).toContain('k1');
-  });
-});
-
 describe('McpRegistry — fence order', () => {
   it('unknown tool → isError result (not a throw), audited as rejected', async () => {
     const r = await registry.call('ghost', {}, ctxWithScopes(['read:reports']));

@@ -114,13 +114,26 @@ export function pickTxSelector(args: Record<string, unknown>): TxSelector | stri
 
 /** Validates one line's shape. Returns the parsed line or the refusal text. */
 export function parseAllocationLine(args: Record<string, unknown>): AllocationLine | string {
-  // FIRST, before anything else looks at the line: an id that cannot survive
-  // its cast makes every later check meaningless.
-  const badId = badUuidArg(args, CASTABLE_LINE_UUIDS);
-  if (badId) return badId;
-
+  // Selector FIRST, cast-guards second — the order the single tool has always
+  // used (writeBankAllocate.ts before this module was extracted from it), and
+  // it is a behavioural contract, not a formatting detail. Guarding first
+  // changes what a doubly-faulty line is told:
+  //
+  //   malformed contra_account_id + NO selector
+  //     → 'transaction_id or bank_reference is required', not 'invalid
+  //       contra_account_id'. The missing selector is the bigger fault; a
+  //       contra account is meaningless without a transaction to book it to.
+  //   malformed transaction_id + a bank_reference
+  //     → the either/not-both refusal, not 'invalid transaction_id'. Told the
+  //       id is malformed, an agent fixes the UUID and gets refused again for
+  //       naming both. It has to be told about the ambiguity first.
   const selector = pickTxSelector(args);
   if (typeof selector === 'string') return selector;
+
+  // Now the casts. Everything below and every ownership lookup puts these into
+  // a $n::UUID, so an id that cannot survive the cast makes them meaningless.
+  const badId = badUuidArg(args, CASTABLE_LINE_UUIDS);
+  if (badId) return badId;
 
   const rawAllocType = args.alloc_type;
   let allocType: AllocType = 'account';

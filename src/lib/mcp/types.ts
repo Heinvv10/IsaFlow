@@ -28,6 +28,18 @@ export interface McpToolResult {
    * Absent means billable.
    */
   billable?: boolean;
+  /**
+   * Registry-internal, stripped before the wire. Set by a handler whose SUCCESS
+   * wrote nothing — a dry run. Such a result is audited with a NULL idempotency
+   * key, because storing it under the key makes the real call that follows
+   * (same intent, same natural key) replay the dry run's "posted: 0" forever,
+   * forcing the agent to invent a second key for one logical operation. Nothing
+   * was written, so there is no duplicate for the key to guard against.
+   *
+   * Never set this on a handler that wrote: it would free the key for a retry
+   * that writes a second time.
+   */
+  wroteNothing?: boolean;
 }
 
 export interface McpTool {

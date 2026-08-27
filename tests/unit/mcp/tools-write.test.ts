@@ -46,7 +46,13 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
   // it leaves `instanceof` testing against undefined.
   LineValidationError: class LineValidationError extends Error {},
 }));
-vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
+  createJournalEntry: vi.fn(),
+  // post_journal answers its two refusals from this READ so the service call
+  // that follows can rethrow — a caught mid-write failure would otherwise be
+  // reported as a tool error, freeing the key for a retry that posts twice.
+  getJournalEntryById: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
@@ -60,6 +66,12 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(),
   reverseReconciledTransaction: vi.fn(),
 }));
+// allocate/reverse answer their pre-write refusals from this read so the
+// service calls that follow can rethrow.
+vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
+  findBankTransactionsByReference: vi.fn(),
+  getBankTransactionStatus: vi.fn(),
+}));
 
 import {
   createDraftCustomerInvoice,
@@ -70,7 +82,7 @@ import {
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
-import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
+import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
 import {
@@ -80,6 +92,7 @@ import {
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
@@ -117,6 +130,9 @@ beforeEach(() => {
   vi.mocked(customersBelongToCompany).mockResolvedValue(true);
   vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
   vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
+  // Default: the journal exists and is still a draft.
+  vi.mocked(getJournalEntryById).mockResolvedValue({ id: 'je-1', status: 'draft' } as never);
+  vi.mocked(getBankTransactionStatus).mockResolvedValue('imported');
 });
 
 describe('create_draft_invoice', () => {
@@ -295,6 +311,8 @@ describe('post_journal / finalize_invoice (post tools)', () => {
     }, ctx());
     await tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx());
     await tool('allocate_bank_transaction').handler({ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', ...KEY }, ctx());
+    // Reverse needs a row that HAS an allocation to undo.
+    vi.mocked(getBankTransactionStatus).mockResolvedValue('allocated');
     await tool('reverse_bank_allocation').handler({ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', ...KEY }, ctx());
 
     const stamps = [
@@ -336,11 +354,24 @@ describe('write-tool failure paths', () => {
     expect(r.isError).toBe(true);
   });
 
-  it('post_journal: service rejection → safe tool error', async () => {
-    vi.mocked(postJournalEntry).mockRejectedValue(new Error('Cannot post entry with status: posted'));
+  it('post_journal: an already-posted entry is refused precisely, before the service', async () => {
+    // The refusal moved from a catch to a pre-write read. It has to: a catch
+    // around postJournalEntry cannot tell this from a failure after the status
+    // UPDATE landed, and a refusal frees the idempotency key.
+    vi.mocked(getJournalEntryById).mockResolvedValue({ id: 'je-1', status: 'posted' } as never);
     const r = await tool('post_journal').handler({ journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('status'); // application error surfaced
+    expect(postJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('post_journal: a service failure RETHROWS so the savepoint unwinds it', async () => {
+    vi.mocked(postJournalEntry).mockRejectedValue(
+      Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+    );
+    await expect(
+      tool('post_journal').handler({ journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY }, ctx()),
+    ).rejects.toThrow(/deadlock detected/);
   });
 
   // The fixture must be an InvoiceNotApprovableError, which is what the service

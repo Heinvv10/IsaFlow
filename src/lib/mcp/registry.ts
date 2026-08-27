@@ -135,11 +135,16 @@ export class McpRegistry {
       // way to tell it apart from a fresh one. Nothing is lost by re-running:
       // a refusal wrote nothing, so there is no duplicate to protect against.
       const refused = result.isError === true;
+      // A success that wrote nothing (a dry run) must not occupy the key
+      // either: the real call that follows carries the same intent and the same
+      // natural key, and would otherwise be served the dry run's "posted: 0"
+      // forever. Handlers set this ONLY when nothing was written.
+      const keyFree = refused || result.wroteNothing === true;
       await recordToolCall({
         ctx, tool: name, argsHash,
-        idempotencyKey: refused ? null : idempotencyKey,
+        idempotencyKey: keyFree ? null : idempotencyKey,
         status: refused ? 'rejected' : 'ok',
-        result: tool.write && !refused ? result : null,
+        result: tool.write && !keyFree ? result : null,
         durationMs: Date.now() - started,
       });
       return result;
@@ -187,8 +192,8 @@ export class McpRegistry {
       if (!didBillableWork && debit.handle) {
         await refundForTool(ctx.companyId, debit.handle);
       }
-      // `billable` is registry-internal — never put it on the wire.
-      const { billable: _billable, ...wire } = result;
+      // Both flags are registry-internal — never put them on the wire.
+      const { billable: _billable, wroteNothing: _wroteNothing, ...wire } = result;
       return wire;
     } catch (err) {
       log.error(

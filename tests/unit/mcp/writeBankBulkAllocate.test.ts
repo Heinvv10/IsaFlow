@@ -261,6 +261,11 @@ describe('bulk_allocate_bank_transactions — dry run', () => {
       { allocations: [line(1), line(2)], dry_run: true, idempotency_key: 'k1' }, ctx,
     );
     expect(res.isError).toBeUndefined();
+    // Registry-internal flags: the key stays free for the real call that
+    // follows (same intent, same natural key), and nothing posted is nothing
+    // billed. Both are stripped before the wire by registry.call().
+    expect(res.wroteNothing).toBe(true);
+    expect(res.billable).toBe(false);
     expect(createAllocationBatch).not.toHaveBeenCalled();
     expect(recordAllocationBatchLines).not.toHaveBeenCalled();
     expect(allocateTransaction).not.toHaveBeenCalled();

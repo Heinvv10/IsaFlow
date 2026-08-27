@@ -14,6 +14,7 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(),
+  getBankTransactionStatus: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn(),
@@ -27,7 +28,10 @@ import {
   allocateTransaction,
   reverseReconciledTransaction,
 } from '@/modules/accounting/services/bank/bankAllocationService';
-import { findBankTransactionsByReference } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import {
+  findBankTransactionsByReference,
+  getBankTransactionStatus,
+} from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
   customersBelongToCompany,
@@ -46,6 +50,10 @@ function text(res: { content: { text: string }[] }): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: the row exists and is in the state the tool under test needs. The
+  // allocate/reverse handlers now answer their pre-write refusals from this
+  // read, so the service call below can rethrow everything.
+  vi.mocked(getBankTransactionStatus).mockResolvedValue('imported');
   vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
   vi.mocked(customersBelongToCompany).mockResolvedValue(true);
   vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
@@ -56,10 +64,16 @@ beforeEach(() => {
   vi.mocked(findBankTransactionsByReference).mockResolvedValue([MATCH_A]);
 });
 
+// The fourth column is the bank_transaction status each tool's PRE-WRITE check
+// requires: allocate wants a row with nothing on it yet, reverse wants one with
+// an allocation to undo. Both refusals moved out of a catch and into that read,
+// so that everything the services throw can be rethrown for the savepoint.
 describe.each([
-  ['allocate_bank_transaction', allocateBankTransactionTool, { contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73' }],
-  ['reverse_bank_allocation', reverseBankAllocationTool, {}],
-] as const)('%s — bank_reference resolution', (_name, tool, extra) => {
+  ['allocate_bank_transaction', allocateBankTransactionTool, { contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73' }, 'imported'],
+  ['reverse_bank_allocation', reverseBankAllocationTool, {}, 'allocated'],
+] as const)('%s — bank_reference resolution', (_name, tool, extra, status) => {
+  beforeEach(() => { vi.mocked(getBankTransactionStatus).mockResolvedValue(status); });
+
   it('no longer demands transaction_id in the manifest, only the idempotency key', () => {
     expect(tool.inputSchema.required).toEqual(['idempotency_key']);
     const props = tool.inputSchema.properties as Record<string, unknown>;
@@ -162,6 +176,8 @@ describe('allocate_bank_transaction — resolved id reaches the service', () => 
 });
 
 describe('reverse_bank_allocation — resolved id reaches the service', () => {
+  beforeEach(() => { vi.mocked(getBankTransactionStatus).mockResolvedValue('allocated'); });
+
   it('reverses the resolved transaction and reports its id', async () => {
     const res = await reverseBankAllocationTool.handler(
       { bank_reference: 'REF-001', idempotency_key: 'k1' }, ctx,

@@ -67,6 +67,32 @@ describe('parseAllocationLine — malformed ids are refused', () => {
   });
 });
 
+// Precedence between the two refusals is a contract, not an implementation
+// detail: it is what the single tool has always answered (writeBankAllocate.ts
+// ran pickTxSelector before guardCastableArgs), and extracting the shared
+// parser silently inverted it. A doubly-faulty line must be told about the
+// selector first — that is the fault the agent has to fix before the other one
+// even means anything.
+describe('parseAllocationLine — which fault wins when a line has two', () => {
+  it('reports the missing selector, not the malformed contra account', () => {
+    // A contra account is meaningless without a transaction to book it to.
+    expect(parseAllocationLine({ contra_account_id: 'acc-1' }))
+      .toBe('transaction_id or bank_reference is required');
+  });
+
+  it('reports the either/not-both ambiguity, not the malformed transaction_id', () => {
+    // Told the id is malformed first, an agent fixes the UUID and is refused
+    // again for naming both — two round trips for one line.
+    expect(parseAllocationLine({ transaction_id: 'tx-1', bank_reference: 'REF1' }))
+      .toMatch(/^Provide either transaction_id or bank_reference, not both/);
+  });
+
+  it('still reports a malformed id once the selector itself is sound', () => {
+    expect(parseAllocationLine({ transaction_id: TX, contra_account_id: 'acc-1' }))
+      .toBe('invalid contra_account_id');
+  });
+});
+
 describe('parseAllocationLine — field coercion', () => {
   it('treats a whitespace-only invoice_id as absent, not as a two-space id', () => {
     const result = parseAllocationLine({ transaction_id: TX, contra_account_id: ACC, invoice_id: '  ' });

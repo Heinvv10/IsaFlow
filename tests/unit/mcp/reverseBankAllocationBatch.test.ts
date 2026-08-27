@@ -108,8 +108,8 @@ describe('reverse_bank_allocation_batch', () => {
 
   it('reverses every transaction in the batch and clears the batch stamp', async () => {
     vi.mocked(getAllocationBatchLines).mockResolvedValue([
-      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1' },
-      { transactionId: TX(2), journalEntryId: 'je-2', currentJournalEntryId: 'je-2' },
+      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1', transactionExists: true },
+      { transactionId: TX(2), journalEntryId: 'je-2', currentJournalEntryId: 'je-2', transactionExists: true },
     ]);
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
     vi.mocked(clearAllocationBatch).mockResolvedValue(undefined);
@@ -138,8 +138,8 @@ describe('reverse_bank_allocation_batch', () => {
   // happens to be there would unwind a posting this batch never made.
   it('leaves a line that was re-allocated to a different journal alone, and says so', async () => {
     vi.mocked(getAllocationBatchLines).mockResolvedValue([
-      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1' },
-      { transactionId: TX(2), journalEntryId: 'je-2', currentJournalEntryId: 'je-SOMETHING-ELSE' },
+      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1', transactionExists: true },
+      { transactionId: TX(2), journalEntryId: 'je-2', currentJournalEntryId: 'je-SOMETHING-ELSE', transactionExists: true },
     ]);
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
@@ -160,7 +160,7 @@ describe('reverse_bank_allocation_batch', () => {
 
   it('skips a line that was already reversed on its own', async () => {
     vi.mocked(getAllocationBatchLines).mockResolvedValue([
-      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: null },
+      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: null, transactionExists: true },
     ]);
 
     const res = await reverseBankAllocationBatchTool.handler(
@@ -176,6 +176,28 @@ describe('reverse_bank_allocation_batch', () => {
     ]);
   });
 
+  it('reports a line whose transaction has been deleted instead of dropping it', async () => {
+    // An INNER join here would make the line disappear from the report
+    // entirely: the batch would claim fewer lines than it posted, and the one
+    // a human most needs to know about is the one that vanished.
+    vi.mocked(getAllocationBatchLines).mockResolvedValue([
+      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1', transactionExists: true },
+      { transactionId: TX(2), journalEntryId: 'je-2', currentJournalEntryId: null, transactionExists: false },
+    ]);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+
+    const res = await reverseBankAllocationBatchTool.handler(
+      { batch_id: BATCH, idempotency_key: 'k1' }, ctx,
+    );
+
+    expect(reverseReconciledTransaction).toHaveBeenCalledTimes(1);
+    const body = payload(res as never);
+    expect(body.reversed).toBe(1);
+    expect(body.skipped).toEqual([
+      { transaction_id: TX(2), reason: 'transaction no longer exists' },
+    ]);
+  });
+
   it("returns the generic NOT_FOUND for another tenant's batch — never an existence oracle", async () => {
     vi.mocked(getAllocationBatchLines).mockResolvedValue(null);
     const res = await reverseBankAllocationBatchTool.handler(
@@ -188,9 +210,9 @@ describe('reverse_bank_allocation_batch', () => {
 
   it('RETHROWS a mid-batch reversal failure so nothing is half-reversed', async () => {
     vi.mocked(getAllocationBatchLines).mockResolvedValue([
-      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1' },
-      { transactionId: TX(2), journalEntryId: 'je-2', currentJournalEntryId: 'je-2' },
-      { transactionId: TX(3), journalEntryId: 'je-3', currentJournalEntryId: 'je-3' },
+      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1', transactionExists: true },
+      { transactionId: TX(2), journalEntryId: 'je-2', currentJournalEntryId: 'je-2', transactionExists: true },
+      { transactionId: TX(3), journalEntryId: 'je-3', currentJournalEntryId: 'je-3', transactionExists: true },
     ]);
     vi.mocked(reverseReconciledTransaction).mockImplementation((async (_c: string, txId: string) => {
       if (txId === TX(2)) throw new Error('Can only reverse allocated, matched, or reconciled transactions');

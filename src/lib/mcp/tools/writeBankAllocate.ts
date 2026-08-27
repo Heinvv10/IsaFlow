@@ -13,6 +13,7 @@
  */
 import type { McpTool } from '../types';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { ALLOCATION_PROPERTIES, SELECTOR_PROPERTIES } from './allocationSchema';
 import {
   checkLinesOwnership,
@@ -22,7 +23,7 @@ import {
   resolveTxId,
 } from './allocationLine';
 import { mcpPostingAgent } from '../postingAgent';
-import { ok, safeErrorText, toolError } from './toolHelpers';
+import { NOT_FOUND, ok, toolError } from './toolHelpers';
 
 export const allocateBankTransactionTool: McpTool = {
   name: 'allocate_bank_transaction',
@@ -57,25 +58,34 @@ export const allocateBankTransactionTool: McpTool = {
     const resolved = await resolveTxId(line.selector, ctx.companyId);
     if ('error' in resolved) return toolError(resolved.error);
 
-    try {
-      const result = await postAllocationLine(
-        ctx.companyId,                                          // tenant from ctx ONLY
-        ctx.userId,
-        resolved.id,
-        line,
-        'allocate_bank_transaction',
-      );
-      return ok({
-        journal_entry_id: result.journalEntryId,
-        transaction_id: result.transactionId,
-      });
-    } catch (err) {
-      // Safe to report rather than rethrow: this tool posts ONE line, and
-      // bankAllocationService is internally atomic, so a throw here has left
-      // nothing behind for a savepoint to roll back. The bulk tool is the
-      // opposite case and rethrows — see writeBankBulkAllocate.ts.
-      return toolError(safeErrorText(err, 'Failed to allocate the transaction.'));
+    // Refusals are checked HERE, before the service call, so that everything
+    // the service throws can be rethrown. allocateTransaction raises the same
+    // two refusals itself, but a `catch → toolError` around it cannot tell them
+    // from a failure that struck AFTER the journal was posted (it posts the
+    // entry, then updates the row in a separate statement). Reported as a tool
+    // error, that partial write RELEASES the registry's savepoint and — since a
+    // refusal is audited with a NULL idempotency key — the agent's retry on the
+    // same key posts a SECOND journal.
+    const status = await getBankTransactionStatus(ctx.companyId, resolved.id);
+    if (status === null) return toolError(NOT_FOUND);
+    if (status !== 'imported') {
+      return toolError(`Transaction already ${status} — cannot allocate`);
     }
+
+    // No try/catch below this line, deliberately. Anything the service throws
+    // must reach the registry's savepoint, which rolls the partial write back
+    // and makes the retry safe.
+    const result = await postAllocationLine(
+      ctx.companyId,                                            // tenant from ctx ONLY
+      ctx.userId,
+      resolved.id,
+      line,
+      'allocate_bank_transaction',
+    );
+    return ok({
+      journal_entry_id: result.journalEntryId,
+      transaction_id: result.transactionId,
+    });
   },
 };
 
@@ -106,20 +116,30 @@ export const reverseBankAllocationTool: McpTool = {
     const resolved = await resolveTxId(selector, ctx.companyId);
     if ('error' in resolved) return toolError(resolved.error);
     const txId = resolved.id;
-    try {
-      // The contra journal is stamped too: without it the agent's own
-      // correction posts as human:<userId> and drops out of
-      // list_agent_postings — the corrective mechanism would be the one write
-      // that escapes the attribution model it depends on.
-      await reverseReconciledTransaction(
-        ctx.companyId,                                            // tenant from ctx ONLY
-        txId,
-        ctx.userId,
-        { postingAgent: mcpPostingAgent('reverse_bank_allocation') },
-      );
-      return ok({ transaction_id: txId, reversed: true });
-    } catch (err) {
-      return toolError(safeErrorText(err, 'Failed to reverse the allocation.'));
+
+    // Same pre-check-then-rethrow shape as allocate, and the exposure here is
+    // the one that was proven on dev: reverseReconciledTransaction posts the
+    // contra journal FIRST and resets the bank row second. A reset failure
+    // returned as a tool error leaves the contra committed, and the retry — the
+    // key having been freed — posts a SECOND contra against the same journal.
+    const status = await getBankTransactionStatus(ctx.companyId, txId);
+    if (status === null) return toolError(NOT_FOUND);
+    if (status !== 'allocated' && status !== 'matched' && status !== 'reconciled') {
+      return toolError('Can only reverse allocated, matched, or reconciled transactions');
     }
+
+    // The contra journal is stamped too: without it the agent's own correction
+    // posts as human:<userId> and drops out of list_agent_postings — the
+    // corrective mechanism would be the one write that escapes the attribution
+    // model it depends on.
+    //
+    // No try/catch: a mid-write failure must reach the registry's savepoint.
+    await reverseReconciledTransaction(
+      ctx.companyId,                                              // tenant from ctx ONLY
+      txId,
+      ctx.userId,
+      { postingAgent: mcpPostingAgent('reverse_bank_allocation') },
+    );
+    return ok({ transaction_id: txId, reversed: true });
   },
 };

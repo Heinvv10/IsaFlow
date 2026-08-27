@@ -98,6 +98,8 @@ export async function recordAllocationBatchLines(
 export interface AllocationBatchLineState extends AllocationBatchLine {
   /** The journal currently behind the transaction — null once it is unallocated. */
   currentJournalEntryId: string | null;
+  /** False when the transaction row itself is gone (deleted, or undone import). */
+  transactionExists: boolean;
 }
 
 /**
@@ -108,6 +110,12 @@ export interface AllocationBatchLineState extends AllocationBatchLine {
  *
  * The caller compares `journalEntryId` against `currentJournalEntryId` and
  * leaves alone anything that has moved on.
+ *
+ * bank_transactions is LEFT-joined on purpose. An INNER join drops a line whose
+ * transaction has since been deleted (undo_bank_import, a manual delete) — the
+ * batch would silently report fewer lines than it posted, and the one line a
+ * human most needs to know about is the one that vanished. It comes back with
+ * `transactionExists: false` so the caller can say so.
  */
 export async function getAllocationBatchLines(
   companyId: string,
@@ -120,9 +128,10 @@ export async function getAllocationBatchLines(
   if (batch.length === 0) return null;
 
   const rows = (await sql`
-    SELECT l.bank_transaction_id, l.journal_entry_id, jl.journal_entry_id AS current_journal_entry_id
+    SELECT l.bank_transaction_id, l.journal_entry_id, jl.journal_entry_id AS current_journal_entry_id,
+           (bt.id IS NOT NULL) AS transaction_exists
     FROM bank_allocation_batch_lines l
-    JOIN bank_transactions bt
+    LEFT JOIN bank_transactions bt
       ON bt.id = l.bank_transaction_id AND bt.company_id = l.company_id
     LEFT JOIN gl_journal_lines jl
       ON jl.id = bt.matched_journal_line_id AND jl.company_id = l.company_id
@@ -137,6 +146,7 @@ export async function getAllocationBatchLines(
       r.current_journal_entry_id === null || r.current_journal_entry_id === undefined
         ? null
         : String(r.current_journal_entry_id),
+    transactionExists: r.transaction_exists === true,
   }));
 }
 
