@@ -28,7 +28,7 @@ import { importBankStatementTool, undoBankImportTool } from '@/lib/mcp/tools/wri
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 
 const validArgs = {
-  bank_account_id: 'acct-1',
+  bank_account_id: 'ba36a4ed-d92d-47c6-8d4e-05462aea603a',
   file_type: 'ofx',
   content: '<OFX>…</OFX>',
   statement_date: '2026-04-30',
@@ -40,7 +40,7 @@ beforeEach(() => {
   vi.mocked(bankGlAccountBelongsToCompany).mockResolvedValue(true);
   vi.mocked(checkRateLimit).mockResolvedValue(true);
   vi.mocked(importStatementForAgent).mockResolvedValue({
-    batchId: 'batch-1',
+    batchId: '8f581546-5303-4a0a-8b70-0c07068ef3ef',
     imported: 2,
     duplicates: 0,
     parseErrors: [],
@@ -60,7 +60,7 @@ describe('import_bank_statement', () => {
   it('takes the tenant from ctx and ignores any company_id in the arguments', async () => {
     await importBankStatementTool.handler({ ...validArgs, company_id: 'attacker' }, ctx);
 
-    expect(bankGlAccountBelongsToCompany).toHaveBeenCalledWith('company-1', 'acct-1');
+    expect(bankGlAccountBelongsToCompany).toHaveBeenCalledWith('company-1', 'ba36a4ed-d92d-47c6-8d4e-05462aea603a');
     const call = vi.mocked(importStatementForAgent).mock.calls[0]![0];
     expect(call.companyId).toBe('company-1');
   });
@@ -137,7 +137,7 @@ describe('import_bank_statement', () => {
     const res = await importBankStatementTool.handler(validArgs, ctx);
 
     const payload = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
-    expect(payload.batch_id).toBe('batch-1');
+    expect(payload.batch_id).toBe('8f581546-5303-4a0a-8b70-0c07068ef3ef');
     expect(payload.imported).toBe(2);
     expect(payload.duplicates).toBe(0);
   });
@@ -156,7 +156,7 @@ describe('undo_bank_import', () => {
     } as never);
 
     const res = await undoBankImportTool.handler(
-      { batch_id: 'batch-1', idempotency_key: 'k1' }, ctx,
+      { batch_id: '8f581546-5303-4a0a-8b70-0c07068ef3ef', idempotency_key: 'k1' }, ctx,
     );
 
     const payload = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
@@ -178,7 +178,7 @@ describe('undo_bank_import', () => {
     vi.mocked(checkRateLimit).mockResolvedValue(false);
 
     const res = await undoBankImportTool.handler(
-      { batch_id: 'batch-1', idempotency_key: 'k1' }, ctx,
+      { batch_id: '8f581546-5303-4a0a-8b70-0c07068ef3ef', idempotency_key: 'k1' }, ctx,
     );
 
     expect(res.isError).toBe(true);
@@ -189,7 +189,7 @@ describe('undo_bank_import', () => {
     vi.mocked(undoImportBatch).mockResolvedValue(null as never);
 
     const res = await undoBankImportTool.handler(
-      { batch_id: 'someone-elses', idempotency_key: 'k1' }, ctx,
+      { batch_id: '27736ed2-e9de-42fd-8af7-17f9c4136d99', idempotency_key: 'k1' }, ctx,
     );
 
     expect(res.isError).toBe(true);

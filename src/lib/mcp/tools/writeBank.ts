@@ -6,7 +6,7 @@
  */
 import type { McpTool } from '../types';
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
-import { ok, safeErrorText, toolError } from './toolHelpers';
+import { guardUuidList, ok, safeErrorText, toolError } from './toolHelpers';
 
 const MAX_TX = 200;
 
@@ -38,6 +38,10 @@ export const suggestBankAllocationTool: McpTool = {
     const ids = raw.filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
     if (ids.length === 0) return toolError('transaction_ids must contain string ids');
     if (ids.length > MAX_TX) return toolError(`At most ${MAX_TX} transaction ids per call`);
+    // bulkCategorize casts the whole array to ::UUID[]: ONE malformed id fails
+    // the statement, so all 200 suggestions are lost to a single typo.
+    const bad = guardUuidList(ids, 'transaction_ids');
+    if (bad) return bad;
     try {
       const result = await bulkCategorize(ctx.companyId, ids); // companyId from ctx ONLY
       return ok(result);

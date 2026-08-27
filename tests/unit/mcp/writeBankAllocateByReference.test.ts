@@ -37,7 +37,7 @@ import { allocateBankTransactionTool, reverseBankAllocationTool } from '@/lib/mc
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 
-const MATCH_A = { id: 'tx-a', transactionDate: '2026-03-01', amount: -1234.56, description: 'ACME' };
+const MATCH_A = { id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9', transactionDate: '2026-03-01', amount: -1234.56, description: 'ACME' };
 const MATCH_B = { id: 'tx-b', transactionDate: '2026-04-01', amount: -1234.56, description: 'ACME' };
 
 function text(res: { content: { text: string }[] }): string {
@@ -50,14 +50,14 @@ beforeEach(() => {
   vi.mocked(customerBelongsToCompany).mockResolvedValue(true);
   vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
   vi.mocked(allocateTransaction).mockResolvedValue({
-    journalEntryId: 'je-1', bankTransaction: { id: 'tx-a' },
+    journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9' },
   } as never);
   vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined as never);
   vi.mocked(findBankTransactionsByReference).mockResolvedValue([MATCH_A]);
 });
 
 describe.each([
-  ['allocate_bank_transaction', allocateBankTransactionTool, { contra_account_id: 'acc-1' }],
+  ['allocate_bank_transaction', allocateBankTransactionTool, { contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73' }],
   ['reverse_bank_allocation', reverseBankAllocationTool, {}],
 ] as const)('%s — bank_reference resolution', (_name, tool, extra) => {
   it('no longer demands transaction_id in the manifest, only the idempotency key', () => {
@@ -76,9 +76,9 @@ describe.each([
 
   it('passes bank_account_id through as a narrowing filter', async () => {
     await tool.handler(
-      { bank_reference: 'REF-001', bank_account_id: 'ba-1', idempotency_key: 'k1', ...extra }, ctx,
+      { bank_reference: 'REF-001', bank_account_id: 'f60ea224-2740-48f8-8eeb-c594e67305aa', idempotency_key: 'k1', ...extra }, ctx,
     );
-    expect(findBankTransactionsByReference).toHaveBeenCalledWith('company-1', 'REF-001', 'ba-1');
+    expect(findBankTransactionsByReference).toHaveBeenCalledWith('company-1', 'REF-001', 'f60ea224-2740-48f8-8eeb-c594e67305aa');
   });
 
   it('trims the reference before resolving', async () => {
@@ -96,7 +96,7 @@ describe.each([
 
   it('rejects a call carrying BOTH — the two could name different rows', async () => {
     const res = await tool.handler(
-      { transaction_id: 'tx-z', bank_reference: 'REF-001', idempotency_key: 'k1', ...extra }, ctx,
+      { transaction_id: 'bc832863-424e-4a35-85ef-f8185ca28cbc', bank_reference: 'REF-001', idempotency_key: 'k1', ...extra }, ctx,
     );
     expect(res.isError).toBe(true);
     expect(findBankTransactionsByReference).not.toHaveBeenCalled();
@@ -123,7 +123,7 @@ describe.each([
     expect(res.isError).toBe(true);
     expect(text(res)).toContain('bank_reference is ambiguous');
     // The agent must be able to pick: ids, dates and amounts all present.
-    for (const frag of ['tx-a', 'tx-b', '2026-03-01', '2026-04-01', '1234.56']) {
+    for (const frag of ['8102aa5c-6c28-4c30-8ae4-cbb89c5467a9', 'tx-b', '2026-03-01', '2026-04-01', '1234.56']) {
       expect(text(res)).toContain(frag);
     }
     // Mutation guard: returning matches[0] here instead of erroring must fail.
@@ -132,7 +132,7 @@ describe.each([
   });
 
   it('still accepts a plain transaction_id — the existing call shape is unbroken', async () => {
-    const res = await tool.handler({ transaction_id: 'tx-legacy', idempotency_key: 'k1', ...extra }, ctx);
+    const res = await tool.handler({ transaction_id: 'f3d54cf4-8108-435b-8fe3-791a5c418be5', idempotency_key: 'k1', ...extra }, ctx);
     expect(res.isError).toBeFalsy();
     expect(findBankTransactionsByReference).not.toHaveBeenCalled();
   });
@@ -145,11 +145,11 @@ describe.each([
 describe('allocate_bank_transaction — resolved id reaches the service', () => {
   it('allocates the resolved transaction, not the reference string', async () => {
     await allocateBankTransactionTool.handler(
-      { bank_reference: 'REF-001', contra_account_id: 'acc-1', idempotency_key: 'k1' }, ctx,
+      { bank_reference: 'REF-001', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', idempotency_key: 'k1' }, ctx,
     );
     const call = vi.mocked(allocateTransaction).mock.calls[0]!;
     expect(call[0]).toBe('company-1');
-    expect(call[1]).toBe('tx-a');
+    expect(call[1]).toBe('8102aa5c-6c28-4c30-8ae4-cbb89c5467a9');
   });
 
   it('resolves the reference only after the argument validation gates', async () => {
@@ -167,7 +167,7 @@ describe('reverse_bank_allocation — resolved id reaches the service', () => {
       { bank_reference: 'REF-001', idempotency_key: 'k1' }, ctx,
     );
     const call = vi.mocked(reverseReconciledTransaction).mock.calls[0]!;
-    expect(call[1]).toBe('tx-a');
-    expect(JSON.parse(text(res))).toMatchObject({ transaction_id: 'tx-a', reversed: true });
+    expect(call[1]).toBe('8102aa5c-6c28-4c30-8ae4-cbb89c5467a9');
+    expect(JSON.parse(text(res))).toMatchObject({ transaction_id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9', reversed: true });
   });
 });

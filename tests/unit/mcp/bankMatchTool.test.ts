@@ -21,9 +21,9 @@ describe('get_match_candidates', () => {
   it('passes the tenant from ctx, never from args', async () => {
     vi.mocked(getMatchCandidates).mockResolvedValue({ candidates: [] });
 
-    await getMatchCandidatesTool.handler({ transaction_id: 'tx-1', company_id: 'attacker' }, ctx);
+    await getMatchCandidatesTool.handler({ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', company_id: 'attacker' }, ctx);
 
-    expect(getMatchCandidates).toHaveBeenCalledWith('tx-1', 'company-1');
+    expect(getMatchCandidates).toHaveBeenCalledWith('045ef594-d81d-4f21-84d6-1151ed71260d', 'company-1');
   });
 
   it('rejects a missing transaction_id without calling the service', async () => {
@@ -39,7 +39,7 @@ describe('get_match_candidates', () => {
   it('turns a service rejection into an isError result rather than throwing', async () => {
     vi.mocked(getMatchCandidates).mockRejectedValue(new Error('Bank transaction not found'));
 
-    const res = await getMatchCandidatesTool.handler({ transaction_id: 'tx-missing' }, ctx);
+    const res = await getMatchCandidatesTool.handler({ transaction_id: 'e4ed29ea-9b46-4cad-8c27-8b94b356dd05' }, ctx);
 
     expect(res.isError).toBe(true);
     expect(res.content[0]!.text).toContain('not found'); // plain Error → safe to surface
@@ -50,7 +50,7 @@ describe('get_match_candidates', () => {
       Object.assign(new Error('column bmc.supplier_invoice_idx does not exist'), { code: '42703' }),
     );
 
-    const res = await getMatchCandidatesTool.handler({ transaction_id: 'tx-1' }, ctx);
+    const res = await getMatchCandidatesTool.handler({ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d' }, ctx);
 
     expect(res.isError).toBe(true);
     const text = res.content[0]!.text;
