@@ -10,13 +10,13 @@
  *
  * DB-gated part reproduces the exact FK shape with a real parent/child pair.
  */
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { als } from '@/lib/als';
 import { isDbReachable } from '../helpers/dbReachable';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
-import { withTransaction, getPool, sql } from '@/lib/neon';
+import { withTransaction, getPoolForTests, sql } from '@/lib/neon';
 
 type Ctx = Parameters<typeof als.run>[0];
 function fakeCtx(client: unknown): Ctx {
@@ -48,14 +48,20 @@ describe('withTransaction — request tx in flight (unit, mocked client)', () =>
     expect(queries.some((q) => /^ROLLBACK TO SAVEPOINT /.test(q))).toBe(true);
     expect(queries.some((q) => q === 'ROLLBACK')).toBe(false);
   });
+
+  it('logs the rollback on the request path too', async () => {
+    const { log } = await import('@/lib/logger');
+    vi.mocked(log.error).mockClear();
+    await als.run(fakeCtx(client), () => withTransaction(async () => { throw new Error('boom'); })).catch(() => undefined);
+    expect(vi.mocked(log.error)).toHaveBeenCalledWith(expect.stringContaining('withTransaction rolled back'), expect.anything(), 'DB');
+  });
 });
 
 describe('withTransaction — request tx in flight (integration)', async () => {
   const reachable = await isDbReachable();
-  afterAll(async () => { if (reachable) await getPool().end().catch(() => undefined); });
 
   it.skipIf(!reachable)('sees rows written earlier in the same request (FK parent visible)', async () => {
-    const client = await getPool().connect();
+    const client = await getPoolForTests().connect();
     try {
       await client.query('BEGIN');
       await als.run(fakeCtx(client), async () => {

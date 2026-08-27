@@ -39,7 +39,7 @@ let _pool: pg.Pool | null = null;
 /** Per-process sequence for ALS-batch savepoint names (nested batches must not collide). */
 let alsBatchSeq = 0;
 
-export function getPool(): pg.Pool {
+function getPool(): pg.Pool {
   if (!_pool) {
     _pool = new pg.Pool({
       connectionString: getDatabaseUrl(),
@@ -279,6 +279,11 @@ export async function transaction(
   });
 }
 
+/** Test-only: hand the raw pool to integration tests that need a bound client. */
+export function getPoolForTests(): pg.Pool {
+  return getPool();
+}
+
 export type TxSql = (
   strings: TemplateStringsArray,
   ...values: unknown[]
@@ -299,6 +304,10 @@ let withTxSeq = 0;
  * all-or-nothing contract.
  *
  * Outside a request (cron, scripts) it opens its own connection + BEGIN.
+ *
+ * NEVER call withTransaction concurrently within one request
+ * (Promise.all([withTransaction(...), withTransaction(...)])): savepoints on a
+ * shared pg connection must nest LIFO (postgresql-gotchas §36). Sequence them.
  */
 export async function withTransaction<T>(
   fn: (tx: TxSql) => Promise<T>
@@ -311,7 +320,16 @@ export async function withTransaction<T>(
       return res.rows as unknown[];
     };
     withTxSeq = (withTxSeq + 1) % 1_000_000;
-    return withSavepoint(`with_tx_${withTxSeq}`, () => fn(tx));
+    try {
+      return await withSavepoint(`with_tx_${withTxSeq}`, () => fn(tx));
+    } catch (err) {
+      log.error(
+        'withTransaction rolled back (request savepoint)',
+        err instanceof Error ? { message: err.message } : { error: err },
+        'DB'
+      );
+      throw err;
+    }
   }
 
   const pool = getPool();
