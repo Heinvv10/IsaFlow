@@ -9,7 +9,9 @@
 export function parseCsvLines(csv: string): string[][] {
   if (!csv || csv.trim() === '') return [];
 
-  const lines = csv.trim().split('\n');
+  // Strip a UTF-8 BOM and normalise CRLF/CR — a stray \r otherwise rides along
+  // on the last field of every row and defeats blank-row detection.
+  const lines = csv.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim().split('\n');
   return lines.map(line => {
     const fields: string[] = [];
     let current = '';
@@ -33,12 +35,45 @@ export function parseCsvLines(csv: string): string[][] {
 
 /**
  * Parse amount string, handling thousand separators and negative values.
+ *
+ * Two conventions appear in SA bank exports and they disagree about the comma:
+ *   1,234.56  — comma groups thousands (US/UK style)
+ *   1 234,56  — space groups thousands, comma is the DECIMAL point (SA style)
+ * Blindly stripping commas turned "1 234,56" into 123456 — a 100x overstatement
+ * on every ABSA row that used the SA convention. Treat the comma as a decimal
+ * point only when there is no dot and it is followed by exactly two digits.
  */
 export function parseAmount(value: string): number | null {
   if (!value || value.trim() === '') return null;
-  const cleaned = value.replace(/[,\s]/g, '').replace(/^["']|["']$/g, '');
+
+  let cleaned = value.trim().replace(/^["']|["']$/g, '').trim();
+  const decimalComma = !cleaned.includes('.') && /,\d{2}$/.test(cleaned);
+
+  cleaned = decimalComma
+    ? cleaned.replace(/[\s\u00A0]/g, '').replace(',', '.')
+    : cleaned.replace(/[,\s\u00A0]/g, '');
+
   const num = parseFloat(cleaned);
   return isNaN(num) ? null : num;
+}
+
+/**
+ * Convert a date string to YYYY-MM-DD without knowing the layout up front.
+ * Accepts YYYY/MM/DD, YYYY-MM-DD, DD/MM/YYYY and DD-MM-YYYY: the four-digit
+ * component decides which end the year sits on. Returns null when neither
+ * component is a four-digit year, so callers with a known layout keep using
+ * `normalizeDate`.
+ */
+export function normalizeDateFlexible(dateStr: string): string | null {
+  const cleaned = dateStr.trim().replace(/^["']|["']$/g, '').trim();
+  const parts = cleaned.split(/[/-]/);
+  if (parts.length !== 3) return null;
+
+  if (parts[0]!.length === 4) return normalizeDate(cleaned, cleaned.includes('/') ? 'yyyy/mm/dd' : 'yyyy-mm-dd');
+  if (parts[2]!.length === 4) {
+    return normalizeDate(cleaned.replace(/-/g, '/'), 'dd/mm/yyyy');
+  }
+  return null;
 }
 
 /**

@@ -44,6 +44,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/bank/*`. Ev
 - `scripts/migrations/sql/327_*` (VAT subtype), `*bank_transaction*`, `*bank_reconciliation*`, `*bank_feed*`.
 
 ## Recent changes
+- 2026-08-27: statement import parser fixes. QIF — a `!Type:Bank` header shares the first `^` block with transaction #1, and filtering blocks that start with `!` silently dropped that transaction from every headed export; header LINES are stripped now, not whole blocks. ABSA — moved to `utils/bankCsvParserAbsa.ts` and mapped by header name: the current `Account Number,Transaction Date,Description,Amount,Balance` layout was undetectable (only the legacy Description1/Description2 one was), so the import was rejected outright. `detectBankFormat` now scans the first few lines for the header (exports carry a title row) and `parseAmount` reads SA-style "1 234,56" as 1234.56 rather than 123456. All of this reaches `import_bank_statement` unchanged — the MCP tool already routes through `parseStatement`.
 - 2026-08-14: `hasBankAccountService` gained `countBankAccounts`; `/api/accounting/setup-guide` now uses it instead of counting `bank_accounts` rows, which meant the `bank-account` setup task could never complete in production.
 - 2026-08-09: `bankStatementImportService` — shared parse/dedup/persist path for agent imports. `importParsedTransactions` gained `skipAutoPost`; the MCP path sets it so an import posts nothing (sweep attributes to the system user, which would escape `list_agent_postings`).
 - 2026-04-24: PR-8 L-tier IDOR cleanup.
