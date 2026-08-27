@@ -519,6 +519,7 @@ describe('getBankTransactions — PRD-11: allocation is a posted journal line, n
       const t = sqlTextOf(i);
       expect(t).toContain(ALLOC_NULL);
       expect(t).toContain('bt.suggested_gl_account_id IS NOT NULL OR');
+      expect(t).toContain("bt.status != 'excluded'");
     }
   });
 });

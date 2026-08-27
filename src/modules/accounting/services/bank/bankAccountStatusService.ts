@@ -69,7 +69,7 @@ export async function getBankAccountsStatus(companyId: string): Promise<Row[]> {
           bt.suggested_supplier_id   IS NOT NULL OR
           bt.suggested_client_id     IS NOT NULL OR
           bt.allocation_type         IS NOT NULL
-        ) THEN 1 END)::INT AS suggested_count,
+        ) AND bt.status != 'excluded' THEN 1 END)::INT AS suggested_count,
         -- Unallocated = no journal line, no category at all, not excluded
         COUNT(CASE WHEN (
           bt.matched_journal_line_id IS NULL AND

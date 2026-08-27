@@ -17,6 +17,7 @@ export interface BankAccountGroup {
   unreconciledBalance: number;
   unreconciledCount: number;
   allocatedCount: number;
+  suggestedCount: number;
   unallocatedCount: number;
 }
 
@@ -48,6 +49,7 @@ export function groupBankAccounts(accounts: BankAcct[]): GroupedBankAccounts {
         unreconciledBalance: 0,
         unreconciledCount: 0,
         allocatedCount: 0,
+        suggestedCount: 0,
         unallocatedCount: 0,
       };
       byGroup.set(acct.groupId, group);
@@ -58,6 +60,7 @@ export function groupBankAccounts(accounts: BankAcct[]): GroupedBankAccounts {
     group.unreconciledBalance += acct.unreconciledBalance;
     group.unreconciledCount += acct.unreconciledCount;
     group.allocatedCount += acct.allocatedCount;
+    group.suggestedCount += acct.suggestedCount ?? 0;
     group.unallocatedCount += acct.unallocatedCount;
   }
 

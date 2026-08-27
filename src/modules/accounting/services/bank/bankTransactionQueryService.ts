@@ -113,12 +113,9 @@ const TX_SELECT = `
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
 `;
 
-// allocationFilter: same definition as bankAccountStatusService counts (PRD-11 §2).
-//   allocated   = a journal line has been posted for the row
-//   suggested   = no journal line yet, but an AI suggestion / saved category exists
-//   unallocated = nothing at all, and not excluded
-// Fixed literals keyed on a validated enum — safe for sql.unsafe. Applied in
-// EVERY branch below (#256: it was silently dropped without `status`).
+// allocationFilter — same definition as bankAccountStatusService counts (PRD-11 §2):
+// allocated = journal posted; suggested = categorised, not posted; unallocated = neither.
+// Fixed literals keyed on a validated enum — safe for sql.unsafe. Applied in EVERY branch (#256).
 const HAS_CATEGORY =
   '(bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL OR bt.allocation_type IS NOT NULL)';
 const NO_CATEGORY =
@@ -128,7 +125,7 @@ function allocationCond(f?: BankTxFilters): string {
     case 'allocated':
       return 'AND bt.matched_journal_line_id IS NOT NULL';
     case 'suggested':
-      return `AND bt.matched_journal_line_id IS NULL AND ${HAS_CATEGORY}`;
+      return `AND bt.matched_journal_line_id IS NULL AND ${HAS_CATEGORY} AND bt.status != 'excluded'`;
     case 'unallocated':
       return `AND bt.matched_journal_line_id IS NULL AND ${NO_CATEGORY} AND bt.status != 'excluded'`;
     default:

@@ -54,5 +54,6 @@ describe('getBankAccountsStatus — allocated_count predicate', () => {
     const p = predicateOf('suggested_count');
     expect(p).toContain('bt.matched_journal_line_id IS NULL');
     expect(p).toContain('bt.suggested_gl_account_id IS NOT NULL');
+    expect(p).toContain("bt.status != 'excluded'");
   });
 });
