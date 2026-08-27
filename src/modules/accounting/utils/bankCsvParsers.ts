@@ -64,9 +64,15 @@ export function detectBankFormat(csv: string): BankFormat {
 
   // ABSA ships two layouts: the legacy Description1/Description2 one and the
   // current single-Description one. Both lead with "Account Number", which no
-  // other SA preset here carries; requiring an Amount column (and no
-  // debit/credit pair) keeps this from swallowing a debit/credit statement that
-  // happens to name the account.
+  // other SA preset here carries.
+  //
+  // The assumption this rests on: ABSA signs a SINGLE Amount column and never
+  // splits money across Debit and Credit columns. That is what makes the guard
+  // below safe — a Nedbank or Standard Bank export that also names the account
+  // still carries the debit/credit pair, so it falls through to its own branch
+  // rather than being claimed here (pinned by tests). If ABSA ever ships a
+  // debit/credit layout, this rule cannot tell it apart from those two and the
+  // detector needs a stronger signal than column names.
   const isAbsaHeader =
     firstLine.includes('account number') &&
     (firstLine.includes('description1') ||

@@ -10,7 +10,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { detectBankFormat, parseABSAStatement, parseAmount } from '@/modules/accounting/utils/bankCsvParsers';
+import {
+  detectBankFormat,
+  parseABSAStatement,
+  parseAmount,
+  normalizeDateFlexible,
+} from '@/modules/accounting/utils/bankCsvParsers';
 import { parseStatement } from '@/modules/accounting/services/bank/bankStatementParseService';
 
 const FIXTURE = readFileSync(join(__dirname, '../../fixtures/bank/absa-sample.csv'), 'utf8');
@@ -28,6 +33,20 @@ describe('ABSA CSV detection', () => {
 
   it('still detects the legacy Description1/Description2 layout', () => {
     expect(detectBankFormat(LEGACY)).toBe('absa');
+  });
+
+  it('leaves a debit/credit layout alone even when it names the account', () => {
+    // The ABSA rule keys off "Account Number", so these two pin the guard that
+    // stops it claiming a statement that splits money across Debit and Credit.
+    const nedbankish =
+      'Account Number,Transaction Date,Value Date,Transaction Description,Debit Amount,Credit Amount,Balance\n';
+    expect(detectBankFormat(nedbankish)).toBe('nedbank');
+
+    // "Debit Amount"/"Credit Amount" rather than "Debit"/"Credit": the header
+    // then contains "amount" too, so only the debit/credit guard keeps this out
+    // of the ABSA branch. Both assertions here go red if that guard is removed.
+    const standardish = 'Account Number,Date,Description,Debit Amount,Credit Amount,Balance\n';
+    expect(detectBankFormat(standardish)).toBe('standard_bank');
   });
 
   it('does not misfire on other SA bank layouts', () => {
@@ -89,6 +108,42 @@ describe('parseAmount', () => {
     expect(parseAmount('1,234.56')).toBe(1234.56);
     expect(parseAmount('-1234.56')).toBe(-1234.56);
     expect(parseAmount('1,234')).toBe(1234);
+  });
+
+  it('resolves the "1,00" ambiguity as a decimal comma, by design', () => {
+    // No dot + exactly two trailing digits ⇒ decimal comma. So "1,00" is R1.00,
+    // not R100. SA exports always carry cents, and nothing in the string itself
+    // separates the two readings — this pins the tradeoff so a later change to
+    // the heuristic has to be deliberate.
+    expect(parseAmount('1,00')).toBe(1);
+    expect(parseAmount('100,00')).toBe(100);
+  });
+
+  it('rejects currency-prefixed and parenthesised amounts rather than guessing', () => {
+    // Documented non-support: null makes the caller raise an "Invalid amount"
+    // parse error, which is visible, instead of silently importing a wrong
+    // figure. Change these only with the corresponding parser change.
+    expect(parseAmount('R 1,234.56')).toBeNull();
+    expect(parseAmount('R1234.56')).toBeNull();
+    expect(parseAmount('(123.45)')).toBeNull();
+  });
+});
+
+describe('normalizeDateFlexible', () => {
+  it('reads a trailing four-digit year as DD/MM/YYYY, not MM/DD/YYYY', () => {
+    // 3 April, not 4 March — SA exports are day-first. Ambiguous below the 13th
+    // of the month, so this pins the assumption rather than a detection.
+    expect(normalizeDateFlexible('03/04/2026')).toBe('2026-04-03');
+    expect(normalizeDateFlexible('03-04-2026')).toBe('2026-04-03');
+  });
+
+  it('reads a leading four-digit year as YYYY/MM/DD', () => {
+    expect(normalizeDateFlexible('2026/04/03')).toBe('2026-04-03');
+    expect(normalizeDateFlexible('2026-04-03')).toBe('2026-04-03');
+  });
+
+  it('returns null when neither end carries a four-digit year', () => {
+    expect(normalizeDateFlexible('03/04/26')).toBeNull();
   });
 });
 

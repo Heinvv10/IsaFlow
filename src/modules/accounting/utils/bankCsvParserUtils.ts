@@ -42,6 +42,18 @@ export function parseCsvLines(csv: string): string[][] {
  * Blindly stripping commas turned "1 234,56" into 123456 — a 100x overstatement
  * on every ABSA row that used the SA convention. Treat the comma as a decimal
  * point only when there is no dot and it is followed by exactly two digits.
+ *
+ * That heuristic is a deliberate tradeoff, not a parse: "1,00" is read as 1.00
+ * rather than 100, because SA statement exports always carry cents. A file that
+ * wrote whole rands as "1,00" meaning one hundred would be misread — no SA bank
+ * export here does, and no rule can tell the two apart from the string alone.
+ *
+ * NOT handled, both returning null (the caller then rejects the row with an
+ * "Invalid amount" parse error rather than guessing):
+ *   "R 1,234.56"  — currency-prefixed
+ *   "(123.45)"    — accounting-style negative in parentheses
+ * Neither has turned up in an SA CSV export yet. Add them deliberately, with a
+ * test, if one does.
  */
 export function parseAmount(value: string): number | null {
   if (!value || value.trim() === '') return null;
@@ -63,6 +75,11 @@ export function parseAmount(value: string): number | null {
  * component decides which end the year sits on. Returns null when neither
  * component is a four-digit year, so callers with a known layout keep using
  * `normalizeDate`.
+ *
+ * A trailing four-digit year is assumed to be DD/MM/YYYY, never MM/DD/YYYY:
+ * SA bank exports are day-first, and "03/04/2026" is 3 April, not 4 March.
+ * Nothing in the string distinguishes the two below the 13th of the month, so
+ * this is an assumption about the source, not a detection.
  */
 export function normalizeDateFlexible(dateStr: string): string | null {
   const cleaned = dateStr.trim().replace(/^["']|["']$/g, '').trim();
