@@ -16,7 +16,7 @@ import {
 import { createQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingAgent } from '../postingAgent';
-import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 interface LineIn {
   description: string;
@@ -76,6 +76,11 @@ export const createDraftInvoiceTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const badArg = guardCastableArgs(args, {
+      uuid: ['customer_id'],
+      date: ['invoice_date', 'due_date'],
+    });
+    if (badArg) return badArg;
     const customerId = strArg(args, 'customer_id');
     if (!customerId) return toolError('customer_id is required');
     const items = parseLines(args.items);
@@ -131,6 +136,11 @@ export const createDraftQuoteTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const badArg = guardCastableArgs(args, {
+      uuid: ['customer_id'],
+      date: ['quote_date', 'expiry_date'],
+    });
+    if (badArg) return badArg;
     const customerName = strArg(args, 'customer_name');
     if (!customerName) return toolError('customer_name is required');
     const items = parseLines(args.items);
@@ -182,6 +192,8 @@ export const finalizeInvoiceTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const badArg = guardCastableArgs(args, { uuid: ['invoice_id'] });
+    if (badArg) return badArg;
     const invoiceId = strArg(args, 'invoice_id');
     if (!invoiceId) return toolError('invoice_id is required');
     try {

@@ -8,8 +8,7 @@ import type { BankTransaction } from '@/modules/accounting/types/bank.types';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
-import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
-import { clampLimit, ok, strArg, toolError } from './toolHelpers';
+import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const ALLOCATION_FILTERS = ['all', 'unallocated', 'suggested', 'allocated'] as const;
 type AllocationFilter = (typeof ALLOCATION_FILTERS)[number];
@@ -55,28 +54,6 @@ function toCompact(tx: BankTransaction): CompactBankTx {
   };
 }
 
-/**
- * An agent's arguments land in SQL casts (`$n::UUID`, `$n::DATE`), and a value
- * that is merely a non-empty string is not enough: 'abc' throws 22P02 and
- * '2026-02-31' throws 22008. A read tool runs with NO savepoint (registry.ts),
- * so either aborts the whole request transaction — the registry's own refund
- * and audit writes then fail with 25P02, and the caller gets a 500 with the
- * Flow debit unrefunded. JSON Schema does not enforce `format: date` for us, so
- * every such argument is checked here BEFORE the service call.
- *
- * Returns the offending argument's name, or null when everything is usable.
- * The name is the agent's OWN input, so naming it leaks nothing.
- */
-function firstUncastableArg(args: Record<string, unknown>): string | null {
-  const id = strArg(args, 'bank_account_id');
-  if (id !== undefined && !UUID_RE.test(id)) return 'bank_account_id';
-  for (const key of ['from_date', 'to_date'] as const) {
-    const value = strArg(args, key);
-    if (value !== undefined && !isRealCalendarDate(value)) return key;
-  }
-  return null;
-}
-
 export const bankAccountsStatusTool: McpTool = {
   name: 'bank_accounts_status',
   description:
@@ -118,8 +95,12 @@ export const listBankTransactionsTool: McpTool = {
       ? (rawAlloc as AllocationFilter)
       : undefined;
     const compact = strArg(args, 'fields') === 'compact';
-    const bad = firstUncastableArg(args);
-    if (bad) return toolError(`invalid ${bad}`);
+    // bank_account_id lands as $n::UUID and the dates as $n::DATE.
+    const bad = guardCastableArgs(args, {
+      uuid: ['bank_account_id'],
+      date: ['from_date', 'to_date'],
+    });
+    if (bad) return bad;
     try {
       const result = await getBankTransactions(ctx.companyId, {
         bankAccountId: strArg(args, 'bank_account_id'),

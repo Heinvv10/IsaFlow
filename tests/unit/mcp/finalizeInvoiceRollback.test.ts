@@ -91,7 +91,7 @@ describe('finalize_invoice — transaction boundary', () => {
     // Must reject — NOT resolve to an isError envelope. A returned envelope
     // means the handler completed normally and the savepoint released.
     await expect(
-      finalizeInvoiceTool.handler({ invoice_id: 'inv-1' }, ctx()),
+      finalizeInvoiceTool.handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f' }, ctx()),
     ).rejects.toThrow(/closed fiscal period/);
   });
 
@@ -99,14 +99,14 @@ describe('finalize_invoice — transaction boundary', () => {
     approveMock.mockRejectedValue(new Error('connection terminated'));
 
     await expect(
-      finalizeInvoiceTool.handler({ invoice_id: 'inv-1' }, ctx()),
+      finalizeInvoiceTool.handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f' }, ctx()),
     ).rejects.toThrow(/connection terminated/);
   });
 
   it('still returns a clean tool error for the pre-write status guard', async () => {
     approveMock.mockRejectedValue(new InvoiceNotApprovableError("Cannot approve an invoice with status 'cancelled'"));
 
-    const result = await finalizeInvoiceTool.handler({ invoice_id: 'inv-1' }, ctx());
+    const result = await finalizeInvoiceTool.handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f' }, ctx());
 
     // Nothing was written (the guarded UPDATE matched zero rows), so there is
     // no partial state to discard and the agent gets the real reason.
@@ -123,12 +123,12 @@ describe('finalize_invoice — transaction boundary', () => {
 
   it('returns the approval result on the happy path', async () => {
     approveMock.mockResolvedValue({
-      id: 'inv-1', status: 'approved', glJournalEntryId: 'je-1', evidenceDocumentId: 'doc-1',
+      id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', evidenceDocumentId: 'doc-1',
     });
 
-    const result = await finalizeInvoiceTool.handler({ invoice_id: 'inv-1' }, ctx());
+    const result = await finalizeInvoiceTool.handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f' }, ctx());
 
     expect(result.isError).toBeUndefined();
-    expect(JSON.stringify(result.content)).toMatch(/je-1/);
+    expect(JSON.stringify(result.content)).toMatch(/97120700-9f09-4fe5-804e-34331ce49b97/);
   });
 });

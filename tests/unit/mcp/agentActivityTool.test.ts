@@ -48,7 +48,7 @@ describe('list_agent_postings', () => {
   it('surfaces the reversed flag in the payload so a reviewer can skip what is already corrected', async () => {
     vi.mocked(listAgentPostings).mockResolvedValue([
       {
-        journalEntryId: 'je-1', entryNumber: 'JE-1', entryDate: '2026-08-04',
+        journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', entryNumber: 'JE-1', entryDate: '2026-08-04',
         description: 'live', postingAgent: 'mcp:allocate_bank_transaction:v1',
         status: 'posted', reversed: false, reversalOfId: null, amount: 100,
       },

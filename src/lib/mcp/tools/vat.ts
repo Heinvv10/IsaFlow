@@ -4,7 +4,7 @@
  */
 import type { McpTool } from '../types';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
-import { ok, strArg, toolError } from './toolHelpers';
+import { guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 export const vatStatusTool: McpTool = {
   name: 'vat_status',
@@ -25,6 +25,8 @@ export const vatStatusTool: McpTool = {
     const start = strArg(args, 'period_start');
     const end = strArg(args, 'period_end');
     if (!start || !end) return toolError('period_start and period_end are required (YYYY-MM-DD)');
+    const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
+    if (bad) return bad;
     return ok(await getVATReturn(ctx.companyId, start, end));
   },
 };

@@ -6,7 +6,7 @@
  */
 import type { McpTool } from '../types';
 import { getMatchCandidates } from '@/modules/accounting/services/bank/bankMatchCandidatesService';
-import { ok, safeErrorText, toolError } from './toolHelpers';
+import { guardCastableArgs, ok, safeErrorText, toolError } from './toolHelpers';
 
 export const getMatchCandidatesTool: McpTool = {
   name: 'get_match_candidates',
@@ -23,6 +23,8 @@ export const getMatchCandidatesTool: McpTool = {
   handler: async (args, ctx) => {
     const txId = typeof args.transaction_id === 'string' ? args.transaction_id.trim() : '';
     if (!txId) return toolError('transaction_id is required');
+    const bad = guardCastableArgs(args, { uuid: ['transaction_id'] });
+    if (bad) return bad;
     try {
       const result = await getMatchCandidates(txId, ctx.companyId); // companyId from ctx ONLY
       return ok(result);

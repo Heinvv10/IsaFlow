@@ -116,13 +116,13 @@ beforeEach(() => {
 
 describe('create_draft_invoice', () => {
   it('creates a draft via the service with ctx company + user', async () => {
-    vi.mocked(createDraftCustomerInvoice).mockResolvedValue({ id: 'inv-1', invoiceNumber: 'INV-0001' });
+    vi.mocked(createDraftCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', invoiceNumber: 'INV-0001' });
     const data = parseOk(await tool('create_draft_invoice').handler(
-      { customer_id: 'cust-1', items: [{ description: 'Work', unit_price: 100, quantity: 2 }], ...KEY }, ctx(),
+      { customer_id: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', items: [{ description: 'Work', unit_price: 100, quantity: 2 }], ...KEY }, ctx(),
     )) as Record<string, unknown>;
     expect(createDraftCustomerInvoice).toHaveBeenCalledWith(
       COMPANY_ID, USER_ID,
-      expect.objectContaining({ clientId: 'cust-1', items: [{ description: 'Work', unitPrice: 100, quantity: 2 }] }),
+      expect.objectContaining({ clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', items: [{ description: 'Work', unitPrice: 100, quantity: 2 }] }),
     );
     expect(data.invoiceNumber).toBe('INV-0001');
   });
@@ -130,11 +130,11 @@ describe('create_draft_invoice', () => {
   it('rejects a customer_id that belongs to another company (generic not-found, no create)', async () => {
     vi.mocked(customerBelongsToCompany).mockResolvedValue(false);
     const r = await tool('create_draft_invoice').handler(
-      { customer_id: 'company-B-customer', items: [{ description: 'x', unit_price: 1 }], ...KEY }, ctx(),
+      { customer_id: '58a4fa7b-0ead-430d-8acc-071b902f5d2f', items: [{ description: 'x', unit_price: 1 }], ...KEY }, ctx(),
     );
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toBe('Not found');
-    expect(customerBelongsToCompany).toHaveBeenCalledWith(COMPANY_ID, 'company-B-customer');
+    expect(customerBelongsToCompany).toHaveBeenCalledWith(COMPANY_ID, '58a4fa7b-0ead-430d-8acc-071b902f5d2f');
     expect(createDraftCustomerInvoice).not.toHaveBeenCalled();
   });
 
@@ -143,7 +143,7 @@ describe('create_draft_invoice', () => {
       new InvoiceLineValidationError('Line unit prices cannot be negative'),
     );
     const r = await tool('create_draft_invoice').handler(
-      { customer_id: 'c', items: [{ description: 'x', unit_price: -1 }], ...KEY }, ctx(),
+      { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: -1 }], ...KEY }, ctx(),
     );
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('negative');
@@ -166,12 +166,12 @@ describe('create_draft_quote', () => {
 
 describe('create_draft_journal', () => {
   it('creates an unposted entry; lines map account_id → glAccountId', async () => {
-    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-1', status: 'draft' } as never);
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97', status: 'draft' } as never);
     parseOk(await tool('create_draft_journal').handler({
       date: '2026-06-30', memo: 'Accrual',
       lines: [
-        { account_id: 'acc-1', debit: 100, credit: 0 },
-        { account_id: 'acc-2', debit: 0, credit: 100 },
+        { account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', debit: 100, credit: 0 },
+        { account_id: 'a75990ab-7ebf-48a9-86bd-35b744c781c2', debit: 0, credit: 100 },
       ],
       ...KEY,
     }, ctx()));
@@ -181,8 +181,8 @@ describe('create_draft_journal', () => {
         entryDate: '2026-06-30',
         description: 'Accrual',
         lines: [
-          expect.objectContaining({ glAccountId: 'acc-1', debit: 100, credit: 0 }),
-          expect.objectContaining({ glAccountId: 'acc-2', debit: 0, credit: 100 }),
+          expect.objectContaining({ glAccountId: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', debit: 100, credit: 0 }),
+          expect.objectContaining({ glAccountId: 'a75990ab-7ebf-48a9-86bd-35b744c781c2', debit: 0, credit: 100 }),
         ],
       }),
       USER_ID,
@@ -197,10 +197,10 @@ describe('create_draft_journal', () => {
   // list_agent_postings (posting_agent LIKE 'mcp:%'). post_journal does not
   // restamp, so the mislabel survives posting.
   it('stamps the draft with the MCP tool, not the human default', async () => {
-    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-1', status: 'draft' } as never);
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97', status: 'draft' } as never);
     await tool('create_draft_journal').handler({
       date: '2026-06-30',
-      lines: [{ account_id: 'acc-1', debit: 1, credit: 0 }, { account_id: 'acc-2', debit: 0, credit: 1 }],
+      lines: [{ account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', debit: 1, credit: 0 }, { account_id: 'a75990ab-7ebf-48a9-86bd-35b744c781c2', debit: 0, credit: 1 }],
       ...KEY,
     }, ctx());
 
@@ -214,21 +214,21 @@ describe('create_draft_journal', () => {
     const r = await tool('create_draft_journal').handler({
       date: '2026-06-30',
       lines: [
-        { account_id: 'company-B-account', debit: 100, credit: 0 },
-        { account_id: 'acc-2', debit: 0, credit: 100 },
+        { account_id: 'f8849626-ab9e-4219-8501-a6c72135d281', debit: 100, credit: 0 },
+        { account_id: 'a75990ab-7ebf-48a9-86bd-35b744c781c2', debit: 0, credit: 100 },
       ],
       ...KEY,
     }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('not GL accounts in your company');
-    expect(accountsBelongToCompany).toHaveBeenCalledWith(COMPANY_ID, ['company-B-account', 'acc-2']);
+    expect(accountsBelongToCompany).toHaveBeenCalledWith(COMPANY_ID, ['f8849626-ab9e-4219-8501-a6c72135d281', 'a75990ab-7ebf-48a9-86bd-35b744c781c2']);
     expect(createJournalEntry).not.toHaveBeenCalled();
   });
 
   it('surfaces the balance-validation error message from the service', async () => {
     vi.mocked(createJournalEntry).mockRejectedValue(new Error('Invalid journal entry: debits (100) != credits (90)'));
     const r = await tool('create_draft_journal').handler({
-      date: '2026-06-30', lines: [{ account_id: 'a', debit: 100, credit: 0 }, { account_id: 'b', debit: 0, credit: 90 }], ...KEY,
+      date: '2026-06-30', lines: [{ account_id: 'ddd887ce-a246-46cb-898c-2bd2f4ddecfe', debit: 100, credit: 0 }, { account_id: '3413c139-d94c-48bd-8513-baff94ff4818', debit: 0, credit: 90 }], ...KEY,
     }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('!= credits');
@@ -239,9 +239,9 @@ describe('suggest_bank_allocation', () => {
   it('records suggestions via bulkCategorize — never applies', async () => {
     vi.mocked(bulkCategorize).mockResolvedValue({ categorized: 2 } as never);
     parseOk(await tool('suggest_bank_allocation').handler(
-      { transaction_ids: ['tx-1', 'tx-2'], ...KEY }, ctx(),
+      { transaction_ids: ['045ef594-d81d-4f21-84d6-1151ed71260d', '0ab25f30-4900-4ce5-8691-00672c92a276'], ...KEY }, ctx(),
     ));
-    expect(bulkCategorize).toHaveBeenCalledWith(COMPANY_ID, ['tx-1', 'tx-2']);
+    expect(bulkCategorize).toHaveBeenCalledWith(COMPANY_ID, ['045ef594-d81d-4f21-84d6-1151ed71260d', '0ab25f30-4900-4ce5-8691-00672c92a276']);
   });
 
   it('rejects an empty id list', async () => {
@@ -253,16 +253,16 @@ describe('suggest_bank_allocation', () => {
 
 describe('post_journal / finalize_invoice (post tools)', () => {
   it('post_journal posts the existing draft via ctx company + user', async () => {
-    vi.mocked(postJournalEntry).mockResolvedValue({ id: 'je-1', status: 'posted' } as never);
-    parseOk(await tool('post_journal').handler({ journal_id: 'je-1', ...KEY }, ctx()));
-    expect(postJournalEntry).toHaveBeenCalledWith(COMPANY_ID, 'je-1', USER_ID);
+    vi.mocked(postJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97', status: 'posted' } as never);
+    parseOk(await tool('post_journal').handler({ journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY }, ctx()));
+    expect(postJournalEntry).toHaveBeenCalledWith(COMPANY_ID, '97120700-9f09-4fe5-804e-34331ce49b97', USER_ID);
   });
 
   it('finalize_invoice approves the draft via ctx company + user', async () => {
-    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: 'je-9', evidenceDocumentId: null });
-    parseOk(await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx()));
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: 'je-9', evidenceDocumentId: null });
+    parseOk(await tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx()));
     expect(approveCustomerInvoice).toHaveBeenCalledWith(
-      COMPANY_ID, 'inv-1', USER_ID, { postingAgent: 'mcp:finalize_invoice:v1' },
+      COMPANY_ID, 'eec03106-2910-4a7a-8e91-0c4f396ec98f', USER_ID, { postingAgent: 'mcp:finalize_invoice:v1' },
     );
   });
 
@@ -270,8 +270,8 @@ describe('post_journal / finalize_invoice (post tools)', () => {
   // human:<userId> and never appears in list_agent_postings — the review
   // surface would show nothing while the agent had posted revenue.
   it('finalize_invoice stamps the AR journal as agent work, not the token owner', async () => {
-    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: 'je-9', evidenceDocumentId: null });
-    await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx());
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: 'je-9', evidenceDocumentId: null });
+    await tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx());
 
     const opts = vi.mocked(approveCustomerInvoice).mock.calls[0]![3];
     expect(opts?.postingAgent).toBe('mcp:finalize_invoice:v1');
@@ -279,18 +279,18 @@ describe('post_journal / finalize_invoice (post tools)', () => {
   });
 
   it('every MCP posting path stamps mcp:<tool>:v1 — none silently defaults to human', async () => {
-    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-1' } as never);
-    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: null, evidenceDocumentId: null });
-    vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' } } as never);
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null, evidenceDocumentId: null });
+    vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' } } as never);
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
     await tool('create_draft_journal').handler({
       date: '2026-06-30',
-      lines: [{ account_id: 'a', debit: 1, credit: 0 }, { account_id: 'b', debit: 0, credit: 1 }], ...KEY,
+      lines: [{ account_id: 'ddd887ce-a246-46cb-898c-2bd2f4ddecfe', debit: 1, credit: 0 }, { account_id: '3413c139-d94c-48bd-8513-baff94ff4818', debit: 0, credit: 1 }], ...KEY,
     }, ctx());
-    await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx());
-    await tool('allocate_bank_transaction').handler({ transaction_id: 'tx-1', contra_account_id: 'acc-1', ...KEY }, ctx());
-    await tool('reverse_bank_allocation').handler({ transaction_id: 'tx-1', ...KEY }, ctx());
+    await tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx());
+    await tool('allocate_bank_transaction').handler({ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', ...KEY }, ctx());
+    await tool('reverse_bank_allocation').handler({ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', ...KEY }, ctx());
 
     const stamps = [
       vi.mocked(createJournalEntry).mock.calls[0]![3]?.postingAgent,
@@ -327,13 +327,13 @@ describe('write-tool failure paths', () => {
 
   it('suggest_bank_allocation: service rejection → safe tool error', async () => {
     vi.mocked(bulkCategorize).mockRejectedValue(new Error('no accounts configured'));
-    const r = await tool('suggest_bank_allocation').handler({ transaction_ids: ['t1'], ...KEY }, ctx());
+    const r = await tool('suggest_bank_allocation').handler({ transaction_ids: ['045ef594-d81d-4f21-84d6-1151ed71260d'], ...KEY }, ctx());
     expect(r.isError).toBe(true);
   });
 
   it('post_journal: service rejection → safe tool error', async () => {
     vi.mocked(postJournalEntry).mockRejectedValue(new Error('Cannot post entry with status: posted'));
-    const r = await tool('post_journal').handler({ journal_id: 'je-1', ...KEY }, ctx());
+    const r = await tool('post_journal').handler({ journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('status'); // application error surfaced
   });
@@ -348,7 +348,7 @@ describe('write-tool failure paths', () => {
     vi.mocked(approveCustomerInvoice).mockRejectedValue(
       new InvoiceNotApprovableError('Invoice is not in an approvable state'),
     );
-    const r = await tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx());
+    const r = await tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('approvable');
   });
@@ -356,7 +356,7 @@ describe('write-tool failure paths', () => {
   it('finalize_invoice: GL post failure PROPAGATES so the savepoint rolls back', async () => {
     vi.mocked(approveCustomerInvoice).mockRejectedValue(new Error('Cannot post to closed fiscal period'));
     await expect(
-      tool('finalize_invoice').handler({ invoice_id: 'inv-1', ...KEY }, ctx()),
+      tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx()),
     ).rejects.toThrow(/closed fiscal period/);
   });
 
@@ -366,7 +366,7 @@ describe('write-tool failure paths', () => {
     );
     const r = await tool('create_draft_journal').handler({
       date: '2026-06-30',
-      lines: [{ account_id: 'a', debit: 1, credit: 0 }, { account_id: 'b', debit: 0, credit: 1 }],
+      lines: [{ account_id: 'ddd887ce-a246-46cb-898c-2bd2f4ddecfe', debit: 1, credit: 0 }, { account_id: '3413c139-d94c-48bd-8513-baff94ff4818', debit: 0, credit: 1 }],
       ...KEY,
     }, ctx());
     expect(r.isError).toBe(true);
@@ -412,24 +412,24 @@ describe('write-tool manifest invariants', () => {
   });
 
   it('token-scan: no credential material in write-tool results or manifest', async () => {
-    vi.mocked(createDraftCustomerInvoice).mockResolvedValue({ id: 'inv-1', invoiceNumber: 'INV-1' });
+    vi.mocked(createDraftCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', invoiceNumber: 'INV-1' });
     vi.mocked(createQuote).mockResolvedValue({ id: 'q-1' } as never);
-    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-1' } as never);
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
     vi.mocked(bulkCategorize).mockResolvedValue({ categorized: 0 } as never);
-    vi.mocked(postJournalEntry).mockResolvedValue({ id: 'je-1' } as never);
-    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'inv-1', status: 'approved', glJournalEntryId: null });
-    vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' } } as never);
+    vi.mocked(postJournalEntry).mockResolvedValue({ id: '97120700-9f09-4fe5-804e-34331ce49b97' } as never);
+    vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: null });
+    vi.mocked(allocateTransaction).mockResolvedValue({ journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' } } as never);
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
     const argsByTool: Record<string, Record<string, unknown>> = {
-      create_draft_invoice: { customer_id: 'c', items: [{ description: 'x', unit_price: 1 }], ...KEY },
+      create_draft_invoice: { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_quote: { customer_name: 'A', items: [{ description: 'x', unit_price: 1 }], ...KEY },
-      create_draft_journal: { date: '2026-06-30', lines: [{ account_id: 'a', debit: 1, credit: 0 }, { account_id: 'b', debit: 0, credit: 1 }], ...KEY },
-      suggest_bank_allocation: { transaction_ids: ['t1'], ...KEY },
-      post_journal: { journal_id: 'je-1', ...KEY },
-      finalize_invoice: { invoice_id: 'inv-1', ...KEY },
-      allocate_bank_transaction: { transaction_id: 'tx-1', contra_account_id: 'acc-1', ...KEY },
-      reverse_bank_allocation: { transaction_id: 'tx-1', ...KEY },
+      create_draft_journal: { date: '2026-06-30', lines: [{ account_id: 'ddd887ce-a246-46cb-898c-2bd2f4ddecfe', debit: 1, credit: 0 }, { account_id: '3413c139-d94c-48bd-8513-baff94ff4818', debit: 0, credit: 1 }], ...KEY },
+      suggest_bank_allocation: { transaction_ids: ['045ef594-d81d-4f21-84d6-1151ed71260d'], ...KEY },
+      post_journal: { journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY },
+      finalize_invoice: { invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY },
+      allocate_bank_transaction: { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', ...KEY },
+      reverse_bank_allocation: { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', ...KEY },
       // These two reach services this file does not mock, so they are driven
       // down their argument-validation path instead. The scan cares about what
       // ends up in the envelope, and an error envelope is still an envelope.

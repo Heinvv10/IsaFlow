@@ -40,11 +40,11 @@ describe('allocate_bank_transaction', () => {
 
   it('stamps the posting agent so the write is attributable and reversible as a set', async () => {
     vi.mocked(allocateTransaction).mockResolvedValue({
-      journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' },
+      journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' },
     } as never);
 
     await allocateBankTransactionTool.handler(
-      { transaction_id: 'tx-1', contra_account_id: 'acc-1', idempotency_key: 'k1' },
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', idempotency_key: 'k1' },
       ctx,
     );
 
@@ -56,7 +56,7 @@ describe('allocate_bank_transaction', () => {
 
   it('rejects a missing transaction_id without touching the ledger', async () => {
     const res = await allocateBankTransactionTool.handler(
-      { contra_account_id: 'acc-1', idempotency_key: 'k1' }, ctx,
+      { contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', idempotency_key: 'k1' }, ctx,
     );
 
     expect(res.isError).toBe(true);
@@ -69,7 +69,7 @@ describe('allocate_bank_transaction', () => {
     );
 
     const res = await allocateBankTransactionTool.handler(
-      { transaction_id: 'tx-1', contra_account_id: 'acc-1', idempotency_key: 'k1' }, ctx,
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', idempotency_key: 'k1' }, ctx,
     );
 
     expect(res.isError).toBe(true);
@@ -77,7 +77,7 @@ describe('allocate_bank_transaction', () => {
 
   it('rejects alloc_type "transfer" — undocumented, live bank-to-bank-transfer semantics — without touching the ledger', async () => {
     const res = await allocateBankTransactionTool.handler(
-      { transaction_id: 'tx-1', contra_account_id: 'acc-1', alloc_type: 'transfer', idempotency_key: 'k1' },
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', alloc_type: 'transfer', idempotency_key: 'k1' },
       ctx,
     );
 
@@ -87,13 +87,13 @@ describe('allocate_bank_transaction', () => {
 
   it('accepts a valid alloc_type and passes it through to the service', async () => {
     vi.mocked(allocateTransaction).mockResolvedValue({
-      journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' },
+      journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' },
     } as never);
 
     const res = await allocateBankTransactionTool.handler(
       {
-        transaction_id: 'tx-1', contra_account_id: 'acc-1', alloc_type: 'supplier',
-        entity_id: 'sup-1', idempotency_key: 'k1',
+        transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', alloc_type: 'supplier',
+        entity_id: '3fc5ec9c-e919-4f35-822a-aa193ae94984', idempotency_key: 'k1',
       },
       ctx,
     );
@@ -111,7 +111,7 @@ describe('allocate_bank_transaction', () => {
     'rejects the unrecognised vat_code %j rather than silently posting with no VAT type',
     async (bad) => {
       const res = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', contra_account_id: 'acc-1', vat_code: bad, idempotency_key: 'k1' },
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', vat_code: bad, idempotency_key: 'k1' },
         ctx,
       );
 
@@ -124,11 +124,11 @@ describe('allocate_bank_transaction', () => {
     'accepts the documented vat_code %j and passes it through unchanged',
     async (code) => {
       vi.mocked(allocateTransaction).mockResolvedValue({
-        journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' },
+        journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' },
       } as never);
 
       const res = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', contra_account_id: 'acc-1', vat_code: code, idempotency_key: 'k1' },
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', vat_code: code, idempotency_key: 'k1' },
         ctx,
       );
 
@@ -151,7 +151,7 @@ describe('allocate_bank_transaction', () => {
     'rejects a %s allocation with no entity_id instead of posting a different journal',
     async (allocType) => {
       const res = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', contra_account_id: 'acc-1', alloc_type: allocType, idempotency_key: 'k1' },
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', alloc_type: allocType, idempotency_key: 'k1' },
         ctx,
       );
 
@@ -163,7 +163,7 @@ describe('allocate_bank_transaction', () => {
   it('rejects a blank entity_id for a supplier allocation — whitespace is not an entity', async () => {
     const res = await allocateBankTransactionTool.handler(
       {
-        transaction_id: 'tx-1', contra_account_id: 'acc-1', alloc_type: 'supplier',
+        transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', alloc_type: 'supplier',
         entity_id: '   ', idempotency_key: 'k1',
       },
       ctx,
@@ -175,11 +175,11 @@ describe('allocate_bank_transaction', () => {
 
   it('still allows an account allocation without entity_id', async () => {
     vi.mocked(allocateTransaction).mockResolvedValue({
-      journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' },
+      journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' },
     } as never);
 
     const res = await allocateBankTransactionTool.handler(
-      { transaction_id: 'tx-1', contra_account_id: 'acc-1', alloc_type: 'account', idempotency_key: 'k1' },
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', alloc_type: 'account', idempotency_key: 'k1' },
       ctx,
     );
 
@@ -198,12 +198,12 @@ describe('allocate_bank_transaction', () => {
       vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
 
       const res = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', contra_account_id: 'company-B-account', idempotency_key: 'k1' },
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'f8849626-ab9e-4219-8501-a6c72135d281', idempotency_key: 'k1' },
         ctx,
       );
 
       expect(res.isError).toBe(true);
-      expect(accountsBelongToCompany).toHaveBeenCalledWith('company-1', ['company-B-account']);
+      expect(accountsBelongToCompany).toHaveBeenCalledWith('company-1', ['f8849626-ab9e-4219-8501-a6c72135d281']);
       expect(allocateTransaction).not.toHaveBeenCalled();
     });
 
@@ -212,14 +212,14 @@ describe('allocate_bank_transaction', () => {
 
       const res = await allocateBankTransactionTool.handler(
         {
-          transaction_id: 'tx-1', alloc_type: 'supplier',
-          entity_id: 'company-B-supplier', idempotency_key: 'k1',
+          transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', alloc_type: 'supplier',
+          entity_id: '7e3efb2c-6422-4c7c-891c-9e28377b91eb', idempotency_key: 'k1',
         },
         ctx,
       );
 
       expect(res.isError).toBe(true);
-      expect(supplierBelongsToCompany).toHaveBeenCalledWith('company-1', 'company-B-supplier');
+      expect(supplierBelongsToCompany).toHaveBeenCalledWith('company-1', '7e3efb2c-6422-4c7c-891c-9e28377b91eb');
       expect(allocateTransaction).not.toHaveBeenCalled();
     });
 
@@ -228,24 +228,24 @@ describe('allocate_bank_transaction', () => {
 
       const res = await allocateBankTransactionTool.handler(
         {
-          transaction_id: 'tx-1', alloc_type: 'customer',
-          entity_id: 'company-B-customer', idempotency_key: 'k1',
+          transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', alloc_type: 'customer',
+          entity_id: '58a4fa7b-0ead-430d-8acc-071b902f5d2f', idempotency_key: 'k1',
         },
         ctx,
       );
 
       expect(res.isError).toBe(true);
-      expect(customerBelongsToCompany).toHaveBeenCalledWith('company-1', 'company-B-customer');
+      expect(customerBelongsToCompany).toHaveBeenCalledWith('company-1', '58a4fa7b-0ead-430d-8acc-071b902f5d2f');
       expect(allocateTransaction).not.toHaveBeenCalled();
     });
 
     it('checks ownership against ctx.companyId only — args cannot name the tenant', async () => {
       vi.mocked(allocateTransaction).mockResolvedValue({
-        journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' },
+        journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' },
       } as never);
 
       await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', contra_account_id: 'acc-1', idempotency_key: 'k1' }, ctx,
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', idempotency_key: 'k1' }, ctx,
       );
 
       expect(vi.mocked(accountsBelongToCompany).mock.calls[0]![0]).toBe('company-1');
@@ -258,31 +258,31 @@ describe('allocate_bank_transaction', () => {
     it('returns the SAME generic text for a foreign id as for a nonexistent one — no existence oracle', async () => {
       vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
       const foreign = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', contra_account_id: 'real-account-in-company-B', idempotency_key: 'k1' },
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: '7116ae1a-f83f-45ea-8bfa-b311e26b358b', idempotency_key: 'k1' },
         ctx,
       );
 
       vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
       const nonexistent = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', contra_account_id: 'no-such-uuid-anywhere', idempotency_key: 'k1' },
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'b5bcb868-8477-46dc-8a90-1c903604ef81', idempotency_key: 'k1' },
         ctx,
       );
 
       expect(foreign.content[0]!.text).toBe(nonexistent.content[0]!.text);
       expect(foreign.content[0]!.text).toBe('Not found');
       // and it must not echo the probed id back
-      expect(foreign.content[0]!.text).not.toContain('real-account-in-company-B');
+      expect(foreign.content[0]!.text).not.toContain('7116ae1a-f83f-45ea-8bfa-b311e26b358b');
     });
 
     it('gives a supplier id the same generic refusal as a GL account id', async () => {
       vi.mocked(supplierBelongsToCompany).mockResolvedValue(false);
       const supplier = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', alloc_type: 'supplier', entity_id: 'sup-B', idempotency_key: 'k1' }, ctx,
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', alloc_type: 'supplier', entity_id: '6f0b1e01-0d39-4bb4-8d88-53f485a3d987', idempotency_key: 'k1' }, ctx,
       );
 
       vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
       const account = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', contra_account_id: 'acc-B', idempotency_key: 'k1' }, ctx,
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'f7be3e1f-2a9f-4a4b-8937-ef4113e11cab', idempotency_key: 'k1' }, ctx,
       );
 
       expect(supplier.content[0]!.text).toBe(account.content[0]!.text);
@@ -313,11 +313,11 @@ describe('allocate_bank_transaction', () => {
       'allocates a %s WITHOUT contra_account_id and passes null to the service',
       async (allocType) => {
         vi.mocked(allocateTransaction).mockResolvedValue({
-          journalEntryId: 'je-1', bankTransaction: { id: 'tx-1' },
+          journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '045ef594-d81d-4f21-84d6-1151ed71260d' },
         } as never);
 
         const res = await allocateBankTransactionTool.handler(
-          { transaction_id: 'tx-1', alloc_type: allocType, entity_id: 'e-1', idempotency_key: 'k1' },
+          { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', alloc_type: allocType, entity_id: 'b94f5231-96aa-4cd8-8db9-ef0d8cf2e1d8', idempotency_key: 'k1' },
           ctx,
         );
 
@@ -332,7 +332,7 @@ describe('allocate_bank_transaction', () => {
 
     it('still demands contra_account_id for the default account allocation', async () => {
       const res = await allocateBankTransactionTool.handler(
-        { transaction_id: 'tx-1', idempotency_key: 'k1' }, ctx,
+        { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k1' }, ctx,
       );
 
       expect(res.isError).toBe(true);
@@ -345,8 +345,8 @@ describe('allocate_bank_transaction', () => {
 
       const res = await allocateBankTransactionTool.handler(
         {
-          transaction_id: 'tx-1', alloc_type: 'supplier', entity_id: 'sup-1',
-          contra_account_id: 'company-B-account', idempotency_key: 'k1',
+          transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', alloc_type: 'supplier', entity_id: '3fc5ec9c-e919-4f35-822a-aa193ae94984',
+          contra_account_id: 'f8849626-ab9e-4219-8501-a6c72135d281', idempotency_key: 'k1',
         },
         ctx,
       );
@@ -369,12 +369,12 @@ describe('reverse_bank_allocation', () => {
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
     const res = await reverseBankAllocationTool.handler(
-      { transaction_id: 'tx-1', idempotency_key: 'k9' }, ctx,
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k9' }, ctx,
     );
 
     const call = vi.mocked(reverseReconciledTransaction).mock.calls[0]!;
     expect(call[0]).toBe('company-1');
-    expect(call[1]).toBe('tx-1');
+    expect(call[1]).toBe('045ef594-d81d-4f21-84d6-1151ed71260d');
     expect(call[2]).toBe('user-1');
     expect(res.isError).toBeFalsy();
   });
@@ -388,7 +388,7 @@ describe('reverse_bank_allocation', () => {
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
 
     await reverseBankAllocationTool.handler(
-      { transaction_id: 'tx-1', idempotency_key: 'k9' }, ctx,
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k9' }, ctx,
     );
 
     expect(vi.mocked(reverseReconciledTransaction).mock.calls[0]![3]).toEqual({
@@ -402,7 +402,7 @@ describe('reverse_bank_allocation', () => {
     );
 
     const res = await reverseBankAllocationTool.handler(
-      { transaction_id: 'tx-1', idempotency_key: 'k9' }, ctx,
+      { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', idempotency_key: 'k9' }, ctx,
     );
 
     expect(res.isError).toBe(true);

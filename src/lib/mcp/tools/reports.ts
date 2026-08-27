@@ -12,7 +12,7 @@ import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSh
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
-import { clampLimit, ok, strArg, toolError } from './toolHelpers';
+import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 export const trialBalanceTool: McpTool = {
   name: 'trial_balance',
@@ -31,6 +31,8 @@ export const trialBalanceTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const bad = guardCastableArgs(args, { uuid: ['fiscal_period_id'] });
+    if (bad) return bad;
     const periodId =
       strArg(args, 'fiscal_period_id') ??
       (await getFiscalPeriodIdForDate(ctx.companyId, new Date()));
@@ -61,6 +63,8 @@ export const profitAndLossTool: McpTool = {
     const start = strArg(args, 'period_start');
     const end = strArg(args, 'period_end');
     if (!start || !end) return toolError('period_start and period_end are required (YYYY-MM-DD)');
+    const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
+    if (bad) return bad;
     return ok(await getIncomeStatement(ctx.companyId, start, end));
   },
 };
@@ -78,6 +82,8 @@ export const balanceSheetTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    const bad = guardCastableArgs(args, { date: ['as_at'] });
+    if (bad) return bad;
     const asAt = strArg(args, 'as_at') ?? fmtDate(new Date());
     return ok(await getBalanceSheet(ctx.companyId, asAt));
   },
@@ -96,7 +102,11 @@ export const agedDebtorsTool: McpTool = {
     },
     additionalProperties: false,
   },
-  handler: async (args, ctx) => ok(await getARAging(ctx.companyId, strArg(args, 'as_at'))),
+  handler: async (args, ctx) => {
+    const bad = guardCastableArgs(args, { date: ['as_at'] });
+    if (bad) return bad;
+    return ok(await getARAging(ctx.companyId, strArg(args, 'as_at')));
+  },
 };
 
 export const agedCreditorsTool: McpTool = {
@@ -112,7 +122,11 @@ export const agedCreditorsTool: McpTool = {
     },
     additionalProperties: false,
   },
-  handler: async (args, ctx) => ok(await getAPAging(ctx.companyId, strArg(args, 'as_at'))),
+  handler: async (args, ctx) => {
+    const bad = guardCastableArgs(args, { date: ['as_at'] });
+    if (bad) return bad;
+    return ok(await getAPAging(ctx.companyId, strArg(args, 'as_at')));
+  },
 };
 
 export const searchGlTool: McpTool = {
@@ -140,6 +154,12 @@ export const searchGlTool: McpTool = {
     const toDate = strArg(args, 'to_date');
     if (!accountId && !accountCode) return toolError('Provide account_id or account_code');
     if (!fromDate || !toDate) return toolError('from_date and to_date are required (YYYY-MM-DD)');
+    // account_code is compared as TEXT, so it needs no cast guard.
+    const bad = guardCastableArgs(args, {
+      uuid: ['account_id'],
+      date: ['from_date', 'to_date'],
+    });
+    if (bad) return bad;
     const result = await getAccountLedger({
       companyId: ctx.companyId, // from ctx ONLY
       accountId,
