@@ -77,7 +77,7 @@ interface CompactRow {
   date: string;
   amount: number;
   bank_reference: string | null;
-  allocation: 'allocated' | 'suggested' | 'unallocated';
+  allocation: 'allocated' | 'suggested' | 'unallocated' | 'excluded';
 }
 
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
@@ -307,6 +307,42 @@ describe('list_bank_transactions — paging and compact rows', () => {
     ]);
     // A missing bank_reference is null, not undefined — the key must survive JSON.
     expect(out.transactions[5]!.bank_reference).toBeNull();
+  });
+
+  it('labels an excluded row "excluded", never "unallocated"', async () => {
+    // allocation_filter=unallocated and =suggested BOTH carry
+    // `AND bt.status != 'excluded'` in SQL, so an excluded row comes back from
+    // neither. Calling it unallocated would point the agent at a row that no
+    // filter will ever hand it.
+    vi.mocked(getBankTransactions).mockResolvedValue({
+      transactions: [
+        { ...baseTx, id: 'x1', status: 'excluded' },
+        { ...baseTx, id: 'x2', status: 'excluded', suggestedGlAccountId: 'gl-1' },
+        { ...baseTx, id: 'x3', status: 'excluded', allocationType: 'account' },
+      ],
+      total: 3,
+    } as never);
+    const out = parseOk(await tool('list_bank_transactions').handler({ fields: 'compact' }, ctx())) as {
+      transactions: CompactRow[];
+    };
+    expect(out.transactions.map((t) => t.allocation)).toEqual(['excluded', 'excluded', 'excluded']);
+  });
+
+  it('a posted journal line still wins over an excluded status', async () => {
+    // A row can be excluded AFTER it was allocated; the money moved either way,
+    // so an agent must not read it as something still to deal with.
+    vi.mocked(getBankTransactions).mockResolvedValue({
+      transactions: [{ ...baseTx, id: 'x4', status: 'excluded', matchedJournalLineId: 'jl-9' }],
+      total: 1,
+    } as never);
+    const out = parseOk(await tool('list_bank_transactions').handler({ fields: 'compact' }, ctx())) as {
+      transactions: CompactRow[];
+    };
+    expect(out.transactions[0]!.allocation).toBe('allocated');
+  });
+
+  it('tells the agent what the fourth allocation value means', () => {
+    expect(tool('list_bank_transactions').description).toContain('excluded');
   });
 
   it('maps an unusable cursor to a plain tool error, never a stack trace', async () => {

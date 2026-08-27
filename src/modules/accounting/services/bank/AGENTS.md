@@ -51,7 +51,9 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/bank/*`. Ev
   and accepts an opaque keyset `cursor` (base64url `{d,a,id}`). The keyset predicate
   (`bankTxCursor.ts`) must stay in lockstep with the ORDER BY, which now ends
   `, bt.id DESC` in every branch to make the ordering total; a malformed cursor throws
-  `InvalidCursorError` before any query runs. The row query fetches `limit + 1` and trims
+  `InvalidCursorError` before any query runs — as does a cursor whose date is not a real
+  calendar date or whose id is not a UUID (both would otherwise reach a SQL cast), and a
+  cursor combined with a non-zero `offset` (they compose into silently short pages). The row query fetches `limit + 1` and trims
   the probe row; `total` and the COUNT query stay unpaged. `offset` is unchanged and still
   what the UI route uses. Split out of the 300-line service: `bankTxRowMapper.ts`
   (`fmtDate`/`mapTxRow`, re-exported from the service), `bankTxQueryFragments.ts`

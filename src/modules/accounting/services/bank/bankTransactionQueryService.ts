@@ -13,7 +13,12 @@ import { log } from '@/lib/logger';
 import type { BankTransaction } from '../../types/bank.types';
 import { fmtDate, mapTxRow } from './bankTxRowMapper';
 import { TX_SELECT, allocationCond } from './bankTxQueryFragments';
-import { decodeBankTxCursor, encodeBankTxCursor, bankTxKeysetCond } from './bankTxCursor';
+import {
+  decodeBankTxCursor,
+  encodeBankTxCursor,
+  bankTxKeysetCond,
+  InvalidCursorError,
+} from './bankTxCursor';
 import type { BankTxFilters } from './bankTxFilters';
 
 type Row = DbRow;
@@ -37,6 +42,14 @@ export async function getBankTransactions(
   // Decoding happens BEFORE any query: a malformed cursor is a caller error,
   // not a database one. Throws InvalidCursorError.
   const cursor = filters?.cursor ? decodeBankTxCursor(filters.cursor) : undefined;
+  // Cursor and offset are mutually exclusive. Combined they compose — the keyset
+  // narrows, THEN the offset skips inside what is left — which silently drops
+  // `offset` rows from every page after the first. Refusing is the only honest
+  // answer: there is no reading of "page 3 of the rows after this cursor" that a
+  // caller passing both actually wants.
+  if (cursor && typeof filters?.offset === 'number' && filters.offset > 0) {
+    throw new InvalidCursorError('cursor and offset cannot be combined');
+  }
   try {
     // BL-11: Cap list limit at 100. Export paths have their own dedicated endpoints.
     // Sanitise: NaN / negative values from query-string coercion become safe defaults.

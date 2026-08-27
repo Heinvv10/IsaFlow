@@ -13,7 +13,7 @@ import { clampLimit, ok, strArg, toolError } from './toolHelpers';
 const ALLOCATION_FILTERS = ['all', 'unallocated', 'suggested', 'allocated'] as const;
 type AllocationFilter = (typeof ALLOCATION_FILTERS)[number];
 
-type AllocationState = 'allocated' | 'suggested' | 'unallocated';
+type AllocationState = 'allocated' | 'suggested' | 'unallocated' | 'excluded';
 
 interface CompactBankTx {
   id: string;
@@ -23,10 +23,19 @@ interface CompactBankTx {
   allocation: AllocationState;
 }
 
-/** Same three-way split as `allocation_filter` (PRD-11 §2): a posted journal
- *  line is the ONLY thing that makes a row allocated; a suggestion is not. */
+/**
+ * Mirrors `allocation_filter` (PRD-11 §2), which is why `status` is part of it:
+ * the SQL for both `suggested` and `unallocated` carries `AND bt.status != 'excluded'`,
+ * so an excluded row is returned by NEITHER filter. Labelling it `unallocated`
+ * would tell an agent to go allocate a row that `allocation_filter=unallocated`
+ * will never hand it — hence the fourth value.
+ *
+ * A posted journal line still wins outright: a row can be excluded AFTER it was
+ * allocated, and the money has moved either way.
+ */
 export function allocationStateOf(tx: BankTransaction): AllocationState {
   if (tx.matchedJournalLineId) return 'allocated';
+  if (tx.status === 'excluded') return 'excluded';
   if (
     tx.suggestedGlAccountId || tx.suggestedSupplierId || tx.suggestedClientId || tx.allocationType
   ) {
@@ -61,7 +70,8 @@ export const listBankTransactionsTool: McpTool = {
     'Bank transactions, filterable by account, allocation state, and date range. Max 100 rows per call. ' +
     'allocation_filter: allocated = a journal has been posted; suggested = categorised/AI-suggested but not yet posted; unallocated = neither. ' +
     'Paging: the reply carries next_cursor whenever more rows match. To read a whole account, call again with cursor set to that value and every other argument unchanged, and keep looping until next_cursor is null. ' +
-    'fields="compact" returns only id, date, amount, bank_reference and allocation (~10x smaller) — use it when you are scanning or bulk-allocating and do not need the full row.',
+    'fields="compact" returns only id, date, amount, bank_reference and allocation (~10x smaller) — use it when you are scanning or bulk-allocating and do not need the full row. '
+    + 'compact allocation is one of allocated | suggested | unallocated | excluded; an excluded row is returned by NEITHER allocation_filter=unallocated NOR =suggested, so never treat one as work to do.',
   scope: 'read:bank-tx',
   write: false,
   inputSchema: {

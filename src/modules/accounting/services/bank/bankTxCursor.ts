@@ -31,8 +31,24 @@ export class InvalidCursorError extends Error {
   }
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const MAX_CURSOR_CHARS = 512;
+
+/**
+ * Shape is not enough: '2026-13-45' matches the pattern and reaches Postgres as
+ * `$N::DATE`, which throws 22008. Read tools run with no savepoint, so that
+ * aborts the whole request transaction — the registry's refund and audit writes
+ * then fail with 25P02 and the caller gets a 500 with the Flow debit unrefunded.
+ * Every cursor field is validated here, before any of it reaches SQL.
+ */
+function isRealDate(value: string): boolean {
+  const m = ISO_DATE.exec(value);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
 
 export function encodeBankTxCursor(cursor: BankTxCursor): string {
   return Buffer.from(JSON.stringify({ d: cursor.d, a: cursor.a, id: cursor.id }), 'utf8')
@@ -51,9 +67,10 @@ export function decodeBankTxCursor(raw: string): BankTxCursor {
   }
   if (!parsed || typeof parsed !== 'object') throw new InvalidCursorError();
   const { d, a, id } = parsed as Record<string, unknown>;
-  if (typeof d !== 'string' || !ISO_DATE.test(d)) throw new InvalidCursorError();
+  if (typeof d !== 'string' || !isRealDate(d)) throw new InvalidCursorError();
   if (typeof a !== 'number' || !Number.isFinite(a)) throw new InvalidCursorError();
-  if (typeof id !== 'string' || !id.trim()) throw new InvalidCursorError();
+  // `id` is cast to ::UUID; anything else is a 22P02 with the same cascade.
+  if (typeof id !== 'string' || !UUID.test(id.trim())) throw new InvalidCursorError();
   return { d, a, id: id.trim() };
 }
 
