@@ -153,8 +153,20 @@ export function parseQifStatement(content: string): BankCsvParseResult {
     return result;
   }
 
-  // The first block may be a header (!Type:Bank, !Account, etc.) — skip it
-  const dataBlocks = rawBlocks.filter(b => !b.startsWith('!'));
+  // Header lines (!Type:Bank, !Account, ...) are NOT terminated by their own ^
+  // in real bank exports — they sit at the top of the block that also holds the
+  // first transaction. Dropping whole blocks that start with '!' therefore ate
+  // record #1 of every headed statement. Strip the header LINES instead, and
+  // discard only blocks left with nothing else in them.
+  const dataBlocks = rawBlocks
+    .map(block =>
+      block
+        .split('\n')
+        .filter(line => !line.trimStart().startsWith('!'))
+        .join('\n')
+        .trim(),
+    )
+    .filter(block => block.length > 0);
 
   if (dataBlocks.length === 0) {
     result.errors.push({ row: 0, error: 'No data records found after QIF header' });

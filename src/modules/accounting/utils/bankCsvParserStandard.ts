@@ -1,6 +1,7 @@
 /**
- * Bank CSV Parser — Standard Bank + Nedbank + ABSA + Capitec
- * Groups parsers for banks using debit/credit column formats or similar structures.
+ * Bank CSV Parser — Standard Bank + Nedbank + Capitec
+ * Groups parsers for banks using debit/credit column formats.
+ * ABSA lives in bankCsvParserAbsa.ts — it is header-mapped, not positional.
  */
 
 import type { BankCsvParseResult } from '../types/bank.types';
@@ -104,56 +105,6 @@ export function parseNedbankStatement(csv: string): BankCsvParseResult {
       valueDate: valueDate || undefined,
       amount,
       description: fields[2]!.trim(),
-      balance: fields.length > 5 ? parseAmount(fields[5]!) ?? undefined : undefined,
-    });
-  }
-
-  return result;
-}
-
-// ── ABSA ──────────────────────────────────────────────────────────────────────
-// Columns: Account Number, Date, Description1, Description2, Amount, Balance
-// Date format: YYYY/MM/DD
-// Amount: single column with quoted strings, negative values with minus sign
-
-export function parseABSAStatement(csv: string): BankCsvParseResult {
-  const result: BankCsvParseResult = {
-    transactions: [],
-    errors: [],
-    bankFormat: 'absa',
-  };
-
-  const lines = parseCsvLines(csv);
-  if (lines.length <= 1) return result;
-
-  for (let i = 1; i < lines.length; i++) {
-    const fields = lines[i]!;
-    if (fields.length < 5) {
-      if (fields.every(f => f === '')) continue;
-      result.errors.push({ row: i + 1, error: 'Insufficient columns' });
-      continue;
-    }
-
-    const date = normalizeDate(fields[1]!, 'yyyy/mm/dd');
-    if (!date) {
-      result.errors.push({ row: i + 1, error: `Invalid date: ${fields[1]}` });
-      continue;
-    }
-
-    const amount = parseAmount(fields[4]!);
-    if (amount === null) {
-      result.errors.push({ row: i + 1, error: `Invalid amount: ${fields[4]}` });
-      continue;
-    }
-
-    const desc1 = fields[2]!.trim();
-    const desc2 = fields[3]!.trim();
-    const description = desc2 ? `${desc1} ${desc2}`.trim() : desc1;
-
-    result.transactions.push({
-      transactionDate: date,
-      amount,
-      description,
       balance: fields.length > 5 ? parseAmount(fields[5]!) ?? undefined : undefined,
     });
   }
