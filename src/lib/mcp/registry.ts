@@ -13,6 +13,21 @@ import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 
+/**
+ * The SAVEPOINT name a write tool runs under.
+ *
+ * withSavepoint validates against /^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/ and THROWS
+ * otherwise — 31 characters total. `mcp_bulk_allocate_bank_transactions` is 35,
+ * so the naive `mcp_${name}` threw before the handler ever ran and every call
+ * came back as GENERIC_FAILURE with nothing pointing at the tool name.
+ * Truncating keeps the prefix traceable; registrySavepointName.test.ts asserts
+ * the truncated names stay distinct, which is what stops one tool releasing
+ * another's savepoint.
+ */
+export function savepointNameFor(toolName: string): string {
+  return `mcp_${toolName}`.slice(0, 31);
+}
+
 function errorResult(text: string): McpToolResult {
   return { content: [{ type: 'text', text }], isError: true };
 }
@@ -141,7 +156,7 @@ export class McpRegistry {
       // that partial write back — matching the REST route's rollback-on-throw
       // (the audit 'error' below runs OUTSIDE it, on the surviving request tx).
       const result = tool.write
-        ? await withSavepoint(`mcp_${name}`, runAndAudit)
+        ? await withSavepoint(savepointNameFor(name), runAndAudit)
         : await runAndAudit();
 
       // Refund when the call cost the company nothing worth billing: an error,

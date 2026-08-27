@@ -28,6 +28,10 @@ import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
 import { suggestBankAllocationTool } from './tools/writeBank';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
 import { importBankStatementTool, undoBankImportTool } from './tools/writeBankImport';
+import {
+  bulkAllocateBankTransactionsTool,
+  reverseBankAllocationBatchTool,
+} from './tools/writeBankBulkAllocate';
 
 export const MCP_TOOLS = [
   // read (17)
@@ -48,8 +52,9 @@ export const MCP_TOOLS = [
   getMatchCandidatesTool,
   vatStatusTool,
   listAgentPostingsTool,
-  // write (10) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
-  // additionally require write:post. Import posts nothing, so it stays off write:post.
+  // write (12) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // (single and batch) additionally require write:post. Import posts nothing, so
+  // it stays off write:post.
   createDraftInvoiceTool,
   createDraftQuoteTool,
   createDraftJournalTool,
@@ -58,6 +63,8 @@ export const MCP_TOOLS = [
   finalizeInvoiceTool,
   allocateBankTransactionTool,
   reverseBankAllocationTool,
+  bulkAllocateBankTransactionsTool,
+  reverseBankAllocationBatchTool,
   importBankStatementTool,
   undoBankImportTool,
 ] as const;

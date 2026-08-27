@@ -4,7 +4,8 @@
  * Per tool: happy path calls the service with ctx.companyId + ctx.userId and
  * the draft/unposted intent; token-scan + additionalProperties:false extended
  * to write tools. Manifest: exactly post_journal + finalize_invoice +
- * allocate_bank_transaction + reverse_bank_allocation carry requiresPost. (The registry's
+ * allocate_bank_transaction + reverse_bank_allocation + the bulk batch pair
+ * carry requiresPost. (The registry's
  * scope/write:post/idempotency FENCE is proven generically in registry.test.ts
  * — not re-tested here. allocate_bank_transaction's own behaviour is covered
  * in writeBankAllocate.test.ts, same pattern as bankMatchTool.test.ts.)
@@ -51,6 +52,8 @@ vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => (
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customerBelongsToCompany: vi.fn(),
   supplierBelongsToCompany: vi.fn(),
+  customersBelongToCompany: vi.fn(),
+  suppliersBelongToCompany: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
@@ -72,7 +75,8 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
 import {
   customerBelongsToCompany,
-  supplierBelongsToCompany,
+  customersBelongToCompany,
+  suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
@@ -110,7 +114,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: FK ownership checks pass (customer/supplier/accounts belong to the company).
   vi.mocked(customerBelongsToCompany).mockResolvedValue(true);
-  vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
+  vi.mocked(customersBelongToCompany).mockResolvedValue(true);
+  vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
   vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
 });
 
@@ -395,10 +400,11 @@ describe('write-tool manifest invariants', () => {
     }
   });
 
-  it('exactly post_journal + finalize_invoice + allocate_bank_transaction + reverse_bank_allocation require write:post', () => {
+  it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
-      'allocate_bank_transaction', 'finalize_invoice', 'post_journal', 'reverse_bank_allocation',
+      'allocate_bank_transaction', 'bulk_allocate_bank_transactions', 'finalize_invoice',
+      'post_journal', 'reverse_bank_allocation', 'reverse_bank_allocation_batch',
     ]);
   });
 
@@ -430,6 +436,13 @@ describe('write-tool manifest invariants', () => {
       finalize_invoice: { invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY },
       allocate_bank_transaction: { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', ...KEY },
       reverse_bank_allocation: { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', ...KEY },
+      bulk_allocate_bank_transactions: {
+        allocations: [{ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73' }],
+        dry_run: true, ...KEY,
+      },
+      // Driven down its NOT_FOUND path: the batch lookup hits the mocked sql,
+      // which returns no rows. An error envelope is still an envelope.
+      reverse_bank_allocation_batch: { batch_id: '0f000000-0000-4000-8000-000000000001', ...KEY },
       // These two reach services this file does not mock, so they are driven
       // down their argument-validation path instead. The scan cares about what
       // ends up in the envelope, and an error envelope is still an envelope.

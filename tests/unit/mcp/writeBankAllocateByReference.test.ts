@@ -19,8 +19,8 @@ vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
-  customerBelongsToCompany: vi.fn(),
-  supplierBelongsToCompany: vi.fn(),
+  customersBelongToCompany: vi.fn(),
+  suppliersBelongToCompany: vi.fn(),
 }));
 
 import {
@@ -30,8 +30,8 @@ import {
 import { findBankTransactionsByReference } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
-  customerBelongsToCompany,
-  supplierBelongsToCompany,
+  customersBelongToCompany,
+  suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from '@/lib/mcp/tools/writeBankAllocate';
 
@@ -47,8 +47,8 @@ function text(res: { content: { text: string }[] }): string {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
-  vi.mocked(customerBelongsToCompany).mockResolvedValue(true);
-  vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
+  vi.mocked(customersBelongToCompany).mockResolvedValue(true);
+  vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
   vi.mocked(allocateTransaction).mockResolvedValue({
     journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9' },
   } as never);
