@@ -77,3 +77,66 @@ describe('list_bank_transactions — a forged cursor never reaches a SQL cast', 
     expect(vi.mocked(sql)).toHaveBeenCalled();
   });
 });
+
+// ── The other args land in SQL casts too ─────────────────────────────────────
+//
+// `bank_account_id` becomes `$n::UUID` and the dates become `$n::DATE`. JSON
+// Schema's `format: date` is advisory — nothing enforces it — so an agent that
+// sends "junk" reaches the same 22P02 / 22008 abort as a forged cursor, with
+// the same unrefunded Flow debit. Same bar: rejected at the tool, no query.
+
+describe('list_bank_transactions — uncastable arguments never reach SQL', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const BAD: Array<[string, Record<string, unknown>, string]> = [
+    ['bank_account_id is not a uuid', { bank_account_id: 'abc' }, 'invalid bank_account_id'],
+    ['bank_account_id carries sql', { bank_account_id: "1' OR '1'='1" }, 'invalid bank_account_id'],
+    ['bank_account_id is a truncated uuid', { bank_account_id: '11111111-1111-4111-8111' }, 'invalid bank_account_id'],
+    ['from_date is junk', { from_date: 'junk' }, 'invalid from_date'],
+    ['from_date overflows', { from_date: '2026-02-31' }, 'invalid from_date'],
+    ['from_date has month 13', { from_date: '2026-13-01' }, 'invalid from_date'],
+    ['to_date is junk', { to_date: 'yesterday' }, 'invalid to_date'],
+    ['to_date is 29 Feb in a common year', { to_date: '2026-02-29' }, 'invalid to_date'],
+  ];
+
+  for (const [label, args, expected] of BAD) {
+    it(`rejects before any query — ${label}`, async () => {
+      const r = await listBankTransactionsTool.handler(args, ctx());
+
+      expect(r.isError).toBe(true);
+      expect(r.content[0]!.text).toBe(expected);
+      expect(vi.mocked(sql)).not.toHaveBeenCalled();
+      // The reply names the agent's own argument and nothing else.
+      expect(r.content[0]!.text).not.toMatch(/22P02|22008|::|bank_transactions|SELECT/);
+    });
+  }
+
+  it('reports the FIRST unusable argument rather than a vague failure', async () => {
+    const r = await listBankTransactionsTool.handler(
+      { bank_account_id: 'abc', from_date: 'junk' }, ctx(),
+    );
+    expect(r.content[0]!.text).toBe('invalid bank_account_id');
+  });
+
+  it('lets a valid uuid and real dates through to the query', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ cnt: '0' }] as never);
+
+    const r = await listBankTransactionsTool.handler(
+      { bank_account_id: GOOD_ID, from_date: '2026-01-01', to_date: '2028-02-29' }, ctx(),
+    );
+
+    expect(r.isError).toBeUndefined();
+    expect(vi.mocked(sql)).toHaveBeenCalled();
+  });
+
+  it('omitted arguments are not treated as invalid', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ cnt: '0' }] as never);
+
+    const r = await listBankTransactionsTool.handler({}, ctx());
+    expect(r.isError).toBeUndefined();
+  });
+});

@@ -231,6 +231,9 @@ describe('contact + bank + vat tools', () => {
 // ── PRD-11 §3: list_bank_transactions cursor + compact rows ──────────────────
 
 describe('list_bank_transactions — paging and compact rows', () => {
+  // A real UUID: the tool rejects anything else before the service is called,
+  // because bank_account_id reaches SQL as `$n::UUID`.
+  const ACCOUNT_UUID = '33333333-3333-4333-8333-333333333333';
   const baseTx = {
     id: 'tx-1', bankAccountId: 'acct-1', transactionDate: '2026-03-05', amount: -250.5,
     bankReference: 'ABSA-991', status: 'imported' as const, createdAt: 'x', updatedAt: 'x',
@@ -242,11 +245,11 @@ describe('list_bank_transactions — paging and compact rows', () => {
     } as never);
 
     const out = parseOk(await tool('list_bank_transactions').handler(
-      { bank_account_id: 'acct-1', cursor: 'CURSOR-1' }, ctx(),
+      { bank_account_id: ACCOUNT_UUID, cursor: 'CURSOR-1' }, ctx(),
     )) as { total: number; next_cursor: string | null };
 
     expect(getBankTransactions).toHaveBeenCalledWith(
-      COMPANY_ID, expect.objectContaining({ cursor: 'CURSOR-1', bankAccountId: 'acct-1' }),
+      COMPANY_ID, expect.objectContaining({ cursor: 'CURSOR-1', bankAccountId: ACCOUNT_UUID }),
     );
     expect(out.total).toBe(240);
     expect(out.next_cursor).toBe('CURSOR-2');
