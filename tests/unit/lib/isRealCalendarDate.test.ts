@@ -42,6 +42,17 @@ describe('isRealCalendarDate', () => {
     }
   });
 
+  // JavaScript HAS a year 0 (1 BC under ISO 8601 astronomical numbering) and
+  // every component round-trips cleanly, so the round-trip alone accepts it.
+  // Postgres's calendar goes 1 BC straight to 1 AD — no year 0 — so
+  // '0000-01-01' is a 22008 there. Verified against the dev database.
+  it('rejects year 0, which JS accepts and Postgres does not', () => {
+    expect(isRealCalendarDate('0000-01-01')).toBe(false);
+    expect(isRealCalendarDate('0000-12-31')).toBe(false);
+    // The year immediately after it is a real Postgres date and must survive.
+    expect(isRealCalendarDate('0001-01-01')).toBe(true);
+  });
+
   it('is stricter than isValidDate, which is the reason it exists', () => {
     // Date.parse rolls 31 February forward to 3 March and returns a timestamp;
     // Postgres throws 22008 on the same literal.

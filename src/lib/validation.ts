@@ -19,10 +19,17 @@ export function isValidUUID(s: string): boolean {
  * `new Date(0)` + `setUTCFullYear` rather than `Date.UTC(y, ...)`: the latter
  * maps years 0–99 to 1900+, so `Date.UTC(1, 0, 1)` is 1901 and a legitimate
  * '0001-01-01' would be rejected.
+ *
+ * Year 0 is rejected outright. JavaScript has one (it is 1 BC by ISO 8601's
+ * astronomical numbering, and every component round-trips cleanly), but the
+ * Postgres calendar goes 1 BC → 1 AD with no year 0 at all, so '0000-01-01'
+ * is a 22008 there — the one case where a clean JS round-trip still fails the
+ * cast. Verified against the dev database.
  */
 export function isRealCalendarDate(value: string): boolean {
   if (!DATE_RE.test(value)) return false;
   const [y, mo, d] = value.split('-').map(Number) as [number, number, number];
+  if (y < 1) return false;
   const dt = new Date(0);
   dt.setUTCFullYear(y, mo - 1, d);
   dt.setUTCHours(0, 0, 0, 0);

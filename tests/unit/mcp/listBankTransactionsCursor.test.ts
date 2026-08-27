@@ -46,6 +46,8 @@ describe('list_bank_transactions — a forged cursor never reaches a SQL cast', 
     ['month 13', b64({ d: '2026-13-05', a: 1, id: GOOD_ID })],
     ['day 45', b64({ d: '2026-01-45', a: 1, id: GOOD_ID })],
     ['31 February', b64({ d: '2026-02-31', a: 1, id: GOOD_ID })],
+    // JS has a year 0; the Postgres calendar goes 1 BC straight to 1 AD.
+    ['year 0', b64({ d: '0000-01-01', a: 1, id: GOOD_ID })],
     ['id is not a uuid', b64({ d: '2026-01-01', a: 1, id: 'abc' })],
     ['id carries sql', b64({ d: '2026-01-01', a: 1, id: "1' OR '1'='1" })],
     ['amount is a string', b64({ d: '2026-01-01', a: '1', id: GOOD_ID })],
