@@ -72,7 +72,7 @@ export default function BankTransactionsPage() {
   const [fromAmount, setFromAmount] = useState('');
   const [toAmount, setToAmount] = useState('');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-  const [allocationFilter, setAllocationFilter] = useState<'all' | 'unallocated' | 'allocated'>('all');
+  const [allocationFilter, setAllocationFilter] = useState<'all' | 'unallocated' | 'suggested' | 'allocated'>('all');
   const [txType, setTxType] = useState<'all' | 'spent' | 'received'>('all');
   const [allocType, setAllocType] = useState<'all' | 'account' | 'supplier' | 'customer' | 'transfer'>('all');
   const [hasSuggestion, setHasSuggestion] = useState<'all' | 'yes' | 'no'>('all');

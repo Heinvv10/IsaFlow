@@ -28,7 +28,7 @@ export interface BankTxFiltersProps {
   fromAmount: string;
   toAmount: string;
   sortOrder: 'asc' | 'desc';
-  allocationFilter: 'all' | 'unallocated' | 'allocated';
+  allocationFilter: 'all' | 'unallocated' | 'suggested' | 'allocated';
   txType: 'all' | 'spent' | 'received';
   allocType: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion: 'all' | 'yes' | 'no';
@@ -46,7 +46,7 @@ export interface BankTxFiltersProps {
   onFromAmountChange: (v: string) => void;
   onToAmountChange: (v: string) => void;
   onSortOrderChange: (v: 'asc' | 'desc') => void;
-  onAllocationFilterChange: (v: 'all' | 'unallocated' | 'allocated') => void;
+  onAllocationFilterChange: (v: 'all' | 'unallocated' | 'suggested' | 'allocated') => void;
   onTxTypeChange: (v: 'all' | 'spent' | 'received') => void;
   onAllocTypeChange: (v: 'all' | 'account' | 'supplier' | 'customer' | 'transfer') => void;
   onHasSuggestionChange: (v: 'all' | 'yes' | 'no') => void;
@@ -209,11 +209,12 @@ export function BankTxFilters({
       {tab === 'new' && (
         <select
           value={allocationFilter}
-          onChange={e => onAllocationFilterChange(e.target.value as 'all' | 'unallocated' | 'allocated')}
+          onChange={e => onAllocationFilterChange(e.target.value as 'all' | 'unallocated' | 'suggested' | 'allocated')}
           className="px-2 py-1 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] text-xs text-[var(--ff-text-primary)]"
         >
           <option value="all">All Status</option>
           <option value="unallocated">Unallocated</option>
+          <option value="suggested">Suggested</option>
           <option value="allocated">Allocated</option>
         </select>
       )}

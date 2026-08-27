@@ -40,7 +40,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       limit:            limit              ? Number(limit)              : undefined,
       offset:           offset             ? Number(offset)             : undefined,
       sortOrder:        sort_order === 'asc' ? 'asc' : 'desc',
-      allocationFilter: allocation_filter  ? String(allocation_filter) as 'all' | 'allocated' | 'unallocated' : undefined,
+      allocationFilter: allocation_filter  ? String(allocation_filter) as 'all' | 'allocated' | 'suggested' | 'unallocated' : undefined,
       txType:           tx_type            ? String(tx_type)           as 'all' | 'spent' | 'received'       : undefined,
       allocType:        alloc_type         ? String(alloc_type)        as 'all' | 'account' | 'supplier' | 'customer' : undefined,
       hasSuggestion:    has_suggestion     ? String(has_suggestion)    as 'all' | 'yes' | 'no'              : undefined,

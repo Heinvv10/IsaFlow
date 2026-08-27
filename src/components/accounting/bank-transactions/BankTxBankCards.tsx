@@ -19,6 +19,8 @@ export interface BankAcct {
   unreconciledBalance: number;
   unreconciledCount: number;
   allocatedCount: number;
+  /** Suggested/categorised but no journal posted yet (PRD-11). */
+  suggestedCount?: number;
   unallocatedCount: number;
   /** Set when this account is a sub-account (its parent is also a bank account). */
   groupId?: string | null;
@@ -118,6 +120,11 @@ export function BankTxBankCards({ bankAccounts, selectedBank, tab, total, onSele
               <div className="text-right">
                 <p className="text-2xl font-bold text-teal-400">{bank.allocatedCount}</p>
                 <p className="text-xs text-[var(--ff-text-tertiary)]">Allocated</p>
+              </div>
+              <div className="w-px h-8 bg-[var(--ff-border-light)]" />
+              <div className="text-right">
+                <p className="text-2xl font-bold text-sky-400">{bank.suggestedCount ?? 0}</p>
+                <p className="text-xs text-[var(--ff-text-tertiary)]">Suggested</p>
               </div>
               <div className="w-px h-8 bg-[var(--ff-border-light)]" />
               <div className="text-right">
