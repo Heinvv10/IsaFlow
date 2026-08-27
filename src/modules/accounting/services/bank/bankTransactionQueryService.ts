@@ -76,7 +76,7 @@ export interface BankTxFilters {
   toAmount?: string;
   search?: string;
   sortOrder?: 'asc' | 'desc';
-  allocationFilter?: 'all' | 'unallocated' | 'allocated';
+  allocationFilter?: 'all' | 'unallocated' | 'suggested' | 'allocated';
   txType?: 'all' | 'spent' | 'received';
   allocType?: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
   hasSuggestion?: 'all' | 'yes' | 'no';
@@ -113,15 +113,24 @@ const TX_SELECT = `
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
 `;
 
-// allocationFilter: match the same definition used in bank-accounts header counts.
-// Fixed literals keyed on a validated enum — safe for sql.unsafe. Applied in
-// EVERY branch below (#256: it was silently dropped without `status`).
+// allocationFilter — same definition as bankAccountStatusService counts (PRD-11 §2):
+// allocated = journal posted; suggested = categorised, not posted; unallocated = neither.
+// Fixed literals keyed on a validated enum — safe for sql.unsafe. Applied in EVERY branch (#256).
+const HAS_CATEGORY =
+  '(bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL OR bt.allocation_type IS NOT NULL)';
+const NO_CATEGORY =
+  'bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL AND bt.allocation_type IS NULL';
 function allocationCond(f?: BankTxFilters): string {
-  return f?.allocationFilter === 'allocated'
-    ? 'AND (bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL OR bt.allocation_type IS NOT NULL)'
-    : f?.allocationFilter === 'unallocated'
-      ? 'AND bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL AND bt.allocation_type IS NULL'
-      : '';
+  switch (f?.allocationFilter) {
+    case 'allocated':
+      return 'AND bt.matched_journal_line_id IS NOT NULL';
+    case 'suggested':
+      return `AND bt.matched_journal_line_id IS NULL AND ${HAS_CATEGORY} AND bt.status != 'excluded'`;
+    case 'unallocated':
+      return `AND bt.matched_journal_line_id IS NULL AND ${NO_CATEGORY} AND bt.status != 'excluded'`;
+    default:
+      return '';
+  }
 }
 
 // ── Query ─────────────────────────────────────────────────────────────────────

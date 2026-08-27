@@ -434,8 +434,9 @@ describe('getBankTransactions — BL-11: mapTxRow column projection regression g
 // count). Each assertion below inspects ONE call so a predicate dropped from
 // either query alone is caught.
 
-const ALLOC_NULL = 'bt.allocation_type IS NULL';
-const ALLOC_NOT_NULL = 'bt.allocation_type IS NOT NULL';
+// PRD-11 §2: allocated ⇔ a posted journal line exists. Suggestions are NOT allocations.
+const ALLOC_NULL = 'bt.matched_journal_line_id IS NULL';
+const ALLOC_NOT_NULL = 'bt.matched_journal_line_id IS NOT NULL';
 
 /** Reconstruct the SQL text of the Nth sql`` call, with unsafe fragments inlined. */
 function sqlTextOf(callIdx: number): string {
@@ -484,6 +485,41 @@ describe('getBankTransactions — #256: allocationFilter applied in every branch
 
   it('adds no allocation predicate for "all"', async () => {
     await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'all' });
-    for (const i of [0, 1]) expect(sqlTextOf(i)).not.toContain('bt.allocation_type IS');
+    for (const i of [0, 1]) expect(sqlTextOf(i)).not.toContain('bt.matched_journal_line_id IS');
+  });
+});
+
+describe('getBankTransactions — PRD-11: allocation is a posted journal line, not a suggestion', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+  });
+
+  it('"allocated" never keys on suggested_* columns', async () => {
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'allocated' });
+    for (const i of [0, 1]) {
+      expect(sqlTextOf(i)).toContain(ALLOC_NOT_NULL);
+      expect(sqlTextOf(i)).not.toContain('suggested_gl_account_id IS NOT NULL OR');
+    }
+  });
+
+  it('"unallocated" excludes suggested rows and excluded rows', async () => {
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'unallocated' });
+    for (const i of [0, 1]) {
+      const t = sqlTextOf(i);
+      expect(t).toContain(ALLOC_NULL);
+      expect(t).toContain('bt.suggested_gl_account_id IS NULL');
+      expect(t).toContain("bt.status != 'excluded'");
+    }
+  });
+
+  it('"suggested" = no journal line but a suggestion or saved category', async () => {
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'suggested' });
+    for (const i of [0, 1]) {
+      const t = sqlTextOf(i);
+      expect(t).toContain(ALLOC_NULL);
+      expect(t).toContain('bt.suggested_gl_account_id IS NOT NULL OR');
+      expect(t).toContain("bt.status != 'excluded'");
+    }
   });
 });
