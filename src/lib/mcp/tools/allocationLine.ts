@@ -121,6 +121,13 @@ export function parseAllocationLine(args: Record<string, unknown>): AllocationLi
     return `contra_account_id is required for ${allocType} allocation`;
   }
 
+  // DELIBERATE CHANGE from the pre-extraction handler, which passed
+  // args.invoice_id through raw: it is trimmed here, and a blank/whitespace
+  // value becomes `undefined` rather than reaching allocateTransaction as ''.
+  // An empty string there is falsy anyway, so the service behaved identically —
+  // but '  ' is NOT, and it would have been matched against invoice ids as a
+  // literal two-space string. Every other id on this line is trimmed the same
+  // way; leaving one raw was the inconsistency, not the fix.
   const invoiceId = str(args, 'invoice_id');
   const description = typeof args.description === 'string' ? args.description : undefined;
   return {
