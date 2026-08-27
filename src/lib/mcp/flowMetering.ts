@@ -98,9 +98,16 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // ── Bank allocation is free in the app (bank.allocate is unused there) ───
   suggest_bank_allocation: null,
   allocate_bank_transaction: null,
+  // Per posted line, same as the single tool — which is free, so the batch is
+  // too. Deliberately NOT a per-line multiple of some other code: charging N
+  // times what the single tool charges is the rule, and N x 0 is 0. If
+  // allocate_bank_transaction ever gains a price, this must become a per-line
+  // debit, not a flat one.
+  bulk_allocate_bank_transactions: null,
 
   // ── Corrections ──────────────────────────────────────────────────────────
   reverse_bank_allocation: null,
+  reverse_bank_allocation_batch: null,
   undo_bank_import: null,
 };
 

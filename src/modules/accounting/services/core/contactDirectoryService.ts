@@ -44,6 +44,42 @@ export async function supplierBelongsToCompany(companyId: string, supplierId: st
   return rows.length > 0;
 }
 
+/**
+ * True only if EVERY id belongs to companyId. One query for the whole set —
+ * the bulk allocation tool checks up to 500 lines per call, and a per-line
+ * round trip there is 500 queries before the first journal is posted.
+ *
+ * Mirrors accountsBelongToCompany: an empty set is vacuously true, and
+ * duplicates are collapsed before the count comparison so a list naming the
+ * same supplier twice still matches its single row.
+ */
+export async function suppliersBelongToCompany(
+  companyId: string,
+  supplierIds: string[],
+): Promise<boolean> {
+  const unique = [...new Set(supplierIds.filter((id) => typeof id === 'string' && id))];
+  if (unique.length === 0) return true;
+  const rows = (await sql`
+    SELECT id FROM suppliers
+    WHERE company_id = ${companyId} AND deleted_at IS NULL AND id = ANY(${unique}::uuid[])
+  `) as Row[];
+  return rows.length === unique.length;
+}
+
+/** Customer half of suppliersBelongToCompany — same contract. */
+export async function customersBelongToCompany(
+  companyId: string,
+  customerIds: string[],
+): Promise<boolean> {
+  const unique = [...new Set(customerIds.filter((id) => typeof id === 'string' && id))];
+  if (unique.length === 0) return true;
+  const rows = (await sql`
+    SELECT id FROM customers
+    WHERE company_id = ${companyId} AND deleted_at IS NULL AND id = ANY(${unique}::uuid[])
+  `) as Row[];
+  return rows.length === unique.length;
+}
+
 export async function listCustomers(companyId: string, search?: string | null): Promise<Row[]> {
   const searchTerm = search && search.trim() ? `%${search.trim()}%` : null;
 

@@ -34,11 +34,12 @@
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
 
-const { createInvoiceMock, createQuoteMock, importMock, belongsMock } = vi.hoisted(() => ({
+const { createInvoiceMock, createQuoteMock, importMock, belongsMock, undoMock } = vi.hoisted(() => ({
   createInvoiceMock: vi.fn(),
   createQuoteMock: vi.fn(),
   importMock: vi.fn(),
   belongsMock: vi.fn(),
+  undoMock: vi.fn(),
 }));
 
 vi.mock('@/lib/neon', () => ({
@@ -66,6 +67,7 @@ vi.mock('@/modules/accounting/services/ar/quoteService', async (orig) => ({
 vi.mock('@/modules/accounting/services/bank/bankStatementImportService', async (orig) => ({
   ...(await orig<typeof import('@/modules/accounting/services/bank/bankStatementImportService')>()),
   importStatementForAgent: importMock,
+  undoImportBatch: undoMock,
   // The import tool checks bank-account ownership (exported from THIS module)
   // before it reaches the service. Left real, it queries the mocked sql, gets
   // no rows, and short-circuits to NOT_FOUND — so the rollback assertions
@@ -75,6 +77,19 @@ vi.mock('@/modules/accounting/services/bank/bankStatementImportService', async (
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customerBelongsToCompany: belongsMock,
   supplierBelongsToCompany: vi.fn(),
+  customersBelongToCompany: vi.fn().mockResolvedValue(true),
+  suppliersBelongToCompany: vi.fn().mockResolvedValue(true),
+}));
+vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
+  accountsBelongToCompany: vi.fn().mockResolvedValue(true),
+}));
+vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
+  allocateTransaction: vi.fn(),
+  reverseReconciledTransaction: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
+  findBankTransactionsByReference: vi.fn(),
+  getBankTransactionStatus: vi.fn(),
 }));
 
 import { InvoiceLineValidationError } from '@/modules/accounting/services/ar/customerInvoiceCreateService';
@@ -87,6 +102,9 @@ const COMPANY = '11111111-1111-1111-1111-111111111111';
 const USER = '22222222-2222-2222-2222-222222222222';
 const CUSTOMER = '33333333-3333-3333-3333-333333333333';
 const BANK = '44444444-4444-4444-4444-444444444444';
+const TX = '55555555-5555-5555-5555-555555555555';
+const ACC = '66666666-6666-6666-6666-666666666666';
+const BATCH = '77777777-7777-7777-7777-777777777777';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ctx = () => ({ companyId: COMPANY, userId: USER, scopes: ['write:invoices', 'write:bank-tx'] }) as any;
@@ -112,6 +130,79 @@ const importArgs = {
 beforeEach(() => {
   vi.clearAllMocks();
   belongsMock.mockResolvedValue(true);
+});
+
+// The write tools that call a service which can fail AFTER it has written.
+// These used to `catch → toolError`, which RELEASES the registry's savepoint
+// and keeps the partial write. That was survivable while a refusal consumed the
+// idempotency key (the retry replayed the error); once refusals began auditing
+// with a NULL key, the retry re-ran and wrote a second time. Both halves are
+// closed by rethrowing, and by answering the genuine pre-write refusals from a
+// READ before the service is called at all.
+describe('post-write failures must rethrow, not become a tool error', () => {
+  it('allocate_bank_transaction rethrows a service failure', async () => {
+    const { allocateBankTransactionTool } = await import('@/lib/mcp/tools/writeBankAllocate');
+    const lookup = await import('@/modules/accounting/services/bank/bankTransactionLookupService');
+    const alloc = await import('@/modules/accounting/services/bank/bankAllocationService');
+    vi.mocked(lookup.getBankTransactionStatus).mockResolvedValue('imported');
+    // The proven shape: the journal posts, then the row update fails.
+    vi.mocked(alloc.allocateTransaction).mockRejectedValue(
+      Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+    );
+
+    await expect(allocateBankTransactionTool.handler(
+      { transaction_id: TX, contra_account_id: ACC, idempotency_key: 'k1' }, ctx(),
+    )).rejects.toThrow(/deadlock detected/);
+  });
+
+  it('allocate_bank_transaction still refuses an already-allocated row precisely, without calling the service', async () => {
+    const { allocateBankTransactionTool } = await import('@/lib/mcp/tools/writeBankAllocate');
+    const lookup = await import('@/modules/accounting/services/bank/bankTransactionLookupService');
+    const alloc = await import('@/modules/accounting/services/bank/bankAllocationService');
+    vi.mocked(lookup.getBankTransactionStatus).mockResolvedValue('allocated');
+
+    const r = await allocateBankTransactionTool.handler(
+      { transaction_id: TX, contra_account_id: ACC, idempotency_key: 'k1' }, ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toMatch(/already allocated/);
+    expect(alloc.allocateTransaction).not.toHaveBeenCalled();
+  });
+
+  it('reverse_bank_allocation rethrows — the contra posts before the row reset', async () => {
+    const { reverseBankAllocationTool } = await import('@/lib/mcp/tools/writeBankAllocate');
+    const lookup = await import('@/modules/accounting/services/bank/bankTransactionLookupService');
+    const alloc = await import('@/modules/accounting/services/bank/bankAllocationService');
+    vi.mocked(lookup.getBankTransactionStatus).mockResolvedValue('allocated');
+    vi.mocked(alloc.reverseReconciledTransaction).mockRejectedValue(new Error('reset failed'));
+
+    await expect(reverseBankAllocationTool.handler(
+      { transaction_id: TX, idempotency_key: 'k1' }, ctx(),
+    )).rejects.toThrow(/reset failed/);
+  });
+
+  it('reverse_bank_allocation still refuses an unreversible status precisely', async () => {
+    const { reverseBankAllocationTool } = await import('@/lib/mcp/tools/writeBankAllocate');
+    const lookup = await import('@/modules/accounting/services/bank/bankTransactionLookupService');
+    const alloc = await import('@/modules/accounting/services/bank/bankAllocationService');
+    vi.mocked(lookup.getBankTransactionStatus).mockResolvedValue('imported');
+
+    const r = await reverseBankAllocationTool.handler(
+      { transaction_id: TX, idempotency_key: 'k1' }, ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toMatch(/Can only reverse/);
+    expect(alloc.reverseReconciledTransaction).not.toHaveBeenCalled();
+  });
+
+  it('undo_bank_import rethrows — it DELETEs, so a partial undo must roll back', async () => {
+    const { undoBankImportTool } = await import('@/lib/mcp/tools/writeBankImport');
+    undoMock.mockRejectedValue(Object.assign(new Error('canceling statement'), { code: '57014' }));
+
+    await expect(undoBankImportTool.handler(
+      { batch_id: BATCH, idempotency_key: 'k1' }, ctx(),
+    )).rejects.toThrow(/canceling statement/);
+  });
 });
 
 describe('create_draft_invoice', () => {

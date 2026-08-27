@@ -4,7 +4,8 @@
  * Per tool: happy path calls the service with ctx.companyId + ctx.userId and
  * the draft/unposted intent; token-scan + additionalProperties:false extended
  * to write tools. Manifest: exactly post_journal + finalize_invoice +
- * allocate_bank_transaction + reverse_bank_allocation carry requiresPost. (The registry's
+ * allocate_bank_transaction + reverse_bank_allocation + the bulk batch pair
+ * carry requiresPost. (The registry's
  * scope/write:post/idempotency FENCE is proven generically in registry.test.ts
  * — not re-tested here. allocate_bank_transaction's own behaviour is covered
  * in writeBankAllocate.test.ts, same pattern as bankMatchTool.test.ts.)
@@ -45,17 +46,31 @@ vi.mock('@/modules/accounting/services/ar/quoteService', () => ({
   // it leaves `instanceof` testing against undefined.
   LineValidationError: class LineValidationError extends Error {},
 }));
-vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({ createJournalEntry: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
+  createJournalEntry: vi.fn(),
+  // post_journal answers its two refusals from this READ so the service call
+  // that follows can rethrow — a caught mid-write failure would otherwise be
+  // reported as a tool error, freeing the key for a retry that posts twice.
+  getJournalEntryById: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({ postJournalEntry: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customerBelongsToCompany: vi.fn(),
   supplierBelongsToCompany: vi.fn(),
+  customersBelongToCompany: vi.fn(),
+  suppliersBelongToCompany: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({ accountsBelongToCompany: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(),
   reverseReconciledTransaction: vi.fn(),
+}));
+// allocate/reverse answer their pre-write refusals from this read so the
+// service calls that follow can rethrow.
+vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
+  findBankTransactionsByReference: vi.fn(),
+  getBankTransactionStatus: vi.fn(),
 }));
 
 import {
@@ -67,15 +82,17 @@ import {
   InvoiceNotApprovableError,
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
-import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
+import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
 import {
   customerBelongsToCompany,
-  supplierBelongsToCompany,
+  customersBelongToCompany,
+  suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { allocateTransaction, reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
@@ -110,8 +127,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: FK ownership checks pass (customer/supplier/accounts belong to the company).
   vi.mocked(customerBelongsToCompany).mockResolvedValue(true);
-  vi.mocked(supplierBelongsToCompany).mockResolvedValue(true);
+  vi.mocked(customersBelongToCompany).mockResolvedValue(true);
+  vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
   vi.mocked(accountsBelongToCompany).mockResolvedValue(true);
+  // Default: the journal exists and is still a draft.
+  vi.mocked(getJournalEntryById).mockResolvedValue({ id: 'je-1', status: 'draft' } as never);
+  vi.mocked(getBankTransactionStatus).mockResolvedValue('imported');
 });
 
 describe('create_draft_invoice', () => {
@@ -290,6 +311,8 @@ describe('post_journal / finalize_invoice (post tools)', () => {
     }, ctx());
     await tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx());
     await tool('allocate_bank_transaction').handler({ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', ...KEY }, ctx());
+    // Reverse needs a row that HAS an allocation to undo.
+    vi.mocked(getBankTransactionStatus).mockResolvedValue('allocated');
     await tool('reverse_bank_allocation').handler({ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', ...KEY }, ctx());
 
     const stamps = [
@@ -331,11 +354,24 @@ describe('write-tool failure paths', () => {
     expect(r.isError).toBe(true);
   });
 
-  it('post_journal: service rejection → safe tool error', async () => {
-    vi.mocked(postJournalEntry).mockRejectedValue(new Error('Cannot post entry with status: posted'));
+  it('post_journal: an already-posted entry is refused precisely, before the service', async () => {
+    // The refusal moved from a catch to a pre-write read. It has to: a catch
+    // around postJournalEntry cannot tell this from a failure after the status
+    // UPDATE landed, and a refusal frees the idempotency key.
+    vi.mocked(getJournalEntryById).mockResolvedValue({ id: 'je-1', status: 'posted' } as never);
     const r = await tool('post_journal').handler({ journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toContain('status'); // application error surfaced
+    expect(postJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('post_journal: a service failure RETHROWS so the savepoint unwinds it', async () => {
+    vi.mocked(postJournalEntry).mockRejectedValue(
+      Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+    );
+    await expect(
+      tool('post_journal').handler({ journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY }, ctx()),
+    ).rejects.toThrow(/deadlock detected/);
   });
 
   // The fixture must be an InvoiceNotApprovableError, which is what the service
@@ -395,10 +431,11 @@ describe('write-tool manifest invariants', () => {
     }
   });
 
-  it('exactly post_journal + finalize_invoice + allocate_bank_transaction + reverse_bank_allocation require write:post', () => {
+  it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
-      'allocate_bank_transaction', 'finalize_invoice', 'post_journal', 'reverse_bank_allocation',
+      'allocate_bank_transaction', 'bulk_allocate_bank_transactions', 'finalize_invoice',
+      'post_journal', 'reverse_bank_allocation', 'reverse_bank_allocation_batch',
     ]);
   });
 
@@ -430,6 +467,13 @@ describe('write-tool manifest invariants', () => {
       finalize_invoice: { invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY },
       allocate_bank_transaction: { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', ...KEY },
       reverse_bank_allocation: { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', ...KEY },
+      bulk_allocate_bank_transactions: {
+        allocations: [{ transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73' }],
+        dry_run: true, ...KEY,
+      },
+      // Driven down its NOT_FOUND path: the batch lookup hits the mocked sql,
+      // which returns no rows. An error envelope is still an envelope.
+      reverse_bank_allocation_batch: { batch_id: '0f000000-0000-4000-8000-000000000001', ...KEY },
       // These two reach services this file does not mock, so they are driven
       // down their argument-validation path instead. The scan cares about what
       // ends up in the envelope, and an error envelope is still an envelope.

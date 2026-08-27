@@ -5,12 +5,12 @@
  * userId come from ctx ONLY.
  */
 import type { McpTool } from '../types';
-import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
+import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingAgent } from '../postingAgent';
-import { guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 function parseLines(raw: unknown): JournalLineInput[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -123,11 +123,20 @@ export const postJournalTool: McpTool = {
     if (!journalId) return toolError('journal_id is required');
     const bad = guardCastableArgs(args, { uuid: ['journal_id'] });
     if (bad) return bad;
-    try {
-      const entry = await postJournalEntry(ctx.companyId, journalId, ctx.userId);
-      return ok(entry);
-    } catch (err) {
-      return toolError(safeErrorText(err, 'Failed to post journal.'));
+    // Pre-write refusals are answered from a READ, so the service call below
+    // needs no catch. postJournalEntry raises the same two itself, but a
+    // `catch → toolError` cannot tell them from a failure after the status
+    // UPDATE landed — and a refusal is audited with a NULL idempotency key, so
+    // the agent's retry on that key would run the post a second time.
+    const entry = await getJournalEntryById(ctx.companyId, journalId);
+    if (!entry) return toolError(NOT_FOUND);
+    if (entry.status !== 'draft') {
+      return toolError(`Cannot post entry with status: ${entry.status}`);
     }
+
+    // No catch: a closed period, an unbalanced entry or a database failure must
+    // reach the registry's savepoint rather than being flattened into a tool
+    // error that keeps whatever was written.
+    return ok(await postJournalEntry(ctx.companyId, journalId, ctx.userId));
   },
 };

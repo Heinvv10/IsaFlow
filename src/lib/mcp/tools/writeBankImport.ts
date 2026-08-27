@@ -15,7 +15,7 @@ import {
 import type { StatementFileType } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 // inputSchema.enum is NOT enforced by the MCP transport — it is passed through
 // to getManifest() only. This array is the actual runtime gate.
@@ -140,6 +140,12 @@ export const importBankStatementTool: McpTool = {
       // tells the agent re-sending is safe, so it must also be free; charging
       // for a no-op would contradict the dry_run rule directly above it.
       if (result.batchId === null) envelope.billable = false;
+      // A dry run wrote nothing, so it must not occupy the idempotency key —
+      // the real import that follows would otherwise be served this preview.
+      // Note this is NOT extended to the all-duplicates case above: that one
+      // opened no batch but still ran the import path, and freeing its key
+      // would let a retry race a concurrent import of the same statement.
+      if (args.dry_run === true) envelope.wroteNothing = true;
       return envelope;
     } catch (err) {
       // Pre-write only. StatementNotImportableError is raised while parsing,
@@ -152,11 +158,10 @@ export const importBankStatementTool: McpTool = {
       // every bank_transactions insert in withTransaction. So there is no
       // partial-import exposure to close.
       //
-      // And the registry's savepoint could not close one anyway — withTransaction
-      // takes a SEPARATE pooled connection with its own BEGIN/COMMIT, while the
-      // savepoint acts on the ALS-bound request connection. Anything committed
-      // there is beyond ROLLBACK TO SAVEPOINT. Do not add a write after this
-      // call assuming the outer savepoint protects it; it does not.
+      // Since PR #264 withTransaction runs on the ALS-bound request connection
+      // inside its own savepoint, so the registry's ROLLBACK TO SAVEPOINT does
+      // unwind it. The rethrow (not toolError) is what makes that rollback
+      // happen — returning an isError envelope would COMMIT the partial state.
       //
       // The rethrow is kept because a database failure should be recorded by the
       // registry as a failed call (status='error', debit refunded) rather than
@@ -194,17 +199,19 @@ export const undoBankImportTool: McpTool = {
       return toolError('Undo rate limit reached — try again later.');
     }
 
-    try {
-      const result = await undoImportBatch(ctx.companyId, batchId);  // tenant from ctx ONLY
-      if (result === null) return toolError(NOT_FOUND);
-      return ok({
-        batch_id: batchId,
-        deleted: result.deleted,
-        refused: result.refused,
-        refused_by_status: result.refusedByStatus,
-      });
-    } catch (err) {
-      return toolError(safeErrorText(err, 'Failed to undo the import.'));
-    }
+    // No catch: undoImportBatch DELETEs transactions, so a failure partway
+    // through has already removed rows. Returned as a tool error that write
+    // survives (the registry's savepoint only rolls back on a throw) and, since
+    // a refusal is audited with a NULL idempotency key, the retry deletes again
+    // from a half-undone batch. The not-found case is a return value, not an
+    // exception, so it stays a precise refusal.
+    const result = await undoImportBatch(ctx.companyId, batchId);  // tenant from ctx ONLY
+    if (result === null) return toolError(NOT_FOUND);
+    return ok({
+      batch_id: batchId,
+      deleted: result.deleted,
+      refused: result.refused,
+      refused_by_status: result.refusedByStatus,
+    });
   },
 };
