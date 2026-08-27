@@ -11,6 +11,7 @@ import {
   allocateTransaction,
   reverseReconciledTransaction,
 } from '@/modules/accounting/services/bank/bankAllocationService';
+import { findBankTransactionsByReference } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
   customerBelongsToCompany,
@@ -49,17 +50,89 @@ const ENTITY_REQUIRED: readonly AllocType[] = ['supplier', 'customer'];
 // for account/transfer only).
 const CONTRA_REQUIRED: readonly AllocType[] = ['account'];
 
+// ── Transaction selector (PRD-11 §5) ────────────────────────────────────────
+//
+// The agent reads a bank statement, not the database, so it holds the printed
+// `bank_reference` rather than a UUID. Accepting it removes the
+// list-everything-then-match step. Exactly one of the two: given both, they can
+// name different rows and there is no safe precedence — a tie-break here would
+// post against whichever the tool happened to prefer.
+
+type TxSelector = { txId: string } | { ref: string; bankAccountId?: string };
+
+/** Returns the selector, or the error text to refuse with. */
+function pickTxSelector(args: Record<string, unknown>): TxSelector | string {
+  const txId = typeof args.transaction_id === 'string' ? args.transaction_id.trim() : '';
+  const ref = typeof args.bank_reference === 'string' ? args.bank_reference.trim() : '';
+  if (txId && ref) {
+    return 'Provide either transaction_id or bank_reference, not both — they may name different transactions.';
+  }
+  if (!txId && !ref) return 'transaction_id or bank_reference is required';
+  if (txId) return { txId };
+  // bank_account_id only NARROWS a query already fenced to ctx.companyId, so
+  // it never becomes a foreign key and needs no ownership check of its own:
+  // a foreign id simply matches nothing.
+  const bankAccountId = typeof args.bank_account_id === 'string' ? args.bank_account_id.trim() : '';
+  return bankAccountId ? { ref, bankAccountId } : { ref };
+}
+
+/** Resolves a selector to one transaction id, or the error text to refuse with. */
+async function resolveTxId(
+  sel: TxSelector,
+  companyId: string,
+): Promise<{ id: string } | { error: string }> {
+  if ('txId' in sel) return { id: sel.txId };
+  const matches = await findBankTransactionsByReference(companyId, sel.ref, sel.bankAccountId);
+  // Same text as a genuine miss: a reference that resolves in another tenant
+  // must read identically to one that exists nowhere (no existence oracle).
+  if (matches.length === 0) return { error: NOT_FOUND };
+  if (matches.length > 1) {
+    // Never take the first: same-reference rows differ by date and amount, and
+    // guessing posts this month's journal against last month's transaction.
+    const listed = matches
+      .map((m) => `${m.id} (${m.transactionDate}, ${m.amount.toFixed(2)})`)
+      .join('; ');
+    return {
+      error: `bank_reference is ambiguous — ${matches.length} transactions carry it: ${listed}. `
+        + 'Re-issue with transaction_id, or narrow with bank_account_id.',
+    };
+  }
+  return { id: matches[0]!.id };
+}
+
+/** Schema fragment shared by both tools. */
+const SELECTOR_PROPERTIES = {
+  transaction_id: {
+    type: 'string',
+    description: 'Bank transaction UUID. Supply this OR bank_reference, not both.',
+  },
+  bank_reference: {
+    type: 'string',
+    description:
+      'The reference printed on the bank statement, matched exactly (after trimming). '
+      + 'Use it instead of transaction_id when working from a statement — no id lookup needed. '
+      + 'Must resolve to exactly one transaction; if it does not, the tool lists the candidates.',
+  },
+  bank_account_id: {
+    type: 'string',
+    description: 'Optional: narrows a bank_reference lookup to one bank account.',
+  },
+} as const;
+
 export const allocateBankTransactionTool: McpTool = {
   name: 'allocate_bank_transaction',
   description:
-    'Allocate one bank transaction to a GL account (optionally matching a supplier or customer invoice). POSTS a journal entry. Every allocation is attributed to the agent and can be undone with reverse_bank_allocation.',
+    'Allocate one bank transaction to a GL account (optionally matching a supplier or customer invoice). '
+    + 'Identify the transaction by transaction_id OR by bank_reference — the reference printed on the statement '
+    + '— so you can allocate straight from a statement without fetching ids first (optionally narrowed by bank_account_id). '
+    + 'POSTS a journal entry. Every allocation is attributed to the agent and can be undone with reverse_bank_allocation.',
   scope: 'write:bank-tx',
   write: true,
   requiresPost: true,
   inputSchema: {
     type: 'object',
     properties: {
-      transaction_id: { type: 'string' },
+      ...SELECTOR_PROPERTIES,
       contra_account_id: {
         type: 'string',
         description:
@@ -72,13 +145,13 @@ export const allocateBankTransactionTool: McpTool = {
       vat_code: { type: 'string', enum: [...VAT_CODES] },
       idempotency_key: { type: 'string' },
     },
-    required: ['transaction_id', 'idempotency_key'],
+    required: ['idempotency_key'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const txId = typeof args.transaction_id === 'string' ? args.transaction_id.trim() : '';
+    const selector = pickTxSelector(args);
+    if (typeof selector === 'string') return toolError(selector);
     const contra = typeof args.contra_account_id === 'string' ? args.contra_account_id.trim() : '';
-    if (!txId) return toolError('transaction_id is required');
 
     const rawAllocType = args.alloc_type;
     let allocType: AllocType = 'account';
@@ -129,10 +202,15 @@ export const allocateBankTransactionTool: McpTool = {
       return toolError(NOT_FOUND);
     }
 
+    // Resolved LAST: a malformed call must be refused before it costs a query,
+    // and an ambiguity message is only useful once the rest of the args are sane.
+    const resolved = await resolveTxId(selector, ctx.companyId);
+    if ('error' in resolved) return toolError(resolved.error);
+
     try {
       const result = await allocateTransaction(
         ctx.companyId,                                            // tenant from ctx ONLY
-        txId,
+        resolved.id,
         contra || null,   // null for supplier/customer — the service ignores it there
         ctx.userId,
         typeof args.description === 'string' ? args.description : undefined,
@@ -158,22 +236,29 @@ export const allocateBankTransactionTool: McpTool = {
 export const reverseBankAllocationTool: McpTool = {
   name: 'reverse_bank_allocation',
   description:
-    'Undo an allocation: reverses the posted journal and returns the bank transaction to unallocated. Use to correct a wrong allocation — the original and its reversal both remain in the audit trail.',
+    'Undo an allocation: reverses the posted journal and returns the bank transaction to unallocated. '
+    + 'Identify the transaction by transaction_id OR by bank_reference — the reference printed on the statement '
+    + '— optionally narrowed by bank_account_id. '
+    + 'Use to correct a wrong allocation — the original and its reversal both remain in the audit trail.',
   scope: 'write:bank-tx',
   write: true,
   requiresPost: true,
   inputSchema: {
     type: 'object',
     properties: {
-      transaction_id: { type: 'string' },
+      ...SELECTOR_PROPERTIES,
       idempotency_key: { type: 'string' },
     },
-    required: ['transaction_id', 'idempotency_key'],
+    required: ['idempotency_key'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const txId = typeof args.transaction_id === 'string' ? args.transaction_id.trim() : '';
-    if (!txId) return toolError('transaction_id is required');
+    const selector = pickTxSelector(args);
+    if (typeof selector === 'string') return toolError(selector);
+
+    const resolved = await resolveTxId(selector, ctx.companyId);
+    if ('error' in resolved) return toolError(resolved.error);
+    const txId = resolved.id;
     try {
       // The contra journal is stamped too: without it the agent's own
       // correction posts as human:<userId> and drops out of

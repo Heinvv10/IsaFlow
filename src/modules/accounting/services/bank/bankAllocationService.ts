@@ -3,7 +3,7 @@
  * Bank Allocation Service — Sage Process Bank equivalent (allocate, split, reverse)
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
@@ -89,9 +89,11 @@ export async function allocateTransaction(
 
   const totalAmount = Math.abs(Number(tx.amount));
   const bankAccountId = String(tx.bank_account_id);
-  const txDate = tx.transaction_date instanceof Date
-    ? (tx.transaction_date.toISOString().split('T')[0] ?? '')
-    : (String(tx.transaction_date).split('T')[0] ?? '');
+  // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL
+  // midnight, and toISOString() re-reads it in UTC — on the UTC+2 box that
+  // rolls 2026-03-01T00:30+02:00 back to "2026-02-28", dating the journal into
+  // the previous month (and, at a boundary, into a closed period).
+  const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
 
   const hasVat = vatCode === 'standard';
@@ -401,9 +403,11 @@ export async function splitAllocateTransaction(
   }
 
   const bankAccountId = String(tx.bank_account_id);
-  const txDate = tx.transaction_date instanceof Date
-    ? (tx.transaction_date.toISOString().split('T')[0] ?? '')
-    : (String(tx.transaction_date).split('T')[0] ?? '');
+  // fmtDate, NOT toISOString(): pg hands the DATE back as a Date at LOCAL
+  // midnight, and toISOString() re-reads it in UTC — on the UTC+2 box that
+  // rolls 2026-03-01T00:30+02:00 back to "2026-02-28", dating the journal into
+  // the previous month (and, at a boundary, into a closed period).
+  const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
   const entryDesc = String(tx.description || 'Split bank allocation');
   const journalLines: JournalLineInput[] = [];

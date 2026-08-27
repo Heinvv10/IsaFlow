@@ -297,7 +297,9 @@ describe('allocate_bank_transaction', () => {
   describe('contra_account_id is conditionally required', () => {
     it('is not unconditionally required in the manifest', () => {
       expect(allocateBankTransactionTool.inputSchema.required).not.toContain('contra_account_id');
-      expect(allocateBankTransactionTool.inputSchema.required).toContain('transaction_id');
+      // transaction_id dropped out of `required` when bank_reference became an
+      // alternative (PRD-11 §5); the either/or is enforced in the handler.
+      expect(allocateBankTransactionTool.inputSchema.required).toContain('idempotency_key');
     });
 
     it('documents what the property is and when it applies', () => {
