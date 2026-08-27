@@ -427,3 +427,44 @@ describe('getBankTransactions — BL-11: mapTxRow column projection regression g
     expect(tx.bankAccountName).toBe('Test Bank');
   });
 });
+
+// ── Issue #256: allocationFilter + dates ignored outside the account+status branch ─
+
+const ALLOC_NULL = 'bt.allocation_type IS NULL';
+const ALLOC_NOT_NULL = 'bt.allocation_type IS NOT NULL';
+function unsafeSql(): string {
+  return vi.mocked(sql.unsafe).mock.calls.map(c => String(c[0])).join('\n');
+}
+
+describe('getBankTransactions — #256: allocationFilter applied in every branch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+  });
+
+  it('applies unallocated predicate with bankAccountId only (MCP path)', async () => {
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'unallocated' });
+    expect(unsafeSql()).toContain(ALLOC_NULL);
+    expect(unsafeSql()).not.toContain(ALLOC_NOT_NULL);
+  });
+
+  it('applies allocated predicate with bankAccountId only', async () => {
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'allocated' });
+    expect(unsafeSql()).toContain(ALLOC_NOT_NULL);
+  });
+
+  it('applies allocation predicate and date range with no bankAccountId', async () => {
+    await getBankTransactions(COMPANY_ID, {
+      allocationFilter: 'unallocated', fromDate: '2026-04-01', toDate: '2026-04-18',
+    });
+    expect(unsafeSql()).toContain(ALLOC_NULL);
+    const values = flatSqlValues(vi.mocked(sql));
+    expect(values).toContain('2026-04-01');
+    expect(values).toContain('2026-04-18');
+  });
+
+  it('adds no allocation predicate for "all" / undefined', async () => {
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID, allocationFilter: 'all' });
+    expect(unsafeSql()).not.toContain('bt.allocation_type IS');
+  });
+});
