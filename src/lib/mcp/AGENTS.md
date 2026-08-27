@@ -98,6 +98,13 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
   date, so taking the first posts one month's journal against another month's
   transaction. `bank_account_id` needs no ownership check — it only narrows a
   query already fenced to the tenant, so a foreign id matches nothing.
+- 2026-08-27: `list_bank_transactions` gained `cursor` + `fields` (PRD-11 §3). The reply is
+  `{ transactions, total, next_cursor }`; `next_cursor` is null on the last page and the
+  description tells the agent to loop on it. `fields:"compact"` drops each row to
+  `{id, date, amount, bank_reference, allocation}` where `allocation` is derived the same
+  way `allocation_filter` is — a posted `matched_journal_line_id` is the ONLY thing that
+  reads as `allocated`. An unusable cursor comes back as `toolError('invalid cursor')`;
+  every other service failure still rethrows so the registry audits it as `'error'`.
 - 2026-08-10: PAYG metering (`flowMetering.ts`). The connector shipped 25 tools
   that bypassed Flows entirely while the same operations charged in the app — an
   agent could pull a trial balance (10) or create an invoice (3) for free.

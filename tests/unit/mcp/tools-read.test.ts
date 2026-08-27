@@ -65,11 +65,20 @@ import {
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
+import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
+
+interface CompactRow {
+  id: string;
+  date: string;
+  amount: number;
+  bank_reference: string | null;
+  allocation: 'allocated' | 'suggested' | 'unallocated';
+}
 
 const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
 const OTHER_COMPANY = '99999999-9999-9999-9999-999999999999';
@@ -216,6 +225,100 @@ describe('contact + bank + vat tools', () => {
     expect(getVATReturn).toHaveBeenCalledWith(COMPANY_ID, '2026-05-01', '2026-06-30');
     const bad = await tool('vat_status').handler({}, ctx());
     expect(bad.isError).toBe(true);
+  });
+});
+
+// ── PRD-11 §3: list_bank_transactions cursor + compact rows ──────────────────
+
+describe('list_bank_transactions — paging and compact rows', () => {
+  const baseTx = {
+    id: 'tx-1', bankAccountId: 'acct-1', transactionDate: '2026-03-05', amount: -250.5,
+    bankReference: 'ABSA-991', status: 'imported' as const, createdAt: 'x', updatedAt: 'x',
+  };
+
+  it('passes the cursor through and surfaces next_cursor', async () => {
+    vi.mocked(getBankTransactions).mockResolvedValue({
+      transactions: [baseTx], total: 240, nextCursor: 'CURSOR-2',
+    } as never);
+
+    const out = parseOk(await tool('list_bank_transactions').handler(
+      { bank_account_id: 'acct-1', cursor: 'CURSOR-1' }, ctx(),
+    )) as { total: number; next_cursor: string | null };
+
+    expect(getBankTransactions).toHaveBeenCalledWith(
+      COMPANY_ID, expect.objectContaining({ cursor: 'CURSOR-1', bankAccountId: 'acct-1' }),
+    );
+    expect(out.total).toBe(240);
+    expect(out.next_cursor).toBe('CURSOR-2');
+  });
+
+  it('reports next_cursor = null on the final page', async () => {
+    vi.mocked(getBankTransactions).mockResolvedValue({ transactions: [], total: 0 } as never);
+    const out = parseOk(await tool('list_bank_transactions').handler({}, ctx())) as {
+      next_cursor: string | null;
+    };
+    expect(out.next_cursor).toBeNull();
+  });
+
+  it('fields=full (default) returns the whole row', async () => {
+    vi.mocked(getBankTransactions).mockResolvedValue({
+      transactions: [{ ...baseTx, description: 'Fuel' }], total: 1,
+    } as never);
+    const out = parseOk(await tool('list_bank_transactions').handler({}, ctx())) as {
+      transactions: Array<Record<string, unknown>>;
+    };
+    expect(out.transactions[0]).toMatchObject({ description: 'Fuel', transactionDate: '2026-03-05' });
+  });
+
+  it('fields=compact returns only the five agent-facing fields', async () => {
+    vi.mocked(getBankTransactions).mockResolvedValue({
+      transactions: [{ ...baseTx, description: 'Fuel', suggestedStrategy: 'rule' }], total: 1,
+    } as never);
+    const out = parseOk(await tool('list_bank_transactions').handler({ fields: 'compact' }, ctx())) as {
+      transactions: Array<Record<string, unknown>>;
+    };
+    expect(Object.keys(out.transactions[0]!).sort()).toEqual(
+      ['allocation', 'amount', 'bank_reference', 'date', 'id'],
+    );
+    expect(out.transactions[0]).toEqual({
+      id: 'tx-1', date: '2026-03-05', amount: -250.5, bank_reference: 'ABSA-991',
+      allocation: 'unallocated',
+    });
+  });
+
+  it('derives allocation state: a posted journal line beats any suggestion', async () => {
+    vi.mocked(getBankTransactions).mockResolvedValue({
+      transactions: [
+        { ...baseTx, id: 'a', matchedJournalLineId: 'jl-1', suggestedGlAccountId: 'gl-1' },
+        { ...baseTx, id: 'b', suggestedGlAccountId: 'gl-1' },
+        { ...baseTx, id: 'c', suggestedSupplierId: 'sup-1' },
+        { ...baseTx, id: 'd', suggestedClientId: 'cus-1' },
+        { ...baseTx, id: 'e', allocationType: 'account' },
+        { ...baseTx, id: 'f', bankReference: undefined },
+      ],
+      total: 6,
+    } as never);
+    const out = parseOk(await tool('list_bank_transactions').handler({ fields: 'compact' }, ctx())) as {
+      transactions: CompactRow[];
+    };
+    expect(out.transactions.map((t) => [t.id, t.allocation])).toEqual([
+      ['a', 'allocated'], ['b', 'suggested'], ['c', 'suggested'],
+      ['d', 'suggested'], ['e', 'suggested'], ['f', 'unallocated'],
+    ]);
+    // A missing bank_reference is null, not undefined — the key must survive JSON.
+    expect(out.transactions[5]!.bank_reference).toBeNull();
+  });
+
+  it('maps an unusable cursor to a plain tool error, never a stack trace', async () => {
+    vi.mocked(getBankTransactions).mockRejectedValue(new InvalidCursorError());
+    const r = await tool('list_bank_transactions').handler({ cursor: 'junk' }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toBe('invalid cursor');
+  });
+
+  it('does not swallow genuine service failures', async () => {
+    vi.mocked(getBankTransactions).mockRejectedValue(new Error('boom'));
+    await expect(tool('list_bank_transactions').handler({}, ctx())).rejects.toThrow('boom');
   });
 });
 

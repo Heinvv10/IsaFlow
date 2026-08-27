@@ -45,8 +45,19 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/bank/*`. Ev
 - `scripts/migrations/sql/327_*` (VAT subtype), `*bank_transaction*`, `*bank_reconciliation*`, `*bank_feed*`.
 
 ## Recent changes
-- 2026-08-27: PRD-11 §5 — `allocateTransaction` / `splitAllocateTransaction` build the journal date with `fmtDate` (`@/lib/neon`), not `toISOString()`. pg returns `transaction_date` at LOCAL midnight, so UTC rendering dated a 00:30 SAST transaction to the previous day — wrong month at a period boundary. The same date feeds the `customer_payments.payment_date` INSERT. `bankTransactionQueryService.fmtDate` (used by `mapTxRow`) still carries the same defect and was left out of scope.
+- 2026-08-27: PRD-11 §5 — `allocateTransaction` / `splitAllocateTransaction` build the journal date with `fmtDate` (`@/lib/neon`), not `toISOString()`. pg returns `transaction_date` at LOCAL midnight, so UTC rendering dated a 00:30 SAST transaction to the previous day — wrong month at a period boundary. The same date feeds the `customer_payments.payment_date` INSERT. The matching defect in the row mapper's own `fmtDate` (`bankTransactionQueryService` → now `bankTxRowMapper`) is fixed below.
 - 2026-08-27: `bankTransactionLookupService` added so the MCP allocate/reverse tools can take the statement's `bank_reference` instead of a UUID.
+- 2026-08-27: PRD-11 §3 — `getBankTransactions` returns `{ transactions, total, nextCursor? }`
+  and accepts an opaque keyset `cursor` (base64url `{d,a,id}`). The keyset predicate
+  (`bankTxCursor.ts`) must stay in lockstep with the ORDER BY, which now ends
+  `, bt.id DESC` in every branch to make the ordering total; a malformed cursor throws
+  `InvalidCursorError` before any query runs. The row query fetches `limit + 1` and trims
+  the probe row; `total` and the COUNT query stay unpaged. `offset` is unchanged and still
+  what the UI route uses. Split out of the 300-line service: `bankTxRowMapper.ts`
+  (`fmtDate`/`mapTxRow`, re-exported from the service), `bankTxQueryFragments.ts`
+  (`TX_SELECT`, `allocationCond`), `bankTxFilters.ts` (`BankTxFilters`). The mapper's
+  local UTC-rendering `fmtDate` is gone — it delegates to the one in `@/lib/neon`, so a
+  00:30 SAST timestamp no longer lists (or cursor-pages) as the previous day.
 - 2026-08-14: `hasBankAccountService` gained `countBankAccounts`; `/api/accounting/setup-guide` now uses it instead of counting `bank_accounts` rows, which meant the `bank-account` setup task could never complete in production.
 - 2026-08-09: `bankStatementImportService` — shared parse/dedup/persist path for agent imports. `importParsedTransactions` gained `skipAutoPost`; the MCP path sets it so an import posts nothing (sweep attributes to the system user, which would escape `list_agent_postings`).
 - 2026-04-24: PR-8 L-tier IDOR cleanup.

@@ -1,136 +1,31 @@
 /**
  * PRD-060: FibreFlow Accounting Module — Phase 4
- * Bank Transaction Query Service — queries, status mutations, and row mappers
+ * Bank Transaction Query Service — queries and status mutations.
+ *
+ * Row mappers live in ./bankTxRowMapper, static SQL fragments in
+ * ./bankTxQueryFragments, the keyset cursor in ./bankTxCursor. Both mappers are
+ * re-exported here: several callers import them from this module.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { BankTransaction } from '../../types/bank.types';
+import { fmtDate, mapTxRow } from './bankTxRowMapper';
+import { TX_SELECT, allocationCond } from './bankTxQueryFragments';
+import { decodeBankTxCursor, encodeBankTxCursor, bankTxKeysetCond } from './bankTxCursor';
+import type { BankTxFilters } from './bankTxFilters';
 
 type Row = DbRow;
 
-// ── Row Mappers ───────────────────────────────────────────────────────────────
+export { fmtDate, mapTxRow };
+export type { BankTxFilters };
 
-export function fmtDate(val: unknown): string {
-  if (val instanceof Date) return val.toISOString().split('T')[0] ?? '';
-  return val ? String(val).split('T')[0] ?? '' : '';
-}
-
-export function mapTxRow(row: Row): BankTransaction {
-  return {
-    id: String(row.id),
-    bankAccountId: String(row.bank_account_id),
-    transactionDate: fmtDate(row.transaction_date),
-    valueDate: row.value_date ? fmtDate(row.value_date) : undefined,
-    amount: Number(row.amount),
-    description: row.description ? String(row.description) : undefined,
-    reference: row.reference ? String(row.reference) : undefined,
-    bankReference: row.bank_reference ? String(row.bank_reference) : undefined,
-    status: String(row.status) as BankTransaction['status'],
-    matchedJournalLineId: row.matched_journal_line_id ? String(row.matched_journal_line_id) : undefined,
-    reconciliationId: row.reconciliation_id ? String(row.reconciliation_id) : undefined,
-    importBatchId: row.import_batch_id ? String(row.import_batch_id) : undefined,
-    excludeReason: row.excluded_reason ? String(row.excluded_reason) : undefined,
-    notes: row.notes ? String(row.notes) : undefined,
-    suggestedGlAccountId: row.suggested_gl_account_id ? String(row.suggested_gl_account_id) : undefined,
-    suggestedCategory: row.suggested_category ? String(row.suggested_category) : undefined,
-    suggestedCostCentre: row.suggested_cost_centre ? String(row.suggested_cost_centre) : undefined,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-    bankAccountName: row.bank_account_name ? String(row.bank_account_name) : undefined,
-    matchedEntryNumber: row.matched_entry_number ? String(row.matched_entry_number) : undefined,
-    suggestedGlAccountName: row.suggested_gl_account_name ? String(row.suggested_gl_account_name) : undefined,
-    suggestedGlAccountCode: row.suggested_gl_account_code ? String(row.suggested_gl_account_code) : undefined,
-    suggestedSupplierId: row.suggested_supplier_id ? String(row.suggested_supplier_id) : undefined,
-    suggestedSupplierName: row.suggested_supplier_name ? String(row.suggested_supplier_name) : undefined,
-    suggestedClientId: row.suggested_client_id ? String(row.suggested_client_id) : undefined,
-    suggestedClientName: row.suggested_client_name ? String(row.suggested_client_name) : undefined,
-    suggestedVatCode: row.suggested_vat_code && row.suggested_vat_code !== 'none'
-      ? String(row.suggested_vat_code) : undefined,
-    suggestedConfidence: row.suggested_confidence != null ? Number(row.suggested_confidence) : undefined,
-    suggestedStrategy: row.suggested_strategy ? String(row.suggested_strategy) : undefined,
-    cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,
-    cc2Id: row.cc2_id ? String(row.cc2_id) : undefined,
-    buId: row.bu_id ? String(row.bu_id) : undefined,
-    cc1Name: row.cc1_name ? String(row.cc1_name) : undefined,
-    cc2Name: row.cc2_name ? String(row.cc2_name) : undefined,
-    buName: row.bu_name ? String(row.bu_name) : undefined,
-    allocationType: row.allocation_type
-      ? String(row.allocation_type) as BankTransaction['allocationType'] : undefined,
-    allocatedEntityName: row.allocated_entity_name ? String(row.allocated_entity_name) : undefined,
-    counterpartyAccountId: row.counterparty_account_id ? String(row.counterparty_account_id) : undefined,
-    transferJournalEntryId: row.transfer_journal_entry_id ? String(row.transfer_journal_entry_id) : undefined,
-  };
-}
-
-// ── Filters Interface ─────────────────────────────────────────────────────────
-
-export interface BankTxFilters {
-  bankAccountId?: string;
-  reconciliationId?: string;
-  status?: string;
-  fromDate?: string;
-  toDate?: string;
-  fromAmount?: string;
-  toAmount?: string;
-  search?: string;
-  sortOrder?: 'asc' | 'desc';
-  allocationFilter?: 'all' | 'unallocated' | 'suggested' | 'allocated';
-  txType?: 'all' | 'spent' | 'received';
-  allocType?: 'all' | 'account' | 'supplier' | 'customer' | 'transfer';
-  hasSuggestion?: 'all' | 'yes' | 'no';
-  limit?: number;
-  offset?: number;
-}
-
-// ── Shared SELECT fragment ────────────────────────────────────────────────────
-// BL-11: Explicit column list replaces bt.* to reduce row width (~1,534→~640 bytes).
-// Every field read by mapTxRow must appear here. Keep in sync with mapTxRow.
-
-const TX_SELECT = `
-  SELECT
-    bt.id, bt.company_id, bt.bank_account_id,
-    bt.transaction_date, bt.value_date,
-    bt.amount, bt.description, bt.reference, bt.bank_reference,
-    bt.status, bt.matched_journal_line_id, bt.reconciliation_id,
-    bt.import_batch_id, bt.excluded_reason, bt.notes,
-    bt.suggested_gl_account_id, bt.suggested_category,
-    bt.suggested_supplier_id, bt.suggested_client_id,
-    bt.suggested_vat_code, bt.suggested_confidence, bt.suggested_strategy,
-    bt.cc1_id, bt.cc2_id, bt.bu_id,
-    bt.allocation_type, bt.allocated_entity_name,
-    bt.created_at, bt.updated_at,
-    ga.account_name AS bank_account_name,
-    sga.account_name AS suggested_gl_account_name,
-    sga.account_code AS suggested_gl_account_code,
-    COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
-    sc.name AS suggested_client_name
-  FROM bank_transactions bt
-  LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-  LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
-  LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id
-  LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
-`;
-
-// allocationFilter — same definition as bankAccountStatusService counts (PRD-11 §2):
-// allocated = journal posted; suggested = categorised, not posted; unallocated = neither.
-// Fixed literals keyed on a validated enum — safe for sql.unsafe. Applied in EVERY branch (#256).
-const HAS_CATEGORY =
-  '(bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL OR bt.allocation_type IS NOT NULL)';
-const NO_CATEGORY =
-  'bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL AND bt.allocation_type IS NULL';
-function allocationCond(f?: BankTxFilters): string {
-  switch (f?.allocationFilter) {
-    case 'allocated':
-      return 'AND bt.matched_journal_line_id IS NOT NULL';
-    case 'suggested':
-      return `AND bt.matched_journal_line_id IS NULL AND ${HAS_CATEGORY} AND bt.status != 'excluded'`;
-    case 'unallocated':
-      return `AND bt.matched_journal_line_id IS NULL AND ${NO_CATEGORY} AND bt.status != 'excluded'`;
-    default:
-      return '';
-  }
+export interface BankTxPage {
+  transactions: BankTransaction[];
+  total: number;
+  /** Opaque cursor for the next page; absent on the last page. */
+  nextCursor?: string;
 }
 
 // ── Query ─────────────────────────────────────────────────────────────────────
@@ -138,7 +33,10 @@ function allocationCond(f?: BankTxFilters): string {
 export async function getBankTransactions(
   companyId: string,
   filters?: BankTxFilters
-): Promise<{ transactions: BankTransaction[]; total: number }> {
+): Promise<BankTxPage> {
+  // Decoding happens BEFORE any query: a malformed cursor is a caller error,
+  // not a database one. Throws InvalidCursorError.
+  const cursor = filters?.cursor ? decodeBankTxCursor(filters.cursor) : undefined;
   try {
     // BL-11: Cap list limit at 100. Export paths have their own dedicated endpoints.
     // Sanitise: NaN / negative values from query-string coercion become safe defaults.
@@ -146,16 +44,20 @@ export async function getBankTransactions(
     const rawOffset = filters?.offset;
     const limit = typeof rawLimit === 'number' && Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 50;
     const offset = typeof rawOffset === 'number' && Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+    // `LIMIT $n::INT + 1` fetches one row past the page so a next page can be
+    // detected without a second count; the probe row is trimmed before return.
     let rows: Row[];
     let countRows: Row[];
 
     if (filters?.reconciliationId) {
       // BL-81: must scope by company_id to prevent cross-tenant data reads
+      const keyset = bankTxKeysetCond(cursor, 'DESC');
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.reconciliation_id = ${filters.reconciliationId}::UUID
           AND bt.company_id = ${companyId}::UUID
-        ORDER BY bt.transaction_date DESC, bt.amount DESC
-        LIMIT ${limit} OFFSET ${offset}`) as Row[];
+          ${keyset}
+        ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
+        LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
         WHERE reconciliation_id = ${filters.reconciliationId}::UUID
           AND company_id = ${companyId}::UUID`) as Row[];
@@ -187,6 +89,8 @@ export async function getBankTransactions(
       const sortDir = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
       if (sortDir !== 'ASC' && sortDir !== 'DESC') throw new Error('Invalid sort direction');
       const extra = [txTypeCond, allocTypeCond, hasSuggCond, allocationCond(filters)].filter(Boolean).join(' ');
+      // The keyset must track sortDir — the date leg flips with the ORDER BY.
+      const keyset = bankTxKeysetCond(cursor, sortDir);
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
@@ -195,8 +99,9 @@ export async function getBankTransactions(
           AND bt.amount >= ${fromAmt}::NUMERIC AND bt.amount <= ${toAmt}::NUMERIC
           AND (bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           ${sql.unsafe(extra)}
-        ORDER BY bt.transaction_date ${sql.unsafe(sortDir)}, bt.amount DESC
-        LIMIT ${limit} OFFSET ${offset}`) as Row[];
+          ${keyset}
+        ORDER BY bt.transaction_date ${sql.unsafe(sortDir)}, bt.amount DESC, bt.id DESC
+        LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
@@ -209,13 +114,15 @@ export async function getBankTransactions(
       const fromDate = filters.fromDate || '1900-01-01';
       const toDate = filters.toDate || '2099-12-31';
       const alloc = allocationCond(filters);
+      const keyset = bankTxKeysetCond(cursor, 'DESC');
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           ${sql.unsafe(alloc)}
-        ORDER BY bt.transaction_date DESC, bt.amount DESC
-        LIMIT ${limit} OFFSET ${offset}`) as Row[];
+          ${keyset}
+        ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
+        LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
@@ -230,14 +137,16 @@ export async function getBankTransactions(
       const fromDate = filters?.fromDate || '1900-01-01';
       const toDate = filters?.toDate || '2099-12-31';
       const alloc = allocationCond(filters);
+      const keyset = bankTxKeysetCond(cursor, 'DESC');
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
           AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
           ${sql.unsafe(alloc)}
-        ORDER BY bt.transaction_date DESC, bt.amount DESC
-        LIMIT ${limit} OFFSET ${offset}`) as Row[];
+          ${keyset}
+        ORDER BY bt.transaction_date DESC, bt.amount DESC, bt.id DESC
+        LIMIT ${limit}::INT + 1 OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
@@ -246,7 +155,14 @@ export async function getBankTransactions(
           ${sql.unsafe(alloc)}`) as Row[];
     }
 
-    return { transactions: rows.map(mapTxRow), total: Number(countRows[0]!.cnt) };
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const transactions = pageRows.map(mapTxRow);
+    const last = transactions[transactions.length - 1];
+    const nextCursor = hasMore && last
+      ? encodeBankTxCursor({ d: last.transactionDate, a: last.amount, id: last.id })
+      : undefined;
+    return { transactions, total: Number(countRows[0]!.cnt), ...(nextCursor ? { nextCursor } : {}) };
   } catch (err) {
     log.error('Failed to get bank transactions', { error: err }, 'accounting');
     throw err;
