@@ -279,14 +279,59 @@ export async function transaction(
   });
 }
 
+/** Test-only: hand the raw pool to integration tests that need a bound client. */
+export function getPoolForTests(): pg.Pool {
+  return getPool();
+}
+
 export type TxSql = (
   strings: TemplateStringsArray,
   ...values: unknown[]
 ) => Promise<unknown[]>;
 
+let withTxSeq = 0;
+
+/**
+ * Run `fn` in a transaction.
+ *
+ * Inside a request (withAuth / withPlatformAdmin / MCP bearer pipeline) a
+ * transaction is ALREADY open on the ALS-bound client, so `fn` runs on that
+ * client inside a SAVEPOINT: it sees every row the request wrote so far and
+ * commits/rolls back with the request. Taking a second pool connection here
+ * (the pre-2026-08-27 behaviour) made those rows invisible — every bank
+ * allocation failed on `bank_transactions_matched_journal_line_id_fkey` —
+ * and COMMITted independently of the request, breaking withAuth's
+ * all-or-nothing contract.
+ *
+ * Outside a request (cron, scripts) it opens its own connection + BEGIN.
+ *
+ * NEVER call withTransaction concurrently within one request
+ * (Promise.all([withTransaction(...), withTransaction(...)])): savepoints on a
+ * shared pg connection must nest LIFO (postgresql-gotchas §36). Sequence them.
+ */
 export async function withTransaction<T>(
   fn: (tx: TxSql) => Promise<T>
 ): Promise<T> {
+  const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+  if (ctxClient) {
+    const tx: TxSql = async (strings, ...values) => {
+      const { text, values: params } = buildQuery(strings, values);
+      const res = await ctxClient.query(text, params);
+      return res.rows as unknown[];
+    };
+    withTxSeq = (withTxSeq + 1) % 1_000_000;
+    try {
+      return await withSavepoint(`with_tx_${withTxSeq}`, () => fn(tx));
+    } catch (err) {
+      log.error(
+        'withTransaction rolled back (request savepoint)',
+        err instanceof Error ? { message: err.message } : { error: err },
+        'DB'
+      );
+      throw err;
+    }
+  }
+
   const pool = getPool();
   const client = await pool.connect();
   try {
