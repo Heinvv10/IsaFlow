@@ -8,9 +8,12 @@
  * because the current company-wide branch ignores `status` entirely.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@/lib/neon', () => {
+vi.mock('@/lib/neon', async (importOriginal) => {
+  // fmtDate is the REAL implementation: the timezone test below proves the row
+  // mapper delegates to it rather than to a UTC-rendering local copy.
+  const actual = await importOriginal<typeof import('@/lib/neon')>();
   const sqlMock = Object.assign(
     vi.fn((_strings: TemplateStringsArray, ...values: unknown[]) => {
       // Return a tagged-template-compatible fragment for TX_SELECT interpolation
@@ -20,7 +23,7 @@ vi.mock('@/lib/neon', () => {
       unsafe: vi.fn((s: string) => s),
     }
   );
-  return { sql: sqlMock };
+  return { sql: sqlMock, fmtDate: actual.fmtDate };
 });
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -28,6 +31,11 @@ vi.mock('@/lib/logger', () => ({
 
 import { sql } from '@/lib/neon';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
+import {
+  encodeBankTxCursor,
+  decodeBankTxCursor,
+  InvalidCursorError,
+} from '@/modules/accounting/services/bank/bankTxCursor';
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
 const ACCOUNT_ID = 'bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb';
@@ -521,5 +529,302 @@ describe('getBankTransactions — PRD-11: allocation is a posted journal line, n
       expect(t).toContain('bt.suggested_gl_account_id IS NOT NULL OR');
       expect(t).toContain("bt.status != 'excluded'");
     }
+  });
+});
+
+// ── PRD-11 §3: keyset pagination (cursor) ────────────────────────────────────
+//
+// The MCP agent pages an account by cursor, not offset: an offset page over a
+// live import double-reads rows. The keyset predicate must match the ORDER BY
+// exactly, and must be applied in EVERY branch (#256 was a filter that reached
+// only some of the four).
+
+const KEYSET_DESC = '(bt.transaction_date, bt.amount, bt.id) <';
+const KEYSET_ASC = 'bt.transaction_date > $';
+// The tiebreak leg — unlike the date leg, nothing else in the query looks like it.
+const KEYSET_TIEBREAK = '(bt.amount, bt.id) <';
+
+/** Values handed to sql.unsafe(text, values) — cursor params travel as a fragment. */
+function unsafeValues(): unknown[] {
+  return vi.mocked(sql.unsafe).mock.calls.flatMap((c) => (c[1] as unknown[]) ?? []);
+}
+
+const CURSOR = encodeBankTxCursor({
+  d: '2026-03-05', a: -250.5, id: 'cccccccc-0000-0000-0000-cccccccccccc',
+});
+
+type Filters = Parameters<typeof getBankTransactions>[1];
+
+const BRANCHES: Array<[string, Filters]> = [
+  ['reconciliationId', { reconciliationId: 'dddddddd-0000-0000-0000-dddddddddddd' }],
+  ['bankAccountId + status', { bankAccountId: ACCOUNT_ID, status: 'imported' }],
+  ['bankAccountId', { bankAccountId: ACCOUNT_ID }],
+  ['company-wide', {}],
+];
+
+describe('getBankTransactions — PRD-11: total ordering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+  });
+
+  for (const [label, filters] of BRANCHES) {
+    it(`orders by id DESC as the final tiebreak — ${label} branch`, async () => {
+      await getBankTransactions(COMPANY_ID, filters);
+      expect(sqlTextOf(0)).toMatch(/ORDER BY[\s\S]*bt\.amount DESC,\s*bt\.id DESC/);
+    });
+
+    it(`fetches one row beyond the limit to detect a next page — ${label} branch`, async () => {
+      await getBankTransactions(COMPANY_ID, filters);
+      expect(sqlTextOf(0)).toContain('::INT + 1');
+    });
+  }
+});
+
+describe('getBankTransactions — PRD-11: cursor applied in every branch', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+  });
+
+  for (const [label, filters] of BRANCHES) {
+    it(`applies the keyset predicate to the ROW query — ${label} branch`, async () => {
+      await getBankTransactions(COMPANY_ID, { ...filters, cursor: CURSOR });
+      expect(sqlTextOf(0)).toContain(KEYSET_DESC);
+      const vals = unsafeValues();
+      expect(vals).toContain('2026-03-05');
+      expect(vals).toContain(-250.5);
+      expect(vals).toContain('cccccccc-0000-0000-0000-cccccccccccc');
+    });
+
+    it(`leaves the COUNT query unpaged (total is the full match count) — ${label} branch`, async () => {
+      await getBankTransactions(COMPANY_ID, { ...filters, cursor: CURSOR });
+      expect(sqlTextOf(1)).not.toContain(KEYSET_DESC);
+    });
+  }
+
+  it('uses the ascending keyset form when sortOrder=asc (matches ORDER BY)', async () => {
+    await getBankTransactions(COMPANY_ID, {
+      bankAccountId: ACCOUNT_ID, status: 'imported', sortOrder: 'asc', cursor: CURSOR,
+    });
+    const text = sqlTextOf(0);
+    expect(text).toContain('ORDER BY bt.transaction_date ASC');
+    expect(text).toContain(KEYSET_ASC);
+    expect(text).toContain(KEYSET_TIEBREAK);
+    expect(text).not.toContain(KEYSET_DESC);
+  });
+
+  it('adds no keyset predicate when no cursor is given', async () => {
+    await getBankTransactions(COMPANY_ID, { bankAccountId: ACCOUNT_ID });
+    expect(sqlTextOf(0)).not.toContain(KEYSET_DESC);
+  });
+});
+
+describe('getBankTransactions — PRD-11: nextCursor', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns nextCursor and trims the probe row when a further page exists', async () => {
+    const pageId = (i: number) => `0000000${i}-1111-4222-8333-444444444444`;
+    const rows = Array.from({ length: 4 }, (_, i) =>
+      makeTxRow({ id: pageId(i), transaction_date: `2026-02-0${i + 1}`, amount: -100 - i })
+    );
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '9' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, { limit: 3 });
+
+    expect(result.transactions).toHaveLength(3);
+    expect(result.total).toBe(9);
+    expect(result.nextCursor).toBeTruthy();
+    // The cursor keys on the LAST RETURNED row, not the extra probe row.
+    expect(decodeBankTxCursor(result.nextCursor!)).toEqual({
+      d: '2026-02-03', a: -102, id: pageId(2),
+    });
+  });
+
+  it('returns no nextCursor on the final page', async () => {
+    const rows = Array.from({ length: 2 }, (_, i) => makeTxRow({ id: `tx-last-${i}` }));
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '2' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, { limit: 3 });
+
+    expect(result.transactions).toHaveLength(2);
+    expect(result.nextCursor).toBeUndefined();
+  });
+
+  it('rejects a malformed cursor with InvalidCursorError before any query runs', async () => {
+    await expect(getBankTransactions(COMPANY_ID, { cursor: 'not a cursor!!' }))
+      .rejects.toBeInstanceOf(InvalidCursorError);
+    expect(vi.mocked(sql)).not.toHaveBeenCalled();
+  });
+
+  it('rejects a well-formed base64 payload with the wrong shape', async () => {
+    const bad = Buffer.from(JSON.stringify({ d: 'yesterday', a: 'lots', id: 5 })).toString('base64url');
+    await expect(getBankTransactions(COMPANY_ID, { cursor: bad }))
+      .rejects.toBeInstanceOf(InvalidCursorError);
+  });
+});
+
+// ── cursor and offset are mutually exclusive ─────────────────────────────────
+//
+// Combined, they compose: the keyset narrows, THEN the offset skips inside what
+// is left, so every page after the first silently loses `offset` rows. There is
+// no reading of "page 3 of the rows after this cursor" a caller actually wants,
+// so the service refuses rather than quietly returning a short page.
+
+describe('getBankTransactions — PRD-11: cursor excludes offset', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('refuses a cursor combined with a non-zero offset, before any query runs', async () => {
+    await expect(getBankTransactions(COMPANY_ID, { cursor: CURSOR, offset: 50 }))
+      .rejects.toBeInstanceOf(InvalidCursorError);
+    expect(vi.mocked(sql)).not.toHaveBeenCalled();
+  });
+
+  it('allows a cursor with offset 0 — that is the UI default, not a paging request', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+    await expect(getBankTransactions(COMPANY_ID, { cursor: CURSOR, offset: 0 })).resolves.toBeDefined();
+  });
+
+  it('leaves offset paging alone when no cursor is given', async () => {
+    vi.mocked(sql).mockResolvedValueOnce([] as never).mockResolvedValueOnce([{ cnt: '0' }] as never);
+    await getBankTransactions(COMPANY_ID, { offset: 50 });
+    expect(valuesOf(0)).toContain(50);
+  });
+});
+
+describe('getBankTransactions — PRD-11: total ignores the cursor on the asc branch', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns the full match count while the rows are keyset-narrowed (sortOrder=asc)', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([makeTxRow({ id: 'tx-asc-1' })] as never)
+      .mockResolvedValueOnce([{ cnt: '317' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, {
+      bankAccountId: ACCOUNT_ID, status: 'imported', sortOrder: 'asc', cursor: CURSOR,
+    });
+
+    // total is the whole filtered set, not what is left after the cursor: it is
+    // what a progress readout divides by, so it must not shrink page by page.
+    expect(result.total).toBe(317);
+    expect(sqlTextOf(0)).toContain(KEYSET_TIEBREAK);
+    expect(sqlTextOf(1)).not.toContain(KEYSET_TIEBREAK);
+    expect(sqlTextOf(1)).not.toContain(KEYSET_DESC);
+    // The cursor values reach the row query only — never the count query.
+    expect(valuesOf(1)).not.toContain('2026-03-05');
+  });
+});
+
+// ── Date rendering: the mapper must read the LOCAL calendar date ─────────────
+//
+// pg hands back a Date for timestamp columns. Rendering it with toISOString()
+// prints the UTC date, so on UTC+2 (SAST) anything stamped between 00:00 and
+// 02:00 local rolled BACK one day — a 1 March transaction listed as 28 Feb, on
+// the wrong side of a month and VAT-period boundary. fmtDate from @/lib/neon
+// reads getFullYear/getMonth/getDate instead.
+
+describe('mapTxRow — SAST date rendering (no UTC rollback)', () => {
+  const originalTz = process.env.TZ;
+  beforeEach(() => {
+    process.env.TZ = 'Africa/Johannesburg';
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it('renders a Date just past local midnight as the LOCAL date, not the UTC one', async () => {
+    // 2026-02-28T22:30:00Z === 2026-03-01 00:30 SAST.
+    const row = makeTxRow({
+      id: 'tx-tz-1',
+      transaction_date: new Date('2026-02-28T22:30:00Z'),
+      value_date: new Date('2026-02-28T22:30:00Z'),
+    });
+    vi.mocked(sql)
+      .mockResolvedValueOnce([row] as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, {});
+
+    expect(result.transactions[0]!.transactionDate).toBe('2026-03-01');
+    expect(result.transactions[0]!.valueDate).toBe('2026-03-01');
+  });
+
+  it('leaves a plain YYYY-MM-DD string untouched', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([makeTxRow({ transaction_date: '2026-03-01' })] as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, {});
+    expect(result.transactions[0]!.transactionDate).toBe('2026-03-01');
+  });
+
+  it('carries the local date into the nextCursor, so paging cannot skip a day', async () => {
+    const rows = Array.from({ length: 2 }, (_, i) =>
+      makeTxRow({
+        id: `aaaa000${i}-1111-4222-8333-444444444444`,
+        transaction_date: new Date('2026-02-28T22:30:00Z'),
+      })
+    );
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '5' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, { limit: 1 });
+    expect(decodeBankTxCursor(result.nextCursor!).d).toBe('2026-03-01');
+  });
+});
+
+describe('bankTxCursor codec', () => {
+  it('round-trips a cursor', () => {
+    const c = { d: '2026-08-27', a: 1234.56, id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee' };
+    expect(decodeBankTxCursor(encodeBankTxCursor(c))).toEqual(c);
+  });
+
+  // Every field is cast in SQL (`$1::DATE`, `$3::UUID`). A value that parses as
+  // JSON but not as its SQL type reaches Postgres and throws 22008 / 22P02 —
+  // and a read tool runs with NO savepoint, so that aborts the whole request
+  // transaction: the registry's refund and audit writes then fail with 25P02
+  // and the caller gets a 500 with the Flow debit unrefunded. Decode is the
+  // only place that can stop it.
+  const FORGED: Array<[string, unknown]> = [
+    ['month 13', { d: '2026-13-05', a: 1, id: '11111111-1111-4111-8111-111111111111' }],
+    ['day 45', { d: '2026-01-45', a: 1, id: '11111111-1111-4111-8111-111111111111' }],
+    ['31 February', { d: '2026-02-31', a: 1, id: '11111111-1111-4111-8111-111111111111' }],
+    // JS has a year 0; the Postgres calendar goes 1 BC straight to 1 AD.
+    ['year 0', { d: '0000-01-01', a: 1, id: '11111111-1111-4111-8111-111111111111' }],
+    ['non-uuid id', { d: '2026-01-01', a: 1, id: 'abc' }],
+    ['sql-ish id', { d: '2026-01-01', a: 1, id: "1' OR '1'='1" }],
+    ['uuid missing a group', { d: '2026-01-01', a: 1, id: '11111111-1111-4111-8111' }],
+  ];
+
+  for (const [label, payload] of FORGED) {
+    it(`rejects a forged cursor before it can reach a SQL cast — ${label}`, () => {
+      const forged = Buffer.from(JSON.stringify(payload)).toString('base64url');
+      expect(() => decodeBankTxCursor(forged)).toThrow(InvalidCursorError);
+    });
+  }
+
+  it('accepts a real leap day', () => {
+    const c = { d: '2028-02-29', a: 1, id: '11111111-1111-4111-8111-111111111111' };
+    expect(decodeBankTxCursor(encodeBankTxCursor(c))).toEqual(c);
+  });
+
+  it('rejects 29 February in a non-leap year', () => {
+    const forged = Buffer.from(JSON.stringify({
+      d: '2026-02-29', a: 1, id: '11111111-1111-4111-8111-111111111111',
+    })).toString('base64url');
+    expect(() => decodeBankTxCursor(forged)).toThrow(InvalidCursorError);
+  });
+
+  it('emits URL-safe characters only', () => {
+    const enc = encodeBankTxCursor({
+      d: '2026-08-27', a: -99999.99, id: 'ffffffff-0000-0000-0000-ffffffffffff',
+    });
+    expect(enc).toMatch(/^[A-Za-z0-9_-]+$/);
   });
 });

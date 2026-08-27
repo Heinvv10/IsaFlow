@@ -32,7 +32,9 @@ const { sqlMock, logMock } = vi.hoisted(() => {
   return { sqlMock, logMock };
 });
 
-vi.mock('@/lib/neon', () => ({
+vi.mock('@/lib/neon', async (importOriginal) => ({
+  // fmtDate is the REAL helper — mapTxRow now delegates to it (no UTC rollback).
+  fmtDate: (await importOriginal<typeof import('@/lib/neon')>()).fmtDate,
   sql: sqlMock,
   withTransaction: vi.fn(),
 }));

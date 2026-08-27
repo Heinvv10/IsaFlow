@@ -3,11 +3,11 @@
  * Bank Reconciliation Service — reconciliation CRUD, allocation, and auto-match
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
-import { matchTransaction, fmtDate } from './bankTransactionQueryService';
+import { matchTransaction } from './bankTransactionQueryService';
 import type { BankReconciliation, AutoMatchResult } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
