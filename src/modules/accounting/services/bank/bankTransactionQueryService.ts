@@ -113,6 +113,17 @@ const TX_SELECT = `
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
 `;
 
+// allocationFilter: match the same definition used in bank-accounts header counts.
+// Fixed literals keyed on a validated enum — safe for sql.unsafe. Applied in
+// EVERY branch below (#256: it was silently dropped without `status`).
+function allocationCond(f?: BankTxFilters): string {
+  return f?.allocationFilter === 'allocated'
+    ? 'AND (bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL OR bt.allocation_type IS NOT NULL)'
+    : f?.allocationFilter === 'unallocated'
+      ? 'AND bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL AND bt.allocation_type IS NULL'
+      : '';
+}
+
 // ── Query ─────────────────────────────────────────────────────────────────────
 
 export async function getBankTransactions(
@@ -163,16 +174,10 @@ export async function getBankTransactions(
         : filters.hasSuggestion === 'no'
           ? 'AND bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL'
           : '';
-      // allocationFilter: match the same definition used in bank-accounts header counts
-      const allocationCond = filters.allocationFilter === 'allocated'
-        ? 'AND (bt.suggested_gl_account_id IS NOT NULL OR bt.suggested_supplier_id IS NOT NULL OR bt.suggested_client_id IS NOT NULL OR bt.allocation_type IS NOT NULL)'
-        : filters.allocationFilter === 'unallocated'
-          ? 'AND bt.suggested_gl_account_id IS NULL AND bt.suggested_supplier_id IS NULL AND bt.suggested_client_id IS NULL AND bt.allocation_type IS NULL'
-          : '';
       // sortDir is strictly validated — only 'ASC' or 'DESC' are possible
       const sortDir = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
       if (sortDir !== 'ASC' && sortDir !== 'DESC') throw new Error('Invalid sort direction');
-      const extra = [txTypeCond, allocTypeCond, hasSuggCond, allocationCond].filter(Boolean).join(' ');
+      const extra = [txTypeCond, allocTypeCond, hasSuggCond, allocationCond(filters)].filter(Boolean).join(' ');
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
@@ -194,32 +199,42 @@ export async function getBankTransactions(
     } else if (filters?.bankAccountId) {
       const fromDate = filters.fromDate || '1900-01-01';
       const toDate = filters.toDate || '2099-12-31';
+      const alloc = allocationCond(filters);
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
           AND bt.company_id = ${companyId}::UUID
           AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
+          ${sql.unsafe(alloc)}
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
-      countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions
-        WHERE bank_account_id = ${filters.bankAccountId}::UUID
-          AND company_id = ${companyId}::UUID
-          AND transaction_date >= ${fromDate} AND transaction_date <= ${toDate}`) as Row[];
+      countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
+        WHERE bt.bank_account_id = ${filters.bankAccountId}::UUID
+          AND bt.company_id = ${companyId}::UUID
+          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
+          ${sql.unsafe(alloc)}`) as Row[];
     } else {
       const statusFilter = filters?.status ?? null;
       // Null-safe search: when no term is given the condition collapses to TRUE,
       // so rows with NULL description AND NULL reference still list (unlike a
       // bare ILIKE '%', which would drop them).
       const searchPattern = filters?.search ? `%${filters.search}%` : null;
+      const fromDate = filters?.fromDate || '1900-01-01';
+      const toDate = filters?.toDate || '2099-12-31';
+      const alloc = allocationCond(filters);
       rows = (await sql`${sql.unsafe(TX_SELECT)}
         WHERE bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
           AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
+          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
+          ${sql.unsafe(alloc)}
         ORDER BY bt.transaction_date DESC, bt.amount DESC
         LIMIT ${limit} OFFSET ${offset}`) as Row[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM bank_transactions bt
         WHERE bt.company_id = ${companyId}::UUID
           AND (${statusFilter}::text IS NULL OR bt.status = ${statusFilter}::text)
-          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})`) as Row[];
+          AND (${searchPattern}::text IS NULL OR bt.description ILIKE ${searchPattern} OR bt.reference ILIKE ${searchPattern})
+          AND bt.transaction_date >= ${fromDate} AND bt.transaction_date <= ${toDate}
+          ${sql.unsafe(alloc)}`) as Row[];
     }
 
     return { transactions: rows.map(mapTxRow), total: Number(countRows[0]!.cnt) };
