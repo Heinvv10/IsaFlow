@@ -7,7 +7,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { withTransaction } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkAiRateLimit } from '@/lib/rateLimit';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
@@ -130,11 +130,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // tagged-template helper correctly builds a parameterised query from a raw string
     // by passing it as a single-element template-strings array with no interpolations.
     const rawSql = validation.sanitizedSQL;
+    // SET LOCAL lives until the enclosing transaction ends — under the request
+    // transaction that is the whole request, so restore it in a finally.
+    const prevTimeout = (await sql`SHOW statement_timeout`) as Array<{ statement_timeout: string }>;
     const rows = await withTransaction(async (tx) => {
       await tx`SET LOCAL statement_timeout = '5000'`;
       // Invoke the tagged-template helper with the raw SQL as a synthetic TemplateStringsArray
       // (no interpolations — all values are already inlined in the validated SQL string).
       return tx(Object.assign([rawSql], { raw: [rawSql] }) as unknown as TemplateStringsArray) as unknown as Row[];
+    }).finally(async () => {
+      const prev = prevTimeout[0]?.statement_timeout ?? '0';
+      await sql`SELECT set_config('statement_timeout', ${prev}, true)`;
     });
     const formatted = formatQueryResult(rows as Record<string, unknown>[], question);
 
