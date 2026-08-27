@@ -10,7 +10,7 @@ import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryP
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingAgent } from '../postingAgent';
-import { ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 function parseLines(raw: unknown): JournalLineInput[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
@@ -66,8 +66,14 @@ export const createDraftJournalTool: McpTool = {
   handler: async (args, ctx) => {
     const entryDate = strArg(args, 'date');
     if (!entryDate) return toolError('date is required (YYYY-MM-DD)');
+    const badDate = guardCastableArgs(args, { date: ['date'] });
+    if (badDate) return badDate;
     const lines = parseLines(args.lines);
     if (!lines) return toolError('lines must be a non-empty array of {account_id, debit, credit}');
+    // accountsBelongToCompany casts every one of these to ::UUID, so a typo
+    // there fails the ownership check itself rather than the posting.
+    const badLine = guardUuidList(lines.map((l) => l.glAccountId), (i) => `lines[${i}].account_id`);
+    if (badLine) return badLine;
     // Ownership: every line's GL account must belong to the token's company —
     // a foreign account_id would book cross-company (and silently unbalance
     // this company's own trial balance via the RLS-hidden joined row).
@@ -115,6 +121,8 @@ export const postJournalTool: McpTool = {
   handler: async (args, ctx) => {
     const journalId = strArg(args, 'journal_id');
     if (!journalId) return toolError('journal_id is required');
+    const bad = guardCastableArgs(args, { uuid: ['journal_id'] });
+    if (bad) return bad;
     try {
       const entry = await postJournalEntry(ctx.companyId, journalId, ctx.userId);
       return ok(entry);

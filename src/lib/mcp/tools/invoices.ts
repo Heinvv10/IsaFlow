@@ -8,7 +8,7 @@ import {
   listCustomerInvoices,
 } from '@/modules/accounting/services/ar/customerInvoiceReadService';
 import { getQuotes } from '@/modules/accounting/services/ar/quoteService';
-import { NOT_FOUND, clampLimit, ok, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 export const listInvoicesTool: McpTool = {
   name: 'list_invoices',
@@ -27,6 +27,9 @@ export const listInvoicesTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
+    // status and search are compared as TEXT; customer_id is a UUID cast.
+    const bad = guardCastableArgs(args, { uuid: ['customer_id'] });
+    if (bad) return bad;
     const status = strArg(args, 'status');
     const result = await listCustomerInvoices(ctx.companyId, {
       status: status && status !== 'all' ? [status] : null,
@@ -52,6 +55,8 @@ export const getInvoiceTool: McpTool = {
   handler: async (args, ctx) => {
     const invoiceId = strArg(args, 'invoice_id');
     if (!invoiceId) return toolError('invoice_id is required');
+    const bad = guardCastableArgs(args, { uuid: ['invoice_id'] });
+    if (bad) return bad;
     const invoice = await getCustomerInvoiceDetail(ctx.companyId, invoiceId);
     // Cross-tenant probes land here too — identical text to a genuine miss.
     if (!invoice) return toolError(NOT_FOUND);

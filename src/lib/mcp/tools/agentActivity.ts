@@ -5,9 +5,7 @@
  */
 import type { McpTool } from '../types';
 import { listAgentPostings } from '@/modules/accounting/services/bank/agentActivityService';
-import { clampLimit, ok, safeErrorText, toolError } from './toolHelpers';
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+import { clampLimit, guardCastableArgs, ok, safeErrorText, toolError } from './toolHelpers';
 
 export const listAgentPostingsTool: McpTool = {
   name: 'list_agent_postings',
@@ -28,9 +26,11 @@ export const listAgentPostingsTool: McpTool = {
   handler: async (args, ctx) => {
     const from = typeof args.from === 'string' ? args.from : '';
     const to = typeof args.to === 'string' ? args.to : '';
-    if (!DATE_RE.test(from) || !DATE_RE.test(to)) {
-      return toolError('from and to are required, formatted YYYY-MM-DD');
-    }
+    if (!from || !to) return toolError('from and to are required, formatted YYYY-MM-DD');
+    // Shape alone was not enough: these reach an entry_date comparison, where
+    // '2026-02-31' is a 22008 and a read tool has no savepoint to contain it.
+    const bad = guardCastableArgs(args, { date: ['from', 'to'] });
+    if (bad) return bad;
     try {
       // tenant from ctx ONLY; limit clamped here — inputSchema bounds are not
       // runtime-enforced (see toolHelpers.clampLimit / bank.ts).
