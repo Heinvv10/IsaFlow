@@ -159,6 +159,20 @@ describe('McpRegistry — a freed key means the handler must not have written', 
 
     expect(writes).toBe(1);
   });
+
+  it('strips registry-internal flags (billable / wroteNothing) from a replayed stored result', async () => {
+    registry.register(makeTool({ name: 'w', scope: null, write: true, handler: async () => ({
+      content: [{ type: 'text' as const, text: '"dup"' }], billable: false,
+    }) }));
+    const args = { idempotency_key: 'k2' };
+    await registry.call('w', args, ctxWithScopes([]));
+    mockSqlOnce([]);                                                                   // advisory lock
+    mockSqlOnce([{ result: { content: [{ type: 'text', text: '"dup"' }], billable: false, wroteNothing: true }, args_hash: hashArgs(args) }]); // stored row
+    const replayed = await registry.call('w', args, ctxWithScopes([])) as Record<string, unknown>;
+    expect(replayed).not.toHaveProperty('billable');
+    expect(replayed).not.toHaveProperty('wroteNothing');
+    expect(replayed.content).toEqual([{ type: 'text', text: '"dup"' }]);
+  });
 });
 
 // A dry run writes nothing, so it must not occupy the key: the real call that

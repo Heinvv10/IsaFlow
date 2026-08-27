@@ -158,11 +158,10 @@ export const importBankStatementTool: McpTool = {
       // every bank_transactions insert in withTransaction. So there is no
       // partial-import exposure to close.
       //
-      // And the registry's savepoint could not close one anyway — withTransaction
-      // takes a SEPARATE pooled connection with its own BEGIN/COMMIT, while the
-      // savepoint acts on the ALS-bound request connection. Anything committed
-      // there is beyond ROLLBACK TO SAVEPOINT. Do not add a write after this
-      // call assuming the outer savepoint protects it; it does not.
+      // Since PR #264 withTransaction runs on the ALS-bound request connection
+      // inside its own savepoint, so the registry's ROLLBACK TO SAVEPOINT does
+      // unwind it. The rethrow (not toolError) is what makes that rollback
+      // happen — returning an isError envelope would COMMIT the partial state.
       //
       // The rethrow is kept because a database failure should be recorded by the
       // registry as a failed call (status='error', debit refunded) rather than
