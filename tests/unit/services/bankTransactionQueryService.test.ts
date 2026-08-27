@@ -8,9 +8,12 @@
  * because the current company-wide branch ignores `status` entirely.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@/lib/neon', () => {
+vi.mock('@/lib/neon', async (importOriginal) => {
+  // fmtDate is the REAL implementation: the timezone test below proves the row
+  // mapper delegates to it rather than to a UTC-rendering local copy.
+  const actual = await importOriginal<typeof import('@/lib/neon')>();
   const sqlMock = Object.assign(
     vi.fn((_strings: TemplateStringsArray, ...values: unknown[]) => {
       // Return a tagged-template-compatible fragment for TX_SELECT interpolation
@@ -20,7 +23,7 @@ vi.mock('@/lib/neon', () => {
       unsafe: vi.fn((s: string) => s),
     }
   );
-  return { sql: sqlMock };
+  return { sql: sqlMock, fmtDate: actual.fmtDate };
 });
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -658,6 +661,63 @@ describe('getBankTransactions — PRD-11: nextCursor', () => {
     const bad = Buffer.from(JSON.stringify({ d: 'yesterday', a: 'lots', id: 5 })).toString('base64url');
     await expect(getBankTransactions(COMPANY_ID, { cursor: bad }))
       .rejects.toBeInstanceOf(InvalidCursorError);
+  });
+});
+
+// ── Date rendering: the mapper must read the LOCAL calendar date ─────────────
+//
+// pg hands back a Date for timestamp columns. Rendering it with toISOString()
+// prints the UTC date, so on UTC+2 (SAST) anything stamped between 00:00 and
+// 02:00 local rolled BACK one day — a 1 March transaction listed as 28 Feb, on
+// the wrong side of a month and VAT-period boundary. fmtDate from @/lib/neon
+// reads getFullYear/getMonth/getDate instead.
+
+describe('mapTxRow — SAST date rendering (no UTC rollback)', () => {
+  const originalTz = process.env.TZ;
+  beforeEach(() => {
+    process.env.TZ = 'Africa/Johannesburg';
+    vi.clearAllMocks();
+  });
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  it('renders a Date just past local midnight as the LOCAL date, not the UTC one', async () => {
+    // 2026-02-28T22:30:00Z === 2026-03-01 00:30 SAST.
+    const row = makeTxRow({
+      id: 'tx-tz-1',
+      transaction_date: new Date('2026-02-28T22:30:00Z'),
+      value_date: new Date('2026-02-28T22:30:00Z'),
+    });
+    vi.mocked(sql)
+      .mockResolvedValueOnce([row] as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, {});
+
+    expect(result.transactions[0]!.transactionDate).toBe('2026-03-01');
+    expect(result.transactions[0]!.valueDate).toBe('2026-03-01');
+  });
+
+  it('leaves a plain YYYY-MM-DD string untouched', async () => {
+    vi.mocked(sql)
+      .mockResolvedValueOnce([makeTxRow({ transaction_date: '2026-03-01' })] as never)
+      .mockResolvedValueOnce([{ cnt: '1' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, {});
+    expect(result.transactions[0]!.transactionDate).toBe('2026-03-01');
+  });
+
+  it('carries the local date into the nextCursor, so paging cannot skip a day', async () => {
+    const rows = Array.from({ length: 2 }, (_, i) =>
+      makeTxRow({ id: `tx-tz-c${i}`, transaction_date: new Date('2026-02-28T22:30:00Z') })
+    );
+    vi.mocked(sql)
+      .mockResolvedValueOnce(rows as never)
+      .mockResolvedValueOnce([{ cnt: '5' }] as never);
+
+    const result = await getBankTransactions(COMPANY_ID, { limit: 1 });
+    expect(decodeBankTxCursor(result.nextCursor!).d).toBe('2026-03-01');
   });
 });
 

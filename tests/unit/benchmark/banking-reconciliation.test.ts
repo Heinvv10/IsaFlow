@@ -28,13 +28,15 @@ import { describe, it, expect, vi } from 'vitest';
 // Stub the neon module before any service imports touch it.
 // The sql tag function must return a thenable so module-level sql`...`
 // expressions (like TX_SELECT) resolve without hitting a real database.
-vi.mock('@/lib/neon', () => {
+vi.mock('@/lib/neon', async (importOriginal) => {
   const noopTag = () => Promise.resolve([]);
   // Attach .unsafe() helper that bankTransactionQueryService uses inline
   (noopTag as unknown as Record<string, unknown>).unsafe = (s: string) => s;
   return {
     sql: noopTag,
     transaction: (_cb: unknown) => Promise.resolve(),
+    // fmtDate is the REAL helper — mapTxRow now delegates to it (no UTC rollback).
+    fmtDate: (await importOriginal<typeof import('@/lib/neon')>()).fmtDate,
   };
 });
 

@@ -3,15 +3,18 @@
  * bankTransactionQueryService (300-line rule); that module re-exports both
  * helpers, so every existing import path keeps working.
  */
+import { fmtDate } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import type { BankTransaction } from '../../types/bank.types';
 
 type Row = DbRow;
 
-export function fmtDate(val: unknown): string {
-  if (val instanceof Date) return val.toISOString().split('T')[0] ?? '';
-  return val ? String(val).split('T')[0] ?? '' : '';
-}
+// The local copy of fmtDate used `toISOString()`, which renders a Date in UTC:
+// on UTC+2 a timestamp between 00:00 and 02:00 SAST rolled back a day. The
+// shared helper in @/lib/neon reads the local calendar date instead. Re-exported
+// because callers import fmtDate from this module (and from the query service,
+// which re-exports it again).
+export { fmtDate };
 
 export function mapTxRow(row: Row): BankTransaction {
   return {
