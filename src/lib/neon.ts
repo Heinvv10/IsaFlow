@@ -39,7 +39,7 @@ let _pool: pg.Pool | null = null;
 /** Per-process sequence for ALS-batch savepoint names (nested batches must not collide). */
 let alsBatchSeq = 0;
 
-function getPool(): pg.Pool {
+export function getPool(): pg.Pool {
   if (!_pool) {
     _pool = new pg.Pool({
       connectionString: getDatabaseUrl(),
@@ -284,9 +284,36 @@ export type TxSql = (
   ...values: unknown[]
 ) => Promise<unknown[]>;
 
+let withTxSeq = 0;
+
+/**
+ * Run `fn` in a transaction.
+ *
+ * Inside a request (withAuth / withPlatformAdmin / MCP bearer pipeline) a
+ * transaction is ALREADY open on the ALS-bound client, so `fn` runs on that
+ * client inside a SAVEPOINT: it sees every row the request wrote so far and
+ * commits/rolls back with the request. Taking a second pool connection here
+ * (the pre-2026-08-27 behaviour) made those rows invisible — every bank
+ * allocation failed on `bank_transactions_matched_journal_line_id_fkey` —
+ * and COMMITted independently of the request, breaking withAuth's
+ * all-or-nothing contract.
+ *
+ * Outside a request (cron, scripts) it opens its own connection + BEGIN.
+ */
 export async function withTransaction<T>(
   fn: (tx: TxSql) => Promise<T>
 ): Promise<T> {
+  const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+  if (ctxClient) {
+    const tx: TxSql = async (strings, ...values) => {
+      const { text, values: params } = buildQuery(strings, values);
+      const res = await ctxClient.query(text, params);
+      return res.rows as unknown[];
+    };
+    withTxSeq = (withTxSeq + 1) % 1_000_000;
+    return withSavepoint(`with_tx_${withTxSeq}`, () => fn(tx));
+  }
+
   const pool = getPool();
   const client = await pool.connect();
   try {
