@@ -39,6 +39,7 @@ export async function getBankAccountsStatus(companyId: string): Promise<Row[]> {
       COALESCE(s.unreconciled_count, 0) AS unreconciled_count,
       COALESCE(s.unallocated_count, 0)  AS unallocated_count,
       COALESCE(s.allocated_count, 0)    AS allocated_count,
+      COALESCE(s.suggested_count, 0)    AS suggested_count,
       s.first_date,
       s.last_date,
       gp.id           AS group_id,
@@ -60,15 +61,18 @@ export async function getBankAccountsStatus(companyId: string): Promise<Row[]> {
         -- Unreconciled = imported/suggested but not yet matched
         SUM(CASE WHEN bt.matched_journal_line_id IS NULL AND bt.status != 'excluded' THEN bt.amount ELSE 0 END) AS unreconciled_balance,
         COUNT(CASE WHEN bt.status IN ('imported', 'allocated') THEN 1 END)::INT AS unreconciled_count,
-        -- Allocated = has any category: AI suggestion OR explicitly saved allocation
-        COUNT(CASE WHEN (
+        -- PRD-11 §2: allocated = a journal line was posted. A suggestion is NOT an allocation.
+        COUNT(CASE WHEN bt.matched_journal_line_id IS NOT NULL THEN 1 END)::INT AS allocated_count,
+        -- Suggested = no journal line yet, but an AI suggestion or saved category exists
+        COUNT(CASE WHEN bt.matched_journal_line_id IS NULL AND (
           bt.suggested_gl_account_id IS NOT NULL OR
           bt.suggested_supplier_id   IS NOT NULL OR
           bt.suggested_client_id     IS NOT NULL OR
           bt.allocation_type         IS NOT NULL
-        ) THEN 1 END)::INT AS allocated_count,
-        -- Unallocated = no category at all, not excluded
+        ) THEN 1 END)::INT AS suggested_count,
+        -- Unallocated = no journal line, no category at all, not excluded
         COUNT(CASE WHEN (
+          bt.matched_journal_line_id IS NULL AND
           bt.suggested_gl_account_id IS NULL AND
           bt.suggested_supplier_id   IS NULL AND
           bt.suggested_client_id     IS NULL AND
@@ -123,6 +127,7 @@ export async function getBankAccountsStatus(companyId: string): Promise<Row[]> {
     unreconciledBalance: Number(r.unreconciled_balance),
     unreconciledCount: Number(r.unreconciled_count),
     allocatedCount: Number(r.allocated_count ?? 0),
+    suggestedCount: Number(r.suggested_count ?? 0),
     unallocatedCount: Number(r.unallocated_count ?? 0),
     firstDate: r.first_date instanceof Date
       ? r.first_date.toISOString().split('T')[0]

@@ -8,7 +8,7 @@ import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAc
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { clampLimit, ok, strArg } from './toolHelpers';
 
-const ALLOCATION_FILTERS = ['all', 'unallocated', 'allocated'] as const;
+const ALLOCATION_FILTERS = ['all', 'unallocated', 'suggested', 'allocated'] as const;
 type AllocationFilter = (typeof ALLOCATION_FILTERS)[number];
 
 export const bankAccountsStatusTool: McpTool = {
@@ -24,7 +24,7 @@ export const bankAccountsStatusTool: McpTool = {
 export const listBankTransactionsTool: McpTool = {
   name: 'list_bank_transactions',
   description:
-    'Bank transactions, filterable by account, allocation state, and date range. Max 100 rows.',
+    'Bank transactions, filterable by account, allocation state, and date range. Max 100 rows. allocation_filter: allocated = a journal has been posted; suggested = categorised/AI-suggested but not yet posted; unallocated = neither.',
   scope: 'read:bank-tx',
   write: false,
   inputSchema: {
