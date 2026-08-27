@@ -15,7 +15,7 @@ import {
 import type { StatementFileType } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { NOT_FOUND, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 // inputSchema.enum is NOT enforced by the MCP transport — it is passed through
 // to getManifest() only. This array is the actual runtime gate.
@@ -92,6 +92,11 @@ export const importBankStatementTool: McpTool = {
     // bank_import_batches.statement_date is NOT NULL — without it the insert
     // fails inside the transaction after parsing has already been paid for.
     if (!statementDate) return toolError('statement_date is required (YYYY-MM-DD)');
+    const badArg = guardCastableArgs(args, {
+      uuid: ['bank_account_id'],
+      date: ['statement_date'],
+    });
+    if (badArg) return badArg;
 
     // Ownership. Nothing downstream re-checks the tenant: importParsedTransactions
     // writes whatever bank_account_id it is handed, and migration 446 dropped the
@@ -180,6 +185,8 @@ export const undoBankImportTool: McpTool = {
   handler: async (args, ctx) => {
     const batchId = strArg(args, 'batch_id');
     if (!batchId) return toolError('batch_id is required');
+    const bad = guardCastableArgs(args, { uuid: ['batch_id'] });
+    if (bad) return bad;
 
     if (!(await checkRateLimit(`mcp-bank-undo:${ctx.companyId}`, {
       max: UNDO_MAX_PER_HOUR, windowSecs: 3600,

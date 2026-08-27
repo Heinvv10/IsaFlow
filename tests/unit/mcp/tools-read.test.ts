@@ -175,17 +175,17 @@ describe('invoice + quote tools', () => {
   it('list_invoices normalises filters and caps at 100', async () => {
     vi.mocked(listCustomerInvoices).mockResolvedValue({ invoices: [], total: 0 });
     parseOk(await tool('list_invoices').handler(
-      { status: 'sent', customer_id: 'cust-1', limit: 500 }, ctx(),
+      { status: 'sent', customer_id: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', limit: 500 }, ctx(),
     ));
     expect(listCustomerInvoices).toHaveBeenCalledWith(COMPANY_ID, {
-      status: ['sent'], clientId: 'cust-1', search: null, limit: 100,
+      status: ['sent'], clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', search: null, limit: 100,
     });
   });
 
   it('get_invoice: cross-tenant probe reads identically to a genuine miss', async () => {
     vi.mocked(getCustomerInvoiceDetail).mockResolvedValue(null);
-    const r = await tool('get_invoice').handler({ invoice_id: 'someone-elses-invoice' }, ctx());
-    expect(getCustomerInvoiceDetail).toHaveBeenCalledWith(COMPANY_ID, 'someone-elses-invoice');
+    const r = await tool('get_invoice').handler({ invoice_id: '080a23a7-88b5-4aed-8b09-713f4d15b17b' }, ctx());
+    expect(getCustomerInvoiceDetail).toHaveBeenCalledWith(COMPANY_ID, '080a23a7-88b5-4aed-8b09-713f4d15b17b');
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toBe('Not found'); // no tenant hints
   });
@@ -235,7 +235,7 @@ describe('list_bank_transactions — paging and compact rows', () => {
   // because bank_account_id reaches SQL as `$n::UUID`.
   const ACCOUNT_UUID = '33333333-3333-4333-8333-333333333333';
   const baseTx = {
-    id: 'tx-1', bankAccountId: 'acct-1', transactionDate: '2026-03-05', amount: -250.5,
+    id: '045ef594-d81d-4f21-84d6-1151ed71260d', bankAccountId: 'ba36a4ed-d92d-47c6-8d4e-05462aea603a', transactionDate: '2026-03-05', amount: -250.5,
     bankReference: 'ABSA-991', status: 'imported' as const, createdAt: 'x', updatedAt: 'x',
   };
 
@@ -284,7 +284,7 @@ describe('list_bank_transactions — paging and compact rows', () => {
       ['allocation', 'amount', 'bank_reference', 'date', 'id'],
     );
     expect(out.transactions[0]).toEqual({
-      id: 'tx-1', date: '2026-03-05', amount: -250.5, bank_reference: 'ABSA-991',
+      id: '045ef594-d81d-4f21-84d6-1151ed71260d', date: '2026-03-05', amount: -250.5, bank_reference: 'ABSA-991',
       allocation: 'unallocated',
     });
   });
@@ -294,7 +294,7 @@ describe('list_bank_transactions — paging and compact rows', () => {
       transactions: [
         { ...baseTx, id: 'a', matchedJournalLineId: 'jl-1', suggestedGlAccountId: 'gl-1' },
         { ...baseTx, id: 'b', suggestedGlAccountId: 'gl-1' },
-        { ...baseTx, id: 'c', suggestedSupplierId: 'sup-1' },
+        { ...baseTx, id: 'c', suggestedSupplierId: '3fc5ec9c-e919-4f35-822a-aa193ae94984' },
         { ...baseTx, id: 'd', suggestedClientId: 'cus-1' },
         { ...baseTx, id: 'e', allocationType: 'account' },
         { ...baseTx, id: 'f', bankReference: undefined },
@@ -398,7 +398,7 @@ describe('suite-wide invariants', () => {
     vi.mocked(getAPAging).mockResolvedValue([] as never);
     vi.mocked(getAccountLedger).mockResolvedValue({ rows: [] } as never);
     vi.mocked(listCustomerInvoices).mockResolvedValue({ invoices: [], total: 0 });
-    vi.mocked(getCustomerInvoiceDetail).mockResolvedValue({ id: 'i1', items: [] });
+    vi.mocked(getCustomerInvoiceDetail).mockResolvedValue({ id: '4cd9b767-2d7f-4ee8-8b51-fb1e049f6903', items: [] });
     vi.mocked(getQuotes).mockResolvedValue({ quotes: [], total: 0 } as never);
     vi.mocked(listCustomers).mockResolvedValue([]);
     vi.mocked(listSuppliers).mockResolvedValue({ suppliers: [], total: 0 });
@@ -410,7 +410,7 @@ describe('suite-wide invariants', () => {
       profit_and_loss: { period_start: '2026-06-01', period_end: '2026-06-30' },
       vat_status: { period_start: '2026-05-01', period_end: '2026-06-30' },
       search_gl: { account_code: '1000', from_date: '2026-01-01', to_date: '2026-06-30' },
-      get_invoice: { invoice_id: 'i1' },
+      get_invoice: { invoice_id: '4cd9b767-2d7f-4ee8-8b51-fb1e049f6903' },
     };
 
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })));

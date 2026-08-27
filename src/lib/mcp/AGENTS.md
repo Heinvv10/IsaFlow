@@ -87,6 +87,21 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
 
 ## Recent changes
 
+- 2026-08-27: **every tool argument that lands in a SQL cast is guarded before the
+  service call** — `guardCastableArgs` / `guardUuidList` in `toolHelpers.ts`, applied
+  across all 12 tool files. An id becomes `$n::UUID` and a date `$n::DATE`, so 'abc' is a
+  22P02 and '2026-02-31' a 22008; a READ tool has NO savepoint, so that aborts the whole
+  request transaction and the registry's own refund and audit writes then fail with 25P02
+  (500, Flow debit unrefunded). WRITE tools have a savepoint and survive, but the reply
+  degrades to a generic failure naming no argument — and for `allocate_bank_transaction`
+  the error fires from the OWNERSHIP lookups, where an agent cannot tell a typo from a
+  refusal. `format: date` in a JSON Schema is advisory and enforces nothing. Guards use
+  `isRealCalendarDate`, NOT `isValidDate` — Date.parse rolls '2026-02-31' forward to 3
+  March, and JS's year 0 does not exist in Postgres. TEXT-compared arguments
+  (`account_code`, `bank_reference`, `search`, `status`) stay free-form by design. New
+  tool arguments that reach a cast must be added to the tool's guard spec and to
+  `tests/unit/mcp/toolArgCastGuards.test.ts`, which fails if any guard is removed.
+
 - 2026-08-27: PRD-11 §5 — `allocate_bank_transaction` and `reverse_bank_allocation`
   take EITHER `transaction_id` OR `bank_reference` (the reference printed on the
   statement), optionally narrowed by `bank_account_id`; `required` is now just
@@ -115,10 +130,7 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
   refund and audit writes then fail with 25P02, leaving a 500 with the Flow debit
   unrefunded. `format: date` in a JSON Schema is advisory and enforces nothing. Bad input
   comes back as `toolError('invalid <arg>')` with NO query issued; every other service
-  failure still rethrows so the registry audits it as `'error'`. **The other read-tool
-  files have not had this guard applied yet** — `vat_status`, the `reports.ts` period
-  arguments and the id arguments in `invoices.ts` still pass presence-checked strings
-  straight to a cast.
+  failure still rethrows so the registry audits it as `'error'`.
 - 2026-08-10: PAYG metering (`flowMetering.ts`). The connector shipped 25 tools
   that bypassed Flows entirely while the same operations charged in the app — an
   agent could pull a trial balance (10) or create an invoice (3) for free.

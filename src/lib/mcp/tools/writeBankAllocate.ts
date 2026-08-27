@@ -18,7 +18,7 @@ import {
   supplierBelongsToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingAgent } from '../postingAgent';
-import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
+import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, toolError } from './toolHelpers';
 
 // inputSchema.enum is NOT enforced by the MCP transport (schema is passed
 // through to getManifest() only) — this array is the actual runtime gate.
@@ -151,6 +151,12 @@ export const allocateBankTransactionTool: McpTool = {
   handler: async (args, ctx) => {
     const selector = pickTxSelector(args);
     if (typeof selector === 'string') return toolError(selector);
+    // Every one of these reaches a $n::UUID — the ownership lookups below cast
+    // them before anything posts. bank_reference is TEXT and stays free-form.
+    const badArg = guardCastableArgs(args, {
+      uuid: ['transaction_id', 'bank_account_id', 'contra_account_id', 'entity_id', 'invoice_id'],
+    });
+    if (badArg) return badArg;
     const contra = typeof args.contra_account_id === 'string' ? args.contra_account_id.trim() : '';
 
     const rawAllocType = args.alloc_type;

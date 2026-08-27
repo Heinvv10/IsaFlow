@@ -1,0 +1,216 @@
+/**
+ * Every MCP tool argument that lands in a SQL cast, refused before it gets there.
+ *
+ * The failure this prevents: an agent's id becomes `$n::UUID` and its date
+ * `$n::DATE`, so 'abc' is a 22P02 and 'junk' / '2026-02-31' a 22008. A READ
+ * tool runs with NO savepoint (registry.ts), so the error aborts the whole
+ * request transaction — the registry's own refund and audit writes then fail
+ * with 25P02, and the caller gets a 500 with the Flow debit unrefunded. A
+ * WRITE tool has a savepoint and survives, but the reply degrades to a generic
+ * failure naming no argument.
+ *
+ * `format: date` in a JSON Schema is advisory; nothing here enforces it. So
+ * these guards are the only thing between an agent's typo and the cast, and
+ * the assertion that matters is not the message — it is that the service was
+ * never called and NO query was issued.
+ *
+ * Services are mocked at the module boundary: if a guard is missing, the mock
+ * records a call and the test fails. That is the mutation-detectable signal.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@/lib/neon', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/neon')>();
+  const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), {
+    transaction: vi.fn(),
+    unsafe: vi.fn((s: string) => s),
+  });
+  return {
+    sql: sqlFn,
+    fmtDate: actual.fmtDate,
+    withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
+  };
+});
+vi.mock('@/lib/logger', () => ({
+  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+}));
+
+vi.mock('@/modules/accounting/services/gl/trialBalanceService', () => ({ getTrialBalance: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({ getFiscalPeriodIdForDate: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/incomeStatementService', () => ({ getIncomeStatement: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ getBalanceSheet: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/arAgingService', () => ({ getARAging: vi.fn() }));
+vi.mock('@/modules/accounting/services/ap/apAgingService', () => ({ getAPAging: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/accountLedgerService', () => ({ getAccountLedger: vi.fn() }));
+vi.mock('@/modules/accounting/services/ar/customerInvoiceReadService', () => ({
+  listCustomerInvoices: vi.fn(),
+  getCustomerInvoiceDetail: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/reports/vatReturnService', () => ({ getVATReturn: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankMatchCandidatesService', () => ({ getMatchCandidates: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/agentActivityService', () => ({ listAgentPostings: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({ getBankTransactions: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({ getBankAccountsStatus: vi.fn() }));
+
+import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
+import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
+import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
+import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
+import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
+import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
+import {
+  listCustomerInvoices,
+  getCustomerInvoiceDetail,
+} from '@/modules/accounting/services/ar/customerInvoiceReadService';
+import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
+import { getMatchCandidates } from '@/modules/accounting/services/bank/bankMatchCandidatesService';
+import { listAgentPostings } from '@/modules/accounting/services/bank/agentActivityService';
+import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
+
+import { sql } from '@/lib/neon';
+import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
+import type { McpTool, McpToolContext } from '@/lib/mcp/types';
+
+const COMPANY_ID = '22222222-2222-2222-2222-222222222222';
+const UUID = '11111111-1111-4111-8111-111111111111';
+const KEY = { idempotency_key: 'idem-1' };
+
+function ctx(): McpToolContext {
+  return {
+    userId: 'user-1',
+    companyId: COMPANY_ID,
+    scopes: ['read:reports', 'read:invoices', 'read:contacts', 'read:bank-tx', 'read:vat',
+      'write:bank-tx', 'write:invoices', 'write:journals'],
+    tokenJti: 'jti-1',
+    oauthAppId: null,
+  };
+}
+
+function tool(name: string): McpTool {
+  const t = MCP_TOOLS.find((x) => x.name === name);
+  if (!t) throw new Error(`tool not registered: ${name}`);
+  return t;
+}
+
+/** Every service any guarded tool would reach. None may be called. */
+const SERVICES = [
+  getTrialBalance, getIncomeStatement, getBalanceSheet, getARAging, getAPAging,
+  getAccountLedger, listCustomerInvoices, getCustomerInvoiceDetail, getVATReturn,
+  getMatchCandidates, listAgentPostings, getBankTransactions,
+];
+
+// [tool, args, the argument expected to be named]
+const BAD_UUID: Array<[string, Record<string, unknown>, string]> = [
+  ['trial_balance', { fiscal_period_id: 'abc' }, 'fiscal_period_id'],
+  ['search_gl', { account_id: 'abc', from_date: '2026-01-01', to_date: '2026-06-30' }, 'account_id'],
+  ['list_invoices', { customer_id: 'not-a-uuid' }, 'customer_id'],
+  ['get_invoice', { invoice_id: 'abc' }, 'invoice_id'],
+  ['get_match_candidates', { transaction_id: "1' OR '1'='1" }, 'transaction_id'],
+  ['list_bank_transactions', { bank_account_id: 'abc' }, 'bank_account_id'],
+];
+
+const BAD_DATE: Array<[string, Record<string, unknown>, string]> = [
+  ['profit_and_loss', { period_start: 'junk', period_end: '2026-06-30' }, 'period_start'],
+  ['profit_and_loss', { period_start: '2026-01-01', period_end: '2026-02-31' }, 'period_end'],
+  ['balance_sheet', { as_at: 'yesterday' }, 'as_at'],
+  ['aged_debtors', { as_at: '2026-13-01' }, 'as_at'],
+  ['aged_creditors', { as_at: '0000-01-01' }, 'as_at'],
+  ['search_gl', { account_code: '1000', from_date: '2026-02-31', to_date: '2026-06-30' }, 'from_date'],
+  ['vat_status', { period_start: '2026-05-01', period_end: 'junk' }, 'period_end'],
+  ['list_agent_postings', { from: '2026-02-31', to: '2026-08-31' }, 'from'],
+  ['list_bank_transactions', { to_date: '2026-02-29' }, 'to_date'],
+];
+
+describe('read tools — an uncastable argument never reaches the service', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  for (const [name, args, argName] of [...BAD_UUID, ...BAD_DATE]) {
+    it(`${name} refuses ${argName}=${JSON.stringify(args[argName])}`, async () => {
+      const r = await tool(name).handler(args, ctx());
+
+      expect(r.isError).toBe(true);
+      expect(r.content[0]!.text).toBe(`invalid ${argName}`);
+      // The guard's whole purpose: nothing downstream ran.
+      for (const service of SERVICES) expect(vi.mocked(service)).not.toHaveBeenCalled();
+      expect(vi.mocked(sql)).not.toHaveBeenCalled();
+      // No internals in the reply.
+      expect(r.content[0]!.text).not.toMatch(/22P02|22008|::|SELECT|_id =/);
+    });
+  }
+
+  it('valid arguments still reach the service', async () => {
+    vi.mocked(getAccountLedger).mockResolvedValue({ rows: [] } as never);
+    const r = await tool('search_gl').handler(
+      { account_id: UUID, from_date: '2026-01-01', to_date: '2028-02-29' }, ctx(),
+    );
+    expect(r.isError).toBeUndefined();
+    expect(getAccountLedger).toHaveBeenCalled();
+  });
+
+  it('an absent optional argument is not an invalid one', async () => {
+    vi.mocked(getARAging).mockResolvedValue([] as never);
+    const r = await tool('aged_debtors').handler({}, ctx());
+    expect(r.isError).toBeUndefined();
+  });
+
+  it('account_code stays free-form — it is compared as TEXT, not cast', async () => {
+    vi.mocked(getAccountLedger).mockResolvedValue({ rows: [] } as never);
+    const r = await tool('search_gl').handler(
+      { account_code: '1000/A-B', from_date: '2026-01-01', to_date: '2026-06-30' }, ctx(),
+    );
+    expect(r.isError).toBeUndefined();
+  });
+
+  it('list_agent_postings still reports a MISSING date distinctly from an invalid one', async () => {
+    const missing = await tool('list_agent_postings').handler({ to: '2026-08-31' }, ctx());
+    expect(missing.content[0]!.text).toContain('required');
+    const invalid = await tool('list_agent_postings').handler(
+      { from: '2026-02-31', to: '2026-08-31' }, ctx(),
+    );
+    expect(invalid.content[0]!.text).toBe('invalid from');
+  });
+});
+
+// Write tools have a savepoint, so a bad cast does not poison the transaction —
+// but it still costs a round trip and returns a message that names nothing.
+describe('write tools — an uncastable argument is named, not generic-ified', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const WRITE_BAD: Array<[string, Record<string, unknown>, string]> = [
+    ['create_draft_journal', {
+      date: '2026-02-31',
+      lines: [{ account_id: UUID, debit: 1, credit: 0 }, { account_id: UUID, debit: 0, credit: 1 }],
+      ...KEY,
+    }, 'date'],
+    ['create_draft_journal', {
+      date: '2026-06-30',
+      lines: [{ account_id: UUID, debit: 1, credit: 0 }, { account_id: 'abc', debit: 0, credit: 1 }],
+      ...KEY,
+    }, 'lines[].account_id'],
+    ['post_journal', { journal_id: 'abc', ...KEY }, 'journal_id'],
+    ['suggest_bank_allocation', { transaction_ids: [UUID, 'abc'], ...KEY }, 'transaction_ids'],
+    ['allocate_bank_transaction', { transaction_id: 'abc', contra_account_id: UUID, ...KEY }, 'transaction_id'],
+    ['allocate_bank_transaction', { transaction_id: UUID, contra_account_id: 'abc', ...KEY }, 'contra_account_id'],
+    ['create_draft_invoice', {
+      customer_id: 'abc', items: [{ description: 'x', unit_price: 1 }], ...KEY,
+    }, 'customer_id'],
+    ['create_draft_invoice', {
+      customer_id: UUID, invoice_date: '2026-13-01',
+      items: [{ description: 'x', unit_price: 1 }], ...KEY,
+    }, 'invoice_date'],
+    ['finalize_invoice', { invoice_id: 'abc', ...KEY }, 'invoice_id'],
+    ['import_bank_statement', {
+      bank_account_id: 'abc', file_type: 'csv', content: 'x', statement_date: '2026-04-30', ...KEY,
+    }, 'bank_account_id'],
+    ['undo_bank_import', { batch_id: 'abc', ...KEY }, 'batch_id'],
+  ];
+
+  for (const [name, args, argName] of WRITE_BAD) {
+    it(`${name} names ${argName}`, async () => {
+      const r = await tool(name).handler(args, ctx());
+      expect(r.isError).toBe(true);
+      expect(r.content[0]!.text).toBe(`invalid ${argName}`);
+      expect(vi.mocked(sql)).not.toHaveBeenCalled();
+    });
+  }
+});
