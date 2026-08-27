@@ -77,9 +77,37 @@ export function guardCastableArgs(
   return null;
 }
 
-/** Same guard for a list of ids (`transaction_ids`, journal line `account_id`s). */
-export function guardUuidList(ids: readonly string[], argName: string): McpToolResult | null {
-  return ids.every((id) => UUID_RE.test(id)) ? null : toolError(`invalid ${argName}`);
+/**
+ * Same guard for a list of ids (`transaction_ids`, journal line `account_id`s).
+ *
+ * Names the offending ELEMENT, not the array: a 200-id batch rejected as
+ * "invalid transaction_ids" tells an agent only that one of two hundred is
+ * wrong, which it then has to bisect. `labelAt` builds the position — indices
+ * must be those of the array the AGENT sent, so validate before any filtering.
+ *
+ * The value is echoed back because it is the agent's own input (nothing of
+ * ours leaks through it), truncated so a pathological string cannot bloat the
+ * reply.
+ */
+export function guardUuidList(
+  values: readonly unknown[],
+  labelAt: (index: number) => string,
+): McpToolResult | null {
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i];
+    if (typeof value !== 'string' || !UUID_RE.test(value)) {
+      return toolError(`invalid ${labelAt(i)}: ${JSON.stringify(truncateForMessage(value))}`);
+    }
+  }
+  return null;
+}
+
+const MAX_ECHOED_CHARS = 48;
+
+/** Echo an agent's bad value back readably without letting it bloat the reply. */
+function truncateForMessage(value: unknown): string {
+  const text = typeof value === 'string' ? value : String(value);
+  return text.length > MAX_ECHOED_CHARS ? `${text.slice(0, MAX_ECHOED_CHARS)}…` : text;
 }
 
 /**

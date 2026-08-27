@@ -153,6 +153,8 @@ export const allocateBankTransactionTool: McpTool = {
     if (typeof selector === 'string') return toolError(selector);
     // Every one of these reaches a $n::UUID — the ownership lookups below cast
     // them before anything posts. bank_reference is TEXT and stays free-form.
+    // invoice_id is defence-in-depth: today it reaches no cast of its own, so
+    // this guard is belt-and-braces against a future path that adds one.
     const badArg = guardCastableArgs(args, {
       uuid: ['transaction_id', 'bank_account_id', 'contra_account_id', 'entity_id', 'invoice_id'],
     });

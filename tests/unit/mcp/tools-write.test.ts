@@ -327,7 +327,7 @@ describe('write-tool failure paths', () => {
 
   it('suggest_bank_allocation: service rejection → safe tool error', async () => {
     vi.mocked(bulkCategorize).mockRejectedValue(new Error('no accounts configured'));
-    const r = await tool('suggest_bank_allocation').handler({ transaction_ids: ['t1'], ...KEY }, ctx());
+    const r = await tool('suggest_bank_allocation').handler({ transaction_ids: ['045ef594-d81d-4f21-84d6-1151ed71260d'], ...KEY }, ctx());
     expect(r.isError).toBe(true);
   });
 
@@ -425,7 +425,7 @@ describe('write-tool manifest invariants', () => {
       create_draft_invoice: { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_quote: { customer_name: 'A', items: [{ description: 'x', unit_price: 1 }], ...KEY },
       create_draft_journal: { date: '2026-06-30', lines: [{ account_id: 'ddd887ce-a246-46cb-898c-2bd2f4ddecfe', debit: 1, credit: 0 }, { account_id: '3413c139-d94c-48bd-8513-baff94ff4818', debit: 0, credit: 1 }], ...KEY },
-      suggest_bank_allocation: { transaction_ids: ['t1'], ...KEY },
+      suggest_bank_allocation: { transaction_ids: ['045ef594-d81d-4f21-84d6-1151ed71260d'], ...KEY },
       post_journal: { journal_id: '97120700-9f09-4fe5-804e-34331ce49b97', ...KEY },
       finalize_invoice: { invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY },
       allocate_bank_transaction: { transaction_id: '045ef594-d81d-4f21-84d6-1151ed71260d', contra_account_id: 'cf9df9b9-9fc0-424b-8137-47e9ba144c73', ...KEY },

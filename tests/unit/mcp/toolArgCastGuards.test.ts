@@ -51,6 +51,7 @@ vi.mock('@/modules/accounting/services/bank/bankMatchCandidatesService', () => (
 vi.mock('@/modules/accounting/services/bank/agentActivityService', () => ({ listAgentPostings: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({ getBankTransactions: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({ getBankAccountsStatus: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
 
 import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
@@ -66,6 +67,7 @@ import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnSer
 import { getMatchCandidates } from '@/modules/accounting/services/bank/bankMatchCandidatesService';
 import { listAgentPostings } from '@/modules/accounting/services/bank/agentActivityService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
+import { bulkCategorize } from '@/modules/accounting/services/core/smartCategorizationService';
 
 import { sql } from '@/lib/neon';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
@@ -182,13 +184,7 @@ describe('write tools — an uncastable argument is named, not generic-ified', (
       lines: [{ account_id: UUID, debit: 1, credit: 0 }, { account_id: UUID, debit: 0, credit: 1 }],
       ...KEY,
     }, 'date'],
-    ['create_draft_journal', {
-      date: '2026-06-30',
-      lines: [{ account_id: UUID, debit: 1, credit: 0 }, { account_id: 'abc', debit: 0, credit: 1 }],
-      ...KEY,
-    }, 'lines[].account_id'],
     ['post_journal', { journal_id: 'abc', ...KEY }, 'journal_id'],
-    ['suggest_bank_allocation', { transaction_ids: [UUID, 'abc'], ...KEY }, 'transaction_ids'],
     ['allocate_bank_transaction', { transaction_id: 'abc', contra_account_id: UUID, ...KEY }, 'transaction_id'],
     ['allocate_bank_transaction', { transaction_id: UUID, contra_account_id: 'abc', ...KEY }, 'contra_account_id'],
     ['create_draft_invoice', {
@@ -213,4 +209,70 @@ describe('write tools — an uncastable argument is named, not generic-ified', (
       expect(vi.mocked(sql)).not.toHaveBeenCalled();
     });
   }
+});
+
+// A list argument rejected as a whole ("invalid transaction_ids") leaves an
+// agent to bisect 200 ids to find the one it typoed. The position and the
+// value are the actionable part.
+describe('list arguments — the offending element is named, not the array', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('suggest_bank_allocation names the index and the value', async () => {
+    const r = await tool('suggest_bank_allocation').handler(
+      { transaction_ids: [UUID, UUID, 'abc'], ...KEY }, ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toBe('invalid transaction_ids[2]: "abc"');
+  });
+
+  it('create_draft_journal names the line and the value', async () => {
+    const r = await tool('create_draft_journal').handler({
+      date: '2026-06-30',
+      lines: [
+        { account_id: UUID, debit: 1, credit: 0 },
+        { account_id: 'not-a-uuid', debit: 0, credit: 1 },
+      ],
+      ...KEY,
+    }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toBe('invalid lines[1].account_id: "not-a-uuid"');
+  });
+
+  it('reports the FIRST bad element', async () => {
+    const r = await tool('suggest_bank_allocation').handler(
+      { transaction_ids: ['first-bad', UUID, 'second-bad'], ...KEY }, ctx(),
+    );
+    expect(r.content[0]!.text).toBe('invalid transaction_ids[0]: "first-bad"');
+  });
+
+  // Indices must be those of the array the AGENT sent. Filtering the
+  // non-strings out first would renumber everything after them and point the
+  // agent at the wrong element.
+  it('indexes against the original array, not a filtered copy', async () => {
+    const r = await tool('suggest_bank_allocation').handler(
+      { transaction_ids: [UUID, 42, 'abc'], ...KEY }, ctx(),
+    );
+    // The number at index 1 is itself invalid and reported there — not skipped,
+    // which would have made the next failure read as index 1 instead of 2.
+    expect(r.content[0]!.text).toBe('invalid transaction_ids[1]: "42"');
+  });
+
+  it('truncates a pathological value so it cannot bloat the reply', async () => {
+    const huge = 'x'.repeat(5000);
+    const r = await tool('suggest_bank_allocation').handler(
+      { transaction_ids: [huge], ...KEY }, ctx(),
+    );
+    expect(r.content[0]!.text.length).toBeLessThan(120);
+    expect(r.content[0]!.text).toContain('transaction_ids[0]');
+    expect(r.content[0]!.text).toContain('…');
+  });
+
+  it('a fully valid list still reaches the service', async () => {
+    vi.mocked(bulkCategorize).mockResolvedValue({ categorized: 2 } as never);
+    const r = await tool('suggest_bank_allocation').handler(
+      { transaction_ids: [UUID, UUID], ...KEY }, ctx(),
+    );
+    expect(r.isError).toBeUndefined();
+    expect(bulkCategorize).toHaveBeenCalledWith(COMPANY_ID, [UUID, UUID]);
+  });
 });

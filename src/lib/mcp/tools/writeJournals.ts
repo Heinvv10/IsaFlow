@@ -72,7 +72,7 @@ export const createDraftJournalTool: McpTool = {
     if (!lines) return toolError('lines must be a non-empty array of {account_id, debit, credit}');
     // accountsBelongToCompany casts every one of these to ::UUID, so a typo
     // there fails the ownership check itself rather than the posting.
-    const badLine = guardUuidList(lines.map((l) => l.glAccountId), 'lines[].account_id');
+    const badLine = guardUuidList(lines.map((l) => l.glAccountId), (i) => `lines[${i}].account_id`);
     if (badLine) return badLine;
     // Ownership: every line's GL account must belong to the token's company —
     // a foreign account_id would book cross-company (and silently unbalance
