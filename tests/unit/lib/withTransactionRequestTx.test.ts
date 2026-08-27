@@ -78,4 +78,51 @@ describe('withTransaction — request tx in flight (integration)', async () => {
       client.release();
     }
   });
+
+  it.skipIf(!reachable)('SET LOCAL inside withTransaction outlives the savepoint; set_config(...,true) restores it (nl-query pattern)', async () => {
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      await als.run(fakeCtx(client), async () => {
+        const before = (await sql`SHOW statement_timeout`) as Array<{ statement_timeout: string }>;
+        await withTransaction(async (tx) => { await tx`SET LOCAL statement_timeout = '5000'`; });
+        const leaked = (await sql`SHOW statement_timeout`) as Array<{ statement_timeout: string }>;
+        expect(leaked[0]?.statement_timeout).toBe('5s'); // RELEASE SAVEPOINT does not undo SET LOCAL
+        const prev = before[0]?.statement_timeout ?? '0';
+        await sql`SELECT set_config('statement_timeout', ${prev}, true)`;
+        const restored = (await sql`SHOW statement_timeout`) as Array<{ statement_timeout: string }>;
+        expect(restored[0]?.statement_timeout).toBe(prev);
+      });
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  });
+
+  it.skipIf(!reachable)('mig 516: a manager can set their own default company as app_user; not another user\'s', async () => {
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      const mgr = await client.query(
+        `SELECT cu.user_id, cu.company_id FROM company_users cu WHERE cu.role NOT IN ('owner','admin') LIMIT 1`,
+      );
+      if (mgr.rows.length === 0) return; // no non-admin fixture in this DB
+      const { user_id: uid, company_id: cid } = mgr.rows[0] as { user_id: string; company_id: string };
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: 'authenticated' })]);
+      await client.query(`UPDATE company_users SET is_default = false WHERE user_id = $1`, [uid]); // RLS: 0 rows for a manager
+      const r = await client.query(`SELECT auth.set_default_company($1::UUID, $2::UUID) AS n`, [uid, cid]);
+      expect(Number((r.rows[0] as { n: number }).n)).toBeGreaterThanOrEqual(0);
+      const after = await client.query(`SELECT is_default FROM company_users WHERE user_id = $1 AND company_id = $2`, [uid, cid]);
+      expect((after.rows[0] as { is_default: boolean }).is_default).toBe(true);
+      await client.query('SAVEPOINT s1');
+      await expect(
+        client.query(`SELECT auth.set_default_company($1::UUID, $2::UUID)`, ['00000000-0000-0000-0000-0000000000aa', cid]),
+      ).rejects.toMatchObject({ code: '42501' });
+      await client.query('ROLLBACK TO SAVEPOINT s1');
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  });
 });

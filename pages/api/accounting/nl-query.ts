@@ -126,9 +126,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     //   transaction() rejects at runtime with:
     //     "transaction() expects an array of queries, or a function returning an array"
     //
-    // withTransaction() uses a real pg.Pool client with BEGIN/COMMIT, and the tx
-    // tagged-template helper correctly builds a parameterised query from a raw string
-    // by passing it as a single-element template-strings array with no interpolations.
+    // withTransaction() runs on the request-scoped client inside a SAVEPOINT (PR #264;
+    // its own BEGIN/COMMIT only outside a request), and the tx tagged-template helper
+    // builds a parameterised query from a raw string by passing it as a
+    // single-element template-strings array with no interpolations.
     const rawSql = validation.sanitizedSQL;
     // SET LOCAL lives until the enclosing transaction ends — under the request
     // transaction that is the whole request, so restore it in a finally.
@@ -140,7 +141,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       return tx(Object.assign([rawSql], { raw: [rawSql] }) as unknown as TemplateStringsArray) as unknown as Row[];
     }).finally(async () => {
       const prev = prevTimeout[0]?.statement_timeout ?? '0';
-      await sql`SELECT set_config('statement_timeout', ${prev}, true)`;
+      // Never let the restore mask the query's own error.
+      await sql`SELECT set_config('statement_timeout', ${prev}, true)`.catch((restoreErr: unknown) => {
+        log.warn('nl-query: statement_timeout restore failed', { message: restoreErr instanceof Error ? restoreErr.message : String(restoreErr) }, 'ai');
+      });
     });
     const formatted = formatQueryResult(rows as Record<string, unknown>[], question);
 
