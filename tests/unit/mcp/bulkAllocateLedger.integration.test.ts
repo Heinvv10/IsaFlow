@@ -94,9 +94,18 @@ async function seedTransactions(
   return ids;
 }
 
+/**
+ * Journals THIS tool posted in THIS company since the test's transaction began.
+ * A company-wide count races with other DB-gated test files committing
+ * journals into the same fixture company in parallel workers; scoping by
+ * posting_agent + tx start (now() is fixed for the transaction) does not.
+ */
 async function countJournals(companyId: string): Promise<number> {
   const rows = (await sql`
-    SELECT COUNT(*)::INT AS n FROM gl_journal_entries WHERE company_id = ${companyId}::uuid
+    SELECT COUNT(*)::INT AS n FROM gl_journal_entries
+    WHERE company_id = ${companyId}::uuid
+      AND posting_agent = ${'mcp:bulk_allocate_bank_transactions:v1'}
+      AND created_at >= now()
   `) as Array<{ n: number }>;
   return rows[0]!.n;
 }
