@@ -34,6 +34,30 @@ describe('buildApplyToast', () => {
     expect(r.message).toBe('5 categorised · 3 auto-post rules skipped (bank not GL-linked)');
   });
 
+  it('reports transactions raced by another request', () => {
+    // The applyRules run left these alone rather than posting a second journal
+    // over someone else's allocation. Silent, it reads as "rules aren't working".
+    const r = buildApplyToast({ applied: 10, autoPostSkippedRaced: 2 });
+    expect(r.message).toBe('10 categorised · 2 skipped — allocated by another request');
+    expect(r.kind).toBe('success');
+  });
+
+  it('reports transactions whose row lock timed out', () => {
+    const r = buildApplyToast({ applied: 10, autoPostSkippedLocked: 3 });
+    expect(r.message).toBe('10 categorised · 3 skipped — locked by another request, retry');
+  });
+
+  it('reports a rule that hit the 500-transaction cap', () => {
+    const r = buildApplyToast({ applied: 500, autoPostTruncatedRules: 1 });
+    expect(r.message).toBe('500 categorised · 1 rule hit the 500-transaction cap — run again');
+  });
+
+  it('warns when nothing applied and everything raced', () => {
+    // Zero applied with collateral skips is the misleading case the tone exists for.
+    const r = buildApplyToast({ applied: 0, autoPostSkippedRaced: 4 });
+    expect(r.kind).toBe('warn');
+  });
+
   it('singular: 1 auto-post rule skipped → "rule" not "rules"', () => {
     const r = buildApplyToast({ applied: 5, autoPostRulesSkippedNoBankGl: 1 });
     expect(r.message).toBe('5 categorised · 1 auto-post rule skipped (bank not GL-linked)');

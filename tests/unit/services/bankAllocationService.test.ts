@@ -43,6 +43,13 @@ import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { enterFakeRequestCtx } from '../helpers/requestCtx';
+
+// The bank write paths take a row lock (bankTxLock), which refuses to run
+// outside a request transaction. These tests mock `sql`, so the ALS client is
+// never actually used — it only has to be present.
+beforeEach(() => enterFakeRequestCtx());
+
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 

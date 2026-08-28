@@ -1,0 +1,164 @@
+/**
+ * One auto-post rule line: lock the candidate, post its journal, settle the row.
+ *
+ * Extracted from `bankRulesMatchingService.applyRules`, whose loop pushed that
+ * file over the 300-line limit. Behaviour is unchanged - the counters the loop
+ * used to increment inline are now the outcome this returns, so the caller
+ * still owns the tallying.
+ */
+
+import { sql } from '@/lib/neon';
+import {
+  createJournalEntry,
+  postJournalEntry,
+  ClosedFiscalPeriodError,
+} from '../gl/journalEntryService';
+import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
+import { lockBankTransactionForUpdate } from './bankTxLock';
+
+const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
+
+export type AutoPostOutcome =
+  | { kind: 'posted'; journalEntryId: string }
+  /** The row was allocated (or removed) between the candidate query and the lock. */
+  | { kind: 'raced' }
+  /** Its date falls in a closed/locked period - re-open the period to post it. */
+  | { kind: 'closed_period' }
+  /** No fiscal period covers its date - the year has not been created. */
+  | { kind: 'no_period' };
+
+export interface AutoPostLineInput {
+  companyId: string;
+  userId: string;
+  /** The candidate row from findMatchingTxs. */
+  tx: Record<string, unknown>;
+  /** The rule row being applied. */
+  rule: Record<string, unknown>;
+  ruleName: string;
+  allocType: RuleAllocType;
+  ruleGlAccountId: string | null;
+  bankGlAccountId: string;
+  apAccountId: string | null;
+  arAccountId: string | null;
+  supplierName: string | null;
+  customerName: string | null;
+}
+
+export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPostOutcome> {
+  const {
+    companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
+    bankGlAccountId, apAccountId, arAccountId, supplierName, customerName,
+  } = input;
+
+  // findMatchingTxs read every candidate in one query, possibly seconds
+  // ago. Lock the row and re-check before posting anything for it: a UI
+  // allocation committed in between would otherwise get a second journal
+  // posted on top of it, and the UPDATE below would relink the row to it.
+  const locked = await lockBankTransactionForUpdate(companyId, String(tx.id));
+  if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id) {
+    return { kind: 'raced' };
+  }
+
+  const entryDate = tx.transaction_date instanceof Date
+    ? tx.transaction_date.toISOString().split('T')[0]!
+    : String(tx.transaction_date).split('T')[0]!;
+
+  // Pre-flight: skip transactions whose date can't post. Without this,
+  // createJournalEntry would insert a draft JE row, postJournalEntry
+  // would reject it, and the draft would dangle in the GL forever.
+  const periodStatus = await getPeriodStatusForDate(companyId, entryDate);
+  if (periodStatus !== 'open') {
+    return { kind: periodStatus === 'no_period' ? 'no_period' : 'closed_period' };
+  }
+
+  const totalAmount = Math.abs(Number(tx.amount));
+  const isDeposit = Number(tx.amount) > 0;
+  const entryDesc = rule.description_template
+    ? String(rule.description_template)
+        .replace('{description}', String(tx.description || ''))
+        .replace('{amount}', totalAmount.toFixed(2))
+    : allocType === 'supplier' ? `Payment to ${supplierName}`
+    : allocType === 'customer' ? `Receipt from ${customerName}`
+    : `Bank: ${tx.description || 'Categorised by rule'}`;
+
+  const vatCode = String(rule.vat_code || 'none');
+  const hasVat = vatCode === 'standard';
+  const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
+  const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
+  // Supplier payment is a money-out from this bank → vat_input on the AP side.
+  // Customer receipt is a money-in to this bank → vat_output on the AR side.
+  const vatAccountKey: 'vat_input' | 'vat_output' = allocType === 'supplier' ? 'vat_input'
+    : allocType === 'customer' ? 'vat_output'
+    : (isDeposit ? 'vat_output' : 'vat_input');
+  const mapVatType = vatCode === 'standard' ? 'standard' as const
+    : vatCode === 'zero_rated' ? 'zero_rated' as const
+    : vatCode === 'exempt' ? 'exempt' as const
+    : undefined;
+
+  const source: import('../../types/gl.types').GLEntrySource = allocType === 'supplier'
+    ? 'auto_supplier_payment'
+    : allocType === 'customer'
+    ? 'auto_payment'
+    : 'auto_bank_recon';
+  const allocEntityName = allocType === 'supplier' ? supplierName!
+    : allocType === 'customer' ? customerName!
+    : ruleName;
+
+  const lines = await buildAutoCreateLines({
+    allocType, totalAmount, netAmount, vatAmount, hasVat, vatAccountKey,
+    vatType: mapVatType, isDeposit,
+    bankGlAccountId: bankGlAccountId!, ruleGlAccountId, apAccountId, arAccountId,
+    entryDesc, companyId,
+  });
+
+  const je = await createJournalEntry(companyId, {
+    entryDate,
+    description: entryDesc,
+    source,
+    lines,
+  }, userId);
+  try {
+    await postJournalEntry(companyId, je.id, userId);
+  } catch (err) {
+    // The pre-flight above should have caught closed periods, but the
+    // fiscal-period state can flip between the pre-flight and the post
+    // (rare race; admin closing a period mid-apply). On that path we
+    // hard-delete the draft we just inserted instead of leaving it
+    // dangling, then report the skip. Anything else re-throws.
+    if (err instanceof ClosedFiscalPeriodError) {
+      await sql`
+        DELETE FROM gl_journal_entries
+        WHERE id = ${je.id}::UUID
+          AND company_id = ${companyId}::UUID
+          AND status = 'draft'
+      `;
+      return { kind: 'closed_period' };
+    }
+    throw err;
+  }
+
+  const bankLineRows = (await sql`
+    SELECT jl.id FROM gl_journal_lines jl
+    WHERE jl.journal_entry_id = ${je.id}::UUID AND jl.gl_account_id = ${bankGlAccountId}::UUID
+      AND jl.company_id = ${companyId}::UUID
+    LIMIT 1
+  `) as Record<string, unknown>[];
+
+  if (bankLineRows[0]) {
+    await sql`
+      UPDATE bank_transactions
+      SET status = 'allocated', matched_journal_line_id = ${bankLineRows[0].id}::UUID,
+          allocation_type = ${allocType},
+          allocated_entity_name = ${allocEntityName},
+          suggested_gl_account_id = NULL,
+          suggested_supplier_id = NULL,
+          suggested_client_id = NULL,
+          suggested_category = NULL,
+          suggested_vat_code = NULL,
+          updated_at = NOW()
+      WHERE id = ${tx.id}::UUID AND company_id = ${companyId}::UUID
+    `;
+  }
+
+  return { kind: 'posted', journalEntryId: je.id };
+}
