@@ -6,7 +6,13 @@ DEPLOY_DIR="/home/velo/isaflow"
 # Resolve the repo from the script's own location so the script works from any
 # git worktree (parallel sessions share the main checkout's .next and clobber
 # each other's builds). Override with REPO_DIR=... if needed.
-REPO_DIR="${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+if [ -z "${REPO_DIR:-}" ]; then
+  if [ -z "${BASH_SOURCE[0]:-}" ]; then
+    echo "ERROR: run as 'bash scripts/deploy.sh' (BASH_SOURCE unset) or set REPO_DIR explicitly." >&2
+    exit 1
+  fi
+  REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
 SERVICE_NAME="isaflow"
 BUN="/home/hein/.bun/bin/bun"
 
@@ -33,16 +39,14 @@ echo "Release SHA: $GIT_SHA"
 # Load SENTRY_* keys from .env.local NOW (not later) so the Sentry webpack
 # plugin can create the release during the build. Pull only the SENTRY_*
 # keys — `set -a; .` trips on multi-line app values.
-# Worktree bootstrap: .env.local and node_modules are gitignored, so a fresh
-# worktree has neither. Copy the env from the main checkout and install deps.
-MAIN_REPO="$(cd "$(git -C "$REPO_DIR" rev-parse --git-common-dir)/.." && pwd)"
+# Worktree bootstrap: .env.local is gitignored, so a fresh worktree lacks it
+# and the build would run without DATABASE_URL etc. Copy it from the main
+# checkout (same secrets, same machine, still gitignored in the worktree).
+# node_modules is handled by the unconditional `bun install` further down.
+MAIN_REPO="$(cd "$(git -C "$REPO_DIR" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
 if [ ! -f "$REPO_DIR/.env.local" ] && [ -f "$MAIN_REPO/.env.local" ]; then
   echo "Worktree: copying .env.local from $MAIN_REPO"
   cp "$MAIN_REPO/.env.local" "$REPO_DIR/.env.local"
-fi
-if [ ! -d "$REPO_DIR/node_modules" ]; then
-  echo "Worktree: node_modules missing — running bun install"
-  "$BUN" install --frozen-lockfile
 fi
 ENV_LOCAL="$REPO_DIR/.env.local"
 if [ -f "$ENV_LOCAL" ]; then
