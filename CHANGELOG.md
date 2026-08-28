@@ -13,6 +13,32 @@ Last updated: 2026-04-19 · 643 commits on `master` · 144 migrations (000 → 3
 
 ---
 
+## 2026-08-28 — Bank Allocation Hardening + MCP GL Tool
+
+**Bank**
+
+- Lock bank transaction row before allocating or reversing — eliminates concurrent double-allocation race (#268)
+- Accept ABSA compact `YYYYMMDD` dates in CSV import (#274)
+
+**MCP**
+
+- `list_gl_accounts` read tool added (#272)
+- Statement reference resolves from either `bank_transactions` column (reference or description) (#273)
+- Bulk allocation skips already-allocated lines instead of failing the entire batch (#275)
+
+**Security**
+
+- `sars_efiling_events` RLS gap closed; append-only policy added; integration-test debt cleared (#270)
+- End-impersonation now requires the impersonated session token — covers pentest C1 (#271)
+
+**Ops**
+
+- `deploy.sh` made worktree-friendly (#269)
+
+Migrations: **514** (`bank_allocation_batches`), **515** (`bank_allocation_batch_lines`), **516** (`set_default_company_fn`), **517** (`sars_efiling_events_rls`), **518** (`sars_efiling_events_append_only`), **519** (`bank_tx_reference_trim_indexes`)
+
+---
+
 ## 2026-08-20 — Non-VAT-Vendor Support
 
 **VAT**
