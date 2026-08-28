@@ -126,9 +126,9 @@ export default function ReconciliationDetailPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message || 'Auto-match failed');
-      const data = (json?.data ?? {}) as { autoMatched?: number; skippedRaced?: number };
+      const data = (json?.data ?? {}) as { matched?: number; skippedRaced?: number };
       setNotice(
-        `Auto-matched ${data.autoMatched ?? 0}` +
+        `Auto-matched ${data.matched ?? 0}` +
         (data.skippedRaced ? ` — ${data.skippedRaced} skipped (allocated by another request)` : ''),
       );
       await loadData();
