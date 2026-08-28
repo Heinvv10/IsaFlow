@@ -197,6 +197,18 @@ describe('bulk_allocate_bank_transactions — already-allocated lines are skippe
     ]);
   });
 
+  it('reports a row that is BOTH excluded and carrying a journal as both', async () => {
+    // A contradiction a human has to see: the row is in the ledger and marked
+    // as kept out of it. Either fact alone hides the other.
+    statesReturn(state(1, 'imported', null), state(2, 'excluded', JL(2)));
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1), line(2)], dry_run: true, idempotency_key: 'k1' }, ctx,
+    );
+    expect(payload(res as never).skipped).toEqual([
+      { index: 1, transaction_id: TX(2), reason: 'already allocated (excluded)' },
+    ]);
+  });
+
   it('refuses the batch when a resolved id is not in this company at all', async () => {
     // The pre-check is the first thing that can see a transaction_id naming a
     // row this tenant does not have. Reported as the shared NOT_FOUND — the
@@ -360,5 +372,81 @@ describe('reverse_bank_allocation_batch — reverses exactly what the batch post
     expect(body.reversed).toBe(2);
     expect(body.transaction_ids).toEqual([TX(1), TX(3)]);
     expect(body.skipped).toEqual([]);
+  });
+});
+
+describe('bulk_allocate_bank_transactions — a row locked by another request', () => {
+  it('skips it as retryable and keeps the batch going', async () => {
+    // The lock is taken BEFORE anything is posted, so a timeout is write-free —
+    // the same class as the race. Failing 499 good lines because one row was
+    // briefly busy is the opposite of what a bulk tool is for.
+    statesReturn(state(1, 'imported', null), state(2, 'imported', null), state(3, 'imported', null));
+    vi.mocked(allocateTransaction).mockImplementation((async (_c: string, txId: string) => {
+      if (txId === TX(2)) {
+        throw Object.assign(
+          new Error(`Bank transaction ${TX(2)} is being allocated by another request — retry in a moment.`),
+          { code: 'BANK_TX_LOCK_TIMEOUT' },
+        );
+      }
+      return { journalEntryId: `je-for-${txId}`, bankTransaction: { id: txId } };
+    }) as never);
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1), line(2), line(3)], idempotency_key: 'k1' }, ctx,
+    );
+
+    expect(res.isError).toBeUndefined();
+    const body = payload(res as never);
+    expect(body.posted).toBe(2);
+    expect(body.skipped).toEqual([
+      { index: 1, transaction_id: TX(2), reason: 'locked by another request — retry' },
+    ]);
+    expect(allocateTransaction).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('bulk_allocate_bank_transactions — what a fatal line is allowed to say', () => {
+  /** The message the registry would render for this failure. */
+  async function detailFor(err: unknown): Promise<string> {
+    statesReturn(state(1, 'imported', null));
+    vi.mocked(allocateTransaction).mockRejectedValue(err);
+    const call = bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1)], idempotency_key: 'k1' }, ctx,
+    );
+    return call.then(
+      () => { throw new Error('expected the line to fail'); },
+      (e: unknown) => (e as BulkAllocationLineError).detail,
+    );
+  }
+
+  it('reduces a driver error to its SQLSTATE — no table, column or constraint names', async () => {
+    // BulkAllocationLineError is the ONE exception to GENERIC_FAILURE, so it is
+    // also the one place the "no SQL in a tool result" invariant could be
+    // smuggled back out. A pg message names the schema that failed.
+    const detail = await detailFor(Object.assign(
+      new Error('insert or update on table "gl_journal_lines" violates foreign key '
+        + 'constraint "gl_journal_lines_journal_entry_id_fkey"'),
+      { code: '23503' },
+    ));
+    expect(detail).toBe('database error 23503');
+    expect(detail).not.toContain('gl_journal_lines');
+    expect(detail).not.toContain('constraint');
+  });
+
+  it('catches a database message that arrives with no code at all', async () => {
+    const detail = await detailFor(new Error('relation "bank_transactions_old" does not exist'));
+    expect(detail).toBe('database error');
+    expect(detail).not.toContain('bank_transactions_old');
+  });
+
+  it('passes a service message through — it was written for this reader', async () => {
+    const detail = await detailFor(new Error('Fiscal period 2026-07 is closed'));
+    expect(detail).toBe('Fiscal period 2026-07 is closed');
+  });
+
+  it('caps a runaway message rather than pasting it into the reply', async () => {
+    const detail = await detailFor(new Error('x'.repeat(5000)));
+    expect(detail.length).toBeLessThanOrEqual(201);
+    expect(detail.endsWith('…')).toBe(true);
   });
 });

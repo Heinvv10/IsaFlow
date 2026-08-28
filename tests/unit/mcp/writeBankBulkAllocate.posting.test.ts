@@ -202,9 +202,18 @@ describe('bulk_allocate_bank_transactions — all or nothing', () => {
     vi.mocked(allocateTransaction).mockRejectedValue(
       Object.assign(new Error('deadlock detected'), { code: '40P01' }),
     );
-    await expect(
-      bulkAllocateBankTransactionsTool.handler({ allocations: [line(1)], idempotency_key: 'k1' }, ctx),
-    ).rejects.toThrow(/deadlock detected/);
+    const call = bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1)], idempotency_key: 'k1' }, ctx,
+    );
+    // It THROWS — that is the property under test, and the only thing that
+    // rolls the batch back. The driver's own text does not survive into the
+    // reply (a pg message names tables and constraints; see
+    // bulkAllocateSkipAllocated.test.ts), but the SQLSTATE does, so a deadlock
+    // is still distinguishable from a constraint violation.
+    await expect(call).rejects.toThrow(/database error 40P01/);
+    await call.catch((err: unknown) => {
+      expect((err as { detail: string }).detail).toBe('database error 40P01');
+    });
   });
 
   it('rethrows a failure to record the batch lines — an unreversible batch must not commit', async () => {

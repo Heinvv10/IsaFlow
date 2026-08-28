@@ -46,6 +46,61 @@ function racedStatus(err: unknown): string | null {
 }
 
 /**
+ * `lockBankTransactionForUpdate` waits 5s for the row and then raises
+ * `BankTransactionLockTimeoutError` (code BANK_TX_LOCK_TIMEOUT). Detected by
+ * CODE rather than `instanceof`: the loop must not import a bank service just
+ * to compare constructors, and the code is the stable part of that contract.
+ *
+ * Write-free by construction — the lock is taken before anything is posted —
+ * so the line is skipped rather than failing the batch.
+ */
+function isLockTimeout(err: unknown): boolean {
+  return typeof err === 'object' && err !== null
+    && (err as { code?: unknown }).code === 'BANK_TX_LOCK_TIMEOUT';
+}
+
+/**
+ * How much of a failure's own message may reach the agent.
+ *
+ * The registry's `.claude.md` invariant is that a handler error surfaces NO SQL
+ * and no internals; `BulkAllocationLineError` is the one exception to
+ * GENERIC_FAILURE, and it would smuggle the whole class back in if it passed
+ * `err.message` through verbatim. A pg error's message names the table, column
+ * and constraint that failed (`insert or update on table "gl_journal_lines"
+ * violates foreign key constraint "…"`), which is schema disclosure to a
+ * tenant-scoped API.
+ *
+ * So: anything that came from the DRIVER is reduced to its SQLSTATE — an agent
+ * (and the human reading its transcript) can still tell a constraint violation
+ * from a deadlock, and the server log keeps the full text. Everything else is
+ * a message the SERVICES wrote for exactly this audience ("Fiscal period …",
+ * "VAT Input system account not found"), and is passed through, capped.
+ */
+const MAX_DETAIL_CHARS = 200;
+
+/** Message shapes only a database produces, for an error that carries no code. */
+const DB_TEXT = /\b(relation|constraint|column|syntax error|duplicate key)\b/i;
+
+export function safeLineDetail(err: unknown): string {
+  const code = typeof err === 'object' && err !== null
+    ? (err as { code?: unknown }).code
+    : undefined;
+  // A pg error always carries a 5-character SQLSTATE. Application errors in
+  // this codebase carry either no code or a named one (BANK_TX_LOCK_TIMEOUT),
+  // so the shape check is what separates them.
+  if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) {
+    return `database error ${code}`;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (DB_TEXT.test(message)) {
+    return typeof code === 'string' ? `database error ${code}` : 'database error';
+  }
+  return message.length > MAX_DETAIL_CHARS
+    ? `${message.slice(0, MAX_DETAIL_CHARS)}…`
+    : message;
+}
+
+/**
  * Posts every prepared line, in the order given (the caller sorts by
  * transaction id — see the deadlock note in writeBankBulkAllocate.ts).
  *
@@ -61,6 +116,12 @@ function racedStatus(err: unknown): string | null {
  *     status under its own FOR UPDATE and refused, so NOTHING was written for
  *     this line and the batch is entitled to treat it exactly like a pre-check
  *     skip: counted, reported, and the batch continues.
+ *   - the row is LOCKED by another request that has not finished (5s
+ *     lock_timeout, BankTransactionLockTimeoutError). Also write-free — the
+ *     lock is taken before anything is posted — so it is the same class of
+ *     outcome as the race: skipped, reported as retryable, batch continues.
+ *     Failing 499 good lines because one row was briefly busy is the opposite
+ *     of what a bulk tool is for.
  *   - anything else — a closed period, a missing contra account, a constraint —
  *     is fatal. It is rethrown as BulkAllocationLineError so the registry's
  *     savepoint unwinds the whole batch AND the agent is told which line did
@@ -97,11 +158,15 @@ export async function postPreparedLines(
         raced.push({ index, transaction_id: txId, reason: reasonForStatus(status) });
         continue;
       }
-      throw new BulkAllocationLineError(
-        index,
-        txId,
-        err instanceof Error ? err.message : String(err),
-      );
+      if (isLockTimeout(err)) {
+        raced.push({
+          index, transaction_id: txId, reason: 'locked by another request — retry',
+        });
+        continue;
+      }
+      // NEVER err.message verbatim: the registry renders this text, and a pg
+      // error's message names tables, columns and constraints.
+      throw new BulkAllocationLineError(index, txId, safeLineDetail(err));
     }
   }
 

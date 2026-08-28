@@ -77,6 +77,26 @@ async function loadFixtureIds(): Promise<Omit<Fixture, 'txIds'> & { bankAccountI
 }
 
 /**
+ * EXPLICIT ids, not database-generated ones, and ordered so the third sorts
+ * LAST.
+ *
+ * The tool posts in transaction-id order (a total order over the locked rows is
+ * what stops two overlapping batches deadlocking), so with random v4 ids the
+ * third fixture row posted FIRST in roughly a third of runs — and the
+ * rollback test's `countJournals === before` was then vacuously true, because
+ * no journal had been posted before the failure. Fixed ids make "lines 1 and 2
+ * post REAL journals, then line 3 fails" the thing that actually happens every
+ * run. They live inside a transaction that always rolls back, so they cannot
+ * collide with anything that outlives the test.
+ */
+const FIXTURE_IDS = [
+  '0a5af10a-0000-4000-8000-000000000001',
+  '0a5af10a-0000-4000-8000-000000000002',
+  // Lexically greatest of the three, so it is always posted LAST.
+  'fa5af10a-0000-4000-8000-000000000003',
+] as const;
+
+/**
  * Three transactions. The third carries the fixture's variation: a status
  * allocation refuses, or an amount that makes the journal itself invalid.
  */
@@ -93,8 +113,8 @@ async function seedTransactions(
   ];
   for (const [i, row] of rows3.entries()) {
     const rows = (await sql`
-      INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
-      VALUES (${companyId}::uuid, ${bankAccountId}::uuid, '2026-08-03'::date,
+      INSERT INTO bank_transactions (id, company_id, bank_account_id, transaction_date, amount, description, status)
+      VALUES (${FIXTURE_IDS[i]!}::uuid, ${companyId}::uuid, ${bankAccountId}::uuid, '2026-08-03'::date,
               ${row.amount}, ${`ISAFLOW BULK FIXTURE ${i}`}, ${row.status})
       RETURNING id
     `) as Array<{ id: string }>;
@@ -310,10 +330,17 @@ describe('bulk_allocate_bank_transactions — real ledger', async () => {
     }, { status: 'imported' });
   });
 
-  // The one that matters. Lines 1 and 2 post REAL journals before line 3 fails.
+  // The one that matters. Lines 1 and 2 post REAL journals before line 3 fails,
+  // and the rollback has to take those two back out again.
   it.skipIf(!reachable)('leaves the ledger untouched when line 3 fails mid-batch', async () => {
     await inRequestTx(async (f) => {
       const before = await countJournals(f.companyId);
+
+      // The assertion below is only worth anything if the failing line posts
+      // LAST — otherwise "no journals survived" is true because none were ever
+      // written. The tool posts in transaction-id order, so the fixture pins
+      // that order rather than leaving it to a random v4 id.
+      expect([...f.txIds].sort()).toEqual(f.txIds);
 
       // Exactly what registry.call() does for a write tool — the savepoint is
       // the whole mechanism, so the test must exercise the real one.
@@ -339,10 +366,13 @@ describe('bulk_allocate_bank_transactions — real ledger', async () => {
       // the two journals lines 1-2 already posted.
       await expect(call).rejects.toThrow(BulkAllocationLineError);
       // And it must say WHICH line: an unlocatable failure is what forced the
-      // pilot to bisect a 124-line batch by hand.
+      // pilot to bisect a 124-line batch by hand. Index 2 is also the proof
+      // that the two lines before it had already posted when it blew up.
       await call.catch((err: unknown) => {
         expect((err as BulkAllocationLineError).index).toBe(2);
         expect((err as BulkAllocationLineError).transactionId).toBe(f.txIds[2]!);
+        // The message the registry renders carries no SQL, whatever pg said.
+        expect((err as BulkAllocationLineError).detail).not.toMatch(/relation|constraint|column/i);
       });
 
       expect(await countJournals(f.companyId)).toBe(before);

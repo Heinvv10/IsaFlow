@@ -66,10 +66,14 @@ export function reasonForStatus(status: string): string {
  */
 export function skipReasonFor(state: BankTransactionAllocationState): string | null {
   if (state.status === 'imported' && state.matchedJournalLineId === null) return null;
-  // A journal outranks a status that does not name one — except for `excluded`,
-  // where the exclusion is the fact worth reporting.
-  if (state.matchedJournalLineId !== null && state.status !== 'excluded') {
-    return ALREADY_ALLOCATED;
+  if (state.matchedJournalLineId !== null) {
+    // An excluded row that ALSO carries a journal is a contradiction someone
+    // needs to see: it is in the ledger and marked as kept out of it. Reporting
+    // only "excluded" hides the posting; reporting only "already allocated"
+    // hides that a person excluded it. Both facts, in one reason.
+    return state.status === 'excluded'
+      ? `${ALREADY_ALLOCATED} (excluded)`
+      : ALREADY_ALLOCATED;
   }
   return reasonForStatus(state.status);
 }
