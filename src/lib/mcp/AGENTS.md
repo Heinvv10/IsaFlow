@@ -127,6 +127,26 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
 
 ## Recent changes
 
+- 2026-08-28: `list_gl_accounts` (18 read tools) — the chart of accounts in one
+  call, on `search_gl`'s `read:reports` scope and free like every other read.
+  Pilot agents were resolving codes to UUIDs one at a time through `search_gl`'s
+  `meta.accountId`, which forces a date range and returns ledger lines nobody
+  wanted; the description says "resolve account codes to UUIDs in one call
+  before allocate/journal tools" because the description is all an agent reads
+  before choosing. It reuses `getChartOfAccounts(companyId, includeInactive)`
+  verbatim (the same cached service the COA page uses) and filters
+  `account_type` / `search` in memory — a second SQL path over `gl_accounts`
+  would be a tenant-scoping surface for no gain. Rows are mapped DOWN to
+  `{id, account_code, account_name, account_type, account_subtype, is_active,
+  parent_account_id}`: `normal_balance`, `level`, `is_system_account` and
+  `has_transactions` are ours. An unknown `account_type` is REFUSED against the
+  real `GL_ACCOUNT_TYPES` enum (now a runtime const in `gl.types.ts`) before any
+  query — filtering to an empty list would read to an agent as "this company has
+  no expense accounts", a wrong answer dressed as a right one. No pagination:
+  `limit` defaults to 200 and clamps at 500, and `total` is the pre-limit match
+  count so a truncated list is visible rather than assumed complete. `search` is
+  compared as TEXT in JS, so it takes no cast guard.
+
 - 2026-08-27: **every tool argument that lands in a SQL cast is guarded before the
   service call** — `guardCastableArgs` / `guardUuidList` in `toolHelpers.ts`, applied
   across all 12 tool files. An id becomes `$n::UUID` and a date `$n::DATE`, so 'abc' is a
