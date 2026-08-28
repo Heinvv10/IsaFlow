@@ -63,8 +63,8 @@ import {
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import {
   bulkAllocateBankTransactionsTool,
-  reverseBankAllocationBatchTool,
 } from '@/lib/mcp/tools/writeBankBulkAllocate';
+import { reverseBankAllocationBatchTool } from '@/lib/mcp/tools/writeBankReverseBatch';
 import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
