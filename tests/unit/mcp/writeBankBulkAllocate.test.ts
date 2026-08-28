@@ -22,6 +22,11 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () =>
   // Batched resolution (one query per bulk call) — the plural is what the
   // selector resolver actually calls; default to "nothing matched".
   findBankTransactionsByReferences: vi.fn(async () => new Map()),
+  // Current allocation state of the resolved rows — the pre-write partition
+  // reads it for the whole batch in one query. Defaulted to "every row is
+  // importable" so these tests keep asserting what they were written for;
+  // the skip semantics themselves live in bulkAllocateSkipAllocated.test.ts.
+  findBankTransactionAllocationStates: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationBatchService', () => ({
   createAllocationBatch: vi.fn(),
@@ -38,7 +43,10 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 }));
 
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
-import { findBankTransactionsByReferences } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import {
+  findBankTransactionsByReferences,
+  findBankTransactionAllocationStates,
+} from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import {
   createAllocationBatch,
   recordAllocationBatchLines,
@@ -74,6 +82,11 @@ beforeEach(() => {
   vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
   vi.mocked(createAllocationBatch).mockResolvedValue(BATCH);
   vi.mocked(recordAllocationBatchLines).mockResolvedValue(undefined);
+  vi.mocked(findBankTransactionAllocationStates).mockImplementation(
+    async (_c: string, ids: readonly string[]) => new Map(
+      ids.map((id) => [id, { id, status: 'imported', matchedJournalLineId: null }]),
+    ),
+  );
   vi.mocked(allocateTransaction).mockImplementation(
     (async (_c: string, txId: string) => ({
       journalEntryId: `je-for-${txId}`,

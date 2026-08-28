@@ -233,6 +233,56 @@ export async function findBankTransactionsByReference(
  * handling: a refusal is reported, a mid-write failure must be rethrown so the
  * registry's savepoint unwinds it.
  */
+export interface BankTransactionAllocationState {
+  id: string;
+  status: string;
+  /** The journal line the row is allocated against — null when unallocated. */
+  matchedJournalLineId: string | null;
+}
+
+/**
+ * Allocation state for a WHOLE set of transactions, in ONE company-scoped
+ * query. Rows absent from the map do not exist in this company (another
+ * tenant's row is indistinguishable from a missing one, deliberately).
+ *
+ * `bulk_allocate_bank_transactions` calls this once for up to 500 resolved ids
+ * before it posts anything — the alternative was one `getBankTransactionStatus`
+ * per line inside a request that already holds every row's lock.
+ *
+ * Both columns, not just `status`. A row can carry `status='allocated'` with no
+ * journal (a half-finished older write) and, more importantly, the journal is
+ * what `reverse_bank_allocation_batch` navigates by — a partition that reads
+ * only `status` passes a fixture and fails production, which is exactly how the
+ * #261 batch got through.
+ */
+export async function findBankTransactionAllocationStates(
+  companyId: string,
+  bankTxIds: readonly string[],
+): Promise<Map<string, BankTransactionAllocationState>> {
+  const ids = [...new Set(bankTxIds)];
+  const byId = new Map<string, BankTransactionAllocationState>();
+  if (ids.length === 0) return byId;
+
+  const rows = (await sql`
+    SELECT id, status, matched_journal_line_id
+    FROM bank_transactions
+    WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
+  `) as DbRow[];
+
+  for (const row of rows) {
+    const id = String(row.id);
+    byId.set(id, {
+      id,
+      status: row.status === null || row.status === undefined ? '' : String(row.status),
+      matchedJournalLineId:
+        row.matched_journal_line_id === null || row.matched_journal_line_id === undefined
+          ? null
+          : String(row.matched_journal_line_id),
+    });
+  }
+  return byId;
+}
+
 export async function getBankTransactionStatus(
   companyId: string,
   bankTxId: string,
