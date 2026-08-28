@@ -53,7 +53,23 @@ export function toSqlPattern(matchType: string, matchPattern: string): string {
   }
 }
 
-/** Find still-imported bank transactions that match a rule's pattern. */
+/**
+ * How many candidates one rule may process in a single run.
+ *
+ * Each candidate takes a row lock that is held to the end of the request, so an
+ * unbounded match set means an unbounded number of locked rows in one
+ * transaction — a rule matching every line of a large import would block the
+ * whole account for the duration. Capped, the run does 500 and reports that it
+ * stopped; a re-run picks up the rest.
+ */
+export const MAX_RULE_CANDIDATES = 500;
+
+/**
+ * Find still-imported bank transactions that match a rule's pattern.
+ *
+ * Fetches one row past the cap so the caller can tell "exactly 500 matched"
+ * from "500 processed, more waiting" — `applyRules` trims and reports it.
+ */
 export async function findMatchingTxs(
   companyId: string,
   bankAccountId: string,
@@ -70,6 +86,7 @@ export async function findMatchingTxs(
         AND matched_journal_line_id IS NULL
         AND description ILIKE ${pattern}
       ORDER BY transaction_date
+      LIMIT ${MAX_RULE_CANDIDATES + 1}
     `) as Record<string, unknown>[];
   }
   if (field === 'reference') {
@@ -82,6 +99,7 @@ export async function findMatchingTxs(
         AND matched_journal_line_id IS NULL
         AND reference ILIKE ${pattern}
       ORDER BY transaction_date
+      LIMIT ${MAX_RULE_CANDIDATES + 1}
     `) as Record<string, unknown>[];
   }
   return (await sql`
@@ -93,6 +111,7 @@ export async function findMatchingTxs(
       AND matched_journal_line_id IS NULL
       AND (description ILIKE ${pattern} OR reference ILIKE ${pattern})
     ORDER BY transaction_date
+    LIMIT ${MAX_RULE_CANDIDATES + 1}
   `) as Record<string, unknown>[];
 }
 

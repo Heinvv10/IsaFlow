@@ -90,12 +90,18 @@ describe('bank transaction status mutations — locked and guarded', () => {
       expect(vi.mocked(sql)).toHaveBeenCalledTimes(1);
     });
 
-    it(`${name} refuses a reconciled row too`, async () => {
-      vi.mocked(sql).mockResolvedValueOnce([
-        row({ status: 'reconciled', matched_journal_line_id: JL_ID }),
-      ] as never);
+    it(`${name} still allows a reconciled row`, async () => {
+      // `reconciled` is NOT an allocation. A row only reaches it through
+      // matchTransaction (bankReconciliationService promotes rows that are
+      // already `matched`), so its journal was written by something else and
+      // pre-dates the link — unmatching it orphans nothing. The bank table also
+      // still shows Undo on these, so refusing would be a 400 on a live button.
+      vi.mocked(sql)
+        .mockResolvedValueOnce([row({ status: 'reconciled', matched_journal_line_id: JL_ID })] as never)
+        .mockResolvedValueOnce([row()] as never);
 
-      await expect(run()).rejects.toThrow(/reverse the allocation/);
+      await expect(run()).resolves.toBeDefined();
+      expect(vi.mocked(sql)).toHaveBeenCalledTimes(2);
     });
 
     it(`${name} reports NOT_FOUND from the locked read`, async () => {
@@ -103,6 +109,18 @@ describe('bank transaction status mutations — locked and guarded', () => {
 
       await expect(run()).rejects.toThrow(`Bank transaction ${TX_ID} not found`);
       expect(vi.mocked(sql)).toHaveBeenCalledTimes(1);
+    });
+
+    it(`${name} reports NOT_FOUND when the UPDATE itself matches nothing`, async () => {
+      // The row was deleted between the locked read and the write. Distinct
+      // from the read-side miss above: this is the UPDATE's own empty RETURNING,
+      // which is the branch that would otherwise map an empty row array.
+      vi.mocked(sql)
+        .mockResolvedValueOnce([row()] as never)  // locked read finds it
+        .mockResolvedValueOnce([] as never);      // UPDATE returns nothing
+
+      await expect(run()).rejects.toThrow(`Bank transaction ${TX_ID} not found`);
+      expect(vi.mocked(sql)).toHaveBeenCalledTimes(2);
     });
 
     it(`${name} still proceeds on an allocated row with no journal linked`, async () => {

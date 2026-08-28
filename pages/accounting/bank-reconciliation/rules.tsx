@@ -109,6 +109,20 @@ export default function BankRulesPage() {
               </p>
             </div>
           ) : null}
+          {rules.applyResult?.autoPostSkippedRaced ? (
+            <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
+              <p className="font-medium">
+                {rules.applyResult.autoPostSkippedRaced} transaction
+                {rules.applyResult.autoPostSkippedRaced > 1 ? 's were' : ' was'} skipped
+                — allocated by another request while the rules were running.
+              </p>
+              <p className="text-xs mt-1">
+                Someone (or an agent) allocated these while this run was in progress, so the rule
+                left them alone rather than posting a second journal on top. Nothing was lost —
+                re-run rules if you want to check what is still uncategorised.
+              </p>
+            </div>
+          ) : null}
           {rules.applyResult?.autoPostRulesSkippedNoBankGl ? (
             <div className="p-3 rounded-lg bg-amber-500/10 text-amber-300 text-sm">
               <p className="font-medium">

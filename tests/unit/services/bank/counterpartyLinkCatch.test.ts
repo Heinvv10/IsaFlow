@@ -1,15 +1,19 @@
 /**
- * allocateTransaction's counterparty auto-link catch must not swallow a
- * transaction-level failure.
+ * allocateTransaction's counterparty auto-link must fail inside a SAVEPOINT.
  *
  * The auto-link is a nicety: if the opposite bank's statement has no matching
- * row, the allocation is still correct, so the catch logs a warning and carries
- * on. But 40P01 (deadlock), 40001 (serialization failure) and 25P02 (current
- * transaction is aborted) kill the whole request transaction — every statement
- * after them raises 25P02 and nothing can commit. Swallowed, the handler runs
- * to completion and returns a journal id for a journal that will never exist.
+ * row, the allocation is still correct, so a failure is logged and swallowed.
+ * But EVERY Postgres error aborts the transaction it happens in — not just
+ * deadlocks — so swallowing one without a savepoint left the request in the
+ * aborted state: every statement after it raised 25P02 and the handler returned
+ * a journal id for a journal that could never commit. An error-code whitelist
+ * was the first attempt and could only ever cover the codes someone listed.
+ *
+ * The unit half proves the savepoint wraps the block; the DB-gated half proves
+ * the outer transaction is still usable after a real 23503 inside it.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { PoolClient } from 'pg';
 
 const journalMocks = vi.hoisted(() => ({
   createJournalEntry: vi.fn(),
@@ -17,86 +21,86 @@ const journalMocks = vi.hoisted(() => ({
   reverseJournalEntry: vi.fn(),
 }));
 
-vi.mock('@/lib/neon', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/neon')>();
-  return {
-    sql: vi.fn(async () => [] as unknown[]),
-    fmtDate: actual.fmtDate,
-    withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(vi.fn(async () => []))),
-  };
-});
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
-vi.mock('@/modules/accounting/services/gl/journalEntryService', () => journalMocks);
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
-  getSystemAccountId: vi.fn(async () => 'ffffffff-0000-0000-0000-ffffffffffff'),
-}));
-vi.mock('@/modules/accounting/services/capture/fourWayMatchService', () => ({
-  recordPaymentMatch: vi.fn(),
-}));
 
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { enterFakeRequestCtx } from '../../helpers/requestCtx';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { als } from '@/lib/als';
+import { isDbReachable } from '../../helpers/dbReachable';
+import { getPoolForTests, sql } from '@/lib/neon';
+import { autoLinkCounterpartyTransfer } from '@/modules/accounting/services/bank/bankTransferAutoLink';
+
+type Ctx = Parameters<typeof als.run>[0];
+function ctxFor(client: PoolClient): Ctx {
+  return { client, userId: 'u', companyId: 'c', claims: {} } as unknown as Ctx;
+}
 
 const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-aaaaaaaaaaaa';
 const TX_ID = 'bbbbbbbb-0000-0000-0000-bbbbbbbbbbbb';
-const CONTRA_ID = 'cccccccc-0000-0000-0000-cccccccccccc';
-const USER_ID = 'dddddddd-0000-0000-0000-dddddddddddd';
+const BANK_ID = 'cccccccc-0000-0000-0000-cccccccccccc';
+const CP_ID = 'dddddddd-0000-0000-0000-dddddddddddd';
 
-const TX_ROW = {
-  id: TX_ID, company_id: COMPANY_ID, status: 'imported',
-  bank_account_id: 'eeeeeeee-0000-0000-0000-eeeeeeeeeeee',
-  transaction_date: '2026-08-01', amount: -500, description: 'Transfer out',
-  matched_journal_line_id: null,
+const INPUT = {
+  companyId: COMPANY_ID, bankTxId: TX_ID, bankAccountId: BANK_ID,
+  counterpartyAccountId: CP_ID, journalEntryId: 'je-1', amount: -500,
+  txDate: '2026-08-01', allocatedEntityName: 'Bank B',
 };
 
-/**
- * Drive a transfer allocation up to the counterparty auto-link, then make the
- * link's first query fail with `code`.
- */
-async function allocateTransferFailingLinkWith(code: string | undefined) {
-  const err = code ? Object.assign(new Error(`pg ${code}`), { code }) : new Error('no code');
-  vi.mocked(sql).mockImplementation((async (strings: TemplateStringsArray) => {
-    const text = Array.isArray(strings) ? strings.join('') : String(strings);
-    // The locked read and the final re-read of the row it returns.
-    if (text.includes('SELECT * FROM bank_transactions')) return [TX_ROW];
-    if (text.includes('account_subtype')) return [{ id: CONTRA_ID, account_subtype: 'bank', account_code: '1010', account_name: 'Bank B' }];
-    // The auto-link's candidate query specifically — the duplicate-transfer
-    // guard earlier in the function also mentions counterparty_account_id, but
-    // it sits OUTSIDE the try and is meant to reject.
-    if (text.includes('ORDER BY ABS(')) throw err;
-    return [];
-  }) as never);
+describe('autoLinkCounterpartyTransfer — failure containment (unit)', () => {
+  beforeEach(() => vi.clearAllMocks());
 
-  return allocateTransaction(
-    COMPANY_ID, TX_ID, CONTRA_ID, USER_ID, 'Transfer', 'transfer',
-  );
-}
+  it('runs inside a savepoint and swallows the failure', async () => {
+    // A mocked ALS client records the savepoint traffic; the sql tagged
+    // template runs on that same client, so the first query is the one that
+    // throws and the rollback must follow it.
+    const statements: string[] = [];
+    const client = {
+      query: vi.fn(async (text: string) => {
+        statements.push(text);
+        if (/FROM bank_transactions/.test(text)) {
+          throw Object.assign(new Error('insert or update violates foreign key'), { code: '23503' });
+        }
+        return { rows: [] };
+      }),
+    };
 
-describe('allocateTransaction — counterparty auto-link failures', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    enterFakeRequestCtx();
-    journalMocks.createJournalEntry.mockResolvedValue({ id: 'je-1' });
-    journalMocks.postJournalEntry.mockResolvedValue({ id: 'je-1', status: 'posted' });
-  });
+    await expect(
+      als.run(ctxFor(client as unknown as PoolClient), () => autoLinkCounterpartyTransfer(INPUT)),
+    ).resolves.toBeUndefined();
 
-  for (const code of ['40P01', '40001', '25P02']) {
-    it(`rethrows ${code} — the transaction is dead, nothing after it can commit`, async () => {
-      await expect(allocateTransferFailingLinkWith(code)).rejects.toThrow(`pg ${code}`);
-      expect(vi.mocked(log.warn)).not.toHaveBeenCalledWith(
-        expect.stringContaining('auto-link'), expect.anything(), expect.anything(),
-      );
-    });
-  }
-
-  it('still swallows an ordinary link failure — the allocation itself is fine', async () => {
-    await expect(allocateTransferFailingLinkWith('42703')).resolves.toBeDefined();
+    expect(statements.some((q) => /^SAVEPOINT /.test(q))).toBe(true);
+    expect(statements.some((q) => /^ROLLBACK TO SAVEPOINT /.test(q))).toBe(true);
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       expect.stringContaining('auto-link'), expect.anything(), expect.anything(),
     );
   });
+});
+
+describe('autoLinkCounterpartyTransfer — the outer transaction survives (integration)', async () => {
+  const reachable = await isDbReachable();
+
+  it.skipIf(!reachable)('a failed link leaves the outer transaction usable', async () => {
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      await als.run(ctxFor(client), async () => {
+        // A real, production-shaped failure inside the link: the counterparty
+        // id reaches `::UUID` malformed and pg raises 22P02, which aborts the
+        // transaction exactly as a deadlock or an FK violation would.
+        await expect(
+          autoLinkCounterpartyTransfer({ ...INPUT, counterpartyAccountId: 'not-a-uuid' }),
+        ).resolves.toBeUndefined();
+
+        // The statement the caller runs next. Without the savepoint this is
+        // 25P02 ("current transaction is aborted") and the allocation that had
+        // already posted could never commit.
+        const rows = (await sql`SELECT 1 AS ok`) as Array<{ ok: number }>;
+        expect(rows[0]?.ok).toBe(1);
+      });
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  }, 30_000);
 });

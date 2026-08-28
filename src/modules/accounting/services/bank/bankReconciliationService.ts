@@ -7,7 +7,7 @@ import { sql, withTransaction, fmtDate } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
-import { matchTransaction } from './bankTransactionQueryService';
+import { matchTransaction, BankTransactionAllocatedError } from './bankTransactionQueryService';
 import type { BankReconciliation, AutoMatchResult } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
@@ -214,18 +214,38 @@ export async function autoMatchTransactions(
     }));
     const result = runAutoMatch(bankTxs, glLines);
     let matchedCount = 0;
-    for (const match of result.matches) {
+    let skippedRaced = 0;
+    // Locked in transaction-id order: matchTransaction takes a row lock that is
+    // held to the end of the request, so a run walking its rows in a different
+    // order from a concurrent allocation deadlocks on the pair (40P01).
+    const ordered = [...result.matches].sort((a, b) =>
+      a.bankTransactionId < b.bankTransactionId ? -1 : a.bankTransactionId > b.bankTransactionId ? 1 : 0);
+    for (const match of ordered) {
       if (match.confidence >= 0.9) {
-        await matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId);
-        matchedCount++;
+        try {
+          await matchTransaction(companyId, match.bankTransactionId, match.journalLineId, reconciliationId);
+          matchedCount++;
+        } catch (matchErr) {
+          // The candidate query read these rows in bulk; one of them has been
+          // allocated since. Skip it and keep going — letting it escape would
+          // abort the loop, and because withAuth COMMITs on any handler that
+          // returns (the route catches and 400s), the matches already applied
+          // would persist while the remaining ones were silently dropped.
+          // Anything else is a real failure and must still reach the caller.
+          if (!(matchErr instanceof BankTransactionAllocatedError)) throw matchErr;
+          skippedRaced++;
+        }
       }
     }
     const lowConfidence = result.matches.filter(m => m.confidence < 0.9);
     log.info('Auto-match completed', {
-      bankAccountId, autoMatched: matchedCount,
+      bankAccountId, autoMatched: matchedCount, skippedRaced,
       candidates: lowConfidence.length, unmatched: result.unmatched.length,
     }, 'accounting');
-    return { matched: matchedCount, unmatched: result.unmatched.length, candidates: lowConfidence };
+    return {
+      matched: matchedCount, unmatched: result.unmatched.length,
+      candidates: lowConfidence, skippedRaced,
+    };
   } catch (err) {
     log.error('Failed to auto-match transactions', { error: err }, 'accounting');
     throw err;

@@ -24,8 +24,17 @@ import { lockBankTransactionForUpdate } from './bankTxLock';
 
 type Row = DbRow;
 
-/** Statuses that mean "a journal was posted for this row". */
-const POSTED_STATUSES = new Set(['allocated', 'reconciled']);
+/**
+ * The one status that means "an allocation posted a journal for this row".
+ *
+ * `reconciled` is deliberately NOT here. A reconciled row got there through
+ * `matchTransaction` (bankReconciliationService only ever promotes rows whose
+ * status is already `matched`), so its journal was written by something else
+ * and pre-dates the link — unmatching it orphans nothing. The bank table still
+ * offers Undo on reconciled rows, so refusing them would be a live 400 on a
+ * button the UI shows.
+ */
+const POSTED_STATUS = 'allocated';
 
 /**
  * Raised when a status mutation is asked to overwrite a row that carries a
@@ -51,7 +60,7 @@ async function lockForStatusWrite(companyId: string, bankTxId: string, verb: str
   const row = await lockBankTransactionForUpdate(companyId, bankTxId);
   if (!row) throw new Error(`Bank transaction ${bankTxId} not found`);
   const status = String(row.status ?? '');
-  if (POSTED_STATUSES.has(status) && row.matched_journal_line_id) {
+  if (status === POSTED_STATUS && row.matched_journal_line_id) {
     throw new BankTransactionAllocatedError(bankTxId, status, verb);
   }
   return row;

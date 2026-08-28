@@ -49,6 +49,9 @@ vi.mock('@/modules/accounting/services/bank/bankRulesMatchingHelpers', () => ({
   findMatchingTxs: findTxsMock,
   buildAutoCreateLines: buildLinesMock,
   getPeriodStatusForDate: periodStatusMock,
+  // Real value: applyRules slices the candidate list with it, so a mock that
+  // omitted it silently produced an empty run.
+  MAX_RULE_CANDIDATES: 500,
 }));
 
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
@@ -79,10 +82,14 @@ function lockedRow(overrides: Record<string, unknown> = {}) {
  * `lock` is what the row looks like when the service locks it just before
  * posting — `null` means another request got there first.
  */
-function withOneAutoPostRule(lock: Record<string, unknown> | null = lockedRow()) {
+function withOneAutoPostRule(lock: Record<string, unknown> | null | 'timeout' = lockedRow()) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
     if (text.includes('FROM bank_transactions') && text.includes('FOR UPDATE')) {
+      if (lock === 'timeout') {
+        // What pg raises when `lock_timeout` elapses; bankTxLock maps it.
+        return Promise.reject(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }));
+      }
       return Promise.resolve(lock ? [lock] : []);
     }
     if (text.includes('FROM bank_categorisation_rules')) {
@@ -163,6 +170,48 @@ describe('applyRules — period closes between pre-flight and post', () => {
 
     expect(createMock).not.toHaveBeenCalled();
     expect(result.autoPostSkippedRaced).toBe(1);
+  });
+
+  it('counts a lock timeout per candidate instead of aborting the run', async () => {
+    // Another request holds this row. Letting the error escape would abort a
+    // run that may already have posted for earlier candidates — and withAuth
+    // COMMITs whatever the handler wrote before the route's catch 400s.
+    withOneAutoPostRule('timeout');
+
+    const result = await applyRules(COMPANY, BANK_GL, USER);
+
+    expect(result.autoPostSkippedLocked).toBe(1);
+    expect(result.applied).toBe(0);
+  });
+
+  it('caps a rule at 500 candidates and says so', async () => {
+    withOneAutoPostRule();
+    // 501 back from the query = the cap was hit, one row past it is the signal.
+    findTxsMock.mockResolvedValue(
+      Array.from({ length: 501 }, (_, i) => ({
+        id: `tx-${String(i).padStart(4, '0')}`, transaction_date: '2026-08-13',
+        amount: -100, description: 'BANK FEE', is_deposit: false,
+      })),
+    );
+    // Every candidate races, so nothing posts — this test is about the cap.
+    sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
+      const text = Array.isArray(strings) ? strings.join('') : String(strings);
+      if (text.includes('FROM bank_categorisation_rules')) {
+        return Promise.resolve([{
+          id: 'rule-1', rule_name: 'Bank charges', priority: 1,
+          auto_create_entry: true, alloc_type: 'gl', gl_account_id: 'acct-charges',
+          match_type: 'contains', match_pattern: 'FEE', vat_code: 'no_vat',
+        }]);
+      }
+      if (text.includes('FROM gl_accounts')) return Promise.resolve([{ id: BANK_GL }]);
+      return Promise.resolve([]);
+    }) as never);
+
+    const result = await applyRules(COMPANY, BANK_GL, USER);
+
+    expect(result.autoPostTruncatedRules).toBe(1);
+    // 500 processed, not 501 — the probe row is trimmed, never worked on.
+    expect(result.autoPostSkippedRaced).toBe(500);
   });
 
   it('still PROPAGATES any other posting failure', async () => {

@@ -14,23 +14,11 @@ import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 
 type Row = DbRow;
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
-
-/**
- * Postgres codes that kill the whole transaction, not just one statement:
- * deadlock, serialization failure, and "current transaction is aborted".
- * Nothing downstream can succeed after one of these, so they must never be
- * caught and logged as a non-fatal warning.
- */
-const TRANSACTION_FATAL_CODES = new Set(['40P01', '40001', '25P02']);
-
-function isTransactionFatal(err: unknown): boolean {
-  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined;
-  return typeof code === 'string' && TRANSACTION_FATAL_CODES.has(code);
-}
 
 // ── VAT account fallback resolver ──────────────────────────────────────────
 //
@@ -357,56 +345,11 @@ export async function allocateTransaction(
 
   // Auto-link the counterparty bank_transaction if it already exists as 'imported'
   if (allocType === 'transfer' && counterpartyAccountId) {
-    try {
-      const cpAmt = -Number(tx.amount);
-      const cpTxRows = (await sql`
-        SELECT id FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND bank_account_id = ${counterpartyAccountId}::UUID
-          AND status = 'imported'
-          AND ABS(amount - ${cpAmt}) < 0.01
-          AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days')
-                                   AND (${txDate}::DATE + INTERVAL '2 days')
-        ORDER BY ABS(transaction_date::DATE - ${txDate}::DATE) ASC, created_at DESC
-        LIMIT 1
-      `) as Row[];
-      if (cpTxRows.length > 0) {
-        const cpTxId = String(cpTxRows[0]!.id);
-        // Find the JE line on the counterparty account side
-        const cpJeLines = (await sql`
-          SELECT id FROM gl_journal_lines
-          WHERE journal_entry_id = ${je.id}::UUID
-            AND gl_account_id = ${counterpartyAccountId}::UUID
-            AND company_id = ${companyId}::UUID
-          LIMIT 1
-        `) as Row[];
-        const cpJeLineId = cpJeLines.length > 0 ? String(cpJeLines[0]!.id) : null;
-        await sql`
-          UPDATE bank_transactions
-          SET status = 'allocated',
-              allocation_type = 'transfer',
-              matched_journal_line_id = ${cpJeLineId}::UUID,
-              counterparty_account_id = ${bankAccountId}::UUID,
-              transfer_journal_entry_id = ${je.id}::UUID,
-              allocated_entity_name = ${allocEntityName},
-              updated_at = NOW(),
-              allocation_batch_id = NULL
-          WHERE id = ${cpTxId}::UUID
-            AND company_id = ${companyId}::UUID
-            AND status = 'imported'
-        `;
-        log.info('Auto-linked counterparty transfer transaction', { sourceTxId: bankTxId, cpTxId, jeId: je.id }, 'accounting');
-      }
-    } catch (linkErr) {
-      // Only a genuinely absent/unmatchable counterparty is non-fatal. A
-      // transaction-LEVEL failure is not: after 40P01 (deadlock), 40001
-      // (serialization) or 25P02 (statement failed, transaction aborted) the
-      // request's transaction is dead, so swallowing it here just lets the rest
-      // of allocateTransaction issue statements that all raise 25P02 and returns
-      // a "success" for a journal that will never commit.
-      if (isTransactionFatal(linkErr)) throw linkErr;
-      log.warn('Failed to auto-link counterparty transfer — non-fatal', { bankTxId, counterpartyAccountId, error: linkErr }, 'accounting');
-    }
+    await autoLinkCounterpartyTransfer({
+      companyId, bankTxId, bankAccountId, counterpartyAccountId,
+      journalEntryId: je.id, amount: Number(tx.amount), txDate,
+      allocatedEntityName: allocEntityName,
+    });
   }
 
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];

@@ -51,12 +51,17 @@ function isLockTimeout(err: unknown): boolean {
  * returns and the caller believes it is serialised when it is not. A loud
  * failure beats a lock that silently does nothing.
  *
- * The 5s `lock_timeout` is `SET LOCAL` on the request client, so it holds for
- * the remainder of the request transaction rather than just this statement —
- * deliberately: once one lock in a request is worth bounding, so is every lock
- * that follows it. 5s is long enough to absorb a peer's normal allocation and
- * short enough that a wedged peer surfaces as a retryable error instead of
- * pinning the connection.
+ * The 5s `lock_timeout` is re-issued on EVERY call, not memoised per request.
+ * `SET LOCAL` is subtransaction-aware: `ROLLBACK TO SAVEPOINT` restores the
+ * previous value, which is `0` — no timeout at all. Since every MCP tool call
+ * and every `withTransaction` runs in a savepoint that rolls back on failure,
+ * a "set it once per connection" cache would leave later locks waiting forever
+ * precisely on the paths where contention is likeliest. One extra round-trip on
+ * an already-open connection is the cheaper mistake. (Verified against pg:
+ * SET LOCAL '5s' inside a savepoint reads back as `0` after ROLLBACK TO.)
+ *
+ * 5s is long enough to absorb a peer's normal allocation and short enough that
+ * a wedged peer surfaces as a retryable error instead of pinning the connection.
  */
 export async function lockBankTransactionForUpdate(
   companyId: string,
@@ -73,7 +78,7 @@ export async function lockBankTransactionForUpdate(
   // Issued on the request client directly, not through `sql`: it is a
   // transaction setting rather than a tenant query, it carries no parameters,
   // and keeping it off the query path leaves callers' SQL call sequence
-  // unchanged.
+  // unchanged. Re-issued every call — see the note above on savepoint rollback.
   await client.query("SET LOCAL lock_timeout = '5s'");
   try {
     const rows = (await sql`
