@@ -19,6 +19,10 @@ import {
 import { parseStatement } from '@/modules/accounting/services/bank/bankStatementParseService';
 
 const FIXTURE = readFileSync(join(__dirname, '../../fixtures/bank/absa-sample.csv'), 'utf8');
+const COMPACT_DATE_FIXTURE = readFileSync(
+  join(__dirname, '../../fixtures/bank/absa-compact-dates.csv'),
+  'utf8',
+);
 
 const LEGACY = [
   'Account Number,Date,Description1,Description2,Amount,Balance',
@@ -95,6 +99,26 @@ describe('parseABSAStatement', () => {
     const result = parseABSAStatement(csv);
     expect(result.transactions[0]!.transactionDate).toBe('2026-03-01');
   });
+
+  it('accepts ABSA compact YYYYMMDD dates, zero errors, dates normalised', () => {
+    const result = parseABSAStatement(COMPACT_DATE_FIXTURE);
+
+    expect(result.errors).toEqual([]);
+    expect(result.transactions).toHaveLength(3);
+    expect(result.transactions[0]!.transactionDate).toBe('2026-08-01');
+    expect(result.transactions[1]!.transactionDate).toBe('2026-08-02');
+    expect(result.transactions[2]!.transactionDate).toBe('2026-08-03');
+  });
+
+  it('rejects an impossible compact date (20261301) as an error, not a crash', () => {
+    const csv = [
+      'Account Number,Transaction Date,Description,Amount,Balance',
+      '4055123456,20261301,FEE,-25.00,100.00',
+    ].join('\n');
+    const result = parseABSAStatement(csv);
+    expect(result.transactions).toHaveLength(0);
+    expect(result.errors).toEqual([{ row: 2, error: 'Invalid date: 20261301' }]);
+  });
 });
 
 describe('parseAmount', () => {
@@ -145,6 +169,24 @@ describe('normalizeDateFlexible', () => {
   it('returns null when neither end carries a four-digit year', () => {
     expect(normalizeDateFlexible('03/04/26')).toBeNull();
   });
+
+  it('reads an 8-digit compact date (YYYYMMDD) with no separators', () => {
+    expect(normalizeDateFlexible('20260801')).toBe('2026-08-01');
+  });
+
+  it('rejects an 8-digit value that is not a real calendar date', () => {
+    expect(normalizeDateFlexible('20261301')).toBeNull();
+    // Year plausibility: a DDMMYYYY token or an account number must not pass as a date.
+    expect(normalizeDateFlexible('01082026')).toBeNull();
+    expect(normalizeDateFlexible('99990101')).toBeNull();
+    expect(normalizeDateFlexible('40551234')).toBeNull();
+    expect(normalizeDateFlexible('20260231')).toBeNull();
+  });
+
+  it('does not treat a non-8-digit numeric string as a compact date', () => {
+    expect(normalizeDateFlexible('123456')).toBeNull();
+    expect(normalizeDateFlexible('123456789')).toBeNull();
+  });
 });
 
 describe('parseStatement (shared MCP + UI import path)', () => {
@@ -158,5 +200,12 @@ describe('parseStatement (shared MCP + UI import path)', () => {
     const qif = readFileSync(join(__dirname, '../../fixtures/bank/sample.qif'), 'utf8');
     const result = await parseStatement({ fileType: 'qif', csvContent: qif });
     expect(result.transactions).toHaveLength(3);
+  });
+
+  it('imports the ABSA compact-date (YYYYMMDD) fixture without a bank_format hint', async () => {
+    const result = await parseStatement({ fileType: 'csv', csvContent: COMPACT_DATE_FIXTURE });
+    expect(result.bankFormat).toBe('absa');
+    expect(result.transactions).toHaveLength(3);
+    expect(result.transactions[0]!.transactionDate).toBe('2026-08-01');
   });
 });
