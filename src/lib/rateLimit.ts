@@ -223,7 +223,7 @@ export function withRateLimit(
     const allowed = await checkRateLimit(`${scope}:ip:${ip}`, opts);
 
     if (!allowed) {
-      log.warn('Rate limit exceeded', { ip }, 'rateLimit');
+      log.warn('Rate limit exceeded', { ip, scope, max: opts.max, windowSecs: opts.windowSecs }, 'rateLimit');
       res.status(429).json({
         success: false,
         error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
