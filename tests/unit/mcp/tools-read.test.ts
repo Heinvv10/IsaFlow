@@ -289,6 +289,43 @@ describe('list_bank_transactions — paging and compact rows', () => {
     });
   });
 
+  it('compact falls back to `reference` when bank_reference is empty', async () => {
+    // The production shape: 9,824 rows carry `reference`, ZERO carry
+    // `bank_reference`, so compact used to answer null on EVERY row while
+    // fields="full" showed the value — and the agent then had nothing to feed
+    // back into allocate_bank_transaction.
+    vi.mocked(getBankTransactions).mockResolvedValue({
+      transactions: [
+        { ...baseTx, id: 'a', bankReference: undefined, reference: '20220402-0011' },
+        { ...baseTx, id: 'b', bankReference: 'FEED-77', reference: 'STMT-1' },
+        { ...baseTx, id: 'c', bankReference: undefined, reference: undefined },
+      ],
+      total: 3,
+    } as never);
+    const out = parseOk(await tool('list_bank_transactions').handler({ fields: 'compact' }, ctx())) as {
+      transactions: CompactRow[];
+    };
+    expect(out.transactions.map((t) => t.bank_reference)).toEqual(
+      // bank_reference still WINS where it is set — it is the feed's stable
+      // external id, which is the better handle when both exist.
+      ['20220402-0011', 'FEED-77', null],
+    );
+  });
+
+  it('documents the compact bank_reference source and the silent limit clamp', () => {
+    const desc = tool('list_bank_transactions').description;
+    expect(desc).toContain('either column');
+    expect(desc).toMatch(/clamp/i);
+  });
+
+  it('accepts a limit above 100 and clamps it rather than refusing', async () => {
+    vi.mocked(getBankTransactions).mockResolvedValue({ transactions: [], total: 0 } as never);
+    await tool('list_bank_transactions').handler({ limit: 500 }, ctx());
+    expect(getBankTransactions).toHaveBeenCalledWith(
+      COMPANY_ID, expect.objectContaining({ limit: 100 }),
+    );
+  });
+
   it('derives allocation state: a posted journal line beats any suggestion', async () => {
     vi.mocked(getBankTransactions).mockResolvedValue({
       transactions: [

@@ -2,13 +2,23 @@
  * PRD-11 §5 — resolve a bank transaction from the reference printed on the
  * statement.
  *
- * An agent transcribing a bank statement holds `bank_reference`, not a UUID.
- * Without this it has to list every transaction on the account and match by
- * hand — the "fetch everything first" step PRD-11 exists to remove.
+ * An agent transcribing a bank statement holds the printed reference, not a
+ * UUID. Without this it has to list every transaction on the account and match
+ * by hand — the "fetch everything first" step PRD-11 exists to remove.
+ *
+ * TWO COLUMNS carry it, and the one the tool argument is named after is the
+ * empty one. Production, 2026-08-28: 9,824 rows have `reference` set and ZERO
+ * have `bank_reference`. Every statement importer writes `reference`
+ * (`bankImportService`, `bankStatementOcrService`, the classified import,
+ * manual capture, the Sage migration commit); only `bankFeedSyncService` and
+ * `openBankingSyncService` write `bank_reference`, and they put the provider's
+ * external id there rather than the printed reference. Matching
+ * `bank_reference` alone therefore answered NOT_FOUND for every reference the
+ * MCP pilot could actually read off a statement. Match EITHER column.
  *
  * The match is EXACT (after trimming both sides). A prefix/LIKE match would
  * happily resolve "INV-1" onto "INV-10" and post the journal against the wrong
- * row; `bank_reference` is also the import dedup key, so exactness is the
+ * row; the reference is also the import dedup key, so exactness is the
  * property the rest of the module already relies on.
  */
 
@@ -22,6 +32,13 @@ export interface BankTransactionRefMatch {
   transactionDate: string;
   amount: number;
   description: string | null;
+  /**
+   * The stored value that matched — `reference` when that column carried it,
+   * otherwise `bank_reference`. Two rows can now be ambiguous through
+   * DIFFERENT columns, so an ambiguity reply that only listed ids would leave
+   * a human unable to tell which value they are looking at.
+   */
+  matchedReference: string | null;
 }
 
 /**
@@ -46,18 +63,22 @@ export async function findBankTransactionsByReference(
 
   const rows = (bankAccountId
     ? await sql`
-        SELECT id, transaction_date, amount, description
+        SELECT id, transaction_date, amount, description,
+               CASE WHEN btrim(reference) = ${ref} THEN reference ELSE bank_reference END
+                 AS matched_reference
         FROM bank_transactions
         WHERE company_id = ${companyId}::UUID
-          AND btrim(bank_reference) = ${ref}
+          AND (btrim(reference) = ${ref} OR btrim(bank_reference) = ${ref})
           AND bank_account_id = ${bankAccountId}::UUID
         ORDER BY transaction_date ASC, id ASC
         LIMIT ${MAX_CANDIDATES}`
     : await sql`
-        SELECT id, transaction_date, amount, description
+        SELECT id, transaction_date, amount, description,
+               CASE WHEN btrim(reference) = ${ref} THEN reference ELSE bank_reference END
+                 AS matched_reference
         FROM bank_transactions
         WHERE company_id = ${companyId}::UUID
-          AND btrim(bank_reference) = ${ref}
+          AND (btrim(reference) = ${ref} OR btrim(bank_reference) = ${ref})
         ORDER BY transaction_date ASC, id ASC
         LIMIT ${MAX_CANDIDATES}`) as DbRow[];
 
@@ -70,6 +91,9 @@ export async function findBankTransactionsByReference(
     description: row.description === null || row.description === undefined
       ? null
       : String(row.description),
+    matchedReference: row.matched_reference === null || row.matched_reference === undefined
+      ? null
+      : String(row.matched_reference),
   }));
 }
 

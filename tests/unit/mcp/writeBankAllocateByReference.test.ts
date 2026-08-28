@@ -41,8 +41,18 @@ import { allocateBankTransactionTool, reverseBankAllocationTool } from '@/lib/mc
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 
-const MATCH_A = { id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9', transactionDate: '2026-03-01', amount: -1234.56, description: 'ACME' };
-const MATCH_B = { id: 'tx-b', transactionDate: '2026-04-01', amount: -1234.56, description: 'ACME' };
+// PRODUCTION SHAPE: the value came out of `bank_transactions.reference`.
+// `bank_reference` is NULL on all 9,824 referenced rows in production, so this
+// is what a real pilot lookup returns — the tool argument is merely named after
+// the empty column.
+const MATCH_A = {
+  id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9', transactionDate: '2026-03-01',
+  amount: -1234.56, description: 'ACME', matchedReference: '20220402-0011',
+};
+const MATCH_B = {
+  id: 'tx-b', transactionDate: '2026-04-01', amount: -1234.56,
+  description: 'ACME', matchedReference: '20220402-0011 ',
+};
 
 function text(res: { content: { text: string }[] }): string {
   return res.content[0]!.text;
@@ -143,6 +153,45 @@ describe.each([
     // Mutation guard: returning matches[0] here instead of erroring must fail.
     expect(allocateTransaction).not.toHaveBeenCalled();
     expect(reverseReconciledTransaction).not.toHaveBeenCalled();
+  });
+
+  it('shows the stored value each candidate matched on', async () => {
+    // The two rows can now be ambiguous through DIFFERENT columns — one
+    // `reference`, one `bank_reference` — so ids alone leave a human unable to
+    // see WHY both came back. `"20220402-0011 "` (trailing space) is exactly
+    // the case: btrim made it equal, the stored text is not.
+    vi.mocked(findBankTransactionsByReference).mockResolvedValue([
+      MATCH_A,
+      { ...MATCH_B, matchedReference: 'FEED-EXTERNAL-77' },
+    ]);
+
+    const res = await tool.handler({ bank_reference: '20220402-0011', idempotency_key: 'k1', ...extra }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('20220402-0011');
+    expect(text(res)).toContain('FEED-EXTERNAL-77');
+  });
+
+  it('resolves a reference that only `bank_transactions.reference` carries', async () => {
+    // The production defect verbatim: bank_reference IS NULL on the row, the
+    // statement reference sits in `reference`. Before the fix this reached the
+    // handler as zero matches and answered "Not found".
+    vi.mocked(findBankTransactionsByReference).mockResolvedValue([MATCH_A]);
+
+    const res = await tool.handler({ bank_reference: '20220402-0011', idempotency_key: 'k1', ...extra }, ctx);
+
+    expect(res.isError).toBeFalsy();
+    expect(findBankTransactionsByReference).toHaveBeenCalledWith('company-1', '20220402-0011', undefined);
+  });
+
+  it('resolves a reference carried by bank_reference (the feed-sync shape)', async () => {
+    vi.mocked(findBankTransactionsByReference).mockResolvedValue([
+      { ...MATCH_A, matchedReference: 'FEED-EXTERNAL-77' },
+    ]);
+
+    const res = await tool.handler({ bank_reference: 'FEED-EXTERNAL-77', idempotency_key: 'k1', ...extra }, ctx);
+
+    expect(res.isError).toBeFalsy();
   });
 
   it('still accepts a plain transaction_id — the existing call shape is unbroken', async () => {

@@ -237,8 +237,13 @@ export async function resolveTxId(
   if (matches.length > 1) {
     // Never take the first: same-reference rows differ by date and amount, and
     // guessing posts this month's journal against last month's transaction.
+    // The stored value is part of the listing: the lookup matches EITHER
+    // `reference` or `bank_reference`, so two candidates can be ambiguous
+    // through different columns (or through btrim alone), and ids on their own
+    // do not show why both came back.
     const listed = matches
-      .map((m) => `${m.id} (${m.transactionDate}, ${m.amount.toFixed(2)})`)
+      .map((m) => `${m.id} (${m.transactionDate}, ${m.amount.toFixed(2)}`
+        + `${m.matchedReference === null ? '' : `, ref "${m.matchedReference}"`})`)
       .join('; ');
     return {
       error: `bank_reference is ambiguous — ${matches.length} transactions carry it: ${listed}. `

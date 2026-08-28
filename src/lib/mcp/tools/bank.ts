@@ -49,7 +49,16 @@ function toCompact(tx: BankTransaction): CompactBankTx {
     id: tx.id,
     date: tx.transactionDate,
     amount: tx.amount,
-    bank_reference: tx.bankReference ?? null,
+    // Two columns carry the statement reference and the one this field is
+    // named after is the empty one in production (9,824 rows with `reference`,
+    // ZERO with `bank_reference` on 2026-08-28 — statement importers write
+    // `reference`; only the feed syncs write `bank_reference`, and they store
+    // the provider's external id). Compact answered null on every row while
+    // fields="full" showed the value, so an agent scanning compactly had
+    // nothing to hand back to allocate_bank_transaction. `bankReference` still
+    // wins where present: it is the stable external id, and the lookup
+    // resolves either column.
+    bank_reference: tx.bankReference ?? tx.reference ?? null,
     allocation: allocationStateOf(tx),
   };
 }
@@ -67,10 +76,12 @@ export const bankAccountsStatusTool: McpTool = {
 export const listBankTransactionsTool: McpTool = {
   name: 'list_bank_transactions',
   description:
-    'Bank transactions, filterable by account, allocation state, and date range. Max 100 rows per call. ' +
+    'Bank transactions, filterable by account, allocation state, and date range. ' +
+    'limit is capped at 100 rows per call: a larger value is ACCEPTED and silently clamped to 100, so page with cursor rather than raising limit. ' +
     'allocation_filter: allocated = a journal has been posted; suggested = categorised/AI-suggested but not yet posted; unallocated = neither. ' +
     'Paging: the reply carries next_cursor whenever more rows match. To read a whole account, call again with cursor set to that value and every other argument unchanged, and keep looping until next_cursor is null. ' +
     'fields="compact" returns only id, date, amount, bank_reference and allocation (~10x smaller) — use it when you are scanning or bulk-allocating and do not need the full row. '
+    + 'compact bank_reference is the statement reference from either column (the row\'s bank_reference, else its reference), which is exactly what allocate_bank_transaction and bulk_allocate_bank_transactions resolve. '
     + 'compact allocation is one of allocated | suggested | unallocated | excluded; an excluded row is returned by NEITHER allocation_filter=unallocated NOR =suggested, so never treat one as work to do.',
   scope: 'read:bank-tx',
   write: false,
