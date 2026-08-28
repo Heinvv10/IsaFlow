@@ -4,7 +4,7 @@
  * CRUD for rules lives in bankRulesService.ts.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import type { RuleApplyResult } from '../../types/bank.types';
@@ -212,11 +212,14 @@ export async function applyRules(
       for (const tx of orderedTxs) {
         let outcome;
         try {
-          outcome = await autoPostRuleLine({
+          // Savepoint per line: a lock timeout is a REAL 55P03, which aborts
+          // the transaction — without the savepoint the next candidate's
+          // first statement raises 25P02 and the whole run dies after one skip.
+          outcome = await withSavepoint('rule_autopost_line', () => autoPostRuleLine({
             companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
             bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
             supplierName, customerName,
-          });
+          }));
         } catch (lineErr) {
           // Another request is holding this row. One contended transaction must
           // not abort a run that has already posted for earlier ones — the

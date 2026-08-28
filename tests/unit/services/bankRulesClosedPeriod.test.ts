@@ -30,7 +30,17 @@ const { sqlMock, createMock, postMock, findTxsMock, buildLinesMock, periodStatus
   periodStatusMock: vi.fn(),
 }));
 
-vi.mock('@/lib/neon', () => ({ sql: sqlMock, withTransaction: vi.fn(), fmtDate: (d: unknown) => String(d) }));
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  withTransaction: vi.fn(),
+  fmtDate: (d: unknown) => String(d),
+  // Faithful-enough savepoint: on throw the "transaction" is restored, which
+  // the two-candidate lock-timeout test below relies on.
+  withSavepoint: vi.fn(async (_name: string, cb: () => unknown) => {
+    try { return await cb(); } catch (err) { txAborted = false; throw err; }
+  }),
+}));
+let txAborted = false;
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -183,6 +193,47 @@ describe('applyRules — period closes between pre-flight and post', () => {
     expect(result.autoPostSkippedLocked).toBe(1);
     expect(result.applied).toBe(0);
   });
+
+  it('a lock timeout on candidate 1 does not poison candidate 2 (savepoint restores the tx)', async () => {
+    // A real 55P03 ABORTS the transaction: without the per-line savepoint the
+    // next candidate's first statement raises 25P02 and the whole run dies
+    // after a single skip. pg semantics are emulated via the txAborted flag.
+    txAborted = false;
+    let locks = 0;
+    sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
+      const text = Array.isArray(strings) ? strings.join('') : String(strings);
+      if (txAborted) {
+        return Promise.reject(Object.assign(new Error('current transaction is aborted'), { code: '25P02' }));
+      }
+      if (text.includes('FROM bank_transactions') && text.includes('FOR UPDATE')) {
+        locks += 1;
+        if (locks === 1) {
+          txAborted = true; // the 55P03 aborts the tx until a savepoint rollback
+          return Promise.reject(Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }));
+        }
+        return Promise.resolve([lockedRow()]);
+      }
+      if (text.includes('FROM bank_categorisation_rules')) {
+        return Promise.resolve([{
+          id: 'rule-1', rule_name: 'Bank charges', priority: 1,
+          auto_create_entry: true, alloc_type: 'gl', gl_account_id: 'acct-charges',
+          match_type: 'contains', match_pattern: 'FEE', vat_code: 'no_vat',
+        }]);
+      }
+      if (text.includes('FROM gl_accounts')) return Promise.resolve([{ id: BANK_GL }]);
+      return Promise.resolve([]);
+    }) as never);
+    findTxsMock.mockResolvedValue([
+      { id: 'tx-1', transaction_date: '2026-08-13', amount: -100, description: 'BANK FEE', is_deposit: false },
+      { id: 'tx-2', transaction_date: '2026-08-14', amount: -200, description: 'BANK FEE', is_deposit: false },
+    ]);
+
+    const result = await applyRules(COMPANY, BANK_GL, USER);
+
+    expect(result.autoPostSkippedLocked).toBe(1);
+    expect(result.applied).toBe(1); // candidate 2 still posts
+  });
+
 
   it('caps a rule at 500 candidates and says so', async () => {
     withOneAutoPostRule();
