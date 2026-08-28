@@ -144,7 +144,9 @@ describe('impersonation flow (integration)', () => {
     await endHandler(
       mkReq({
         method: 'POST',
-        cookies: { 'sb-admin-stash': stashId! },
+        // Pentest C1: the stash UUID alone is not sufficient — the handler also
+        // requires the CURRENT (impersonated) session's access token.
+        cookies: { 'sb-admin-stash': stashId!, 'sb-access-token': newAccess! },
       }),
       r2.res
     );
