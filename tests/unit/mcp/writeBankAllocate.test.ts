@@ -13,6 +13,9 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(),
+  // Batched resolution (one query per bulk call) — the plural is what the
+  // selector resolver actually calls; default to "nothing matched".
+  findBankTransactionsByReferences: vi.fn(async () => new Map()),
   getBankTransactionStatus: vi.fn(),
 }));
 
@@ -375,6 +378,41 @@ describe('reverse_bank_allocation', () => {
     expect(reverseBankAllocationTool.requiresPost).toBe(true);
     expect(reverseBankAllocationTool.write).toBe(true);
     expect(reverseBankAllocationTool.inputSchema.required).toContain('idempotency_key');
+  });
+
+  it('refuses a malformed transaction_id before any SQL runs', async () => {
+    // Both ids reach pg as `$n::UUID` — transaction_id in the status read,
+    // bank_account_id in the reference lookup — so an unguarded call raised
+    // 22P02 from inside the handler. The allocate tool has always been guarded
+    // via parseAllocationLine; this path parses no line and had no guard.
+    const res = await reverseBankAllocationTool.handler(
+      { transaction_id: 'not-a-uuid', idempotency_key: 'k9' }, ctx,
+    );
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toBe('invalid transaction_id');
+    expect(getBankTransactionStatus).not.toHaveBeenCalled();
+    expect(reverseReconciledTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed bank_account_id on the reference route', async () => {
+    const res = await reverseBankAllocationTool.handler(
+      { bank_reference: 'REF-1', bank_account_id: 'nope', idempotency_key: 'k9' }, ctx,
+    );
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toBe('invalid bank_account_id');
+    expect(reverseReconciledTransaction).not.toHaveBeenCalled();
+  });
+
+  it('reports the ambiguity, not the bad id, when a call is both malformed and ambiguous', () => {
+    // Selector first, cast-guard second — parseAllocationLine's documented
+    // order. Told 'invalid transaction_id', an agent fixes the UUID and is
+    // refused again for naming both.
+    return reverseBankAllocationTool.handler(
+      { transaction_id: 'not-a-uuid', bank_reference: 'REF-1', idempotency_key: 'k9' }, ctx,
+    ).then((res) => {
+      expect(res.isError).toBe(true);
+      expect(res.content[0]!.text).toMatch(/^Provide either transaction_id or bank_reference/);
+    });
   });
 
   it('reverses using the tenant from ctx', async () => {

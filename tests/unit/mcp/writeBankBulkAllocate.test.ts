@@ -19,6 +19,9 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(),
+  // Batched resolution (one query per bulk call) — the plural is what the
+  // selector resolver actually calls; default to "nothing matched".
+  findBankTransactionsByReferences: vi.fn(async () => new Map()),
 }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationBatchService', () => ({
   createAllocationBatch: vi.fn(),
@@ -35,7 +38,7 @@ vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
 }));
 
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
-import { findBankTransactionsByReference } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import { findBankTransactionsByReferences } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import {
   createAllocationBatch,
   recordAllocationBatchLines,
@@ -111,6 +114,58 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
     expect(allocateTransaction).not.toHaveBeenCalled();
   });
 
+  it('resolves EVERY reference in the batch with ONE lookup query', async () => {
+    // A per-line loop meant 500 sequential lookups inside a request that
+    // already holds each row's lock — ~3 ms apiece against a full company scan
+    // before migration 519's indexes, all of it added to the time every other
+    // writer waits. One query, all the references.
+    const refs = Array.from({ length: 25 }, (_, i) => `REF-${i}`);
+    vi.mocked(findBankTransactionsByReferences).mockResolvedValue(new Map(
+      refs.map((r, i) => [r, [{
+        id: TX(i + 1), transactionDate: '2026-08-01', amount: -100, description: null,
+        matchedReference: r, matchedColumn: 'reference' as const,
+      }]]),
+    ));
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      {
+        allocations: refs.map((r) => ({ bank_reference: r, contra_account_id: ACC(1) })),
+        idempotency_key: 'k1',
+      },
+      ctx,
+    );
+
+    expect(res.isError).toBeUndefined();
+    expect(findBankTransactionsByReferences).toHaveBeenCalledTimes(1);
+    expect(findBankTransactionsByReferences).toHaveBeenCalledWith('company-1', refs, undefined);
+    expect(allocateTransaction).toHaveBeenCalledTimes(25);
+  });
+
+  it('splits the lookup by bank account, never widening one line into another\'s scope', async () => {
+    // Two lines narrowed to different accounts cannot share a query: merging
+    // them would let a reference resolve against an account the caller
+    // deliberately excluded.
+    vi.mocked(findBankTransactionsByReferences).mockImplementation(
+      async (_c, refs) => new Map(refs.map((r, i) => [r, [{
+        id: TX(i + 1), transactionDate: '2026-08-01', amount: -100, description: null,
+        matchedReference: r, matchedColumn: 'reference' as const,
+      }]])),
+    );
+    await bulkAllocateBankTransactionsTool.handler(
+      {
+        allocations: [
+          { bank_reference: 'R1', bank_account_id: ACC(3), contra_account_id: ACC(1) },
+          { bank_reference: 'R2', bank_account_id: ACC(4), contra_account_id: ACC(1) },
+        ],
+        idempotency_key: 'k1',
+      },
+      ctx,
+    );
+    expect(findBankTransactionsByReferences).toHaveBeenCalledTimes(2);
+    expect(findBankTransactionsByReferences).toHaveBeenCalledWith('company-1', ['R1'], ACC(3));
+    expect(findBankTransactionsByReferences).toHaveBeenCalledWith('company-1', ['R2'], ACC(4));
+  });
+
   it('refuses a duplicated transaction id — the second line would post against an already-allocated row', async () => {
     const res = await bulkAllocateBankTransactionsTool.handler(
       { allocations: [line(1), line(2), line(1)], idempotency_key: 'k1' }, ctx,
@@ -122,9 +177,12 @@ describe('bulk_allocate_bank_transactions — pre-write refusals', () => {
   });
 
   it('refuses a duplicate that only appears once the bank_reference is resolved', async () => {
-    vi.mocked(findBankTransactionsByReference).mockResolvedValue([
-      { id: TX(1), transactionDate: '2026-08-01', amount: -100, description: null },
-    ]);
+    vi.mocked(findBankTransactionsByReferences).mockResolvedValue(new Map([
+      ['REF1', [{
+        id: TX(1), transactionDate: '2026-08-01', amount: -100, description: null,
+        matchedReference: 'REF1', matchedColumn: 'reference' as const,
+      }]],
+    ]));
     const res = await bulkAllocateBankTransactionsTool.handler(
       { allocations: [line(1), { bank_reference: 'REF1', contra_account_id: ACC(1) }], idempotency_key: 'k1' },
       ctx,
@@ -272,9 +330,12 @@ describe('bulk_allocate_bank_transactions — dry run', () => {
   });
 
   it('returns the resolved lines it would post, with no batch id', async () => {
-    vi.mocked(findBankTransactionsByReference).mockResolvedValue([
-      { id: TX(9), transactionDate: '2026-08-01', amount: -100, description: null },
-    ]);
+    vi.mocked(findBankTransactionsByReferences).mockResolvedValue(new Map([
+      ['REF9', [{
+        id: TX(9), transactionDate: '2026-08-01', amount: -100, description: null,
+        matchedReference: 'REF9', matchedColumn: 'reference' as const,
+      }]],
+    ]));
     const res = await bulkAllocateBankTransactionsTool.handler(
       {
         allocations: [line(1), { bank_reference: 'REF9', contra_account_id: ACC(2) }],

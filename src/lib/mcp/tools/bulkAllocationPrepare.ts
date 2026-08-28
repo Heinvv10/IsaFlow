@@ -12,7 +12,7 @@ import {
   type AllocationLine,
   checkLinesOwnership,
   parseAllocationLine,
-  resolveTxId,
+  resolveTxSelectors,
 } from './allocationLine';
 
 // Each line posts a journal inside one request transaction, so the batch size
@@ -83,10 +83,17 @@ export async function prepareAllocationLines(
   // exists to avoid.
   if (ownership) return ownership;
 
+  // ONE lookup for the whole batch (per distinct bank-account scope), not one
+  // per line. Each line's row lock is held to the end of the request, so 500
+  // sequential lookups added their latency directly to the time the batch keeps
+  // every other writer waiting — ~3 ms each against a full company scan before
+  // migration 519's expression indexes.
+  const resolutions = await resolveTxSelectors(lines.map((l) => l.selector), ctx.companyId);
+
   const resolved: ResolvedLine[] = [];
   const seen = new Map<string, number>();
   for (const [i, line] of lines.entries()) {
-    const r = await resolveTxId(line.selector, ctx.companyId);
+    const r = resolutions[i]!;
     if ('error' in r) {
       errors.push(`allocations[${i}]: ${r.error}`);
       continue;

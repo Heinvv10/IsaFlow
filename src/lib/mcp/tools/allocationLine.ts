@@ -18,9 +18,17 @@ import {
   suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
-import { findBankTransactionsByReference } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import { pickTxSelector, resolveTxId, resolveTxSelectors, type TxSelector } from './txSelectorResolve';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs } from './toolHelpers';
+
+// Selector parsing and reference resolution moved to txSelectorResolve.ts when
+// resolution became batched (a 500-line bulk call must not issue 500 queries
+// while holding row locks). Re-exported so every existing import path — and the
+// "single and bulk resolve through exactly these functions" rule above — still
+// holds.
+export { pickTxSelector, resolveTxId, resolveTxSelectors };
+export type { TxSelector };
 
 // inputSchema.enum is NOT enforced by the MCP transport (schema is passed
 // through to getManifest() only) — this array is the actual runtime gate.
@@ -49,14 +57,6 @@ const ENTITY_REQUIRED: readonly AllocType[] = ['supplier', 'customer'];
 // ('payable'/'receivable'). Requiring it everywhere made the agent invent a GL
 // account for a supplier payment that then went unused.
 const CONTRA_REQUIRED: readonly AllocType[] = ['account'];
-
-// ── Transaction selector (PRD-11 §5) ────────────────────────────────────────
-//
-// The agent reads a bank statement, not the database, so it holds the printed
-// `bank_reference` rather than a UUID. Exactly one of the two: given both, they
-// can name different rows and there is no safe precedence — a tie-break here
-// would post against whichever the tool happened to prefer.
-export type TxSelector = { txId: string } | { ref: string; bankAccountId?: string };
 
 export interface AllocationLine {
   selector: TxSelector;
@@ -91,25 +91,9 @@ const CASTABLE_LINE_UUIDS = [
 ] as const;
 
 /** The shared guard's refusal text for `args`, or null when every id is usable. */
-function badUuidArg(args: Record<string, unknown>, keys: readonly string[]): string | null {
+export function badUuidArg(args: Record<string, unknown>, keys: readonly string[]): string | null {
   const refusal = guardCastableArgs(args, { uuid: keys });
   return refusal ? refusal.content[0]!.text : null;
-}
-
-/** Returns the selector, or the error text to refuse with. */
-export function pickTxSelector(args: Record<string, unknown>): TxSelector | string {
-  const txId = str(args, 'transaction_id');
-  const ref = str(args, 'bank_reference');
-  if (txId && ref) {
-    return 'Provide either transaction_id or bank_reference, not both — they may name different transactions.';
-  }
-  if (!txId && !ref) return 'transaction_id or bank_reference is required';
-  if (txId) return { txId };
-  // bank_account_id only NARROWS a query already fenced to ctx.companyId, so
-  // it never becomes a foreign key and needs no ownership check of its own:
-  // a foreign id simply matches nothing.
-  const bankAccountId = str(args, 'bank_account_id');
-  return bankAccountId ? { ref, bankAccountId } : { ref };
 }
 
 /** Validates one line's shape. Returns the parsed line or the refusal text. */
@@ -222,30 +206,6 @@ export async function checkLinesOwnership(
     customerIds.length ? customersBelongToCompany(companyId, customerIds) : true,
   ]);
   return accountsOk && suppliersOk && customersOk ? null : NOT_FOUND;
-}
-
-/** Resolves a selector to one transaction id, or the error text to refuse with. */
-export async function resolveTxId(
-  sel: TxSelector,
-  companyId: string,
-): Promise<{ id: string } | { error: string }> {
-  if ('txId' in sel) return { id: sel.txId };
-  const matches = await findBankTransactionsByReference(companyId, sel.ref, sel.bankAccountId);
-  // Same text as a genuine miss: a reference that resolves in another tenant
-  // must read identically to one that exists nowhere (no existence oracle).
-  if (matches.length === 0) return { error: NOT_FOUND };
-  if (matches.length > 1) {
-    // Never take the first: same-reference rows differ by date and amount, and
-    // guessing posts this month's journal against last month's transaction.
-    const listed = matches
-      .map((m) => `${m.id} (${m.transactionDate}, ${m.amount.toFixed(2)})`)
-      .join('; ');
-    return {
-      error: `bank_reference is ambiguous — ${matches.length} transactions carry it: ${listed}. `
-        + 'Re-issue with transaction_id, or narrow with bank_account_id.',
-    };
-  }
-  return { id: matches[0]!.id };
 }
 
 /**

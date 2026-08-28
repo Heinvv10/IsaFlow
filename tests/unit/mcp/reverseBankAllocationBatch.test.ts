@@ -26,6 +26,9 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(),
+  // Batched resolution (one query per bulk call) — the plural is what the
+  // selector resolver actually calls; default to "nothing matched".
+  findBankTransactionsByReferences: vi.fn(async () => new Map()),
 }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationBatchService', () => ({
   createAllocationBatch: vi.fn(),
