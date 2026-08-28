@@ -129,6 +129,26 @@ hashArgs(args): string   // sha256 of key-sorted canonical JSON
 
 - 2026-08-28: **selector resolution moved to `tools/txSelectorResolve.ts` and became batched** (review follow-up to the entry below). `resolveTxSelectors(selectors, companyId)` resolves a whole bulk call with ONE lookup per distinct `bank_account_id` scope — `prepareAllocationLines` used to `await resolveTxId` per line, so 500 by-reference lines meant 500 sequential lookups inside a request that already holds every row's lock. Lines scoped to DIFFERENT bank accounts still get separate queries: merging them would resolve a reference against an account the caller deliberately excluded. `pickTxSelector` / `resolveTxId` / `TxSelector` moved with it and are re-exported from `allocationLine.ts`, so the "single and bulk go through exactly these functions" rule is unchanged. The ambiguity reply now names the COLUMN as well as the value (`… (2026-03-01, -1234.56, bank_reference "FEED-77")`): with `reference` preferred over `bank_reference`, candidates are all one or all the other, and which one it was tells a human whether they are looking at a statement reference or a feed's external id. **`reverse_bank_allocation` now runs `badUuidArg` before resolving** — `transaction_id` reaches pg as `$n::UUID` in the status read and `bank_account_id` in the lookup, so a malformed one raised 22P02 from inside the handler; every other allocation path was guarded by `parseAllocationLine`, which this one never calls. Guard order is selector-first, cast-second, matching `parseAllocationLine`'s documented contract.
 - 2026-08-28: **the statement reference resolves against EITHER reference column, and compact rows finally carry it.** Production had 9,824 `bank_transactions` rows with `reference` set and ZERO with `bank_reference`, so `findBankTransactionsByReference`'s `btrim(bank_reference) = $ref` answered NOT_FOUND for every reference the MCP pilot could read off a statement — `allocate_bank_transaction` / `bulk_allocate_bank_transactions` / `reverse_bank_allocation` all refused rows that allocated fine by `transaction_id`. The WHERE is now `(btrim(reference) = $ref OR btrim(bank_reference) = $ref)` in both branches, and the lookup reports `matchedReference` (which stored value matched) so the ambiguity reply can show it: two candidates can now collide through DIFFERENT columns and ids alone would not say why. The ≤25-candidate cap, the blank-ref guard and the exact-match rule are unchanged. `list_bank_transactions` `fields="compact"` had the mirror bug — it mapped `tx.bankReference ?? null` and so answered `bank_reference: null` on every production row while `fields="full"` showed the value under `reference`; it now falls back (`bankReference ?? reference ?? null`), keeping `bankReference` first because that is the feed's stable external id. Tool descriptions say both things out loud: compact `bank_reference` is the statement reference from either column, and a `limit` above 100 is ACCEPTED and silently clamped rather than refused.
+- 2026-08-28: `list_gl_accounts` (18 read tools) — the chart of accounts in one
+  call, on `search_gl`'s `read:reports` scope and free like every other read.
+  Pilot agents were resolving codes to UUIDs one at a time through `search_gl`'s
+  `meta.accountId`, which forces a date range and returns ledger lines nobody
+  wanted; the description says "resolve account codes to UUIDs in one call
+  before allocate/journal tools" because the description is all an agent reads
+  before choosing. It reuses `getChartOfAccounts(companyId, includeInactive)`
+  verbatim (the same cached service the COA page uses) and filters
+  `account_type` / `search` in memory — a second SQL path over `gl_accounts`
+  would be a tenant-scoping surface for no gain. Rows are mapped DOWN to
+  `{id, account_code, account_name, account_type, account_subtype, is_active,
+  parent_account_id}`: `normal_balance`, `level`, `is_system_account` and
+  `has_transactions` are ours. An unknown `account_type` is REFUSED against the
+  real `GL_ACCOUNT_TYPES` enum (now a runtime const in `gl.types.ts`) before any
+  query — filtering to an empty list would read to an agent as "this company has
+  no expense accounts", a wrong answer dressed as a right one. No pagination:
+  `limit` defaults to 200 and clamps at 500, and `total` is the pre-limit match
+  count so a truncated list is visible rather than assumed complete. `search` is
+  compared as TEXT in JS, so it takes no cast guard.
+
 - 2026-08-27: **every tool argument that lands in a SQL cast is guarded before the
   service call** — `guardCastableArgs` / `guardUuidList` in `toolHelpers.ts`, applied
   across all 12 tool files. An id becomes `$n::UUID` and a date `$n::DATE`, so 'abc' is a
