@@ -47,6 +47,7 @@ export default function ReconciliationDetailPage() {
   const [glLines, setGlLines] = useState<GLLine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [actionLoading, setActionLoading] = useState('');
 
   // Selected items for manual matching
@@ -125,6 +126,11 @@ export default function ReconciliationDetailPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message || 'Auto-match failed');
+      const data = (json?.data ?? {}) as { autoMatched?: number; skippedRaced?: number };
+      setNotice(
+        `Auto-matched ${data.autoMatched ?? 0}` +
+        (data.skippedRaced ? ` — ${data.skippedRaced} skipped (allocated by another request)` : ''),
+      );
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Auto-match failed');
@@ -292,6 +298,12 @@ export default function ReconciliationDetailPage() {
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
               <AlertCircle className="h-4 w-4" /> {error}
               <button onClick={() => setError('')} className="ml-auto text-xs underline">dismiss</button>
+            </div>
+          )}
+          {notice && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-300 text-sm">
+              {notice}
+              <button onClick={() => setNotice('')} className="ml-auto text-xs underline">dismiss</button>
             </div>
           )}
 
