@@ -8,7 +8,8 @@
  * missing NOT NULL company_id columns.
  */
 
-import { sql, transaction, fmtDate } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import {
   createJournalEntry,

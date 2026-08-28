@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 
 type Row = Record<string, unknown>;
 
@@ -50,7 +51,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   `) as Row[];
 
   const toNum = (v: unknown) => v != null ? Number(v) : null;
-  const toStr = (v: unknown) => v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? '');
+  const toStr = (v: unknown) => v instanceof Date ? fmtDate(v) : String(v ?? '');
 
   return apiResponse.success(res, rows.map(r => ({
     yyyymm: toStr(r.yyyymm),

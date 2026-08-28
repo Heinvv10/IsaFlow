@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccount } from './systemAccountResolver';
@@ -186,9 +187,7 @@ export async function getAccountTransactions(
       const d = Number(r.debit || 0);
       const c = Number(r.credit || 0);
       running += normalBal === 'debit' ? d - c : c - d;
-      const rawDate = r.entry_date instanceof Date
-        ? (r.entry_date.toISOString().split('T')[0] ?? '')
-        : (String(r.entry_date || '').split('T')[0] ?? '');
+      const rawDate = fmtDate(r.entry_date);
       return {
         date: rawDate,
         entryNumber: String(r.entry_number),
@@ -256,9 +255,7 @@ export async function getAuditTrail(
     `) as Row[];
 
     return rows.map((r: Row) => ({
-      entryDate: r.entry_date instanceof Date
-        ? r.entry_date.toISOString().split('T')[0]!
-        : String(r.entry_date || '').split('T')[0]!,
+      entryDate: fmtDate(r.entry_date),
       entryNumber: String(r.entry_number),
       description: String(r.description || ''),
       source: String(r.source || 'manual'),

@@ -9,6 +9,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -59,11 +60,6 @@ export interface GetAccountLedgerParams {
   limit?: number;
   /** Default: 0 */
   offset?: number;
-}
-
-function toDateString(val: unknown): string {
-  if (val instanceof Date) return val.toISOString().split('T')[0] ?? '';
-  return String(val ?? '').split('T')[0] ?? '';
 }
 
 // WORKING: All WHERE clauses include company_id on both je and jl tables.
@@ -234,7 +230,7 @@ export async function getAccountLedger(
       running += normalBalance === 'debit' ? d - c : c - d;
       return {
         journalEntryId: String(r.journal_entry_id),
-        entryDate: toDateString(r.entry_date),
+        entryDate: fmtDate(r.entry_date),
         entryNumber: String(r.entry_number ?? ''),
         description: String(r.description ?? ''),
         reference: String(r.reference ?? ''),

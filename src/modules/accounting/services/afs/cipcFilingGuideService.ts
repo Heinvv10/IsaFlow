@@ -3,7 +3,8 @@
 // required forms, and a documents-ready checklist.
 // Filing deadline is computed at runtime (fiscal year-end + 6 months).
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { computePisScoreForDocument } from './pisCalculatorService';
 import type { CipcFilingGuide } from './afsTypes';

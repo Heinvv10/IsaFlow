@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -70,9 +71,7 @@ function mapJob(r: DbRow): PracticeJob {
     description: r.description ? String(r.description) : null,
     partnerId: r.partner_id ? String(r.partner_id) : null,
     preparerId: r.preparer_id ? String(r.preparer_id) : null,
-    dueDate: r.due_date
-      ? (typeof r.due_date === 'string' ? r.due_date : (r.due_date as Date).toISOString().split('T')[0]!)
-      : null,
+    dueDate: r.due_date ? fmtDate(r.due_date) : null,
     priority: String(r.priority) as PracticeJob['priority'],
     status: String(r.status) as PracticeJob['status'],
     financialYear: r.financial_year ? String(r.financial_year) : null,

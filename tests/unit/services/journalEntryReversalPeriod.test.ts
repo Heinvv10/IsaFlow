@@ -1,12 +1,15 @@
 /**
  * reverseJournalEntry must derive the reversal's fiscal period from the
- * reversal's OWN entry date (today) — never inherit the original entry's
- * period (P1.1 blind-review HIGH, PR #198).
+ * reversal's OWN entry date — never inherit the original entry's period id
+ * (P1.1 blind-review HIGH, PR #198).
  *
- * Inheriting meant: original period closed → postJournalEntry throws
- * ClosedFiscalPeriodError and old documents become permanently
- * un-cancellable; original period still open → the reversal lands in a past
- * period its entry_date isn't in (violates the planned P2.2 invariant).
+ * Inheriting the period id meant the reversal could land in a period its
+ * entry_date isn't in, and a closed original period made old documents
+ * permanently un-cancellable (postJournalEntry throws ClosedFiscalPeriodError).
+ *
+ * This invariant is about the period ID only. WHICH date the reversal carries
+ * is a separate rule — original date when its period is open, else today —
+ * pinned in journalEntryReversalDate.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';

@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import {
   validateCompanyComponents,
@@ -172,10 +173,8 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
       lastName: String(emp.last_name),
       idNumber: emp.id_number ? String(emp.id_number) : null,
       taxNumber: emp.tax_number ? String(emp.tax_number) : null,
-      startDate: emp.start_date instanceof Date ? emp.start_date.toISOString().slice(0, 10) : String(emp.start_date),
-      endDate: emp.end_date
-        ? (emp.end_date instanceof Date ? emp.end_date.toISOString().slice(0, 10) : String(emp.end_date))
-        : null,
+      startDate: fmtDate(emp.start_date),
+      endDate: emp.end_date ? fmtDate(emp.end_date) : null,
       totalGross,
       totalTaxable: agg ? Number(agg.total_taxable) : 0,
       totalPaye,

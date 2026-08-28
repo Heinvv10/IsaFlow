@@ -5,7 +5,7 @@
  * 300-line project cap while adding the accountant-signal columns.
  */
 
-import { fmtDate } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import type { SupplierInvoice } from '../../types/ap.types';
 

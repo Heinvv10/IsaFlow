@@ -2,6 +2,7 @@
  * Company type definitions and DB row mapper.
  * Extracted from companyService.ts for file-size compliance.
  */
+import { fmtDate } from '@/lib/fmtDate';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,7 +206,7 @@ export function mapCompany(r: Record<string, unknown>): Company {
     isActive: bool(r.is_active, true),
     createdAt: str(r.created_at),
     lockdownEnabled: bool(r.lockdown_enabled, false),
-    lockdownDate: r.lockdown_date != null ? new Date(r.lockdown_date as string | number | Date).toISOString().split('T')[0]! : null,
+    lockdownDate: r.lockdown_date != null ? fmtDate(r.lockdown_date) : null,
     vatSystemType: r.vat_system_type != null ? String(r.vat_system_type) : 'invoice',
     entityType: r.entity_type != null ? String(r.entity_type) : 'company',
     registeredName: strN(r.registered_name),

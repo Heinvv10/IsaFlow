@@ -3,7 +3,7 @@
  * bankTransactionQueryService (300-line rule); that module re-exports both
  * helpers, so every existing import path keeps working.
  */
-import { fmtDate } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import type { BankTransaction } from '../../types/bank.types';
 

@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { PayrollEmployee } from './payrollTypes';
@@ -61,9 +62,9 @@ export async function createPayrollEmployee(
     ) VALUES (
       ${companyId}::uuid, ${data.employeeNumber}, ${data.firstName}, ${data.lastName},
       ${data.idNumber ?? null}, ${data.taxNumber ?? null},
-      ${data.employmentType}, ${data.startDate.toISOString().split('T')[0]},
-      ${data.endDate ? data.endDate.toISOString().split('T')[0] : null},
-      ${data.dateOfBirth ? data.dateOfBirth.toISOString().split('T')[0] : null},
+      ${data.employmentType}, ${fmtDate(data.startDate)},
+      ${data.endDate ? fmtDate(data.endDate) : null},
+      ${data.dateOfBirth ? fmtDate(data.dateOfBirth) : null},
       ${data.uifExcluded}, ${data.medicalAidMainMember}, ${data.medicalAidDependantsCount}
     )
     RETURNING *
@@ -87,11 +88,7 @@ export async function updatePayrollEmployee(
   `) as Row[];
   const before = beforeRows[0];
 
-  const toIso = (v: unknown): string | null => {
-    if (!v) return null;
-    if (v instanceof Date) return v.toISOString().split('T')[0] ?? null;
-    return String(v).split('T')[0] ?? null;
-  };
+  const toIso = (v: unknown): string | null => (v ? fmtDate(v) : null);
   const dobIso = toIso(data.dateOfBirth);
   const endIso = toIso(data.endDate);
   // Only mark as terminated if the end date is today or in the past.

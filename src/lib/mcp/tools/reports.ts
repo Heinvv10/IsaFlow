@@ -4,7 +4,7 @@
  * from ctx ONLY (never from args).
  */
 import type { McpTool } from '../types';
-import { fmtDate } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';

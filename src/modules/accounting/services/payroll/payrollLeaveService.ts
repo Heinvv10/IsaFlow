@@ -3,6 +3,7 @@
  * Handles leave types, balances, and requests.
  */
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
@@ -111,8 +112,8 @@ function mapLeaveRequest(r: Row): LeaveRequest {
     employeeNumber: String(r.employee_number),
     leaveTypeId: String(r.leave_type_id),
     leaveTypeName: String(r.leave_type_name),
-    startDate: r.start_date instanceof Date ? r.start_date.toISOString().slice(0, 10) : String(r.start_date),
-    endDate: r.end_date instanceof Date ? r.end_date.toISOString().slice(0, 10) : String(r.end_date),
+    startDate: fmtDate(r.start_date),
+    endDate: fmtDate(r.end_date),
     days: Number(r.days),
     reason: r.reason ? String(r.reason) : null,
     status: String(r.status),
@@ -326,14 +327,8 @@ export async function runMonthlyAccrual(
   let skipped = 0;
 
   for (const emp of employees) {
-    const startIso = emp.start_date instanceof Date
-      ? emp.start_date.toISOString().slice(0, 10)
-      : String(emp.start_date).slice(0, 10);
-    const endIso = emp.end_date
-      ? (emp.end_date instanceof Date
-        ? emp.end_date.toISOString().slice(0, 10)
-        : String(emp.end_date).slice(0, 10))
-      : null;
+    const startIso = fmtDate(emp.start_date);
+    const endIso = emp.end_date ? fmtDate(emp.end_date) : null;
 
     for (const lt of leaveTypes) {
       const expected = computeExpectedAccrual({

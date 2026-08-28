@@ -4,7 +4,8 @@
  * HTML template is in statementEmailTemplate.ts (kept separate for size).
  */
 
-import { sql, fmtDate as fmtDbDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate as fmtDbDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sendEmail } from '../core/emailService';

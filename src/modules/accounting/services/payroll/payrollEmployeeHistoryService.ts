@@ -8,6 +8,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 
 export interface RecordChangeInput {
@@ -57,8 +58,7 @@ function toDate(v: unknown): Date {
 }
 
 function asDateString(v: unknown): string {
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  return String(v);
+  return fmtDate(v);
 }
 
 export async function listEmployeeHistory(

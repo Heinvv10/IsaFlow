@@ -29,6 +29,13 @@ vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
 vi.mock('@/modules/accounting/services/gl/journalEntryMeta', () => ({
   defaultHumanMeta: vi.fn(() => ({ postingAgent: 'human' })),
 }));
+// reverseJournalEntry asks whether the ORIGINAL entry's period is still open,
+// to decide whether the contra can carry the original date. Mocked so this
+// suite keeps asserting reversal SEMANTICS against a fixed `sql` call sequence;
+// the date decision itself is pinned in journalEntryReversalDate.test.ts.
+vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
+  getPeriodStatusForDate: vi.fn(async () => 'closed' as const),
+}));
 
 import { sql } from '@/lib/neon';
 import { getJournalEntryById, createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';

@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
@@ -15,6 +16,7 @@ import {
   mapEntryRow,
 } from './journalEntryCrudService';
 import { defaultHumanMeta } from './journalEntryMeta';
+import { getPeriodStatusForDate } from './periodStatusService';
 
 type Row = DbRow;
 
@@ -108,14 +110,28 @@ export async function reverseJournalEntry(
       costCenterId: l.costCenterId,
     }));
 
-    // The reversal is dated today, so its fiscal period must be derived from
-    // TODAY (createJournalEntry looks it up from entryDate when omitted) —
-    // never inherited from the original. Inheriting meant: original period
-    // closed → postJournalEntry throws ClosedFiscalPeriodError and old
-    // documents become permanently un-cancellable; original period still
-    // open → the reversal lands in a past period its entry_date isn't in.
+    // A correction belongs in the period it corrects. Dating every reversal to
+    // TODAY moved the correction into a later period than the entry it undoes:
+    // the two no longer net to zero in any period-bounded report, and when the
+    // pair straddles a VAT period the return for the original period stays
+    // overstated while the next one is understated.
+    //
+    // So: date the reversal to the ORIGINAL entry_date when that period is
+    // still open, and fall back to today only when it is not. The fallback is
+    // what the previous unconditional-today rule was really protecting — a
+    // closed original period must not make old documents permanently
+    // un-cancellable, and postJournalEntry would throw ClosedFiscalPeriodError.
+    //
+    // Only entryDate is chosen here; createJournalEntry still derives the
+    // fiscal period FROM that date, so the period can never disagree with it.
+    const originalDate = fmtDate(entry.entryDate);
+    const originalPeriod = await getPeriodStatusForDate(companyId, originalDate);
+    // fmtDate(new Date()), not toISOString — between 00:00 and 02:00 SAST the
+    // latter stamps yesterday.
+    const reversalDate = originalPeriod === 'open' ? originalDate : fmtDate(new Date());
+
     const reversalEntry = await createJournalEntry(companyId, {
-      entryDate: new Date().toISOString().split('T')[0]!,
+      entryDate: reversalDate,
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,
       lines: reversalLines,

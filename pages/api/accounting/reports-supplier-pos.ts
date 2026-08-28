@@ -15,6 +15,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import sql from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 
 export interface SupplierPoRow {
   id: string;
@@ -44,8 +45,7 @@ export interface SupplierPosReportResponse {
 
 function toDateString(val: Date | string | null | undefined): string | null {
   if (!val) return null;
-  if (val instanceof Date) return val.toISOString().split('T')[0]!;
-  return String(val).split('T')[0]!;
+  return fmtDate(val);
 }
 
 async function getSupplierPosReport(

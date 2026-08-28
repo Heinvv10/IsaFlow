@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -62,9 +63,7 @@ function computeNextDueDate(s: string, rule: NonNullable<PracticeTask['recurring
 }
 function toDateStr(v: unknown): string | null {
   if (!v) return null;
-  if (typeof v === 'string') return v.split('T')[0]!;
-  if (v instanceof Date) return v.toISOString().split('T')[0]!;
-  return null;
+  return fmtDate(v);
 }
 
 function mapTask(r: DbRow): PracticeTask {

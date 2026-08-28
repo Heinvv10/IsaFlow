@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 /**
  * Cash Flow Statement API
  * GET /api/accounting/reports-cash-flow?start_date=&end_date=
@@ -36,7 +37,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
      // with income-statement/balance-sheet endpoints)
     const { start_date, end_date, period_start, period_end } = req.query;
 
-    const startDate = (period_start as string) || (start_date as string) || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+    const startDate = (period_start as string) || (start_date as string) || fmtDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     const endDate = (period_end as string) || (end_date as string) || new Date().toISOString().split('T')[0];
 
     // Run opening-balance and the collapsed period aggregate in parallel.

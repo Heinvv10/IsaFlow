@@ -3,7 +3,8 @@
  * Bank Reconciliation Service — reconciliation CRUD, allocation, and auto-match
  */
 
-import { sql, withTransaction, fmtDate } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';

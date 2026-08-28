@@ -10,6 +10,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
@@ -130,7 +131,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   const toNum = (v: unknown) => Number(v ?? 0);
-  const toStr = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? ''));
+  const toStr = (v: unknown) => (v instanceof Date ? fmtDate(v) : String(v ?? ''));
 
   const assets = rows.map(r => ({
     assetId: toStr(r.asset_id),
