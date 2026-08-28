@@ -17,7 +17,8 @@ export const SELECTOR_PROPERTIES = {
   bank_reference: {
     type: 'string',
     description:
-      'The reference printed on the bank statement, matched exactly (after trimming). '
+      'The reference printed on the bank statement, matched exactly (after trimming) against '
+      + 'either reference column on the transaction — the same value list_bank_transactions returns as bank_reference. '
       + 'Use it instead of transaction_id when working from a statement — no id lookup needed. '
       + 'Must resolve to exactly one transaction; if it does not, the tool lists the candidates.',
   },

@@ -14,6 +14,9 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
 }));
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   findBankTransactionsByReference: vi.fn(),
+  // Batched resolution (one query per bulk call) — the plural is what the
+  // selector resolver actually calls; default to "nothing matched".
+  findBankTransactionsByReferences: vi.fn(async () => new Map()),
   getBankTransactionStatus: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
@@ -29,8 +32,9 @@ import {
   reverseReconciledTransaction,
 } from '@/modules/accounting/services/bank/bankAllocationService';
 import {
-  findBankTransactionsByReference,
+  findBankTransactionsByReferences,
   getBankTransactionStatus,
+  type BankTransactionRefMatch,
 } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import {
@@ -41,8 +45,32 @@ import { allocateBankTransactionTool, reverseBankAllocationTool } from '@/lib/mc
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 
-const MATCH_A = { id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9', transactionDate: '2026-03-01', amount: -1234.56, description: 'ACME' };
-const MATCH_B = { id: 'tx-b', transactionDate: '2026-04-01', amount: -1234.56, description: 'ACME' };
+// PRODUCTION SHAPE: the value came out of `bank_transactions.reference`.
+// `bank_reference` is NULL on all 9,824 referenced rows in production, so this
+// is what a real pilot lookup returns — the tool argument is merely named after
+// the empty column.
+const MATCH_A: BankTransactionRefMatch = {
+  id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9', transactionDate: '2026-03-01',
+  amount: -1234.56, description: 'ACME', matchedReference: '20220402-0011',
+  matchedColumn: 'reference',
+};
+const MATCH_B: BankTransactionRefMatch = {
+  id: 'tx-b', transactionDate: '2026-04-01', amount: -1234.56,
+  description: 'ACME', matchedReference: '20220402-0011',
+  matchedColumn: 'reference',
+};
+
+
+/**
+ * The resolver asks for the WHOLE batch at once, so the mock answers a map
+ * keyed by every reference it was handed. `[]` models "reference known, no
+ * candidates" and resolves to the same NOT_FOUND as an absent key.
+ */
+function mockRefMatches(matches: BankTransactionRefMatch[]): void {
+  vi.mocked(findBankTransactionsByReferences).mockImplementation(
+    async (_companyId, refs) => new Map(refs.map((r) => [r.trim(), matches])),
+  );
+}
 
 function text(res: { content: { text: string }[] }): string {
   return res.content[0]!.text;
@@ -61,7 +89,7 @@ beforeEach(() => {
     journalEntryId: '97120700-9f09-4fe5-804e-34331ce49b97', bankTransaction: { id: '8102aa5c-6c28-4c30-8ae4-cbb89c5467a9' },
   } as never);
   vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined as never);
-  vi.mocked(findBankTransactionsByReference).mockResolvedValue([MATCH_A]);
+  mockRefMatches([MATCH_A]);
 });
 
 // The fourth column is the bank_transaction status each tool's PRE-WRITE check
@@ -85,25 +113,25 @@ describe.each([
     const res = await tool.handler({ bank_reference: 'REF-001', idempotency_key: 'k1', ...extra }, ctx);
 
     expect(res.isError).toBeFalsy();
-    expect(findBankTransactionsByReference).toHaveBeenCalledWith('company-1', 'REF-001', undefined);
+    expect(findBankTransactionsByReferences).toHaveBeenCalledWith('company-1', ['REF-001'], undefined);
   });
 
   it('passes bank_account_id through as a narrowing filter', async () => {
     await tool.handler(
       { bank_reference: 'REF-001', bank_account_id: 'f60ea224-2740-48f8-8eeb-c594e67305aa', idempotency_key: 'k1', ...extra }, ctx,
     );
-    expect(findBankTransactionsByReference).toHaveBeenCalledWith('company-1', 'REF-001', 'f60ea224-2740-48f8-8eeb-c594e67305aa');
+    expect(findBankTransactionsByReferences).toHaveBeenCalledWith('company-1', ['REF-001'], 'f60ea224-2740-48f8-8eeb-c594e67305aa');
   });
 
   it('trims the reference before resolving', async () => {
     await tool.handler({ bank_reference: '  REF-001  ', idempotency_key: 'k1', ...extra }, ctx);
-    expect(findBankTransactionsByReference).toHaveBeenCalledWith('company-1', 'REF-001', undefined);
+    expect(findBankTransactionsByReferences).toHaveBeenCalledWith('company-1', ['REF-001'], undefined);
   });
 
   it('rejects a call carrying neither transaction_id nor bank_reference', async () => {
     const res = await tool.handler({ idempotency_key: 'k1', ...extra }, ctx);
     expect(res.isError).toBe(true);
-    expect(findBankTransactionsByReference).not.toHaveBeenCalled();
+    expect(findBankTransactionsByReferences).not.toHaveBeenCalled();
     expect(allocateTransaction).not.toHaveBeenCalled();
     expect(reverseReconciledTransaction).not.toHaveBeenCalled();
   });
@@ -113,13 +141,13 @@ describe.each([
       { transaction_id: 'bc832863-424e-4a35-85ef-f8185ca28cbc', bank_reference: 'REF-001', idempotency_key: 'k1', ...extra }, ctx,
     );
     expect(res.isError).toBe(true);
-    expect(findBankTransactionsByReference).not.toHaveBeenCalled();
+    expect(findBankTransactionsByReferences).not.toHaveBeenCalled();
     expect(allocateTransaction).not.toHaveBeenCalled();
     expect(reverseReconciledTransaction).not.toHaveBeenCalled();
   });
 
   it('reports an unmatched reference with the same text as a tenant miss — no existence oracle', async () => {
-    vi.mocked(findBankTransactionsByReference).mockResolvedValue([]);
+    mockRefMatches([]);
 
     const res = await tool.handler({ bank_reference: 'REF-404', idempotency_key: 'k1', ...extra }, ctx);
 
@@ -130,7 +158,7 @@ describe.each([
   });
 
   it('refuses an ambiguous reference and lists the candidates instead of guessing', async () => {
-    vi.mocked(findBankTransactionsByReference).mockResolvedValue([MATCH_A, MATCH_B]);
+    mockRefMatches([MATCH_A, MATCH_B]);
 
     const res = await tool.handler({ bank_reference: 'REF-DUP', idempotency_key: 'k1', ...extra }, ctx);
 
@@ -145,10 +173,54 @@ describe.each([
     expect(reverseReconciledTransaction).not.toHaveBeenCalled();
   });
 
+  it('names the column the candidates matched on', async () => {
+    // Preference order means the candidates are all `reference` or all
+    // `bank_reference`, never a mix — and which one it was matters to whoever
+    // has to choose: `bank_reference` candidates came out of a bank feed's
+    // external id, not off a statement.
+    mockRefMatches([
+      { ...MATCH_A, matchedColumn: 'bank_reference', matchedReference: 'FEED-EXTERNAL-77' },
+      { ...MATCH_B, matchedColumn: 'bank_reference', matchedReference: 'FEED-EXTERNAL-77' },
+    ]);
+
+    const res = await tool.handler({ bank_reference: 'FEED-EXTERNAL-77', idempotency_key: 'k1', ...extra }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(text(res)).toContain('bank_reference "FEED-EXTERNAL-77"');
+  });
+
+  it('names `reference` when that is the column that matched', async () => {
+    mockRefMatches([MATCH_A, MATCH_B]);
+    const res = await tool.handler({ bank_reference: '20220402-0011', idempotency_key: 'k1', ...extra }, ctx);
+    expect(text(res)).toContain('reference "20220402-0011"');
+  });
+
+  it('resolves a reference that only `bank_transactions.reference` carries', async () => {
+    // The production defect verbatim: bank_reference IS NULL on the row, the
+    // statement reference sits in `reference`. Before the fix this reached the
+    // handler as zero matches and answered "Not found".
+    mockRefMatches([MATCH_A]);
+
+    const res = await tool.handler({ bank_reference: '20220402-0011', idempotency_key: 'k1', ...extra }, ctx);
+
+    expect(res.isError).toBeFalsy();
+    expect(findBankTransactionsByReferences).toHaveBeenCalledWith('company-1', ['20220402-0011'], undefined);
+  });
+
+  it('resolves a reference carried by bank_reference (the feed-sync shape)', async () => {
+    mockRefMatches([
+      { ...MATCH_A, matchedColumn: 'bank_reference', matchedReference: 'FEED-EXTERNAL-77' },
+    ]);
+
+    const res = await tool.handler({ bank_reference: 'FEED-EXTERNAL-77', idempotency_key: 'k1', ...extra }, ctx);
+
+    expect(res.isError).toBeFalsy();
+  });
+
   it('still accepts a plain transaction_id — the existing call shape is unbroken', async () => {
     const res = await tool.handler({ transaction_id: 'f3d54cf4-8108-435b-8fe3-791a5c418be5', idempotency_key: 'k1', ...extra }, ctx);
     expect(res.isError).toBeFalsy();
-    expect(findBankTransactionsByReference).not.toHaveBeenCalled();
+    expect(findBankTransactionsByReferences).not.toHaveBeenCalled();
   });
 
   it('tells the agent in its description that a statement reference is accepted', () => {
@@ -171,7 +243,7 @@ describe('allocate_bank_transaction — resolved id reaches the service', () => 
       { bank_reference: 'REF-001', alloc_type: 'supplier', idempotency_key: 'k1' }, ctx,
     );
     expect(res.isError).toBe(true); // entity_id missing
-    expect(findBankTransactionsByReference).not.toHaveBeenCalled();
+    expect(findBankTransactionsByReferences).not.toHaveBeenCalled();
   });
 });
 
