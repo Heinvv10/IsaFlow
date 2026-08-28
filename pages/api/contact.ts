@@ -69,4 +69,4 @@ const handler: NextApiHandler = async (req, res) => {
 export const config = { api: { bodyParser: { sizeLimit: '16kb' } } };
 
 // Per-IP rate limit: a handful of submissions per 15 min is plenty for a human.
-export default withRateLimit(handler, { max: 5, windowSecs: 900 });
+export default withRateLimit(handler, { max: 5, windowSecs: 900 }, 'contact');
