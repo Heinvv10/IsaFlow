@@ -30,7 +30,10 @@ vi.mock('@/lib/logger', () => ({
 
 import { getPoolForTests, sql } from '@/lib/neon';
 import { allocateBankTransactionTool } from '@/lib/mcp/tools/writeBankAllocate';
-import { findBankTransactionsByReference } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import {
+  findBankTransactionsByReference,
+  findBankTransactionsByReferences,
+} from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 type AlsCtx = Parameters<typeof als.run>[0];
@@ -202,6 +205,78 @@ describe('allocate_bank_transaction by reference — real ledger', async () => {
       });
     },
   );
+
+  it.skipIf(!reachable)('reaches a stored reference that ends in a control character', async () => {
+    // `.trim()` in JS strips \r; bare btrim() in SQL strips spaces only, so a
+    // statement row imported as "REF\r" was unreachable from an agent typing
+    // "REF". Only real SQL can show this — the trim set lives in the query.
+    await inRequestTx(async (f) => {
+      const ref = `ISAFLOW-CRLF-${Date.now()}`;
+      await seedTx(f, `${ref}\r`, 'ISAFLOW REF FIXTURE crlf');
+      const matches = await findBankTransactionsByReference(f.companyId, ref);
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.matchedReference).toBe(ref);
+    });
+  });
+
+  it.skipIf(!reachable)('prefers `reference` over `bank_reference` for the same value', async () => {
+    await inRequestTx(async (f) => {
+      const ref = `ISAFLOW-PREF-${Date.now()}`;
+      const onReference = await seedTx(f, ref, 'ISAFLOW REF FIXTURE preferred');
+      // The same string as a feed's external id on a different row. A UNION
+      // would report these two as ambiguous and refuse to allocate either.
+      await sql`
+        INSERT INTO bank_transactions (
+          company_id, bank_account_id, transaction_date, amount, description,
+          reference, bank_reference, status
+        ) VALUES (
+          ${f.companyId}::uuid, ${f.bankAccountId}::uuid, '2026-08-03'::date,
+          ${-42}, 'ISAFLOW REF FIXTURE shadowed', NULL, ${ref}, 'imported'
+        )
+      `;
+      const matches = await findBankTransactionsByReference(f.companyId, ref);
+      expect(matches.map((m) => m.id)).toEqual([onReference]);
+      expect(matches[0]!.matchedColumn).toBe('reference');
+    });
+  });
+
+  it.skipIf(!reachable)('resolves a whole batch of references in one query', async () => {
+    await inRequestTx(async (f) => {
+      const stamp = Date.now();
+      const refs = [`ISAFLOW-BATCH-${stamp}-A`, `ISAFLOW-BATCH-${stamp}-B`];
+      const ids = [
+        await seedTx(f, refs[0]!, 'ISAFLOW REF FIXTURE batch a'),
+        await seedTx(f, refs[1]!, 'ISAFLOW REF FIXTURE batch b'),
+      ];
+      const byRef = await findBankTransactionsByReferences(f.companyId, [...refs, 'ISAFLOW-BATCH-MISSING']);
+      expect(byRef.get(refs[0]!)!.map((m) => m.id)).toEqual([ids[0]]);
+      expect(byRef.get(refs[1]!)!.map((m) => m.id)).toEqual([ids[1]]);
+      expect(byRef.has('ISAFLOW-BATCH-MISSING')).toBe(false);
+    });
+  });
+
+  it.skipIf(!reachable)('is served by migration 519’s expression indexes, not a company scan', async () => {
+    // The trim expression in the query MUST match the one in the index
+    // character for character; if it drifts the planner silently falls back to
+    // scanning every row in the company, which is what made 500-line bulk
+    // allocation hold its row locks for seconds.
+    await inRequestTx(async (f) => {
+      const ref = `ISAFLOW-PLAN-${Date.now()}`;
+      await seedTx(f, ref, 'ISAFLOW REF FIXTURE plan');
+      const plan = (await sql`
+        EXPLAIN (FORMAT TEXT)
+        SELECT id FROM bank_transactions
+        WHERE company_id = ${f.companyId}::UUID
+          AND (
+            btrim(reference, E' \\t\\n\\r\\f') = ANY(${[ref]}::TEXT[])
+            OR btrim(bank_reference, E' \\t\\n\\r\\f') = ANY(${[ref]}::TEXT[])
+          )
+      `) as Array<Record<string, string>>;
+      const text = plan.map((r) => Object.values(r)[0]).join('\n');
+      expect(text).toContain('idx_bt_company_reference_trim');
+      expect(text).toContain('idx_bt_company_bank_reference_trim');
+    });
+  });
 
   it.skipIf(!reachable)('still resolves a reference carried by bank_reference', async () => {
     await inRequestTx(async (f) => {

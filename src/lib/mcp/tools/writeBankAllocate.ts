@@ -16,6 +16,7 @@ import { reverseReconciledTransaction } from '@/modules/accounting/services/bank
 import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { ALLOCATION_PROPERTIES, SELECTOR_PROPERTIES } from './allocationSchema';
 import {
+  badUuidArg,
   checkLinesOwnership,
   parseAllocationLine,
   pickTxSelector,
@@ -112,6 +113,18 @@ export const reverseBankAllocationTool: McpTool = {
   handler: async (args, ctx) => {
     const selector = pickTxSelector(args);
     if (typeof selector === 'string') return toolError(selector);
+
+    // Both ids reach pg as `$n::UUID` — transaction_id in
+    // getBankTransactionStatus, bank_account_id in the reference lookup — so a
+    // malformed one raised 22P02 from inside the handler instead of being
+    // refused. The allocate tool has always been guarded (parseAllocationLine
+    // does it); this path skipped it because it never parses a line.
+    // Selector FIRST, cast-guard second, matching parseAllocationLine's
+    // documented order: told 'invalid transaction_id' when it also sent a
+    // bank_reference, an agent fixes the UUID and is refused again for naming
+    // both.
+    const badId = badUuidArg(args, ['transaction_id', 'bank_account_id']);
+    if (badId) return toolError(badId);
 
     const resolved = await resolveTxId(selector, ctx.companyId);
     if ('error' in resolved) return toolError(resolved.error);

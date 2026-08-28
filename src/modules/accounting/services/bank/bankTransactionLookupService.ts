@@ -14,12 +14,25 @@
  * `openBankingSyncService` write `bank_reference`, and they put the provider's
  * external id there rather than the printed reference. Matching
  * `bank_reference` alone therefore answered NOT_FOUND for every reference the
- * MCP pilot could actually read off a statement. Match EITHER column.
+ * MCP pilot could actually read off a statement.
+ *
+ * PREFERENCE, not union: `reference` wins outright, and `bank_reference` is
+ * consulted only for a reference that matched NOTHING in `reference`. The two
+ * columns hold different KINDS of value — one printed on a statement, one a
+ * provider's opaque external id — so a value that collides across them is a
+ * coincidence, and a union would let a feed id shadow the statement reference
+ * an agent actually typed. Preference also makes the reported match
+ * deterministic.
  *
  * The match is EXACT (after trimming both sides). A prefix/LIKE match would
  * happily resolve "INV-1" onto "INV-10" and post the journal against the wrong
  * row; the reference is also the import dedup key, so exactness is the
  * property the rest of the module already relies on.
+ *
+ * BATCHED: `bulk_allocate_bank_transactions` resolves up to 500 references in
+ * one request that already holds row locks, so one query per line was 500
+ * scans of lock hold time. Everything goes through
+ * `findBankTransactionsByReferences`, which asks once for the whole set.
  */
 
 import { sql, fmtDate } from '@/lib/neon';
@@ -33,56 +46,93 @@ export interface BankTransactionRefMatch {
   amount: number;
   description: string | null;
   /**
-   * The stored value that matched — `reference` when that column carried it,
-   * otherwise `bank_reference`. Two rows can now be ambiguous through
-   * DIFFERENT columns, so an ambiguity reply that only listed ids would leave
-   * a human unable to tell which value they are looking at.
+   * The stored value that matched, trimmed. Never null: it equals the
+   * reference the caller supplied (an equality match on a non-blank string
+   * cannot come from a NULL column). Carried so an ambiguity reply can show
+   * WHICH value each candidate holds.
    */
-  matchedReference: string | null;
+  matchedReference: string;
+  /** Which column matched. `reference` outranks `bank_reference`. */
+  matchedColumn: 'reference' | 'bank_reference';
 }
 
 /**
- * Candidates carrying `bankReference` in `companyId`, oldest first.
+ * Candidates per reference, oldest first.
  *
  * Bounded: an ambiguity message is rendered into a tool result, and a
  * pathological statement that repeats one reference hundreds of times must not
  * produce an unbounded payload. Anything past the cap is still ambiguous, which
- * is the only thing the caller acts on.
+ * is the only thing the caller acts on. The cap is applied PER REFERENCE
+ * (a window function), so one noisy reference in a 500-line batch cannot
+ * starve the others out of the result.
  */
 const MAX_CANDIDATES = 25;
 
-export async function findBankTransactionsByReference(
+type RefRows = DbRow[];
+
+/**
+ * `.trim()` in JS strips \t \r \n \f and spaces; bare `btrim()` in SQL strips
+ * spaces ONLY, so a stored "REF\r" was unreachable from a caller that typed
+ * "REF". This character set is exactly ASCII 32, 9, 10, 13, 12 and MUST stay
+ * character-for-character identical to migration 519's expression indexes —
+ * a different set is a different expression and the planner silently falls
+ * back to a full company scan.
+ *
+ * Deliberately no `\v`: PostgreSQL does not recognise it as an escape, so
+ * E'\v' is the literal letter 'v' and would trim the 'v' off every reference.
+ * JS `.trim()` does strip \v (and NBSP, and the Unicode space separators);
+ * a reference stored with one of those on the end stays unreachable. Not worth
+ * a `regexp_replace` that no index can serve.
+ */
+async function queryCandidates(
   companyId: string,
-  bankReference: string,
-  bankAccountId?: string,
-): Promise<BankTransactionRefMatch[]> {
-  const ref = bankReference.trim();
-  // A blank reference would match every row whose bank_reference is blank —
-  // resolve nothing rather than resolve arbitrarily.
-  if (!ref) return [];
+  refs: string[],
+  bankAccountId: string | null,
+): Promise<RefRows> {
+  // ONE statement, both branches: the bank-account narrowing is a nullable
+  // parameter rather than a second copy of a 20-line query, which is how the
+  // two branches drift apart. `$n::UUID IS NULL OR …` costs nothing here — the
+  // (company_id, btrim(...)) indexes do the selection.
+  return (await sql`
+    WITH candidate AS (
+      SELECT
+        id, transaction_date, amount, description,
+        btrim(reference, E' \\t\\n\\r\\f') = ANY(${refs}::TEXT[]) AS by_reference,
+        btrim(reference, E' \\t\\n\\r\\f') AS ref_norm,
+        btrim(bank_reference, E' \\t\\n\\r\\f') AS bank_ref_norm
+      FROM bank_transactions
+      WHERE company_id = ${companyId}::UUID
+        AND (
+          btrim(reference, E' \\t\\n\\r\\f') = ANY(${refs}::TEXT[])
+          OR btrim(bank_reference, E' \\t\\n\\r\\f') = ANY(${refs}::TEXT[])
+        )
+        AND (${bankAccountId}::UUID IS NULL OR bank_account_id = ${bankAccountId}::UUID)
+    ),
+    labelled AS (
+      SELECT
+        id, transaction_date, amount, description,
+        CASE WHEN by_reference THEN 'reference' ELSE 'bank_reference' END AS matched_column,
+        CASE WHEN by_reference THEN ref_norm ELSE bank_ref_norm END AS matched_reference
+      FROM candidate
+    ),
+    ranked AS (
+      SELECT
+        labelled.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY matched_reference, matched_column
+          ORDER BY transaction_date ASC, id ASC
+        ) AS rn
+      FROM labelled
+    )
+    SELECT id, transaction_date, amount, description, matched_column, matched_reference
+    FROM ranked
+    WHERE rn <= ${MAX_CANDIDATES}
+    ORDER BY transaction_date ASC, id ASC
+  `) as RefRows;
+}
 
-  const rows = (bankAccountId
-    ? await sql`
-        SELECT id, transaction_date, amount, description,
-               CASE WHEN btrim(reference) = ${ref} THEN reference ELSE bank_reference END
-                 AS matched_reference
-        FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND (btrim(reference) = ${ref} OR btrim(bank_reference) = ${ref})
-          AND bank_account_id = ${bankAccountId}::UUID
-        ORDER BY transaction_date ASC, id ASC
-        LIMIT ${MAX_CANDIDATES}`
-    : await sql`
-        SELECT id, transaction_date, amount, description,
-               CASE WHEN btrim(reference) = ${ref} THEN reference ELSE bank_reference END
-                 AS matched_reference
-        FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND (btrim(reference) = ${ref} OR btrim(bank_reference) = ${ref})
-        ORDER BY transaction_date ASC, id ASC
-        LIMIT ${MAX_CANDIDATES}`) as DbRow[];
-
-  return rows.map((row) => ({
+function mapRow(row: DbRow): BankTransactionRefMatch {
+  return {
     id: String(row.id),
     // fmtDate, not toISOString(): pg returns the DATE at local midnight and
     // UTC rendering rolls it back a day on the UTC+2 box.
@@ -91,10 +141,60 @@ export async function findBankTransactionsByReference(
     description: row.description === null || row.description === undefined
       ? null
       : String(row.description),
-    matchedReference: row.matched_reference === null || row.matched_reference === undefined
-      ? null
-      : String(row.matched_reference),
-  }));
+    matchedReference: String(row.matched_reference),
+    matchedColumn: String(row.matched_column) === 'reference' ? 'reference' : 'bank_reference',
+  };
+}
+
+/**
+ * Candidates for EVERY supplied reference, in ONE query.
+ *
+ * Keyed by the trimmed reference; a reference with no match is absent from the
+ * map (callers render the shared NOT_FOUND, never a per-reference oracle).
+ * Blank references are dropped before the query — a blank would otherwise match
+ * every row whose reference is blank, and resolve arbitrarily.
+ */
+export async function findBankTransactionsByReferences(
+  companyId: string,
+  references: readonly string[],
+  bankAccountId?: string,
+): Promise<Map<string, BankTransactionRefMatch[]>> {
+  const refs = [...new Set(references.map((r) => r.trim()).filter((r) => r !== ''))];
+  const byRef = new Map<string, BankTransactionRefMatch[]>();
+  if (refs.length === 0) return byRef;
+
+  const rows = await queryCandidates(companyId, refs, bankAccountId ?? null);
+
+  // Preference applied here rather than in SQL: the query fetches both columns'
+  // hits in one pass (one round trip for the whole batch) and the ranking is a
+  // per-reference decision that reads plainly in JS.
+  const grouped = new Map<string, { reference: BankTransactionRefMatch[]; bank: BankTransactionRefMatch[] }>();
+  for (const row of rows) {
+    const match = mapRow(row);
+    let entry = grouped.get(match.matchedReference);
+    if (!entry) {
+      entry = { reference: [], bank: [] };
+      grouped.set(match.matchedReference, entry);
+    }
+    (match.matchedColumn === 'reference' ? entry.reference : entry.bank).push(match);
+  }
+  for (const [ref, entry] of grouped) {
+    const chosen = entry.reference.length > 0 ? entry.reference : entry.bank;
+    if (chosen.length > 0) byRef.set(ref, chosen);
+  }
+  return byRef;
+}
+
+/** One reference — the single-transaction tools' entry point. */
+export async function findBankTransactionsByReference(
+  companyId: string,
+  bankReference: string,
+  bankAccountId?: string,
+): Promise<BankTransactionRefMatch[]> {
+  const ref = bankReference.trim();
+  if (!ref) return [];
+  const byRef = await findBankTransactionsByReferences(companyId, [ref], bankAccountId);
+  return byRef.get(ref) ?? [];
 }
 
 /**
