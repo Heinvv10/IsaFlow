@@ -88,14 +88,45 @@ input: {
   dry_run?: boolean,
   idempotency_key: string      // required
 }
-output: { batch_id, posted: n, journal_entry_ids: [...], skipped: [...] }
+output (live):    { batch_id, posted: n, journal_entry_ids: [...],
+                   lines: [{ transaction_id, journal_entry_id }],
+                   skipped: [{ index, transaction_id, reason }] }
+output (dry_run): { dry_run: true, batch_id: null, posted: 0, would_post: n,
+                   lines: [...], skipped: [...] }
 ```
 
 Rules:
 
-- **All-or-nothing per call.** One savepoint around the whole batch; any
-  failure rethrows (not `toolError`) so the savepoint rolls back — see the
-  `withSavepoint` gotcha: `isError:true` commits partial writes.
+- **A line that cannot post is SKIPPED, not a failure.** The tool reads the
+  CURRENT state of every resolved row — `status` AND
+  `matched_journal_line_id`, in ONE company-scoped query — BEFORE it writes
+  anything, and splits the batch. Postable is `status='imported'` **and** no
+  journal line; everything else is reported as
+  `{index, transaction_id, reason}` — `already allocated` / `excluded` /
+  `not importable: <status>` — and the rest of the batch still posts. Both
+  columns, never `status` alone: the journal line is what
+  `reverse_bank_allocation_batch` navigates by, and a row holding one is
+  already in the ledger whatever the status column says.
+  A resolved id that is not in the company at all is a pre-write REFUSAL
+  (indexed `Not found`), not a skip.
+- **A batch with nothing left to post is refused, pre-write.**
+  `nothing to post: all N lines skipped — …` with the list. No batch row is
+  opened: an id that reverses nothing is worse than none.
+- **All-or-nothing per call for real faults.** One savepoint around the whole
+  batch; any genuine failure rethrows (not `toolError`) so the savepoint rolls
+  back — see the `withSavepoint` gotcha: `isError:true` commits partial writes.
+  A per-line fault is rethrown as a typed `BulkAllocationLineError`, and the
+  registry renders it as
+  `<tool> line <i> (<txid>): <detail> — batch rolled back, nothing posted`
+  instead of the generic failure text: a batch endpoint must never answer a
+  per-line cause with a message nobody can locate.
+- **A row that is allocated BETWEEN the pre-check and its post is a skip, not
+  a fault.** `allocateTransaction` re-reads the settled status under its own
+  `FOR UPDATE` and refuses, so nothing was written for that line; it is
+  counted in `skipped` (with the status the service refused on) and the batch
+  continues. Each line therefore posts inside its OWN savepoint — without one
+  the request transaction is left aborted and the batch cannot continue past a
+  fault it is entitled to skip.
 - Every line goes through `allocateTransaction()` with
   `postingAgent: mcpPostingAgent('bulk_allocate_bank_transactions')`. **No
   second posting path.** The tenant-ownership checks in
@@ -105,9 +136,13 @@ Rules:
 - `idempotency_key` is consumed only on success; a rejected batch must record
   its audit row with a NULL key (memory: burned key → duplicate journals).
 - `batch_id` stored on `gl_journal_entries` (or a `bank_allocation_batches`
-  table, migration next unused prefix) so the batch can be reversed.
-- `dry_run` runs validation + ownership checks and returns what *would* post;
-  writes nothing.
+  table, migration next unused prefix) so the batch can be reversed. The batch
+  row is opened AFTER the postings, so its `line_count` — and
+  `bank_allocation_batch_lines` — cover the lines that actually POSTED. The
+  reverse tool therefore cannot unwind anything the batch skipped.
+- `dry_run` runs validation, ownership checks AND the same state pre-check,
+  and returns what *would* post (`would_post`) alongside what would be skipped;
+  writes nothing, opens no batch row, and leaves the idempotency key free.
 
 New tool `reverse_bank_allocation_batch { batch_id, idempotency_key }` —
 reverses every journal in the batch via `reverseJournalEntry`; mirrors

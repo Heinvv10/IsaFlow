@@ -21,6 +21,13 @@ import {
 export const MAX_LINES = 500;
 
 export interface ResolvedLine {
+  /**
+   * Index into the caller's own `allocations` array — carried, not recomputed.
+   * Every downstream report (skips, per-line failures) names the line the AGENT
+   * sent, and the batch is re-ordered by transaction id before posting, so a
+   * position in any later array means nothing to the caller.
+   */
+  index: number;
   txId: string;
   line: AllocationLine;
 }
@@ -111,7 +118,7 @@ export async function prepareAllocationLines(
       continue;
     }
     seen.set(r.id, i);
-    resolved.push({ txId: r.id, line });
+    resolved.push({ index: i, txId: r.id, line });
   }
   if (errors.length > 0) return joinErrors(errors);
   return resolved;

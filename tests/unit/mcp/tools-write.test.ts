@@ -74,6 +74,11 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () =>
   // selector resolver actually calls; default to "nothing matched".
   findBankTransactionsByReferences: vi.fn(async () => new Map()),
   getBankTransactionStatus: vi.fn(),
+  // Current allocation state of a bulk batch's resolved rows, read in one
+  // query before anything posts. Unstubbed here: the bulk tool is driven down
+  // a dry run, and an empty map makes every line "not in this company", which
+  // is a pre-write refusal — an error envelope is still an envelope.
+  findBankTransactionAllocationStates: vi.fn(async () => new Map()),
 }));
 
 import {

@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
+import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllocationLineError';
 
 /**
  * The SAVEPOINT name a write tool runs under.
@@ -220,6 +221,17 @@ export class McpRegistry {
         ctx, tool: name, argsHash, idempotencyKey: null,
         status: 'error', result: null, durationMs: Date.now() - started,
       });
+      // A BATCH tool that failed on one identifiable line is the one case where
+      // GENERIC_FAILURE is the wrong answer. "The operation failed" tells an
+      // agent holding 124 lines nothing it can act on — the pilot bisected such
+      // a batch by hand. The line index and its transaction id are the agent's
+      // OWN input, so naming them leaks nothing, and the message the tool built
+      // is already free of SQL and stack. Everything else about this path is
+      // unchanged: rolled back by the savepoint, refunded, audited 'error' with
+      // a NULL key so the retry is not burned.
+      if (err instanceof BulkAllocationLineError) {
+        return errorResult(bulkAllocationLineErrorText(name, err));
+      }
       return errorResult(GENERIC_FAILURE);
     }
   }
