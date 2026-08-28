@@ -176,6 +176,10 @@ describe('normalizeDateFlexible', () => {
 
   it('rejects an 8-digit value that is not a real calendar date', () => {
     expect(normalizeDateFlexible('20261301')).toBeNull();
+    // Year plausibility: a DDMMYYYY token or an account number must not pass as a date.
+    expect(normalizeDateFlexible('01082026')).toBeNull();
+    expect(normalizeDateFlexible('99990101')).toBeNull();
+    expect(normalizeDateFlexible('40551234')).toBeNull();
     expect(normalizeDateFlexible('20260231')).toBeNull();
   });
 

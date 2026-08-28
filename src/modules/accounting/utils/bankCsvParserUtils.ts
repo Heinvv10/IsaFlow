@@ -95,6 +95,11 @@ export function normalizeDateFlexible(dateStr: string): string | null {
   const cleaned = dateStr.trim().replace(/^["']|["']$/g, '').trim();
 
   if (/^\d{8}$/.test(cleaned)) {
+    // Compact YYYYMMDD (ABSA online-banking export). Bound the year so a
+    // garbled 8-digit token (an account number, a DDMMYYYY value) cannot
+    // pass as a "real" date in year 0108 or 9999.
+    const year = Number(cleaned.slice(0, 4));
+    if (year < 1990 || year > 2100) return null;
     const formatted = `${cleaned.slice(0, 4)}-${cleaned.slice(4, 6)}-${cleaned.slice(6, 8)}`;
     return isRealCalendarDate(formatted) ? formatted : null;
   }
