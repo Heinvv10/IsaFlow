@@ -40,6 +40,13 @@ vi.mock('@/modules/accounting/services/capture/fourWayMatchService', () => ({
 import { sql } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { enterFakeRequestCtx } from '../../helpers/requestCtx';
+
+// The bank write paths take a row lock (bankTxLock), which refuses to run
+// outside a request transaction. These tests mock `sql`, so the ALS client is
+// never actually used — it only has to be present.
+beforeEach(() => enterFakeRequestCtx());
+
 
 const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
 const TX_ID = '22222222-2222-2222-2222-222222222222';

@@ -113,6 +113,20 @@ describe('bulk_allocate_bank_transactions — posting', () => {
     ]);
   });
 
+  it('posts in transaction-id order however the agent ordered the batch', async () => {
+    // Every line takes a row lock that is held to the end of the request, so
+    // two overlapping batches that walk their rows in opposite orders deadlock
+    // (40P01). Sorting gives every batch the same lock order, which turns the
+    // deadlock into one batch simply waiting for the other.
+    await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(3), line(1), line(2)], idempotency_key: 'k1' }, ctx,
+    );
+
+    const order = vi.mocked(allocateTransaction).mock.calls.map((c) => c[1]);
+    expect(order).toEqual([TX(1), TX(2), TX(3)]);
+    expect(order).toEqual([...order].sort());
+  });
+
   it('records the journal each line posted, so the reverse tool can prove ownership', async () => {
     await bulkAllocateBankTransactionsTool.handler(
       { allocations: [line(1), line(2)], idempotency_key: 'k1' }, ctx,

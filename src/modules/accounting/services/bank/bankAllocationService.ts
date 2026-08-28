@@ -13,6 +13,8 @@ import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
+import { lockBankTransactionForUpdate } from './bankTxLock';
+import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 
 type Row = DbRow;
 
@@ -82,9 +84,11 @@ export async function allocateTransaction(
   invoiceId?: string,
   opts?: { postingAgent?: string },
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  if (txRows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
-  const tx = txRows[0]!;
+  // FOR UPDATE: hold the row for the rest of the request so a concurrent
+  // allocate blocks here rather than passing the same status check and posting
+  // a second journal for one transaction.
+  const tx = await lockBankTransactionForUpdate(companyId, bankTxId);
+  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
   if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot allocate`);
 
   const totalAmount = Math.abs(Number(tx.amount));
@@ -341,49 +345,11 @@ export async function allocateTransaction(
 
   // Auto-link the counterparty bank_transaction if it already exists as 'imported'
   if (allocType === 'transfer' && counterpartyAccountId) {
-    try {
-      const cpAmt = -Number(tx.amount);
-      const cpTxRows = (await sql`
-        SELECT id FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND bank_account_id = ${counterpartyAccountId}::UUID
-          AND status = 'imported'
-          AND ABS(amount - ${cpAmt}) < 0.01
-          AND transaction_date BETWEEN (${txDate}::DATE - INTERVAL '2 days')
-                                   AND (${txDate}::DATE + INTERVAL '2 days')
-        ORDER BY ABS(transaction_date::DATE - ${txDate}::DATE) ASC, created_at DESC
-        LIMIT 1
-      `) as Row[];
-      if (cpTxRows.length > 0) {
-        const cpTxId = String(cpTxRows[0]!.id);
-        // Find the JE line on the counterparty account side
-        const cpJeLines = (await sql`
-          SELECT id FROM gl_journal_lines
-          WHERE journal_entry_id = ${je.id}::UUID
-            AND gl_account_id = ${counterpartyAccountId}::UUID
-            AND company_id = ${companyId}::UUID
-          LIMIT 1
-        `) as Row[];
-        const cpJeLineId = cpJeLines.length > 0 ? String(cpJeLines[0]!.id) : null;
-        await sql`
-          UPDATE bank_transactions
-          SET status = 'allocated',
-              allocation_type = 'transfer',
-              matched_journal_line_id = ${cpJeLineId}::UUID,
-              counterparty_account_id = ${bankAccountId}::UUID,
-              transfer_journal_entry_id = ${je.id}::UUID,
-              allocated_entity_name = ${allocEntityName},
-              updated_at = NOW(),
-              allocation_batch_id = NULL
-          WHERE id = ${cpTxId}::UUID
-            AND company_id = ${companyId}::UUID
-            AND status = 'imported'
-        `;
-        log.info('Auto-linked counterparty transfer transaction', { sourceTxId: bankTxId, cpTxId, jeId: je.id }, 'accounting');
-      }
-    } catch (linkErr) {
-      log.warn('Failed to auto-link counterparty transfer — non-fatal', { bankTxId, counterpartyAccountId, error: linkErr }, 'accounting');
-    }
+    await autoLinkCounterpartyTransfer({
+      companyId, bankTxId, bankAccountId, counterpartyAccountId,
+      journalEntryId: je.id, amount: Number(tx.amount), txDate,
+      allocatedEntityName: allocEntityName,
+    });
   }
 
   const updated = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
@@ -395,9 +361,8 @@ export async function allocateTransaction(
 export async function splitAllocateTransaction(
   companyId: string, bankTxId: string, lines: SplitLine[], userId: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  if (txRows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
-  const tx = txRows[0]!;
+  const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
+  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
   if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot split allocate`);
   if (!lines || lines.length === 0) throw new Error('At least one split line is required');
 
@@ -491,8 +456,7 @@ export async function reverseReconciledTransaction(
   companyId: string, bankTxId: string, userId: string,
   opts?: { postingAgent?: string },
 ): Promise<void> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  const tx = txRows[0];
+  const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
   if (tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');

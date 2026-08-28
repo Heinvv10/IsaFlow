@@ -41,7 +41,7 @@ export interface UseBankRulesResult {
   loading: boolean;
   busy: string;
   error: string;
-  applyResult: { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number } | null;
+  applyResult: { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number; autoPostSkippedRaced?: number; autoPostSkippedLocked?: number; autoPostTruncatedRules?: number } | null;
   selected: Set<string>;
   setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
   bulkDeleting: boolean;
@@ -82,7 +82,7 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [applyResult, setApplyResult] = useState<
-    { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number } | null
+    { applied: number; skipped: number; autoPostRulesSkippedNoBankGl?: number; autoPostSkippedClosedPeriod?: number; autoPostSkippedNoPeriod?: number; autoPostSkippedRaced?: number; autoPostSkippedLocked?: number; autoPostTruncatedRules?: number } | null
   >(null);
   const [editingRule, setEditingRule] = useState<BankRule | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -221,10 +221,17 @@ export function useBankRules({ defaultBankId, fetchPreview }: UseBankRulesOption
           autoPostSkippedClosedPeriod: Number(json.data?.autoPostSkippedClosedPeriod ?? 0),
           autoPostSkippedNoPeriod: Number(json.data?.autoPostSkippedNoPeriod ?? 0),
           autoPostRulesSkippedNoBankGl: Number(json.data?.autoPostRulesSkippedNoBankGl ?? 0),
+          autoPostSkippedRaced: Number(json.data?.autoPostSkippedRaced ?? 0),
+          autoPostSkippedLocked: Number(json.data?.autoPostSkippedLocked ?? 0),
+          autoPostTruncatedRules: Number(json.data?.autoPostTruncatedRules ?? 0),
         };
         if (parts.applied > 0) setApplyResult({ ...parts, skipped: 0 });
         const headline = `Rule "${payload.ruleName}" created`;
-        if (parts.applied + parts.autoPostSkippedClosedPeriod + parts.autoPostSkippedNoPeriod + parts.autoPostRulesSkippedNoBankGl > 0) {
+        const anythingToReport = parts.applied + parts.autoPostSkippedClosedPeriod
+          + parts.autoPostSkippedNoPeriod + parts.autoPostRulesSkippedNoBankGl
+          + parts.autoPostSkippedRaced + parts.autoPostSkippedLocked
+          + parts.autoPostTruncatedRules;
+        if (anythingToReport > 0) {
           emitApplyToast(headline, parts);
         } else notify.success(headline);
       }

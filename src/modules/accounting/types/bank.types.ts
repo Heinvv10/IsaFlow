@@ -129,6 +129,13 @@ export interface AutoMatchResult {
   matched: number;
   unmatched: number;
   candidates: AutoMatchCandidate[];
+  /**
+   * High-confidence matches that were NOT applied because the transaction had
+   * been allocated by another request in between. Counted rather than fatal:
+   * one raced row must not abort the rest of the run, and it must not vanish
+   * either — the user sees a lower `matched` and needs to know why.
+   */
+  skippedRaced?: number;
 }
 
 // ── Bank Categorisation Rules ───────────────────────────────────────────────
@@ -209,4 +216,25 @@ export interface RuleApplyResult {
    * user to create the missing year (different remedy than re-opening).
    */
   autoPostSkippedNoPeriod?: number;
+  /**
+   * Number of auto-post attempts skipped because the transaction had been
+   * allocated (or otherwise moved off `imported`) by another request between
+   * the rule's candidate query and the row lock. Counted rather than silently
+   * dropped: a rule run that quietly did less than it matched is exactly the
+   * kind of thing that reads as "rules aren't working".
+   */
+  autoPostSkippedRaced?: number;
+  /**
+   * Number of auto-post attempts skipped because another request held the
+   * transaction's row lock for longer than the 5s timeout. Retryable: nothing
+   * was posted for these, and a re-run picks them up.
+   */
+  autoPostSkippedLocked?: number;
+  /**
+   * Number of RULES whose candidate set hit the 500-row cap, so this run left
+   * matching transactions unprocessed. Deliberately a rule count and not a row
+   * count — knowing how many were left over would mean a COUNT over the whole
+   * table for a number nobody acts on. Non-zero means "re-run to continue".
+   */
+  autoPostTruncatedRules?: number;
 }

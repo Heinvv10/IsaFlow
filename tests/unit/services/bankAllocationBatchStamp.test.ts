@@ -40,6 +40,13 @@ import {
   allocateTransaction,
   reverseReconciledTransaction,
 } from '@/modules/accounting/services/bank/bankAllocationService';
+import { enterFakeRequestCtx } from '../helpers/requestCtx';
+
+// The bank write paths take a row lock (bankTxLock), which refuses to run
+// outside a request transaction. These tests mock `sql`, so the ALS client is
+// never actually used — it only has to be present.
+beforeEach(() => enterFakeRequestCtx());
+
 
 type SqlFn = MockedFunction<(strings: TemplateStringsArray, ...v: unknown[]) => Promise<unknown[]>>;
 const mockSql = sql as unknown as SqlFn;

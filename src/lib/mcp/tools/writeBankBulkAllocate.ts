@@ -104,8 +104,16 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
       idempotencyKey: strArg(args, 'idempotency_key') ?? null,
     });
 
+    // Sorted by transaction id, NOT the order the agent sent them. Each line
+    // takes a row lock (bankTxLock) and holds it to the end of the request, so
+    // two batches that overlap in the opposite order would deadlock on each
+    // other (40P01) — A holds tx1 waiting on tx2 while B holds tx2 waiting on
+    // tx1. A total order over the locked rows makes that impossible: the batch
+    // that gets there first simply blocks the other.
+    const ordered = [...prepared].sort((a, b) => (a.txId < b.txId ? -1 : a.txId > b.txId ? 1 : 0));
+
     const lines: { transaction_id: string; journal_entry_id: string }[] = [];
-    for (const { txId, line } of prepared) {
+    for (const { txId, line } of ordered) {
       // Sequential, not Promise.all: these share one pg connection, and
       // concurrent statements on it interleave (and corrupt the savepoint
       // stack — see the postgresql-gotchas §36 note).
@@ -199,16 +207,22 @@ export const reverseBankAllocationBatchTool: McpTool = {
       return ok({ batch_id: batchId, reversed: 0, transaction_ids: [], skipped });
     }
 
+    // Same deterministic lock order as the allocate handler: reversal locks the
+    // same rows, so an unsorted loop deadlocks against a concurrent batch.
+    const orderedReversals = [...toReverse].sort(
+      (a, b) => (a.transactionId < b.transactionId ? -1 : a.transactionId > b.transactionId ? 1 : 0),
+    );
+
     // No try/catch, same reasoning as the allocate handler: a half-reversed
     // batch is worse than a failed one, and only a throw rolls it back.
-    for (const l of toReverse) {
+    for (const l of orderedReversals) {
       // The contra journal is stamped too — without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings.
       await reverseReconciledTransaction(ctx.companyId, l.transactionId, ctx.userId, {
         postingAgent: mcpPostingAgent(REVERSE_TOOL),
       });
     }
-    const reversedIds = toReverse.map((l) => l.transactionId);
+    const reversedIds = orderedReversals.map((l) => l.transactionId);
     await clearAllocationBatch(ctx.companyId, batchId, reversedIds);
 
     return ok({
