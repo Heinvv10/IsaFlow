@@ -209,4 +209,12 @@ export interface RuleApplyResult {
    * user to create the missing year (different remedy than re-opening).
    */
   autoPostSkippedNoPeriod?: number;
+  /**
+   * Number of auto-post attempts skipped because the transaction had been
+   * allocated (or otherwise moved off `imported`) by another request between
+   * the rule's candidate query and the row lock. Counted rather than silently
+   * dropped: a rule run that quietly did less than it matched is exactly the
+   * kind of thing that reads as "rules aren't working".
+   */
+  autoPostSkippedRaced?: number;
 }

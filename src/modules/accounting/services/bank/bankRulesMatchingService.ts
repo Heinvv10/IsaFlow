@@ -17,6 +17,7 @@ import {
   toSqlPattern, findMatchingTxs, buildAutoCreateLines, getPeriodStatusForDate,
   type RuleAllocType,
 } from './bankRulesMatchingHelpers';
+import { lockBankTransactionForUpdate } from './bankTxLock';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -157,6 +158,7 @@ export async function applyRules(
     // their periods were all open but the year hadn't been created.
     let autoPostSkippedClosedPeriod = 0;
     let autoPostSkippedNoPeriod = 0;
+    let autoPostSkippedRaced = 0;
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
       const field = String(rule.match_field);
@@ -199,7 +201,25 @@ export async function applyRules(
         customerName = custRows[0]?.name ? String(custRows[0].name) : `Customer #${ruleClientId}`;
       }
 
-      for (const tx of matchingTxs) {
+      // Locked in id order, not the candidate query's date order: every
+      // allocation path holds its row lock to the end of the request, so two
+      // runs touching the same rows in opposite orders deadlock (40P01).
+      const orderedTxs = [...matchingTxs].sort((a, b) => {
+        const x = String(a.id), y = String(b.id);
+        return x < y ? -1 : x > y ? 1 : 0;
+      });
+
+      for (const tx of orderedTxs) {
+        // findMatchingTxs read every candidate in one query, possibly seconds
+        // ago. Lock the row and re-check before posting anything for it: a UI
+        // allocation committed in between would otherwise get a second journal
+        // posted on top of it, and the UPDATE below would relink the row to it.
+        const locked = await lockBankTransactionForUpdate(companyId, String(tx.id));
+        if (!locked || String(locked.status) !== 'imported' || locked.matched_journal_line_id) {
+          autoPostSkippedRaced++;
+          continue;
+        }
+
         const entryDate = tx.transaction_date instanceof Date
           ? tx.transaction_date.toISOString().split('T')[0]!
           : String(tx.transaction_date).split('T')[0]!;
@@ -330,6 +350,7 @@ export async function applyRules(
         autoPostRulesSkippedNoBankGl,
         autoPostSkippedClosedPeriod,
         autoPostSkippedNoPeriod,
+        autoPostSkippedRaced,
       },
       'accounting',
     );
@@ -340,6 +361,7 @@ export async function applyRules(
       autoPostRulesSkippedNoBankGl,
       autoPostSkippedClosedPeriod,
       autoPostSkippedNoPeriod,
+      autoPostSkippedRaced,
     };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');

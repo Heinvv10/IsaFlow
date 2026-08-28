@@ -106,6 +106,28 @@ describe('reverse_bank_allocation_batch', () => {
     expect(reverseBankAllocationBatchTool.inputSchema.required).toContain('idempotency_key');
   });
 
+  it('reverses in transaction-id order however the batch rows come back', async () => {
+    // Reversal locks the same rows as allocation, so it needs the same total
+    // order — otherwise a reverse racing an allocate deadlocks on the pair.
+    vi.mocked(getAllocationBatchLines).mockResolvedValue([
+      { transactionId: TX(3), journalEntryId: 'je-3', currentJournalEntryId: 'je-3', transactionExists: true },
+      { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1', transactionExists: true },
+      { transactionId: TX(2), journalEntryId: 'je-2', currentJournalEntryId: 'je-2', transactionExists: true },
+    ]);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined);
+    vi.mocked(clearAllocationBatch).mockResolvedValue(undefined);
+
+    const res = await reverseBankAllocationBatchTool.handler(
+      { batch_id: BATCH, idempotency_key: 'k1' }, ctx,
+    );
+
+    const order = vi.mocked(reverseReconciledTransaction).mock.calls.map((c) => c[1]);
+    expect(order).toEqual([TX(1), TX(2), TX(3)]);
+    // The reported set follows the same order, so the stamp clear does too.
+    expect(clearAllocationBatch).toHaveBeenCalledWith('company-1', BATCH, [TX(1), TX(2), TX(3)]);
+    expect(payload(res as never).transaction_ids).toEqual([TX(1), TX(2), TX(3)]);
+  });
+
   it('reverses every transaction in the batch and clears the batch stamp', async () => {
     vi.mocked(getAllocationBatchLines).mockResolvedValue([
       { transactionId: TX(1), journalEntryId: 'je-1', currentJournalEntryId: 'je-1', transactionExists: true },

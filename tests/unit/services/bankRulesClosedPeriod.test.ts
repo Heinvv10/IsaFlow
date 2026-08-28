@@ -53,15 +53,38 @@ vi.mock('@/modules/accounting/services/bank/bankRulesMatchingHelpers', () => ({
 
 import { ClosedFiscalPeriodError } from '@/modules/accounting/services/gl/journalEntryService';
 import { applyRules } from '@/modules/accounting/services/bank/bankRulesMatchingService';
+import { enterFakeRequestCtx } from '../helpers/requestCtx';
+
+// The bank write paths take a row lock (bankTxLock), which refuses to run
+// outside a request transaction. These tests mock `sql`, so the ALS client is
+// never actually used — it only has to be present.
+beforeEach(() => enterFakeRequestCtx());
+
 
 const COMPANY = '11111111-1111-1111-1111-111111111111';
 const BANK_GL = '22222222-2222-2222-2222-222222222222';
 const USER = '33333333-3333-3333-3333-333333333333';
 
-/** One active auto-create rule, a valid bank GL account, one matching tx. */
-function withOneAutoPostRule() {
+/** The row the auto-apply path locks before it posts for a candidate. */
+function lockedRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'tx-1', status: 'imported', matched_journal_line_id: null,
+    amount: -100, transaction_date: '2026-08-13', description: 'BANK FEE',
+    ...overrides,
+  };
+}
+
+/**
+ * One active auto-create rule, a valid bank GL account, one matching tx.
+ * `lock` is what the row looks like when the service locks it just before
+ * posting — `null` means another request got there first.
+ */
+function withOneAutoPostRule(lock: Record<string, unknown> | null = lockedRow()) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
+    if (text.includes('FROM bank_transactions') && text.includes('FOR UPDATE')) {
+      return Promise.resolve(lock ? [lock] : []);
+    }
     if (text.includes('FROM bank_categorisation_rules')) {
       return Promise.resolve([{
         id: 'rule-1', rule_name: 'Bank charges', priority: 1,
@@ -117,6 +140,29 @@ describe('applyRules — period closes between pre-flight and post', () => {
     // Scoped, and only ever a draft — never a posted entry.
     expect(delText).toContain('company_id');
     expect(delText).toContain("status = 'draft'");
+  });
+
+  it('skips a candidate that was allocated between the rule query and the lock', async () => {
+    // findMatchingTxs read this row as unallocated seconds ago; by the time the
+    // lock is taken a UI allocation has committed on it. Posting anyway would
+    // put a second journal on one transaction and relink the row to it.
+    withOneAutoPostRule(lockedRow({ status: 'allocated', matched_journal_line_id: 'jl-1' }));
+
+    const result = await applyRules(COMPANY, BANK_GL, USER);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(result.applied).toBe(0);
+    // Counted, not silently dropped.
+    expect(result.autoPostSkippedRaced).toBe(1);
+  });
+
+  it('skips a candidate that has been deleted since the rule query', async () => {
+    withOneAutoPostRule(null);
+
+    const result = await applyRules(COMPANY, BANK_GL, USER);
+
+    expect(createMock).not.toHaveBeenCalled();
+    expect(result.autoPostSkippedRaced).toBe(1);
   });
 
   it('still PROPAGATES any other posting failure', async () => {

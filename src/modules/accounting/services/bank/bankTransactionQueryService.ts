@@ -183,64 +183,17 @@ export async function getBankTransactions(
 }
 
 // ── Status Mutations ──────────────────────────────────────────────────────────
+//
+// match / unmatch / exclude live in ./bankTxStatusMutations — they take the row
+// lock and refuse on an already-posted row, and the guard pushed this file past
+// the 300-line limit. Re-exported because every caller imports them from here.
 
-export async function matchTransaction(
-  companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string
-): Promise<BankTransaction> {
-  try {
-    let rows: Row[];
-    if (reconciliationId) {
-      rows = (await sql`
-        UPDATE bank_transactions
-        SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID,
-            reconciliation_id = ${reconciliationId}::UUID
-        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
-    } else {
-      rows = (await sql`
-        UPDATE bank_transactions
-        SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
-        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
-    }
-    if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
-    log.info('Matched bank transaction', { bankTxId, journalLineId }, 'accounting');
-    return mapTxRow(rows[0]!);
-  } catch (err) {
-    log.error('Failed to match bank transaction', { bankTxId, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-export async function unmatchTransaction(companyId: string, bankTxId: string): Promise<BankTransaction> {
-  try {
-    const rows = (await sql`
-      UPDATE bank_transactions
-      SET status = 'imported', matched_journal_line_id = NULL,
-          allocation_type = NULL, allocated_entity_name = NULL
-      WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
-    if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
-    log.info('Unmatched bank transaction', { bankTxId }, 'accounting');
-    return mapTxRow(rows[0]!);
-  } catch (err) {
-    log.error('Failed to unmatch bank transaction', { bankTxId, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-export async function excludeTransaction(
-  companyId: string, bankTxId: string, reason?: string
-): Promise<BankTransaction> {
-  try {
-    const rows = (await sql`
-      UPDATE bank_transactions SET status = 'excluded', excluded_reason = ${reason || null}
-      WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
-    if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
-    log.info('Excluded bank transaction', { bankTxId, reason }, 'accounting');
-    return mapTxRow(rows[0]!);
-  } catch (err) {
-    log.error('Failed to exclude bank transaction', { bankTxId, error: err }, 'accounting');
-    throw err;
-  }
-}
+export {
+  matchTransaction,
+  unmatchTransaction,
+  excludeTransaction,
+  BankTransactionAllocatedError,
+} from './bankTxStatusMutations';
 
 /** Delete bank transactions — only imported (unallocated) transactions can be deleted. */
 export async function deleteTransactions(companyId: string, bankTxIds: string[]): Promise<number> {

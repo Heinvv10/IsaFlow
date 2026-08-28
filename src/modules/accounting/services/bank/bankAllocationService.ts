@@ -19,6 +19,19 @@ type Row = DbRow;
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
+/**
+ * Postgres codes that kill the whole transaction, not just one statement:
+ * deadlock, serialization failure, and "current transaction is aborted".
+ * Nothing downstream can succeed after one of these, so they must never be
+ * caught and logged as a non-fatal warning.
+ */
+const TRANSACTION_FATAL_CODES = new Set(['40P01', '40001', '25P02']);
+
+function isTransactionFatal(err: unknown): boolean {
+  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && TRANSACTION_FATAL_CODES.has(code);
+}
+
 // ── VAT account fallback resolver ──────────────────────────────────────────
 //
 // Migration 327 normalises account_subtype to 'vat_input' / 'vat_output'.
@@ -385,6 +398,13 @@ export async function allocateTransaction(
         log.info('Auto-linked counterparty transfer transaction', { sourceTxId: bankTxId, cpTxId, jeId: je.id }, 'accounting');
       }
     } catch (linkErr) {
+      // Only a genuinely absent/unmatchable counterparty is non-fatal. A
+      // transaction-LEVEL failure is not: after 40P01 (deadlock), 40001
+      // (serialization) or 25P02 (statement failed, transaction aborted) the
+      // request's transaction is dead, so swallowing it here just lets the rest
+      // of allocateTransaction issue statements that all raise 25P02 and returns
+      // a "success" for a journal that will never commit.
+      if (isTransactionFatal(linkErr)) throw linkErr;
       log.warn('Failed to auto-link counterparty transfer — non-fatal', { bankTxId, counterpartyAccountId, error: linkErr }, 'accounting');
     }
   }

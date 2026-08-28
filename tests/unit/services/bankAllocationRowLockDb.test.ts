@@ -2,9 +2,9 @@
  * The allocate row lock, proven against a real Postgres.
  *
  * Session A allocates a freshly-inserted transaction and does NOT commit.
- * Session B then tries to allocate the SAME transaction with a 500ms
- * `lock_timeout`. With `FOR UPDATE` on the first read, B blocks on A's row lock
- * and dies with 55P03 (lock_not_available) — it never reaches the journal post.
+ * Session B then tries to allocate the SAME transaction; the helper's 5s
+ * `lock_timeout` fires and B dies with `BankTransactionLockTimeoutError` — it
+ * never reaches the journal post.
  *
  * The rejection alone does NOT prove the fix: without `FOR UPDATE`, B sails
  * past the (still-`imported`, because A is uncommitted) status check, posts a
@@ -12,11 +12,20 @@
  * failing with the same 55P03. So the test also records every statement B
  * issues and asserts it never got as far as an INSERT. Drop `FOR UPDATE` and
  * that assertion goes red on `INSERT INTO gl_journal_entries`.
+ *
+ * This test WRITES (it inserts and deletes a bank transaction), so it refuses
+ * to run against the production database.
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { isDbReachable } from '../helpers/dbReachable';
+import {
+  assertNotProductionDb,
+  findBankFixture,
+  insertImportedTx,
+  type BankFixture,
+} from '../helpers/bankDbFixture';
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -24,8 +33,13 @@ vi.mock('@/lib/logger', () => ({
 
 import { getPoolForTests } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
 
 type Ctx = Parameters<typeof als.run>[0];
+
+// Any real user id would do; the column is nullable and unvalidated here.
+const USER_ID = '00000000-0000-0000-0000-0000000000aa';
+
 function ctxFor(client: PoolClient, companyId: string): Ctx {
   return { client, userId: USER_ID, companyId, claims: {} } as unknown as Ctx;
 }
@@ -44,56 +58,25 @@ function recordingCtx(client: PoolClient, companyId: string, sink: string[]): Ct
   return { client: proxy, userId: USER_ID, companyId, claims: {} } as unknown as Ctx;
 }
 
-// Any real user id would do; the column is nullable and unvalidated here.
-const USER_ID = '00000000-0000-0000-0000-0000000000aa';
-
-interface Fixture {
-  companyId: string;
-  bankAccountId: string;
-  expenseAccountId: string;
-}
-
-/** A company that has both an active bank GL account and an active expense one. */
-async function findFixture(client: PoolClient): Promise<Fixture | null> {
-  const { rows } = await client.query<{
-    company_id: string;
-    bank_id: string;
-    exp_id: string;
-  }>(`
-    SELECT b.company_id, b.id AS bank_id, e.id AS exp_id
-    FROM gl_accounts b
-    JOIN gl_accounts e
-      ON e.company_id = b.company_id AND e.account_type = 'expense' AND e.is_active
-    WHERE b.account_subtype = 'bank' AND b.is_active
-    LIMIT 1
-  `);
-  const r = rows[0];
-  return r ? { companyId: r.company_id, bankAccountId: r.bank_id, expenseAccountId: r.exp_id } : null;
-}
-
 describe('allocateTransaction — concurrent allocation blocks on the row lock', async () => {
   const reachable = await isDbReachable();
 
-  it.skipIf(!reachable)('second session hits lock_timeout instead of posting a second journal', async () => {
+  it.skipIf(!reachable)('second session waits on the lock instead of posting a second journal', async (ctx) => {
+    assertNotProductionDb();
     const pool = getPoolForTests();
     const setup = await pool.connect();
-    let fixture: Fixture | null = null;
+    let fixture: BankFixture | null = null;
     let txId: string | null = null;
     try {
-      fixture = await findFixture(setup);
+      fixture = await findBankFixture(setup);
       if (!fixture) {
-        // No seeded COA in this database — nothing meaningful to assert.
-        expect(fixture).toBeNull();
+        // No seeded chart of accounts here — skip loudly rather than passing on
+        // an assertion that never ran.
+        ctx.skip('no company with both a bank and an expense GL account');
         return;
       }
       // Committed, so session B can see (and block on) the row.
-      const ins = await setup.query<{ id: string }>(
-        `INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
-         VALUES ($1, $2, CURRENT_DATE, -101.00, 'row-lock test fixture', 'imported')
-         RETURNING id`,
-        [fixture.companyId, fixture.bankAccountId],
-      );
-      txId = ins.rows[0]!.id;
+      txId = await insertImportedTx(setup, fixture, 'row-lock test fixture');
 
       const a = await pool.connect();
       const b = await pool.connect();
@@ -105,16 +88,16 @@ describe('allocateTransaction — concurrent allocation blocks on the row lock',
         // A deliberately stays open: its row lock is what B must hit.
 
         await b.query('BEGIN');
-        await b.query("SET LOCAL lock_timeout = '500ms'");
         const bQueries: string[] = [];
         const attempt = als.run(recordingCtx(b, fixture.companyId, bQueries), () =>
           allocateTransaction(fixture!.companyId, txId!, fixture!.expenseAccountId, USER_ID, 'B allocates'),
         );
-        await expect(attempt).rejects.toMatchObject({ code: '55P03' });
+        // The helper's own 5s lock_timeout, surfaced as the retryable error.
+        await expect(attempt).rejects.toBeInstanceOf(BankTransactionLockTimeoutError);
 
-        // B blocked on its very FIRST statement — the locked read — so it wrote
+        // B blocked on its very FIRST read — the locked one — so it wrote
         // nothing. Without the lock it reaches INSERT INTO gl_journal_entries.
-        expect(bQueries[0]).toMatch(/FROM bank_transactions/);
+        expect(bQueries.find((q) => /FROM bank_transactions/.test(q))).toMatch(/FOR UPDATE/);
         expect(bQueries.filter((q) => /^\s*INSERT\s/i.test(q))).toEqual([]);
       } finally {
         await a.query('ROLLBACK').catch(() => undefined);
