@@ -12,10 +12,14 @@ vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), { transaction: vi.fn() });
   return {
     sql: sqlFn,
-    fmtDate: vi.fn(() => '2026-07-19'),
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
   };
 });
+
+// fmtDate is NOT stubbed. It moved out of @/lib/neon into its own pure module,
+// and the balance_sheet default-date test is more useful running the real
+// implementation against a frozen clock than against a hardcoded return value:
+// that is what proves the default is the LOCAL calendar day and not the UTC one.
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
@@ -147,8 +151,23 @@ describe('reports tools', () => {
 
   it('balance_sheet defaults as_at to today via fmtDate', async () => {
     vi.mocked(getBalanceSheet).mockResolvedValue({ totalAssets: 1 } as never);
-    parseOk(await tool('balance_sheet').handler({}, ctx()));
-    expect(getBalanceSheet).toHaveBeenCalledWith(COMPANY_ID, '2026-07-19');
+    // 22:30 local on the 19th is 20:30 UTC the same day; the 00:30 case below
+    // is the one that used to report the previous day.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 6, 19, 22, 30, 0));
+      parseOk(await tool('balance_sheet').handler({}, ctx()));
+      expect(getBalanceSheet).toHaveBeenCalledWith(COMPANY_ID, '2026-07-19');
+
+      // 00:30 SAST on the 19th is 22:30 UTC on the 18th. toISOString() would
+      // default the balance sheet to the WRONG day; fmtDate must not.
+      vi.mocked(getBalanceSheet).mockClear();
+      vi.setSystemTime(new Date(2026, 6, 19, 0, 30, 0));
+      parseOk(await tool('balance_sheet').handler({}, ctx()));
+      expect(getBalanceSheet).toHaveBeenCalledWith(COMPANY_ID, '2026-07-19');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('aged_debtors / aged_creditors call the existing aging services', async () => {

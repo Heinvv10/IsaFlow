@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { markEntriesBilled } from './practiceTimeEntryWorkflow';
@@ -121,8 +122,7 @@ export async function getWipByClient(
 
   return summary.map((r) => {
     const cid = String(r.practice_client_id);
-    const raw = r.oldest_approved_date;
-    const oldestApprovedDate = raw instanceof Date ? raw.toISOString().split('T')[0]! : String(raw ?? '');
+    const oldestApprovedDate = fmtDate(r.oldest_approved_date);
     return {
       practiceClientId: cid,
       legalName: String(r.legal_name),
@@ -228,9 +228,7 @@ export async function generateWipInvoice(
       const rate = Number(e.applied_rate);
       const lineAmount = Number(e.line_total);
       const wi = e.work_item_name ? ` [${String(e.work_item_name)}]` : '';
-      const dateStr = typeof e.entry_date === 'string'
-        ? e.entry_date.split('T')[0]
-        : (e.entry_date as Date).toISOString().split('T')[0];
+      const dateStr = fmtDate(e.entry_date);
       const desc = `${dateStr}${wi} — ${String(e.task_description)} (${hours}h @ R${rate}/h)`;
       await sql`
         INSERT INTO customer_invoice_items (

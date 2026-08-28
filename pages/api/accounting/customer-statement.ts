@@ -18,6 +18,7 @@ import {
   type AuthenticatedNextApiRequest,
 } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { buildStatementHtml } from '@/modules/accounting/utils/customerStatementHtml';
 
@@ -46,11 +47,11 @@ interface StatementTransaction {
 /** Normalize any date value to YYYY-MM-DD */
 function toISODate(val: unknown): string {
   if (!val) return '1970-01-01';
-  if (val instanceof Date) return val.toISOString().split('T')[0] ?? '1970-01-01';
+  if (val instanceof Date) return fmtDate(val);
   const s = String(val);
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.split('T')[0] ?? '1970-01-01';
   const d = new Date(s);
-  return isNaN(d.getTime()) ? '1970-01-01' : (d.toISOString().split('T')[0] ?? '1970-01-01');
+  return isNaN(d.getTime()) ? '1970-01-01' : fmtDate(d);
 }
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {

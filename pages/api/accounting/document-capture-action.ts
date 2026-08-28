@@ -11,6 +11,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { CapturedDocumentAction, CapturedDocument } from '@/modules/accounting/types/documentCapture.types';
 import { attachCapturedDocToBankTx } from '@/modules/accounting/services/capture/captureBankTxAttachService';
 
@@ -23,7 +24,7 @@ function mapRow(row: Record<string, unknown>): CapturedDocument {
     documentType: row.document_type as string | null,
     extractedData: row.extracted_data ? (typeof row.extracted_data === 'string' ? JSON.parse(row.extracted_data as string) : row.extracted_data) : null,
     vendorName: row.vendor_name as string | null,
-    documentDate: row.document_date ? new Date(row.document_date as string).toISOString().split('T')[0]! : null,
+    documentDate: row.document_date ? fmtDate(row.document_date) : null,
     referenceNumber: row.reference_number as string | null,
     totalAmount: row.total_amount !== null && row.total_amount !== undefined ? parseFloat(String(row.total_amount)) : null,
     vatAmount: row.vat_amount !== null && row.vat_amount !== undefined ? parseFloat(String(row.vat_amount)) : null,

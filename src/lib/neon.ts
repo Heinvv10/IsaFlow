@@ -19,6 +19,11 @@
 import pg from 'pg';
 import { log } from '@/lib/logger';
 
+// Imported for its side effect: registers the DATE (OID 1082) type parser so
+// date columns arrive as 'YYYY-MM-DD' strings instead of local-midnight Dates.
+// See src/lib/pgTypes.ts for why that matters.
+import '@/lib/pgTypes';
+
 // Matches the shape the Neon driver returned to the rest of the codebase —
 // `NeonQueryFunction<false, false>` yields `Record<string, any>[]`. Keeping
 // `any` for values preserves existing call-site ergonomics; tighten per-row
@@ -412,22 +417,10 @@ export async function withSavepoint<T>(
   }
 }
 
-/**
- * Format a value from a DB date column as YYYY-MM-DD, robust to Date
- * objects and strings. Unchanged from the Neon implementation — the pg
- * driver also returns `date` columns as JavaScript Date.
- */
-export function fmtDate(val: unknown): string {
-  if (!val) return '';
-  if (val instanceof Date) {
-    const y = val.getFullYear();
-    const m = String(val.getMonth() + 1).padStart(2, '0');
-    const d = String(val.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  const s = String(val);
-  if (s.includes('T')) return s.split('T')[0]!;
-  return s;
-}
+// fmtDate lives in its own module because it is a pure function with no
+// connection or pool dependency, and keeping it here made every
+// vi.mock('@/lib/neon') in the test suite delete it. Re-exported so the
+// existing `import { fmtDate } from '@/lib/neon'` call sites keep working.
+export { fmtDate } from '@/lib/fmtDate';
 
 export default sql;

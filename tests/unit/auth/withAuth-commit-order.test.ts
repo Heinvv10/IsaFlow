@@ -6,6 +6,7 @@
 // (next/dist/server/api-utils/node — sendData/sendJson both call res.end),
 // so patching res.end inside withAuth is observable here.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { pgTypesMock } from '../helpers/pgTypesMock';
 import type { NextApiResponse } from 'next';
 import { SignJWT } from 'jose';
 
@@ -30,7 +31,7 @@ vi.mock('pg', () => {
     connect = poolFactory.connect;
     on = poolFactory.on;
   }
-  return { default: { Pool }, Pool };
+  return { default: { Pool, ...pgTypesMock() }, Pool, ...pgTypesMock() };
 });
 
 // checkRateLimit is only invoked for reports- prefix routes (not our test

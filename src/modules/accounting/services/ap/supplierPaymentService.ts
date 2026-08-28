@@ -4,7 +4,8 @@
  * Workflow operations (approve, process) split to supplierPaymentWorkflowService.ts
  */
 
-import { sql, withTransaction, fmtDate } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validatePaymentAllocations } from '../../utils/paymentAllocation';

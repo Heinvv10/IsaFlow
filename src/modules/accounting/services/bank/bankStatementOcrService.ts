@@ -6,6 +6,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { fetchRawBytes } from '@/lib/documentStorage';
 import { extractBankStatementWithVlm } from './vlmBankService';
@@ -54,8 +55,7 @@ type DbRow = Record<string, unknown>;
 
 function toDateStr(val: unknown): string | null {
   if (!val) return null;
-  if (val instanceof Date) return val.toISOString().slice(0, 10);
-  return String(val).slice(0, 10);
+  return fmtDate(val);
 }
 
 const MIME_MAP: Record<string, string> = {

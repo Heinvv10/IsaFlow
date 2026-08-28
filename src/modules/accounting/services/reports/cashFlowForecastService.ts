@@ -9,6 +9,7 @@
  */
 
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 import {
   getCurrentCashBalance,
   getHistoricalCashFlows,
@@ -84,7 +85,9 @@ export async function generateForecast(
 
   for (let i = 1; i <= forecastMonths; i++) {
     const forecastDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    const monthStr = forecastDate.toISOString().slice(0, 7);
+    // fmtDate: forecastDate is built from LOCAL year/month components, so
+    // toISOString() converted it back to UTC and named the PREVIOUS month.
+    const monthStr = fmtDate(forecastDate).slice(0, 7);
     const monthLabel = forecastDate.toLocaleDateString('en-ZA', { month: 'short', year: 'numeric' });
 
     const knownInflows = receivables
@@ -112,7 +115,7 @@ export async function generateForecast(
     const confidence = Math.max(0.3, baseConfidence - (i * decayFactor) + knownDataBoost);
 
     forecastPoints.push({
-      date: forecastDate.toISOString().slice(0, 10),
+      date: fmtDate(forecastDate),
       label: monthLabel,
       projectedInflow: Math.round(projectedInflow * 100) / 100,
       projectedOutflow: Math.round(projectedOutflow * 100) / 100,
@@ -127,7 +130,7 @@ export async function generateForecast(
         message: runningBalance < 0
           ? `Projected negative cash balance of R ${Math.abs(runningBalance).toLocaleString('en-ZA', { minimumFractionDigits: 2 })} in ${monthLabel}`
           : `Cash balance projected to drop below threshold in ${monthLabel}`,
-        date: forecastDate.toISOString().slice(0, 10),
+        date: fmtDate(forecastDate),
         projectedBalance: Math.round(runningBalance * 100) / 100,
       });
     }

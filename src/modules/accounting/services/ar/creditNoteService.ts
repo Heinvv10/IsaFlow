@@ -3,7 +3,8 @@
  * Credit Note Service (Customer & Supplier)
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';

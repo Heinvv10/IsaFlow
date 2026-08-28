@@ -8,7 +8,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { fmtDate } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 
 export interface AgentPosting {
   journalEntryId: string;

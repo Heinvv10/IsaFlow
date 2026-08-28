@@ -3,7 +3,8 @@
  * Read-only queries: storage stats, preview, validation, run history, archived entries.
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 
@@ -214,7 +215,7 @@ export async function validateArchive(companyId: string, cutoffDate: string): Pr
     const cutoff = new Date(cutoffDate);
     if (cutoff >= minCutoff) {
       errors.push(
-        `Cutoff date must be at least ${MIN_RETENTION_YEARS} years ago (before ${minCutoff.toISOString().split('T')[0]}). ` +
+        `Cutoff date must be at least ${MIN_RETENTION_YEARS} years ago (before ${fmtDate(minCutoff)}). ` +
         `This is required by the SA Companies Act minimum retention period.`
       );
     }

@@ -7,6 +7,7 @@
  * company_id is not in the supplied companyMeta map.
  */
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { vatDueSignal } from './bureauVatSignal';
 import { complianceSignal } from './complianceSignal';
@@ -59,8 +60,8 @@ async function payrollSignals(
         FROM tax_directives td
        WHERE td.company_id = ANY(${companyIds})
          AND td.expiry_date IS NOT NULL
-         AND td.expiry_date <= ${inThirtyDays.toISOString().slice(0, 10)}::date
-         AND td.expiry_date >= ${today.toISOString().slice(0, 10)}::date
+         AND td.expiry_date <= ${fmtDate(inThirtyDays)}::date
+         AND td.expiry_date >= ${fmtDate(today)}::date
        GROUP BY td.company_id
     `,
     sql`

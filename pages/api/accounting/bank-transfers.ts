@@ -1,4 +1,5 @@
-import { sql, fmtDate, withTransaction } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 /**
  * Bank Transfers API
  * POST /api/accounting/bank-transfers - Transfer between bank accounts

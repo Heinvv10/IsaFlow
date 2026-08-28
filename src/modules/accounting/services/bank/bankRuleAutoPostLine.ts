@@ -8,6 +8,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -59,9 +60,11 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     return { kind: 'raced' };
   }
 
-  const entryDate = tx.transaction_date instanceof Date
-    ? tx.transaction_date.toISOString().split('T')[0]!
-    : String(tx.transaction_date).split('T')[0]!;
+  // fmtDate, never toISOString: on a UTC+2 host the latter shifted the entry
+  // date back a day, so a transaction on the 1st auto-posted into the PREVIOUS
+  // month — a different VAT period — and the open-period check below then ran
+  // against that wrong period too.
+  const entryDate = fmtDate(tx.transaction_date);
 
   // Pre-flight: skip transactions whose date can't post. Without this,
   // createJournalEntry would insert a draft JE row, postJournalEntry

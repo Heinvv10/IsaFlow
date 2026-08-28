@@ -3,7 +3,8 @@
  * Submissions CRUD and DB-backed compliance calendar for SA tax obligations.
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { getComplianceCalendar } from './sarsTaxPeriodsService';
 

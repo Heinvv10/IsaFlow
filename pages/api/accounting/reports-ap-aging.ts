@@ -13,7 +13,8 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { parsePagination } from '@/lib/pagination';
 
 type Bucket = 'current' | '1-30' | '31-60' | '61-90' | '90+';

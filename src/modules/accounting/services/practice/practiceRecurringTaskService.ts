@@ -1,5 +1,6 @@
 // src/modules/accounting/services/practice/practiceRecurringTaskService.ts
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { generateNextRecurringInstance } from './practiceTaskService';
@@ -53,7 +54,7 @@ async function loadEligibleSourceTasks(companyId: string): Promise<SourceTaskRow
     id: String(r.id),
     created_by: r.created_by ? String(r.created_by) : null,
     recurring_rule: String(r.recurring_rule),
-    due_date: r.due_date instanceof Date ? r.due_date.toISOString().split('T')[0]! : String(r.due_date),
+    due_date: fmtDate(r.due_date),
   }));
 }
 

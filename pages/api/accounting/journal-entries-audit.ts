@@ -17,6 +17,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -76,9 +77,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const entries = rows.map((r) => ({
       id: String(r.id),
       entryNumber: String(r.entry_number ?? ''),
-      entryDate: r.entry_date instanceof Date
-        ? r.entry_date.toISOString().slice(0, 10)
-        : String(r.entry_date).slice(0, 10),
+      entryDate: fmtDate(r.entry_date),
       description: r.description ? String(r.description) : null,
       source: String(r.source),
       sourceDocumentId: r.source_document_id ? String(r.source_document_id) : null,

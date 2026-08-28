@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
@@ -15,6 +16,7 @@ import {
   mapEntryRow,
 } from './journalEntryCrudService';
 import { defaultHumanMeta } from './journalEntryMeta';
+import { getPeriodStatusForDate } from './periodStatusService';
 
 type Row = DbRow;
 
@@ -108,20 +110,57 @@ export async function reverseJournalEntry(
       costCenterId: l.costCenterId,
     }));
 
-    // The reversal is dated today, so its fiscal period must be derived from
-    // TODAY (createJournalEntry looks it up from entryDate when omitted) —
-    // never inherited from the original. Inheriting meant: original period
-    // closed → postJournalEntry throws ClosedFiscalPeriodError and old
-    // documents become permanently un-cancellable; original period still
-    // open → the reversal lands in a past period its entry_date isn't in.
+    // A correction belongs in the period it corrects. Dating every reversal to
+    // TODAY moved the correction into a later period than the entry it undoes:
+    // the two no longer net to zero in any period-bounded report, and when the
+    // pair straddles a VAT period the return for the original period stays
+    // overstated while the next one is understated.
+    //
+    // So: date the reversal to the ORIGINAL entry_date when that period is
+    // still open, and fall back to today only when it is not. The fallback is
+    // what the previous unconditional-today rule was really protecting — a
+    // closed original period must not make old documents permanently
+    // un-cancellable, and postJournalEntry would throw ClosedFiscalPeriodError.
+    //
+    // Only entryDate is chosen here; createJournalEntry still derives the
+    // fiscal period FROM that date, so the period can never disagree with it.
+    const originalDate = fmtDate(entry.entryDate);
+    const originalPeriod = await getPeriodStatusForDate(companyId, originalDate);
+    // fmtDate(new Date()), not toISOString — between 00:00 and 02:00 SAST the
+    // latter stamps yesterday.
+    const reversalDate = originalPeriod === 'open' ? originalDate : fmtDate(new Date());
+
     const reversalEntry = await createJournalEntry(companyId, {
-      entryDate: new Date().toISOString().split('T')[0]!,
+      entryDate: reversalDate,
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,
       lines: reversalLines,
     }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
 
-    await postJournalEntry(companyId, reversalEntry.id, userId);
+    try {
+      await postJournalEntry(companyId, reversalEntry.id, userId);
+    } catch (err) {
+      // createJournalEntry has already INSERTed a draft. If posting it fails —
+      // the fiscal period flipping closed between the read above and this post
+      // is the realistic race — the draft would otherwise dangle in the GL
+      // forever: unposted, unlinked (reversal_of_id is set below, not yet), and
+      // with the original still unmarked as reversed. Delete it, then re-throw
+      // so the caller still sees the failure.
+      //
+      // `AND status = 'draft'` is load-bearing, not defensive dressing: it is
+      // what makes this incapable of touching a posted entry. If postJournalEntry
+      // threw AFTER its status UPDATE landed, the row is 'posted' and this DELETE
+      // matches nothing. gl_journal_lines cascades from this row
+      // (gl_journal_lines_journal_entry_id_fkey ON DELETE CASCADE), so the draft's
+      // lines go with it and no posted line is ever reachable from here.
+      await sql`
+        DELETE FROM gl_journal_entries
+        WHERE id         = ${reversalEntry.id}::UUID
+          AND company_id = ${companyId}::UUID
+          AND status     = 'draft'
+      `;
+      throw err;
+    }
 
     // Standard-accounting reversal: the original stays status='posted' and the
     // posted contra entry offsets it, so the pair nets to zero in every

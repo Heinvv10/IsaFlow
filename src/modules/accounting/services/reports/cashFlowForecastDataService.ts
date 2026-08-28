@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 
@@ -31,7 +32,7 @@ export function toNum(val: unknown): number {
 }
 
 export function toDateStr(val: unknown): string {
-  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  if (val instanceof Date) return fmtDate(val);
   if (typeof val === 'string') return val.slice(0, 10);
   return '';
 }

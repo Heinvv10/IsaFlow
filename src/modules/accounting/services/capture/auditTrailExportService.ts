@@ -13,6 +13,7 @@ import PDFDocument from 'pdfkit';
 import { createHash, randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { uploadCapturedDocument } from '@/lib/supabaseStorage';
 
@@ -43,11 +44,11 @@ export interface AuditExport {
 
 function toISODate(v: unknown): string {
   if (!v) return '';
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (v instanceof Date) return fmtDate(v);
   const s = String(v);
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   const d = new Date(s);
-  return isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
+  return isNaN(d.getTime()) ? s : fmtDate(d);
 }
 
 function mapExport(row: Row): AuditExport {

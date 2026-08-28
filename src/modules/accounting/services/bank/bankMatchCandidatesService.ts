@@ -55,10 +55,7 @@ export function scoreDescription(txDesc: string, candidateLabel: string): number
   return Math.round(ratio * 20);
 }
 
-export function fmtDate(val: unknown): string {
-  if (val instanceof Date) return val.toISOString().split('T')[0]!;
-  return val ? String(val).split('T')[0]! : '';
-}
+export { fmtDate } from '@/lib/fmtDate';
 
 // ── Entity extraction ─────────────────────────────────────────────────────────
 

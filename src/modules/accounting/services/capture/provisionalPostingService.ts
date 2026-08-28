@@ -1,6 +1,7 @@
 /** PRD-05 Phase 5 — Provisional Posting Service */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
@@ -197,9 +198,10 @@ export async function postProvisional(
 
   const totalAmount = Math.abs(amount);
   const bankAccountId = String(tx.bank_account_id);
-  const txDate = tx.transaction_date instanceof Date
-    ? (tx.transaction_date.toISOString().split('T')[0] ?? '')
-    : (String(tx.transaction_date).split('T')[0] ?? '');
+  // fmtDate, never toISOString — this date becomes the provisional journal's
+  // entry_date, and on a UTC+2 host toISOString shifted it into the previous
+  // day (and, on a month boundary, the previous VAT period).
+  const txDate = fmtDate(tx.transaction_date);
   const description = String(tx.description ?? 'Provisional bank allocation');
 
   const hasVat = prediction.vatCode === 'standard';

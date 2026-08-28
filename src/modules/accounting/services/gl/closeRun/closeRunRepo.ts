@@ -5,7 +5,8 @@
  * pure builder, the readiness service, the posting service and the audit trail.
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import type {
   CloseRun,

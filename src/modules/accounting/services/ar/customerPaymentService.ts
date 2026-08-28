@@ -3,7 +3,8 @@
  * Customer Payment Service
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { randomUUID } from 'crypto';
 import { log } from '@/lib/logger';

@@ -10,6 +10,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 
 type Row = Record<string, unknown>;
 
@@ -129,11 +130,7 @@ export async function getBankAccountsStatus(companyId: string): Promise<Row[]> {
     allocatedCount: Number(r.allocated_count ?? 0),
     suggestedCount: Number(r.suggested_count ?? 0),
     unallocatedCount: Number(r.unallocated_count ?? 0),
-    firstDate: r.first_date instanceof Date
-      ? r.first_date.toISOString().split('T')[0]
-      : r.first_date ? String(r.first_date).split('T')[0] : null,
-    lastDate: r.last_date instanceof Date
-      ? r.last_date.toISOString().split('T')[0]
-      : r.last_date ? String(r.last_date).split('T')[0] : null,
+    firstDate: r.first_date ? fmtDate(r.first_date) : null,
+    lastDate: r.last_date ? fmtDate(r.last_date) : null,
   }));
 }

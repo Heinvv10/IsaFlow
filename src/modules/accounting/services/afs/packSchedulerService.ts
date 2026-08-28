@@ -1,5 +1,6 @@
 // src/modules/accounting/services/afs/packSchedulerService.ts
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 import { getCompaniesScheduledForDate } from './managementPackConfigService';
 import { generateManagementPack } from './managementPackGeneratorService';
 
@@ -68,7 +69,7 @@ export async function runDailyScheduler(): Promise<SchedulerRunResult> {
   });
 
   const summary: SchedulerRunResult = {
-    date: today.toISOString().slice(0, 10),
+    date: fmtDate(today),
     dayOfMonth,
     period,
     companiesFound: companies.length,

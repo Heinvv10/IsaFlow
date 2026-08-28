@@ -2,6 +2,10 @@
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
+// Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
+// in this process. This file builds its own Pool, so it must not depend on
+// src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
+import '@/lib/pgTypes';
 import { verifyToken } from './gotrue';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 import { als } from '@/lib/als';

@@ -12,6 +12,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 
 // ─── Row types returned from DB ───────────────────────────────────────────────
 
@@ -37,8 +38,7 @@ type AccountRow = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toDateStr(d: string | Date): string {
-  if (d instanceof Date) return d.toISOString().split('T')[0] ?? '';
-  return String(d).split('T')[0] ?? '';
+  return fmtDate(d);
 }
 
 async function fetchBankAccountName(companyId: string, bankAccountId: string): Promise<string> {

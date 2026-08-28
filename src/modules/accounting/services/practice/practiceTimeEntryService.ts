@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { resolveRate } from './practiceStaffRateService';
@@ -23,9 +24,7 @@ export function mapEntry(r: DbRow): PracticeTimeEntry {
     id: String(r.id),
     companyId: String(r.company_id),
     userId: String(r.user_id),
-    entryDate: typeof r.entry_date === 'string'
-      ? r.entry_date
-      : (r.entry_date as Date).toISOString().split('T')[0]!,
+    entryDate: fmtDate(r.entry_date),
     hours: Number(r.hours),
     practiceClientId: String(r.practice_client_id),
     jobCategoryId: String(r.job_category_id),

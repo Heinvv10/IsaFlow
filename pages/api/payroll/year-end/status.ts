@@ -19,6 +19,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import {
   validateCompanyComponents,
@@ -243,9 +244,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse): 
   const totalVariance = totalEmp201 - totalIrp5;
 
   // ─── 6. Period lock ────────────────────────────────────────────────────────
-  const lockDate = company.lockdown_date instanceof Date
-    ? company.lockdown_date.toISOString().slice(0, 10)
-    : (company.lockdown_date ? String(company.lockdown_date) : null);
+  const lockDate = company.lockdown_date ? fmtDate(company.lockdown_date) : null;
   const lockedAtYearEnd = Boolean(
     company.lockdown_enabled && lockDate && new Date(lockDate) >= new Date(`${endYear}-02-28`),
   );

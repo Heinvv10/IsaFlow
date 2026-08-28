@@ -3,6 +3,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -66,10 +67,7 @@ function mapNote(r: Row): DeliveryNote {
     customerName: r.customer_name ? String(r.customer_name) : '',
     salesOrderId: r.sales_order_id != null ? String(r.sales_order_id) : null,
     invoiceId: r.invoice_id != null ? String(r.invoice_id) : null,
-    deliveryDate:
-      r.delivery_date instanceof Date
-        ? r.delivery_date.toISOString().split('T')[0]!
-        : String(r.delivery_date).split('T')[0]!,
+    deliveryDate: fmtDate(r.delivery_date),
     status: String(r.status),
     deliveryAddress: r.delivery_address != null ? String(r.delivery_address) : null,
     notes: r.notes != null ? String(r.notes) : null,

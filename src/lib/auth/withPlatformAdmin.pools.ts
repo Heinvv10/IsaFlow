@@ -2,6 +2,10 @@
 // Pool factories split into a separate module so tests can vi.doMock them
 // without also mocking the core middleware.
 import pg from 'pg';
+// Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
+// in this process. This file builds its own Pool, so it must not depend on
+// src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
+import '@/lib/pgTypes';
 import { log } from '@/lib/logger';
 
 let _appPool: pg.Pool | null = null;

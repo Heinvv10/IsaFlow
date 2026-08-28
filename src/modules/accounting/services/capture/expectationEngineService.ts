@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 
@@ -31,8 +32,7 @@ export interface SupplierExpectation {
 
 function toDateString(v: Date | string | null | undefined): string | null {
   if (!v) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  return String(v).slice(0, 10);
+  return fmtDate(v);
 }
 
 /** Median value from a sorted numeric array. Returns null for empty arrays. */

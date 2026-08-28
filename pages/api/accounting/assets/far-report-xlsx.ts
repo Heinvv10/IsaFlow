@@ -8,12 +8,13 @@ import ExcelJS from 'exceljs';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { apiLogger } from '@/lib/logger';
 
 type Row = Record<string, unknown>;
 
 const toNum = (v: unknown) => Number(v ?? 0);
-const toStr = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? ''));
+const toStr = (v: unknown) => (v instanceof Date ? fmtDate(v) : String(v ?? ''));
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
