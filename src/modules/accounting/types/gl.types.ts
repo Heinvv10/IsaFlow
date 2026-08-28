@@ -5,7 +5,11 @@
 
 // ── Enums ────────────────────────────────────────────────────────────────────
 
-export type GLAccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+/** The GL account types, as a runtime value — validators (MCP `list_gl_accounts`)
+ *  need to reject an unknown type without re-listing the union by hand. */
+export const GL_ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const;
+
+export type GLAccountType = (typeof GL_ACCOUNT_TYPES)[number];
 
 export type GLAccountSubtype =
   | 'bank'

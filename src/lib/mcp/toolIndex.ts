@@ -9,6 +9,7 @@ import {
   agedCreditorsTool,
   agedDebtorsTool,
   balanceSheetTool,
+  listGlAccountsTool,
   profitAndLossTool,
   searchGlTool,
   trialBalanceTool,
@@ -34,7 +35,7 @@ import {
 } from './tools/writeBankBulkAllocate';
 
 export const MCP_TOOLS = [
-  // read (17)
+  // read (18)
   companyProfileTool,
   trialBalanceTool,
   profitAndLossTool,
@@ -42,6 +43,7 @@ export const MCP_TOOLS = [
   agedDebtorsTool,
   agedCreditorsTool,
   searchGlTool,
+  listGlAccountsTool,
   listInvoicesTool,
   getInvoiceTool,
   listQuotesTool,
