@@ -83,52 +83,77 @@ type RefRows = DbRow[];
  * JS `.trim()` does strip \v (and NBSP, and the Unicode space separators);
  * a reference stored with one of those on the end stays unreachable. Not worth
  * a `regexp_replace` that no index can serve.
+ *
+ * The candidate query, UNRUN. Exported so a DB-gated test can EXPLAIN the
+ * REAL statement (`.text` / `.values` off the lazy query) instead of a copy
+ * pasted into the test — a copy stays green while the service regresses to a
+ * bare `btrim()` the indexes cannot serve.
  */
-async function queryCandidates(
+export function bankTxRefCandidateQuery(
   companyId: string,
   refs: string[],
   bankAccountId: string | null,
-): Promise<RefRows> {
-  // ONE statement, both branches: the bank-account narrowing is a nullable
-  // parameter rather than a second copy of a 20-line query, which is how the
-  // two branches drift apart. `$n::UUID IS NULL OR …` costs nothing here — the
-  // (company_id, btrim(...)) indexes do the selection.
-  return (await sql`
-    WITH candidate AS (
-      SELECT
-        id, transaction_date, amount, description,
-        btrim(reference, E' \\t\\n\\r\\f') = ANY(${refs}::TEXT[]) AS by_reference,
-        btrim(reference, E' \\t\\n\\r\\f') AS ref_norm,
-        btrim(bank_reference, E' \\t\\n\\r\\f') AS bank_ref_norm
-      FROM bank_transactions
-      WHERE company_id = ${companyId}::UUID
-        AND (
-          btrim(reference, E' \\t\\n\\r\\f') = ANY(${refs}::TEXT[])
-          OR btrim(bank_reference, E' \\t\\n\\r\\f') = ANY(${refs}::TEXT[])
-        )
-        AND (${bankAccountId}::UUID IS NULL OR bank_account_id = ${bankAccountId}::UUID)
+) {
+  // One row PER (transaction, matching reference): a row can carry one
+  // reference in `reference` and a DIFFERENT one in `bank_reference`, and both
+  // may be in the same batch. Labelling the row once — "did its `reference`
+  // match ANY ref in the batch?" — dropped it from the second reference's
+  // candidates entirely, so a batch resolved fewer transactions than the same
+  // references resolved one at a time. The join against unnest($refs) makes the
+  // reference part of the row's identity here, not a property inferred later.
+  //
+  // Two arms rather than one with an OR: each arm is a plain equality against
+  // one expression index (migration 519), which is what keeps this off a full
+  // company scan. A row matching the SAME reference through both columns
+  // appears twice and the preference rule in the caller drops the second.
+  //
+  // The bank-account narrowing is a nullable parameter, not a second copy of
+  // the query — that is how two branches drift apart.
+  return sql`
+    WITH wanted AS (
+      SELECT DISTINCT ref FROM unnest(${refs}::TEXT[]) AS ref
     ),
-    labelled AS (
+    candidate AS (
       SELECT
-        id, transaction_date, amount, description,
-        CASE WHEN by_reference THEN 'reference' ELSE 'bank_reference' END AS matched_column,
-        CASE WHEN by_reference THEN ref_norm ELSE bank_ref_norm END AS matched_reference
-      FROM candidate
+        bt.id, bt.transaction_date, bt.amount, bt.description,
+        w.ref AS matched_reference,
+        'reference' AS matched_column
+      FROM bank_transactions bt
+      JOIN wanted w ON btrim(bt.reference, E' \\t\\n\\r\\f') = w.ref
+      WHERE bt.company_id = ${companyId}::UUID
+        AND (${bankAccountId}::UUID IS NULL OR bt.bank_account_id = ${bankAccountId}::UUID)
+      UNION ALL
+      SELECT
+        bt.id, bt.transaction_date, bt.amount, bt.description,
+        w.ref AS matched_reference,
+        'bank_reference' AS matched_column
+      FROM bank_transactions bt
+      JOIN wanted w ON btrim(bt.bank_reference, E' \\t\\n\\r\\f') = w.ref
+      WHERE bt.company_id = ${companyId}::UUID
+        AND (${bankAccountId}::UUID IS NULL OR bt.bank_account_id = ${bankAccountId}::UUID)
     ),
     ranked AS (
       SELECT
-        labelled.*,
+        candidate.*,
         ROW_NUMBER() OVER (
           PARTITION BY matched_reference, matched_column
           ORDER BY transaction_date ASC, id ASC
         ) AS rn
-      FROM labelled
+      FROM candidate
     )
     SELECT id, transaction_date, amount, description, matched_column, matched_reference
     FROM ranked
     WHERE rn <= ${MAX_CANDIDATES}
     ORDER BY transaction_date ASC, id ASC
-  `) as RefRows;
+  `;
+}
+
+async function queryCandidates(
+  companyId: string,
+  refs: string[],
+  bankAccountId: string | null,
+): Promise<RefRows> {
+  return (await bankTxRefCandidateQuery(companyId, refs, bankAccountId)) as RefRows;
 }
 
 function mapRow(row: DbRow): BankTransactionRefMatch {

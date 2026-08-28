@@ -31,6 +31,7 @@ vi.mock('@/lib/logger', () => ({
 import { getPoolForTests, sql } from '@/lib/neon';
 import { allocateBankTransactionTool } from '@/lib/mcp/tools/writeBankAllocate';
 import {
+  bankTxRefCandidateQuery,
   findBankTransactionsByReference,
   findBankTransactionsByReferences,
 } from '@/modules/accounting/services/bank/bankTransactionLookupService';
@@ -256,25 +257,67 @@ describe('allocate_bank_transaction by reference — real ledger', async () => {
   });
 
   it.skipIf(!reachable)('is served by migration 519’s expression indexes, not a company scan', async () => {
-    // The trim expression in the query MUST match the one in the index
-    // character for character; if it drifts the planner silently falls back to
-    // scanning every row in the company, which is what made 500-line bulk
-    // allocation hold its row locks for seconds.
+    // Plans the SERVICE'S OWN statement — `.text`/`.values` off the unrun lazy
+    // query — not a copy pasted into the test. A copy stays green while the
+    // service regresses to a bare `btrim()` no index can serve, which is the
+    // only regression this test exists to catch.
     await inRequestTx(async (f) => {
       const ref = `ISAFLOW-PLAN-${Date.now()}`;
       await seedTx(f, ref, 'ISAFLOW REF FIXTURE plan');
-      const plan = (await sql`
-        EXPLAIN (FORMAT TEXT)
-        SELECT id FROM bank_transactions
-        WHERE company_id = ${f.companyId}::UUID
-          AND (
-            btrim(reference, E' \\t\\n\\r\\f') = ANY(${[ref]}::TEXT[])
-            OR btrim(bank_reference, E' \\t\\n\\r\\f') = ANY(${[ref]}::TEXT[])
-          )
-      `) as Array<Record<string, string>>;
-      const text = plan.map((r) => Object.values(r)[0]).join('\n');
-      expect(text).toContain('idx_bt_company_reference_trim');
-      expect(text).toContain('idx_bt_company_bank_reference_trim');
+
+      const query = bankTxRefCandidateQuery(f.companyId, [ref], null) as unknown as {
+        text: string; values: unknown[];
+      };
+      const client = (als.getStore() as unknown as { client: {
+        query(text: string, values: unknown[]): Promise<{ rows: Array<Record<string, string>> }>;
+      } }).client;
+      const res = await client.query(`EXPLAIN (FORMAT TEXT) ${query.text}`, query.values);
+      const plan = res.rows.map((r) => Object.values(r)[0]).join('\n');
+
+      expect(plan).toContain('idx_bt_company_reference_trim');
+      expect(plan).toContain('idx_bt_company_bank_reference_trim');
+      expect(plan).not.toMatch(/Seq Scan on bank_transactions/);
+    });
+  });
+
+  it.skipIf(!reachable)('labels a row once per matching reference, not once per row', async () => {
+    // A row can carry ONE reference in `reference` and a DIFFERENT one in
+    // `bank_reference`, and a batch can ask for both. Deciding the row's label
+    // from "did its `reference` match ANY reference in the batch?" made it
+    // vanish from the OTHER reference's candidates, so a 500-line bulk call
+    // resolved fewer rows than the same references resolved one at a time —
+    // silently, as NOT_FOUND.
+    await inRequestTx(async (f) => {
+      const stamp = Date.now();
+      const onReference = `ISAFLOW-ZPC-${stamp}`;
+      const onBankReference = `ISAFLOW-ZPD-${stamp}`;
+      const rows = (await sql`
+        INSERT INTO bank_transactions (
+          company_id, bank_account_id, transaction_date, amount, description,
+          reference, bank_reference, status
+        ) VALUES (
+          ${f.companyId}::uuid, ${f.bankAccountId}::uuid, '2026-08-03'::date,
+          ${-55}, 'ISAFLOW REF FIXTURE two-column', ${onReference}, ${onBankReference}, 'imported'
+        )
+        RETURNING id
+      `) as Array<{ id: string }>;
+      const txId = String(rows[0]!.id);
+
+      const batch = await findBankTransactionsByReferences(
+        f.companyId, [onReference, onBankReference],
+      );
+      // Both references resolve to the row, each labelled with the column that
+      // actually carried it.
+      expect(batch.get(onReference)!.map((m) => [m.id, m.matchedColumn]))
+        .toEqual([[txId, 'reference']]);
+      expect(batch.get(onBankReference)!.map((m) => [m.id, m.matchedColumn]))
+        .toEqual([[txId, 'bank_reference']]);
+
+      // …and a batch answers exactly what the single lookups answer.
+      expect(batch.get(onBankReference))
+        .toEqual(await findBankTransactionsByReference(f.companyId, onBankReference));
+      expect(batch.get(onReference))
+        .toEqual(await findBankTransactionsByReference(f.companyId, onReference));
     });
   });
 

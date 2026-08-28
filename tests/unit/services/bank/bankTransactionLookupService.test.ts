@@ -65,15 +65,18 @@ beforeEach(() => {
 });
 
 describe('findBankTransactionsByReference — SQL', () => {
-  it('compares BOTH columns, trimmed', async () => {
+  it('joins the batch against BOTH columns, trimmed', async () => {
     await findBankTransactionsByReference(COMPANY_ID, 'REF-001');
     const text = sqlText(0);
-    // The OR-pair, not merely both column names: the SELECT list mentions both
-    // columns to report which one matched, so a name check alone would stay
-    // green with a single-column WHERE — exactly the shipped defect.
-    expect(text).toMatch(
-      /btrim\(reference, E' \\t\\n\\r\\f'\) = ANY\(\?::TEXT\[\]\) OR btrim\(bank_reference, E' \\t\\n\\r\\f'\) = ANY\(\?::TEXT\[\]\)/,
-    );
+    // One arm per column, each a plain equality the expression index can serve,
+    // and each labelling the row with the reference THAT arm matched.
+    expect(text).toContain("JOIN wanted w ON btrim(bt.reference, E' \\t\\n\\r\\f') = w.ref");
+    expect(text).toContain("JOIN wanted w ON btrim(bt.bank_reference, E' \\t\\n\\r\\f') = w.ref");
+    // The reference is joined in, never inferred from the row afterwards: a row
+    // carrying one reference in `reference` and another in `bank_reference`
+    // must appear under BOTH when both are in the batch.
+    expect(text).toContain('FROM unnest(?::TEXT[]) AS ref');
+    expect(text).toContain('PARTITION BY matched_reference, matched_column');
   });
 
   it('trims the SAME characters JS trims — not just spaces', async () => {
@@ -82,7 +85,7 @@ describe('findBankTransactionsByReference — SQL', () => {
     // identical to migration 519's indexes, or the planner ignores them.
     await findBankTransactionsByReference(COMPANY_ID, 'REF-001');
     const text = sqlText(0);
-    for (const m of text.matchAll(/btrim\([a-z_]+, ([^)]*)\)/g)) {
+    for (const m of text.matchAll(/btrim\([a-z_.]+, ([^)]*)\)/g)) {
       expect(m[1]).toBe("E' \\t\\n\\r\\f'");
     }
     // \v is NOT a PostgreSQL escape — E'\v' is a literal 'v' and would trim the
@@ -93,7 +96,7 @@ describe('findBankTransactionsByReference — SQL', () => {
   it('stays tenant-scoped and bounded per reference', async () => {
     await findBankTransactionsByReference(COMPANY_ID, 'REF-001');
     const text = sqlText(0);
-    expect(text).toContain('company_id = ');
+    expect(text).toContain('bt.company_id = ');
     expect(mockSql.mock.calls[0]!).toContain(COMPANY_ID);
     expect(text).toContain('PARTITION BY matched_reference, matched_column');
     expect(mockSql.mock.calls[0]!).toContain(25);
@@ -102,7 +105,7 @@ describe('findBankTransactionsByReference — SQL', () => {
 
   it('narrows by bank_account_id when one is supplied, and by NULL when not', async () => {
     await findBankTransactionsByReference(COMPANY_ID, 'REF-001', BANK_ACCOUNT_ID);
-    expect(sqlText(0)).toContain('bank_account_id = ');
+    expect(sqlText(0)).toContain('bt.bank_account_id = ');
     expect(mockSql.mock.calls[0]!).toContain(BANK_ACCOUNT_ID);
 
     // One query text for both cases — a second copy is how the two branches
@@ -110,7 +113,7 @@ describe('findBankTransactionsByReference — SQL', () => {
     // the predicate.
     mockSql.mockClear();
     await findBankTransactionsByReference(COMPANY_ID, 'REF-001');
-    expect(sqlText(0)).toContain('IS NULL OR bank_account_id = ');
+    expect(sqlText(0)).toContain('IS NULL OR bt.bank_account_id = ');
     expect(mockSql.mock.calls[0]!).toContain(null);
     expect(mockSql.mock.calls[0]!).not.toContain(BANK_ACCOUNT_ID);
   });
@@ -215,7 +218,7 @@ describe('trim expression vs migration 519', () => {
     // expected value is read from the QUERY, so the two move together or the
     // test fails.
     await findBankTransactionsByReference(COMPANY_ID, 'REF-001');
-    const inQuery = [...sqlText(0).matchAll(/btrim\([a-z_]+, ([^)]*)\)/g)].map((m) => m[1]);
+    const inQuery = [...sqlText(0).matchAll(/btrim\([a-z_.]+, ([^)]*)\)/g)].map((m) => m[1]);
     expect(inQuery.length).toBeGreaterThan(0);
 
     const migration = readFileSync(
