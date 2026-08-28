@@ -137,7 +137,30 @@ export async function reverseJournalEntry(
       lines: reversalLines,
     }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
 
-    await postJournalEntry(companyId, reversalEntry.id, userId);
+    try {
+      await postJournalEntry(companyId, reversalEntry.id, userId);
+    } catch (err) {
+      // createJournalEntry has already INSERTed a draft. If posting it fails —
+      // the fiscal period flipping closed between the read above and this post
+      // is the realistic race — the draft would otherwise dangle in the GL
+      // forever: unposted, unlinked (reversal_of_id is set below, not yet), and
+      // with the original still unmarked as reversed. Delete it, then re-throw
+      // so the caller still sees the failure.
+      //
+      // `AND status = 'draft'` is load-bearing, not defensive dressing: it is
+      // what makes this incapable of touching a posted entry. If postJournalEntry
+      // threw AFTER its status UPDATE landed, the row is 'posted' and this DELETE
+      // matches nothing. gl_journal_lines cascades from this row
+      // (gl_journal_lines_journal_entry_id_fkey ON DELETE CASCADE), so the draft's
+      // lines go with it and no posted line is ever reachable from here.
+      await sql`
+        DELETE FROM gl_journal_entries
+        WHERE id         = ${reversalEntry.id}::UUID
+          AND company_id = ${companyId}::UUID
+          AND status     = 'draft'
+      `;
+      throw err;
+    }
 
     // Standard-accounting reversal: the original stays status='posted' and the
     // posted contra entry offsets it, so the pair nets to zero in every

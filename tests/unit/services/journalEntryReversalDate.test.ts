@@ -56,6 +56,7 @@ vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
   getPeriodStatusForDate: vi.fn(),
 }));
 
+import { sql } from '@/lib/neon';
 import { getJournalEntryById, createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
@@ -66,6 +67,7 @@ const mockGet = getJournalEntryById as unknown as MockedFunction<
 const mockCreate = createJournalEntry as unknown as MockedFunction<
   (c: string, input: Record<string, unknown>, u: string, m?: unknown) => Promise<{ id: string }>
 >;
+const mockSql = sql as unknown as MockedFunction<(...a: unknown[]) => Promise<unknown[]>>;
 const mockPeriodStatus = getPeriodStatusForDate as unknown as MockedFunction<
   (c: string, d: string | Date) => Promise<'open' | 'closed' | 'no_period'>
 >;
@@ -73,6 +75,7 @@ const mockPeriodStatus = getPeriodStatusForDate as unknown as MockedFunction<
 const COMPANY_ID = 'cccccccc-0000-4000-8000-cccccccccccc';
 const ENTRY_ID = 'aaaaaaaa-0000-4000-8000-aaaaaaaaaaaa';
 const USER_ID = 'ffffffff-0000-4000-8000-ffffffffffff';
+const REVERSAL_ID = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
 
 /** Last day of a VAT period — the case where a day's drift changes the return. */
 const ORIGINAL_DATE = '2026-06-30';
@@ -105,7 +108,7 @@ describe('reverseJournalEntry — reversal entry date', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGet.mockResolvedValue(postedEntry(ORIGINAL_DATE));
-    mockCreate.mockResolvedValue({ id: 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb' });
+    mockCreate.mockResolvedValue({ id: REVERSAL_ID });
   });
 
   it('dates the reversal to the original entry date when that period is open', async () => {
@@ -144,5 +147,51 @@ describe('reverseJournalEntry — reversal entry date', () => {
     mockPeriodStatus.mockResolvedValue('open');
     await reversalEntryDate();
     expect(mockCreate.mock.calls[0]![1].fiscalPeriodId).toBeUndefined();
+  });
+});
+
+/**
+ * createJournalEntry INSERTs a draft before postJournalEntry runs. If the post
+ * fails — the fiscal period flipping closed between the period read and the
+ * post is the realistic race — that draft must not be left behind: it would sit
+ * in the GL unposted and unlinked, with the original entry still not marked
+ * reversed. A blind adversarial review found this dangling-draft path; the
+ * `AND status = 'draft'` guard is what makes the cleanup incapable of touching
+ * a posted entry.
+ */
+describe('reverseJournalEntry — failed post must not leave a dangling draft', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGet.mockResolvedValue(postedEntry(ORIGINAL_DATE));
+    mockCreate.mockResolvedValue({ id: REVERSAL_ID });
+    mockPeriodStatus.mockResolvedValue('open');
+    mockSql.mockResolvedValue([]);
+  });
+
+  /** All SQL text issued during the call, one string per sql`` invocation. */
+  function issuedSql(): string[] {
+    return mockSql.mock.calls.map((c) => (c[0] as readonly string[]).join(' '));
+  }
+
+  it('deletes the draft reversal and re-throws when posting fails', async () => {
+    // postJournalEntry is in the same module and cannot be mocked. It reloads
+    // the reversal by id via getJournalEntryById, which returns our POSTED
+    // fixture — so it throws "Cannot post entry with status: posted", standing
+    // in for any post-time failure.
+    await expect(reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID)).rejects.toThrow();
+
+    const del = issuedSql().find((t) => /DELETE\s+FROM\s+gl_journal_entries/i.test(t));
+    expect(del, 'a failed post must delete the draft it created').toBeDefined();
+    // The guard that makes this safe.
+    expect(del!).toMatch(/status\s*=\s*'draft'/i);
+    // Scoped to the tenant and to the row we just created.
+    expect(del!).toMatch(/company_id/i);
+  });
+
+  it('never issues the reversed_at / reversal_of_id link-backs when posting fails', async () => {
+    await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch(() => undefined);
+    const text = issuedSql().join(' | ');
+    expect(text).not.toMatch(/reversed_at/i);
+    expect(text).not.toMatch(/reversal_of_id/i);
   });
 });
