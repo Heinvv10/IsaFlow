@@ -12,9 +12,17 @@
  * whatever the earlier lines already posted. So every genuine failure from the
  * first allocateTransaction onwards is RETHROWN — as a typed
  * BulkAllocationLineError, so the registry can name the line instead of
- * answering GENERIC_FAILURE — and only pre-write refusals (shape, size,
- * duplicates, ownership, reference resolution, nothing-left-to-post) return a
- * toolError.
+ * answering GENERIC_FAILURE — and only pre-write refusals return a toolError.
+ *
+ * A REFUSAL IS ABOUT THE REQUEST; A SKIP IS ABOUT THE DATA. That is the line
+ * the two shapes fall on. Shape, size, duplicates and cross-tenant ownership
+ * are faults in what the caller SENT — it must change the request, so they
+ * refuse the batch. Everything the DATA says about one line — already
+ * allocated, excluded, not importable, the reference matches no row, the
+ * reference matches several — is a skip: counted, reported with the agent's own
+ * line index, and never allowed to cost the other 499 lines. A batch in which
+ * every line skips still refuses, so a wholly wrong list cannot read as a
+ * silent success.
  *
  * ALREADY-ALLOCATED IS NOT A FAILURE (PRD §4). A batch assembled off a
  * statement routinely names rows the books already carry. Those are skipped,
@@ -52,6 +60,8 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     + 'printed on the statement. POSTS a journal entry per line. Transactions that are already allocated (or '
     + 'excluded, or otherwise not importable) are SKIPPED, not failures: they are listed in "skipped" with a '
     + 'reason and the rest of the batch still posts, so you can re-send a list without checking it first. '
+    + 'A transaction_id or bank_reference that matches no transaction — or matches several — is also SKIPPED '
+    + 'with a reason, so one unrecognised reference never costs you the rest of the batch. '
     + 'ALL OR NOTHING for real faults: if a line genuinely fails, the whole batch is rolled back, nothing is '
     + 'posted, and the error names the line. Every line is attributed to the agent, and the returned batch_id '
     + 'undoes the posted set through reverse_bank_allocation_batch. Use dry_run to see what would post and '
@@ -91,9 +101,15 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     // of the boundary, so `dry_run` and the live call answer identically and
     // neither discovers it from inside allocateTransaction — where the only
     // available shape is a throw, and a throw fails the whole batch.
-    const partition = await partitionAllocationLines(ctx.companyId, prepared);
-    if (typeof partition === 'string') return toolError(partition);
-    const { postable, skipped } = partition;
+    const partition = await partitionAllocationLines(ctx.companyId, prepared.resolved);
+    const { postable } = partition;
+    // One list for the agent, in the order it sent the lines. The two skip
+    // sources answer different questions — `prepared.skipped` is "this
+    // reference names no row", `partition.skipped` is "the row it names has
+    // nothing left to do" — but a caller reading its own batch back should not
+    // have to know which stage refused which line.
+    const skipped = [...prepared.skipped, ...partition.skipped]
+      .sort((a, b) => a.index - b.index);
 
     if (args.dry_run === true) {
       // No batch row either: a dry run that left a batch behind would hand the

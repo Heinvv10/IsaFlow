@@ -209,20 +209,29 @@ describe('bulk_allocate_bank_transactions — already-allocated lines are skippe
     ]);
   });
 
-  it('refuses the batch when a resolved id is not in this company at all', async () => {
+  it('SKIPS a resolved id that is not in this company at all', async () => {
     // The pre-check is the first thing that can see a transaction_id naming a
     // row this tenant does not have. Reported as the shared NOT_FOUND — the
     // index says WHICH line, the text never says whether the row exists
     // elsewhere.
+    //
+    // It used to refuse the whole batch. It no longer does: one stale id in a
+    // statement-sized list is a fact about that row, not about the request, and
+    // failing 499 good lines over it left the agent bisecting by hand. The
+    // all-lines-skipped case below is what keeps a wholly wrong list loud.
+    // Full coverage of the unresolved cases: bulkAllocateSkipUnresolved.test.ts.
     statesReturn(state(1, 'imported', null), state(3, 'imported', null));
     const res = await bulkAllocateBankTransactionsTool.handler(
       { allocations: [line(1), line(2), line(3)], idempotency_key: 'k1' }, ctx,
     );
-    expect(res.isError).toBe(true);
-    expect(res.content[0]!.text).toMatch(/allocations\[1\]/);
-    expect(res.content[0]!.text).toMatch(/Not found/);
-    expect(allocateTransaction).not.toHaveBeenCalled();
-    expect(createAllocationBatch).not.toHaveBeenCalled();
+    expect(res.isError).toBeUndefined();
+    const body = payload(res as never);
+    expect(body.posted).toBe(2);
+    expect(body.skipped).toEqual([
+      { index: 1, transaction_id: TX(2), reason: 'Not found' },
+    ]);
+    expect(vi.mocked(allocateTransaction).mock.calls.map((c) => c[1]))
+      .toEqual([TX(1), TX(3)]);
   });
 });
 

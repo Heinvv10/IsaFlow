@@ -8,6 +8,7 @@
  * fault after it must THROW so the registry's savepoint unwinds the batch.
  */
 import type { McpToolContext } from '../types';
+import type { SkippedLine } from './bulkAllocationSkip';
 import {
   type AllocationLine,
   checkLinesOwnership,
@@ -48,11 +49,30 @@ function joinErrors(errors: string[]): string {
   return shown.join(' | ') + (more > 0 ? ` | …and ${more} more` : '');
 }
 
-/** Parses, ownership-checks, resolves and de-duplicates. All reads — no writes. */
+export interface Prepared {
+  resolved: ResolvedLine[];
+  /**
+   * Lines whose selector named no row, or more than one. Carried out rather
+   * than refused: see `partitionAllocationLines`. Merged with the row-state
+   * skips by the caller so the agent reads ONE list.
+   */
+  skipped: SkippedLine[];
+}
+
+/**
+ * Parses, ownership-checks, resolves and de-duplicates. All reads — no writes.
+ *
+ * Returns the refusal TEXT for a fault in what the caller SENT — a malformed
+ * line, an oversized batch, a cross-tenant id, the same transaction named
+ * twice. Those are not facts about a row's state and cannot be skipped past:
+ * the agent has to change its request. A reference that simply resolves to
+ * nothing (or to several rows) IS a fact about the data, so it comes back in
+ * `skipped` and the rest of the batch proceeds.
+ */
 export async function prepareAllocationLines(
   args: Record<string, unknown>,
   ctx: McpToolContext,
-): Promise<ResolvedLine[] | string> {
+): Promise<Prepared | string> {
   const raw = args.allocations;
   if (!Array.isArray(raw) || raw.length === 0) {
     return 'allocations must be a non-empty array';
@@ -98,11 +118,16 @@ export async function prepareAllocationLines(
   const resolutions = await resolveTxSelectors(lines.map((l) => l.selector), ctx.companyId);
 
   const resolved: ResolvedLine[] = [];
+  const unresolved: SkippedLine[] = [];
   const seen = new Map<string, number>();
   for (const [i, line] of lines.entries()) {
     const r = resolutions[i]!;
+    // Not found, or ambiguous. SKIPPED, not fatal — one unrecognised reference
+    // in a 500-line statement batch used to post nothing at all, and the agent
+    // could only find the offending line by splitting the batch in half and
+    // re-sending. There is no id to report, only the index and the reason.
     if ('error' in r) {
-      errors.push(`allocations[${i}]: ${r.error}`);
+      unresolved.push({ index: i, transaction_id: null, reason: r.error });
       continue;
     }
     // De-duplicated AFTER resolution, so two lines naming the same row by
@@ -121,5 +146,5 @@ export async function prepareAllocationLines(
     resolved.push({ index: i, txId: r.id, line });
   }
   if (errors.length > 0) return joinErrors(errors);
-  return resolved;
+  return { resolved, skipped: unresolved };
 }
