@@ -9,7 +9,7 @@
 import { withSavepoint } from '@/lib/neon';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import type { ResolvedLine } from './bulkAllocationPrepare';
-import { ALREADY_ALLOCATED, type SkippedLine } from './bulkAllocationSkip';
+import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
 import { postAllocationLine } from './allocationLine';
 
 export interface PostedLine {
@@ -32,11 +32,17 @@ export interface PostedBatch {
  * accounting/ar/receipt-match/confirm.ts` already treats this exact wording as
  * the contract. Anchored on both halves so it cannot swallow an unrelated
  * message that happens to contain the word "already".
+ *
+ * The STATUS is captured, not discarded. It is the only thing that tells the
+ * skip apart, and reporting every race as "already allocated" would tell an
+ * agent its excluded transaction had been booked — so it goes through the same
+ * `reasonForStatus` mapping the pre-check uses.
  */
-const ALREADY_REFUSAL = /Transaction already .+ — cannot allocate/;
+const ALREADY_REFUSAL = /Transaction already (\S+) — cannot allocate/;
 
-function isAlreadyAllocated(err: unknown): boolean {
-  return err instanceof Error && ALREADY_REFUSAL.test(err.message);
+function racedStatus(err: unknown): string | null {
+  if (!(err instanceof Error)) return null;
+  return ALREADY_REFUSAL.exec(err.message)?.[1] ?? null;
 }
 
 /**
@@ -86,8 +92,9 @@ export async function postPreparedLines(
         journal_entry_id: result.journalEntryId,
       });
     } catch (err) {
-      if (isAlreadyAllocated(err)) {
-        raced.push({ index, transaction_id: txId, reason: ALREADY_ALLOCATED });
+      const status = racedStatus(err);
+      if (status !== null) {
+        raced.push({ index, transaction_id: txId, reason: reasonForStatus(status) });
         continue;
       }
       throw new BulkAllocationLineError(

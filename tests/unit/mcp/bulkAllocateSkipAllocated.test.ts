@@ -270,6 +270,39 @@ describe('bulk_allocate_bank_transactions — a line that races the pre-check', 
     // Line 3 is still attempted — a race on one row must not abandon the batch.
     expect(allocateTransaction).toHaveBeenCalledTimes(3);
   });
+
+  it('reports the STATUS the service refused on, not a blanket "already allocated"', async () => {
+    // The refusal message carries the real status. Reporting every race as
+    // "already allocated" would tell an agent its EXCLUDED transaction had been
+    // booked — the same mapping the pre-check uses has to apply here.
+    statesReturn(state(1, 'imported', null), state(2, 'imported', null));
+    vi.mocked(allocateTransaction).mockImplementation((async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new Error('Transaction already excluded — cannot allocate');
+      return { journalEntryId: `je-for-${txId}`, bankTransaction: { id: txId } };
+    }) as never);
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1), line(2)], idempotency_key: 'k1' }, ctx,
+    );
+    expect(payload(res as never).skipped).toEqual([
+      { index: 1, transaction_id: TX(2), reason: 'excluded' },
+    ]);
+  });
+
+  it('reports a raced status that is neither allocated nor excluded verbatim', async () => {
+    statesReturn(state(1, 'imported', null), state(2, 'imported', null));
+    vi.mocked(allocateTransaction).mockImplementation((async (_c: string, txId: string) => {
+      if (txId === TX(2)) throw new Error('Transaction already pending — cannot allocate');
+      return { journalEntryId: `je-for-${txId}`, bankTransaction: { id: txId } };
+    }) as never);
+
+    const res = await bulkAllocateBankTransactionsTool.handler(
+      { allocations: [line(1), line(2)], idempotency_key: 'k1' }, ctx,
+    );
+    expect(payload(res as never).skipped).toEqual([
+      { index: 1, transaction_id: TX(2), reason: 'not importable: pending' },
+    ]);
+  });
 });
 
 describe('bulk_allocate_bank_transactions — a genuinely fatal line', () => {

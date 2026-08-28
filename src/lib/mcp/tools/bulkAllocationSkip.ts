@@ -33,6 +33,27 @@ export interface SkippedLine {
 /** The one reason string every skip path uses for an allocated row. */
 export const ALREADY_ALLOCATED = 'already allocated';
 
+/** The statuses that mean the transaction is already represented in the ledger. */
+const ALLOCATED_STATUSES: readonly string[] = ['allocated', 'reconciled', 'matched'];
+
+/**
+ * The reason text for a row sitting in `status`, with no other information.
+ *
+ * Shared with the POSTING loop, which learns a raced row's status only from
+ * `allocateTransaction`'s refusal message. Deriving both from one mapping is
+ * what keeps the two paths honest: reporting every race as "already allocated"
+ * told an agent its excluded transaction had been booked.
+ */
+export function reasonForStatus(status: string): string {
+  // Excluded is its own answer, not a flavour of "already allocated": it says a
+  // person deliberately took this transaction out of the books.
+  if (status === 'excluded') return 'excluded';
+  if (ALLOCATED_STATUSES.includes(status)) return ALREADY_ALLOCATED;
+  // Anything else is reported with the status VERBATIM rather than flattened
+  // into a reason the agent cannot act on.
+  return `not importable: ${status}`;
+}
+
 /**
  * Why this row cannot post, or `null` when it can.
  *
@@ -45,15 +66,12 @@ export const ALREADY_ALLOCATED = 'already allocated';
  */
 export function skipReasonFor(state: BankTransactionAllocationState): string | null {
   if (state.status === 'imported' && state.matchedJournalLineId === null) return null;
-  // Excluded first: an excluded row may or may not carry a journal, and
-  // "excluded" is the fact the human needs — it says a person deliberately took
-  // this transaction out of the books, not that something went wrong.
-  if (state.status === 'excluded') return 'excluded';
-  if (state.matchedJournalLineId !== null) return ALREADY_ALLOCATED;
-  // A status allocation refuses, with no journal behind it: reported with the
-  // status verbatim rather than flattened into "already allocated", which would
-  // be a lie the agent cannot act on.
-  return `not importable: ${state.status}`;
+  // A journal outranks a status that does not name one — except for `excluded`,
+  // where the exclusion is the fact worth reporting.
+  if (state.matchedJournalLineId !== null && state.status !== 'excluded') {
+    return ALREADY_ALLOCATED;
+  }
+  return reasonForStatus(state.status);
 }
 
 export interface Partitioned {
