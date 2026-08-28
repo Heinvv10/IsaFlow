@@ -13,6 +13,7 @@ import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
+import { lockBankTransactionForUpdate } from './bankTxLock';
 
 type Row = DbRow;
 
@@ -82,9 +83,11 @@ export async function allocateTransaction(
   invoiceId?: string,
   opts?: { postingAgent?: string },
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  if (txRows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
-  const tx = txRows[0]!;
+  // FOR UPDATE: hold the row for the rest of the request so a concurrent
+  // allocate blocks here rather than passing the same status check and posting
+  // a second journal for one transaction.
+  const tx = await lockBankTransactionForUpdate(companyId, bankTxId);
+  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
   if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot allocate`);
 
   const totalAmount = Math.abs(Number(tx.amount));
@@ -395,9 +398,8 @@ export async function allocateTransaction(
 export async function splitAllocateTransaction(
   companyId: string, bankTxId: string, lines: SplitLine[], userId: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  if (txRows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
-  const tx = txRows[0]!;
+  const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
+  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
   if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot split allocate`);
   if (!lines || lines.length === 0) throw new Error('At least one split line is required');
 
@@ -491,8 +493,7 @@ export async function reverseReconciledTransaction(
   companyId: string, bankTxId: string, userId: string,
   opts?: { postingAgent?: string },
 ): Promise<void> {
-  const txRows = (await sql`SELECT * FROM bank_transactions WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-  const tx = txRows[0];
+  const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
   if (tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');
