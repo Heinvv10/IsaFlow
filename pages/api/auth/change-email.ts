@@ -108,4 +108,4 @@ const handler: NextApiHandler = async (req, res) => {
   });
 };
 
-export default withRateLimit(withUserAuth(withCsrf(handler)), { max: 5, windowSecs: 900 });
+export default withRateLimit(withUserAuth(withCsrf(handler)), { max: 5, windowSecs: 900 }, 'change-email');

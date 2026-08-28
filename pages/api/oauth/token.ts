@@ -174,4 +174,4 @@ const handler: NextApiHandler = async (req, res) => {
   }
 };
 
-export default withRateLimit(withErrorHandler(handler), { max: 60, windowSecs: 60 });
+export default withRateLimit(withErrorHandler(handler), { max: 60, windowSecs: 60 }, 'oauth-token');

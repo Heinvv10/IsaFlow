@@ -130,4 +130,4 @@ const handler: NextApiHandler = async (req, res) => {
   }
 };
 
-export default withRateLimit(handler, { max: 20, windowSecs: 900 });
+export default withRateLimit(handler, { max: 20, windowSecs: 900 }, '2fa-challenge');

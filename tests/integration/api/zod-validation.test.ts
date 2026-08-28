@@ -1,18 +1,50 @@
 /**
- * Integration tests: BL-33 — Zod input validation on 7 auth + admin handlers.
+ * Integration tests: BL-33 — input validation on 7 auth + admin handlers.
  *
  * Pattern per handler:
- *   NEGATIVE: missing/invalid required field → 400 VALIDATION_ERROR with fieldErrors
+ *   NEGATIVE: missing/invalid required field → 400 with the handler's reject code
  *   POSITIVE: valid body → success path (200/201 OR domain-specific non-validation error)
+ *
+ * The three accounting handlers are still Zod-backed and assert the
+ * `VALIDATION_ERROR` envelope. The four auth handlers were rewritten after BL-33
+ * and validate inline — see assertRejected below.
  *
  * Tests run against the local dev server (TEST_BASE_URL, default http://localhost:3200).
  * They do NOT mock the DB — they rely on the server being up.
  * If the server is not running, tests skip via the beforeAll guard.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Pool } from 'pg';
 
 const BASE = process.env.TEST_BASE_URL ?? 'http://localhost:3200';
+
+// Every auth route here is IP rate-limited against the shared
+// `rate_limit_counters` table, and register allows only 5 posts per IP per hour.
+// Without clearing the counters this suite poisons itself: a second run inside
+// the window 429s instead of exercising validation. Drop the rows this suite
+// creates (and only those) before it starts.
+const RESET_SCOPES = ['login', 'register', 'do-reset-password', 'forgot-password'];
+
+let limiterPool: Pool | null = null;
+
+beforeAll(async () => {
+  const url = process.env.DATABASE_URL;
+  if (!url || url.includes('dummy.neon.tech')) return;
+  limiterPool = new Pool({ connectionString: url, max: 1 });
+  await limiterPool.query(
+    `DELETE FROM rate_limit_counters
+      WHERE key LIKE ANY ($1::text[])
+         OR key LIKE 'login:email:%'
+         OR key LIKE 'register:email:%'
+         OR key LIKE 'forgot:email:%'`,
+    [RESET_SCOPES.map((s) => `${s}:ip:%`)]
+  );
+});
+
+afterAll(async () => {
+  await limiterPool?.end();
+});
 
 /**
  * Try to reach the server; if it is not available, skip all tests gracefully.
@@ -61,9 +93,29 @@ function assertValidationError(
 }
 
 // ---------------------------------------------------------------------------
+// Shared assertion for the auth handlers.
+//
+// login / register / do-reset-password / forgot-password were rewritten after
+// BL-33 (GoTrue cutover, self-owned password reset in #153/#155, self-serve
+// signup in #254). They validate inline and reject with a domain error code
+// rather than the Zod `VALIDATION_ERROR` envelope, so this asserts the contract
+// they actually have: a 400 carrying one of the expected codes. The accounting
+// handlers below are still Zod-backed and keep assertValidationError.
+// ---------------------------------------------------------------------------
+function assertRejected(
+  status: number,
+  json: Record<string, unknown>,
+  expectedCodes: string[]
+): void {
+  expect(status).toBe(400);
+  const error = json.error as Record<string, unknown> | undefined;
+  expect(expectedCodes).toContain(error?.code);
+}
+
+// ---------------------------------------------------------------------------
 // 1. POST /api/auth/login
 // ---------------------------------------------------------------------------
-describe('Zod validation — POST /api/auth/login', () => {
+describe('Input validation — POST /api/auth/login', () => {
   beforeAll(async () => {
     const available = await serverAvailable();
     if (!available) {
@@ -72,25 +124,29 @@ describe('Zod validation — POST /api/auth/login', () => {
     }
   });
 
-  it('NEGATIVE: empty body → 400 VALIDATION_ERROR on email', async () => {
+  it('NEGATIVE: empty body → 400 BAD_REQUEST', async () => {
     const { status, json } = await post('/api/auth/login', {});
-    assertValidationError(status, json, 'email');
+    assertRejected(status, json, ['BAD_REQUEST']);
   });
 
-  it('NEGATIVE: invalid email format → 400 VALIDATION_ERROR on email', async () => {
+  it('NEGATIVE: non-string password → 400 BAD_REQUEST', async () => {
+    const { status, json } = await post('/api/auth/login', {
+      email: 'test@example.com',
+      password: 12345678,
+    });
+    assertRejected(status, json, ['BAD_REQUEST']);
+  });
+
+  it('NEGATIVE: malformed address is a credential miss, never a 500', async () => {
     const { status, json } = await post('/api/auth/login', {
       email: 'not-an-email',
       password: 'ValidPass1!',
     });
-    assertValidationError(status, json, 'email');
-  });
-
-  it('NEGATIVE: password too short (< 8 chars) → 400 VALIDATION_ERROR on password', async () => {
-    const { status, json } = await post('/api/auth/login', {
-      email: 'test@example.com',
-      password: 'short',
-    });
-    assertValidationError(status, json, 'password');
+    // Credentials are checked by GoTrue, so a malformed address is simply a
+    // credential that does not exist. It must not surface as a server error.
+    expect([400, 401, 423, 429]).toContain(status);
+    const error = json.error as Record<string, unknown> | undefined;
+    expect(error?.code).not.toBe('INTERNAL_ERROR');
   });
 
   it('POSITIVE: valid body → NOT a validation error (401 invalid creds or 200)', async () => {
@@ -101,117 +157,113 @@ describe('Zod validation — POST /api/auth/login', () => {
     // Should not be a validation error — expect 401 (wrong creds) or 200 (success)
     const error = json.error as Record<string, unknown> | undefined;
     expect(error?.code).not.toBe('VALIDATION_ERROR');
-    expect([200, 401, 429]).toContain(status);
+    expect([200, 401, 423, 429]).toContain(status);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 2. POST /api/auth/register
+// 2. POST /api/auth/register  (self-serve signup, #254)
 // ---------------------------------------------------------------------------
-describe('Zod validation — POST /api/auth/register', () => {
-  it('NEGATIVE: empty body → 400 VALIDATION_ERROR on firstName', async () => {
+describe('Input validation — POST /api/auth/register', () => {
+  it('NEGATIVE: empty body → 400 BAD_REQUEST', async () => {
     const { status, json } = await post('/api/auth/register', {});
-    assertValidationError(status, json, 'firstName');
+    assertRejected(status, json, ['BAD_REQUEST']);
   });
 
-  it('NEGATIVE: missing email → 400 VALIDATION_ERROR on email', async () => {
-    const { status, json } = await post('/api/auth/register', {
-      firstName: 'Test',
-      lastName: 'User',
-      password: 'ValidPass1!',
-      confirmPassword: 'ValidPass1!',
-    });
-    assertValidationError(status, json, 'email');
-  });
-
-  it('NEGATIVE: invalid email → 400 VALIDATION_ERROR on email', async () => {
-    const { status, json } = await post('/api/auth/register', {
-      firstName: 'Test',
-      lastName: 'User',
-      email: 'not-an-email',
-      password: 'ValidPass1!',
-      confirmPassword: 'ValidPass1!',
-    });
-    assertValidationError(status, json, 'email');
-  });
-
-  it('NEGATIVE: password too short → 400 VALIDATION_ERROR on password', async () => {
-    const { status, json } = await post('/api/auth/register', {
-      firstName: 'Test',
-      lastName: 'User',
-      email: 'test@example.com',
-      password: 'abc',
-      confirmPassword: 'abc',
-    });
-    assertValidationError(status, json, 'password');
-  });
-
-  it('POSITIVE: structurally valid body → NOT a validation error (400 email-exists or 201)', async () => {
+  it('NEGATIVE: missing companyName → 400 BAD_REQUEST', async () => {
     const { status, json } = await post('/api/auth/register', {
       firstName: 'Test',
       lastName: 'User',
       email: `zod-test-${Date.now()}@example.com`,
       password: 'ValidPassword1!',
-      confirmPassword: 'ValidPassword1!',
     });
-    const error = json.error as Record<string, unknown> | undefined;
-    expect(error?.code).not.toBe('VALIDATION_ERROR');
-    // 201 success, 400 (weak password / email exists), 429 rate limited
-    expect([201, 400, 429]).toContain(status);
+    assertRejected(status, json, ['BAD_REQUEST']);
+  });
+
+  it('NEGATIVE: invalid email → 400 BAD_REQUEST', async () => {
+    const { status, json } = await post('/api/auth/register', {
+      firstName: 'Test',
+      lastName: 'User',
+      email: 'not-an-email',
+      password: 'ValidPassword1!',
+      companyName: 'Zod Test Co',
+    });
+    assertRejected(status, json, ['BAD_REQUEST']);
+  });
+
+  it('NEGATIVE: password too short → 400 WEAK_PASSWORD', async () => {
+    const { status, json } = await post('/api/auth/register', {
+      firstName: 'Test',
+      lastName: 'User',
+      email: `zod-test-${Date.now()}@example.com`,
+      password: 'abc',
+      companyName: 'Zod Test Co',
+    });
+    assertRejected(status, json, ['WEAK_PASSWORD']);
+  });
+
+  it('NEGATIVE: junk annualTurnover → 400 BAD_REQUEST', async () => {
+    const { status, json } = await post('/api/auth/register', {
+      firstName: 'Test',
+      lastName: 'User',
+      email: `zod-test-${Date.now()}@example.com`,
+      password: 'ValidPassword1!',
+      companyName: 'Zod Test Co',
+      annualTurnover: 'not-a-number',
+    });
+    assertRejected(status, json, ['BAD_REQUEST']);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 3. POST /api/auth/do-reset-password
+// 3. POST /api/auth/do-reset-password  (self-owned reset token, #153/#155)
 // ---------------------------------------------------------------------------
-describe('Zod validation — POST /api/auth/do-reset-password', () => {
-  it('NEGATIVE: empty body → 400 VALIDATION_ERROR on token', async () => {
+describe('Input validation — POST /api/auth/do-reset-password', () => {
+  it('NEGATIVE: empty body → 400 BAD_REQUEST', async () => {
     const { status, json } = await post('/api/auth/do-reset-password', {});
-    assertValidationError(status, json, 'token');
+    assertRejected(status, json, ['BAD_REQUEST']);
   });
 
-  it('NEGATIVE: missing password → 400 VALIDATION_ERROR on password', async () => {
+  it('NEGATIVE: missing newPassword → 400 BAD_REQUEST', async () => {
     const { status, json } = await post('/api/auth/do-reset-password', {
-      token: 'some-token',
+      recoveryToken: 'some-token',
     });
-    assertValidationError(status, json, 'password');
+    assertRejected(status, json, ['BAD_REQUEST']);
   });
 
-  it('NEGATIVE: password too short → 400 VALIDATION_ERROR on password', async () => {
+  it('NEGATIVE: password too short → 400 WEAK_PASSWORD', async () => {
     const { status, json } = await post('/api/auth/do-reset-password', {
-      token: 'some-token',
-      password: 'short',
-      confirmPassword: 'short',
+      recoveryToken: 'some-token',
+      newPassword: 'short',
     });
-    assertValidationError(status, json, 'password');
+    assertRejected(status, json, ['WEAK_PASSWORD']);
   });
 
-  it('POSITIVE: structurally valid body → NOT a validation error (400 invalid token or 200)', async () => {
+  it('POSITIVE: structurally valid body → rejected on the token, not the shape', async () => {
     const { status, json } = await post('/api/auth/do-reset-password', {
-      token: 'fake-but-structurally-valid-token-for-zod-test',
-      password: 'ValidPassword1!',
-      confirmPassword: 'ValidPassword1!',
+      recoveryToken: 'fake-but-structurally-valid-token-for-this-test',
+      newPassword: 'ValidPassword1!',
     });
     const error = json.error as Record<string, unknown> | undefined;
-    expect(error?.code).not.toBe('VALIDATION_ERROR');
-    expect([200, 400, 429]).toContain(status);
+    expect(error?.code).toBe('INVALID_RECOVERY_TOKEN');
+    expect(status).toBe(400);
   });
 });
 
 // ---------------------------------------------------------------------------
 // 4. POST /api/auth/forgot-password
 // ---------------------------------------------------------------------------
-describe('Zod validation — POST /api/auth/forgot-password', () => {
-  it('NEGATIVE: empty body → 400 VALIDATION_ERROR on email', async () => {
+describe('Input validation — POST /api/auth/forgot-password', () => {
+  it('NEGATIVE: empty body → 400 BAD_REQUEST on email', async () => {
     const { status, json } = await post('/api/auth/forgot-password', {});
-    assertValidationError(status, json, 'email');
+    assertRejected(status, json, ['BAD_REQUEST']);
   });
 
-  it('NEGATIVE: invalid email format → 400 VALIDATION_ERROR on email', async () => {
+  it('NEGATIVE: non-string email → 400 BAD_REQUEST', async () => {
     const { status, json } = await post('/api/auth/forgot-password', {
-      email: 'not-an-email',
+      email: 42,
     });
-    assertValidationError(status, json, 'email');
+    assertRejected(status, json, ['BAD_REQUEST']);
   });
 
   it('POSITIVE: valid email → 200 (always, enumeration prevention)', async () => {

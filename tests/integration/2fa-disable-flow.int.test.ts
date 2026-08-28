@@ -34,21 +34,36 @@ describe('2fa disable flow', () => {
     const tok = await signIn(TEST_EMAIL, TEST_PW);
     const totp = new TOTP({ secret: Secret.fromBase32(secret), digits: 6, period: 30 });
 
+    // beforeAll already spent a code. GoTrue rejects a replayed TOTP, so wait out
+    // the current 30 s window rather than presenting the same digits twice.
+    await new Promise((r) => setTimeout(r, 30_000 - (Date.now() % 30_000) + 1_000));
+
+    // The handler is wrapped in withCsrf (BL-22): a POST without a matching
+    // double-submit cookie + header is 403'd before the handler runs.
+    const csrf = 'a'.repeat(48);
+    let status = 0;
+    let body: unknown;
     const res = {
-      status(_c: number) { return this; },
-      json(_v: unknown) { return this; },
+      status(c: number) { status = c; return this; },
+      json(v: unknown) { body = v; return this; },
       setHeader() { /* noop */ },
       getHeader() { return undefined; },
     } as never;
     const req = {
       method: 'POST',
-      headers: { cookie: `sb-access-token=${tok.access_token}` },
+      headers: { cookie: `sb-access-token=${tok.access_token}`, 'x-csrf-token': csrf },
+      cookies: { 'sb-access-token': tok.access_token, isaflow_csrf: csrf },
       body: { factor_id: factorId, code: totp.generate() },
       url: '/api/auth/2fa-disable',
+      socket: { remoteAddress: '127.0.0.1' },
     } as never;
     await disableHandler(req, res);
 
+    // Assert the disable itself succeeded — otherwise the listFactors check below
+    // can only ever confirm that nothing happened.
+    expect({ status, body }).toMatchObject({ status: 200 });
+
     const factors = await listFactors(tok.access_token);
     expect(factors.totp.filter((f) => f.status === 'verified')).toHaveLength(0);
-  });
+  }, 60_000);
 });

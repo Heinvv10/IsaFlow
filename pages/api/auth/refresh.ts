@@ -75,4 +75,4 @@ const handler: NextApiHandler = async (req, res) => {
 
 // 30 refresh attempts per minute per IP — generous for legit multi-tab refresh
 // storms, tight enough to bound brute-forcing of stolen-but-stale refresh tokens.
-export default withRateLimit(handler, { max: 30, windowSecs: 60 });
+export default withRateLimit(handler, { max: 30, windowSecs: 60 }, 'auth-refresh');

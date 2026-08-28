@@ -1,15 +1,20 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { existsSync } from 'node:fs';
 
 const BASE = process.env.TEST_BASE_URL ?? 'http://localhost:3200';
 const PROTECTED_ENDPOINT = '/api/accounting/bank-transactions-action';
+// Machine-local artefact minted out of band by the operator, not by this suite.
+// Without it every assertion here is meaningless, so skip rather than error —
+// same posture as the other guarded integration files.
+const TOKEN_FILE = '/tmp/isaflow-admin-token.env';
 
-describe('CSRF on money-moving endpoints (BL-22)', () => {
+describe.skipIf(!existsSync(TOKEN_FILE))('CSRF on money-moving endpoints (BL-22)', () => {
   let authToken: string;
 
   beforeAll(async () => {
     // Read the pre-minted admin token
     const fs = await import('node:fs');
-    const env = fs.readFileSync('/tmp/isaflow-admin-token.env', 'utf-8');
+    const env = fs.readFileSync(TOKEN_FILE, 'utf-8');
     authToken = env.match(/TOKEN=(.+)/)?.[1] ?? '';
     expect(authToken.length).toBeGreaterThan(0);
   });

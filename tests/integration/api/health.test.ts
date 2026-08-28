@@ -84,7 +84,7 @@ describe('GET /api/health/deep', () => {
     vi.doMock('@/lib/observability/deepChecks', () => ({
       checkDb: async () => ({ name: 'db', status: 'ok' as const, durationMs: 3 }),
       checkSmtp: async () => ({ name: 'smtp', status: 'ok' as const, durationMs: 12 }),
-      checkStitch: async () => ({ name: 'stitch', status: 'ok' as const, durationMs: 40 }),
+      checkPaystack: async () => ({ name: 'paystack', status: 'ok' as const, durationMs: 40 }),
     }));
     const handler = (await import('../../../pages/api/health/deep')).default;
     const { res, status, body } = makeRes();
@@ -94,14 +94,14 @@ describe('GET /api/health/deep', () => {
     expect(b.status).toBe('ok');
     expect(b.checks.db.status).toBe('ok');
     expect(b.checks.smtp.status).toBe('ok');
-    expect(b.checks.stitch.status).toBe('ok');
+    expect(b.checks.paystack.status).toBe('ok');
   });
 
   it('returns 200 degraded when a non-DB dep fails', async () => {
     vi.doMock('@/lib/observability/deepChecks', () => ({
       checkDb: async () => ({ name: 'db', status: 'ok' as const, durationMs: 3 }),
       checkSmtp: async () => ({ name: 'smtp', status: 'down' as const, durationMs: 2000, error: 'timeout' }),
-      checkStitch: async () => ({ name: 'stitch', status: 'ok' as const, durationMs: 40 }),
+      checkPaystack: async () => ({ name: 'paystack', status: 'ok' as const, durationMs: 40 }),
     }));
     const handler = (await import('../../../pages/api/health/deep')).default;
     const { res, status, body } = makeRes();
@@ -116,7 +116,7 @@ describe('GET /api/health/deep', () => {
     vi.doMock('@/lib/observability/deepChecks', () => ({
       checkDb: async () => ({ name: 'db', status: 'down' as const, durationMs: 2000, error: 'timeout' }),
       checkSmtp: async () => ({ name: 'smtp', status: 'ok' as const, durationMs: 12 }),
-      checkStitch: async () => ({ name: 'stitch', status: 'ok' as const, durationMs: 40 }),
+      checkPaystack: async () => ({ name: 'paystack', status: 'ok' as const, durationMs: 40 }),
     }));
     const handler = (await import('../../../pages/api/health/deep')).default;
     const { res, status, body } = makeRes();

@@ -15,8 +15,26 @@ if (!process.env.JWT_SECRET || !process.env.GOTRUE_URL || !process.env.DATABASE_
 const TEST_EMAIL = `2fa-gate-${Date.now()}@test.local`;
 const TEST_PW = 'E2EMfaGate!123';
 
-function mkReq(body: unknown) {
-  return { method: 'POST', body, headers: {}, url: '/api/auth/login' } as never;
+function mkReq(body: unknown, cookieHeader?: string) {
+  // `socket` is required: the exported login handler is wrapped in withRateLimit,
+  // whose getClientIp() falls back to req.socket.remoteAddress when there is no
+  // x-forwarded-for header. Omitting it throws before the handler ever runs.
+  return {
+    method: 'POST',
+    body,
+    headers: cookieHeader ? { cookie: cookieHeader } : {},
+    url: '/api/auth/login',
+    socket: { remoteAddress: '127.0.0.1' },
+  } as never;
+}
+
+/**
+ * Rebuild a request Cookie header from the Set-Cookie headers a handler emitted.
+ * The 2FA challenge handler reads pending_token ONLY from the HttpOnly cookie
+ * (pentest H6/M8) — passing it in the body is ignored and yields NO_PENDING_TOKEN.
+ */
+function cookieHeaderFrom(setCookies: string[]): string {
+  return setCookies.map((c) => c.split(';')[0]).join('; ');
 }
 function mkRes() {
   let status = 200; let body: unknown; const setCookies: string[] = [];
@@ -67,11 +85,14 @@ describe('login MFA gate', () => {
   it('challenge endpoint sets sb-access-token cookie when code valid', async () => {
     const loginRes = mkRes();
     await loginHandler(mkReq({ email: TEST_EMAIL, password: TEST_PW }), loginRes.res);
-    const { factor_id, pending_token } = (loginRes.body as { data: { factor_id: string; pending_token: string } }).data;
+    const { factor_id } = (loginRes.body as { data: { factor_id: string } }).data;
 
     const totp = new TOTP({ secret: Secret.fromBase32(secret), digits: 6, period: 30 });
     const r2 = mkRes();
-    await challengeHandler(mkReq({ factor_id, code: totp.generate(), pending_token }), r2.res);
+    await challengeHandler(
+      mkReq({ factor_id, code: totp.generate(), pending_token: '' }, cookieHeaderFrom(loginRes.cookies)),
+      r2.res
+    );
     expect(r2.status).toBe(200);
     expect(r2.cookies.some((c: string) => c.startsWith('sb-access-token='))).toBe(true);
   });
