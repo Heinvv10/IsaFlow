@@ -6,6 +6,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -113,11 +114,11 @@ export default withAuth(withErrorHandler(async (req: NextApiRequest, res: NextAp
     // Normalize date to YYYY-MM-DD regardless of input format
     const toISODate = (val: unknown): string => {
       if (!val) return '1970-01-01';
-      if (val instanceof Date) return val.toISOString().split('T')[0] ?? '1970-01-01';
+      if (val instanceof Date) return fmtDate(val);
       const s = String(val);
       if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.split('T')[0] ?? '1970-01-01';
       const d = new Date(s);
-      return isNaN(d.getTime()) ? '1970-01-01' : (d.toISOString().split('T')[0] ?? '1970-01-01');
+      return isNaN(d.getTime()) ? '1970-01-01' : fmtDate(d);
     };
 
     // Merge into chronological transactions

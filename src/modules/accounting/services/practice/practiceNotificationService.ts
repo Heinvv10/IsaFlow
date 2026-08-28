@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { listCompanyUsers } from './practiceUsersService';
@@ -74,9 +75,7 @@ async function queryOverdueTasks(
   return rows.map((r): DigestTask => ({
     id: String(r.id),
     title: String(r.title),
-    dueDate: r.due_date instanceof Date
-      ? r.due_date.toISOString().split('T')[0]!
-      : String(r.due_date),
+    dueDate: fmtDate(r.due_date),
     daysOverdue: Number(r.days_overdue),
     priority: (r.priority as DigestTask['priority']) ?? 'normal',
     jobTitle: r.job_title ? String(r.job_title) : null,

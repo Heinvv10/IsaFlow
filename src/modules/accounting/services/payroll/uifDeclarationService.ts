@@ -3,6 +3,7 @@
  * Aggregates payroll run lines for a period and persists totals.
  */
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateUIF } from './uifEngine';
@@ -75,9 +76,7 @@ function mapDeclaration(r: Row): UifDeclaration {
     submittedBy: r.submitted_by ? String(r.submitted_by) : null,
     notes: r.notes ? String(r.notes) : null,
     journalEntryId: r.journal_entry_id ? String(r.journal_entry_id) : null,
-    paymentDate: r.payment_date
-      ? (r.payment_date instanceof Date ? r.payment_date.toISOString().slice(0, 10) : String(r.payment_date).slice(0, 10))
-      : null,
+    paymentDate: r.payment_date ? fmtDate(r.payment_date) : null,
     createdAt: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
     updatedAt: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at),
   };

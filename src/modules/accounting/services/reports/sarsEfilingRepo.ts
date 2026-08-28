@@ -4,7 +4,8 @@
  * scoped (multi-tenant). No secrets are ever written to the audit log.
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 
 export interface EfilingSubmissionRow {

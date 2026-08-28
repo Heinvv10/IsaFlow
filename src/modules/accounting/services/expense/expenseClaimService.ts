@@ -18,7 +18,8 @@
  * Evidence stamp: JE.posting_agent = 'human:<userId>' or 'ai:expense-claim'.
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import {
   createJournalEntry,

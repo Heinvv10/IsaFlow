@@ -11,6 +11,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
@@ -45,12 +46,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         )
       `;
       const fy = fyRows[0];
-      const fyStart = fy?.start_date instanceof Date
-        ? fy.start_date.toISOString().split('T')[0]
-        : (fy?.start_date ? String(fy.start_date).split('T')[0] : null);
-      const fyEnd = fy?.end_date instanceof Date
-        ? fy.end_date.toISOString().split('T')[0]
-        : (fy?.end_date ? String(fy.end_date).split('T')[0] : null);
+      const fyStart = fy?.start_date ? fmtDate(fy.start_date) : null;
+      const fyEnd = fy?.end_date ? fmtDate(fy.end_date) : null;
       startDate = fyStart || `${now.getFullYear()}-03-01`;
       endDate = period === 'full_year'
         ? (fyEnd || `${now.getFullYear() + 1}-02-28`)

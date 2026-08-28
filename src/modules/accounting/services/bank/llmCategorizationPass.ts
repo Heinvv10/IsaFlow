@@ -4,6 +4,7 @@
  * bank_transactions as each Haiku call settles. Re-runnable + idempotent.
  */
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { runWithConcurrency } from '@/lib/bulkUpload/concurrencyQueue';
 import {
@@ -203,9 +204,7 @@ export async function loadCandidatesForTxIds(
     suggestedConfidence: r['suggested_confidence'] == null ? null : Number(r['suggested_confidence']),
     description: (r['description'] as string) ?? '',
     amount: Number(r['amount']),
-    transactionDate: r['transaction_date'] instanceof Date
-      ? (r['transaction_date'] as Date).toISOString().slice(0, 10)
-      : String(r['transaction_date'] ?? ''),
+    transactionDate: fmtDate(r['transaction_date']),
   }));
 }
 

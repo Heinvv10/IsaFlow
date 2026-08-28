@@ -1,6 +1,10 @@
 // src/lib/auth/withInviteToken.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import pg from 'pg';
+// Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
+// in this process. This file builds its own Pool, so it must not depend on
+// src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
+import '@/lib/pgTypes';
 import { als } from '@/lib/als';
 
 let _pool: pg.Pool | null = null;

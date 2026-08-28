@@ -9,6 +9,7 @@
  *  - handler throw → ROLLBACK (never COMMIT) + release, error propagates
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { pgTypesMock } from '../helpers/pgTypesMock';
 import type { NextApiResponse } from 'next';
 
 const h = vi.hoisted(() => {
@@ -20,6 +21,7 @@ const h = vi.hoisted(() => {
 
 vi.mock('pg', () => ({
   default: {
+    ...pgTypesMock(),
     Pool: class {
       connect = h.connect;
       on = vi.fn();

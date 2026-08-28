@@ -2,6 +2,7 @@
 // AFS Note Engine — generators for Notes 26–30
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import type { DbRow } from '@/types/db';
@@ -33,10 +34,7 @@ export async function generateNote26EventsAfterReportingDate(
 
   if (rows.length > 0) {
     const items = rows.map((r) => {
-      const dateStr =
-        r.entry_date instanceof Date
-          ? r.entry_date.toISOString().slice(0, 10)
-          : String(r.entry_date ?? '');
+      const dateStr = fmtDate(r.entry_date);
       return `${dateStr} — ${String(r.description ?? '')} (${fmt(toNum(r.total_amount))})`;
     });
     blocks.push({ type: 'list', items });
@@ -242,10 +240,7 @@ export async function generateNote30StandardsNotYetEffective(
     blocks.push({
       type: 'list',
       items: rows.map((r) => {
-        const effDate =
-          r.effective_from instanceof Date
-            ? r.effective_from.toISOString().slice(0, 10)
-            : String(r.effective_from ?? '');
+        const effDate = fmtDate(r.effective_from);
         return `${String(r.standard_reference ?? '')}: ${String(r.title ?? '')} (effective ${effDate})`;
       }),
     });

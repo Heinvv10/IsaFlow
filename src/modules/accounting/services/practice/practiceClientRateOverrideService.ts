@@ -3,7 +3,8 @@
  * Manages per-staff billing rate overrides for specific clients.
  */
 
-import { sql, fmtDate } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 
 export interface ClientRateOverride {

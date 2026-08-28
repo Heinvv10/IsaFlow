@@ -6,6 +6,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -55,8 +56,7 @@ function toDate(v: unknown): Date {
 
 function dateOrNull(v: unknown): string | null {
   if (v == null) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  return String(v);
+  return fmtDate(v);
 }
 
 function mapRow(r: DbRow): TrainingEvent {

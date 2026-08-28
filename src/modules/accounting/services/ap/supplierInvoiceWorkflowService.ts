@@ -391,7 +391,7 @@ export async function performThreeWayMatch(
 }
 
 // ── Private mapper (duplicated from supplierInvoiceService to avoid circular import) ──
-import { fmtDate } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { VatType } from '../../types/gl.types';
 import type { SupplierInvoiceItem } from '../../types/ap.types';
 

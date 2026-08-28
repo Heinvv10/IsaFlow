@@ -12,6 +12,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
@@ -52,8 +53,7 @@ export interface TaxDirectivePayment {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const toDate = (v: unknown): string =>
-  v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
+const toDate = (v: unknown): string => fmtDate(v);
 
 const num = (v: unknown): number => parseFloat(String(v ?? '0'));
 

@@ -6,6 +6,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -38,11 +39,6 @@ export function computeFingerprint(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtDate(val: unknown): string {
-  if (val instanceof Date) return val.toISOString().split('T')[0]!;
-  return val ? String(val).split('T')[0]! : '';
-}
 
 function daysDiff(a: string, b: string): number {
   return Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 86_400_000;

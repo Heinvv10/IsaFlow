@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 
 // 🟢 WORKING: Import batch row shape returned from DB
 type ImportBatchRow = {
@@ -57,9 +58,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const batches = rows.map(r => ({
       id: r.id,
-      statementDate: r.statement_date instanceof Date
-        ? r.statement_date.toISOString().split('T')[0]
-        : String(r.statement_date).split('T')[0],
+      statementDate: fmtDate(r.statement_date),
       bankFormat: r.bank_format ?? null,
       openingBalance: r.opening_balance !== null ? Number(r.opening_balance) : null,
       closingBalance: r.closing_balance !== null ? Number(r.closing_balance) : null,

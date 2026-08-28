@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -57,11 +58,7 @@ export interface ListTaxDirectivesFilter {
 // ─── Mapper ───────────────────────────────────────────────────────────────────
 
 function mapRow(row: DbRow): TaxDirective {
-  const toDate = (v: unknown): string => {
-    if (v instanceof Date) return v.toISOString().slice(0, 10);
-    if (typeof v === 'string') return v.slice(0, 10);
-    return String(v).slice(0, 10);
-  };
+  const toDate = (v: unknown): string => fmtDate(v);
 
   return {
     id: String(row.id),

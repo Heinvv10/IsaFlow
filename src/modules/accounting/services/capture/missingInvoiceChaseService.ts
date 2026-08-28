@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 import { sendEmail } from '@/modules/accounting/services/core/emailService';
@@ -48,8 +49,7 @@ export { sendWhatsAppChase, composeChaseWhatsApp } from './whatsAppChaseService'
 
 function toDateString(v: Date | string | null | undefined): string | null {
   if (!v) return null;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  return String(v).slice(0, 10);
+  return fmtDate(v);
 }
 
 function mapAlertRow(row: Row, today: string): ExpectedAlert {

@@ -5,6 +5,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
@@ -63,7 +64,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const qtyOut = Number(r.qty_out || 0);
       runningBalance += qtyIn - qtyOut;
       return {
-        date: r.move_date instanceof Date ? r.move_date.toISOString().split('T')[0] : String(r.move_date || '').split('T')[0],
+        date: fmtDate(r.move_date),
         type: r.move_type,
         reference: r.reference || '',
         itemName: r.item_name,

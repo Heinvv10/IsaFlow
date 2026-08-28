@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { clampLimit } from '@/lib/pagination';
@@ -205,9 +206,7 @@ function mapRate(row: Row): ExchangeRate {
     fromCurrency: String(row.from_currency),
     toCurrency: String(row.to_currency),
     rate: Number(row.rate),
-    effectiveDate: row.effective_date instanceof Date
-      ? row.effective_date.toISOString().split('T')[0]!
-      : String(row.effective_date).split('T')[0]!,
+    effectiveDate: fmtDate(row.effective_date),
     source: String(row.source || 'manual'),
   };
 }

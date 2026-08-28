@@ -9,6 +9,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { GLEntryStatus, GLEntrySource } from '@/modules/accounting/types/gl.types';
 
@@ -24,9 +25,7 @@ interface ReportRow {
 }
 
 function fmtDateStr(val: Date | string | null | undefined): string {
-  if (!val) return '';
-  if (val instanceof Date) return val.toISOString().split('T')[0]!;
-  return String(val).split('T')[0]!;
+  return fmtDate(val);
 }
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {

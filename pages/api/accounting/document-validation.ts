@@ -13,6 +13,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import {
   validateInvoiceDocument,
   validatePaymentReceipt,
@@ -88,7 +89,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       invoiceNumber: invoice.invoice_number,
       totalAmount: parseFloat(invoice.total_amount),
       vatAmount: invoice.tax_amount ? parseFloat(invoice.tax_amount) : undefined,
-      invoiceDate: invoice.invoice_date ? new Date(invoice.invoice_date).toISOString().split('T')[0] : undefined,
+      invoiceDate: invoice.invoice_date ? fmtDate(invoice.invoice_date) : undefined,
     });
   } else if (entityType === 'supplier_payment' || entityType === 'customer_payment') {
     const [payment] = entityType === 'supplier_payment'
@@ -98,7 +99,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     result = validatePaymentReceipt(extracted, {
       totalAmount: parseFloat(payment.total_amount),
-      paymentDate: payment.payment_date ? new Date(payment.payment_date).toISOString().split('T')[0] : undefined,
+      paymentDate: payment.payment_date ? fmtDate(payment.payment_date) : undefined,
       reference: payment.reference,
     });
   } else {

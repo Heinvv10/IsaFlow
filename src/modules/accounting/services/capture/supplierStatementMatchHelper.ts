@@ -4,6 +4,7 @@
  * Pure matching logic: no DB calls, no side effects.
  * Used by supplierStatementReconService.ts.
  */
+import { fmtDate } from '@/lib/fmtDate';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,7 +57,7 @@ export function dateDiffDays(a: string, b: string): number {
 
 export function toDateStr(val: unknown): string | null {
   if (!val) return null;
-  if (val instanceof Date) return val.toISOString().slice(0, 10);
+  if (val instanceof Date) return fmtDate(val);
   const s = String(val).trim();
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   return null;

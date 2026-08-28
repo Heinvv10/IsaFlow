@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,9 +51,7 @@ function mapEvent(row: Row): CaptureEventRow {
     postedAt: row.posted_at ? new Date(row.posted_at as string).toISOString() : null,
     capturedDocumentId: row.captured_document_id as string | null,
     vendorName: row.vendor_name as string | null,
-    documentDate: row.document_date
-      ? new Date(row.document_date as string).toISOString().split('T')[0]!
-      : null,
+    documentDate: row.document_date ? fmtDate(row.document_date) : null,
     referenceNumber: row.reference_number as string | null,
     totalAmount:
       row.total_amount != null

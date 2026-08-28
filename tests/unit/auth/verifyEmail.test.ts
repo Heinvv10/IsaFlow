@@ -11,6 +11,7 @@
  *   - the ops notification never fires for an unverified address
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { pgTypesMock } from '../helpers/pgTypesMock';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 const {
@@ -30,6 +31,7 @@ const {
 
 vi.mock('pg', () => ({
   default: {
+    ...pgTypesMock(),
     Pool: class {
       connect = async () => ({ query: clientQueryMock, release: releaseMock });
       end = endMock;

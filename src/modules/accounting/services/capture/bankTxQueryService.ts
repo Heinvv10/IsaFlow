@@ -6,6 +6,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
 import { sendWhatsAppMessage } from './whatsAppReplyService';
@@ -29,7 +30,7 @@ export type CreateQueryResult =
   | { ok: false; reason: string };
 
 function toDateString(v: Date | string): string {
-  return v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
+  return fmtDate(v);
 }
 
 export async function createAndSendQuery(

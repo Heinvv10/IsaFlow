@@ -3,7 +3,8 @@
  * Approve and process payment operations — split from supplierPaymentService.ts.
  */
 
-import { sql, fmtDate, withSavepoint } from '@/lib/neon';
+import { sql, withSavepoint } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';

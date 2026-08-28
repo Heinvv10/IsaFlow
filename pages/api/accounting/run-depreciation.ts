@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withRole, type AuthenticatedNextApiRequest } from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { postDualDepreciationToLedger } from '@/modules/accounting/services/gl/glCrossModuleHooks';
 
@@ -66,17 +67,11 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     // Fall back to policy life when no explicit tax life is configured
     const taxLifeYears = Number(asset.tax_life_years ?? asset.useful_life_years ?? 0);
     const cost = Number(asset.cost);
-    const purchaseDate = String(asset.purchase_date instanceof Date
-      ? asset.purchase_date.toISOString().slice(0, 10)
-      : asset.purchase_date);
+    const purchaseDate = fmtDate(asset.purchase_date);
 
     if (usefulLifeYears <= 0) { skipped++; continue; }
 
-    const disposalDate = asset.disposal_date
-      ? String(asset.disposal_date instanceof Date
-          ? asset.disposal_date.toISOString().slice(0, 10)
-          : asset.disposal_date)
-      : undefined;
+    const disposalDate = asset.disposal_date ? fmtDate(asset.disposal_date) : undefined;
 
     const { policyDep, taxDep, entryId, glFailed: assetGlFailed } = await postDualDepreciationToLedger(
       companyId,
