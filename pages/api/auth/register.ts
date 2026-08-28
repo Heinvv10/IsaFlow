@@ -55,6 +55,13 @@ const handler: NextApiHandler = async (req, res) => {
       return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: `${name} required` } });
     }
   }
+  // Shape check on the address. The pre-GoTrue handler validated this and the
+  // rewrite dropped it, so junk like "not-an-email" reached GoTrue and surfaced
+  // as an opaque upstream failure instead of a field error. A malformed address
+  // cannot identify an existing account, so rejecting it leaks nothing.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((email as string).trim())) {
+    return res.status(400).json({ success: false, error: { code: 'BAD_REQUEST', message: 'Please enter a valid email address' } });
+  }
   if ((password as string).length < 10) {
     return res.status(400).json({ success: false, error: { code: 'WEAK_PASSWORD', message: 'Password must be at least 10 characters' } });
   }
@@ -253,4 +260,4 @@ const handler: NextApiHandler = async (req, res) => {
   });
 };
 
-export default withRateLimit(handler, { max: 5, windowSecs: 3600 });
+export default withRateLimit(handler, { max: 5, windowSecs: 3600 }, 'register');

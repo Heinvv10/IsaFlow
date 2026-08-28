@@ -206,17 +206,24 @@ export async function checkReportRateLimit(
 
 /**
  * Wraps an API handler with per-IP rate limiting using the Neon-backed counter.
+ *
+ * `scope` namespaces the counter key per route and is REQUIRED. Without it every
+ * wrapped route shared one bucket keyed on the bare IP, so each route applied its
+ * own `max` to a counter fed by all of them: a handful of logins exhausted the
+ * signup allowance, a password reset consumed the login allowance, and so on.
+ * Keep the scope stable — changing it resets that route's live counters.
  */
 export function withRateLimit(
   handler: NextApiHandler,
-  opts: RateLimitOptions
+  opts: RateLimitOptions,
+  scope: string
 ): NextApiHandler {
   return async (req: NextApiRequest, res: NextApiResponse) => {
     const ip = getClientIp(req);
-    const allowed = await checkRateLimit(ip, opts);
+    const allowed = await checkRateLimit(`${scope}:ip:${ip}`, opts);
 
     if (!allowed) {
-      log.warn('Rate limit exceeded', { ip }, 'rateLimit');
+      log.warn('Rate limit exceeded', { ip, scope, max: opts.max, windowSecs: opts.windowSecs }, 'rateLimit');
       res.status(429).json({
         success: false,
         error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },

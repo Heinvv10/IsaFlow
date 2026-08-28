@@ -241,4 +241,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: { companyId } });
 };
 
-export default withRateLimit(handler, { max: 20, windowSecs: 3600 });
+export default withRateLimit(handler, { max: 20, windowSecs: 3600 }, 'verify-email');

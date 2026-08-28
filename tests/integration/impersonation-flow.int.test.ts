@@ -19,11 +19,15 @@ const TARGET_EMAIL = `imp-target-${Date.now()}@test.local`;
 const PW = 'ImpTest!Secret123';
 
 function mkReq(opts: { method: string; cookies: Record<string, string>; query?: Record<string, string>; body?: unknown }) {
-  const cookieHeader = Object.entries(opts.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+  // /admin/users/[id]/impersonate is wrapped in withCsrf (BL-22), so every POST
+  // needs the double-submit pair or it is 403'd before the handler runs.
+  const csrf = 'c'.repeat(48);
+  const cookies = { ...opts.cookies, isaflow_csrf: csrf };
+  const cookieHeader = Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ');
   return {
     method: opts.method,
-    headers: { cookie: cookieHeader, 'x-admin-request': 'true' },
-    cookies: opts.cookies,
+    headers: { cookie: cookieHeader, 'x-admin-request': 'true', 'x-csrf-token': csrf },
+    cookies,
     query: opts.query ?? {},
     body: opts.body,
     url: '/test',

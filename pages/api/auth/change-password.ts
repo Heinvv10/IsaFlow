@@ -72,4 +72,4 @@ const handler: NextApiHandler = async (req, res) => {
   return res.status(200).json({ success: true, data: null });
 };
 
-export default withRateLimit(withUserAuth(withCsrf(handler)), { max: 10, windowSecs: 900 });
+export default withRateLimit(withUserAuth(withCsrf(handler)), { max: 10, windowSecs: 900 }, 'change-password');

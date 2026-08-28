@@ -45,4 +45,4 @@ const handler: NextApiHandler = async (req, res) => {
   }
 };
 
-export default withRateLimit(handler, { max: 10, windowSecs: 900 });
+export default withRateLimit(handler, { max: 10, windowSecs: 900 }, 'do-reset-password');

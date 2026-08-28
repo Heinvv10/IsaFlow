@@ -6,25 +6,15 @@
  * the same host and port, which is a very small env slip.
  */
 import type { PoolClient } from 'pg';
+import { assertNotProductionDb as sharedAssertNotProductionDb } from '../../helpers/assertNotProductionDb';
 
-/** Production is named `isaflow`; dev/test are `isaflow_dev` / `isaflow_test`. */
-const PROD_DB_NAME = 'isaflow';
-
+/**
+ * Re-exported from the shared guard so the two DB-gated bank tests keep their
+ * existing import. The rule (allow-list of dev/test database names) lives in
+ * one place — see tests/helpers/assertNotProductionDb.ts.
+ */
 export function assertNotProductionDb(): void {
-  const url = process.env.DATABASE_URL;
-  if (!url) return;
-  let name: string;
-  try {
-    name = new URL(url).pathname.replace(/^\//, '').split('?')[0] ?? '';
-  } catch {
-    return; // Unparseable URL — isDbReachable will have skipped the test anyway.
-  }
-  if (name === PROD_DB_NAME) {
-    throw new Error(
-      `Refusing to run: DATABASE_URL points at the production database "${PROD_DB_NAME}". `
-      + 'This test inserts and deletes bank transactions — point it at isaflow_dev.',
-    );
-  }
+  sharedAssertNotProductionDb('This test inserts and deletes bank transactions.');
 }
 
 export interface BankFixture {
