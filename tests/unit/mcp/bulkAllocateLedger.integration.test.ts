@@ -29,6 +29,7 @@ vi.mock('@/lib/logger', () => ({
 import { getPoolForTests, sql, withSavepoint } from '@/lib/neon';
 import { savepointNameFor } from '@/lib/mcp/registry';
 import { bulkAllocateBankTransactionsTool } from '@/lib/mcp/tools/writeBankBulkAllocate';
+import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 type AlsCtx = Parameters<typeof als.run>[0];
@@ -75,18 +76,26 @@ async function loadFixtureIds(): Promise<Omit<Fixture, 'txIds'> & { bankAccountI
   };
 }
 
-/** Three imported transactions; the third is left in a state allocation refuses. */
+/**
+ * Three transactions. The third carries the fixture's variation: a status
+ * allocation refuses, or an amount that makes the journal itself invalid.
+ */
 async function seedTransactions(
   companyId: string,
   bankAccountId: string,
-  thirdStatus: string,
+  third: { status: string; amount?: number },
 ): Promise<string[]> {
   const ids: string[] = [];
-  for (const [i, status] of ['imported', 'imported', thirdStatus].entries()) {
+  const rows3 = [
+    { status: 'imported', amount: -100 },
+    { status: 'imported', amount: -101 },
+    { status: third.status, amount: third.amount ?? -102 },
+  ];
+  for (const [i, row] of rows3.entries()) {
     const rows = (await sql`
       INSERT INTO bank_transactions (company_id, bank_account_id, transaction_date, amount, description, status)
       VALUES (${companyId}::uuid, ${bankAccountId}::uuid, '2026-08-03'::date,
-              ${-100 - i}, ${`ISAFLOW BULK FIXTURE ${i}`}, ${status})
+              ${row.amount}, ${`ISAFLOW BULK FIXTURE ${i}`}, ${row.status})
       RETURNING id
     `) as Array<{ id: string }>;
     ids.push(String(rows[0]!.id));
@@ -130,7 +139,7 @@ function toolCtx(f: { companyId: string; userId: string }): McpToolContext {
 /** BEGIN → run → ROLLBACK on an ALS-bound client, exactly as withAuth does. */
 async function inRequestTx(
   run: (f: Fixture & { bankAccountId: string }) => Promise<void>,
-  thirdStatus: string,
+  third: { status: string; amount?: number },
 ): Promise<void> {
   const client = await getPoolForTests().connect();
   try {
@@ -139,7 +148,7 @@ async function inRequestTx(
     // and tool alike — runs on this one uncommitted connection.
     await als.run(alsCtx(client, 'bootstrap', 'bootstrap'), async () => {
       const base = await loadFixtureIds();
-      const txIds = await seedTransactions(base.companyId, base.bankAccountId, thirdStatus);
+      const txIds = await seedTransactions(base.companyId, base.bankAccountId, third);
       await als.run(alsCtx(client, base.companyId, base.userId), () => run({ ...base, txIds }));
     });
   } finally {
@@ -209,7 +218,96 @@ describe('bulk_allocate_bank_transactions — real ledger', async () => {
         expect(tx.status).toBe('allocated');
         expect(tx.allocation_batch_id).toBe(body.batch_id);
       }
-    }, 'imported');
+    }, { status: 'imported' });
+  });
+
+  // A row the books already carry is the NORMAL case for a batch assembled off
+  // a statement, and PRD §4 makes it a skip. Asserted against the real ledger
+  // because the trap is a fixture: an allocated row carries a
+  // matched_journal_line_id, and the only honest way to get one is to allocate
+  // a row for real first.
+  it.skipIf(!reachable)('skips a genuinely allocated row and posts the rest', async () => {
+    await inRequestTx(async (f) => {
+      const first = await bulkAllocateBankTransactionsTool.handler(
+        {
+          allocations: [{ transaction_id: f.txIds[0]!, contra_account_id: f.contraAccountId }],
+          idempotency_key: 'integration-skip-seed',
+        },
+        toolCtx(f),
+      );
+      expect(first.isError).toBeUndefined();
+
+      const allocated = (await sql`
+        SELECT status, matched_journal_line_id FROM bank_transactions
+        WHERE id = ${f.txIds[0]!}::uuid AND company_id = ${f.companyId}::uuid
+      `) as Array<{ status: string; matched_journal_line_id: string | null }>;
+      expect(allocated[0]!.status).toBe('allocated');
+      // The column the partition reads. If this were null the test would be
+      // asserting a status check, not the real row shape.
+      expect(allocated[0]!.matched_journal_line_id).not.toBeNull();
+
+      const before = await countJournals(f.companyId);
+
+      // A dry run sees the same partition the live call will, which is the
+      // whole point of deciding it BEFORE the write: an agent that checks
+      // first must not be told a line will post and then find it skipped.
+      const preview = await bulkAllocateBankTransactionsTool.handler(
+        {
+          allocations: [
+            { transaction_id: f.txIds[0]!, contra_account_id: f.contraAccountId },
+            { transaction_id: f.txIds[1]!, contra_account_id: f.contraAccountId },
+          ],
+          dry_run: true,
+          idempotency_key: 'integration-skip-preview',
+        },
+        toolCtx(f),
+      );
+      const previewBody = JSON.parse(preview.content[0]!.text) as {
+        would_post: number; skipped: Array<{ index: number; reason: string }>;
+      };
+      expect(previewBody.would_post).toBe(1);
+      expect(previewBody.skipped).toEqual([
+        { index: 0, transaction_id: f.txIds[0]!, reason: 'already allocated' },
+      ]);
+      expect(await countJournals(f.companyId)).toBe(before);
+
+      // Same row again, alongside one that has not been allocated.
+      const res = await bulkAllocateBankTransactionsTool.handler(
+        {
+          allocations: [
+            { transaction_id: f.txIds[0]!, contra_account_id: f.contraAccountId },
+            { transaction_id: f.txIds[1]!, contra_account_id: f.contraAccountId },
+          ],
+          idempotency_key: 'integration-skip',
+        },
+        toolCtx(f),
+      );
+
+      expect(res.isError).toBeUndefined();
+      const body = JSON.parse(res.content[0]!.text) as {
+        batch_id: string; posted: number;
+        skipped: Array<{ index: number; transaction_id: string; reason: string }>;
+      };
+      expect(body.posted).toBe(1);
+      expect(body.skipped).toEqual([
+        { index: 0, transaction_id: f.txIds[0]!, reason: 'already allocated' },
+      ]);
+      // Exactly one NEW journal: the allocated row was never re-posted.
+      expect(await countJournals(f.companyId)).toBe(before + 1);
+
+      // The batch holds only what it posted, so reversing it cannot unwind the
+      // journal the FIRST call made.
+      const batch = (await sql`
+        SELECT line_count FROM bank_allocation_batches
+        WHERE id = ${body.batch_id}::uuid AND company_id = ${f.companyId}::uuid
+      `) as Array<{ line_count: number }>;
+      expect(batch[0]!.line_count).toBe(1);
+      const lines = (await sql`
+        SELECT bank_transaction_id FROM bank_allocation_batch_lines
+        WHERE batch_id = ${body.batch_id}::uuid AND company_id = ${f.companyId}::uuid
+      `) as Array<{ bank_transaction_id: string }>;
+      expect(lines.map((l) => l.bank_transaction_id)).toEqual([f.txIds[1]!]);
+    }, { status: 'imported' });
   });
 
   // The one that matters. Lines 1 and 2 post REAL journals before line 3 fails.
@@ -232,14 +330,23 @@ describe('bulk_allocate_bank_transactions — real ledger', async () => {
         ),
       );
 
-      // Line 3 is 'reconciled', which allocateTransaction refuses. The handler
-      // must let that reach the savepoint rather than dressing it as a
-      // toolError — a returned envelope RELEASES the savepoint and keeps the
-      // two journals lines 1-2 already posted.
-      await expect(call).rejects.toThrow(/cannot allocate/i);
+      // Line 3 is a zero-amount transaction, so its journal has two zero lines
+      // and `validateJournalEntry` refuses it — a GENUINE fault, reached only
+      // after the pre-check passed the row as importable. (An already-allocated
+      // row is no longer a fault at all; it is skipped, see the test above.)
+      // The handler must let this reach the savepoint rather than dressing it
+      // as a toolError — a returned envelope RELEASES the savepoint and keeps
+      // the two journals lines 1-2 already posted.
+      await expect(call).rejects.toThrow(BulkAllocationLineError);
+      // And it must say WHICH line: an unlocatable failure is what forced the
+      // pilot to bisect a 124-line batch by hand.
+      await call.catch((err: unknown) => {
+        expect((err as BulkAllocationLineError).index).toBe(2);
+        expect((err as BulkAllocationLineError).transactionId).toBe(f.txIds[2]!);
+      });
 
       expect(await countJournals(f.companyId)).toBe(before);
-      expect(await statusesOf(f.txIds)).toEqual(['imported', 'imported', 'reconciled']);
+      expect(await statusesOf(f.txIds)).toEqual(['imported', 'imported', 'imported']);
 
       const batches = (await sql`
         SELECT COUNT(*)::INT AS n FROM bank_allocation_batches
@@ -252,6 +359,6 @@ describe('bulk_allocate_bank_transactions — real ledger', async () => {
         WHERE id = ANY(${f.txIds}::uuid[]) AND allocation_batch_id IS NOT NULL
       `) as Array<{ n: number }>;
       expect(stamped[0]!.n).toBe(0);
-    }, 'reconciled');
+    }, { status: 'imported', amount: 0 });
   });
 });

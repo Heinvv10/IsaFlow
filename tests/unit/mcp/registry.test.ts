@@ -29,6 +29,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { McpRegistry } from '@/lib/mcp/registry';
+import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
 import { hashArgs } from '@/lib/mcp/audit';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
 import { resetSqlMock, mockSqlOnce, sqlCallText, sqlCallValues, sqlMock } from '../auth/helpers';
@@ -276,6 +277,35 @@ describe('McpRegistry — fence order', () => {
       { name: 't', description: 'test tool', inputSchema: expect.any(Object) },
     ]);
     expect(Object.keys(manifest[0]!)).toEqual(['name', 'description', 'inputSchema']);
+  });
+});
+
+describe('McpRegistry — a per-line failure inside a batch', () => {
+  it('renders BulkAllocationLineError WITH its line index instead of GENERIC_FAILURE', async () => {
+    // A 124-line pilot batch failed on one already-allocated row and came back
+    // as "The operation failed…" with nothing pointing at the line — it had to
+    // be bisected by hand. A batch endpoint must never answer a per-line cause
+    // with an unlocatable message.
+    const handler = vi.fn(async () => {
+      throw new BulkAllocationLineError(41, 'c6408579-b29a-48cb-8fb2-5c41a3cf5f8a', 'Period 2026-07 is closed');
+    });
+    registry.register(makeTool({
+      name: 'bulk_allocate_bank_transactions', write: true, scope: 'write:bank-tx', handler,
+    }));
+
+    const r = await registry.call(
+      'bulk_allocate_bank_transactions', { idempotency_key: 'k1' }, ctxWithScopes(['write:bank-tx']),
+    );
+
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toBe(
+      'bulk_allocate_bank_transactions line 41 (c6408579-b29a-48cb-8fb2-5c41a3cf5f8a): '
+      + 'Period 2026-07 is closed — batch rolled back, nothing posted',
+    );
+    // Still a failure in every other respect: audited 'error', key NOT burned.
+    const errorRow = auditInserts().find((c) => c.values.includes('error'));
+    expect(errorRow, 'the failure must still be audited').toBeDefined();
+    expect(errorRow!.values).not.toContain('k1');
   });
 });
 

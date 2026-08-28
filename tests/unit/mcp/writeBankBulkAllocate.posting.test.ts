@@ -24,6 +24,11 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () =>
   // Batched resolution (one query per bulk call) — the plural is what the
   // selector resolver actually calls; default to "nothing matched".
   findBankTransactionsByReferences: vi.fn(async () => new Map()),
+  // Current allocation state of the resolved rows — the pre-write partition
+  // reads it for the whole batch in one query. Defaulted to "every row is
+  // importable" so these tests keep asserting what they were written for;
+  // the skip semantics themselves live in bulkAllocateSkipAllocated.test.ts.
+  findBankTransactionAllocationStates: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationBatchService', () => ({
   createAllocationBatch: vi.fn(),
@@ -43,6 +48,7 @@ import {
   allocateTransaction,
   reverseReconciledTransaction,
 } from '@/modules/accounting/services/bank/bankAllocationService';
+import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import {
   createAllocationBatch,
   recordAllocationBatchLines,
@@ -86,6 +92,11 @@ beforeEach(() => {
   vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
   vi.mocked(createAllocationBatch).mockResolvedValue(BATCH);
   vi.mocked(recordAllocationBatchLines).mockResolvedValue(undefined);
+  vi.mocked(findBankTransactionAllocationStates).mockImplementation(
+    async (_c: string, ids: readonly string[]) => new Map(
+      ids.map((id) => [id, { id, status: 'imported', matchedJournalLineId: null }]),
+    ),
+  );
   vi.mocked(allocateTransaction).mockImplementation(
     (async (_c: string, txId: string) => ({
       journalEntryId: `je-for-${txId}`,
@@ -167,8 +178,12 @@ describe('bulk_allocate_bank_transactions — posting', () => {
 
 describe('bulk_allocate_bank_transactions — all or nothing', () => {
   it('RETHROWS a mid-batch failure so the registry savepoint rolls the whole batch back', async () => {
+    // A GENUINE fault, not an already-allocated row: since PRD §4's skip
+    // semantics landed, "Transaction already <status> — cannot allocate" is
+    // counted as a skip and the batch carries on (bulkAllocateSkipAllocated
+    // .test.ts). Everything else still has to unwind the whole batch.
     vi.mocked(allocateTransaction).mockImplementation((async (_c: string, txId: string) => {
-      if (txId === TX(3)) throw new Error('Transaction already allocated — cannot allocate');
+      if (txId === TX(3)) throw new Error('Fiscal period 2026-07 is closed');
       return { journalEntryId: `je-for-${txId}`, bankTransaction: { id: txId } };
     }) as never);
 
@@ -176,7 +191,7 @@ describe('bulk_allocate_bank_transactions — all or nothing', () => {
       bulkAllocateBankTransactionsTool.handler(
         { allocations: [line(1), line(2), line(3), line(4)], idempotency_key: 'k1' }, ctx,
       ),
-    ).rejects.toThrow(/already allocated/);
+    ).rejects.toThrow(/Fiscal period 2026-07 is closed/);
 
     // Line 4 is never attempted, and nothing is reported as posted: the two
     // journals lines 1-2 created only survive if the throw is swallowed.
