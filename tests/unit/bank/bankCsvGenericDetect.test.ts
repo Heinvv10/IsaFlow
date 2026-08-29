@@ -34,6 +34,7 @@ import {
   parseCapitecStatement,
 } from '@/modules/accounting/utils/bankCsvParsers';
 import { parseStatement } from '@/modules/accounting/services/bank/bankStatementParseService';
+import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 
 /** Real ABSA exports kept in the repo — the files that reproduced the bug. */
 const REAL = [
@@ -150,5 +151,28 @@ describe('parseStatement — a file that yields nothing is an error, not an impo
     await expect(
       parseStatement({ fileType: 'csv', csvContent: 'Name,Surname\nA,B' }),
     ).rejects.toThrow(/Unable to detect bank format/);
+  });
+
+  it('raises the TYPED error, so the MCP tool reports it instead of rethrowing', async () => {
+    // writeBankImport.ts catches StatementNotImportableError and answers with a
+    // toolError; anything else it RETHROWS, which the registry records as a
+    // system failure and refunds. A bad file the agent sent is not a system
+    // failure, and the agent needs the message.
+    await expect(
+      parseStatement({ fileType: 'csv', csvContent: PLAIN, bankFormat: 'fnb' }),
+    ).rejects.toBeInstanceOf(StatementNotImportableError);
+  });
+
+  it('still imports an empty-period statement, which is not a failure', async () => {
+    // A bank really can export a period in which nothing happened. Refusing it
+    // would trade one misleading success for a misleading failure — only a file
+    // that HAS rows and produced nothing from them is refused.
+    const headerOnly = 'Date,Description,Amount,Balance';
+    const r = await parseStatement({ fileType: 'csv', csvContent: headerOnly });
+    expect(r.transactions).toEqual([]);
+
+    // And with a trailing blank line, which is how a real export ends.
+    const withBlank = await parseStatement({ fileType: 'csv', csvContent: `${headerOnly}\n\n` });
+    expect(withBlank.transactions).toEqual([]);
   });
 });
