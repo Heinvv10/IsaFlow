@@ -56,11 +56,6 @@ export function isAutoCreatableYear(year: number, today: Date = new Date()): boo
   return year >= current - AUTO_CREATE_YEARS_BACK && year <= current + AUTO_CREATE_YEARS_FORWARD;
 }
 
-/** True when createFiscalYear refused because someone else already made it. */
-function isAlreadyExists(err: unknown): boolean {
-  return err instanceof Error && /already exists/i.test(err.message);
-}
-
 export interface EnsureOptions {
   /** Injected for tests; defaults to the real period lookup. */
   lookup?: (companyId: string, entryDate: string) => Promise<string | null>;
@@ -103,11 +98,36 @@ export async function ensureFiscalPeriodForDate(
     await createFiscalYear(companyId, year);
     log.info('Auto-created fiscal year for a journal date', { companyId, year }, 'accounting');
   } catch (err) {
-    // Losing the race is success: the other request created the very year this
-    // one wanted. Anything else — a permission error, a constraint violation —
-    // must propagate, because swallowing it silently reinstates the NULL-period
-    // hole this function exists to close.
-    if (!isAlreadyExists(err)) throw err;
+    // Did we LOSE A RACE, or actually fail? Decided by the OUTCOME — does the
+    // period exist now? — never by the error's text or its SQLSTATE.
+    //
+    // The first version matched /already exists/i, which is the message
+    // createFiscalYear's own pre-check SELECT throws. A real race never
+    // produces that: both pre-checks pass before either commits, and the
+    // loser's INSERT dies on uq_fiscal_periods_company_year_period with a raw
+    // 23505 ("duplicate key value violates unique constraint"). The overlap
+    // EXCLUDE constraint from migration 502 raises 23P01, whose wording shares
+    // nothing with either. Matching text would have turned the loser of a race
+    // — whose journal is valid and whose period now EXISTS — into a 500, which
+    // is worse than the silent NULL this module replaced.
+    //
+    // Enumerating 23505 and 23P01 would fix today's two shapes and rot on the
+    // next one. This codebase already learned the message-matching half of the
+    // lesson for invoice numbers (customerInvoiceCreateRetry.test.ts: "pg
+    // localises/rewords messages"); asking whether the period exists answers
+    // the actual question for every shape at once.
+    const afterFailure = await lookup(companyId, entryDate);
+    if (afterFailure) {
+      log.info(
+        'Lost the fiscal-year creation race; using the period the winner created',
+        { companyId, year },
+        'accounting',
+      );
+      return afterFailure;
+    }
+    // No period afterwards, so the failure was real. Rethrow the ORIGINAL error
+    // — its code and message are the only diagnosis available.
+    throw err;
   }
 
   // Re-read rather than trusting the create, so the id always comes from the

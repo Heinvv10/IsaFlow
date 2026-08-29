@@ -123,10 +123,56 @@ describe('ensureFiscalPeriodForDate', () => {
     expect(createFiscalYear).not.toHaveBeenCalled();
   });
 
-  it('survives a concurrent creator that won the race', async () => {
-    // Two requests posting into the same uncreated year: createFiscalYear
-    // refuses the second with "already exists". That is success, not failure —
-    // the period the other request created is exactly what we wanted.
+  /**
+   * Losing the race is decided by the OUTCOME, never by the error's text.
+   *
+   * The first version of this matched `/already exists/i`, and its test mocked
+   * exactly that string — which is the message `createFiscalYear`'s own
+   * pre-check SELECT throws. But in a REAL race both pre-checks pass before
+   * either commits, and the loser's INSERT dies on
+   * `uq_fiscal_periods_company_year_period` with a raw Postgres 23505 whose
+   * message says "duplicate key value violates unique constraint". That does
+   * not match, so the very case the test claimed to cover would have 500'd —
+   * worse than the silent NULL it replaced, because the loser's journal is
+   * perfectly valid and its period now exists.
+   *
+   * This codebase learned the same lesson once already, for invoice numbers:
+   * "Detection must key on SQLSTATE 23505 — pg localises/rewords messages"
+   * (customerInvoiceCreateRetry.test.ts). Rather than enumerate SQLSTATEs,
+   * ensureFiscalPeriodForDate now asks the only question that matters: after
+   * the failure, does the period exist? If yes, someone created it and we are
+   * done. If no, the failure was real.
+   */
+  it('survives a raw 23505 from the losing INSERT in a real race', async () => {
+    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(PERIOD);
+    const dup = Object.assign(
+      new Error('duplicate key value violates unique constraint "uq_fiscal_periods_company_year_period"'),
+      { code: '23505' },
+    );
+    vi.mocked(createFiscalYear).mockRejectedValueOnce(dup);
+
+    const id = await ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY });
+    expect(id).toBe(PERIOD);
+  });
+
+  it('survives a 23P01 exclusion-constraint violation the same way', async () => {
+    // fiscal_periods carries an EXCLUDE constraint (migration 502). An overlap
+    // raises 23P01, whose message shares no wording with 23505 — another reason
+    // not to enumerate error shapes.
+    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(PERIOD);
+    const overlap = Object.assign(
+      new Error('conflicting key value violates exclusion constraint "fiscal_periods_no_overlap"'),
+      { code: '23P01' },
+    );
+    vi.mocked(createFiscalYear).mockRejectedValueOnce(overlap);
+
+    const id = await ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY });
+    expect(id).toBe(PERIOD);
+  });
+
+  it("survives createFiscalYear's own pre-check message too", async () => {
+    // The app-level path: the pre-check SELECT sees the year and refuses before
+    // inserting anything. Still a lost race, still success.
     lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(PERIOD);
     vi.mocked(createFiscalYear).mockRejectedValueOnce(new Error('Fiscal year 2027 already exists'));
 
@@ -134,15 +180,28 @@ describe('ensureFiscalPeriodForDate', () => {
     expect(id).toBe(PERIOD);
   });
 
-  it('does not swallow a REAL creation failure', async () => {
-    // A permission error or a constraint violation is not a lost race, and
-    // returning null would silently reinstate the NULL-period hole.
-    lookup.mockResolvedValueOnce(null);
-    vi.mocked(createFiscalYear).mockRejectedValueOnce(new Error('permission denied for table fiscal_periods'));
+  it('does not swallow a REAL creation failure — no period afterwards', async () => {
+    // A permission error leaves no period behind, so the re-read still misses
+    // and the original error must surface. Returning null would silently
+    // reinstate the NULL-period hole this whole module exists to close.
+    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    vi.mocked(createFiscalYear).mockRejectedValueOnce(
+      Object.assign(new Error('permission denied for table fiscal_periods'), { code: '42501' }),
+    );
 
     await expect(
       ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY }),
     ).rejects.toThrow(/permission denied/);
+  });
+
+  it('rethrows the ORIGINAL error, not a generic one, so the cause survives', async () => {
+    lookup.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    const original = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    vi.mocked(createFiscalYear).mockRejectedValueOnce(original);
+
+    await expect(
+      ensureFiscalPeriodForDate(COMPANY, '2027-03-15', { lookup, today: TODAY }),
+    ).rejects.toBe(original);
   });
 
   it('returns null rather than throwing when the year exists but still covers nothing', async () => {
