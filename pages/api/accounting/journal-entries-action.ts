@@ -1,7 +1,10 @@
 /**
  * Journal Entry Actions API
  * POST /api/accounting/journal-entries-action - Post or reverse an entry
- * Body: { id, action: 'post' | 'reverse' }
+ * Body: { id, action: 'post' | 'reverse', reversal_date?: 'YYYY-MM-DD' }
+ *
+ * reversal_date applies to 'reverse' only. Omitted, the reversal takes the
+ * original entry's date when that period is open and today when it is closed.
  */
 
 import { z } from 'zod';
@@ -20,6 +23,22 @@ import {
 const JournalEntryActionSchema = z.object({
   id: UUID,
   action: z.enum(['post', 'reverse']),
+  /**
+   * SHAPE ONLY. This regex accepts `2026-02-30` — it matches the pattern and is
+   * not a day. Calendar validity, "not before the entry it reverses" and
+   * "target period open" are all enforced downstream by reverseJournalEntry and
+   * postJournalEntry, which are the only code that knows which entry is being
+   * reversed. Duplicating any of that here would give the API and the service
+   * two answers that can drift; the message below says so rather than implying
+   * this layer is the whole check.
+   */
+  reversal_date: z
+    .string()
+    .regex(
+      /^\d{4}-\d{2}-\d{2}$/,
+      'reversal_date must look like YYYY-MM-DD (the date is validated in full when the reversal is posted)',
+    )
+    .optional(),
 });
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -35,7 +54,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const { id, action } = parsed.data;
+    const { id, action, reversal_date: reversalDate } = parsed.data;
     const userId = req.user.id;
 
     let result;
@@ -44,7 +63,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         result = await postJournalEntry(companyId, id, userId);
         break;
       case 'reverse':
-        result = await reverseJournalEntry(companyId, id, userId);
+        result = await reverseJournalEntry(companyId, id, userId, { reversalDate });
         break;
       default:
         return apiResponse.badRequest(res, `Invalid action: ${action}. Use post or reverse`);

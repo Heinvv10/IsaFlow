@@ -95,11 +95,11 @@ function postedEntry(entryDate: string) {
 }
 
 /** The entryDate handed to createJournalEntry, whatever happened afterwards. */
-async function reversalEntryDate(): Promise<string> {
+async function reversalEntryDate(opts?: { reversalDate?: string }): Promise<string> {
   // postJournalEntry runs after createJournalEntry and is in the same module,
   // so it cannot be mocked; it throws on our fixture. The assertion only
   // concerns what createJournalEntry was called with.
-  await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID).catch(() => undefined);
+  await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID, opts).catch(() => undefined);
   expect(mockCreate).toHaveBeenCalledTimes(1);
   return mockCreate.mock.calls[0]![1].entryDate as string;
 }
@@ -193,5 +193,124 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
     const text = issuedSql().join(' | ');
     expect(text).not.toMatch(/reversed_at/i);
     expect(text).not.toMatch(/reversal_of_id/i);
+  });
+});
+
+/**
+ * An explicit reversal_date, chosen by the caller.
+ *
+ * The default above answers "which date SHOULD a reversal carry" — but it is
+ * still a default, and a caller correcting last month's books in this month's
+ * open period has a legitimate reason to say so. Until this existed there was
+ * no way to express that: the date was an internal local variable with no
+ * parameter on any surface, and no tool description said which date a contra
+ * would land on.
+ *
+ * Three guards:
+ *   - the date must parse as YYYY-MM-DD, because it is interpolated into a DATE
+ *     column and a malformed value raises 22P02, which the caller reads as a
+ *     generic failure;
+ *   - it must not PRECEDE the original entry. A correction that lands before
+ *     the thing it corrects is nonsense in every period-bounded report — the
+ *     contra shows up before the entry it undoes;
+ *   - its period must exist AND be open.
+ *
+ * That last one was initially left to postJournalEntry, on the reasoning that a
+ * second check could only drift from the one governing the write. An adversarial
+ * review proved that reasoning wrong: postJournalEntry guards its closed-period
+ * check behind `if (entry.fiscalPeriodId)`, and createJournalEntry leaves that
+ * NULL when NO period covers the date. A date like `9999-12-31` — a real
+ * calendar day in a fiscal year nobody has created — therefore posted silently,
+ * outside every period-bounded report. It is checked here now.
+ */
+describe('reverseJournalEntry — an explicit reversal date', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGet.mockResolvedValue(postedEntry(ORIGINAL_DATE));
+    mockCreate.mockResolvedValue({ id: REVERSAL_ID });
+  });
+
+  it('uses the caller date instead of the default when one is given', async () => {
+    mockPeriodStatus.mockResolvedValue('open');
+    expect(await reversalEntryDate({ reversalDate: '2026-07-15' })).toBe('2026-07-15');
+  });
+
+  it('uses the caller date even when the ORIGINAL period is closed', async () => {
+    // The whole point of asking: the closed-period fallback to today is what
+    // the caller is overriding. Only the TARGET date's period is consulted, so
+    // the original being closed is irrelevant once a date is given.
+    mockPeriodStatus.mockResolvedValue('open'); // status of the TARGET date
+    expect(await reversalEntryDate({ reversalDate: '2026-07-15' })).toBe('2026-07-15');
+  });
+
+  it('checks the TARGET period, not the original, when told the date', async () => {
+    // The original's status drives only the default. What matters for an
+    // explicit date is whether the date the caller CHOSE can be posted on.
+    mockPeriodStatus.mockResolvedValue('open');
+    await reversalEntryDate({ reversalDate: '2026-07-15' });
+    expect(mockPeriodStatus).toHaveBeenCalledWith(COMPANY_ID, '2026-07-15');
+    expect(mockPeriodStatus).not.toHaveBeenCalledWith(COMPANY_ID, ORIGINAL_DATE);
+  });
+
+  it('REFUSES a date no fiscal period covers, writing nothing', async () => {
+    // The gap an adversarial review found, and the reason this check cannot be
+    // left to postJournalEntry: createJournalEntry leaves fiscal_period_id NULL
+    // when no period covers the date, and postJournalEntry guards its
+    // closed-period check behind `if (entry.fiscalPeriodId)`. A NULL period
+    // therefore skips that check entirely, and the contra posts SILENTLY,
+    // permanently outside every period-bounded report — trial balance, VAT201,
+    // AFS. `9999-12-31` is a real calendar day, so the format check passes it.
+    mockPeriodStatus.mockResolvedValue('no_period');
+    await expect(
+      reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID, { reversalDate: '9999-12-31' }),
+    ).rejects.toThrow(/no fiscal period/i);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a date whose period is closed, writing nothing', async () => {
+    // postJournalEntry would also refuse this one, but only after
+    // createJournalEntry has INSERTed a draft. Refusing up front means there is
+    // no draft to clean up, and the caller gets the reason rather than a
+    // generic post failure.
+    mockPeriodStatus.mockResolvedValue('closed');
+    await expect(
+      reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID, { reversalDate: '2026-07-15' }),
+    ).rejects.toThrow(/closed/i);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('accepts a date equal to the original entry date', async () => {
+    mockPeriodStatus.mockResolvedValue('open');
+    expect(await reversalEntryDate({ reversalDate: ORIGINAL_DATE })).toBe(ORIGINAL_DATE);
+  });
+
+  it('REFUSES a date before the original entry, writing nothing', async () => {
+    mockPeriodStatus.mockResolvedValue('open');
+    await expect(
+      reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID, { reversalDate: '2026-06-29' }),
+    ).rejects.toThrow(/before the entry it reverses/i);
+    // Refused BEFORE the draft is created — nothing to unwind.
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a malformed date, writing nothing', async () => {
+    mockPeriodStatus.mockResolvedValue('open');
+    for (const bad of ['15/07/2026', '2026-7-5', 'today', '', '2026-13-01', '2026-02-30']) {
+      vi.clearAllMocks();
+      mockGet.mockResolvedValue(postedEntry(ORIGINAL_DATE));
+      mockCreate.mockResolvedValue({ id: REVERSAL_ID });
+      await expect(
+        reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID, { reversalDate: bad }),
+      ).rejects.toThrow(/YYYY-MM-DD/);
+      expect(mockCreate, bad).not.toHaveBeenCalled();
+    }
+  });
+
+  it('still applies the default when reversalDate is undefined', async () => {
+    // Every one of the ten existing callers passes no date at all; none of them
+    // may change behaviour.
+    mockPeriodStatus.mockResolvedValue('open');
+    expect(await reversalEntryDate({})).toBe(ORIGINAL_DATE);
+    expect(mockPeriodStatus).toHaveBeenCalledWith(COMPANY_ID, ORIGINAL_DATE);
   });
 });

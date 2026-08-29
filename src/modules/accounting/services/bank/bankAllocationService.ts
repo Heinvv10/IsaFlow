@@ -455,7 +455,7 @@ export async function splitAllocateTransaction(
  */
 export async function reverseReconciledTransaction(
   companyId: string, bankTxId: string, userId: string,
-  opts?: { postingAgent?: string },
+  opts?: { postingAgent?: string; reversalDate?: string },
 ): Promise<void> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
