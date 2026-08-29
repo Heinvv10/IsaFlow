@@ -18,6 +18,10 @@
  * dates and signed amounts. Only detection was missing, so this adds a
  * `generic` format that maps the same way and claims the layout by name.
  *
+ * Those real statements are gitignored (real financial data), so the committed
+ * assertions run against a synthetic fixture of the same shape and the
+ * real-file checks skip when the files are absent. See FIXTURE below.
+ *
  * The second defect is the one that actually corrupts a migration: picking the
  * WRONG bank did not fail. FNB, Standard Bank, Nedbank and Capitec each return
  * zero transactions on a file whose columns they do not recognise — and a
@@ -26,7 +30,7 @@
  * yields no transactions now throws.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   detectBankFormat,
   parseGenericStatement,
@@ -36,12 +40,30 @@ import {
 import { parseStatement } from '@/modules/accounting/services/bank/bankStatementParseService';
 import { StatementNotImportableError } from '@/modules/accounting/services/bank/bankStatementImportErrors';
 
-/** Real ABSA exports kept in the repo — the files that reproduced the bug. */
+/**
+ * The committed fixture. A faithful copy of the layout — compact YYYYMMDD
+ * dates, quoted descriptions containing commas, both signs, a blank line and a
+ * trailing total row — with synthetic figures.
+ *
+ * Synthetic on purpose: the files that actually reproduced the bug are real
+ * bank statements under `test-docs/`, which is gitignored precisely because it
+ * holds real financial data. Those must not become repo fixtures.
+ */
+const FIXTURE = 'tests/fixtures/bank/generic-plain.csv';
+
+/**
+ * The real statements, checked only when they are present.
+ *
+ * They are the strongest evidence available — genuine exports, hundreds of rows
+ * — but they cannot be committed, so CI never sees them. Guarded rather than
+ * deleted: on a developer machine that has them, this still catches anything
+ * the synthetic fixture is too tidy to expose.
+ */
 const REAL = [
   { path: 'test-docs/bank-statements/stmt_2018_09-12.csv', count: 38 },
   { path: 'test-docs/bank-statements/stmt_2021_10-12.csv', count: 497 },
   { path: 'test-docs/bank-statements/stmt_2022_02-03.csv', count: 396 },
-];
+].filter(f => existsSync(f.path));
 
 const PLAIN = [
   'Date,Description,Amount,Balance',
@@ -54,7 +76,11 @@ describe('detectBankFormat — the plain four-column layout', () => {
     expect(detectBankFormat(PLAIN)).toBe('generic');
   });
 
-  it('detects every real statement in the repo as generic, not unknown', () => {
+  it('claims the committed fixture of the real layout', () => {
+    expect(detectBankFormat(readFileSync(FIXTURE, 'utf8'))).toBe('generic');
+  });
+
+  it.skipIf(REAL.length === 0)('detects every real statement present as generic', () => {
     for (const { path } of REAL) {
       expect(detectBankFormat(readFileSync(path, 'utf8')), path).toBe('generic');
     }
@@ -91,7 +117,27 @@ describe('parseGenericStatement', () => {
     ]);
   });
 
-  it('parses all three real statements end to end, dropping no row silently', () => {
+  it('parses the committed fixture, dropping no row and keeping both signs', () => {
+    const raw = readFileSync(FIXTURE, 'utf8');
+    const r = parseGenericStatement(raw);
+
+    // The blank line and the "Total" row are noise, not data — skipped without
+    // becoming errors. Everything else is a transaction.
+    expect(r.errors).toEqual([]);
+    expect(r.transactions).toHaveLength(10);
+    expect(r.transactions[0]).toEqual({
+      transactionDate: '2022-02-01', amount: -85,
+      description: 'MONTHLY ACC FEE', balance: 32186.5,
+    });
+    // The quoted description carrying its own commas must survive intact.
+    const quoted = r.transactions.find(t => t.description.includes('SOME STORE'))!;
+    expect(quoted.amount).toBe(-77.98);
+    expect(quoted.description).toContain('4,35');
+    expect(r.transactions.some(t => t.amount > 0)).toBe(true);
+    expect(r.transactions.some(t => t.amount < 0)).toBe(true);
+  });
+
+  it.skipIf(REAL.length === 0)('parses every real statement present, end to end', () => {
     for (const { path, count } of REAL) {
       const raw = readFileSync(path, 'utf8');
       const r = parseGenericStatement(raw);
