@@ -1,7 +1,10 @@
 /**
  * Journal Entry Actions API
  * POST /api/accounting/journal-entries-action - Post or reverse an entry
- * Body: { id, action: 'post' | 'reverse' }
+ * Body: { id, action: 'post' | 'reverse', reversal_date?: 'YYYY-MM-DD' }
+ *
+ * reversal_date applies to 'reverse' only. Omitted, the reversal takes the
+ * original entry's date when that period is open and today when it is closed.
  */
 
 import { z } from 'zod';
@@ -20,6 +23,12 @@ import {
 const JournalEntryActionSchema = z.object({
   id: UUID,
   action: z.enum(['post', 'reverse']),
+  /**
+   * Shape-checked here; the SEMANTIC rules (not before the entry it reverses,
+   * target period open) belong to reverseJournalEntry and postJournalEntry, so
+   * the API and the services cannot answer differently.
+   */
+  reversal_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'reversal_date must be YYYY-MM-DD').optional(),
 });
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
@@ -35,7 +44,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const { id, action } = parsed.data;
+    const { id, action, reversal_date: reversalDate } = parsed.data;
     const userId = req.user.id;
 
     let result;
@@ -44,7 +53,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
         result = await postJournalEntry(companyId, id, userId);
         break;
       case 'reverse':
-        result = await reverseJournalEntry(companyId, id, userId);
+        result = await reverseJournalEntry(companyId, id, userId, { reversalDate });
         break;
       default:
         return apiResponse.badRequest(res, `Invalid action: ${action}. Use post or reverse`);

@@ -85,11 +85,64 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
  * invisible to every posting_agent-based review surface. Callers that pass
  * nothing keep exactly that human default.
  */
+/** A calendar date, and a real one — `2026-02-30` matches the shape but is not a day. */
+function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number) as [number, number, number];
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * Which date the contra carries.
+ *
+ * Without an explicit date this is the default described above: the original
+ * entry's date when its period is open, today when it is closed.
+ *
+ * With one, the caller wins — including over the closed-period fallback, which
+ * is the case people actually ask for (correcting a closed month from the open
+ * one). Two guards, and deliberately only two:
+ *
+ *   - the value must be a real YYYY-MM-DD day. It is interpolated into a DATE
+ *     column, where a malformed value raises 22P02 and reaches the caller as a
+ *     generic failure that names nothing.
+ *   - it must not PRECEDE the entry being reversed. A correction landing before
+ *     the thing it corrects is nonsense in every period-bounded report.
+ *
+ * Whether the TARGET period is open is NOT checked here. createJournalEntry
+ * derives the fiscal period from this date and postJournalEntry raises
+ * ClosedFiscalPeriodError, so a second check here could only drift from the one
+ * that actually governs the write.
+ */
+async function resolveReversalDate(
+  companyId: string,
+  originalDate: string,
+  requested: string | undefined,
+): Promise<string> {
+  if (requested === undefined) {
+    const originalPeriod = await getPeriodStatusForDate(companyId, originalDate);
+    // fmtDate(new Date()), not toISOString — between 00:00 and 02:00 SAST the
+    // latter stamps yesterday.
+    return originalPeriod === 'open' ? originalDate : fmtDate(new Date());
+  }
+  if (!isCalendarDate(requested)) {
+    throw new Error(`reversal_date must be a real calendar date in YYYY-MM-DD format, got "${requested}"`);
+  }
+  // String comparison is safe and total for zero-padded ISO dates.
+  if (requested < originalDate) {
+    throw new Error(
+      `reversal_date ${requested} is before the entry it reverses (${originalDate}). `
+      + 'A correction cannot be dated earlier than the entry it corrects.',
+    );
+  }
+  return requested;
+}
+
 export async function reverseJournalEntry(
   companyId: string,
   id: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts?: { postingAgent?: string; reversalDate?: string },
 ): Promise<JournalEntry> {
   try {
     const entry = await getJournalEntryById(companyId, id);
@@ -124,11 +177,12 @@ export async function reverseJournalEntry(
     //
     // Only entryDate is chosen here; createJournalEntry still derives the
     // fiscal period FROM that date, so the period can never disagree with it.
+    //
+    // All of that is the DEFAULT. A caller may name the date instead — see
+    // resolveReversalDate — and when it does, the original period is not even
+    // consulted: the fallback it drives is precisely what is being overridden.
     const originalDate = fmtDate(entry.entryDate);
-    const originalPeriod = await getPeriodStatusForDate(companyId, originalDate);
-    // fmtDate(new Date()), not toISOString — between 00:00 and 02:00 SAST the
-    // latter stamps yesterday.
-    const reversalDate = originalPeriod === 'open' ? originalDate : fmtDate(new Date());
+    const reversalDate = await resolveReversalDate(companyId, originalDate, opts?.reversalDate);
 
     const reversalEntry = await createJournalEntry(companyId, {
       entryDate: reversalDate,

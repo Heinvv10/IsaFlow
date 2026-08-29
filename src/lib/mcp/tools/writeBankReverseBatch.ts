@@ -17,6 +17,7 @@ import {
   clearAllocationBatch,
   getAllocationBatchLines,
 } from '@/modules/accounting/services/bank/bankAllocationBatchService';
+import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -31,7 +32,10 @@ export const reverseBankAllocationBatchTool: McpTool = {
     + 'ALL OR NOTHING — if any reversal fails, none of them are applied. '
     + 'Transactions that have moved on since the batch posted (already reversed, or re-allocated to a '
     + 'different journal) are left untouched and listed in "skipped". '
-    + 'The originals and their reversals both remain in the audit trail.',
+    + 'The originals and their reversals both remain in the audit trail. '
+    + "By default each reversing journal carries its ORIGINAL entry's date when that period is still "
+    + 'open, and today when it is closed; pass reversal_date to date every reversal in the batch '
+    + 'explicitly.',
   scope: 'write:bank-tx',
   write: true,
   requiresPost: true,
@@ -42,6 +46,7 @@ export const reverseBankAllocationBatchTool: McpTool = {
         type: 'string',
         description: 'The batch_id returned by bulk_allocate_bank_transactions.',
       },
+      ...REVERSAL_DATE_PROPERTY,
       idempotency_key: { type: 'string' },
     },
     required: ['batch_id', 'idempotency_key'],
@@ -56,6 +61,12 @@ export const reverseBankAllocationBatchTool: McpTool = {
     // uses (toolHelpers, PR #266).
     const badBatchId = guardCastableArgs(args, { uuid: ['batch_id'] });
     if (badBatchId) return badBatchId;
+
+    // One date for the whole batch. Validated per line inside
+    // reverseJournalEntry against the entry each reverses, so a date that is
+    // legal for one line and not another fails that line — and the batch is
+    // all-or-nothing, so the whole thing unwinds rather than half-applying.
+    const reversalDate = strArg(args, 'reversal_date');
 
     const batchLines = await getAllocationBatchLines(ctx.companyId, batchId);
     // Another tenant's batch reads identically to one that never existed.
@@ -103,6 +114,7 @@ export const reverseBankAllocationBatchTool: McpTool = {
       // correction posts as human:<userId> and drops out of list_agent_postings.
       await reverseReconciledTransaction(ctx.companyId, l.transactionId, ctx.userId, {
         postingAgent: mcpPostingAgent(REVERSE_TOOL),
+        ...(reversalDate === undefined ? {} : { reversalDate }),
       });
     }
     const reversedIds = orderedReversals.map((l) => l.transactionId);
