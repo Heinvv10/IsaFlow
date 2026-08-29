@@ -13,6 +13,10 @@ import { generateVAT201 } from './vat201Service';
 import {
   mapMismatch, mapTaxIssue, mapUncodedLine, r2, toNum, totalCount,
 } from './vatExceptionsTypes';
+import {
+  findVatOnBalanceSheetLines,
+  mapVatOnBalanceSheetLine,
+} from './vatBalanceSheetExceptions';
 import type { VatControlRecon, VatExceptionsReport } from './vatExceptionsTypes';
 
 export type {
@@ -27,7 +31,7 @@ const CENT = 0.005;
 
 /**
  * Build the VAT exceptions report for a period.
- * Runs 7 scoped queries plus the invoice-based VAT201 (single source of truth
+ * Runs 8 scoped queries plus the invoice-based VAT201 (single source of truth
  * for box totals so the recon matches what the VAT201 page displays).
  */
 export async function getVatExceptions(
@@ -37,7 +41,10 @@ export async function getVatExceptions(
 ): Promise<VatExceptionsReport> {
   log.info('Generating VAT exceptions report', { companyId, periodStart, periodEnd }, 'vatExceptionsService');
 
-  const [uncoded, ciTaxIssues, siTaxIssues, ciMismatches, siMismatches, glControl, unposted, vat201] =
+  const [
+    uncoded, ciTaxIssues, siTaxIssues, ciMismatches, siMismatches, glControl, unposted,
+    balanceSheetVat, vat201,
+  ] =
     await Promise.all([
       // 1. Posted GL lines on VAT control accounts with no vat_type coding
       sql`
@@ -205,10 +212,15 @@ export async function getVatExceptions(
           (SELECT COALESCE(SUM(eff_vat), 0) FROM unposted_si WHERE eff_vat <> 0) AS unposted_supplier_vat,
           (SELECT COUNT(*) FROM unposted_si WHERE eff_vat <> 0) AS unposted_supplier_count
       ` as Promise<Row[]>,
+      // 8. VAT claimed against a balance-sheet account with no legitimate
+      // reason to carry it. Appended LAST so the existing seven keep their
+      // positions — the test helper queues results by index.
+      findVatOnBalanceSheetLines(companyId, periodStart, periodEnd),
       generateVAT201(companyId, periodStart, periodEnd),
     ]);
 
   const uncodedGlLines = uncoded.map(mapUncodedLine);
+  const vatOnBalanceSheetLines = balanceSheetVat.map(mapVatOnBalanceSheetLine);
 
   const invoiceTaxCodeIssues = [
     ...ciTaxIssues.map(mapTaxIssue('customer')),
@@ -244,6 +256,7 @@ export async function getVatExceptions(
   const uncodedGlLineCount = totalCount(uncoded);
   const invoiceTaxCodeIssueCount = totalCount(ciTaxIssues) + totalCount(siTaxIssues);
   const invoiceGlMismatchCount = totalCount(ciMismatches) + totalCount(siMismatches);
+  const vatOnBalanceSheetCount = totalCount(balanceSheetVat);
   const reconExceptions =
     (Math.abs(controlRecon.outputVariance) > CENT ? 1 : 0) +
     (Math.abs(controlRecon.inputVariance) > CENT ? 1 : 0);
@@ -257,9 +270,12 @@ export async function getVatExceptions(
     invoiceTaxCodeIssueCount,
     invoiceGlMismatches,
     invoiceGlMismatchCount,
+    vatOnBalanceSheetLines,
+    vatOnBalanceSheetCount,
     controlRecon,
     totalExceptions:
-      uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount + reconExceptions,
+      uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount
+      + vatOnBalanceSheetCount + reconExceptions,
     degradedData: vat201.degradedSources.length > 0,
     degradedSources: vat201.degradedSources,
   };

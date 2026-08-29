@@ -2,7 +2,7 @@
 /**
  * Unit tests for vatExceptionsService — exception list sections.
  * Reconciliation/variance tests live in vatExceptionsService.recon.test.ts.
- * Shared builders + the 7-query mock order: vatExceptionsTestUtils.ts.
+ * Shared builders + the 8-query mock order: vatExceptionsTestUtils.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -20,7 +20,7 @@ import { generateVAT201 } from '@/modules/accounting/services/reports/vat201Serv
 import { getVatExceptions } from '@/modules/accounting/services/reports/vatExceptionsService';
 import {
   COMPANY_ID, PERIOD_START, PERIOD_END,
-  makeVat201, makeUncodedRow, makeTaxIssueRow, makeMismatchRow,
+  makeVat201, makeUncodedRow, makeTaxIssueRow, makeMismatchRow, makeBalanceSheetVatRow,
   mockExceptionsSql,
 } from './vatExceptionsTestUtils';
 
@@ -142,6 +142,40 @@ describe('getVatExceptions — invoice/GL VAT mismatches', () => {
   });
 });
 
+describe('getVatExceptions — VAT against a balance-sheet account', () => {
+  it('reports the line and counts it toward totalExceptions', async () => {
+    mockExceptionsSql({ vatOnBalanceSheet: [makeBalanceSheetVatRow()] });
+    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+
+    const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(report.vatOnBalanceSheetCount).toBe(1);
+    expect(report.vatOnBalanceSheetLines).toHaveLength(1);
+    const [flagged] = report.vatOnBalanceSheetLines;
+    expect(flagged!.accountName).toBe('Bank - Primary');
+    // The two fields that say WHY, not just that.
+    expect(flagged!.accountType).toBe('asset');
+    expect(flagged!.accountSubtype).toBe('bank');
+    expect(flagged!.vatType).toBe('standard');
+    expect(flagged!.amount).toBe(150.55);
+
+    // It must reach the headline number, or the panel shows "No exceptions"
+    // while listing one — which is how a warning gets ignored.
+    expect(report.totalExceptions).toBe(1);
+  });
+
+  it('is absent, and costs nothing, when there is nothing to flag', async () => {
+    mockExceptionsSql({});
+    vi.mocked(generateVAT201).mockResolvedValueOnce(makeVat201(0, 0));
+
+    const report = await getVatExceptions(COMPANY_ID, PERIOD_START, PERIOD_END);
+
+    expect(report.vatOnBalanceSheetLines).toEqual([]);
+    expect(report.vatOnBalanceSheetCount).toBe(0);
+    expect(report.totalExceptions).toBe(0);
+  });
+});
+
 describe('getVatExceptions — query scoping and failure', () => {
   it('passes the companyId and period bounds to the queries', async () => {
     mockExceptionsSql({});
@@ -156,7 +190,10 @@ describe('getVatExceptions — query scoping and failure', () => {
       expect(values).toContain(PERIOD_START);
       expect(values).toContain(PERIOD_END);
     }
-    expect(vi.mocked(sql).mock.calls).toHaveLength(7);
+    // Bumped from 7 when the balance-sheet VAT query was added. The count is
+    // asserted, not just the scoping loop above, so a new query cannot be
+    // introduced without someone confirming it is tenant- and period-scoped.
+    expect(vi.mocked(sql).mock.calls).toHaveLength(8);
   });
 
   it('propagates a query failure instead of returning partial data', async () => {

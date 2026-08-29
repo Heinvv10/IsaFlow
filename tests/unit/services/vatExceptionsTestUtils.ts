@@ -10,6 +10,8 @@
  *  5. Supplier invoice ↔ GL VAT mismatches
  *  6. GL VAT control movement for the period (one row)
  *  7. Unposted invoice VAT aggregates (one row)
+ *  8. VAT coded against a balance-sheet account (appended last, so adding it
+ *     did not shift the positions the existing six queues rely on)
  *
  * All numeric values arrive as strings (pg numeric) — the service must coerce.
  * NOTE: each test file must call vi.mock('@/lib/neon', ...) itself; this
@@ -104,9 +106,10 @@ export interface MockExceptionsOpts {
   supplierMismatches?: unknown[];
   glControl?: unknown[];
   unposted?: unknown[];
+  vatOnBalanceSheet?: unknown[];
 }
 
-/** Queue the 7 SQL results in service call order. */
+/** Queue the 8 SQL results in service call order. */
 export function mockExceptionsSql(opts: MockExceptionsOpts) {
   vi.mocked(sql)
     .mockResolvedValueOnce((opts.uncoded ?? []) as never)
@@ -115,5 +118,23 @@ export function mockExceptionsSql(opts: MockExceptionsOpts) {
     .mockResolvedValueOnce((opts.customerMismatches ?? []) as never)
     .mockResolvedValueOnce((opts.supplierMismatches ?? []) as never)
     .mockResolvedValueOnce((opts.glControl ?? EMPTY_GL_CONTROL) as never)
-    .mockResolvedValueOnce((opts.unposted ?? EMPTY_UNPOSTED) as never);
+    .mockResolvedValueOnce((opts.unposted ?? EMPTY_UNPOSTED) as never)
+    .mockResolvedValueOnce((opts.vatOnBalanceSheet ?? []) as never);
+}
+
+export function makeBalanceSheetVatRow(overrides: Record<string, unknown> = {}) {
+  return {
+    journal_entry_id: 'je-bs-1',
+    entry_number: 'JE-2026-00042',
+    entry_date: '2026-03-18',
+    account_code: '1010',
+    account_name: 'Bank - Primary',
+    account_type: 'asset',
+    account_subtype: 'bank',
+    vat_type: 'standard',
+    description: 'Input VAT coded to the bank leg',
+    amount: '150.55',
+    total_count: '1',
+    ...overrides,
+  };
 }

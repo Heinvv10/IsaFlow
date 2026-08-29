@@ -46,6 +46,25 @@ export interface InvoiceGlVatMismatch {
   reason: 'amount_mismatch' | 'je_not_posted';
 }
 
+/**
+ * A posted line claiming VAT against a balance-sheet account that has no
+ * legitimate reason to carry it. The rule, and the exclusions that make it
+ * meaningful, live in vatBalanceSheetExceptions.ts.
+ */
+export interface VatOnBalanceSheetLine {
+  journalEntryId: string;
+  entryNumber: string;
+  entryDate: string;
+  accountCode: string;
+  accountName: string;
+  /** Carried so the reader can see WHY it was flagged, not just that it was. */
+  accountType: string;
+  accountSubtype: string | null;
+  vatType: string;
+  description: string;
+  amount: number;
+}
+
 export interface VatControlRecon {
   outputVat201: number;
   outputGl: number;
@@ -71,6 +90,8 @@ export interface VatExceptionsReport {
   invoiceTaxCodeIssueCount: number;
   invoiceGlMismatches: InvoiceGlVatMismatch[];
   invoiceGlMismatchCount: number;
+  vatOnBalanceSheetLines: VatOnBalanceSheetLine[];
+  vatOnBalanceSheetCount: number;
   controlRecon: VatControlRecon;
   totalExceptions: number;
   /** True when generateVAT201 ran on missing sources — recon totals untrustworthy. */
