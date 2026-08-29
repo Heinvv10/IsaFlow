@@ -13,6 +13,8 @@
  */
 
 import type { BankFormat } from '../types/bank.types';
+import { mapCsvColumns } from './bankCsvParserGeneric';
+import { parseCsvLines } from './bankCsvParserUtils';
 
 /**
  * Find the CSV header line. Real exports (ABSA in particular) print a title
@@ -21,6 +23,16 @@ import type { BankFormat } from '../types/bank.types';
  * few non-blank lines for one that carries recognisable column names; fall back
  * to the first non-blank line so existing single-header files are unaffected.
  */
+function findHeaderCells(trimmed: string): string[] | null {
+  const lines = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  for (const line of lines.slice(0, 6)) {
+    if (!line.includes(',')) continue;
+    const cells = parseCsvLines(line)[0];
+    if (cells && mapCsvColumns(cells)) return cells;
+  }
+  return null;
+}
+
 function findHeaderLine(trimmed: string): string {
   const lines = trimmed.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   const candidate = lines
@@ -34,6 +46,7 @@ function findHeaderLine(trimmed: string): string {
 export { parseCsvLines, parseAmount, normalizeDate, normalizeDateFlexible } from './bankCsvParserUtils';
 export { parseFNBStatement } from './bankCsvParserFnb';
 export { parseABSAStatement } from './bankCsvParserAbsa';
+export { parseGenericStatement, mapCsvColumns } from './bankCsvParserGeneric';
 export {
   parseStandardBankStatement,
   parseNedbankStatement,
@@ -108,6 +121,18 @@ export function detectBankFormat(csv: string): BankFormat {
   if (firstLine.includes('date') && firstLine.includes('debit') && firstLine.includes('credit')) {
     return 'standard_bank';
   }
+
+  // LAST, deliberately. `generic` is the plain date/description/amount layout
+  // every bank's "export to CSV" button produces, and it was the one layout
+  // with no branch at all — the file then reached parseStatement as 'unknown'
+  // and was refused with "please specify the bank", which the import UI gives
+  // no way to do. It runs after every specific preset because a debit/credit
+  // layout read as a single-amount one loses the sign on every debit.
+  //
+  // Mapped with the same function the parser uses, so detection can never
+  // claim a file the parser then reads as zero rows.
+  const headerCells = findHeaderCells(trimmed);
+  if (headerCells && mapCsvColumns(headerCells)) return 'generic';
 
   return 'unknown';
 }
