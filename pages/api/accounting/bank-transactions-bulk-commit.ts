@@ -84,7 +84,7 @@ const BulkCommitSchema = z.object({
   sourceFileSizeBytes: z.number().int().nonnegative().optional(),
   pdfBase64: z.string().optional(),
   csvContent: z.string().optional(),
-  bankFormat: z.enum(['fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'mt940', 'unknown']).optional(),
+  bankFormat: z.enum(['fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'generic', 'ofx', 'qif', 'mt940', 'unknown']).optional(),
   applyBankRules: z.boolean().optional(),
 }).strict();
 

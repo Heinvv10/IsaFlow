@@ -42,7 +42,7 @@ const UNDO_MAX_PER_HOUR = 60;
 // parser's own "could not detect" sentinel, and passing it back in is treated
 // as "no hint given" — accepting it as a caller value only invites confusion.
 const BANK_FORMATS = [
-  'fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'ofx', 'qif', 'mt940',
+  'fnb', 'standard_bank', 'nedbank', 'absa', 'capitec', 'generic', 'ofx', 'qif', 'mt940',
 ] as const;
 type AgentBankFormat = (typeof BANK_FORMATS)[number];
 

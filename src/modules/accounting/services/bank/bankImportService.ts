@@ -13,6 +13,7 @@ import {
   parseNedbankStatement,
   parseABSAStatement,
   parseCapitecStatement,
+  parseGenericStatement,
 } from '../../utils/bankCsvParsers';
 import { parseOfxStatement } from '../../utils/bankOfxParser';
 import { parseQifStatement } from '../../utils/bankQifParser';
@@ -52,6 +53,9 @@ export async function importBankStatement(
         break;
       case 'capitec':
         parseResult = parseCapitecStatement(csvContent);
+        break;
+      case 'generic':
+        parseResult = parseGenericStatement(csvContent);
         break;
       case 'ofx':
         parseResult = parseOfxStatement(csvContent);
