@@ -26,7 +26,13 @@ import { NOT_FOUND } from './toolHelpers';
 export interface SkippedLine {
   /** Index into the caller's own `allocations` array. */
   index: number;
-  transaction_id: string;
+  /**
+   * NULL when the line's selector never resolved to a row — an unrecognised or
+   * ambiguous `bank_reference`. The index still names the line, so the agent
+   * can always find it; there is simply no id to report, and inventing one
+   * (echoing the reference back in this field) would read as a transaction.
+   */
+  transaction_id: string | null;
   reason: string;
 }
 
@@ -86,16 +92,23 @@ export interface Partitioned {
 /**
  * Splits the resolved lines into what will post and what will not.
  *
- * Returns the refusal TEXT instead when a line names a row this company does
- * not have. That is a pre-write refusal, not a skip: a batch quietly reporting
- * "skipped: not found" would let an agent's typo look like routine housekeeping
- * forever. The wording is the shared NOT_FOUND — the index says which line, the
- * text never says whether the row exists in some other tenant.
+ * A line naming a row this company does not have is SKIPPED, like every other
+ * row-state fact. It used to refuse the whole batch, on the reasoning that a
+ * quiet "skipped: not found" lets an agent's typo look like routine
+ * housekeeping — but the cost of that was a 500-line batch posting nothing over
+ * one stale id, which the agent could only locate by bisecting. What actually
+ * protects against the silent-typo case is the caller's `nothingToPostText`
+ * refusal: a batch where nothing at all resolves is still loud.
+ *
+ * The wording stays the shared NOT_FOUND: the index says which line, the text
+ * never says whether the row exists in some other tenant. A row that vanished
+ * between `resolveTxSelectors` and this read (undo_bank_import, a manual
+ * delete) reads the same, which is correct — it is equally gone.
  */
 export async function partitionAllocationLines(
   companyId: string,
   resolved: readonly ResolvedLine[],
-): Promise<Partitioned | string> {
+): Promise<Partitioned> {
   // ONE query for the whole batch. Per-line reads would be 500 round trips
   // inside a request that is about to take 500 row locks.
   const states = await findBankTransactionAllocationStates(
@@ -105,18 +118,19 @@ export async function partitionAllocationLines(
 
   const postable: ResolvedLine[] = [];
   const skipped: SkippedLine[] = [];
-  const missing: string[] = [];
   for (const line of resolved) {
     const state = states.get(line.txId);
+    // The id resolved but names no row this company has. Reported WITH the id
+    // the caller sent — unlike an unresolved reference there is one, and it is
+    // what the agent needs to correct its list.
     if (!state) {
-      missing.push(`allocations[${line.index}]: ${NOT_FOUND}`);
+      skipped.push({ index: line.index, transaction_id: line.txId, reason: NOT_FOUND });
       continue;
     }
     const reason = skipReasonFor(state);
     if (reason === null) postable.push(line);
     else skipped.push({ index: line.index, transaction_id: line.txId, reason });
   }
-  if (missing.length > 0) return missing.join(' | ');
   return { postable, skipped };
 }
 
@@ -124,7 +138,9 @@ export async function partitionAllocationLines(
 export function nothingToPostText(skipped: readonly SkippedLine[]): string {
   const listed = skipped
     .slice(0, 20)
-    .map((s) => `allocations[${s.index}] (${s.transaction_id}): ${s.reason}`)
+    .map((s) => (s.transaction_id === null
+      ? `allocations[${s.index}]: ${s.reason}`
+      : `allocations[${s.index}] (${s.transaction_id}): ${s.reason}`))
     .join(' | ');
   const more = skipped.length - Math.min(skipped.length, 20);
   return `nothing to post: all ${skipped.length} lines skipped — ${listed}`
