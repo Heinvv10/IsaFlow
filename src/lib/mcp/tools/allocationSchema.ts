@@ -58,6 +58,7 @@ export const REVERSAL_DATE_PROPERTY = {
       + "ORIGINAL entry's date when that period is still open, falling back to today when it is "
       + 'closed — which keeps the correction in the period it corrects. Give a date to override '
       + 'that, typically to correct a closed month from the current open one. It may not be '
-      + 'earlier than the entry being reversed, and its period must be open.',
+      + 'earlier than the entry being reversed, and its fiscal period must already exist and be '
+      + 'open — a date in a year with no fiscal periods is refused, not posted.',
   },
 };

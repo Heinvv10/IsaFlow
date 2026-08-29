@@ -213,10 +213,16 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
  *     generic failure;
  *   - it must not PRECEDE the original entry. A correction that lands before
  *     the thing it corrects is nonsense in every period-bounded report — the
- *     contra shows up before the entry it undoes.
- * A closed target period is NOT re-checked here: createJournalEntry derives the
- * fiscal period from the date and postJournalEntry raises ClosedFiscalPeriodError,
- * so duplicating that check would only let the two answers drift.
+ *     contra shows up before the entry it undoes;
+ *   - its period must exist AND be open.
+ *
+ * That last one was initially left to postJournalEntry, on the reasoning that a
+ * second check could only drift from the one governing the write. An adversarial
+ * review proved that reasoning wrong: postJournalEntry guards its closed-period
+ * check behind `if (entry.fiscalPeriodId)`, and createJournalEntry leaves that
+ * NULL when NO period covers the date. A date like `9999-12-31` — a real
+ * calendar day in a fiscal year nobody has created — therefore posted silently,
+ * outside every period-bounded report. It is checked here now.
  */
 describe('reverseJournalEntry — an explicit reversal date', () => {
   beforeEach(() => {
@@ -230,20 +236,48 @@ describe('reverseJournalEntry — an explicit reversal date', () => {
     expect(await reversalEntryDate({ reversalDate: '2026-07-15' })).toBe('2026-07-15');
   });
 
-  it('uses the caller date even when the original period is CLOSED', async () => {
-    // The whole point of asking: the closed-period fallback to today is what the
-    // caller is overriding. Whether the TARGET period is open is decided by
-    // postJournalEntry, not here.
-    mockPeriodStatus.mockResolvedValue('closed');
+  it('uses the caller date even when the ORIGINAL period is closed', async () => {
+    // The whole point of asking: the closed-period fallback to today is what
+    // the caller is overriding. Only the TARGET date's period is consulted, so
+    // the original being closed is irrelevant once a date is given.
+    mockPeriodStatus.mockResolvedValue('open'); // status of the TARGET date
     expect(await reversalEntryDate({ reversalDate: '2026-07-15' })).toBe('2026-07-15');
   });
 
-  it('does not even ask for the original period status when told the date', async () => {
-    // The default is the only reason that lookup exists; asking anyway would be
-    // a wasted query on every explicit reversal.
+  it('checks the TARGET period, not the original, when told the date', async () => {
+    // The original's status drives only the default. What matters for an
+    // explicit date is whether the date the caller CHOSE can be posted on.
     mockPeriodStatus.mockResolvedValue('open');
     await reversalEntryDate({ reversalDate: '2026-07-15' });
-    expect(mockPeriodStatus).not.toHaveBeenCalled();
+    expect(mockPeriodStatus).toHaveBeenCalledWith(COMPANY_ID, '2026-07-15');
+    expect(mockPeriodStatus).not.toHaveBeenCalledWith(COMPANY_ID, ORIGINAL_DATE);
+  });
+
+  it('REFUSES a date no fiscal period covers, writing nothing', async () => {
+    // The gap an adversarial review found, and the reason this check cannot be
+    // left to postJournalEntry: createJournalEntry leaves fiscal_period_id NULL
+    // when no period covers the date, and postJournalEntry guards its
+    // closed-period check behind `if (entry.fiscalPeriodId)`. A NULL period
+    // therefore skips that check entirely, and the contra posts SILENTLY,
+    // permanently outside every period-bounded report — trial balance, VAT201,
+    // AFS. `9999-12-31` is a real calendar day, so the format check passes it.
+    mockPeriodStatus.mockResolvedValue('no_period');
+    await expect(
+      reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID, { reversalDate: '9999-12-31' }),
+    ).rejects.toThrow(/no fiscal period/i);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES a date whose period is closed, writing nothing', async () => {
+    // postJournalEntry would also refuse this one, but only after
+    // createJournalEntry has INSERTed a draft. Refusing up front means there is
+    // no draft to clean up, and the caller gets the reason rather than a
+    // generic post failure.
+    mockPeriodStatus.mockResolvedValue('closed');
+    await expect(
+      reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID, { reversalDate: '2026-07-15' }),
+    ).rejects.toThrow(/closed/i);
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   it('accepts a date equal to the original entry date', async () => {

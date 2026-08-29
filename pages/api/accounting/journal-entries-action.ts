@@ -24,11 +24,21 @@ const JournalEntryActionSchema = z.object({
   id: UUID,
   action: z.enum(['post', 'reverse']),
   /**
-   * Shape-checked here; the SEMANTIC rules (not before the entry it reverses,
-   * target period open) belong to reverseJournalEntry and postJournalEntry, so
-   * the API and the services cannot answer differently.
+   * SHAPE ONLY. This regex accepts `2026-02-30` — it matches the pattern and is
+   * not a day. Calendar validity, "not before the entry it reverses" and
+   * "target period open" are all enforced downstream by reverseJournalEntry and
+   * postJournalEntry, which are the only code that knows which entry is being
+   * reversed. Duplicating any of that here would give the API and the service
+   * two answers that can drift; the message below says so rather than implying
+   * this layer is the whole check.
    */
-  reversal_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'reversal_date must be YYYY-MM-DD').optional(),
+  reversal_date: z
+    .string()
+    .regex(
+      /^\d{4}-\d{2}-\d{2}$/,
+      'reversal_date must look like YYYY-MM-DD (the date is validated in full when the reversal is posted)',
+    )
+    .optional(),
 });
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
