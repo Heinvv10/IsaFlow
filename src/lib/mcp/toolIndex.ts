@@ -31,8 +31,8 @@ import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/
 import { importBankStatementTool, undoBankImportTool } from './tools/writeBankImport';
 import {
   bulkAllocateBankTransactionsTool,
-  reverseBankAllocationBatchTool,
 } from './tools/writeBankBulkAllocate';
+import { reverseBankAllocationBatchTool } from './tools/writeBankReverseBatch';
 
 export const MCP_TOOLS = [
   // read (18)
