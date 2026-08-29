@@ -206,8 +206,7 @@ describe('reverseJournalEntry — failed post must not leave a dangling draft', 
  * parameter on any surface, and no tool description said which date a contra
  * would land on.
  *
- * Two guards, and only two. The rest is deliberately left to the machinery that
- * already enforces it:
+ * Three guards:
  *   - the date must parse as YYYY-MM-DD, because it is interpolated into a DATE
  *     column and a malformed value raises 22P02, which the caller reads as a
  *     generic failure;
