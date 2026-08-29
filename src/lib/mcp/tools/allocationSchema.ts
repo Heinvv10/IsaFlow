@@ -41,3 +41,24 @@ export const ALLOCATION_PROPERTIES = {
   invoice_id: { type: 'string' },
   vat_code: { type: 'string', enum: [...VAT_CODES] },
 } as const;
+
+/**
+ * The date a reversal's contra journal carries.
+ *
+ * Shared by both reverse tools so the wording an agent reads is identical in
+ * each. Stating the DEFAULT matters as much as offering the override: before
+ * this existed, no description said which date a contra would land on, and an
+ * agent correcting a closed month had no way to find out except by posting one.
+ */
+export const REVERSAL_DATE_PROPERTY = {
+  reversal_date: {
+    type: 'string' as const,
+    description:
+      'Optional YYYY-MM-DD date for the reversing journal. Omit it and the reversal takes the '
+      + "ORIGINAL entry's date when that period is still open, falling back to today when it is "
+      + 'closed — which keeps the correction in the period it corrects. Give a date to override '
+      + 'that, typically to correct a closed month from the current open one. It may not be '
+      + 'earlier than the entry being reversed, and its fiscal period must already exist and be '
+      + 'open — a date in a year with no fiscal periods is refused, not posted.',
+  },
+};

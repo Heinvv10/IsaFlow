@@ -14,7 +14,7 @@
 import type { McpTool } from '../types';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
-import { ALLOCATION_PROPERTIES, SELECTOR_PROPERTIES } from './allocationSchema';
+import { ALLOCATION_PROPERTIES, REVERSAL_DATE_PROPERTY, SELECTOR_PROPERTIES } from './allocationSchema';
 import {
   badUuidArg,
   checkLinesOwnership,
@@ -24,7 +24,7 @@ import {
   resolveTxId,
 } from './allocationLine';
 import { mcpPostingAgent } from '../postingAgent';
-import { NOT_FOUND, ok, toolError } from './toolHelpers';
+import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
 
 export const allocateBankTransactionTool: McpTool = {
   name: 'allocate_bank_transaction',
@@ -97,6 +97,8 @@ export const reverseBankAllocationTool: McpTool = {
     + 'Identify the transaction by transaction_id OR by bank_reference — the reference printed on the statement '
     + '— optionally narrowed by bank_account_id. '
     + 'Use to correct a wrong allocation — the original and its reversal both remain in the audit trail. '
+    + "By default the reversing journal carries the ORIGINAL entry's date when that period is still open, "
+    + 'and today when it is closed; pass reversal_date to choose it explicitly. '
     + 'To undo a whole bulk allocation, use reverse_bank_allocation_batch.',
   scope: 'write:bank-tx',
   write: true,
@@ -105,6 +107,7 @@ export const reverseBankAllocationTool: McpTool = {
     type: 'object',
     properties: {
       ...SELECTOR_PROPERTIES,
+      ...REVERSAL_DATE_PROPERTY,
       idempotency_key: { type: 'string' },
     },
     required: ['idempotency_key'],
@@ -125,6 +128,8 @@ export const reverseBankAllocationTool: McpTool = {
     // both.
     const badId = badUuidArg(args, ['transaction_id', 'bank_account_id']);
     if (badId) return toolError(badId);
+
+    const reversalDate = strArg(args, 'reversal_date');
 
     const resolved = await resolveTxId(selector, ctx.companyId);
     if ('error' in resolved) return toolError(resolved.error);
@@ -151,7 +156,13 @@ export const reverseBankAllocationTool: McpTool = {
       ctx.companyId,                                              // tenant from ctx ONLY
       txId,
       ctx.userId,
-      { postingAgent: mcpPostingAgent('reverse_bank_allocation') },
+      {
+        postingAgent: mcpPostingAgent('reverse_bank_allocation'),
+        // Shape and ordering are validated inside reverseJournalEntry, which is
+        // the one place that knows the entry being reversed. Passing it through
+        // unchecked here keeps a single answer rather than two that can drift.
+        ...(reversalDate === undefined ? {} : { reversalDate }),
+      },
     );
     return ok({ transaction_id: txId, reversed: true });
   },
