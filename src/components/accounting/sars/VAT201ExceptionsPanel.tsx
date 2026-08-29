@@ -195,6 +195,40 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
             </table>
           </Section>
 
+          <Section
+            title="VAT claimed against a balance-sheet account"
+            count={report.vatOnBalanceSheetCount}
+            listed={report.vatOnBalanceSheetLines.length}
+          >
+            <p className={`${td} !border-0 text-slate-500`}>
+              VAT belongs to a supply, so the contra leg is normally an income or expense
+              account. These lines claim VAT against the balance sheet. Capital goods,
+              trading stock, prepayments and the VAT control accounts are excluded — they
+              carry VAT legitimately — so anything listed here is worth checking before you
+              file.
+            </p>
+            <table className="min-w-full">
+              <thead><tr>
+                <th className={th}>Entry</th><th className={th}>Date</th><th className={th}>Account</th>
+                <th className={th}>Type</th><th className={th}>VAT type</th>
+                <th className={th}>Description</th><th className={`${th} text-right`}>Amount</th>
+              </tr></thead>
+              <tbody>
+                {report.vatOnBalanceSheetLines.map((l, i) => (
+                  <tr key={`${l.journalEntryId}-${i}`}>
+                    <td className={td}>{l.entryNumber}</td>
+                    <td className={td}>{l.entryDate}</td>
+                    <td className={td}>{l.accountCode} {l.accountName}</td>
+                    <td className={td}>{l.accountSubtype ?? l.accountType}</td>
+                    <td className={td}>{l.vatType}</td>
+                    <td className={`${td} max-w-[16rem] truncate`}>{l.description}</td>
+                    <td className={tdNum}>{fmt(l.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+
           <Section title="Invoices with tax-code issues" count={report.invoiceTaxCodeIssueCount} listed={report.invoiceTaxCodeIssues.length}>
             <table className="min-w-full">
               <thead><tr>
