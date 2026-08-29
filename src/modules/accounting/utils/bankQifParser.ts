@@ -14,6 +14,27 @@
  *   ^  — End of record separator
  *
  * Records start after a !Type: header line and are separated by ^ characters.
+ *
+ * ── N IS THE ONLY WAY A REFERENCE GETS IN ────────────────────────────────────
+ *
+ * Of the five prefixes, only `N` populates `ParsedBankTransaction.reference`.
+ * `P` and `M` are both folded into `description` (payee preferred, memo as the
+ * fallback), and nothing else in the format carries a reference at all.
+ *
+ * That matters well beyond this parser, because `reference` is not cosmetic:
+ * bankImportService writes it to `bank_transactions.reference`, and that column
+ * is what the MCP allocation tools resolve a `bank_reference` selector against
+ * (`findBankTransactionsByReferences` matches `btrim(reference)` OR
+ * `btrim(bank_reference)`). So a QIF whose statement reference was exported
+ * under `P` or `M` imports perfectly, reads correctly on screen, and is then
+ * INVISIBLE to `allocate_bank_transaction` / `bulk_allocate_bank_transactions`
+ * by reference — those lines can only be allocated by `transaction_id`, which
+ * an agent reading a paper statement does not have.
+ *
+ * If a bank's QIF export puts the reference somewhere other than `N`, the fix
+ * belongs here (map that prefix into `record.reference`) and NOT downstream —
+ * widening the allocation lookup to search `description` would match on
+ * substrings of narrative text.
  */
 
 import { log } from '@/lib/logger';
