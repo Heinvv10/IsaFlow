@@ -96,6 +96,11 @@ export interface ProvisionTenantResult {
  * `company_users` refuses the INSERT because the user has no pre-existing
  * membership to satisfy USING.
  */
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+] as const;
+
 export async function provisionTenant(
   client: QueryRunner,
   input: ProvisionTenantInput,
@@ -158,6 +163,41 @@ export async function provisionTenant(
      ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email`,
     [input.ownerUserId, input.email, input.firstName, input.lastName],
   );
+
+  // Fiscal periods for the CURRENT year. Until this existed a new tenant had
+  // none at all, so every journal date fell outside every period and posted with
+  // fiscal_period_id NULL — invisible to the trial balance, the VAT201 and the
+  // AFS, because postJournalEntry's closed-period check is guarded by
+  // `if (entry.fiscalPeriodId)` and skips a NULL entirely.
+  //
+  // Inserted here on the provisioning client rather than by calling
+  // createFiscalYear: that function uses the `sql` tagged template, and this
+  // runs on the admin (BYPASSRLS) client inside the provisioning transaction —
+  // the RLS policies would otherwise refuse the write for a company the caller
+  // is not yet a member of.
+  //
+  // ON CONFLICT DO NOTHING so re-provisioning is harmless; the unique index is
+  // (company_id, fiscal_year, period_number). Later years are created on demand
+  // by ensureFiscalPeriodForDate.
+  const year = now.getFullYear();
+  for (let periodNumber = 1; periodNumber <= 12; periodNumber++) {
+    const lastDay = new Date(year, periodNumber, 0).getDate();
+    const mm = String(periodNumber).padStart(2, '0');
+    await client.query(
+      `INSERT INTO fiscal_periods
+         (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+       VALUES ($1::uuid, $2, $3, $4, $5::date, $6::date, 'open')
+       ON CONFLICT DO NOTHING`,
+      [
+        companyId,
+        `${MONTH_NAMES[periodNumber - 1]} ${year}`,
+        periodNumber,
+        year,
+        `${year}-${mm}-01`,
+        `${year}-${mm}-${String(lastDay).padStart(2, '0')}`,
+      ],
+    );
+  }
 
   return {
     companyId,
