@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { validateJournalEntry } from '../../utils/doubleEntry';
 import type { JournalEntry, JournalLine, JournalEntryCreateInput, GLEntryStatus, GLEntrySource, VatType } from '../../types/gl.types';
 import { defaultHumanMeta } from './journalEntryMeta';
+import { ensureFiscalPeriodForDate } from './fiscalPeriodAutoCreate';
 import type { JournalEntryMeta } from './journalEntryMeta';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -209,14 +210,13 @@ export async function createJournalEntry(
 
     let fiscalPeriodId = input.fiscalPeriodId;
     if (!fiscalPeriodId) {
-      const periodRows = (await sql`
-        SELECT id FROM fiscal_periods
-        WHERE company_id = ${companyId}::UUID
-          AND start_date <= ${input.entryDate}::DATE AND end_date >= ${input.entryDate}::DATE
-        ORDER BY start_date
-        LIMIT 1
-      `) as Row[];
-      if (periodRows.length > 0) fiscalPeriodId = String(periodRows[0]!.id);
+      // Resolves the covering period, CREATING that fiscal year when it does
+      // not exist and the year is plausible. A miss used to INSERT
+      // fiscal_period_id NULL, which postJournalEntry's `if (entry.fiscalPeriodId)`
+      // guard skips — so the entry posted outside every period-bounded report.
+      // Still nullable by design, for a date outside the auto-create window.
+      // Why create rather than refuse, and the bound: fiscalPeriodAutoCreate.ts.
+      fiscalPeriodId = (await ensureFiscalPeriodForDate(companyId, input.entryDate)) ?? undefined;
     } else {
       // P2.2: a caller-supplied period must actually COVER the entry date —
       // the API passes client-supplied fiscalPeriodId through, and a
