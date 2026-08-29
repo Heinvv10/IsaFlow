@@ -196,3 +196,52 @@ describe('provisionTenant', () => {
     expect(calls.some((c) => /INSERT INTO company_users/i.test(c.text))).toBe(true);
   });
 });
+
+/**
+ * A new tenant must get fiscal periods.
+ *
+ * Until this existed a freshly provisioned company had NONE, so every journal
+ * date fell outside every period and posted with fiscal_period_id NULL —
+ * invisible to the trial balance, the VAT201 and the AFS, because
+ * postJournalEntry's closed-period check is guarded by `if (entry.fiscalPeriodId)`
+ * and skips a NULL outright. Migration 501 records what that cost once already:
+ * Britech's R267,109.70 salary understatement.
+ */
+describe('provisionTenant — fiscal periods', () => {
+  const now = new Date('2026-08-19T10:00:00.000Z');
+
+  it('creates twelve periods for the current year', async () => {
+    const { runner, calls } = fakeRunner();
+    await provisionTenant(runner, baseInput, now);
+
+    const periodInserts = calls.filter((c) => /INSERT INTO fiscal_periods/i.test(c.text));
+    expect(periodInserts).toHaveLength(12);
+    expect(periodInserts.every((c) => c.values[0] === 'company-1')).toBe(true);
+  });
+
+  it('covers the whole year with no gap, using the YEAR of the provisioning date', async () => {
+    const { runner, calls } = fakeRunner();
+    await provisionTenant(runner, baseInput, now);
+
+    const year = now.getFullYear();
+    const periods = calls
+      .filter((c) => /INSERT INTO fiscal_periods/i.test(c.text))
+      .map((c) => ({ n: c.values[2] as number, start: c.values[4] as string, end: c.values[5] as string }))
+      .sort((a, b) => a.n - b.n);
+
+    expect(periods.map((p) => p.n)).toEqual([1,2,3,4,5,6,7,8,9,10,11,12]);
+    expect(periods[0]!.start).toBe(`${year}-01-01`);
+    expect(periods[11]!.end).toBe(`${year}-12-31`);
+    // February's end date is computed, not assumed — a hardcoded 30 or 31 would
+    // leave a day uncovered or overlap March, and overlapping periods are
+    // refused outright by the fiscal_periods_no_overlap exclusion constraint.
+    expect(periods[1]!.end).toBe(`${year}-02-${year % 4 === 0 ? '29' : '28'}`);
+  });
+
+  it('is idempotent, so re-provisioning cannot fail on the unique index', async () => {
+    const { runner, calls } = fakeRunner();
+    await provisionTenant(runner, baseInput, now);
+    const insert = calls.find((c) => /INSERT INTO fiscal_periods/i.test(c.text))!;
+    expect(insert.text).toMatch(/ON CONFLICT DO NOTHING/i);
+  });
+});
