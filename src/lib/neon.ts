@@ -18,6 +18,10 @@
 
 import pg from 'pg';
 import { log } from '@/lib/logger';
+// Static, not the `await import` used elsewhere in this file: assertTxUsable
+// must be synchronous. Safe — als.ts imports only node:async_hooks and pg
+// types, so there is no cycle back to this module.
+import { als } from '@/lib/als';
 
 // Imported for its side effect: registers the DATE (OID 1082) type parser so
 // date columns arrive as 'YYYY-MM-DD' strings instead of local-midnight Dates.
@@ -93,8 +97,11 @@ class LazyQuery<T = DbRow> implements Promise<T[]> {
       return res.rows as T[];
     }
     // If a request-scoped tx is in flight, route through it so RLS sees the GUCs.
-    const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+    const ctxClient = als.getStore()?.client;
     if (ctxClient) {
+      // A savepoint rollback may have aborted this connection. Fail with the
+      // ORIGINAL cause rather than the bare 25P02 pg would answer with.
+      assertTxUsable();
       const res = await ctxClient.query(this.text, this.values);
       return res.rows as T[];
     }
@@ -317,8 +324,9 @@ let withTxSeq = 0;
 export async function withTransaction<T>(
   fn: (tx: TxSql) => Promise<T>
 ): Promise<T> {
-  const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+  const ctxClient = als.getStore()?.client;
   if (ctxClient) {
+    assertTxUsable();
     const tx: TxSql = async (strings, ...values) => {
       const { text, values: params } = buildQuery(strings, values);
       const res = await ctxClient.query(text, params);
@@ -388,6 +396,46 @@ export async function withTransaction<T>(
  * `fn()` call — no savepoint needed because each bare `sql\`…\`` opens its
  * own connection.
  */
+/**
+ * Record that the request transaction is unusable, and why.
+ *
+ * Best-effort by design: if there is no ALS store there is no shared
+ * transaction to poison, and this must never itself throw from inside an error
+ * handler.
+ */
+function markTxUnusable(original: unknown, rollbackErr: unknown): void {
+  try {
+    const store = als.getStore();
+    if (!store) return;
+    const cause = original instanceof Error ? original.message : String(original);
+    const why = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+    store.txUnusable = `${cause} (and ROLLBACK TO SAVEPOINT then failed: ${why})`;
+    log.error(
+      'ROLLBACK TO SAVEPOINT failed — request transaction marked unusable',
+      { cause, rollbackError: why },
+      'DB',
+    );
+  } catch {
+    // Never let bookkeeping mask the original failure.
+  }
+}
+
+/**
+ * Throw if the request transaction has been poisoned by a failed rollback.
+ *
+ * Called before routing a query through the request-scoped client, so a
+ * catch-and-continue caller is told the ORIGINAL cause rather than the bare
+ * 25P02 Postgres would answer with.
+ */
+export function assertTxUsable(): void {
+  const store = als.getStore();
+  if (store?.txUnusable) {
+    throw new Error(
+      `Request transaction is unusable — a savepoint rollback failed earlier: ${store.txUnusable}`,
+    );
+  }
+}
+
 export async function withSavepoint<T>(
   name: string,
   fn: () => Promise<T>
@@ -395,11 +443,12 @@ export async function withSavepoint<T>(
   if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/.test(name)) {
     throw new Error(`withSavepoint: invalid savepoint name ${name}`);
   }
-  const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+  const ctxClient = als.getStore()?.client;
   if (!ctxClient) {
     // No outer tx — just run; errors propagate as usual.
     return fn();
   }
+  assertTxUsable();
   await ctxClient.query(`SAVEPOINT ${name}`);
   try {
     const result = await fn();
@@ -409,9 +458,17 @@ export async function withSavepoint<T>(
     try {
       await ctxClient.query(`ROLLBACK TO SAVEPOINT ${name}`);
       await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
-    } catch {
-      // If the rollback itself fails the outer tx is already doomed — let
-      // the original error bubble up so the request returns a real 500.
+    } catch (rollbackErr) {
+      // The rollback failed, so the connection is genuinely aborted and every
+      // later query on it would raise a bare 25P02 that says nothing about WHY.
+      //
+      // The original error still bubbles — it is the cause worth surfacing, and
+      // a caller that lets it propagate gets a real 500 as before. But
+      // withSavepoint's documented idiom is to CATCH and carry on
+      // (`.catch(() => null)`), and those callers would otherwise issue their
+      // next query into the dark. So mark the context: assertTxUsable turns the
+      // next query into an error that names this cause.
+      markTxUnusable(err, rollbackErr);
     }
     throw err;
   }
