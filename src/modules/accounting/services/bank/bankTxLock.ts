@@ -18,7 +18,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { als } from '@/lib/als';
+import { als, assertTxUsable } from '@/lib/als';
 
 /** Postgres `lock_not_available` — `lock_timeout` elapsed waiting for the row. */
 const LOCK_NOT_AVAILABLE = '55P03';
@@ -79,6 +79,12 @@ export async function lockBankTransactionForUpdate(
   // transaction setting rather than a tenant query, it carries no parameters,
   // and keeping it off the query path leaves callers' SQL call sequence
   // unchanged. Re-issued every call — see the note above on savepoint rollback.
+  //
+  // Because it bypasses `sql`, it also bypasses that path's usability check —
+  // so a connection aborted by an earlier failed savepoint rollback would
+  // answer this raw query with a bare 25P02 BEFORE the guarded SELECT below is
+  // reached, handing the caller the opaque error the check exists to replace.
+  assertTxUsable();
   await client.query("SET LOCAL lock_timeout = '5s'");
   try {
     const rows = (await sql`
