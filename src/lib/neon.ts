@@ -18,10 +18,12 @@
 
 import pg from 'pg';
 import { log } from '@/lib/logger';
-// Static, not the `await import` used elsewhere in this file: assertTxUsable
-// must be synchronous. Safe — als.ts imports only node:async_hooks and pg
+// Static, not the `await import` used elsewhere in this file. assertTxUsable
+// must be synchronous, and it lives in als.ts because the flag it reads is on
+// RequestContext — keeping it there also keeps it out of every test's
+// `vi.mock('@/lib/neon')`. Safe: als.ts imports only node:async_hooks and pg
 // types, so there is no cycle back to this module.
-import { als } from '@/lib/als';
+import { als, assertTxUsable, markTxUnusable } from '@/lib/als';
 
 // Imported for its side effect: registers the DATE (OID 1082) type parser so
 // date columns arrive as 'YYYY-MM-DD' strings instead of local-midnight Dates.
@@ -403,45 +405,7 @@ export async function withTransaction<T>(
  * `fn()` call — no savepoint needed because each bare `sql\`…\`` opens its
  * own connection.
  */
-/**
- * Record that the request transaction is unusable, and why.
- *
- * Best-effort by design: if there is no ALS store there is no shared
- * transaction to poison, and this must never itself throw from inside an error
- * handler.
- */
-function markTxUnusable(original: unknown, rollbackErr: unknown): void {
-  try {
-    const store = als.getStore();
-    if (!store) return;
-    const cause = original instanceof Error ? original.message : String(original);
-    const why = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
-    store.txUnusable = `${cause} (and ROLLBACK TO SAVEPOINT then failed: ${why})`;
-    log.error(
-      'ROLLBACK TO SAVEPOINT failed — request transaction marked unusable',
-      { cause, rollbackError: why },
-      'DB',
-    );
-  } catch {
-    // Never let bookkeeping mask the original failure.
-  }
-}
-
-/**
- * Throw if the request transaction has been poisoned by a failed rollback.
- *
- * Called before routing a query through the request-scoped client, so a
- * catch-and-continue caller is told the ORIGINAL cause rather than the bare
- * 25P02 Postgres would answer with.
- */
-export function assertTxUsable(): void {
-  const store = als.getStore();
-  if (store?.txUnusable) {
-    throw new Error(
-      `Request transaction is unusable — a savepoint rollback failed earlier: ${store.txUnusable}`,
-    );
-  }
-}
+export { assertTxUsable } from '@/lib/als';
 
 export async function withSavepoint<T>(
   name: string,

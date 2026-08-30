@@ -34,21 +34,30 @@ interface FakeCtx {
 
 let store: FakeCtx | undefined;
 
-vi.mock('@/lib/als', () => ({
-  als: { getStore: () => store },
-}));
+// The REAL AsyncLocalStorage, entered with a fake client. Mocking als out
+// would not work: assertTxUsable and markTxUnusable live inside als.ts and
+// close over its own `als` binding, so a module mock never reaches them — and
+// exercising the real store is the more honest test anyway.
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { withSavepoint, assertTxUsable, sql } from '@/lib/neon';
+import { withSavepoint, sql } from '@/lib/neon';
+import { als, assertTxUsable } from '@/lib/als';
 
+/**
+ * Build a request context around a scripted client AND enter it, so everything
+ * after this call in the same test sees it — the same shape as the shared
+ * `enterFakeRequestCtx` helper other suites use.
+ */
 function makeCtx(queryImpl: (text: string) => Promise<unknown>): FakeCtx {
-  return {
+  const ctx: FakeCtx = {
     client: { query: vi.fn(async (text: string) => queryImpl(text)) },
     userId: 'u1',
     claims: {},
   };
+  als.enterWith(ctx as unknown as Parameters<typeof als.enterWith>[0]);
+  return ctx;
 }
 
 const ORIGINAL = 'insert or update on table "x" violates foreign key constraint';
@@ -76,24 +85,27 @@ describe('withSavepoint — a clean rollback leaves the tx usable', () => {
 });
 
 describe('withSavepoint — a FAILED rollback poisons the context', () => {
-  beforeEach(() => {
-    store = makeCtx(async (text: string) => {
-      if (text.startsWith('ROLLBACK TO SAVEPOINT')) {
-        throw Object.assign(new Error('Connection terminated unexpectedly'), { code: '08006' });
-      }
-      return { rows: [] };
-    });
+  // Entered per test, not in beforeEach: als.enterWith binds to the CURRENT
+  // async execution, and vitest does not guarantee a hook shares one with the
+  // test body.
+  const rollbackFails = () => makeCtx(async (text: string) => {
+    if (text.startsWith('ROLLBACK TO SAVEPOINT')) {
+      throw Object.assign(new Error('Connection terminated unexpectedly'), { code: '08006' });
+    }
+    return { rows: [] };
   });
 
   it('still rethrows the ORIGINAL error, not the rollback failure', async () => {
     // Unchanged behaviour, and deliberately so — the original cause is the one
     // worth surfacing.
+    store = rollbackFails();
     await expect(
       withSavepoint('sp_bad', async () => { throw new Error(ORIGINAL); }),
     ).rejects.toThrow(ORIGINAL);
   });
 
   it('marks the context unusable, naming the original cause', async () => {
+    store = rollbackFails();
     await withSavepoint('sp_bad', async () => { throw new Error(ORIGINAL); })
       .catch(() => undefined);
     expect(store!.txUnusable).toContain(ORIGINAL);
@@ -102,6 +114,7 @@ describe('withSavepoint — a FAILED rollback poisons the context', () => {
   it('makes the NEXT query fail with the original cause instead of a bare 25P02', async () => {
     // This is the whole point. A catch-and-continue caller previously got
     // "current transaction is aborted" here and lost the diagnosis.
+    store = rollbackFails();
     await withSavepoint('sp_bad', async () => { throw new Error(ORIGINAL); })
       .catch(() => undefined);
 
@@ -112,6 +125,7 @@ describe('withSavepoint — a FAILED rollback poisons the context', () => {
   it('is inert outside a request transaction', async () => {
     // Cron and script code runs with no ALS store; each query opens its own
     // connection, so there is no shared transaction to poison.
+    als.enterWith(undefined as unknown as Parameters<typeof als.enterWith>[0]);
     store = undefined;
     expect(() => assertTxUsable()).not.toThrow();
     await expect(
@@ -197,5 +211,42 @@ describe('sql.transaction — the fourth path to the request client', () => {
 
     // The whole point of the savepoint: the per-item loop carries on.
     expect(store!.txUnusable).toBeUndefined();
+  });
+});
+
+/**
+ * A FIFTH path: raw queries on the ALS client that bypass `sql` entirely.
+ *
+ * `lockBankTransactionForUpdate` issues `SET LOCAL lock_timeout` straight on
+ * the request client — deliberately, since it is a transaction setting rather
+ * than a tenant query. But bypassing `sql` also bypasses that path's usability
+ * check, so on an aborted connection the raw statement answers with a bare
+ * 25P02 BEFORE the guarded SELECT is reached, and the caller gets exactly the
+ * opaque error this whole change replaces.
+ *
+ * The rule this pins: any code holding the ALS client directly must call
+ * assertTxUsable() before querying it.
+ */
+describe('raw ALS-client callers must check usability first', () => {
+  it('lockBankTransactionForUpdate refuses on a poisoned transaction', async () => {
+    const { lockBankTransactionForUpdate } =
+      await import('@/modules/accounting/services/bank/bankTxLock');
+
+    store = makeCtx(async (text: string) => {
+      if (text.startsWith('ROLLBACK TO SAVEPOINT')) {
+        throw Object.assign(new Error('Connection terminated unexpectedly'), { code: '08006' });
+      }
+      return { rows: [] };
+    });
+    await withSavepoint('sp_bad', async () => { throw new Error(ORIGINAL); })
+      .catch(() => undefined);
+
+    await expect(
+      lockBankTransactionForUpdate('company-1', 'tx-1'),
+    ).rejects.toThrow(/unusable/i);
+
+    // And it never issued the raw SET LOCAL into the dark.
+    const issued = store!.client.query.mock.calls.map((c) => String(c[0]));
+    expect(issued.some((q) => q.includes('SET LOCAL lock_timeout'))).toBe(false);
   });
 });
