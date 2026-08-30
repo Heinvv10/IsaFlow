@@ -208,8 +208,12 @@ function createSql(client?: pg.PoolClient): SqlFunction {
     // committed batch writes even when the surrounding request failed, and
     // ran them without the request's RLS claims. Isolation options are
     // ignored on this path: the outer request transaction owns them.
-    const ctxClient = (client ? undefined : (await import('@/lib/als')).als.getStore()?.client);
+    const ctxClient = (client ? undefined : als.getStore()?.client);
     if (ctxClient) {
+      // Fourth path to the request client, and the one that most needs the
+      // guard: the per-item loops this savepoint exists for are precisely the
+      // callers that catch and carry on.
+      assertTxUsable();
       // SAVEPOINT so a failed batch aborts only the batch, not the whole
       // request transaction — callers with per-item try/catch loops (e.g.
       // sageImportService's messy-data groups) must be able to continue
@@ -229,8 +233,11 @@ function createSql(client?: pg.PoolClient): SqlFunction {
       } catch (err) {
         try {
           await ctxClient.query(`ROLLBACK TO SAVEPOINT ${sp}`);
-        } catch {
-          // rollback-to failure is secondary to the original error
+        } catch (rollbackErr) {
+          // Same reasoning as withSavepoint: the connection is aborted now, so
+          // mark the context or the next batch in the loop gets a bare 25P02
+          // with this cause gone.
+          markTxUnusable(err, rollbackErr);
         }
         throw err;
       }
@@ -457,7 +464,19 @@ export async function withSavepoint<T>(
   } catch (err) {
     try {
       await ctxClient.query(`ROLLBACK TO SAVEPOINT ${name}`);
-      await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
+      // Split from the rollback deliberately. After a SUCCESSFUL rollback the
+      // transaction state is restored and the tx is structurally fine, so a
+      // failing RELEASE must not poison it — and must not be reported as
+      // "the rollback failed", which it did not.
+      try {
+        await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
+      } catch (releaseErr) {
+        log.warn(
+          'RELEASE SAVEPOINT failed after a successful rollback; transaction left usable',
+          { savepoint: name, error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr) },
+          'DB',
+        );
+      }
     } catch (rollbackErr) {
       // The rollback failed, so the connection is genuinely aborted and every
       // later query on it would raise a bare 25P02 that says nothing about WHY.

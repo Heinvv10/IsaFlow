@@ -41,7 +41,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { withSavepoint, assertTxUsable } from '@/lib/neon';
+import { withSavepoint, assertTxUsable, sql } from '@/lib/neon';
 
 function makeCtx(queryImpl: (text: string) => Promise<unknown>): FakeCtx {
   return {
@@ -117,5 +117,85 @@ describe('withSavepoint — a FAILED rollback poisons the context', () => {
     await expect(
       withSavepoint('sp_none', async () => { throw new Error(ORIGINAL); }),
     ).rejects.toThrow(ORIGINAL);
+  });
+});
+
+describe('withSavepoint — a failed RELEASE is not a failed ROLLBACK', () => {
+  it('does NOT poison when the rollback succeeded and only the release failed', async () => {
+    // After a successful ROLLBACK TO SAVEPOINT the transaction state is
+    // restored, so the tx is structurally fine. Poisoning here would refuse
+    // later queries that would have worked, and label the cause "ROLLBACK TO
+    // SAVEPOINT then failed" when the rollback did no such thing.
+    store = makeCtx(async (text: string) => {
+      if (text.startsWith('RELEASE SAVEPOINT')) {
+        throw Object.assign(new Error('release blew up'), { code: '08006' });
+      }
+      return { rows: [] };
+    });
+
+    await expect(
+      withSavepoint('sp_rel', async () => { throw new Error(ORIGINAL); }),
+    ).rejects.toThrow(ORIGINAL);
+
+    expect(store!.txUnusable).toBeUndefined();
+    expect(() => assertTxUsable()).not.toThrow();
+  });
+});
+
+/**
+ * `sql.transaction()` reaches the SAME request-scoped client by a fourth route.
+ *
+ * Missed on the first pass, and it is the path that most needed it: its own
+ * comment names sageImportService's per-item catch-and-continue loops as the
+ * reason it savepoints at all. A caller looping over messy data, catching each
+ * batch failure and carrying on, is exactly who gets handed the opaque 25P02.
+ */
+describe('sql.transaction — the fourth path to the request client', () => {
+  it('refuses to start a batch on an already-poisoned transaction', async () => {
+    store = makeCtx(async (text: string) => {
+      if (text.startsWith('ROLLBACK TO SAVEPOINT')) {
+        throw Object.assign(new Error('Connection terminated unexpectedly'), { code: '08006' });
+      }
+      return { rows: [] };
+    });
+    await withSavepoint('sp_bad', async () => { throw new Error(ORIGINAL); })
+      .catch(() => undefined);
+
+    // Without the guard this would issue SAVEPOINT sp_sqltx_N into the dark.
+    await expect(sql.transaction([])).rejects.toThrow(/unusable/i);
+  });
+
+  it('poisons the context when its OWN rollback fails', async () => {
+    let sawSavepoint = false;
+    store = makeCtx(async (text: string) => {
+      if (text.startsWith('SAVEPOINT')) { sawSavepoint = true; return { rows: [] }; }
+      if (text.startsWith('ROLLBACK TO SAVEPOINT')) {
+        throw Object.assign(new Error('Connection terminated unexpectedly'), { code: '08006' });
+      }
+      if (text === 'boom') throw new Error(ORIGINAL);
+      return { rows: [] };
+    });
+
+    await expect(
+      sql.transaction([{ text: 'boom', values: [] }] as never),
+    ).rejects.toThrow(ORIGINAL);
+
+    expect(sawSavepoint).toBe(true);
+    expect(store!.txUnusable).toContain(ORIGINAL);
+    expect(() => assertTxUsable()).toThrow(/unusable/i);
+  });
+
+  it('leaves the context clean when its rollback succeeds', async () => {
+    store = makeCtx(async (text: string) => {
+      if (text === 'boom') throw new Error(ORIGINAL);
+      return { rows: [] };
+    });
+
+    await expect(
+      sql.transaction([{ text: 'boom', values: [] }] as never),
+    ).rejects.toThrow(ORIGINAL);
+
+    // The whole point of the savepoint: the per-item loop carries on.
+    expect(store!.txUnusable).toBeUndefined();
   });
 });
