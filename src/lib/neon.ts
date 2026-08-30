@@ -18,6 +18,12 @@
 
 import pg from 'pg';
 import { log } from '@/lib/logger';
+// Static, not the `await import` used elsewhere in this file. assertTxUsable
+// must be synchronous, and it lives in als.ts because the flag it reads is on
+// RequestContext — keeping it there also keeps it out of every test's
+// `vi.mock('@/lib/neon')`. Safe: als.ts imports only node:async_hooks and pg
+// types, so there is no cycle back to this module.
+import { als, assertTxUsable, markTxUnusable } from '@/lib/als';
 
 // Imported for its side effect: registers the DATE (OID 1082) type parser so
 // date columns arrive as 'YYYY-MM-DD' strings instead of local-midnight Dates.
@@ -93,8 +99,11 @@ class LazyQuery<T = DbRow> implements Promise<T[]> {
       return res.rows as T[];
     }
     // If a request-scoped tx is in flight, route through it so RLS sees the GUCs.
-    const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+    const ctxClient = als.getStore()?.client;
     if (ctxClient) {
+      // A savepoint rollback may have aborted this connection. Fail with the
+      // ORIGINAL cause rather than the bare 25P02 pg would answer with.
+      assertTxUsable();
       const res = await ctxClient.query(this.text, this.values);
       return res.rows as T[];
     }
@@ -201,8 +210,12 @@ function createSql(client?: pg.PoolClient): SqlFunction {
     // committed batch writes even when the surrounding request failed, and
     // ran them without the request's RLS claims. Isolation options are
     // ignored on this path: the outer request transaction owns them.
-    const ctxClient = (client ? undefined : (await import('@/lib/als')).als.getStore()?.client);
+    const ctxClient = (client ? undefined : als.getStore()?.client);
     if (ctxClient) {
+      // Fourth path to the request client, and the one that most needs the
+      // guard: the per-item loops this savepoint exists for are precisely the
+      // callers that catch and carry on.
+      assertTxUsable();
       // SAVEPOINT so a failed batch aborts only the batch, not the whole
       // request transaction — callers with per-item try/catch loops (e.g.
       // sageImportService's messy-data groups) must be able to continue
@@ -222,8 +235,11 @@ function createSql(client?: pg.PoolClient): SqlFunction {
       } catch (err) {
         try {
           await ctxClient.query(`ROLLBACK TO SAVEPOINT ${sp}`);
-        } catch {
-          // rollback-to failure is secondary to the original error
+        } catch (rollbackErr) {
+          // Same reasoning as withSavepoint: the connection is aborted now, so
+          // mark the context or the next batch in the loop gets a bare 25P02
+          // with this cause gone.
+          markTxUnusable(err, rollbackErr);
         }
         throw err;
       }
@@ -317,8 +333,9 @@ let withTxSeq = 0;
 export async function withTransaction<T>(
   fn: (tx: TxSql) => Promise<T>
 ): Promise<T> {
-  const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+  const ctxClient = als.getStore()?.client;
   if (ctxClient) {
+    assertTxUsable();
     const tx: TxSql = async (strings, ...values) => {
       const { text, values: params } = buildQuery(strings, values);
       const res = await ctxClient.query(text, params);
@@ -388,6 +405,8 @@ export async function withTransaction<T>(
  * `fn()` call — no savepoint needed because each bare `sql\`…\`` opens its
  * own connection.
  */
+export { assertTxUsable } from '@/lib/als';
+
 export async function withSavepoint<T>(
   name: string,
   fn: () => Promise<T>
@@ -395,11 +414,12 @@ export async function withSavepoint<T>(
   if (!/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/.test(name)) {
     throw new Error(`withSavepoint: invalid savepoint name ${name}`);
   }
-  const ctxClient = (await import('@/lib/als')).als.getStore()?.client;
+  const ctxClient = als.getStore()?.client;
   if (!ctxClient) {
     // No outer tx — just run; errors propagate as usual.
     return fn();
   }
+  assertTxUsable();
   await ctxClient.query(`SAVEPOINT ${name}`);
   try {
     const result = await fn();
@@ -408,10 +428,30 @@ export async function withSavepoint<T>(
   } catch (err) {
     try {
       await ctxClient.query(`ROLLBACK TO SAVEPOINT ${name}`);
-      await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
-    } catch {
-      // If the rollback itself fails the outer tx is already doomed — let
-      // the original error bubble up so the request returns a real 500.
+      // Split from the rollback deliberately. After a SUCCESSFUL rollback the
+      // transaction state is restored and the tx is structurally fine, so a
+      // failing RELEASE must not poison it — and must not be reported as
+      // "the rollback failed", which it did not.
+      try {
+        await ctxClient.query(`RELEASE SAVEPOINT ${name}`);
+      } catch (releaseErr) {
+        log.warn(
+          'RELEASE SAVEPOINT failed after a successful rollback; transaction left usable',
+          { savepoint: name, error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr) },
+          'DB',
+        );
+      }
+    } catch (rollbackErr) {
+      // The rollback failed, so the connection is genuinely aborted and every
+      // later query on it would raise a bare 25P02 that says nothing about WHY.
+      //
+      // The original error still bubbles — it is the cause worth surfacing, and
+      // a caller that lets it propagate gets a real 500 as before. But
+      // withSavepoint's documented idiom is to CATCH and carry on
+      // (`.catch(() => null)`), and those callers would otherwise issue their
+      // next query into the dark. So mark the context: assertTxUsable turns the
+      // next query into an error that names this cause.
+      markTxUnusable(err, rollbackErr);
     }
     throw err;
   }
