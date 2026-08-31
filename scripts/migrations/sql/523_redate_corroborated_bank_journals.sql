@@ -163,23 +163,27 @@ BEGIN
   -- here for BOTH the vacated and the receiving period. Same recompute the
   -- trigger function performs. Without this the cache silently drifts.
   INSERT INTO gl_account_balances (gl_account_id, fiscal_period_id, debit_total, credit_total, balance)
-  SELECT p.gl_account_id, p.fiscal_period_id,
-         COALESCE(SUM(jl.debit), 0),
-         COALESCE(SUM(jl.credit), 0),
-         COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0)
+  SELECT p.gl_account_id, p.fiscal_period_id, agg.d, agg.c, agg.d - agg.c
     FROM (
-      SELECT DISTINCT l.gl_account_id, per AS fiscal_period_id
+      SELECT DISTINCT l.gl_account_id, u.per AS fiscal_period_id
         FROM tmp_523 t
         JOIN gl_journal_lines l ON l.journal_entry_id = t.je_id
         CROSS JOIN LATERAL unnest(ARRAY[t.old_period, t.new_period]) AS u(per)
     ) p
-    LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = p.gl_account_id
-    LEFT JOIN gl_journal_entries je2
-      ON je2.id = jl.journal_entry_id
-     AND je2.fiscal_period_id = p.fiscal_period_id
-     AND je2.status = 'posted'
-   WHERE je2.id IS NOT NULL OR jl.id IS NULL
-   GROUP BY p.gl_account_id, p.fiscal_period_id
+    CROSS JOIN LATERAL (
+      -- Aggregate with NO GROUP BY: it returns exactly one row even when no
+      -- posted lines remain for this (account, period), so a period that has
+      -- just been vacated is upserted to zero rather than keeping a stale
+      -- value. A GROUP BY here would emit no row and silently leave drift.
+      SELECT COALESCE(SUM(jl.debit), 0)  AS d,
+             COALESCE(SUM(jl.credit), 0) AS c
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je2
+          ON je2.id = jl.journal_entry_id
+         AND je2.fiscal_period_id = p.fiscal_period_id
+         AND je2.status = 'posted'
+       WHERE jl.gl_account_id = p.gl_account_id
+    ) agg
   ON CONFLICT (gl_account_id, fiscal_period_id) DO UPDATE SET
         debit_total  = EXCLUDED.debit_total,
         credit_total = EXCLUDED.credit_total,
