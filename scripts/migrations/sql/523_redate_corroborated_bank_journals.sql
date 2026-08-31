@@ -1,4 +1,4 @@
--- 523 — re-date the 120 bank journals whose month is INDEPENDENTLY corroborated.
+-- 523 — re-date the 122 bank journals whose month ABSA independently confirms.
 --
 -- BACKGROUND. Before #276 (99a61c90) bankRuleAutoPostLine derived a journal's
 -- entry_date from bank_transactions.transaction_date via toISOString(). pg
@@ -28,12 +28,28 @@
 -- references agreeing, zero off by one) does not transfer to this subset — it is
 -- dominated 7,412-to-1,441 by the reliable buckets.
 --
--- WHAT THIS MIGRATION DOES CORRECT. Only rows where ABSA's own effective date —
--- text the bank wrote, independent of our import — falls in the SAME MONTH as
--- transaction_date. The exact day stays unknowable, but the fiscal period is
--- corroborated, and the period is all that VAT and year-end depend on. Rows
--- whose effective date sits within 3 days of month end are EXCLUDED: the normal
--- ~4-day posting lag could legitimately carry them into the next month.
+-- WHAT THIS MIGRATION WRITES. Only rows where ABSA's own effective date -- text
+-- the bank wrote, independent of our import -- agrees with transaction_date on
+-- the month. For every such row the CURRENT entry_date is not merely doubtful,
+-- it is impossible: it falls BEFORE the effective date, i.e. the journal is
+-- dated before the card was swiped. Verified for all 122.
+--
+-- entry_date is set to the EFFECTIVE date, not to transaction_date. Both resolve
+-- to the same fiscal period (the filter requires the same month, and periods
+-- here are calendar months), so this changes no period, no VAT return and no
+-- year-end -- only the day. But transaction_date on the 1st is the fabricated
+-- value this file has just finished disproving, while the effective date is the
+-- one real date ABSA supplied. Writing the invented day and filing the real one
+-- as "evidence" would be backwards. The fabricated value is kept in
+-- gl_entry_date_corrections.bank_transaction_date for traceability.
+--
+-- An earlier draft excluded effective dates within 3 days of month end, to guard
+-- against the true posting spilling into the next month. That guard is dropped:
+-- it was justified by a "~4-day average lag" the data contradicts (real lag on
+-- trustworthy rows is p50 3, p90 14, p95 18, max 23 days -- the mean was
+-- contaminated by the impossible negatives), and once entry_date IS the
+-- effective date the period follows from it by definition and there is no
+-- overshoot left to guard. It was excluding 2 rows.
 --
 -- Deliberately untouched, and why:
 --   * 15 rows whose effective date matches the CURRENT entry_date month — for
@@ -61,7 +77,7 @@ BEGIN
            je.status,
            je.entry_date    AS old_date,
            je.fiscal_period_id AS old_period,
-           bt.transaction_date AS new_date,
+           bt.transaction_date AS bank_date,
            CASE
              WHEN bt.description ~ 'EFFEC ([0-9]{8})'
                THEN to_date(substring(bt.description from 'EFFEC ([0-9]{8})'), 'DDMMYYYY')
@@ -80,20 +96,26 @@ BEGIN
   )
   SELECT DISTINCT
          l.je_id, l.company_id, l.entry_number, l.status,
-         l.old_date, l.old_period, l.new_date, l.eff,
+         l.old_date, l.old_period, l.bank_date,
+         l.eff      AS new_date,
          tgt.id     AS new_period,
          tgt.status AS new_period_status,
          src.status AS old_period_status
     FROM linked l
+    -- The period is resolved from the EFFECTIVE date, which is the value being
+    -- written. Resolving it from bank_date would tie the period to a day this
+    -- migration has just finished proving is fabricated.
     LEFT JOIN fiscal_periods tgt
       ON tgt.company_id = l.company_id
-     AND l.new_date BETWEEN tgt.start_date AND tgt.end_date
+     AND l.eff BETWEEN tgt.start_date AND tgt.end_date
     LEFT JOIN fiscal_periods src
       ON src.id = l.old_period
    WHERE l.eff IS NOT NULL
-     AND date_trunc('month', l.eff) = date_trunc('month', l.new_date)
-     -- exclude month-end effective dates: ~4-day posting lag may cross the month
-     AND ((date_trunc('month', l.eff) + INTERVAL '1 month')::date - l.eff) > 3;
+     -- Corroboration: ABSA's effective date and the (otherwise untrusted) bank
+     -- date agree on the month. Rows where the effective date instead matches
+     -- the CURRENT entry_date month are excluded by this and must stay as they
+     -- are -- for those the existing value is the correct one.
+     AND date_trunc('month', l.eff) = date_trunc('month', l.bank_date);
 
   SELECT count(*) INTO v_targets FROM tmp_523;
 
@@ -203,6 +225,7 @@ BEGIN
     new_entry_date      date NOT NULL,
     old_fiscal_period_id uuid REFERENCES fiscal_periods(id),
     new_fiscal_period_id uuid REFERENCES fiscal_periods(id),
+    bank_transaction_date date,
     evidence_date       date,
     evidence_source     text NOT NULL,
     migration           text NOT NULL,
@@ -232,9 +255,10 @@ BEGIN
 
   INSERT INTO gl_entry_date_corrections (
     company_id, journal_entry_id, entry_number, old_entry_date, new_entry_date,
-    old_fiscal_period_id, new_fiscal_period_id, evidence_date, evidence_source, migration)
+    old_fiscal_period_id, new_fiscal_period_id, bank_transaction_date,
+    evidence_date, evidence_source, migration)
   SELECT t.company_id, t.je_id, t.entry_number, t.old_date, t.new_date,
-         t.old_period, t.new_period, t.eff,
+         t.old_period, t.new_period, t.bank_date, t.new_date,
          'ABSA effective date embedded in bank_transactions.description', '523'
     FROM tmp_523 t;
 
