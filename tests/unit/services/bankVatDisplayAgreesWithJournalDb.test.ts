@@ -166,6 +166,21 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
       //    left on vat_code='standard' against an entertainment account posts
       //    GROSS and reports it, rather than claiming on every future charge.
       //    This is deliberately the OPPOSITE of case 3.
+      // A real rule row, not a literal: since #284 the auto-post path writes
+      // bank_transactions.allocation_rule_id, so a fixture without an id posts
+      // "undefined" into a UUID column. The real row is also the production
+      // shape, which is what this case is meant to exercise.
+      const { rows: ruleRows } = await client.query<{ id: string }>(
+        `INSERT INTO bank_categorisation_rules
+           (company_id, rule_name, match_field, match_type, match_pattern,
+            gl_account_id, priority, is_active, auto_create_entry, vat_code)
+         VALUES ($1, 'Staff Welfare (test) rule', 'description', 'contains',
+                 'ZZVATDENIALTEST', $2, -1000, true, true, 'standard')
+         RETURNING id`,
+        [fixture.companyId, deniedAccountId],
+      );
+      const entertainmentRule = { id: ruleRows[0]!.id, vat_code: 'standard' };
+
       const ruleTxId = await insert();
       const { rows: ruleTxRows } = await client.query(
         'SELECT * FROM bank_transactions WHERE id = $1', [ruleTxId]);
@@ -174,7 +189,7 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
           companyId: fixture.companyId,
           userId: USER_ID,
           tx: ruleTxRows[0] as Record<string, unknown>,
-          rule: { vat_code: 'standard' },
+          rule: entertainmentRule,
           ruleName: 'Staff Welfare (test) rule',
           allocType: 'account',
           ruleGlAccountId: deniedAccountId,
@@ -212,7 +227,7 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
           companyId: fixture.companyId,
           userId: USER_ID,
           tx: batchedTxRows[0] as Record<string, unknown>,
-          rule: { vat_code: 'standard' },
+          rule: entertainmentRule,
           ruleName: 'Staff Welfare (test) rule, batched',
           allocType: 'account',
           ruleGlAccountId: deniedAccountId,
