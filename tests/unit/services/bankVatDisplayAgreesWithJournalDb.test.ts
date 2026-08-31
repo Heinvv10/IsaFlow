@@ -190,7 +190,44 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
             AND va.account_subtype IN ('vat_input','vat_output')`,
         [(outcome as { journalEntryId: string }).journalEntryId],
       );
-      expect(Number(ruleVat[0]!.total), 'rule auto-post must not claim denied input tax').toBe(0);
+      expect(Number(ruleVat[0]!.total),
+        'rule auto-post must not claim denied input tax').toBe(0);
+
+      // 4b. The same line WITH the batched default the sweep passes in. Case 4
+      //     omits it and exercises the in-line lookup; this one exercises the
+      //     path production actually takes. Both must reach the same answer —
+      //     the batching optimisation must not be a way to switch the guard off.
+      const batchedTxId = await insert();
+      const { rows: batchedTxRows } = await client.query(
+        'SELECT * FROM bank_transactions WHERE id = $1', [batchedTxId]);
+      const batchedOutcome = await als.run(ctxFor(client, fixture.companyId), () =>
+        autoPostRuleLine({
+          companyId: fixture.companyId,
+          userId: USER_ID,
+          tx: batchedTxRows[0] as Record<string, unknown>,
+          rule: { vat_code: 'standard' },
+          ruleName: 'Staff Welfare (test) rule, batched',
+          allocType: 'account',
+          ruleGlAccountId: deniedAccountId,
+          ruleGlAccountDefaultVatCode: 'none',
+          bankGlAccountId: fixture.bankAccountId,
+          apAccountId: null,
+          arAccountId: null,
+          supplierName: null,
+          customerName: null,
+        }),
+      );
+      expect(batchedOutcome.kind).toBe('posted');
+      const { rows: batchedVat } = await client.query<{ total: string }>(
+        `SELECT COALESCE(SUM(ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))), 0) AS total
+           FROM gl_journal_lines jl
+           JOIN gl_accounts va ON va.id = jl.gl_account_id
+          WHERE jl.journal_entry_id = $1
+            AND va.account_subtype IN ('vat_input','vat_output')`,
+        [(batchedOutcome as { journalEntryId: string }).journalEntryId],
+      );
+      expect(Number(batchedVat[0]!.total),
+        'the batched default must deny exactly as the in-line lookup does').toBe(0);
 
       // 5. The retrospective sweep must SEE the disagreement the screen used to
       //    hide. Case 2 posted 15% while its suggestion column says nothing, so
@@ -238,8 +275,12 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
       expect(denialHit!.reasons).toContain('input_vat_on_denied_account');
       expect(denialHit!.postedVatAmount).toBeCloseTo(150.0, 2);
     } finally {
-      await client.query('ROLLBACK').catch(() => undefined);
-      client.release();
+      // release(true) DESTROYS the connection. A rollback that failed leaves an
+      // aborted or still-open transaction on it, and handing that back to the
+      // pool poisons whoever borrows it next — the same shape as #282.
+      let rollbackFailed = false;
+      await client.query('ROLLBACK').catch(() => { rollbackFailed = true; });
+      client.release(rollbackFailed);
     }
   }, 60_000);
 });

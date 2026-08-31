@@ -41,7 +41,7 @@ const POSTED_VAT_LATERAL = `
   JOIN gl_journal_lines jl
     ON jl.journal_entry_id = mjl.journal_entry_id
    AND jl.company_id = mjl.company_id
-  LEFT JOIN gl_accounts va ON va.id = jl.gl_account_id
+  LEFT JOIN gl_accounts va ON va.id = jl.gl_account_id AND va.company_id = bt.company_id
   WHERE mjl.id = bt.matched_journal_line_id
     AND mjl.company_id = bt.company_id
 `;

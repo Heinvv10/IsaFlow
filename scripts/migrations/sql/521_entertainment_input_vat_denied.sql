@@ -1,5 +1,9 @@
 -- 521: Deny input VAT on entertainment-class expense accounts.
 --
+-- Numbered 521, not 520: a concurrent branch holds 520 (bank_tx_allocation_rule_name)
+-- as an uncommitted file. A gap in the sequence is harmless; a duplicate prefix
+-- is not, and the migration runner keys on filename.
+--
 -- VAT Act s17(2)(a) denies input tax on entertainment — food, beverages and
 -- hospitality, to staff or clients alike. Every bank rule pointing at Staff
 -- Welfare carried vat_code = 'standard', so the rule auto-post path split each

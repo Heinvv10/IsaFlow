@@ -16,7 +16,7 @@ import {
 } from '../gl/journalEntryService';
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
-import { resolveVatCodeForAccount } from '../gl/inputVatDenial';
+import { applyVatDenial, resolveVatCodeForAccount } from '../gl/inputVatDenial';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -36,6 +36,12 @@ export interface AutoPostLineInput {
   tx: Record<string, unknown>;
   /** The rule row being applied. */
   rule: Record<string, unknown>;
+  /**
+   * `default_vat_code` of `ruleGlAccountId`, resolved ONCE per sweep by the
+   * caller. A sweep posts hundreds of lines against a handful of rule accounts,
+   * so reading it here would be one redundant SELECT per transaction.
+   */
+  ruleGlAccountDefaultVatCode?: string | null;
   ruleName: string;
   allocType: RuleAllocType;
   ruleGlAccountId: string | null;
@@ -89,12 +95,17 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // claim input tax against an account that denies it (s17(2)(a)): every rule
   // pointing at Staff Welfare carried vat_code='standard', and this path split
   // each restaurant charge 15% exclusive on the strength of it.
-  const { vatCode } = await resolveVatCodeForAccount(
-    companyId,
-    allocType === 'account' ? ruleGlAccountId : null,
-    String(rule.vat_code || 'none'),
-    { bankTxId: String(tx.id), ruleName },
-  );
+  const requestedVatCode = String(rule.vat_code || 'none');
+  const denialContext = { companyId, bankTxId: String(tx.id), ruleName, glAccountId: ruleGlAccountId };
+  // The sweep resolves every rule account ONCE and passes it in. A caller that
+  // omits it (undefined, as opposed to an explicit null meaning "no default")
+  // gets the lookup done here instead: this guard is a statutory one, and a
+  // caller forgetting to pass an argument must not silently turn it off.
+  const { vatCode } = allocType !== 'account'
+    ? { vatCode: requestedVatCode }
+    : input.ruleGlAccountDefaultVatCode !== undefined
+      ? applyVatDenial(input.ruleGlAccountDefaultVatCode, requestedVatCode, denialContext)
+      : await resolveVatCodeForAccount(companyId, ruleGlAccountId, requestedVatCode, denialContext);
   const hasVat = vatCode === 'standard';
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;

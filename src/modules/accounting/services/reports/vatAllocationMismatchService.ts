@@ -47,9 +47,12 @@ export interface VatAllocationMismatch {
 }
 
 export interface VatAllocationMismatchSummary {
+  /** EVERY matching row, not just the page — the figure to scope work against. */
   rowCount: number;
-  /** Total input/output tax sitting behind the listed rows. */
+  /** Total input/output tax behind every matching row, not just the page. */
   totalVatAtRisk: number;
+  /** How many rows `rows` actually carries; less than rowCount when capped. */
+  returnedRowCount: number;
   rows: VatAllocationMismatch[];
 }
 
@@ -57,7 +60,8 @@ export interface VatAllocationMismatchSummary {
  * List allocated bank transactions whose VAT treatment is suspect.
  *
  * `from`/`to` are inclusive ISO dates; omit both to sweep everything.
- * `limit` caps the row list — the summary counts every matching row regardless.
+ * `limit` caps the row LIST; rowCount and totalVatAtRisk always describe every
+ * matching row (window functions run before the LIMIT).
  */
 export async function findVatAllocationMismatches(
   companyId: string,
@@ -116,7 +120,7 @@ export async function findVatAllocationMismatches(
         ON je.id = mjl.journal_entry_id AND je.company_id = bt.company_id
       JOIN gl_journal_lines jl
         ON jl.journal_entry_id = je.id AND jl.company_id = bt.company_id
-      LEFT JOIN gl_accounts va ON va.id = jl.gl_account_id
+      LEFT JOIN gl_accounts va ON va.id = jl.gl_account_id AND va.company_id = bt.company_id
       WHERE bt.company_id = ${companyId}::UUID
         AND je.status = 'posted'
         AND (${from}::DATE IS NULL OR bt.transaction_date >= ${from}::DATE)
@@ -132,7 +136,12 @@ export async function findVatAllocationMismatches(
     )
     SELECT c.*,
       (c.input_vat_amount > 0 AND c.account_default_vat_code = 'none') AS denied_account,
-      (c.displayed_vat_code <> c.journal_vat_code)                     AS displayed_differs
+      (c.displayed_vat_code <> c.journal_vat_code)                     AS displayed_differs,
+      -- Window functions run BEFORE the LIMIT, so these describe every matching
+      -- row, not the page. A reviewer scoping a correction needs the real
+      -- figure; a total capped by the page size is the wrong number to act on.
+      COUNT(*) OVER ()                        AS total_row_count,
+      SUM(c.posted_vat_amount) OVER ()        AS total_vat_at_risk
     FROM classified c
     WHERE (c.input_vat_amount > 0 AND c.account_default_vat_code = 'none')
        OR (c.displayed_vat_code <> c.journal_vat_code)
@@ -162,10 +171,12 @@ export async function findVatAllocationMismatches(
     };
   });
 
+  const first = rows[0];
   return {
-    rowCount: mapped.length,
-    totalVatAtRisk: Math.round(
-      mapped.reduce((sum, m) => sum + m.postedVatAmount, 0) * 100) / 100,
+    rowCount: first ? Number(first.total_row_count) : 0,
+    totalVatAtRisk: first
+      ? Math.round(Number(first.total_vat_at_risk || 0) * 100) / 100 : 0,
+    returnedRowCount: mapped.length,
     rows: mapped,
   };
 }
