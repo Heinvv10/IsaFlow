@@ -103,9 +103,14 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     : allocType === 'customer'
     ? 'auto_payment'
     : 'auto_bank_recon';
+  // The rule's name is NOT the account. Storing it here is what made the Bank
+  // Transactions "Account" column show "ROMANS PIZZA" for a purchase that posted
+  // to Staff Welfare. The counterparty label stays the supplier/customer for
+  // those types; an account-type rule stores the account it posts to, and the
+  // rule's own name goes to allocation_rule_name.
   const allocEntityName = allocType === 'supplier' ? supplierName!
     : allocType === 'customer' ? customerName!
-    : ruleName;
+    : await accountLabel(companyId, ruleGlAccountId);
 
   const lines = await buildAutoCreateLines({
     allocType, totalAmount, netAmount, vatAmount, hasVat, vatAccountKey,
@@ -153,6 +158,8 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
       SET status = 'allocated', matched_journal_line_id = ${bankLineRows[0].id}::UUID,
           allocation_type = ${allocType},
           allocated_entity_name = ${allocEntityName},
+          allocation_rule_id = ${String(rule.id)}::UUID,
+          allocation_rule_name = ${ruleName},
           suggested_gl_account_id = NULL,
           suggested_supplier_id = NULL,
           suggested_client_id = NULL,
@@ -164,4 +171,14 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   }
 
   return { kind: 'posted', journalEntryId: je.id };
+}
+
+/** "<code> <name>" for a GL account, or null when the rule carries no account. */
+async function accountLabel(companyId: string, glAccountId: string | null): Promise<string | null> {
+  if (!glAccountId) return null;
+  const rows = (await sql`
+    SELECT account_code, account_name FROM gl_accounts
+    WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID
+  `) as Record<string, unknown>[];
+  return rows[0] ? `${String(rows[0].account_code)} ${String(rows[0].account_name)}` : null;
 }

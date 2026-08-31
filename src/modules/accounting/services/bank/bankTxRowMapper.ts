@@ -57,8 +57,55 @@ export function mapTxRow(row: Row): BankTransaction {
     buName: row.bu_name ? String(row.bu_name) : undefined,
     allocationType: row.allocation_type
       ? String(row.allocation_type) as BankTransaction['allocationType'] : undefined,
-    allocatedEntityName: row.allocated_entity_name ? String(row.allocated_entity_name) : undefined,
+    ...resolveAllocatedAccount(row),
+    allocationRuleId: row.allocation_rule_id ? String(row.allocation_rule_id) : undefined,
+    allocationRuleName: row.allocation_rule_name ? String(row.allocation_rule_name) : undefined,
+    allocatedCounterpartyName: row.allocated_entity_name ? String(row.allocated_entity_name) : undefined,
     counterpartyAccountId: row.counterparty_account_id ? String(row.counterparty_account_id) : undefined,
     transferJournalEntryId: row.transfer_journal_entry_id ? String(row.transfer_journal_entry_id) : undefined,
   };
+}
+
+/**
+ * The "Account" a bookkeeper needs is the GL account the journal actually hit.
+ * `allocated_entity_name` cannot answer that: the direct-allocation path stored
+ * "<code> <name>", but the rule auto-post path stored the RULE's name, so the
+ * same column carried two different kinds of value and rule-allocated rows named
+ * something that is not an account at all.
+ *
+ * TX_SELECT resolves the contra line through matched_journal_line_id, so prefer
+ * that. Fall back to the cached label only where the journal cannot be reached
+ * (queries that do not join the lateral, or a row whose journal was deleted, or a
+ * row matched to a journal line that is not its own bank leg).
+ *
+ * The one thing the fallback must never do is let a rule NAME stand in for an
+ * account. That is decided by comparing the cached label with the rule name, not
+ * by "was this posted by a rule": since this change `bankRuleAutoPostLine` writes
+ * the ACCOUNT into that column, so suppressing every rule-posted row would hide a
+ * value that is now known-correct. Only the historical rows — where the two
+ * strings are literally equal — are withheld.
+ */
+function resolveAllocatedAccount(row: Row): {
+  allocatedEntityName?: string;
+  allocatedAccountCode?: string;
+  allocatedAccountName?: string;
+} {
+  const code = row.allocated_account_code ? String(row.allocated_account_code) : undefined;
+  const name = row.allocated_account_name ? String(row.allocated_account_name) : undefined;
+  if (name) {
+    // A split posts to several contra accounts; naming one leg would read as if
+    // the whole amount went there.
+    const isSplit = Number(row.allocated_contra_line_count ?? 1) > 1;
+    if (isSplit) return { allocatedEntityName: 'Split allocation' };
+    return {
+      allocatedEntityName: code ? `${code} ${name}` : name,
+      allocatedAccountCode: code,
+      allocatedAccountName: name,
+    };
+  }
+  const cached = row.allocated_entity_name ? String(row.allocated_entity_name) : undefined;
+  if (!cached) return {};
+  const ruleName = row.allocation_rule_name ? String(row.allocation_rule_name) : undefined;
+  const cachedIsTheRuleName = ruleName !== undefined && cached === ruleName;
+  return { allocatedEntityName: cachedIsTheRuleName ? undefined : cached };
 }

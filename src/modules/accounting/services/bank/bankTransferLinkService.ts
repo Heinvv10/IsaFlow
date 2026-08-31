@@ -81,6 +81,12 @@ export async function relinkTransferCounterparts(
           matched_journal_line_id = m.target_je_line_id,
           counterparty_account_id = m.counterparty_bank_id,
           allocated_entity_name   = m.allocated_entity_name,
+          -- Clearing these is redundant today (the WHERE is status='imported',
+          -- which a rule-posted row can never be) but keeps every writer of
+          -- allocated_entity_name symmetrical: the next reuse of this UPDATE on
+          -- an already-allocated row would otherwise leave a stale rule label
+          -- beside a freshly rewritten account.
+          allocation_rule_id = NULL, allocation_rule_name = NULL,
           updated_at              = NOW()
       FROM best_matches m
       WHERE bt.id         = m.new_tx_id
