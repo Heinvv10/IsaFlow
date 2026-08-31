@@ -16,6 +16,7 @@ import {
 } from '../gl/journalEntryService';
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { resolveVatCodeForAccount } from '../gl/inputVatDenial';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -84,7 +85,16 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     : allocType === 'customer' ? `Receipt from ${customerName}`
     : `Bank: ${tx.description || 'Categorised by rule'}`;
 
-  const vatCode = String(rule.vat_code || 'none');
+  // The same resolver the screen's allocateTransaction uses. A rule may not
+  // claim input tax against an account that denies it (s17(2)(a)): every rule
+  // pointing at Staff Welfare carried vat_code='standard', and this path split
+  // each restaurant charge 15% exclusive on the strength of it.
+  const { vatCode } = await resolveVatCodeForAccount(
+    companyId,
+    allocType === 'account' ? ruleGlAccountId : null,
+    String(rule.vat_code || 'none'),
+    { bankTxId: String(tx.id), ruleName },
+  );
   const hasVat = vatCode === 'standard';
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;

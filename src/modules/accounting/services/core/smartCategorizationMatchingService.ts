@@ -125,7 +125,10 @@ export function matchAgainstPatternsInMemory(
         glAccountCode: p.gl_account_code ? String(p.gl_account_code) : undefined,
         glAccountName: p.gl_account_name ? String(p.gl_account_name) : undefined,
         category: p.category ? String(p.category) : undefined,
-        vatCode:  String(p.vat_code || 'standard'),
+        // 'standard' was the fallback here, so a pattern row with no vat_code
+        // suggested a 15% input claim on any account it matched. A missing code
+        // is not evidence of a claimable supply — suggest 'none'.
+        vatCode:  String(p.vat_code || 'none'),
         confidence,
         confidenceLevel: toConfidenceLevel(confidence),
         matchSource: 'pattern',

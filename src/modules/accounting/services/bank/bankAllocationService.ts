@@ -16,6 +16,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
+import { applyVatDenial, fetchDefaultVatCodes } from '../gl/inputVatDenial';
 
 type Row = DbRow;
 
@@ -101,14 +102,33 @@ export async function allocateTransaction(
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
 
-  const hasVat = vatCode === 'standard';
+  // s17(2)(a): an entertainment account denies input tax whatever the caller
+  // asked for. Resolved BEFORE the split arithmetic below so the GROSS amount
+  // lands on the expense account and no VAT Input line is built at all.
+  //
+  // The account row is read here rather than in the branch below because the
+  // branch needed it anyway — the denial costs no extra round trip, and no
+  // caller's query sequence changes.
+  const contraRows = (allocType === 'account' && contraAccountId)
+    ? (await sql`
+        SELECT account_code, account_name, default_vat_code FROM gl_accounts
+        WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID
+      `) as Row[]
+    : [];
+  const { vatCode: effectiveVatCode } = applyVatDenial(
+    contraRows[0]?.default_vat_code as string | undefined, vatCode,
+    { companyId, bankTxId, allocType, glAccountId: contraAccountId,
+      accountCode: contraRows[0]?.account_code, accountName: contraRows[0]?.account_name },
+  );
+
+  const hasVat = effectiveVatCode === 'standard';
   const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
   const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
-  const mapVatType = vatCode === 'standard' ? 'standard' as const
-    : vatCode === 'zero_rated' ? 'zero_rated' as const
-    : vatCode === 'exempt' ? 'exempt' as const : undefined;
+  const mapVatType = effectiveVatCode === 'standard' ? 'standard' as const
+    : effectiveVatCode === 'zero_rated' ? 'zero_rated' as const
+    : effectiveVatCode === 'exempt' ? 'exempt' as const : undefined;
 
   let lines: JournalLineInput[];
   let source: import('../../types/gl.types').GLEntrySource;
@@ -202,8 +222,8 @@ export async function allocateTransaction(
     }
   } else {
     if (!contraAccountId) throw new Error('contraAccountId is required for account allocation');
-    const acctRows = (await sql`SELECT account_code, account_name FROM gl_accounts WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-    allocEntityName = acctRows.length > 0 ? `${String(acctRows[0]!.account_code)} ${String(acctRows[0]!.account_name)}` : null;
+    allocEntityName = contraRows.length > 0
+      ? `${String(contraRows[0]!.account_code)} ${String(contraRows[0]!.account_name)}` : null;
     entryDesc = description || String(tx.description || 'Bank allocation');
     source = 'auto_bank_recon';
     if (!isSpent) {
@@ -385,16 +405,29 @@ export async function splitAllocateTransaction(
   const entryDesc = String(tx.description || 'Split bank allocation');
   const journalLines: JournalLineInput[] = [];
 
+  // Each split leg lands on its own account, so each is judged separately — one
+  // leg to Staff Welfare is denied while another to Computer Expenses is not —
+  // but all the accounts are fetched in ONE query, not one per leg.
+  // Skipped entirely when no leg asks for VAT: there is nothing to deny, and a
+  // split of plain 'none' legs stays exactly one query as it was.
+  const lineVatDefaults = lines.some((l) => (l.vatCode || 'none') !== 'none')
+    ? await fetchDefaultVatCodes(companyId, lines.map((l) => l.contraAccountId))
+    : new Map<string, string | null>();
+
   for (const line of lines) {
     const lineAmount = Number(line.amount);
-    const hasVat = line.vatCode === 'standard';
+    const { vatCode: lineVatCode } = applyVatDenial(
+      lineVatDefaults.get(line.contraAccountId), line.vatCode,
+      { companyId, bankTxId, split: true, glAccountId: line.contraAccountId },
+    );
+    const hasVat = lineVatCode === 'standard';
     const netAmount = hasVat ? Math.round((lineAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : lineAmount;
     const vatAmount = hasVat ? Math.round((lineAmount - netAmount) * 100) / 100 : 0;
     const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
     const lineDesc = line.description || entryDesc;
-    const mapVatType = line.vatCode === 'standard' ? 'standard' as const
-      : line.vatCode === 'zero_rated' ? 'zero_rated' as const
-      : line.vatCode === 'exempt' ? 'exempt' as const : undefined;
+    const mapVatType = lineVatCode === 'standard' ? 'standard' as const
+      : lineVatCode === 'zero_rated' ? 'zero_rated' as const
+      : lineVatCode === 'exempt' ? 'exempt' as const : undefined;
     if (isSpent) {
       journalLines.push({ glAccountId: line.contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType });
       if (hasVat) {

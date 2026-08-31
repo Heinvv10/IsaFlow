@@ -68,6 +68,15 @@ export interface BankTx {
   needsEvidence?: boolean;
   /** LLM tier: categorization strategy used ('llm' | 'rule' | 'history' | ...) */
   suggestedStrategy?: string;
+  /**
+   * VAT treatment read back off the POSTED JOURNAL. For an allocated row this
+   * is the only truthful source: the suggestion columns this table used to read
+   * are cleared at allocation time, so every rule-posted row rendered "No VAT"
+   * over a journal that had claimed input tax at 15%.
+   */
+  postedVatCode?: VatCode;
+  /** Input/output tax actually posted, in rands. */
+  postedVatAmount?: number;
 }
 
 export interface SelectOption {
@@ -520,8 +529,16 @@ export function BankTxTable(props: Props) {
                         ))}
                       </select>
                     ) : (
-                      <span className="text-xs text-[var(--ff-text-tertiary)]">
-                        {VAT_OPTIONS.find(v => v.value === (sel?.vatCode || 'none'))?.label || 'No VAT'}
+                      // Allocated row: report what the JOURNAL did, never the
+                      // row's suggestion — that is cleared on allocation and
+                      // fell through to "No VAT" over a 15% claim.
+                      <span
+                        className={`text-xs ${tx.postedVatCode === 'standard'
+                          ? 'text-cyan-400' : 'text-[var(--ff-text-tertiary)]'}`}
+                        title={tx.postedVatAmount
+                          ? `VAT posted: ${fmtCurrency(tx.postedVatAmount)}` : undefined}
+                      >
+                        {VAT_OPTIONS.find(v => v.value === (tx.postedVatCode || 'none'))?.label || 'No VAT'}
                       </span>
                     )}
                   </td>

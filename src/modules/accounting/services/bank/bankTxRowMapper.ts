@@ -48,6 +48,12 @@ export function mapTxRow(row: Row): BankTransaction {
     suggestedVatCode: row.suggested_vat_code && row.suggested_vat_code !== 'none'
       ? String(row.suggested_vat_code) : undefined,
     suggestedConfidence: row.suggested_confidence != null ? Number(row.suggested_confidence) : undefined,
+    // The VAT treatment the POSTED JOURNAL actually used — the only honest
+    // source for an allocated row. suggested_vat_code is cleared on allocation,
+    // so a screen reading it showed "No VAT" over a journal claiming 15%.
+    postedVatCode: row.posted_vat_code
+      ? String(row.posted_vat_code) as BankTransaction['postedVatCode'] : undefined,
+    postedVatAmount: row.posted_vat_amount != null ? Number(row.posted_vat_amount) : undefined,
     suggestedStrategy: row.suggested_strategy ? String(row.suggested_strategy) : undefined,
     cc1Id: row.cc1_id ? String(row.cc1_id) : undefined,
     cc2Id: row.cc2_id ? String(row.cc2_id) : undefined,

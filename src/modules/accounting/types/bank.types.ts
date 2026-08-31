@@ -81,6 +81,15 @@ export interface BankTransaction {
   cc1Name?: string;
   cc2Name?: string;
   buName?: string;
+  /**
+   * VAT treatment derived from the POSTED JOURNAL, not from the suggestion
+   * columns — which the rule auto-post path NULLs on allocation, leaving the
+   * screen to render "No VAT" over an entry that claimed input tax at 15%.
+   * Present only for rows with a matched journal line.
+   */
+  postedVatCode?: 'none' | 'standard' | 'zero_rated' | 'exempt';
+  /** Input/output tax actually posted, in rands. 0 when no VAT line exists. */
+  postedVatAmount?: number;
   // Allocation tracking — populated when status is matched/reconciled
   allocationType?: 'account' | 'supplier' | 'customer' | 'transfer';
   /**
