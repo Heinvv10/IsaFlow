@@ -13,6 +13,9 @@ import { withUserAuth, type UserAuthedRequest } from '@/lib/auth/withUserAuth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+// The shared primitive, not an inline z.string().uuid(): Zod 4's strict check
+// refuses the seeded demo company id, and companyId here names a company.
+import { UUID } from '@/lib/schemas/common';
 import { sql } from '@/lib/neon';
 import {
   listBureauCompanies,
@@ -31,13 +34,13 @@ async function isBureauOwner(userId: string, bureauId: string): Promise<boolean>
 }
 
 const PostBody = z.object({
-  bureauId: z.string().uuid(),
-  companyId: z.string().uuid(),
+  bureauId: UUID,
+  companyId: UUID,
 }).strict();
 
 const DeleteBody = z.object({
-  bureauId: z.string().uuid(),
-  companyId: z.string().uuid(),
+  bureauId: UUID,
+  companyId: UUID,
 }).strict();
 
 async function handler(req: UserAuthedRequest, res: NextApiResponse) {

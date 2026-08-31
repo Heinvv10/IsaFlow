@@ -9,8 +9,27 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { apiResponse } from '@/lib/apiResponse';
 
-/** A v4 UUID. */
-export const UUID = z.string().uuid('Must be a valid UUID');
+/**
+ * An id in `uuid` shape — 8-4-4-4-12 hex.
+ *
+ * `z.guid()`, NOT `z.uuid()`. Zod 4 made `.uuid()` enforce the RFC 4122 version
+ * and variant nibbles, and that is stricter than the database this validates
+ * for: Postgres's `uuid` type stores any 128-bit value and cares nothing for
+ * version bits. An API stricter than its own storage layer can refuse a row
+ * that legitimately exists.
+ *
+ * Which is exactly what happened. `00000000-0000-0000-0000-000000000001` — the
+ * seeded ISAFlow Demo company — is version 0 and not the nil UUID, the one
+ * shape Zod 4 refuses (it blesses nil and max as RFC 9562 special cases). Every
+ * endpoint validating a company_id with this schema returned 400 for that
+ * tenant, including the tenant-facing company-logo and AFS
+ * management-pack-config routes. Zod 3's `.uuid()` accepted it, so the
+ * behaviour changed with the Zod 4 upgrade rather than with any code change —
+ * which is why it went unnoticed.
+ *
+ * `z.guid()` still rejects anything malformed; it only drops the version check.
+ */
+export const UUID = z.guid('Must be a valid UUID');
 
 /**
  * Extract a UUID from `req.query[name]` or return null after sending a 400.
