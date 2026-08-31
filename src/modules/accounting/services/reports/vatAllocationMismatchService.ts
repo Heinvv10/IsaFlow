@@ -65,7 +65,11 @@ export async function findVatAllocationMismatches(
 ): Promise<VatAllocationMismatchSummary> {
   const from = opts.from ?? null;
   const to = opts.to ?? null;
-  const limit = Math.min(Math.max(opts.limit ?? 500, 1), 5000);
+  // Number('abc') is NaN, and Math.min/max propagate it straight into LIMIT NaN
+  // — a 500 where the caller deserves a 400. Fall back rather than throw here;
+  // the route rejects a malformed value before it ever reaches this point.
+  const requested = Number(opts.limit);
+  const limit = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 5000) : 500;
 
   const rows = (await sql`
     WITH allocated AS (
@@ -89,18 +93,22 @@ export async function findVatAllocationMismatches(
           WHERE jl.vat_type IN ('zero_rated', 'exempt'))  AS non_standard_vat_type,
         -- The expense/income account the money landed on: the contra line, i.e.
         -- neither the bank leg nor the tax leg.
+        -- COALESCE, not a bare NOT IN: account_subtype is NULL on 49 of 284
+        -- expense accounts, and NULL NOT IN (...) yields NULL, which the FILTER
+        -- drops. Those rows returned a NULL account name and could never raise
+        -- the denied-account flag — the report could not name what to fix.
         (ARRAY_AGG(va.account_code ORDER BY GREATEST(jl.debit, jl.credit) DESC)
-           FILTER (WHERE va.account_subtype IS DISTINCT FROM 'bank'
-                     AND va.account_subtype NOT IN ('vat_input', 'vat_output')
-                     AND jl.gl_account_id <> bt.bank_account_id))[1] AS account_code,
+           FILTER (WHERE COALESCE(va.account_subtype, '') <> 'bank'
+                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
+                     AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_code,
         (ARRAY_AGG(va.account_name ORDER BY GREATEST(jl.debit, jl.credit) DESC)
-           FILTER (WHERE va.account_subtype IS DISTINCT FROM 'bank'
-                     AND va.account_subtype NOT IN ('vat_input', 'vat_output')
-                     AND jl.gl_account_id <> bt.bank_account_id))[1] AS account_name,
+           FILTER (WHERE COALESCE(va.account_subtype, '') <> 'bank'
+                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
+                     AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_name,
         (ARRAY_AGG(COALESCE(va.default_vat_code, '') ORDER BY GREATEST(jl.debit, jl.credit) DESC)
-           FILTER (WHERE va.account_subtype IS DISTINCT FROM 'bank'
-                     AND va.account_subtype NOT IN ('vat_input', 'vat_output')
-                     AND jl.gl_account_id <> bt.bank_account_id))[1] AS account_default_vat_code
+           FILTER (WHERE COALESCE(va.account_subtype, '') <> 'bank'
+                     AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
+                     AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_default_vat_code
       FROM bank_transactions bt
       JOIN gl_journal_lines mjl
         ON mjl.id = bt.matched_journal_line_id AND mjl.company_id = bt.company_id

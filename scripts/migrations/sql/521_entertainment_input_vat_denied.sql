@@ -18,16 +18,39 @@
 -- reverseJournalEntry, never by editing posted lines.
 
 -- 1. Flag entertainment-class expense accounts.
+--
+-- s17(2)(a)(i) carries a proviso: a vendor who CONTINUOUSLY SUPPLIES
+-- entertainment for a charge — a restaurant, caterer, hotel, conference venue —
+-- may claim the input tax on it. A blanket name sweep would flag such a
+-- tenant's "Catering Supplies" or "Refreshments" cost-of-sales account and
+-- silently stop them claiming input tax they are entitled to.
+--
+-- Two guards, and neither is sufficient on its own:
+--   * cost-of-sales and any account whose name reads as a trading line is
+--     excluded — that is where an entertainment vendor books what it resells;
+--   * the flag is a per-account column a tenant can clear from the Chart of
+--     Accounts screen, so a vendor who is wrongly flagged has a one-click fix.
+--
+-- Review the result per tenant before relying on it. This is a sensible default
+-- for an ordinary business, not a determination of any tenant's VAT status.
 UPDATE gl_accounts
 SET default_vat_code = 'none', updated_at = NOW()
 WHERE account_type = 'expense'
   AND COALESCE(default_vat_code, '') <> 'none'
+  AND COALESCE(account_subtype, '') NOT IN ('cost_of_sales', 'cost_of_goods_sold')
   AND (
        account_name ILIKE '%entertain%'
     OR account_name ILIKE '%staff welfare%'
     OR account_name ILIKE '%catering%'
     OR account_name ILIKE '%refreshment%'
-  );
+  )
+  -- A trading line, not a consumption line: an entertainment vendor's own
+  -- supply. Never flag these.
+  AND account_name NOT ILIKE '%cost of sale%'
+  AND account_name NOT ILIKE '%cost of good%'
+  AND account_name NOT ILIKE '%sales%'
+  AND account_name NOT ILIKE '%revenue%'
+  AND account_name NOT ILIKE '%income%';
 
 -- 2. Stop the rules regenerating the claim. A rule whose target account denies
 --    input tax must not carry a standard vat code — the posting path would
@@ -47,5 +70,9 @@ UPDATE categorization_patterns p
 SET vat_code = 'none'
 FROM gl_accounts ga
 WHERE ga.id = p.gl_account_id
+  -- Tenant predicate, same as step 2. ga.id is a primary key so the blast
+  -- radius is nil, but a cross-tenant join shape is exactly what the project
+  -- rule forbids and what the next reader would copy.
+  AND ga.company_id = p.company_id
   AND ga.default_vat_code = 'none'
   AND COALESCE(p.vat_code, '') <> 'none';

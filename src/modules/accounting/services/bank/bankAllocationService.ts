@@ -410,7 +410,7 @@ export async function splitAllocateTransaction(
   // but all the accounts are fetched in ONE query, not one per leg.
   // Skipped entirely when no leg asks for VAT: there is nothing to deny, and a
   // split of plain 'none' legs stays exactly one query as it was.
-  const lineVatDefaults = lines.some((l) => (l.vatCode || 'none') !== 'none')
+  const lineVatDefaults = lines.some((l) => l.vatCode === 'standard')
     ? await fetchDefaultVatCodes(companyId, lines.map((l) => l.contraAccountId))
     : new Map<string, string | null>();
 

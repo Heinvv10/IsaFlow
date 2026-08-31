@@ -30,7 +30,13 @@ export async function findBankFixture(client: PoolClient): Promise<BankFixture |
     FROM gl_accounts b
     JOIN gl_accounts e
       ON e.company_id = b.company_id AND e.account_type = 'expense' AND e.is_active
+      -- An account whose default_vat_code is 'none' DENIES input tax, so a VAT
+      -- test allocating against it would post no VAT line and fail for a reason
+      -- unrelated to the code under test. The unordered LIMIT 1 made that a
+      -- coin toss on any company that has such an account.
+      AND COALESCE(e.default_vat_code, '') <> 'none'
     WHERE b.account_subtype = 'bank' AND b.is_active
+    ORDER BY b.company_id, e.account_code
     LIMIT 1
   `);
   const r = rows[0];

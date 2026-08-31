@@ -148,6 +148,15 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
       expect(entertainment.vatLineTotal).toBe(0);
       expect(entertainment.screenVatCode).toBe('none');
 
+      // 3b. A denial bites on 'standard' ONLY. s17(2)(a) denies input tax; it
+      //     does not un-zero-rate a supply, and gl_journal_lines.vat_type feeds
+      //     VAT201 and the exceptions reports. Coercing 'zero_rated' to 'none'
+      //     would strip that classification off the ledger with nothing to say so.
+      const zeroRated = await allocateAndRead(
+        client, fixture, await insert(), deniedAccountId, 'zero_rated');
+      expect(zeroRated.vatLineTotal, 'zero-rated claims no input tax').toBe(0);
+      expect(zeroRated.screenVatCode, 'zero-rated survives the denial').toBe('zero_rated');
+
       // 4. The RULE auto-post path — the one that actually claimed the money.
       //    Its rules carried vat_code='standard' against Staff Welfare and it
       //    honoured them. It must now reach the same answer as the screen, so
@@ -194,6 +203,40 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
       expect(flagged, 'sweep must list the row whose journal claimed VAT the screen did not show')
         .toBeTruthy();
       expect(flagged!.postedVatAmount).toBeCloseTo(150.0, 2);
+
+      // 6. The other arm: input tax already claimed against an account that
+      //    denies it — the 478 historical journals. Reproduced by claiming VAT
+      //    first and marking the account denied afterwards, which is exactly
+      //    the order history happened in. The account is given a NULL
+      //    account_subtype on purpose: 49 of 284 real expense accounts have one,
+      //    and a bare `NOT IN` yields NULL there, which a FILTER drops — the
+      //    report could then neither raise the flag nor name the account.
+      const { rows: nullSub } = await client.query<{ id: string }>(
+        `INSERT INTO gl_accounts
+           (company_id, account_code, account_name, account_type, account_subtype,
+            normal_balance, is_active)
+         VALUES ($1, $2, 'Entertainment (test, null subtype)', 'expense', NULL,
+                 'debit', true)
+         RETURNING id`,
+        [fixture.companyId, `ZZNULL-${Date.now()}`],
+      );
+      const nullSubAccountId = nullSub[0]!.id;
+
+      const claimed = await allocateAndRead(
+        client, fixture, await insert(), nullSubAccountId, 'standard');
+      expect(claimed.vatLineTotal, 'claims VAT while the account still allows it')
+        .toBeCloseTo(150.0, 2);
+
+      await client.query(
+        `UPDATE gl_accounts SET default_vat_code = 'none' WHERE id = $1`, [nullSubAccountId]);
+
+      const sweep2 = await als.run(ctxFor(client, fixture.companyId), () =>
+        findVatAllocationMismatches(fixture.companyId, { limit: 5000 }),
+      );
+      const denialHit = sweep2.rows.find((r) => r.accountName === 'Entertainment (test, null subtype)');
+      expect(denialHit, 'sweep must find input tax claimed on a denied account').toBeTruthy();
+      expect(denialHit!.reasons).toContain('input_vat_on_denied_account');
+      expect(denialHit!.postedVatAmount).toBeCloseTo(150.0, 2);
     } finally {
       await client.query('ROLLBACK').catch(() => undefined);
       client.release();

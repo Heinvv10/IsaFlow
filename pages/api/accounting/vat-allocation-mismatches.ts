@@ -33,6 +33,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'to must be YYYY-MM-DD');
   }
 
+  if (limit !== undefined && !/^\d+$/.test(String(limit))) {
+    return apiResponse.badRequest(res, 'limit must be a positive integer');
+  }
+
   const result = await findVatAllocationMismatches(companyId, {
     from: from ? String(from) : undefined,
     to: to ? String(to) : undefined,

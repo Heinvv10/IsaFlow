@@ -317,6 +317,13 @@ export function BankTxTable(props: Props) {
               const spent = tx.amount < 0 ? Math.abs(tx.amount) : null;
               const received = tx.amount > 0 ? tx.amount : null;
               const rawOptions = filterOptions(getOptionsForType(rowType), isOpen ? search : '');
+              // An account whose default_vat_code is 'none' DENIES input tax
+              // (s17(2)(a) entertainment). The server coerces a standard claim
+              // against it, so offering the dropdown here would invite a choice
+              // that is silently discarded — the same "screen disagrees with the
+              // journal" defect this table was just fixed for, in reverse.
+              const vatDenied = rowType === 'account' && !!sel?.entityId
+                && getOptionsForType('account').find(o => o.id === sel.entityId)?.defaultVatCode === 'none';
               const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
   
               const isExcluded = tx.status === 'excluded';
@@ -515,6 +522,13 @@ export function BankTxTable(props: Props) {
                   <td className="py-2 px-2">
                     {sel?.type === 'supplier' || sel?.type === 'customer' || sel?.type === 'transfer' ? (
                       <span className="text-xs text-[var(--ff-text-tertiary)] italic">N/A</span>
+                    ) : isNew && vatDenied ? (
+                      <span
+                        className="text-xs text-[var(--ff-text-tertiary)]"
+                        title="This account denies input tax (VAT Act s17(2)(a) — entertainment). The journal will post the gross amount."
+                      >
+                        No VAT (denied)
+                      </span>
                     ) : isNew ? (
                       <select
                         value={sel?.vatCode || 'none'}

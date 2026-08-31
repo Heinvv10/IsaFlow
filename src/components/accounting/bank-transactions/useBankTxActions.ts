@@ -262,7 +262,12 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleRowEntityChange = (txId: string, entityId: string, label: string) => {
     const type = rowSelections[txId]?.type || 'account';
     const acct = type === 'account' && entityId ? glAccounts.find(g => g.id === entityId) : null;
-    const vatCode = (acct?.defaultVatCode && acct.defaultVatCode !== 'none' ? acct.defaultVatCode : (rowSelections[txId]?.vatCode || 'none')) as VatCode;
+    // An account whose default is 'none' DENIES input tax (s17(2)(a)); the
+    // server coerces a standard claim against it. Carrying a stale 'standard'
+    // over from a suggestion would show a claim that never posts.
+    const vatCode = (acct?.defaultVatCode === 'none' ? 'none'
+      : acct?.defaultVatCode ? acct.defaultVatCode
+      : (rowSelections[txId]?.vatCode || 'none')) as VatCode;
     setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type, entityId, label, vatCode } }));
     saveSelection(txId, type as AllocType, entityId, vatCode);
   };

@@ -21,6 +21,10 @@ import type { BankTxFilters } from './bankTxFilters';
 const POSTED_VAT_LATERAL = `
   SELECT
     CASE
+      -- The aggregate returns one row even over ZERO journal lines, so without
+      -- this arm an unallocated transaction reported 'none' — indistinguishable
+      -- from one that WAS allocated and genuinely claimed nothing.
+      WHEN COUNT(jl.id) = 0 THEN NULL
       WHEN SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output')
                     THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
                     ELSE 0 END) > 0 THEN 'standard'
@@ -28,9 +32,11 @@ const POSTED_VAT_LATERAL = `
         MAX(jl.vat_type) FILTER (WHERE jl.vat_type IN ('zero_rated', 'exempt')),
         'none')
     END AS posted_vat_code,
-    SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output')
-             THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
-             ELSE 0 END) AS posted_vat_amount
+    CASE WHEN COUNT(jl.id) = 0 THEN NULL ELSE
+      SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output')
+               THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
+               ELSE 0 END)
+    END AS posted_vat_amount
   FROM gl_journal_lines mjl
   JOIN gl_journal_lines jl
     ON jl.journal_entry_id = mjl.journal_entry_id

@@ -26,6 +26,8 @@ import type { DbRow } from '@/lib/neon';
 
 /** The vat code that claims no input tax. */
 export const VAT_CODE_NONE = 'none';
+/** The only code that claims input tax, and so the only one a denial bites on. */
+export const VAT_CODE_STANDARD = 'standard';
 
 export interface VatResolution {
   /** The code the journal must actually be posted with. */
@@ -46,7 +48,12 @@ export function applyVatDenial(
   context: Record<string, unknown> = {},
 ): VatResolution {
   const requested = requestedVatCode || VAT_CODE_NONE;
-  if (requested === VAT_CODE_NONE) return { vatCode: requested, denied: false };
+  // ONLY a standard-rated claim is denied. s17(2)(a) denies INPUT TAX; it does
+  // not un-zero-rate or un-exempt a supply. Coercing 'zero_rated'/'exempt' to
+  // 'none' would strip vat_type off the contra line, and VAT201, the balance
+  // sheet exceptions report and custom report fields all read that column —
+  // the classification would be lost with nothing on any screen to say so.
+  if (requested !== VAT_CODE_STANDARD) return { vatCode: requested, denied: false };
   if (String(accountDefaultVatCode || '') !== VAT_CODE_NONE) {
     return { vatCode: requested, denied: false };
   }
@@ -67,7 +74,7 @@ export async function resolveVatCodeForAccount(
   context: Record<string, unknown> = {},
 ): Promise<VatResolution> {
   const requested = requestedVatCode || VAT_CODE_NONE;
-  if (!glAccountId || requested === VAT_CODE_NONE) {
+  if (!glAccountId || requested !== VAT_CODE_STANDARD) {
     return { vatCode: requested, denied: false };
   }
 
