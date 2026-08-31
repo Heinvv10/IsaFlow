@@ -4,7 +4,7 @@
 
 Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tenant (every query scoped by `company_id`). Deployed to `app.isaflow.co.za`. Package manager: **bun**.
 
-**Stack:** Next.js 14 (Pages Router) · TypeScript strict · React 19 · Tailwind · Vitest 4 · Playwright. Auth is GoTrue (Supabase Auth); `withAuth` sets user + company + transaction GUCs.
+**Stack:** Next.js 14 (Pages Router) · TypeScript strict · React 18 · Tailwind · Vitest 4 · Playwright. Auth is GoTrue (Supabase Auth); `withAuth` sets user + company + transaction GUCs.
 
 ## Runtime
 
