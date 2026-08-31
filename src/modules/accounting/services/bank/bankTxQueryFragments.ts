@@ -10,6 +10,54 @@ import type { BankTxFilters } from './bankTxFilters';
 
 // BL-11: Explicit column list replaces bt.* to reduce row width (~1,534→~640 bytes).
 // Every field read by mapTxRow must appear here. Keep in sync with mapTxRow.
+
+// Where the money actually went. bt.allocated_entity_name is NOT trustworthy for
+// this: the rule auto-post path wrote the RULE's name into it ("ROMANS PIZZA"),
+// so the Account column showed a string that is not an account. The journal is
+// the only authority, and matched_journal_line_id is one join away from it —
+// resolve through the bank line's siblings instead of trusting the cached label.
+//
+// `bl.gl_account_id = bt.bank_account_id` is the load-bearing guard, not a
+// tightening: "the sibling of the matched line" is only the destination when the
+// matched line is THIS transaction's own bank leg. The allocate / split /
+// rule-auto-post paths all write that leg, but `matchTransaction` (the
+// `journal_line` branch of bank-match-confirm) writes whatever line the user
+// picked from `fetchJournalLineCandidates`, which offers EVERY posted line in the
+// company ranked by amount — no account filter at all. Match a transaction against
+// the expense leg of a supplier invoice and the ungated sibling is Accounts
+// Payable, which this column would then present as where the money went. Those
+// rows resolve to nothing here and fall back to the honest "Allocated", exactly as
+// before. A user who picks the bank's OWN leg still resolves, and now names the
+// account.
+//
+// The bank line itself is excluded (al.id <> bl.id) but a sibling BANK account is
+// kept: that is exactly the contra account of a transfer allocation. VAT lines are
+// excluded because they are mechanics, not the destination. contra_line_count is a
+// COUNT(*) OVER () — window functions run before LIMIT, so it counts every
+// candidate, letting the mapper say "Split allocation" instead of naming one leg
+// of a split as if it were the whole posting.
+const ALLOCATED_ACCOUNT_LATERAL = `
+  LEFT JOIN LATERAL (
+    SELECT
+      aga.account_code,
+      aga.account_name,
+      COUNT(*) OVER () AS contra_line_count
+    FROM gl_journal_lines bl
+    JOIN gl_journal_lines al
+      ON al.journal_entry_id = bl.journal_entry_id
+     AND al.company_id       = bl.company_id
+     AND al.id <> bl.id
+    JOIN gl_accounts aga
+      ON aga.id = al.gl_account_id
+     AND aga.company_id = bl.company_id
+    WHERE bl.id = bt.matched_journal_line_id
+      AND bl.company_id = bt.company_id
+      AND bl.gl_account_id = bt.bank_account_id
+      AND COALESCE(aga.account_subtype, '') NOT IN ('vat_input', 'vat_output')
+    ORDER BY GREATEST(al.debit, al.credit) DESC, aga.account_code ASC
+    LIMIT 1
+  ) aa ON TRUE`;
+
 export const TX_SELECT = `
   SELECT
     bt.id, bt.company_id, bt.bank_account_id,
@@ -22,7 +70,11 @@ export const TX_SELECT = `
     bt.suggested_vat_code, bt.suggested_confidence, bt.suggested_strategy,
     bt.cc1_id, bt.cc2_id, bt.bu_id,
     bt.allocation_type, bt.allocated_entity_name,
+    bt.allocation_rule_id, bt.allocation_rule_name,
     bt.created_at, bt.updated_at,
+    aa.account_code AS allocated_account_code,
+    aa.account_name AS allocated_account_name,
+    aa.contra_line_count AS allocated_contra_line_count,
     ga.account_name AS bank_account_name,
     sga.account_name AS suggested_gl_account_name,
     sga.account_code AS suggested_gl_account_code,
@@ -33,6 +85,7 @@ export const TX_SELECT = `
   LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
   LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
+  ${ALLOCATED_ACCOUNT_LATERAL}
 `;
 
 // allocationFilter — same definition as bankAccountStatusService counts (PRD-11 §2):
