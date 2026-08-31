@@ -213,6 +213,23 @@ BEGIN
   CREATE INDEX IF NOT EXISTS idx_gl_entry_date_corr_je
     ON gl_entry_date_corrections (journal_entry_id);
 
+  -- Tenant isolation, matching every sibling tenant-scoped table (gl_journal_
+  -- entries, gl_journal_lines, fiscal_periods, vat_returns all FORCE RLS with
+  -- this policy). The table is created here and inherits nothing later, so the
+  -- policy has to be established in the same migration or it never exists.
+  ALTER TABLE gl_entry_date_corrections ENABLE ROW LEVEL SECURITY;
+  ALTER TABLE gl_entry_date_corrections FORCE ROW LEVEL SECURITY;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy
+     WHERE polrelid = 'gl_entry_date_corrections'::regclass
+       AND polname  = 'tenant_isolation'
+  ) THEN
+    CREATE POLICY tenant_isolation ON gl_entry_date_corrections
+      TO app_user
+      USING (company_id IN (SELECT auth.user_companies()))
+      WITH CHECK (company_id = app.current_company_id());
+  END IF;
+
   INSERT INTO gl_entry_date_corrections (
     company_id, journal_entry_id, entry_number, old_entry_date, new_entry_date,
     old_fiscal_period_id, new_fiscal_period_id, evidence_date, evidence_source, migration)
