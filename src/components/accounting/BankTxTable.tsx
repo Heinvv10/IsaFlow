@@ -84,6 +84,8 @@ export interface SelectOption {
   code?: string;
   name: string;
   defaultVatCode?: string;
+  /** VAT Act s17(2)(a): claiming input tax here warrants a warning. */
+  vatInputDenied?: boolean;
 }
 
 export interface RowSelection {
@@ -317,13 +319,14 @@ export function BankTxTable(props: Props) {
               const spent = tx.amount < 0 ? Math.abs(tx.amount) : null;
               const received = tx.amount > 0 ? tx.amount : null;
               const rawOptions = filterOptions(getOptionsForType(rowType), isOpen ? search : '');
-              // An account whose default_vat_code is 'none' DENIES input tax
-              // (s17(2)(a) entertainment). The server coerces a standard claim
-              // against it, so offering the dropdown here would invite a choice
-              // that is silently discarded — the same "screen disagrees with the
-              // journal" defect this table was just fixed for, in reverse.
+              // s17(2)(a) denies input tax on entertainment — but its proviso
+              // lets a vendor who continuously supplies entertainment claim it,
+              // and only the user knows whether that is them. So this WARNS and
+              // leaves the choice alone. The unattended rule sweep is the only
+              // path that overrides.
               const vatDenied = rowType === 'account' && !!sel?.entityId
-                && getOptionsForType('account').find(o => o.id === sel.entityId)?.defaultVatCode === 'none';
+                && getOptionsForType('account').find(o => o.id === sel.entityId)?.vatInputDenied === true;
+              const vatWarn = vatDenied && (sel?.vatCode || 'none') === 'standard';
               const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
   
               const isExcluded = tx.status === 'excluded';
@@ -522,26 +525,32 @@ export function BankTxTable(props: Props) {
                   <td className="py-2 px-2">
                     {sel?.type === 'supplier' || sel?.type === 'customer' || sel?.type === 'transfer' ? (
                       <span className="text-xs text-[var(--ff-text-tertiary)] italic">N/A</span>
-                    ) : isNew && vatDenied ? (
-                      <span
-                        className="text-xs text-[var(--ff-text-tertiary)]"
-                        title="This account denies input tax (VAT Act s17(2)(a) — entertainment). The journal will post the gross amount."
-                      >
-                        No VAT (denied)
-                      </span>
                     ) : isNew ? (
-                      <select
-                        value={sel?.vatCode || 'none'}
-                        onChange={e => onRowVatChange(tx.id, e.target.value as VatCode)}
-                        className={`text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] border border-[var(--ff-border-light)] w-full ${
-                          (sel?.vatCode || 'none') === 'standard'
-                            ? 'text-cyan-400' : 'text-[var(--ff-text-primary)]'
-                        }`}
-                      >
-                        {VAT_OPTIONS.map(v => (
-                          <option key={v.value} value={v.value}>{v.label}</option>
-                        ))}
-                      </select>
+                      <>
+                        <select
+                          value={sel?.vatCode || 'none'}
+                          onChange={e => onRowVatChange(tx.id, e.target.value as VatCode)}
+                          className={`text-xs px-1 py-0.5 rounded bg-[var(--ff-bg-primary)] w-full ${
+                            vatWarn
+                              ? 'border border-amber-500 text-amber-500'
+                              : `border border-[var(--ff-border-light)] ${
+                                (sel?.vatCode || 'none') === 'standard'
+                                  ? 'text-cyan-400' : 'text-[var(--ff-text-primary)]'}`
+                          }`}
+                        >
+                          {VAT_OPTIONS.map(v => (
+                            <option key={v.value} value={v.value}>{v.label}</option>
+                          ))}
+                        </select>
+                        {vatWarn && (
+                          <span
+                            className="mt-0.5 block text-[10px] leading-tight text-amber-500"
+                            title="VAT Act s17(2)(a). Claim it only if this business continuously supplies entertainment for a charge."
+                          >
+                            ⚠ Entertainment — input tax normally denied
+                          </span>
+                        )}
+                      </>
                     ) : (
                       // Allocated row: report what the JOURNAL did, never the
                       // row's suggestion — that is cleared on allocation and

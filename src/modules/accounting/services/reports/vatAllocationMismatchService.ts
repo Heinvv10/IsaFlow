@@ -42,7 +42,8 @@ export interface VatAllocationMismatch {
   journalEntryNumber: string | null;
   accountCode: string | null;
   accountName: string | null;
-  accountDefaultVatCode: string | null;
+  /** VAT Act s17(2)(a): the contra account is flagged as denying input tax. */
+  accountVatInputDenied: boolean;
   reasons: VatMismatchReason[];
 }
 
@@ -109,10 +110,10 @@ export async function findVatAllocationMismatches(
            FILTER (WHERE COALESCE(va.account_subtype, '') <> 'bank'
                      AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
                      AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_name,
-        (ARRAY_AGG(COALESCE(va.default_vat_code, '') ORDER BY GREATEST(jl.debit, jl.credit) DESC)
+        (ARRAY_AGG(COALESCE(va.vat_input_denied, false) ORDER BY GREATEST(jl.debit, jl.credit) DESC)
            FILTER (WHERE COALESCE(va.account_subtype, '') <> 'bank'
                      AND COALESCE(va.account_subtype, '') NOT IN ('vat_input', 'vat_output')
-                     AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_default_vat_code
+                     AND jl.gl_account_id IS DISTINCT FROM bt.bank_account_id))[1] AS account_vat_input_denied
       FROM bank_transactions bt
       JOIN gl_journal_lines mjl
         ON mjl.id = bt.matched_journal_line_id AND mjl.company_id = bt.company_id
@@ -135,7 +136,7 @@ export async function findVatAllocationMismatches(
       FROM allocated a
     )
     SELECT c.*,
-      (c.input_vat_amount > 0 AND c.account_default_vat_code = 'none') AS denied_account,
+      (c.input_vat_amount > 0 AND c.account_vat_input_denied) AS denied_account,
       (c.displayed_vat_code <> c.journal_vat_code)                     AS displayed_differs,
       -- Window functions run BEFORE the LIMIT, so these describe every matching
       -- row, not the page. A reviewer scoping a correction needs the real
@@ -143,7 +144,7 @@ export async function findVatAllocationMismatches(
       COUNT(*) OVER ()                        AS total_row_count,
       SUM(c.posted_vat_amount) OVER ()        AS total_vat_at_risk
     FROM classified c
-    WHERE (c.input_vat_amount > 0 AND c.account_default_vat_code = 'none')
+    WHERE (c.input_vat_amount > 0 AND c.account_vat_input_denied)
        OR (c.displayed_vat_code <> c.journal_vat_code)
     ORDER BY c.posted_vat_amount DESC, c.transaction_date DESC
     LIMIT ${limit}
@@ -165,8 +166,7 @@ export async function findVatAllocationMismatches(
       journalEntryNumber: r.entry_number ? String(r.entry_number) : null,
       accountCode: r.account_code ? String(r.account_code) : null,
       accountName: r.account_name ? String(r.account_name) : null,
-      accountDefaultVatCode: r.account_default_vat_code
-        ? String(r.account_default_vat_code) : null,
+      accountVatInputDenied: Boolean(r.account_vat_input_denied),
       reasons,
     };
   });

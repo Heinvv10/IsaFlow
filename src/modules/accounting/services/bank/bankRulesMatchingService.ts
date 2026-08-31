@@ -7,7 +7,7 @@
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
-import { fetchDefaultVatCodes } from '../gl/inputVatDenial';
+import { fetchVatDenialFlags } from '../gl/inputVatDenial';
 import type { RuleApplyResult } from '../../types/bank.types';
 import {
   toSqlPattern, findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
@@ -155,11 +155,15 @@ export async function applyRules(
     let autoPostSkippedRaced = 0;
     let autoPostSkippedLocked = 0;
     let autoPostTruncatedRules = 0;
+    // Lines this sweep posted GROSS because the rule asked to claim input tax on
+    // an account flagged s17(2)(a). Reported, not silent: a rule set to claim on
+    // an entertainment account is a configuration mistake the user must see.
+    let autoPostVatDenied = 0;
 
     // One query for every rule's target account. A sweep posts hundreds of
     // lines against a handful of accounts, so resolving the s17(2)(a) denial
     // inside autoPostRuleLine would be one redundant SELECT per transaction.
-    const ruleAccountVatDefaults = await fetchDefaultVatCodes(
+    const ruleAccountVatDenied = await fetchVatDenialFlags(
       companyId,
       autoCreateRules
         .map((r) => (r.gl_account_id ? String(r.gl_account_id) : ''))
@@ -229,8 +233,8 @@ export async function applyRules(
           // first statement raises 25P02 and the whole run dies after one skip.
           outcome = await withSavepoint('rule_autopost_line', () => autoPostRuleLine({
             companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
-            ruleGlAccountDefaultVatCode: ruleGlAccountId
-              ? ruleAccountVatDefaults.get(ruleGlAccountId) ?? null : null,
+            ruleGlAccountVatDenied: ruleGlAccountId
+              ? ruleAccountVatDenied.get(ruleGlAccountId) ?? false : false,
             bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
             supplierName, customerName,
           }));
@@ -248,6 +252,7 @@ export async function applyRules(
         if (outcome.kind === 'closed_period') { autoPostSkippedClosedPeriod++; continue; }
 
         entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
+        if (outcome.vatDenied) autoPostVatDenied++;
         totalApplied++;
       }
     }
@@ -276,6 +281,7 @@ export async function applyRules(
         autoPostSkippedRaced,
         autoPostSkippedLocked,
         autoPostTruncatedRules,
+        autoPostVatDenied,
       },
       'accounting',
     );
@@ -289,6 +295,7 @@ export async function applyRules(
       autoPostSkippedRaced,
       autoPostSkippedLocked,
       autoPostTruncatedRules,
+      autoPostVatDenied,
     };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');

@@ -16,7 +16,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
-import { applyVatDenial, fetchDefaultVatCodes } from '../gl/inputVatDenial';
+
 
 type Row = DbRow;
 
@@ -102,24 +102,20 @@ export async function allocateTransaction(
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
 
-  // s17(2)(a): an entertainment account denies input tax whatever the caller
-  // asked for. Resolved BEFORE the split arithmetic below so the GROSS amount
-  // lands on the expense account and no VAT Input line is built at all.
+  // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
+  // whoever chose this vat code that an entertainment account normally denies
+  // input tax, and s17(2)(a)(i) means only they know whether the proviso applies
+  // to their business. So the caller's choice stands here — nothing is coerced.
+  // The unattended rule sweep is the one path that coerces; see autoPostRuleLine.
   //
-  // The account row is read here rather than in the branch below because the
-  // branch needed it anyway — the denial costs no extra round trip, and no
-  // caller's query sequence changes.
+  // The account row is still read up front because the branch below needs it.
   const contraRows = (allocType === 'account' && contraAccountId)
     ? (await sql`
-        SELECT account_code, account_name, default_vat_code FROM gl_accounts
+        SELECT account_code, account_name FROM gl_accounts
         WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID
       `) as Row[]
     : [];
-  const { vatCode: effectiveVatCode } = applyVatDenial(
-    contraRows[0]?.default_vat_code as string | undefined, vatCode,
-    { companyId, bankTxId, allocType, glAccountId: contraAccountId,
-      accountCode: contraRows[0]?.account_code, accountName: contraRows[0]?.account_name },
-  );
+  const effectiveVatCode = vatCode;
 
   const hasVat = effectiveVatCode === 'standard';
   const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
@@ -405,21 +401,11 @@ export async function splitAllocateTransaction(
   const entryDesc = String(tx.description || 'Split bank allocation');
   const journalLines: JournalLineInput[] = [];
 
-  // Each split leg lands on its own account, so each is judged separately — one
-  // leg to Staff Welfare is denied while another to Computer Expenses is not —
-  // but all the accounts are fetched in ONE query, not one per leg.
-  // Skipped entirely when no leg asks for VAT: there is nothing to deny, and a
-  // split of plain 'none' legs stays exactly one query as it was.
-  const lineVatDefaults = lines.some((l) => l.vatCode === 'standard')
-    ? await fetchDefaultVatCodes(companyId, lines.map((l) => l.contraAccountId))
-    : new Map<string, string | null>();
-
   for (const line of lines) {
     const lineAmount = Number(line.amount);
-    const { vatCode: lineVatCode } = applyVatDenial(
-      lineVatDefaults.get(line.contraAccountId), line.vatCode,
-      { companyId, bankTxId, split: true, glAccountId: line.contraAccountId },
-    );
+    // Attended path, same as allocateTransaction: the split modal warned, the
+    // user chose. Not coerced here.
+    const lineVatCode = line.vatCode;
     const hasVat = lineVatCode === 'standard';
     const netAmount = hasVat ? Math.round((lineAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : lineAmount;
     const vatAmount = hasVat ? Math.round((lineAmount - netAmount) * 100) / 100 : 0;

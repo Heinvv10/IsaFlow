@@ -21,7 +21,7 @@ import { applyVatDenial, resolveVatCodeForAccount } from '../gl/inputVatDenial';
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
 export type AutoPostOutcome =
-  | { kind: 'posted'; journalEntryId: string }
+  | { kind: 'posted'; journalEntryId: string; vatDenied: boolean }
   /** The row was allocated (or removed) between the candidate query and the lock. */
   | { kind: 'raced' }
   /** Its date falls in a closed/locked period - re-open the period to post it. */
@@ -37,11 +37,11 @@ export interface AutoPostLineInput {
   /** The rule row being applied. */
   rule: Record<string, unknown>;
   /**
-   * `default_vat_code` of `ruleGlAccountId`, resolved ONCE per sweep by the
+   * `vat_input_denied` for `ruleGlAccountId`, resolved ONCE per sweep by the
    * caller. A sweep posts hundreds of lines against a handful of rule accounts,
    * so reading it here would be one redundant SELECT per transaction.
    */
-  ruleGlAccountDefaultVatCode?: string | null;
+  ruleGlAccountVatDenied?: boolean;
   ruleName: string;
   allocType: RuleAllocType;
   ruleGlAccountId: string | null;
@@ -101,10 +101,10 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // omits it (undefined, as opposed to an explicit null meaning "no default")
   // gets the lookup done here instead: this guard is a statutory one, and a
   // caller forgetting to pass an argument must not silently turn it off.
-  const { vatCode } = allocType !== 'account'
-    ? { vatCode: requestedVatCode }
-    : input.ruleGlAccountDefaultVatCode !== undefined
-      ? applyVatDenial(input.ruleGlAccountDefaultVatCode, requestedVatCode, denialContext)
+  const { vatCode, denied: vatDenied } = allocType !== 'account'
+    ? { vatCode: requestedVatCode, denied: false }
+    : input.ruleGlAccountVatDenied !== undefined
+      ? applyVatDenial(input.ruleGlAccountVatDenied, requestedVatCode, denialContext)
       : await resolveVatCodeForAccount(companyId, ruleGlAccountId, requestedVatCode, denialContext);
   const hasVat = vatCode === 'standard';
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
@@ -191,7 +191,7 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     `;
   }
 
-  return { kind: 'posted', journalEntryId: je.id };
+  return { kind: 'posted', journalEntryId: je.id, vatDenied };
 }
 
 /** "<code> <name>" for a GL account, or null when the rule carries no account. */

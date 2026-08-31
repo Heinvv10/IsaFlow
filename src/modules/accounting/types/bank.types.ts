@@ -253,6 +253,14 @@ export interface RuleApplyResult {
    */
   autoPostSkippedRaced?: number;
   /**
+   * Number of lines this sweep posted GROSS because the rule asked to claim
+   * input tax against an account flagged `vat_input_denied` (s17(2)(a)
+   * entertainment). The line still posts — only the claim is dropped. Reported
+   * because a rule set to claim on an entertainment account is a configuration
+   * mistake, and leaving it silent is how R43,008.01 accumulated unnoticed.
+   */
+  autoPostVatDenied?: number;
+  /**
    * Number of auto-post attempts skipped because another request held the
    * transaction's row lock for longer than the 5s timeout. Retryable: nothing
    * was posted for these, and a re-run picks them up.

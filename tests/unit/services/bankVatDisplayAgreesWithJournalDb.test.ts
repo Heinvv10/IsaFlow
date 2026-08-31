@@ -129,15 +129,18 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
       expect(standard.screenVatCode).toBe('standard');
       expect(standard.screenVatAmount).toBeCloseTo(150.0, 2);
 
-      // 3. s17(2)(a): an account marked default_vat_code = 'none' denies input
-      //    tax, so a caller asking for 'standard' gets the gross amount — and
-      //    the screen reports 'none' because that is what was posted.
+      // 3. s17(2)(a) is ADVISORY on the attended path. The screen warns, but the
+      //    proviso in s17(2)(a)(i) lets a vendor who continuously supplies
+      //    entertainment claim the tax, and only the user knows whether that is
+      //    them — so a deliberate 'standard' here MUST still post, and the
+      //    column must report what posted. Coercing the user's choice would be
+      //    the same "screen disagrees with the journal" defect in reverse.
       const { rows: denied } = await client.query<{ id: string }>(
         `INSERT INTO gl_accounts
            (company_id, account_code, account_name, account_type, account_subtype,
-            normal_balance, default_vat_code, is_active)
+            normal_balance, default_vat_code, vat_input_denied, is_active)
          VALUES ($1, $2, 'Staff Welfare (test)', 'expense', 'operating_expense',
-                 'debit', 'none', true)
+                 'debit', 'none', true, true)
          RETURNING id`,
         [fixture.companyId, `ZZTEST-${Date.now()}`],
       );
@@ -145,8 +148,9 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
 
       const entertainment = await allocateAndRead(
         client, fixture, await insert(), deniedAccountId, 'standard');
-      expect(entertainment.vatLineTotal).toBe(0);
-      expect(entertainment.screenVatCode).toBe('none');
+      expect(entertainment.vatLineTotal,
+        'the attended path must honour a deliberate claim').toBeCloseTo(150.0, 2);
+      expect(entertainment.screenVatCode).toBe('standard');
 
       // 3b. A denial bites on 'standard' ONLY. s17(2)(a) denies input tax; it
       //     does not un-zero-rate a supply, and gl_journal_lines.vat_type feeds
@@ -157,10 +161,11 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
       expect(zeroRated.vatLineTotal, 'zero-rated claims no input tax').toBe(0);
       expect(zeroRated.screenVatCode, 'zero-rated survives the denial').toBe('zero_rated');
 
-      // 4. The RULE auto-post path — the one that actually claimed the money.
-      //    Its rules carried vat_code='standard' against Staff Welfare and it
-      //    honoured them. It must now reach the same answer as the screen, so
-      //    the two paths cannot disagree about one account again.
+      // 4. The RULE auto-post path — UNATTENDED, and so the one place the flag
+      //    actually overrides. Nobody sees a warning on a schedule, so a rule
+      //    left on vat_code='standard' against an entertainment account posts
+      //    GROSS and reports it, rather than claiming on every future charge.
+      //    This is deliberately the OPPOSITE of case 3.
       const ruleTxId = await insert();
       const { rows: ruleTxRows } = await client.query(
         'SELECT * FROM bank_transactions WHERE id = $1', [ruleTxId]);
@@ -181,6 +186,8 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
         }),
       );
       expect(outcome.kind, 'rule line must post, not skip').toBe('posted');
+      expect((outcome as { vatDenied: boolean }).vatDenied,
+        'the coercion must be reported, not silent').toBe(true);
 
       const { rows: ruleVat } = await client.query<{ total: string }>(
         `SELECT COALESCE(SUM(ABS(COALESCE(jl.debit,0)) + ABS(COALESCE(jl.credit,0))), 0) AS total
@@ -209,7 +216,7 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
           ruleName: 'Staff Welfare (test) rule, batched',
           allocType: 'account',
           ruleGlAccountId: deniedAccountId,
-          ruleGlAccountDefaultVatCode: 'none',
+          ruleGlAccountVatDenied: true,
           bankGlAccountId: fixture.bankAccountId,
           apAccountId: null,
           arAccountId: null,
@@ -265,7 +272,7 @@ describe('bank screen VAT column agrees with the posted journal', async () => {
         .toBeCloseTo(150.0, 2);
 
       await client.query(
-        `UPDATE gl_accounts SET default_vat_code = 'none' WHERE id = $1`, [nullSubAccountId]);
+        `UPDATE gl_accounts SET vat_input_denied = true WHERE id = $1`, [nullSubAccountId]);
 
       const sweep2 = await als.run(ctxFor(client, fixture.companyId), () =>
         findVatAllocationMismatches(fixture.companyId, { limit: 5000 }),

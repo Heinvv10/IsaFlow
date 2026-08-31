@@ -262,9 +262,9 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleRowEntityChange = (txId: string, entityId: string, label: string) => {
     const type = rowSelections[txId]?.type || 'account';
     const acct = type === 'account' && entityId ? glAccounts.find(g => g.id === entityId) : null;
-    // An account whose default is 'none' DENIES input tax (s17(2)(a)); the
-    // server coerces a standard claim against it. Carrying a stale 'standard'
-    // over from a suggestion would show a claim that never posts.
+    // An account flagged vat_input_denied still only DEFAULTS to none — the
+    // table warns and the user may override. Its default_vat_code is what
+    // decides the starting value, exactly as for any other account.
     const vatCode = (acct?.defaultVatCode === 'none' ? 'none'
       : acct?.defaultVatCode ? acct.defaultVatCode
       : (rowSelections[txId]?.vatCode || 'none')) as VatCode;

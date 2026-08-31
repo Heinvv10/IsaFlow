@@ -74,10 +74,10 @@ export function useBankTxRefData(setters: Setters): { refreshBankAccounts: () =>
       if (bankList.length > 0) setSelectedBank(prev => prev || bankList[0]!.id);
 
       const coaRaw = coaJson?.data ?? coaJson;
-      const coaList: Array<SelectOption & { accountSubtype?: string; accountCode?: string; accountName?: string; defaultVatCode?: string }> = Array.isArray(coaRaw) ? coaRaw : [];
+      const coaList: Array<SelectOption & { accountSubtype?: string; accountCode?: string; accountName?: string; defaultVatCode?: string; vatInputDenied?: boolean }> = Array.isArray(coaRaw) ? coaRaw : [];
       setGlAccounts(coaList
         .filter(a => a.accountSubtype !== 'bank')
-        .map(a => ({ id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name, defaultVatCode: a.defaultVatCode }))
+        .map(a => ({ id: a.id, code: a.accountCode || a.code, name: a.accountName || a.name, defaultVatCode: a.defaultVatCode, vatInputDenied: a.vatInputDenied }))
       );
 
       const suppD = suppJson?.data ?? suppJson;

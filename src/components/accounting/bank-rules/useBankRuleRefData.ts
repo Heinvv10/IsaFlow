@@ -13,6 +13,8 @@ export interface RefAccount {
   accountCode: string;
   accountName: string;
   defaultVatCode?: string;
+  /** VAT Act s17(2)(a): input tax on this account is denied (entertainment). */
+  vatInputDenied?: boolean;
 }
 
 export interface RefBankAccount {
@@ -80,6 +82,7 @@ export function useBankRuleRefData(): BankRuleRefData {
         accountCode: String(a.accountCode || a.account_code || ''),
         accountName: String(a.accountName || a.account_name || ''),
         defaultVatCode: String(a.defaultVatCode || a.default_vat_code || 'none'),
+        vatInputDenied: Boolean(a.vatInputDenied ?? a.vat_input_denied),
       })));
     }, pushErr);
 
