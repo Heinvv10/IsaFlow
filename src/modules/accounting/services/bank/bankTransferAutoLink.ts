@@ -86,6 +86,12 @@ export async function autoLinkCounterpartyTransfer(input: TransferAutoLinkInput)
             counterparty_account_id = ${bankAccountId}::UUID,
             transfer_journal_entry_id = ${journalEntryId}::UUID,
             allocated_entity_name = ${allocatedEntityName},
+            -- Clearing these is redundant today (the WHERE is status='imported',
+            -- which a rule-posted row can never be) but keeps every writer of
+            -- allocated_entity_name symmetrical: the next reuse of this UPDATE on
+            -- an already-allocated row would otherwise leave a stale rule label
+            -- beside a freshly rewritten account.
+            allocation_rule_id = NULL, allocation_rule_name = NULL,
             updated_at = NOW(),
             allocation_batch_id = NULL
         WHERE id = ${cpTxId}::UUID

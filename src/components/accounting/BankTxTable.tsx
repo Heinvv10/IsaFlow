@@ -9,6 +9,7 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus, Clock, MessageCircle } from 'lucide-react';
 import { useBankTxKeyboardNav } from '@/components/accounting/useBankTxKeyboardNav';
+import { AllocatedAccountCell } from './BankTxAllocatedAccountCell';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
 export type VatCode = 'none' | 'standard' | 'zero_rated' | 'exempt';
@@ -53,7 +54,14 @@ export interface BankTx {
   buName?: string;
   /** Allocation tracking — populated for matched/reconciled transactions */
   allocationType?: AllocType;
+  /** Resolved from the posted journal: "<code> <account name>". */
   allocatedEntityName?: string;
+  allocatedAccountCode?: string;
+  allocatedAccountName?: string;
+  /** Name of the categorisation rule that auto-posted this row, if any. */
+  allocationRuleName?: string;
+  /** Supplier / customer / transfer counterparty recorded at allocation time. */
+  allocatedCounterpartyName?: string;
   /** PRD-05 Phase 5: provisional journal entry id (status = 'provisional') */
   provisionalJeId?: string | null;
   /** PRD-05 Phase 5: true when the provisional JE has no attached evidence yet */
@@ -277,6 +285,10 @@ export function BankTxTable(props: Props) {
               <th className={`${TH} w-36`}>Notes</th>
               <th className={`${TH} w-24`}>Type</th>
               <th className={`${TH} w-52`}>Selection</th>
+              {/* Always rendered. Deriving its presence from the loaded rows made the
+                  column appear and vanish between pages depending on which rows
+                  happened to be rule-allocated. */}
+              <th className={`${TH} w-32`}>Rule</th>
               <th className={`${TH} w-24`}>VAT</th>
               {showCC && <th className={`${TH} w-24`}>CC1</th>}
               {showCC && <th className={`${TH} w-24`}>CC2</th>}
@@ -482,15 +494,14 @@ export function BankTxTable(props: Props) {
                         )}
                       </>
                     ) : (
-                      <span className={`text-xs truncate max-w-[200px] block ${
-                        (tx.allocationType) === 'supplier' ? 'text-blue-400'
-                        : (tx.allocationType) === 'customer' ? 'text-purple-400'
-                        : (tx.allocationType) === 'transfer' ? 'text-orange-400'
-                        : 'text-teal-400'
-                      }`} title={tx.allocatedEntityName || sel?.label || 'Allocated'}>
-                        {tx.allocatedEntityName || sel?.label || 'Allocated'}
-                      </span>
+                      <AllocatedAccountCell tx={tx} fallbackLabel={sel?.label} />
                     )}
+                  </td>
+                  <td className="py-2 px-2">
+                    <span className="text-xs text-[var(--ff-text-tertiary)] truncate max-w-[120px] block"
+                      title={tx.allocationRuleName || ''}>
+                      {tx.allocationRuleName || '—'}
+                    </span>
                   </td>
                   <td className="py-2 px-2">
                     {sel?.type === 'supplier' || sel?.type === 'customer' || sel?.type === 'transfer' ? (

@@ -99,7 +99,8 @@ export async function unmatchTransaction(companyId: string, bankTxId: string): P
     const rows = (await sql`
       UPDATE bank_transactions
       SET status = 'imported', matched_journal_line_id = NULL,
-          allocation_type = NULL, allocated_entity_name = NULL
+          allocation_type = NULL, allocated_entity_name = NULL,
+          allocation_rule_id = NULL, allocation_rule_name = NULL
       WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
     if (rows.length === 0) throw new Error(`Bank transaction ${bankTxId} not found`);
     log.info('Unmatched bank transaction', { bankTxId }, 'accounting');

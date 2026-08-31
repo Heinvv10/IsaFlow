@@ -83,7 +83,26 @@ export interface BankTransaction {
   buName?: string;
   // Allocation tracking — populated when status is matched/reconciled
   allocationType?: 'account' | 'supplier' | 'customer' | 'transfer';
+  /**
+   * The GL account the money actually landed in, as "<code> <name>", resolved
+   * from the posted journal — NOT the cached bank_transactions label, which the
+   * rule auto-post path used to fill with the rule's name.
+   */
   allocatedEntityName?: string;
+  /** Resolved GL account code of the contra line (absent if the journal is gone). */
+  allocatedAccountCode?: string;
+  /** Resolved GL account name of the contra line. */
+  allocatedAccountName?: string;
+  /** Name of the categorisation rule that auto-posted this row, if any. */
+  allocationRuleName?: string;
+  /** Id of the categorisation rule that auto-posted this row, if any. */
+  allocationRuleId?: string;
+  /**
+   * Supplier / customer / transfer counterparty label as stored at allocation
+   * time. Kept separate from the account so one column never carries two
+   * different kinds of value again.
+   */
+  allocatedCounterpartyName?: string;
   /** For allocationType = 'transfer': the GL account id of the other bank account. */
   counterpartyAccountId?: string;
   /** For allocationType = 'transfer': the single balanced JE id shared by both legs. */
