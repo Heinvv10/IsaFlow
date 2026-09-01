@@ -27,7 +27,7 @@ export function AccountRow({
   account: GLAccount;
   level: number;
   viewMode: string;
-  onUpdate: (id: string, data: { accountName: string; description: string; defaultVatCode: string }) => Promise<void>;
+  onUpdate: (id: string, data: { accountName: string; description: string; defaultVatCode: string; vatInputDenied: boolean }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onCodeChanged?: () => Promise<void> | void;
 }) {
@@ -35,6 +35,7 @@ export function AccountRow({
   const [editName, setEditName] = useState(account.accountName);
   const [editDesc, setEditDesc] = useState(account.description || '');
   const [editVatCode, setEditVatCode] = useState<string>(account.defaultVatCode || 'none');
+  const [editVatDenied, setEditVatDenied] = useState<boolean>(Boolean(account.vatInputDenied));
   const [isSaving, setIsSaving] = useState(false);
 
   const [isEditingCode, setIsEditingCode] = useState(false);
@@ -55,7 +56,10 @@ export function AccountRow({
 
   const handleSave = async () => {
     setIsSaving(true);
-    await onUpdate(account.id, { accountName: editName, description: editDesc, defaultVatCode: editVatCode });
+    await onUpdate(account.id, {
+      accountName: editName, description: editDesc,
+      defaultVatCode: editVatCode, vatInputDenied: editVatDenied,
+    });
     setIsSaving(false);
     setIsEditing(false);
   };
@@ -64,6 +68,7 @@ export function AccountRow({
     setEditName(account.accountName);
     setEditDesc(account.description || '');
     setEditVatCode(account.defaultVatCode || 'none');
+    setEditVatDenied(Boolean(account.vatInputDenied));
     setIsEditing(false);
   };
 
@@ -153,12 +158,37 @@ export function AccountRow({
                 <option value="zero_rated">Zero Rated</option>
                 <option value="exempt">Exempt</option>
               </select>
+              {/* Separate from the default above on purpose: an account can
+                  DEFAULT to No VAT and still allow a standard claim (Insurance
+                  Expense does). This says the claim itself is denied. */}
+              <label className="flex items-start gap-1.5 text-[11px] text-[var(--ff-text-secondary)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editVatDenied}
+                  onChange={e => setEditVatDenied(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Input VAT denied (entertainment, s17(2)(a))
+                  <span className="block text-[var(--ff-text-tertiary)]">
+                    Warns before claiming, and stops bank rules claiming automatically.
+                  </span>
+                </span>
+              </label>
             </div>
           ) : (
             <div style={{ paddingLeft: indent }}>
               <span>{account.accountName}</span>
               {!account.isActive && <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-500/20 text-gray-600 dark:text-gray-400">Inactive</span>}
               {account.description && <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">{account.description}</p>}
+              {account.vatInputDenied && (
+                <span
+                  className="mt-0.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                  title="VAT Act s17(2)(a) — input tax on entertainment is denied. Bank rules will not claim it automatically."
+                >
+                  Input VAT denied
+                </span>
+              )}
             </div>
           )}
         </td>

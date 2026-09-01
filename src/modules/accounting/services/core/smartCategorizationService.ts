@@ -62,7 +62,8 @@ export async function categorizeBankTransaction(companyId: string,
 
   // Load patterns (global learned + company-scoped preferred)
   const patterns = await sql`
-    SELECT cp.*, ga.account_code AS gl_account_code, ga.account_name AS gl_account_name
+    SELECT cp.*, ga.account_code AS gl_account_code, ga.account_name AS gl_account_name,
+           ga.default_vat_code
     FROM categorization_patterns cp
     LEFT JOIN gl_accounts ga ON ga.id = cp.gl_account_id
     WHERE cp.company_id = ${companyId}::uuid OR cp.company_id IS NULL
@@ -106,7 +107,8 @@ export async function bulkCategorize(companyId: string,
 
   // 3. Pre-load all patterns ONCE (prefer company-scoped, fall back to global)
   const patterns = (await sql`
-    SELECT cp.*, ga.account_code AS gl_account_code, ga.account_name AS gl_account_name
+    SELECT cp.*, ga.account_code AS gl_account_code, ga.account_name AS gl_account_name,
+           ga.default_vat_code
     FROM categorization_patterns cp
     LEFT JOIN gl_accounts ga ON ga.id = cp.gl_account_id
     WHERE cp.company_id = ${companyId}::uuid OR cp.company_id IS NULL

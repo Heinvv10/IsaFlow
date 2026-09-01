@@ -81,6 +81,15 @@ export interface BankTransaction {
   cc1Name?: string;
   cc2Name?: string;
   buName?: string;
+  /**
+   * VAT treatment derived from the POSTED JOURNAL, not from the suggestion
+   * columns — which the rule auto-post path NULLs on allocation, leaving the
+   * screen to render "No VAT" over an entry that claimed input tax at 15%.
+   * Present only for rows with a matched journal line.
+   */
+  postedVatCode?: 'none' | 'standard' | 'zero_rated' | 'exempt';
+  /** Input/output tax actually posted, in rands. 0 when no VAT line exists. */
+  postedVatAmount?: number;
   // Allocation tracking — populated when status is matched/reconciled
   allocationType?: 'account' | 'supplier' | 'customer' | 'transfer';
   /**
@@ -243,6 +252,14 @@ export interface RuleApplyResult {
    * kind of thing that reads as "rules aren't working".
    */
   autoPostSkippedRaced?: number;
+  /**
+   * Number of lines this sweep posted GROSS because the rule asked to claim
+   * input tax against an account flagged `vat_input_denied` (s17(2)(a)
+   * entertainment). The line still posts — only the claim is dropped. Reported
+   * because a rule set to claim on an entertainment account is a configuration
+   * mistake, and leaving it silent is how R43,008.01 accumulated unnoticed.
+   */
+  autoPostVatDenied?: number;
   /**
    * Number of auto-post attempts skipped because another request held the
    * transaction's row lock for longer than the 5s timeout. Retryable: nothing

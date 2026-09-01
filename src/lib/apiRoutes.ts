@@ -37,6 +37,7 @@
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
+import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -52,6 +53,7 @@ interface StaticRoutes {
   '/api/accounting/currencies': Currency[];
   '/api/accounting/migration/session': { session: MigrationSession | null };
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
+  '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;
 }
 
 /**

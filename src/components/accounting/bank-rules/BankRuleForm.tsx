@@ -26,6 +26,8 @@ export interface GLAccountOption {
   accountCode: string;
   accountName: string;
   defaultVatCode?: string;
+  /** VAT Act s17(2)(a): input tax on this account is denied (entertainment). */
+  vatInputDenied?: boolean;
 }
 
 interface BankRuleFormProps {
@@ -53,6 +55,9 @@ export function BankRuleForm({
   onSubmit,
   onCancel,
 }: BankRuleFormProps) {
+  const vatWarn = form.vatCode === 'standard'
+    && accounts.find(a => a.id === form.glAccountId)?.vatInputDenied === true;
+
   return (
     <form
       onSubmit={onSubmit}
@@ -164,17 +169,29 @@ export function BankRuleForm({
           <option value="">No Customer (optional)</option>
           {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <select
-          value={form.vatCode}
-          onChange={e => setForm(f => ({ ...f, vatCode: e.target.value }))}
-          className="ff-select"
-          aria-label="VAT code"
-        >
-          <option value="">No VAT</option>
-          <option value="standard">Standard 15%</option>
-          <option value="zero_rated">Zero Rated</option>
-          <option value="exempt">Exempt</option>
-        </select>
+        <div>
+          <select
+            value={form.vatCode}
+            onChange={e => setForm(f => ({ ...f, vatCode: e.target.value }))}
+            className={`ff-select ${vatWarn ? 'border-amber-500 text-amber-500' : ''}`}
+            aria-label="VAT code"
+          >
+            <option value="">No VAT</option>
+            <option value="standard">Standard 15%</option>
+            <option value="zero_rated">Zero Rated</option>
+            <option value="exempt">Exempt</option>
+          </select>
+          {/* This form produced all 37 rules that claimed input tax on
+              restaurants routed to Staff Welfare. A rule runs unattended, so
+              the sweep will post gross regardless — say so here rather than
+              letting the user save a rule that will not do what it says. */}
+          {vatWarn && (
+            <p className="mt-1 text-[11px] leading-tight text-amber-500">
+              ⚠ Entertainment account — input tax is denied (s17(2)(a)). Rules run
+              unattended, so this rule will post the gross amount and report it.
+            </p>
+          )}
+        </div>
         <input
           value={form.descriptionTemplate}
           onChange={e => setForm(f => ({ ...f, descriptionTemplate: e.target.value }))}

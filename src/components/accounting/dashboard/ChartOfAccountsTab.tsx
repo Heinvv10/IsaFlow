@@ -132,7 +132,7 @@ export function ChartOfAccountsTab() {
     }
   };
 
-  const handleUpdateAccount = async (id: string, data: { accountName: string; description: string; defaultVatCode: string }) => {
+  const handleUpdateAccount = async (id: string, data: { accountName: string; description: string; defaultVatCode: string; vatInputDenied: boolean }) => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id, ...data }) });
       if (!res.ok) { const errData = await res.json(); throw new Error(errData.message || 'Failed to update account'); }

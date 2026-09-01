@@ -169,6 +169,12 @@ export interface GLAccount {
   bankAccountNumber?: string;
   /** Default VAT treatment for transactions posted to this account */
   defaultVatCode?: 'none' | 'standard' | 'zero_rated' | 'exempt';
+  /**
+   * VAT Act s17(2)(a): input tax on this account is denied (entertainment).
+   * Distinct from defaultVatCode, which only says what to default to — an
+   * account can default to 'none' and still allow a standard claim.
+   */
+  vatInputDenied?: boolean;
   createdAt: string;
   updatedAt: string;
   // Tree display

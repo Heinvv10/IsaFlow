@@ -4,6 +4,7 @@
  * bank_transactions as each Haiku call settles. Re-runnable + idempotent.
  */
 import { sql } from '@/lib/neon';
+import { resolveVatCodeForAccount } from '../gl/inputVatDenial';
 import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { runWithConcurrency } from '@/lib/bulkUpload/concurrencyQueue';
@@ -213,11 +214,18 @@ export async function persistLlmResult(
   txId: string,
   r: LlmCatResult,
 ): Promise<void> {
+  // The model happily proposes 'standard' for a restaurant routed to Staff
+  // Welfare. The posting paths would coerce it, but a suggestion that says
+  // "Standard 15%" and then posts nothing is its own lie — resolve it here so
+  // the screen shows what will actually happen.
+  const { vatCode } = await resolveVatCodeForAccount(
+    companyId, r.glAccountId, r.vatCode, { txId, strategy: 'llm' },
+  );
   await sql`
     UPDATE bank_transactions
     SET suggested_gl_account_id = ${r.glAccountId},
         suggested_confidence    = ${r.confidence},
-        suggested_vat_code      = ${r.vatCode ?? null},
+        suggested_vat_code      = ${vatCode},
         suggested_strategy      = 'llm',
         updated_at              = NOW()
     WHERE id = ${txId}::UUID

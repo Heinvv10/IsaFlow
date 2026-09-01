@@ -6,6 +6,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { extractLearningPattern } from './smartCategorizationMatchingService';
+import { resolveVatCodeForAccount } from '../gl/inputVatDenial';
 import type { DbRow } from '@/types/db';
 
 
@@ -31,6 +32,15 @@ export async function learnFromAllocation(
     const pattern = extractLearningPattern(description);
     if (!pattern || pattern.length < 3) return;
 
+    // `vatCode || 'standard'` was the default here. Learning a restaurant into
+    // Staff Welfare therefore minted a pattern claiming input tax on
+    // entertainment, which the rule auto-post path then honoured on every
+    // future charge. Absent a code, learn 'none' — never invent a claim — and
+    // let the account's own denial override an explicit 'standard'.
+    const { vatCode: learnedVatCode } = await resolveVatCodeForAccount(
+      companyId, glAccountId, vatCode || 'none', { learningPattern: pattern },
+    );
+
     const existing = (await sql`
       SELECT id, usage_count FROM categorization_patterns
       WHERE UPPER(pattern) = ${pattern.toUpperCase()}
@@ -47,7 +57,7 @@ export async function learnFromAllocation(
         UPDATE categorization_patterns
         SET gl_account_id = ${glAccountId}::UUID,
             category = ${category},
-            vat_code = ${vatCode || 'standard'},
+            vat_code = ${learnedVatCode},
             usage_count = ${newCount},
             confidence = ${newConfidence},
             last_used_at = NOW()
@@ -61,7 +71,7 @@ export async function learnFromAllocation(
           INSERT INTO categorization_patterns
             (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source, company_id)
           VALUES
-            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${vatCode || 'standard'}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
+            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned', ${companyId}::uuid)
         `;
       } catch {
         // Fallback without company_id if column doesn't exist
@@ -69,7 +79,7 @@ export async function learnFromAllocation(
           INSERT INTO categorization_patterns
             (pattern, match_type, gl_account_id, category, vat_code, confidence, usage_count, last_used_at, source)
           VALUES
-            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${vatCode || 'standard'}, 0.65, 1, NOW(), 'learned')
+            (${pattern}, 'contains', ${glAccountId}::UUID, ${category}, ${learnedVatCode}, 0.65, 1, NOW(), 'learned')
         `;
       }
     }
