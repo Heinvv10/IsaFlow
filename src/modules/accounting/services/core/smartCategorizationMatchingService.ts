@@ -125,7 +125,14 @@ export function matchAgainstPatternsInMemory(
         glAccountCode: p.gl_account_code ? String(p.gl_account_code) : undefined,
         glAccountName: p.gl_account_name ? String(p.gl_account_name) : undefined,
         category: p.category ? String(p.category) : undefined,
-        vatCode:  String(p.vat_code || 'standard'),
+        // 'standard' was the fallback here, so a pattern row with no vat_code
+        // suggested a 15% input claim on any account it matched — that is how
+        // restaurants routed to Staff Welfare kept regenerating a denied claim.
+        // Flipping the constant to 'none' only moves the invention: a legacy
+        // row with no code would then under-claim a genuinely standard-rated
+        // supplier. Neither constant is evidence, so fall back to what the
+        // TARGET ACCOUNT says, and only then to 'none'.
+        vatCode:  normalisePatternVatCode(p.vat_code, p.default_vat_code),
         confidence,
         confidenceLevel: toConfidenceLevel(confidence),
         matchSource: 'pattern',
@@ -134,6 +141,25 @@ export function matchAgainstPatternsInMemory(
     }
   }
   return null;
+}
+
+/**
+ * A pattern's stored vat code, normalised.
+ *
+ * `'zero'` is legacy data (3 rows in production) that no consumer understands:
+ * it is outside the `none|standard|zero_rated|exempt` union, so it fell through
+ * every branch and behaved as 'none' while claiming to be something else. It
+ * plainly means zero-rated.
+ */
+export function normalisePatternVatCode(
+  patternVatCode: unknown,
+  accountDefaultVatCode: unknown,
+): string {
+  const raw = String(patternVatCode ?? '').trim();
+  if (raw === 'zero') return 'zero_rated';
+  if (raw) return raw;
+  const fromAccount = String(accountDefaultVatCode ?? '').trim();
+  return fromAccount === 'zero' ? 'zero_rated' : (fromAccount || 'none');
 }
 
 // ── Strategy 3: Bulk historical lookup ─────────────────────────────────────

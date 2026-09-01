@@ -8,6 +8,44 @@
  */
 import type { BankTxFilters } from './bankTxFilters';
 
+// The screen's VAT column rendered `rowSelections[tx.id]?.vatCode`, seeded only
+// from bt.suggested_vat_code — which the rule auto-post path NULLs the moment it
+// allocates. Every rule-allocated row therefore fell through to 'none' and read
+// "No VAT" while its journal had claimed input tax at 15%: R43,022.36 on one
+// company's Staff Welfare alone, invisible on the one screen a reviewer checks.
+// This derives the treatment from the posted journal, which is the truth.
+//
+// 'standard' is asserted from the PRESENCE OF A VAT-ACCOUNT LINE, not from
+// gl_journal_lines.vat_type: the tax line is what reaches VAT201, and a vat_type
+// left unset on the contra line would otherwise hide a real claim.
+const POSTED_VAT_LATERAL = `
+  SELECT
+    CASE
+      -- The aggregate returns one row even over ZERO journal lines, so without
+      -- this arm an unallocated transaction reported 'none' — indistinguishable
+      -- from one that WAS allocated and genuinely claimed nothing.
+      WHEN COUNT(jl.id) = 0 THEN NULL
+      WHEN SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output')
+                    THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
+                    ELSE 0 END) > 0 THEN 'standard'
+      ELSE COALESCE(
+        MAX(jl.vat_type) FILTER (WHERE jl.vat_type IN ('zero_rated', 'exempt')),
+        'none')
+    END AS posted_vat_code,
+    CASE WHEN COUNT(jl.id) = 0 THEN NULL ELSE
+      SUM(CASE WHEN va.account_subtype IN ('vat_input', 'vat_output')
+               THEN ABS(COALESCE(jl.debit, 0)) + ABS(COALESCE(jl.credit, 0))
+               ELSE 0 END)
+    END AS posted_vat_amount
+  FROM gl_journal_lines mjl
+  JOIN gl_journal_lines jl
+    ON jl.journal_entry_id = mjl.journal_entry_id
+   AND jl.company_id = mjl.company_id
+  LEFT JOIN gl_accounts va ON va.id = jl.gl_account_id AND va.company_id = bt.company_id
+  WHERE mjl.id = bt.matched_journal_line_id
+    AND mjl.company_id = bt.company_id
+`;
+
 // BL-11: Explicit column list replaces bt.* to reduce row width (~1,534→~640 bytes).
 // Every field read by mapTxRow must appear here. Keep in sync with mapTxRow.
 
@@ -79,13 +117,15 @@ export const TX_SELECT = `
     sga.account_name AS suggested_gl_account_name,
     sga.account_code AS suggested_gl_account_code,
     COALESCE(ss.company_name, ss.name) AS suggested_supplier_name,
-    sc.name AS suggested_client_name
+    sc.name AS suggested_client_name,
+    pv.posted_vat_code, pv.posted_vat_amount
   FROM bank_transactions bt
   LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
   LEFT JOIN gl_accounts sga ON sga.id = bt.suggested_gl_account_id
   LEFT JOIN suppliers ss ON ss.id = bt.suggested_supplier_id
   LEFT JOIN customers sc ON sc.id = bt.suggested_client_id
   ${ALLOCATED_ACCOUNT_LATERAL}
+  LEFT JOIN LATERAL (${POSTED_VAT_LATERAL}) pv ON TRUE
 `;
 
 // allocationFilter — same definition as bankAccountStatusService counts (PRD-11 §2):

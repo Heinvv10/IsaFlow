@@ -18,6 +18,8 @@ export interface CreateAccountInput {
   description?: string;
   normalBalance: 'debit' | 'credit';
   defaultVatCode?: 'none' | 'standard' | 'zero_rated' | 'exempt';
+  /** VAT Act s17(2)(a): input tax on this account is denied (entertainment). */
+  vatInputDenied?: boolean;
 }
 
 export interface UpdateAccountInput {
@@ -26,6 +28,8 @@ export interface UpdateAccountInput {
   isActive?: boolean;
   displayOrder?: number;
   defaultVatCode?: 'none' | 'standard' | 'zero_rated' | 'exempt';
+  /** VAT Act s17(2)(a): input tax on this account is denied (entertainment). */
+  vatInputDenied?: boolean;
 }
 
 interface AccountTreeNode extends GLAccount {
@@ -252,11 +256,13 @@ export async function createAccount(companyId: string, input: CreateAccountInput
     const rows = await sql`
       INSERT INTO gl_accounts (
         company_id, account_code, account_name, account_type, account_subtype,
-        parent_account_id, description, normal_balance, level
+        parent_account_id, description, normal_balance, level,
+        default_vat_code, vat_input_denied
       ) VALUES (
         ${companyId}, ${input.accountCode}, ${input.accountName}, ${input.accountType},
         ${input.accountSubtype || null}, ${input.parentAccountId || null},
-        ${input.description || null}, ${input.normalBalance}, ${level}
+        ${input.description || null}, ${input.normalBalance}, ${level},
+        ${input.defaultVatCode || null}, ${input.vatInputDenied ?? false}
       )
       RETURNING *
     `;
@@ -341,7 +347,8 @@ export async function updateAccount(companyId: string, id: string, input: Update
         description = COALESCE(${input.description ?? null}, description),
         is_active = COALESCE(${input.isActive ?? null}, is_active),
         display_order = COALESCE(${input.displayOrder ?? null}, display_order),
-        default_vat_code = COALESCE(${input.defaultVatCode || null}, default_vat_code)
+        default_vat_code = COALESCE(${input.defaultVatCode || null}, default_vat_code),
+        vat_input_denied = COALESCE(${input.vatInputDenied ?? null}, vat_input_denied)
       WHERE id = ${id} AND company_id = ${companyId}
       RETURNING *
     `;
@@ -460,6 +467,7 @@ function mapRow(row: any): GLAccount {
     displayOrder: Number(row.display_order),
     bankAccountNumber: row.bank_account_number ? String(row.bank_account_number) : undefined,
     defaultVatCode: (row.default_vat_code || 'none') as GLAccount['defaultVatCode'],
+    vatInputDenied: Boolean(row.vat_input_denied),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     hasTransactions: row.has_transactions !== undefined ? Boolean(row.has_transactions) : undefined,

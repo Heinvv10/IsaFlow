@@ -17,6 +17,7 @@ import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 
+
 type Row = DbRow;
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
@@ -101,14 +102,29 @@ export async function allocateTransaction(
   const txDate = fmtDate(tx.transaction_date);
   const isSpent = Number(tx.amount) < 0;
 
-  const hasVat = vatCode === 'standard';
+  // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
+  // whoever chose this vat code that an entertainment account normally denies
+  // input tax, and s17(2)(a)(i) means only they know whether the proviso applies
+  // to their business. So the caller's choice stands here — nothing is coerced.
+  // The unattended rule sweep is the one path that coerces; see autoPostRuleLine.
+  //
+  // The account row is still read up front because the branch below needs it.
+  const contraRows = (allocType === 'account' && contraAccountId)
+    ? (await sql`
+        SELECT account_code, account_name FROM gl_accounts
+        WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID
+      `) as Row[]
+    : [];
+  const effectiveVatCode = vatCode;
+
+  const hasVat = effectiveVatCode === 'standard';
   const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
   const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
-  const mapVatType = vatCode === 'standard' ? 'standard' as const
-    : vatCode === 'zero_rated' ? 'zero_rated' as const
-    : vatCode === 'exempt' ? 'exempt' as const : undefined;
+  const mapVatType = effectiveVatCode === 'standard' ? 'standard' as const
+    : effectiveVatCode === 'zero_rated' ? 'zero_rated' as const
+    : effectiveVatCode === 'exempt' ? 'exempt' as const : undefined;
 
   let lines: JournalLineInput[];
   let source: import('../../types/gl.types').GLEntrySource;
@@ -202,8 +218,8 @@ export async function allocateTransaction(
     }
   } else {
     if (!contraAccountId) throw new Error('contraAccountId is required for account allocation');
-    const acctRows = (await sql`SELECT account_code, account_name FROM gl_accounts WHERE id = ${contraAccountId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
-    allocEntityName = acctRows.length > 0 ? `${String(acctRows[0]!.account_code)} ${String(acctRows[0]!.account_name)}` : null;
+    allocEntityName = contraRows.length > 0
+      ? `${String(contraRows[0]!.account_code)} ${String(contraRows[0]!.account_name)}` : null;
     entryDesc = description || String(tx.description || 'Bank allocation');
     source = 'auto_bank_recon';
     if (!isSpent) {
@@ -387,14 +403,17 @@ export async function splitAllocateTransaction(
 
   for (const line of lines) {
     const lineAmount = Number(line.amount);
-    const hasVat = line.vatCode === 'standard';
+    // Attended path, same as allocateTransaction: the split modal warned, the
+    // user chose. Not coerced here.
+    const lineVatCode = line.vatCode;
+    const hasVat = lineVatCode === 'standard';
     const netAmount = hasVat ? Math.round((lineAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : lineAmount;
     const vatAmount = hasVat ? Math.round((lineAmount - netAmount) * 100) / 100 : 0;
     const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
     const lineDesc = line.description || entryDesc;
-    const mapVatType = line.vatCode === 'standard' ? 'standard' as const
-      : line.vatCode === 'zero_rated' ? 'zero_rated' as const
-      : line.vatCode === 'exempt' ? 'exempt' as const : undefined;
+    const mapVatType = lineVatCode === 'standard' ? 'standard' as const
+      : lineVatCode === 'zero_rated' ? 'zero_rated' as const
+      : lineVatCode === 'exempt' ? 'exempt' as const : undefined;
     if (isSpent) {
       journalLines.push({ glAccountId: line.contraAccountId, debit: netAmount, credit: 0, description: lineDesc, vatType: mapVatType });
       if (hasVat) {

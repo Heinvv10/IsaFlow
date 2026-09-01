@@ -16,11 +16,12 @@ import {
 } from '../gl/journalEntryService';
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
+import { applyVatDenial, resolveVatCodeForAccount } from '../gl/inputVatDenial';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
 export type AutoPostOutcome =
-  | { kind: 'posted'; journalEntryId: string }
+  | { kind: 'posted'; journalEntryId: string; vatDenied: boolean }
   /** The row was allocated (or removed) between the candidate query and the lock. */
   | { kind: 'raced' }
   /** Its date falls in a closed/locked period - re-open the period to post it. */
@@ -35,6 +36,12 @@ export interface AutoPostLineInput {
   tx: Record<string, unknown>;
   /** The rule row being applied. */
   rule: Record<string, unknown>;
+  /**
+   * `vat_input_denied` for `ruleGlAccountId`, resolved ONCE per sweep by the
+   * caller. A sweep posts hundreds of lines against a handful of rule accounts,
+   * so reading it here would be one redundant SELECT per transaction.
+   */
+  ruleGlAccountVatDenied?: boolean;
   ruleName: string;
   allocType: RuleAllocType;
   ruleGlAccountId: string | null;
@@ -84,7 +91,21 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     : allocType === 'customer' ? `Receipt from ${customerName}`
     : `Bank: ${tx.description || 'Categorised by rule'}`;
 
-  const vatCode = String(rule.vat_code || 'none');
+  // The same resolver the screen's allocateTransaction uses. A rule may not
+  // claim input tax against an account that denies it (s17(2)(a)): every rule
+  // pointing at Staff Welfare carried vat_code='standard', and this path split
+  // each restaurant charge 15% exclusive on the strength of it.
+  const requestedVatCode = String(rule.vat_code || 'none');
+  const denialContext = { companyId, bankTxId: String(tx.id), ruleName, glAccountId: ruleGlAccountId };
+  // The sweep resolves every rule account ONCE and passes it in. A caller that
+  // omits it (undefined, as opposed to an explicit null meaning "no default")
+  // gets the lookup done here instead: this guard is a statutory one, and a
+  // caller forgetting to pass an argument must not silently turn it off.
+  const { vatCode, denied: vatDenied } = allocType !== 'account'
+    ? { vatCode: requestedVatCode, denied: false }
+    : input.ruleGlAccountVatDenied !== undefined
+      ? applyVatDenial(input.ruleGlAccountVatDenied, requestedVatCode, denialContext)
+      : await resolveVatCodeForAccount(companyId, ruleGlAccountId, requestedVatCode, denialContext);
   const hasVat = vatCode === 'standard';
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
@@ -170,7 +191,7 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     `;
   }
 
-  return { kind: 'posted', journalEntryId: je.id };
+  return { kind: 'posted', journalEntryId: je.id, vatDenied };
 }
 
 /** "<code> <name>" for a GL account, or null when the rule carries no account. */

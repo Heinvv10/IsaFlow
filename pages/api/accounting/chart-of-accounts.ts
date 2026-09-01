@@ -42,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'POST') {
     try {
-      const { accountCode, accountName, accountType, accountSubtype, parentAccountId, description, normalBalance, defaultVatCode } = req.body;
+      const { accountCode, accountName, accountType, accountSubtype, parentAccountId, description, normalBalance, defaultVatCode, vatInputDenied } = req.body;
 
       if (!accountCode || !accountName || !accountType || !normalBalance) {
         return apiResponse.badRequest(res, 'accountCode, accountName, accountType, and normalBalance are required');
@@ -57,6 +57,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         description,
         normalBalance,
         defaultVatCode,
+        vatInputDenied: typeof vatInputDenied === 'boolean' ? vatInputDenied : undefined,
       });
 
       return apiResponse.success(res, account);
@@ -69,9 +70,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     try {
-      const { id, accountName, description, isActive, displayOrder, defaultVatCode } = req.body;
+      const { id, accountName, description, isActive, displayOrder, defaultVatCode, vatInputDenied } = req.body;
       if (!id) return apiResponse.badRequest(res, 'id is required');
-      const updated = await updateAccount(companyId, id, { accountName, description, isActive, displayOrder, defaultVatCode });
+      const updated = await updateAccount(companyId, id, {
+        accountName, description, isActive, displayOrder, defaultVatCode,
+        vatInputDenied: typeof vatInputDenied === 'boolean' ? vatInputDenied : undefined,
+      });
       return apiResponse.success(res, updated);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to update account';

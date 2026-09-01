@@ -262,7 +262,12 @@ export function buildBankTxActions(deps: ActionDeps) {
   const handleRowEntityChange = (txId: string, entityId: string, label: string) => {
     const type = rowSelections[txId]?.type || 'account';
     const acct = type === 'account' && entityId ? glAccounts.find(g => g.id === entityId) : null;
-    const vatCode = (acct?.defaultVatCode && acct.defaultVatCode !== 'none' ? acct.defaultVatCode : (rowSelections[txId]?.vatCode || 'none')) as VatCode;
+    // An account flagged vat_input_denied still only DEFAULTS to none — the
+    // table warns and the user may override. Its default_vat_code is what
+    // decides the starting value, exactly as for any other account.
+    const vatCode = (acct?.defaultVatCode === 'none' ? 'none'
+      : acct?.defaultVatCode ? acct.defaultVatCode
+      : (rowSelections[txId]?.vatCode || 'none')) as VatCode;
     setRowSelections(prev => ({ ...prev, [txId]: { ...prev[txId], type, entityId, label, vatCode } }));
     saveSelection(txId, type as AllocType, entityId, vatCode);
   };
