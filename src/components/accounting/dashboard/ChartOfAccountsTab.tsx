@@ -11,38 +11,16 @@ import {
   filterAccounts,
   type AccountCategoryType,
 } from '@/components/accounting/AccountCategorySidebar';
-import type { GLAccount, GLAccountType } from '@/modules/accounting/types/gl.types';
+import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { AccountRow } from './AccountRow';
 import { CoaSeedEmptyState } from './CoaSeedEmptyState';
+import { AddAccountForm, type AddAccountFormState } from './AddAccountForm';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { notify } from '@/utils/toast';
 
-const SUBTYPES_BY_TYPE: Record<string, { value: string; label: string }[]> = {
-  asset: [
-    { value: 'bank', label: 'Bank' },
-    { value: 'receivable', label: 'Receivable' },
-    { value: 'inventory', label: 'Inventory' },
-    { value: 'fixed_asset', label: 'Fixed Asset' },
-    { value: 'accumulated_depreciation', label: 'Accum. Depreciation' },
-    { value: 'other_current_asset', label: 'Other Current Asset' },
-    { value: 'other', label: 'Other' },
-  ],
-  liability: [
-    { value: 'payable', label: 'Payable' },
-    { value: 'tax', label: 'Tax' },
-    { value: 'other_current_liability', label: 'Other Current Liability' },
-    { value: 'other', label: 'Other' },
-  ],
-  equity: [
-    { value: 'equity', label: 'Equity' },
-    { value: 'retained_earnings', label: 'Retained Earnings' },
-    { value: 'other', label: 'Other' },
-  ],
-  revenue: [{ value: 'revenue', label: 'Revenue' }, { value: 'other', label: 'Other' }],
-  expense: [
-    { value: 'cost_of_sales', label: 'Cost of Sales' },
-    { value: 'operating_expense', label: 'Operating Expense' },
-    { value: 'other', label: 'Other' },
-  ],
-};
+function flattenAccounts(nodes: GLAccount[]): GLAccount[] {
+  return nodes.flatMap(a => [a, ...(a.children ? flattenAccounts(a.children) : [])]);
+}
 
 export function ChartOfAccountsTab() {
   const [accounts, setAccounts] = useState<GLAccount[]>([]);
@@ -54,8 +32,8 @@ export function ChartOfAccountsTab() {
   const [showInactive, setShowInactive] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [addForm, setAddForm] = useState({
-    accountCode: '', accountName: '', accountType: 'asset' as GLAccountType,
+  const [addForm, setAddForm] = useState<AddAccountFormState>({
+    accountCode: '', accountName: '', accountType: 'asset',
     accountSubtype: '', parentAccountId: '', description: '',
   });
   // Tracks whether the Code field currently holds a server suggestion. We only
@@ -63,6 +41,12 @@ export function ChartOfAccountsTab() {
   // never a value the user typed themselves.
   const [suggestedCode, setSuggestedCode] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  // The deactivate confirmation used to be window.confirm, which blocks the
+  // renderer: nothing on the page can be scripted or driven by a browser agent
+  // while it is up, and it cannot be styled or tested. Holding the pending id
+  // in state renders an in-page dialog instead — null means no dialog.
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => { void loadAccounts(); }, [viewMode, showInactive]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -126,32 +110,60 @@ export function ChartOfAccountsTab() {
       await loadAccounts();
     } catch (err) {
       log.error('Failed to create account', { error: err }, 'accounting-ui');
-      alert(err instanceof Error ? err.message : 'Failed to create account');
+      notify.error(err instanceof Error ? err.message : 'Failed to create account');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleUpdateAccount = async (id: string, data: { accountName: string; description: string; defaultVatCode: string; vatInputDenied: boolean }) => {
+  const handleUpdateAccount = async (
+    id: string,
+    // accountSubtype / parentAccountId are OPTIONAL and may be null. The API
+    // reads `undefined` as "leave alone" and `null` as "clear", so the row
+    // editor omits the keys entirely when it did not touch them — spreading a
+    // `null` for an untouched field would silently unparent every saved row.
+    data: {
+      accountName: string;
+      description: string;
+      defaultVatCode: string;
+      vatInputDenied: boolean;
+      accountSubtype?: string | null;
+      parentAccountId?: string | null;
+    },
+  ) => {
     try {
       const res = await apiFetch('/api/accounting/chart-of-accounts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ id, ...data }) });
       if (!res.ok) { const errData = await res.json(); throw new Error(errData.message || 'Failed to update account'); }
       await loadAccounts();
     } catch (err) {
       log.error('Failed to update account', { error: err }, 'accounting-ui');
-      alert(err instanceof Error ? err.message : 'Failed to update account');
+      notify.error(err instanceof Error ? err.message : 'Failed to update account');
     }
   };
 
-  const handleDeleteAccount = async (id: string) => {
-    if (!window.confirm('Deactivate this account? It will be hidden from the chart of accounts.')) return;
+  // The row's delete button now only ARMS the dialog. The request itself is
+  // confirmDeleteAccount below, so nothing is destroyed by a single click and
+  // no blocking native dialog sits between the two.
+  const handleDeleteAccount = async (id: string) => { setPendingDeleteId(id); };
+
+  const confirmDeleteAccount = async () => {
+    const id = pendingDeleteId;
+    if (!id) return;
+    setIsDeleting(true);
     try {
       const res = await apiFetch(`/api/accounting/chart-of-accounts-detail?id=${id}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) { const errData = await res.json(); throw new Error(errData.message || 'Failed to delete account'); }
+      setPendingDeleteId(null);
       await loadAccounts();
     } catch (err) {
       log.error('Failed to delete account', { error: err }, 'accounting-ui');
-      alert(err instanceof Error ? err.message : 'Failed to delete account');
+      // The dialog STAYS open on failure. The service refuses for reasons the
+      // user can act on (non-zero balance, active children, unreconciled bank
+      // transactions), and closing it would hide the reason behind a toast on
+      // a row that looks unchanged.
+      notify.error(err instanceof Error ? err.message : 'Failed to delete account');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -165,12 +177,19 @@ export function ChartOfAccountsTab() {
         (a.description ?? '').toLowerCase().includes(q),
       )
     : sidebarFiltered;
-  const subtypes = SUBTYPES_BY_TYPE[addForm.accountType] || [];
-  const parentOptions = accounts.filter(a => a.isActive);
+  // In tree view `accounts` holds only the roots, with the rest nested under
+  // `children` — filtering it directly gave a parent picker containing five
+  // options. Flatten first so the candidate list is the same in both views.
+  const flatAccounts = flattenAccounts(accounts);
+  const parentOptions = flatAccounts.filter(a => a.isActive);
 
   if (!isLoading && accounts.length === 0) {
     return <CoaSeedEmptyState onSeeded={loadAccounts} />;
   }
+
+  const pendingAccount = pendingDeleteId
+    ? flatAccounts.find(a => a.id === pendingDeleteId)
+    : undefined;
 
   return (
     <div className="flex gap-5">
@@ -217,59 +236,15 @@ export function ChartOfAccountsTab() {
           </div>
         </div>
 
-        {/* Add Account Form */}
         {showAddForm && (
-          <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-teal-500/30 p-4 space-y-4">
-            <h4 className="text-sm font-semibold text-[var(--ff-text-primary)]">New Account</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Code *</label>
-                <input type="text" value={addForm.accountCode} onChange={e => setAddForm(f => ({ ...f, accountCode: e.target.value }))} placeholder="e.g. 1100" className="ff-input w-full text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Name *</label>
-                <input type="text" value={addForm.accountName} onChange={e => setAddForm(f => ({ ...f, accountName: e.target.value }))} placeholder="e.g. Accounts Receivable" className="ff-input w-full text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Type *</label>
-                <select value={addForm.accountType} onChange={e => setAddForm(f => ({ ...f, accountType: e.target.value as GLAccountType, accountSubtype: '' }))} className="ff-select w-full text-sm">
-                  <option value="asset">Asset</option>
-                  <option value="liability">Liability</option>
-                  <option value="equity">Equity</option>
-                  <option value="revenue">Revenue</option>
-                  <option value="expense">Expense</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Subtype</label>
-                <select value={addForm.accountSubtype} onChange={e => setAddForm(f => ({ ...f, accountSubtype: e.target.value }))} className="ff-select w-full text-sm">
-                  <option value="">None</option>
-                  {subtypes.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Parent Account</label>
-                <select value={addForm.parentAccountId} onChange={e => setAddForm(f => ({ ...f, parentAccountId: e.target.value }))} className="ff-select w-full text-sm">
-                  <option value="">None (top-level)</option>
-                  {parentOptions.map(a => <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Description</label>
-                <input type="text" value={addForm.description} onChange={e => setAddForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional description" className="ff-input w-full text-sm" />
-              </div>
-            </div>
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-[var(--ff-text-tertiary)]">Normal balance: <span className="font-medium">{addForm.accountType === 'asset' || addForm.accountType === 'expense' ? 'Debit' : 'Credit'}</span> (auto-set from type)</p>
-              <div className="flex items-center gap-2">
-                <button onClick={() => { setShowAddForm(false); setSuggestedCode(''); }} className="px-3 py-2 text-sm font-medium text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] transition-colors">Cancel</button>
-                <button onClick={handleAddAccount} disabled={isSaving || !addForm.accountCode || !addForm.accountName} className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors text-sm font-medium disabled:opacity-50">
-                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                  {isSaving ? 'Creating...' : 'Create Account'}
-                </button>
-              </div>
-            </div>
-          </div>
+          <AddAccountForm
+            addForm={addForm}
+            parentOptions={parentOptions}
+            isSaving={isSaving}
+            onChange={setAddForm}
+            onCancel={() => { setShowAddForm(false); setSuggestedCode(''); }}
+            onSubmit={handleAddAccount}
+          />
         )}
 
         {/* Accounts Table */}
@@ -288,7 +263,7 @@ export function ChartOfAccountsTab() {
                 </thead>
                 <tbody>
                   {filteredAccounts.map(account => (
-                    <AccountRow key={account.id} account={account} level={0} viewMode={viewMode} onUpdate={handleUpdateAccount} onDelete={handleDeleteAccount} onCodeChanged={loadAccounts} />
+                    <AccountRow key={account.id} account={account} level={0} viewMode={viewMode} parentOptions={parentOptions} onUpdate={handleUpdateAccount} onDelete={handleDeleteAccount} onCodeChanged={loadAccounts} />
                   ))}
                 </tbody>
               </table>
@@ -296,6 +271,26 @@ export function ChartOfAccountsTab() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Deactivate account"
+        message={
+          <>
+            {pendingAccount
+              ? <><strong>{pendingAccount.accountCode} {pendingAccount.accountName}</strong> will be hidden from the chart of accounts.</>
+              : 'This account will be hidden from the chart of accounts.'}
+            {' '}Nothing is deleted — history and existing postings are kept, and the account
+            can be reactivated. It is refused outright if it still has a balance, active child
+            accounts, or unreconciled bank transactions.
+          </>
+        }
+        acceptLabel="Deactivate"
+        tone="destructive"
+        loading={isDeleting}
+        onAccept={() => { void confirmDeleteAccount(); }}
+        onCancel={() => { if (!isDeleting) setPendingDeleteId(null); }}
+      />
     </div>
   );
 }
