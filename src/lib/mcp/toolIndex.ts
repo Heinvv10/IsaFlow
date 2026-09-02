@@ -49,6 +49,12 @@ import {
   approveSupplierInvoiceTool,
 } from './tools/writeSupplierInvoices';
 import { listBankRulesTool, getBankRuleTool } from './tools/bankRules';
+import { listCreditNotesTool, getCreditNoteTool } from './tools/creditNotes';
+import {
+  createCreditNoteTool,
+  approveCreditNoteTool,
+  cancelCreditNoteTool,
+} from './tools/writeCreditNotes';
 import {
   createBankRuleTool,
   updateBankRuleTool,
@@ -56,7 +62,7 @@ import {
 } from './tools/writeBankRules';
 
 export const MCP_TOOLS = [
-  // read (25)
+  // read (27)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -82,7 +88,9 @@ export const MCP_TOOLS = [
   getBankRuleTool,
   listImportBatchesTool,
   listJournalsTool,
-  // write (23) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  listCreditNotesTool,
+  getCreditNoteTool,
+  // write (26) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -108,6 +116,9 @@ export const MCP_TOOLS = [
   reverseAllocationsTool,
   setOpeningBalanceTool,
   attachDocumentTool,
+  createCreditNoteTool,
+  approveCreditNoteTool,
+  cancelCreditNoteTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

@@ -442,8 +442,9 @@ describe('write-tool manifest invariants', () => {
   it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
-      'allocate_bank_transaction', 'approve_supplier_invoice',
-      'bulk_allocate_bank_transactions', 'finalize_invoice',
+      'allocate_bank_transaction', 'approve_credit_note',
+      'approve_supplier_invoice',
+      'bulk_allocate_bank_transactions', 'cancel_credit_note', 'finalize_invoice',
       'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
       'reverse_bank_allocation_batch', 'set_opening_balance',
     ]);
@@ -508,6 +509,11 @@ describe('write-tool manifest invariants', () => {
       set_opening_balance: { ...KEY },
       // Refuses on the missing file_name before any lookup; behaviour in attachDocumentTool.test.ts.
       attach_document: { ...KEY },
+      // Credit-note writes each refuse on a missing required argument before
+      // touching a service; behaviour in creditNoteTools.test.ts.
+      create_credit_note: { ...KEY },
+      approve_credit_note: { ...KEY },
+      cancel_credit_note: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

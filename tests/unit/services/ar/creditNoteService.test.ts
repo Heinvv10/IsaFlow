@@ -55,7 +55,12 @@ import {
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { approveCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import {
+  approveCreditNote,
+  createCreditNote,
+  cancelCreditNote,
+} from '@/modules/accounting/services/ar/creditNoteService';
+import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockCreateJournalEntry = createJournalEntry as unknown as MockedFunction<typeof createJournalEntry>;
@@ -184,5 +189,97 @@ describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry
     expect(result.glJournalEntryId).toBe(JE_ID);
     const updateCall = mockSql.mock.calls[1]!;
     expect(sqlCallTouches(updateCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
+  });
+});
+
+
+/**
+ * credit_notes.supplier_id is a UUID column referencing suppliers(id)
+ * (migration 202) — it has never been an integer. createCreditNote used to
+ * interpolate `Number(input.supplierId)`, which turns every real supplier UUID
+ * into NaN; Postgres then rejects the INSERT with `invalid input syntax for
+ * type uuid: "NaN"`. So a supplier credit note raised against an actual
+ * supplier threw, and the only supplier rows that ever reached the table were
+ * seeded ones carrying supplier_id NULL — orphaned from any supplier, and
+ * therefore invisible to every per-supplier statement and ageing view.
+ *
+ * Pinned as an interpolated VALUE, not a rendered string: the assertion fails
+ * the moment the Number() coercion comes back, because NaN !== the UUID.
+ */
+describe('createCreditNote — supplier_id is a UUID, never coerced to a number', () => {
+  const SUPPLIER_ID = '55555555-5555-4555-8555-555555555555';
+
+  it('interpolates the supplier UUID unchanged into the INSERT', async () => {
+    mockSql.mockResolvedValue([
+      creditNoteRow({ type: 'supplier', client_id: null, supplier_id: SUPPLIER_ID }),
+    ]);
+
+    const note = await createCreditNote(
+      COMPANY_ID,
+      { type: 'supplier', supplierId: SUPPLIER_ID, creditDate: '2026-07-04', subtotal: 1000 },
+      USER_ID,
+    );
+
+    const insert = mockSql.mock.calls.find((c) =>
+      sqlCallTouches(c as unknown[], 'INSERT INTO credit_notes', SUPPLIER_ID),
+    );
+    expect(insert).toBeDefined();
+
+    // Nothing NaN-shaped reached the driver.
+    const values = (insert as unknown[]).slice(1);
+    expect(values.some((v) => typeof v === 'number' && Number.isNaN(v))).toBe(false);
+    expect(note.supplierId).toBe(SUPPLIER_ID);
+  });
+
+  it('still writes NULL when no supplier is supplied', async () => {
+    mockSql.mockResolvedValue([creditNoteRow()]);
+    await createCreditNote(
+      COMPANY_ID,
+      { type: 'customer', clientId: 'client-uuid', creditDate: '2026-07-04', subtotal: 1000 },
+      USER_ID,
+    );
+    const insert = mockSql.mock.calls.find((c) => {
+      const [strings] = c as [readonly string[], ...unknown[]];
+      return Array.isArray(strings) && strings.join('').includes('INSERT INTO credit_notes');
+    });
+    expect((insert as unknown[]).slice(1)).toContain(null);
+  });
+});
+
+/**
+ * The reversing entry approve/cancel raise is a ledger write of its own. If the
+ * postingAgent stamp is dropped on the way through, createJournalEntry falls
+ * back to defaultHumanMeta(userId) and MCP work posts labelled `human:<userId>`
+ * — affirmatively claiming the token owner did it by hand, and invisible to
+ * list_agent_postings, which filters posting_agent LIKE 'mcp:%'. That review
+ * surface is the control the whole agent-write model rests on.
+ */
+describe('postingAgent attribution reaches the GL services', () => {
+  it('approveCreditNote forwards the stamp to createJournalEntry', async () => {
+    mockSql.mockResolvedValue([creditNoteRow()]);
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID, { postingAgent: 'mcp:approve_credit_note:v1' });
+    expect(mockCreateJournalEntry).toHaveBeenCalledWith(
+      COMPANY_ID, expect.anything(), USER_ID,
+      { postingAgent: 'mcp:approve_credit_note:v1' },
+    );
+  });
+
+  it('approveCreditNote leaves meta undefined when no stamp is given, keeping human attribution', async () => {
+    mockSql.mockResolvedValue([creditNoteRow()]);
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(mockCreateJournalEntry).toHaveBeenCalledWith(
+      COMPANY_ID, expect.anything(), USER_ID, undefined,
+    );
+  });
+
+  it('cancelCreditNote forwards the stamp to reverseJournalEntry', async () => {
+    mockSql.mockResolvedValue([creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    await cancelCreditNote(COMPANY_ID, CN_ID, USER_ID, 'duplicate', {
+      postingAgent: 'mcp:cancel_credit_note:v1',
+    });
+    expect(vi.mocked(reverseJournalEntry)).toHaveBeenCalledWith(
+      COMPANY_ID, JE_ID, USER_ID,
+      { postingAgent: 'mcp:cancel_credit_note:v1' },
+    );
   });
 });

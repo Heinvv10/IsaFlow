@@ -17,6 +17,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
+import { validateCreditNoteLinks } from '@/modules/accounting/services/ar/creditNoteLinkService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ const USER_ID   = '00000000-0000-0000-b142-000000000001';
 // ── State ─────────────────────────────────────────────────────────────────────
 
 let customerA: string;
+let supplierA: string;
 let createdIds: string[] = [];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -47,11 +49,21 @@ async function createCustomer(companyId: string): Promise<string> {
   return rows[0].id;
 }
 
+async function createSupplier(companyId: string): Promise<string> {
+  const rows = await sql`
+    INSERT INTO suppliers (name, company_id)
+    VALUES ('BL42 Test Supplier', ${companyId}::UUID)
+    RETURNING id
+  ` as Array<{ id: string }>;
+  return rows[0].id;
+}
+
 // ── Setup / Teardown ──────────────────────────────────────────────────────────
 
 beforeAll(async () => {
   await ensureTestCompany(COMPANY_A, 'BL42 Test Company A');
   customerA = await createCustomer(COMPANY_A);
+  supplierA = await createSupplier(COMPANY_A);
 });
 
 afterAll(async () => {
@@ -62,6 +74,7 @@ afterAll(async () => {
   }
   await sql`DELETE FROM credit_notes WHERE company_id = ${COMPANY_A}::UUID`;
   await sql`DELETE FROM customers WHERE company_id = ${COMPANY_A}::UUID`;
+  await sql`DELETE FROM suppliers WHERE company_id = ${COMPANY_A}::UUID`;
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -130,5 +143,72 @@ describe('BL-42: createCreditNote supplies company_id', () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0].company_id).toBe(COMPANY_A);
+  });
+});
+
+
+/**
+ * credit_notes.supplier_id is a UUID referencing suppliers(id) (migration 202).
+ * createCreditNote used to interpolate `Number(input.supplierId)`, so every real
+ * supplier UUID became NaN and Postgres refused the INSERT outright with
+ * `invalid input syntax for type uuid: "NaN"`. This runs against the real
+ * database precisely because the bug lived in the driver's type handling — a
+ * mocked sql tag would have accepted NaN happily, which is why the existing
+ * unit suite never caught it.
+ */
+describe('createCreditNote — supplier credit notes reach the table with their supplier', () => {
+  it('creates a supplier credit note carrying a real supplier UUID', async () => {
+    const cn = await createCreditNote(
+      COMPANY_A,
+      {
+        type: 'supplier',
+        supplierId: supplierA,
+        creditDate: '2026-04-15',
+        reason: 'supplier uuid regression',
+        subtotal: 200,
+        taxRate: 15,
+      },
+      USER_ID,
+    );
+    createdIds.push(cn.id);
+
+    // Read the stored value back rather than trusting the mapped return: the
+    // point of the bug was what reached the column.
+    const rows = await sql`
+      SELECT supplier_id, type, total_amount FROM credit_notes WHERE id = ${cn.id}::UUID
+    ` as Array<{ supplier_id: string; type: string; total_amount: string }>;
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].supplier_id).toBe(supplierA);
+    expect(rows[0].type).toBe('supplier');
+    expect(Number(rows[0].total_amount)).toBeCloseTo(230, 2);
+  });
+});
+
+/**
+ * The link validation is the only fence between an agent-supplied UUID and a
+ * cross-tenant document — no (id, company_id) constraint exists on any of these
+ * foreign keys, and createCreditNote re-reads none of them.
+ */
+describe('validateCreditNoteLinks — tenant and counterparty fences', () => {
+  const OTHER_COMPANY = '00000000-0000-0000-b142-000000000aa2';
+
+  it('accepts a customer and a supplier that belong to the calling company', async () => {
+    expect(await validateCreditNoteLinks(COMPANY_A, { type: 'customer', clientId: customerA })).toBeNull();
+    expect(await validateCreditNoteLinks(COMPANY_A, { type: 'supplier', supplierId: supplierA })).toBeNull();
+  });
+
+  it('refuses a customer belonging to another company with the generic miss text', async () => {
+    expect(await validateCreditNoteLinks(OTHER_COMPANY, { type: 'customer', clientId: customerA }))
+      .toBe('Not found');
+    expect(await validateCreditNoteLinks(OTHER_COMPANY, { type: 'supplier', supplierId: supplierA }))
+      .toBe('Not found');
+  });
+
+  it('requires the counterparty that matches the note type', async () => {
+    expect(await validateCreditNoteLinks(COMPANY_A, { type: 'customer' }))
+      .toContain('client_id is required');
+    expect(await validateCreditNoteLinks(COMPANY_A, { type: 'supplier' }))
+      .toContain('supplier_id is required');
   });
 });

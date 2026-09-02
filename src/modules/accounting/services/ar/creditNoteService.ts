@@ -88,6 +88,12 @@ export async function createCreditNote(companyId: string,
     const taxAmount = Math.round(input.subtotal * taxRate / 100 * 100) / 100;
     const totalAmount = input.subtotal + taxAmount;
 
+    // supplier_id is a UUID column (migration 202) referencing suppliers(id),
+    // NOT an integer. The previous `Number(input.supplierId)` turned every real
+    // supplier UUID into NaN, which Postgres rejects with `invalid input syntax
+    // for type uuid: "NaN"` — so creating a supplier credit note against an
+    // actual supplier threw, and the only supplier notes that ever reached the
+    // table were seed rows carrying supplier_id NULL. Pass the UUID through.
     const rows = (await sql`
       INSERT INTO credit_notes (
         company_id,
@@ -97,7 +103,7 @@ export async function createCreditNote(companyId: string,
       ) VALUES (
         ${companyId}::UUID,
         ${input.type}, ${input.clientId || null}, ${input.customerInvoiceId || null},
-        ${input.supplierId ? Number(input.supplierId) : null},
+        ${input.supplierId || null},
         ${input.supplierInvoiceId || null},
         ${input.creditDate}, ${input.reason || null},
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
@@ -113,7 +119,17 @@ export async function createCreditNote(companyId: string,
   }
 }
 
-export async function approveCreditNote(companyId: string, id: string, userId: string): Promise<CreditNote> {
+export async function approveCreditNote(
+  companyId: string,
+  id: string,
+  userId: string,
+  // Optional and last-positional so every existing caller keeps human
+  // attribution. Without it createJournalEntry falls back to
+  // defaultHumanMeta(userId) and an MCP-approved credit note posts labelled
+  // `human:<userId>` — claiming the token owner did it by hand, and invisible
+  // to list_agent_postings, which filters posting_agent LIKE 'mcp:%'.
+  opts?: { postingAgent?: string },
+): Promise<CreditNote> {
   try {
     const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Record<string, unknown>[];
     if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
@@ -176,7 +192,7 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
       lines,
-    }, userId);
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined);
     await postJournalEntry(companyId, je.id, userId);
 
     // N6 (P2.1): approving a LINKED note auto-applies it, so it must land in
@@ -217,7 +233,11 @@ export async function approveCreditNote(companyId: string, id: string, userId: s
 export async function cancelCreditNote(companyId: string, 
   id: string,
   userId: string,
-  reason?: string
+  reason?: string,
+  // Same reason as approveCreditNote: the REVERSING entry is a ledger write of
+  // its own and must carry the agent stamp, or an MCP cancellation reverses a
+  // journal under the token owner's name.
+  opts?: { postingAgent?: string },
 ): Promise<CreditNote> {
   try {
     const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Record<string, unknown>[];
@@ -233,7 +253,12 @@ export async function cancelCreditNote(companyId: string,
 
     // Reverse GL journal entry — manages its own transaction, must stay outside
     if (cn.gl_journal_entry_id) {
-      await reverseJournalEntry(companyId, String(cn.gl_journal_entry_id), userId);
+      await reverseJournalEntry(
+        companyId,
+        String(cn.gl_journal_entry_id),
+        userId,
+        opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined,
+      );
     }
 
     if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
