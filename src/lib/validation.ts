@@ -36,6 +36,26 @@ export function isRealCalendarDate(value: string): boolean {
   return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
 }
 
+const TIMESTAMPTZ_RE =
+  /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|([+-])(\d{2})(?::?(\d{2}))?)$/;
+
+/**
+ * Postgres's own text rendering of a TIMESTAMPTZ (or an ISO-8601 equivalent),
+ * with every component range-checked, so the value survives `$N::TIMESTAMPTZ`.
+ * Digit counts are not enough: '9999-99-99T99:99:99Z' has the right shape and
+ * is a 22008 at the cast — on a read path with no savepoint that aborts the
+ * whole request transaction. Same contract as isRealCalendarDate.
+ */
+export function isRealTimestamp(value: string): boolean {
+  const m = TIMESTAMPTZ_RE.exec(value);
+  if (!m) return false;
+  const [, date, hh, mm, ss, , tzh, tzm] = m;
+  if (!isRealCalendarDate(date!)) return false;
+  if (Number(hh) > 23 || Number(mm) > 59 || Number(ss) > 59) return false;
+  if (tzh !== undefined && (Number(tzh) > 15 || Number(tzm ?? '0') > 59)) return false;
+  return true;
+}
+
 export function safeInt(value: unknown, fallback: number, max = 1000): number {
   const n = parseInt(String(value), 10);
   return isNaN(n) ? fallback : Math.min(Math.max(n, 1), max);

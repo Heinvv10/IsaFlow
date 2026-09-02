@@ -75,6 +75,10 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // re-routing a whole statement.
   list_bank_rules: null,
   get_bank_rule: null,
+  // The import audit trail and the whole-ledger listing are review surfaces,
+  // like list_agent_postings: free for the same reason.
+  list_import_batches: null,
+  list_journals: null,
 
   // ── Reports: free over MCP, unlike the UI ────────────────────────────────
   // The app charges 10 for each of these. Carrying that across was the initial
@@ -135,6 +139,10 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   create_gl_account: null,
   update_gl_account: null,
   deactivate_gl_account: null,
+
+  // ── Attachments: free ────────────────────────────────────────────────────
+  // bank-tx-attachments is not metered in the app, and the file posts nothing.
+  attach_document: null,
 
   // ── Bank rules: free ─────────────────────────────────────────────────────
   // The app does not meter rule edits, and a rule posts nothing when it is
