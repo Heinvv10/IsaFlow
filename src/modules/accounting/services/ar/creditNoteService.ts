@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
+import { validateCreditNoteLinks } from './creditNoteLinkService';
 import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -34,10 +35,10 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
         SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
           COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
         FROM credit_notes cn
-        LEFT JOIN customers c ON c.id = cn.client_id
-        LEFT JOIN suppliers s ON s.id = cn.supplier_id
-        LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
-        LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
+        LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
+        LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
+        LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id AND ci.company_id = cn.company_id
+        LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id AND si.company_id = cn.company_id
         WHERE cn.company_id = ${companyId} AND cn.type = ${filters.type}
         ORDER BY cn.credit_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Record<string, unknown>[];
@@ -49,10 +50,10 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
         SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
           COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
         FROM credit_notes cn
-        LEFT JOIN customers c ON c.id = cn.client_id
-        LEFT JOIN suppliers s ON s.id = cn.supplier_id
-        LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
-        LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
+        LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
+        LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
+        LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id AND ci.company_id = cn.company_id
+        LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id AND si.company_id = cn.company_id
         WHERE cn.company_id = ${companyId}
         ORDER BY cn.credit_date DESC LIMIT ${limit} OFFSET ${offset}
       `) as Record<string, unknown>[];
@@ -71,10 +72,10 @@ export async function getCreditNoteById(companyId: string, id: string): Promise<
     SELECT cn.*, c.name AS client_name, COALESCE(s.company_name, s.name) AS supplier_name,
       COALESCE(ci.invoice_number, si.invoice_number) AS invoice_number
     FROM credit_notes cn
-    LEFT JOIN customers c ON c.id = cn.client_id
-    LEFT JOIN suppliers s ON s.id = cn.supplier_id
-    LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id
-    LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id
+    LEFT JOIN customers c ON c.id = cn.client_id AND c.company_id = cn.company_id
+    LEFT JOIN suppliers s ON s.id = cn.supplier_id AND s.company_id = cn.company_id
+    LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id AND ci.company_id = cn.company_id
+    LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id AND si.company_id = cn.company_id
     WHERE cn.id = ${id}::UUID AND cn.company_id = ${companyId}
   `) as Record<string, unknown>[];
   return rows.length > 0 ? mapRow(rows[0]!) : null;
@@ -85,6 +86,18 @@ export async function createCreditNote(companyId: string,
   userId: string
 ): Promise<CreditNote> {
   try {
+    // The tenant + counterparty fence lives HERE, not in a caller. None of
+    // client_id / supplier_id / customer_invoice_id / supplier_invoice_id
+    // carries an (id, company_id) constraint and nothing below re-reads them,
+    // so a caller-supplied UUID from another company would otherwise become a
+    // cross-tenant document — and approve auto-applies a linked note, paying
+    // down the wrong counterparty's invoice. The REST route passes its request
+    // body straight through, so a check in the MCP tool alone left that route
+    // open. (The tool still pre-checks, to answer with a specific message
+    // before any write rather than a generic failure.)
+    const linkError = await validateCreditNoteLinks(companyId, input);
+    if (linkError) throw new Error(linkError);
+
     const taxRate = input.taxRate ?? 15;
     const taxAmount = Math.round(input.subtotal * taxRate / 100 * 100) / 100;
     const totalAmount = input.subtotal + taxAmount;
@@ -221,12 +234,26 @@ export async function approveCreditNote(
       autoApplied = true;
     }
 
+    // applied_amount records what was ACTUALLY added above, so cancel reverses
+    // the recorded figure instead of re-deriving one. The auto-apply adds the
+    // full total with no cap, so that is the amount here.
     const finalStatus = autoApplied ? 'applied' : 'approved';
+    const appliedAmount = autoApplied ? Number(cn.total_amount) : 0;
     const updatedRows = (await sql`
       UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,
-        approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID
-      WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
+        approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID,
+        applied_amount = ${appliedAmount}
+      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'draft'
+      RETURNING *
     `) as Record<string, unknown>[];
+    // The `status = 'draft'` predicate is a second fence behind the row lock
+    // above, not a substitute for it: the lock is what stops two approvals
+    // building a journal in parallel, but if a future caller ever reaches this
+    // UPDATE without holding it, refusing here beats stamping a second journal
+    // onto an already-approved note.
+    if (updatedRows.length === 0) {
+      throw new Error(`Credit note ${id} was approved concurrently; this attempt posted nothing new.`);
+    }
     const updated = updatedRows[0] as Record<string, unknown>;
 
     log.info('Approved credit note', { id, journalEntryId: je.id }, 'accounting');
@@ -270,32 +297,60 @@ export async function cancelCreditNote(companyId: string,
       );
     }
 
-    if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
-      await sql`
-        UPDATE customer_invoices
-        SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
-        WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
-      `;
-      await sql`
-        UPDATE customer_invoices SET status = CASE
-          WHEN amount_paid <= 0.01 THEN 'approved'
-          WHEN amount_paid < total_amount THEN 'partially_paid'
-          ELSE status
-        END
-        WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
-      `;
-    } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
-      await sql`
-        UPDATE supplier_invoices
-        SET amount_paid = GREATEST(0, amount_paid - ${Number(cn.total_amount)})
-        WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
-      `;
+    // Un-apply exactly what was applied, never the note's face value. The apply
+    // path caps at the invoice's outstanding balance (min(total, outstanding)),
+    // so reversing total_amount erased real cash receipts: an invoice of 1000
+    // with 950 paid absorbs only 50 of a 115 note, and un-crediting 115 left it
+    // showing 115 outstanding against a true 50.
+    //
+    // The guard is `amount_paid >= X` rather than GREATEST(0, ...): flooring at
+    // zero silently absorbs exactly the corruption worth hearing about, so a
+    // row that cannot absorb the reversal refuses loudly instead.
+    const unapply = Number(cn.applied_amount ?? 0);
+    if (unapply > 0) {
+      const invoiceTable = String(cn.type) === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
+      if (String(cn.type) === 'customer' && invoiceTable) {
+        const done = (await sql`
+          UPDATE customer_invoices
+          SET amount_paid = amount_paid - ${unapply}
+          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+            AND amount_paid >= ${unapply}
+          RETURNING id
+        `) as Record<string, unknown>[];
+        if (done.length === 0) {
+          throw new Error(
+            `Cannot cancel credit note ${id}: invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
+          );
+        }
+        await sql`
+          UPDATE customer_invoices SET status = CASE
+            WHEN amount_paid <= 0.01 THEN 'approved'
+            WHEN amount_paid < total_amount THEN 'partially_paid'
+            ELSE status
+          END
+          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+        `;
+      } else if (String(cn.type) === 'supplier' && invoiceTable) {
+        const done = (await sql`
+          UPDATE supplier_invoices
+          SET amount_paid = amount_paid - ${unapply}
+          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
+            AND amount_paid >= ${unapply}
+          RETURNING id
+        `) as Record<string, unknown>[];
+        if (done.length === 0) {
+          throw new Error(
+            `Cannot cancel credit note ${id}: supplier invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
+          );
+        }
+      }
     }
 
     const cancelledRows = (await sql`
       UPDATE credit_notes
       SET status = 'cancelled', cancelled_by = ${userId}::UUID,
-          cancelled_at = NOW(), cancel_reason = ${reason || null}
+          cancelled_at = NOW(), cancel_reason = ${reason || null},
+          applied_amount = 0
       WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
     `) as Record<string, unknown>[];
     const updated = cancelledRows[0] as Record<string, unknown>;
@@ -346,7 +401,8 @@ export async function applyCreditNoteToInvoice(
   `;
   const appliedRows = (await sql`
     UPDATE credit_notes
-    SET status = 'applied', customer_invoice_id = ${invoiceId}::UUID, updated_at = NOW()
+    SET status = 'applied', customer_invoice_id = ${invoiceId}::UUID, updated_at = NOW(),
+        applied_amount = ${applyAmount}
     WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
     RETURNING *
   `) as Record<string, unknown>[];
@@ -371,6 +427,7 @@ function mapRow(row: Record<string, unknown>): CreditNote {
     taxRate: Number(row.tax_rate),
     taxAmount: Number(row.tax_amount),
     totalAmount: Number(row.total_amount),
+    appliedAmount: Number(row.applied_amount ?? 0),
     status: String(row.status) as CreditNoteStatus,
     glJournalEntryId: row.gl_journal_entry_id ? String(row.gl_journal_entry_id) : undefined,
     projectId: row.project_id ? String(row.project_id) : undefined,

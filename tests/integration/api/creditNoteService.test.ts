@@ -212,3 +212,38 @@ describe('validateCreditNoteLinks — tenant and counterparty fences', () => {
       .toContain('supplier_id is required');
   });
 });
+
+
+/**
+ * The tenant + counterparty fence must live in createCreditNote, not in one of
+ * its callers. It was originally added to the MCP tool only, which left
+ * POST /api/accounting/credit-notes — which passes its request body straight
+ * through — able to create a note pointing at another company's customer.
+ */
+describe('createCreditNote — the tenant fence is in the service, so every caller inherits it', () => {
+  const OTHER_COMPANY = '00000000-0000-0000-b142-000000000aa2';
+
+  it('refuses a customer belonging to another company', async () => {
+    await expect(createCreditNote(
+      OTHER_COMPANY,
+      { type: 'customer', clientId: customerA, creditDate: '2026-04-15', subtotal: 100 },
+      USER_ID,
+    )).rejects.toThrow('Not found');
+  });
+
+  it('refuses a supplier belonging to another company', async () => {
+    await expect(createCreditNote(
+      OTHER_COMPANY,
+      { type: 'supplier', supplierId: supplierA, creditDate: '2026-04-15', subtotal: 100 },
+      USER_ID,
+    )).rejects.toThrow('Not found');
+  });
+
+  it('refuses a customer note with no client_id at all', async () => {
+    await expect(createCreditNote(
+      COMPANY_A,
+      { type: 'customer', creditDate: '2026-04-15', subtotal: 100 },
+      USER_ID,
+    )).rejects.toThrow('client_id is required');
+  });
+});

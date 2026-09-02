@@ -56,6 +56,10 @@ function compact(cn: CreditNote): Record<string, unknown> {
     tax_rate: cn.taxRate,
     tax_amount: cn.taxAmount,
     total_amount: cn.totalAmount,
+    // What was actually credited to the linked invoice. The apply path caps at
+    // the invoice's outstanding balance, so an agent must not read
+    // total_amount as "credit consumed" — the difference is still available.
+    applied_amount: cn.appliedAmount,
     status: cn.status,
     gl_journal_entry_id: cn.glJournalEntryId ?? null,
   };
