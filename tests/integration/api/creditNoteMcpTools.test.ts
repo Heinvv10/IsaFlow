@@ -103,6 +103,18 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (!ready) { await pool?.end(); return; }
+  // Teardown must not stop at the first failure. A test that leaves an
+  // unexpected row makes one of these DELETEs throw, and an aborted afterAll
+  // then abandons everything after it — which is how a failed run left three
+  // customers and an invoice behind in a shared demo company. Each step is
+  // reported and skipped rather than fatal; TAG keeps a leftover from breaking
+  // the next run either way.
+  const step = async (what: string, fn: () => Promise<unknown>) => {
+    try { await fn(); } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[creditNoteMcpTools] teardown step "${what}" failed:`, err);
+    }
+  };
   // Scoped teardown ONLY — these are shared demo companies, not throwaway ones.
   //
   // The journals have to go FIRST and by id: approve posts one and cancel posts
@@ -119,7 +131,7 @@ afterAll(async () => {
 
   // credit_notes.gl_journal_entry_id is a FK onto the entries below, so the
   // notes go FIRST or the journal delete is refused.
-  await sql`DELETE FROM credit_notes WHERE client_id = ${customer}::UUID OR supplier_id = ${supplier}::UUID`;
+  await step('credit_notes', () => sql`DELETE FROM credit_notes WHERE client_id = ${customer}::UUID OR supplier_id = ${supplier}::UUID`);
 
   if (jeIds.length > 0) {
     const all = (await sql`
@@ -133,9 +145,9 @@ afterAll(async () => {
     await sql`DELETE FROM gl_journal_entries WHERE id = ANY(${jeIds}::UUID[])`;
   }
 
-  await sql`DELETE FROM customer_invoices WHERE id = ${invoice}::UUID`;
-  await sql`DELETE FROM customers WHERE id IN (${customer}::UUID, ${otherCustomer}::UUID, ${siblingCustomer}::UUID)`;
-  await sql`DELETE FROM suppliers WHERE id = ${supplier}::UUID`;
+  await step('customer_invoices', () => sql`DELETE FROM customer_invoices WHERE id = ${invoice}::UUID`);
+  await step('customers', () => sql`DELETE FROM customers WHERE id IN (${customer}::UUID, ${otherCustomer}::UUID, ${siblingCustomer}::UUID)`);
+  await step('suppliers', () => sql`DELETE FROM suppliers WHERE id = ${supplier}::UUID`);
   await pool.end();
 });
 
