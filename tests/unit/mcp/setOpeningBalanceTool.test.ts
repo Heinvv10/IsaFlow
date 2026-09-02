@@ -29,11 +29,15 @@ vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
 vi.mock('@/modules/accounting/services/bank/bankOpeningBalanceService', () => ({
   setBankOpeningBalanceMeta: { read: vi.fn(), write: vi.fn() },
 }));
+vi.mock('@/modules/accounting/services/gl/openingBalanceEquityService', () => ({
+  ensureOpeningBalanceEquityAccount: vi.fn(),
+}));
 
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
+import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import { setOpeningBalanceTool } from '@/lib/mcp/tools/writeOpeningBalance';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
@@ -42,6 +46,7 @@ const COMPANY = '11111111-1111-4111-8111-111111111111';
 const BANK = '22222222-2222-4222-8222-222222222222';
 const CONTRA = '33333333-3333-4333-8333-333333333333';
 const JE = '88888888-8888-4888-8888-888888888888';
+const OBE = '55555555-5555-4555-8555-555555555555';
 const KEY = { idempotency_key: 'k1' };
 const ARGS = {
   bank_account_id: BANK, contra_account_id: CONTRA,
@@ -77,6 +82,7 @@ beforeEach(() => {
   } as never);
   vi.mocked(setBankOpeningBalanceMeta.read).mockResolvedValue({ amount: null, asAt: null });
   vi.mocked(createJournalEntry).mockResolvedValue({ id: JE } as never);
+  vi.mocked(ensureOpeningBalanceEquityAccount).mockResolvedValue({ id: OBE, accountCode: '3300', accountName: 'Opening Balance Equity', created: false });
 });
 
 describe('set_opening_balance', () => {
@@ -155,9 +161,46 @@ describe('set_opening_balance', () => {
     expect(createJournalEntry).not.toHaveBeenCalled();
   });
 
-  it('has no default contra — it is required in the schema', () => {
+  it('contra is optional in the schema; posting still requires write:post', () => {
     const schema = setOpeningBalanceTool.inputSchema as { required: string[] };
-    expect(schema.required).toContain('contra_account_id');
+    expect(schema.required).not.toContain('contra_account_id');
     expect(setOpeningBalanceTool.requiresPost).toBe(true);
+  });
+
+  describe('default contra — Opening Balance Equity', () => {
+    const NO_CONTRA = { bank_account_id: BANK, as_at: '2026-03-01', amount: 1500.5, ...KEY };
+
+    it('credits the company\'s Opening Balance Equity account and says so in the reply', async () => {
+      const r = parseOk(await setOpeningBalanceTool.handler(NO_CONTRA, ctx()));
+      expect(ensureOpeningBalanceEquityAccount).toHaveBeenCalledWith(COMPANY);
+      expect(linesOf()[1]).toMatchObject({ glAccountId: OBE, debit: 0, credit: 1500.5 });
+      expect(r).toMatchObject({ contra_account_id: OBE, contra_defaulted: true, contra_account_created: false });
+    });
+
+    it('reports when the call created the account', async () => {
+      vi.mocked(ensureOpeningBalanceEquityAccount).mockResolvedValueOnce({ id: OBE, accountCode: '3300', accountName: 'Opening Balance Equity', created: true });
+      const r = parseOk(await setOpeningBalanceTool.handler(NO_CONTRA, ctx()));
+      expect(r.contra_account_created).toBe(true);
+    });
+
+    it('an explicit contra overrides the default and the default is never resolved', async () => {
+      const r = parseOk(await setOpeningBalanceTool.handler(ARGS, ctx()));
+      expect(ensureOpeningBalanceEquityAccount).not.toHaveBeenCalled();
+      expect(r).toMatchObject({ contra_account_id: CONTRA, contra_defaulted: false });
+    });
+
+    it('only the bank id is ownership-checked when no contra is given', async () => {
+      await setOpeningBalanceTool.handler(NO_CONTRA, ctx());
+      expect(vi.mocked(accountsBelongToCompany).mock.calls[0]![1]).toEqual([BANK]);
+    });
+
+    it('a refused call never creates the clearing account as a side effect', async () => {
+      vi.mocked(setBankOpeningBalanceMeta.read).mockResolvedValue({ amount: 900, asAt: '2026-01-01' });
+      errText(await setOpeningBalanceTool.handler(NO_CONTRA, ctx()));
+      vi.mocked(setBankOpeningBalanceMeta.read).mockResolvedValue({ amount: null, asAt: null });
+      vi.mocked(accountsBelongToCompany).mockResolvedValue(false);
+      errText(await setOpeningBalanceTool.handler(NO_CONTRA, ctx()));
+      expect(ensureOpeningBalanceEquityAccount).not.toHaveBeenCalled();
+    });
   });
 });

@@ -18,7 +18,8 @@ export type ProposalKind =
   | 'ar_untied'
   | 'ap_untied'
   | 'vat_unreviewed'
-  | 'tb_unbalanced';
+  | 'tb_unbalanced'
+  | 'opening_balance_residual';
 
 export type ProposalActionType = 'auto_post' | 'advisory';
 

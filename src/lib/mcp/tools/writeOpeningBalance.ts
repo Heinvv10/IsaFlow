@@ -17,17 +17,18 @@
  * So this posts a real journal (source `auto_migration`) AND records the
  * metadata, so the two agree.
  *
- * `contra_account_id` is REQUIRED and deliberately not defaulted. Where the
- * other side of an opening balance belongs — an opening-balance equity
- * account, retained earnings, or a suspense account cleared later — is a
- * policy decision that differs per firm and lands in equity. An agent picking
- * it silently would be making that call for the accountant.
+ * `contra_account_id` defaults to the company's Opening Balance Equity
+ * account (created on first use — see openingBalanceEquityService for why
+ * that, and not retained earnings). An explicit id still overrides it for a
+ * firm whose policy is retained earnings or a suspense account. The reply
+ * names the account actually used either way, so the choice is never silent.
  */
 import type { McpTool } from '../types';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
+import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -39,7 +40,7 @@ export const setOpeningBalanceTool: McpTool = {
   description:
     'Post an opening balance for a bank account so it reconciles from a known starting point — for a card or account whose earlier history was never captured. ' +
     'Posts a real journal dated as_at (DR the bank account and CR the contra for a positive amount, reversed for a negative one) and records the figure on the account so the banking screens agree with the ledger. ' +
-    'contra_account_id is REQUIRED and has no default: where the other side belongs (opening-balance equity, retained earnings, a suspense account) is your firm\'s decision, and it lands in equity. ' +
+    'contra_account_id is optional: omitted, the other side posts to the company\'s Opening Balance Equity clearing account (created on first use), which should net to zero once every opening balance is captured — the close-readiness checklist warns while it does not. Pass an explicit contra_account_id (retained earnings, a suspense account) only when the firm\'s policy says so. The reply carries the contra actually used. ' +
     'Refuses if the account already has an opening balance — reverse that journal first rather than stacking a second one. Requires the write:post permission.',
   scope: 'write:journals',
   write: true,
@@ -59,20 +60,19 @@ export const setOpeningBalanceTool: McpTool = {
       },
       contra_account_id: {
         type: 'string',
-        description: 'The other side of the entry. Usually an opening-balance equity or suspense account. No default.',
+        description: 'Optional. The other side of the entry. Defaults to the company\'s Opening Balance Equity account.',
       },
       memo: { type: 'string' },
       idempotency_key: { type: 'string' },
     },
-    required: ['bank_account_id', 'as_at', 'amount', 'contra_account_id', 'idempotency_key'],
+    required: ['bank_account_id', 'as_at', 'amount', 'idempotency_key'],
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
     const bankAccountId = strArg(args, 'bank_account_id');
-    const contraAccountId = strArg(args, 'contra_account_id');
+    const explicitContra = strArg(args, 'contra_account_id');
     const asAt = strArg(args, 'as_at');
     if (!bankAccountId) return toolError('bank_account_id is required');
-    if (!contraAccountId) return toolError('contra_account_id is required');
     if (!asAt) return toolError('as_at is required (YYYY-MM-DD)');
 
     const bad = guardCastableArgs(args, {
@@ -89,15 +89,19 @@ export const setOpeningBalanceTool: McpTool = {
     if (amount === 0) {
       return toolError('amount must not be zero — there is nothing to post.');
     }
-    if (bankAccountId === contraAccountId) {
+    if (bankAccountId === explicitContra) {
       // Debiting and crediting the same account nets to nothing but still
       // balances, so nothing downstream would catch it.
       return toolError('contra_account_id must differ from bank_account_id');
     }
 
-    // Ownership for both ids, batched, before any write. Neither the service
-    // nor the database re-checks the tenant on these foreign keys.
-    if (!(await accountsBelongToCompany(ctx.companyId, [bankAccountId, contraAccountId]))) {
+    // Ownership for every agent-supplied id, batched, before any write.
+    // Neither the service nor the database re-checks the tenant on these
+    // foreign keys. The default contra is resolved by ctx.companyId and needs
+    // no check — but it is resolved AFTER the ownership and state refusals
+    // below, so a refused call never creates the account as a side effect.
+    const owned = explicitContra ? [bankAccountId, explicitContra] : [bankAccountId];
+    if (!(await accountsBelongToCompany(ctx.companyId, owned))) {
       return toolError(NOT_FOUND);
     }
 
@@ -123,6 +127,14 @@ export const setOpeningBalanceTool: McpTool = {
           `${existing.asAt ? ` as at ${existing.asAt}` : ''}. Reverse that journal before posting another.`,
       );
     }
+
+    // Creating the clearing account is the one write that precedes the
+    // journal. It is idempotent (find-or-create on a reserved subtype), so a
+    // retry after a later failure finds the same account rather than a second.
+    const contra = explicitContra
+      ? { id: explicitContra, created: false }
+      : await ensureOpeningBalanceEquityAccount(ctx.companyId);
+    const contraAccountId = contra.id;
 
     const amountAbs = Math.abs(Math.round(amount * 100) / 100);
     const bankIsDebit = amount > 0;
@@ -169,6 +181,8 @@ export const setOpeningBalanceTool: McpTool = {
       as_at: asAt,
       amount,
       contra_account_id: contraAccountId,
+      contra_defaulted: !explicitContra,
+      contra_account_created: contra.created,
       journal_entry_id: entry.id,
       posted: true,
     });

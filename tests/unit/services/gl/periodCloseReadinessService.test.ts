@@ -78,7 +78,7 @@ function makePeriod(overrides: Partial<FiscalPeriod> = {}): FiscalPeriod {
 }
 
 /**
- * Sets up mocks for all 6 SQL checks in SEQUENTIAL execution order. The checks
+ * Sets up mocks for all 7 SQL checks in SEQUENTIAL execution order. The checks
  * now run one-at-a-time (each inside its own savepoint), and the ar/ap checks
  * issue two queries in sequence (invoice sum then GL balance), so the SQL call
  * order is:
@@ -90,6 +90,7 @@ function makePeriod(overrides: Partial<FiscalPeriod> = {}): FiscalPeriod {
  *  Call 6: ap GL balance
  *  Call 7: vat        (1 query)
  *  Call 8: tb         (1 query)
+ *  Call 9: opening balance equity (1 query)
  */
 function mockAllChecksPass(): void {
   mockSql
@@ -100,7 +101,8 @@ function mockAllChecksPass(): void {
     .mockResolvedValueOnce([{ ap_total: '500.00' }])       // ap invoice sum
     .mockResolvedValueOnce([{ gl_balance: '500.00' }])     // ap GL balance
     .mockResolvedValueOnce([{ vat_count: '1' }])           // vat
-    .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]); // tb
+    .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]) // tb
+    .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 }
 
 describe('getCloseReadiness — orchestrator', () => {
@@ -129,7 +131,7 @@ describe('getCloseReadiness — orchestrator', () => {
 
     expect(result).not.toBeNull();
     expect(result!.overallStatus).toBe('pass');
-    expect(result!.items).toHaveLength(6);
+    expect(result!.items).toHaveLength(7);
     for (const item of result!.items) {
       expect(item.status).toBe('pass');
     }
@@ -147,7 +149,8 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ ap_total: '500.00' }])
       .mockResolvedValueOnce([{ gl_balance: '500.00' }])
       .mockResolvedValueOnce([{ vat_count: '0' }])         // VAT: WARN
-      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]);
+      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
+      .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
@@ -166,7 +169,8 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ ap_total: '500.00' }])
       .mockResolvedValueOnce([{ gl_balance: '500.00' }])
       .mockResolvedValueOnce([{ vat_count: '1' }])
-      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]);
+      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
+      .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
@@ -183,7 +187,7 @@ describe('getCloseReadiness — orchestrator', () => {
 
     await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
-    expect(mockSql).toHaveBeenCalledTimes(8);
+    expect(mockSql).toHaveBeenCalledTimes(9);
     for (const call of mockSql.mock.calls) {
       const firstArg = call[1] as string;
       expect(firstArg).toBe(COMPANY_A);
@@ -258,7 +262,7 @@ describe('getCloseReadiness — orchestrator', () => {
       (name: string, fn: () => Promise<unknown>) => Promise<unknown>
     >;
     // one savepoint per check — six checks
-    expect(mockWithSavepoint).toHaveBeenCalledTimes(6);
+    expect(mockWithSavepoint).toHaveBeenCalledTimes(7);
     // every savepoint name is a valid identifier (withSavepoint rejects bad names at runtime)
     for (const call of mockWithSavepoint.mock.calls) {
       expect(String(call[0])).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/);
@@ -315,12 +319,13 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ ap_total: '500.00' }])
       .mockResolvedValueOnce([{ gl_balance: '500.00' }])
       .mockResolvedValueOnce([{ vat_count: '1' }])
-      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]);
+      .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
+      .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
     expect(result).not.toBeNull();
-    expect(result!.items).toHaveLength(6);
+    expect(result!.items).toHaveLength(7);
 
     const bankItem = result!.items.find(i => i.key === 'bank_reconciled');
     expect(bankItem!.status).toBe('warn');
@@ -349,7 +354,8 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ gl_balance: '1000.00' }])      // ar GL balance
       .mockRejectedValueOnce(new Error('AP table unavailable')) // ap invoice sum: THROWS (ap GL never runs)
       .mockResolvedValueOnce([{ vat_count: '1' }])             // vat: pass
-      .mockResolvedValueOnce([{ total_debit: '1000.00', total_credit: '1000.00' }]); // tb: pass
+      .mockResolvedValueOnce([{ total_debit: '1000.00', total_credit: '1000.00' }]) // tb: pass
+      .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
@@ -375,7 +381,8 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ ap_total: '1000' }])          // ap invoice sum
       .mockResolvedValueOnce([{ gl_balance: '500' }])         // ap GL balance
       .mockResolvedValueOnce([{ vat_count: '0' }])            // vat
-      .mockResolvedValueOnce([{ total_debit: '10200', total_credit: '10000' }]); // tb
+      .mockResolvedValueOnce([{ total_debit: '10200', total_credit: '10000' }]) // tb
+      .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
     const byKey = Object.fromEntries(result!.items.map(i => [i.key, i]));
