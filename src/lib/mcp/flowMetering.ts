@@ -161,6 +161,12 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // asymmetry with create_supplier_invoice is deliberate: a bill creates an
   // obligation, a credit note retracts one, and putting a toll on the retract
   // side is exactly the incentive not to build.
+  //
+  // create_credit_note is free for the same reason and not by oversight: the
+  // draft it writes posts nothing to the ledger (create_draft_quote is free on
+  // that precedent), and it is the first step of a correction that the two
+  // steps after it complete. Charging the first step of an unwind while the
+  // rest is free would price the correction by the back door.
   create_credit_note: null,
   approve_credit_note: null,
   cancel_credit_note: null,

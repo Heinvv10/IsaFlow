@@ -9,7 +9,13 @@
  * `aged_debtors` / `aged_creditors` keep showing the uncredited balance
  * forever.
  *
- * Free, like every other read.
+ * Free, like every other read — but NOT unscoped. Both tools carry
+ * `read:invoices`, the same scope `list_invoices` / `list_supplier_invoices`
+ * require: a credit note names a customer or supplier and an amount, so it is
+ * invoice-grade data. `scope: null` (which only `company_profile` uses, and
+ * annotates as "identity, not data") would have let a token minted with, say,
+ * `read:bank-tx` alone — or with no read scopes at all — pull every customer
+ * name, supplier name and invoice number in the tenant.
  */
 import type { McpTool } from '../types';
 import {
@@ -70,7 +76,7 @@ export const listCreditNotesTool: McpTool = {
   description:
     'List credit notes. Filter by type ("customer" reduces a receivable, "supplier" reduces a payable) and by status. ' +
     'Newest credit_date first. A note with status "applied" has ALREADY been credited against its linked invoice; "approved" means posted to the ledger but not applied to any invoice; "draft" posts nothing.',
-  scope: null,
+  scope: 'read:invoices',
   write: false,
   inputSchema: {
     type: 'object',
@@ -116,8 +122,8 @@ export const listCreditNotesTool: McpTool = {
 export const getCreditNoteTool: McpTool = {
   name: 'get_credit_note',
   description:
-    'Fetch one credit note by id, customer or supplier. Use list_credit_notes to find the id.',
-  scope: null,
+    'Fetch one credit note by id. Use list_credit_notes to find the id.',
+  scope: 'read:invoices',
   write: false,
   inputSchema: {
     type: 'object',

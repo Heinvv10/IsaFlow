@@ -298,3 +298,82 @@ describe('postingAgent attribution reaches the GL services', () => {
     );
   });
 });
+
+
+/**
+ * Finding 22 from review: every proof that approve/cancel actually TAKE the row
+ * lock lived in the integration suite, which `bun run ci` does not run without
+ * DATABASE_URL. Deleting the lock call from the service left CI green. These
+ * two run in the unit suite, so the wiring itself is gated.
+ */
+describe('approve and cancel go through the row lock', () => {
+  it('approveCreditNote reads the note via lockCreditNoteForUpdate, not a plain SELECT', async () => {
+    mockSql.mockResolvedValue([creditNoteRow()]);
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(lockCreditNoteForUpdate).toHaveBeenCalledWith(COMPANY_ID, CN_ID);
+  });
+
+  it('cancelCreditNote reads the note via lockCreditNoteForUpdate', async () => {
+    mockSql.mockResolvedValue([creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    await cancelCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(lockCreditNoteForUpdate).toHaveBeenCalledWith(COMPANY_ID, CN_ID);
+  });
+});
+
+/**
+ * The auto-apply used to add the note's full total with no cap and set
+ * autoApplied = true without inspecting the row count.
+ */
+describe('approveCreditNote — auto-apply is capped and verified', () => {
+  const INV = 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb';
+
+  function linkedNote() {
+    return creditNoteRow({ customer_invoice_id: INV, total_amount: 1150 });
+  }
+
+  /** Answers the credit-note read, the invoice read, and the two UPDATEs. */
+  function wire(invoice: { total_amount: string; amount_paid: string } | null) {
+    const applied: number[] = [];
+    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(linkedNote() as never);
+    mockSql.mockImplementation(((strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = (strings as unknown as string[]).join('?');
+      if (/SELECT total_amount, amount_paid FROM customer_invoices/i.test(text)) {
+        return Promise.resolve(invoice ? [invoice] : []);
+      }
+      if (/UPDATE customer_invoices SET amount_paid = amount_paid \+/i.test(text)) {
+        applied.push(Number(values[0]));
+        return Promise.resolve([{ id: INV }]);
+      }
+      if (/UPDATE credit_notes SET status/i.test(text)) {
+        return Promise.resolve([linkedNote()]);
+      }
+      return Promise.resolve([]);
+    }) as never);
+    return applied;
+  }
+
+  it('caps the applied amount at the invoice outstanding balance', async () => {
+    // Invoice owes 150; the note is worth 1150. Only 150 may be consumed.
+    const applied = wire({ total_amount: '1150.00', amount_paid: '1000.00' });
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(applied).toEqual([150]);
+  });
+
+  it('applies the full total when the invoice owes more than the note', async () => {
+    const applied = wire({ total_amount: '5000.00', amount_paid: '0.00' });
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(applied).toEqual([1150]);
+  });
+
+  it('applies nothing to an already-settled invoice, leaving the credit unallocated', async () => {
+    const applied = wire({ total_amount: '1150.00', amount_paid: '1150.00' });
+    await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
+    expect(applied).toEqual([]);
+  });
+
+  it('refuses when the linked invoice no longer exists rather than reporting a phantom apply', async () => {
+    wire(null);
+    await expect(approveCreditNote(COMPANY_ID, CN_ID, USER_ID))
+      .rejects.toThrow(/no longer exists in this company/);
+  });
+});

@@ -50,7 +50,9 @@ async function validateCustomerLinks(
   if (!clientId) return 'client_id is required for a customer credit note';
 
   const customer = (await sql`
-    SELECT 1 FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}::UUID LIMIT 1
+    SELECT 1 FROM customers
+    WHERE id = ${clientId}::UUID AND company_id = ${companyId}::UUID AND deleted_at IS NULL
+    LIMIT 1
   `) as Row[];
   if (customer.length === 0) return 'Not found';
 

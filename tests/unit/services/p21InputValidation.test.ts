@@ -196,6 +196,16 @@ describe('N6 — linked credit note cannot be applied twice', () => {
     mockSql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = (strings as unknown as string[]).join('?');
       if (/SELECT \* FROM credit_notes/i.test(text)) return Promise.resolve([cnRow]);
+      // Approve now READS the linked invoice to cap the applied amount at its
+      // outstanding balance, so the mock has to answer that lookup. Outstanding
+      // here (1150 - 0) exceeds the note's 115, so the full amount applies and
+      // the note still lands in 'applied' — which is what this test is about.
+      if (/SELECT total_amount, amount_paid FROM customer_invoices/i.test(text)) {
+        return Promise.resolve([{ total_amount: '1150.00', amount_paid: '0.00' }]);
+      }
+      if (/UPDATE customer_invoices SET amount_paid/i.test(text)) {
+        return Promise.resolve([{ id: 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb' }]);
+      }
       if (/UPDATE credit_notes SET status/i.test(text)) {
         updates.push({ text, values });
         return Promise.resolve([{ ...cnRow, status: 'applied' }]);

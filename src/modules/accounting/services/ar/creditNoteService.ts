@@ -1,17 +1,20 @@
 /**
  * PRD-060: FibreFlow Accounting Module — Phase 3
- * Credit Note Service (Customer & Supplier)
+ * Credit Note Service (Customer & Supplier) — reads and draft creation.
+ *
+ * The write paths (approve / cancel / apply) live in creditNoteWriteService.ts
+ * and are re-exported here, so `@/modules/accounting/services/ar/creditNoteService`
+ * remains the single import surface every caller and test mock already uses.
  */
 
 import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
-import { getSystemAccount } from '../gl/systemAccountResolver';
-import { lockCreditNoteForUpdate } from './creditNoteLock';
-import { validateCreditNoteLinks } from './creditNoteLinkService';
 import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../../types/ar.types';
-import type { JournalLineInput } from '../../types/gl.types';
+import { validateCreditNoteLinks } from './creditNoteLinkService';
+import { mapRow } from './creditNoteMapper';
+
+export { approveCreditNote } from './creditNoteApproveService';
+export { cancelCreditNote, applyCreditNoteToInvoice } from './creditNoteCancelService';
 
 interface CreditNoteFilters {
   type?: 'customer' | 'supplier';
@@ -40,7 +43,7 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
         LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id AND ci.company_id = cn.company_id
         LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id AND si.company_id = cn.company_id
         WHERE cn.company_id = ${companyId} AND cn.type = ${filters.type}
-        ORDER BY cn.credit_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY cn.credit_date DESC, cn.created_at DESC, cn.id LIMIT ${limit} OFFSET ${offset}
       `) as Record<string, unknown>[];
       countRows = (await sql`
         SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId} AND type = ${filters.type}
@@ -55,7 +58,7 @@ export async function getCreditNotes(companyId: string, filters?: CreditNoteFilt
         LEFT JOIN customer_invoices ci ON ci.id = cn.customer_invoice_id AND ci.company_id = cn.company_id
         LEFT JOIN supplier_invoices si ON si.id = cn.supplier_invoice_id AND si.company_id = cn.company_id
         WHERE cn.company_id = ${companyId}
-        ORDER BY cn.credit_date DESC LIMIT ${limit} OFFSET ${offset}
+        ORDER BY cn.credit_date DESC, cn.created_at DESC, cn.id LIMIT ${limit} OFFSET ${offset}
       `) as Record<string, unknown>[];
       countRows = (await sql`SELECT COUNT(*) AS cnt FROM credit_notes WHERE company_id = ${companyId}`) as Record<string, unknown>[];
     }
@@ -131,313 +134,4 @@ export async function createCreditNote(companyId: string,
     log.error('Failed to create credit note', { error: err }, 'accounting');
     throw err;
   }
-}
-
-export async function approveCreditNote(
-  companyId: string,
-  id: string,
-  userId: string,
-  // Optional and last-positional so every existing caller keeps human
-  // attribution. Without it createJournalEntry falls back to
-  // defaultHumanMeta(userId) and an MCP-approved credit note posts labelled
-  // `human:<userId>` — claiming the token owner did it by hand, and invisible
-  // to list_agent_postings, which filters posting_agent LIKE 'mcp:%'.
-  opts?: { postingAgent?: string },
-): Promise<CreditNote> {
-  try {
-    // FOR UPDATE, not a plain SELECT: the status check below and the posting
-    // that follows are a check-then-act pair. Two concurrent approvals of the
-    // same draft both read 'draft' and both post a journal — reproduced against
-    // a real database — and a linked note also bumps the invoice's amount_paid
-    // on each pass, double-crediting the receivable. The lock holds for the rest
-    // of the request, so the second caller re-reads the settled status and
-    // refuses here instead.
-    const cn = await lockCreditNoteForUpdate(companyId, id);
-    if (!cn) throw new Error(`Credit note ${id} not found`);
-    if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
-
-    let lines: JournalLineInput[];
-
-    if (String(cn.type) === 'customer') {
-      // Customer CN: DR Revenue, CR Accounts Receivable
-      const revenueAccount = await getSystemAccount('default_revenue', companyId);
-      const arAccount = await getSystemAccount('receivable', companyId);
-      const vatAccount = await getSystemAccount('vat_output', companyId);
-
-      lines = [
-        { glAccountId: revenueAccount.id, debit: Number(cn.subtotal), credit: 0,
-          description: `Credit note ${cn.credit_note_number}` },
-      ];
-      if (Number(cn.tax_amount) > 0 && vatAccount) {
-        lines.push({ glAccountId: vatAccount.id, debit: Number(cn.tax_amount), credit: 0,
-          description: `VAT reversal: ${cn.credit_note_number}` });
-      }
-      lines.push({ glAccountId: arAccount.id, debit: 0, credit: Number(cn.total_amount),
-        description: `AR credit: ${cn.credit_note_number}` });
-    } else {
-      // Supplier CN: DR Accounts Payable, CR Expense
-      const apAccount = await getSystemAccount('payable', companyId);
-      const expenseAccount = await getSystemAccount('default_expense', companyId);
-      const vatAccount = await getSystemAccount('vat_input', companyId);
-
-      lines = [
-        { glAccountId: apAccount.id, debit: Number(cn.total_amount), credit: 0,
-          description: `AP credit: ${cn.credit_note_number}` },
-      ];
-      if (Number(cn.tax_amount) > 0 && vatAccount) {
-        lines.push({ glAccountId: vatAccount.id, debit: 0, credit: Number(cn.tax_amount),
-          description: `VAT reversal: ${cn.credit_note_number}` });
-      }
-      lines.push({ glAccountId: expenseAccount.id, debit: 0, credit: Number(cn.subtotal),
-        description: `Expense credit: ${cn.credit_note_number}` });
-    }
-
-    // credit_date comes back from pg as a Date object (or a string on some
-    // paths); String(Date) yields "Fri Jul 04 2026 ... GMT+0200 (...)" which
-    // Postgres rejects as an invalid time zone when inserted into entry_date.
-    // fmtDate (not toISODate) is required here: node-postgres constructs DATE
-    // columns at LOCAL midnight, so toISODate's UTC-based slicing rolls the
-    // date back a day on this server's UTC+2 timezone — fmtDate reads the
-    // same local getters pg used to build the Date, and also handles the
-    // string shape (already 'YYYY-MM-DD' or an ISO timestamp).
-    const entryDate = fmtDate(cn.credit_date);
-    if (!entryDate) throw new Error(`Credit note ${id} has an invalid credit_date value`);
-
-    // No sourceDocumentId: gl_journal_entries.source_document_id has an FK to
-    // captured_documents(id) only (migration 409); a credit note's own id
-    // would violate it. The credit_note <-> journal entry link is instead
-    // persisted below via credit_notes.gl_journal_entry_id.
-    const je = await createJournalEntry(companyId, {
-      entryDate,
-      description: `Credit note ${cn.credit_note_number}`,
-      source: 'auto_credit_note',
-      lines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined);
-    await postJournalEntry(companyId, je.id, userId);
-
-    // N6 (P2.1): approving a LINKED note auto-applies it, so it must land in
-    // 'applied' — leaving it 'approved' let the separate apply action credit
-    // the same invoice a SECOND time (applyCreditNoteToInvoice recomputes
-    // outstanding from the already-bumped row and happily double-credits).
-    let autoApplied = false;
-    if (String(cn.type) === 'customer' && cn.customer_invoice_id) {
-      await sql`
-        UPDATE customer_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
-        WHERE id = ${cn.customer_invoice_id}::UUID AND company_id = ${companyId}::UUID
-      `;
-      autoApplied = true;
-    } else if (String(cn.type) === 'supplier' && cn.supplier_invoice_id) {
-      await sql`
-        UPDATE supplier_invoices SET amount_paid = amount_paid + ${Number(cn.total_amount)}
-        WHERE id = ${cn.supplier_invoice_id}::UUID AND company_id = ${companyId}::UUID
-      `;
-      autoApplied = true;
-    }
-
-    // applied_amount records what was ACTUALLY added above, so cancel reverses
-    // the recorded figure instead of re-deriving one. The auto-apply adds the
-    // full total with no cap, so that is the amount here.
-    const finalStatus = autoApplied ? 'applied' : 'approved';
-    const appliedAmount = autoApplied ? Number(cn.total_amount) : 0;
-    const updatedRows = (await sql`
-      UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,
-        approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID,
-        applied_amount = ${appliedAmount}
-      WHERE id = ${id} AND company_id = ${companyId}::UUID AND status = 'draft'
-      RETURNING *
-    `) as Record<string, unknown>[];
-    // The `status = 'draft'` predicate is a second fence behind the row lock
-    // above, not a substitute for it: the lock is what stops two approvals
-    // building a journal in parallel, but if a future caller ever reaches this
-    // UPDATE without holding it, refusing here beats stamping a second journal
-    // onto an already-approved note.
-    if (updatedRows.length === 0) {
-      throw new Error(`Credit note ${id} was approved concurrently; this attempt posted nothing new.`);
-    }
-    const updated = updatedRows[0] as Record<string, unknown>;
-
-    log.info('Approved credit note', { id, journalEntryId: je.id }, 'accounting');
-    return mapRow(updated);
-  } catch (err) {
-    log.error('Failed to approve credit note', { id, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-export async function cancelCreditNote(companyId: string, 
-  id: string,
-  userId: string,
-  reason?: string,
-  // Same reason as approveCreditNote: the REVERSING entry is a ledger write of
-  // its own and must carry the agent stamp, or an MCP cancellation reverses a
-  // journal under the token owner's name.
-  opts?: { postingAgent?: string },
-): Promise<CreditNote> {
-  try {
-    // Same check-then-act window as approve: two concurrent cancellations would
-    // each reverse the journal, leaving the note over-reversed and the invoice
-    // credit removed twice.
-    const cn = await lockCreditNoteForUpdate(companyId, id);
-    if (!cn) throw new Error(`Credit note ${id} not found`);
-    // 'applied' is cancellable too (PR #203 review HIGH): linked notes land
-    // 'applied' at approve (N6), and the un-apply + GL-reversal below already
-    // handles the applied state — restricting to 'approved' made every
-    // linked/applied note permanently uncancellable.
-    if (String(cn.status) !== 'approved' && String(cn.status) !== 'applied') {
-      throw new Error(`Cannot cancel credit note with status: ${cn.status}`);
-    }
-
-    // Reverse GL journal entry — manages its own transaction, must stay outside
-    if (cn.gl_journal_entry_id) {
-      await reverseJournalEntry(
-        companyId,
-        String(cn.gl_journal_entry_id),
-        userId,
-        opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined,
-      );
-    }
-
-    // Un-apply exactly what was applied, never the note's face value. The apply
-    // path caps at the invoice's outstanding balance (min(total, outstanding)),
-    // so reversing total_amount erased real cash receipts: an invoice of 1000
-    // with 950 paid absorbs only 50 of a 115 note, and un-crediting 115 left it
-    // showing 115 outstanding against a true 50.
-    //
-    // The guard is `amount_paid >= X` rather than GREATEST(0, ...): flooring at
-    // zero silently absorbs exactly the corruption worth hearing about, so a
-    // row that cannot absorb the reversal refuses loudly instead.
-    const unapply = Number(cn.applied_amount ?? 0);
-    if (unapply > 0) {
-      const invoiceTable = String(cn.type) === 'customer' ? cn.customer_invoice_id : cn.supplier_invoice_id;
-      if (String(cn.type) === 'customer' && invoiceTable) {
-        const done = (await sql`
-          UPDATE customer_invoices
-          SET amount_paid = amount_paid - ${unapply}
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${unapply}
-          RETURNING id
-        `) as Record<string, unknown>[];
-        if (done.length === 0) {
-          throw new Error(
-            `Cannot cancel credit note ${id}: invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
-          );
-        }
-        await sql`
-          UPDATE customer_invoices SET status = CASE
-            WHEN amount_paid <= 0.01 THEN 'approved'
-            WHEN amount_paid < total_amount THEN 'partially_paid'
-            ELSE status
-          END
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-        `;
-      } else if (String(cn.type) === 'supplier' && invoiceTable) {
-        const done = (await sql`
-          UPDATE supplier_invoices
-          SET amount_paid = amount_paid - ${unapply}
-          WHERE id = ${invoiceTable}::UUID AND company_id = ${companyId}::UUID
-            AND amount_paid >= ${unapply}
-          RETURNING id
-        `) as Record<string, unknown>[];
-        if (done.length === 0) {
-          throw new Error(
-            `Cannot cancel credit note ${id}: supplier invoice ${String(invoiceTable)} has less applied than the ${unapply} this note credited.`,
-          );
-        }
-      }
-    }
-
-    const cancelledRows = (await sql`
-      UPDATE credit_notes
-      SET status = 'cancelled', cancelled_by = ${userId}::UUID,
-          cancelled_at = NOW(), cancel_reason = ${reason || null},
-          applied_amount = 0
-      WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
-    `) as Record<string, unknown>[];
-    const updated = cancelledRows[0] as Record<string, unknown>;
-
-    log.info('Cancelled credit note', { id, reason }, 'accounting');
-    return mapRow(updated);
-  } catch (err) {
-    log.error('Failed to cancel credit note', { id, error: err }, 'accounting');
-    throw err;
-  }
-}
-
-export async function applyCreditNoteToInvoice(
-  companyId: string,
-  creditNoteId: string,
-  invoiceId: string,
-  userId: string
-): Promise<CreditNote> {
-  const cnRows = (await sql`
-    SELECT * FROM credit_notes WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
-  `) as Record<string, unknown>[];
-  if (cnRows.length === 0) throw new Error('Credit note not found');
-  const cn = cnRows[0]!;
-  if (String(cn.status) !== 'approved') throw new Error('Credit note must be approved before applying');
-  if (String(cn.type) !== 'customer') throw new Error('Only customer credit notes can be applied to invoices');
-
-  const invRows = (await sql`
-    SELECT * FROM customer_invoices
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
-  `) as Record<string, unknown>[];
-  if (invRows.length === 0) throw new Error('Invoice not found');
-  const inv = invRows[0]!;
-
-  const clientMatch = String(inv.client_id || inv.customer_id) === String(cn.client_id);
-  if (!clientMatch) throw new Error('Invoice and credit note must belong to the same customer');
-
-  const outstanding = Math.max(0, Number(inv.total_amount) - Number(inv.amount_paid));
-  const applyAmount = Math.min(Number(cn.total_amount), outstanding);
-  if (applyAmount <= 0) throw new Error('Invoice has no outstanding balance');
-
-  const newPaid = Number(inv.amount_paid) + applyAmount;
-  const newStatus = newPaid >= Number(inv.total_amount) * 0.999 ? 'paid'
-    : newPaid > 0.01 ? 'partially_paid' : String(inv.status);
-  await sql`
-    UPDATE customer_invoices
-    SET amount_paid = ${newPaid}, status = ${newStatus}
-    WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}
-  `;
-  const appliedRows = (await sql`
-    UPDATE credit_notes
-    SET status = 'applied', customer_invoice_id = ${invoiceId}::UUID, updated_at = NOW(),
-        applied_amount = ${applyAmount}
-    WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
-    RETURNING *
-  `) as Record<string, unknown>[];
-  const updated = appliedRows[0] as Record<string, unknown>;
-
-  log.info('Applied credit note to invoice', { creditNoteId, invoiceId, applyAmount, userId }, 'accounting');
-  return mapRow(updated);
-}
-
-function mapRow(row: Record<string, unknown>): CreditNote {
-  return {
-    id: String(row.id),
-    creditNoteNumber: row.credit_note_number ? String(row.credit_note_number) : '',
-    type: String(row.type) as CreditNote['type'],
-    clientId: row.client_id ? String(row.client_id) : undefined,
-    customerInvoiceId: row.customer_invoice_id ? String(row.customer_invoice_id) : undefined,
-    supplierId: row.supplier_id ? String(row.supplier_id) : undefined,
-    supplierInvoiceId: row.supplier_invoice_id ? String(row.supplier_invoice_id) : undefined,
-    creditDate: String(row.credit_date),
-    reason: row.reason ? String(row.reason) : undefined,
-    subtotal: Number(row.subtotal),
-    taxRate: Number(row.tax_rate),
-    taxAmount: Number(row.tax_amount),
-    totalAmount: Number(row.total_amount),
-    appliedAmount: Number(row.applied_amount ?? 0),
-    status: String(row.status) as CreditNoteStatus,
-    glJournalEntryId: row.gl_journal_entry_id ? String(row.gl_journal_entry_id) : undefined,
-    projectId: row.project_id ? String(row.project_id) : undefined,
-    createdBy: String(row.created_by),
-    approvedBy: row.approved_by ? String(row.approved_by) : undefined,
-    approvedAt: row.approved_at ? String(row.approved_at) : undefined,
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at),
-    clientName: row.client_name ? String(row.client_name) : undefined,
-    supplierName: row.supplier_name ? String(row.supplier_name) : undefined,
-    invoiceNumber: row.invoice_number ? String(row.invoice_number) : undefined,
-  };
 }
