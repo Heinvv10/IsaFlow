@@ -28,7 +28,7 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     // payable, and approving one that is linked to an invoice also reduces that
     // invoice's outstanding balance. Someone granting "post invoices" would not
     // otherwise know they had authorised that.
-    desc: 'Create, edit, and post customer and supplier invoices, and raise, approve or cancel credit notes against them (a credit note reduces what a customer owes you, or what you owe a supplier)',
+    desc: 'Create, edit and post invoices, and raise or cancel credit notes against them (a credit note reduces what is owed)',
   },
   'read:bank-tx': {
     label: 'Read bank transactions',
@@ -56,6 +56,6 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
   },
   'write:post': {
     label: 'Post, finalize & allocate (irreversible)',
-    desc: 'Allows this token to POST journals, finalize documents, and allocate bank transactions on its own — an allocation posts an AP/AR journal, records a customer payment as confirmed, and marks a supplier invoice paid. All irreversible except by a reversing entry. Grant only if you trust this integration.',
+    desc: 'Allows this token to POST journals, finalize documents, allocate bank transactions, and REVERSE posted entries on its own — an allocation posts an AP/AR journal, records a customer payment as confirmed, and marks a supplier invoice paid; cancelling a credit note reverses its journal. Grant only if you trust this integration.',
   },
 };

@@ -42,6 +42,23 @@ export async function validateCreditNoteLinks(
   return validateSupplierLinks(companyId, input.supplierId, input.supplierInvoiceId);
 }
 
+/**
+ * A credit note may only be linked to an invoice that actually owes something.
+ *
+ * A DRAFT invoice has posted nothing to the ledger, so crediting it produces a
+ * receivable reduction against a document the books have never seen — and
+ * approve then bumps its amount_paid, so the draft can be issued later already
+ * looking part-paid. A cancelled or written-off invoice is settled business
+ * that a new credit must not silently reopen.
+ */
+function invoiceStatusRefusal(status: string): string | null {
+  const CREDITABLE = ['approved', 'sent', 'overdue', 'partially_paid', 'paid'];
+  if (!CREDITABLE.includes(status)) {
+    return `The linked invoice is '${status}'; only an issued invoice (${CREDITABLE.join(', ')}) can be credited.`;
+  }
+  return null;
+}
+
 async function validateCustomerLinks(
   companyId: string,
   clientId?: string,
@@ -61,7 +78,7 @@ async function validateCustomerLinks(
   // COALESCE(client_id, customer_id): both columns exist on customer_invoices
   // and older rows populate only the second (see CLAUDE.md).
   const invoice = (await sql`
-    SELECT COALESCE(client_id, customer_id) AS owner_id
+    SELECT COALESCE(client_id, customer_id) AS owner_id, status
     FROM customer_invoices
     WHERE id = ${customerInvoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
@@ -69,7 +86,7 @@ async function validateCustomerLinks(
   if (String(invoice[0]!.owner_id) !== clientId) {
     return 'customer_invoice_id belongs to a different customer than client_id';
   }
-  return null;
+  return invoiceStatusRefusal(String(invoice[0]!.status));
 }
 
 async function validateSupplierLinks(
@@ -89,12 +106,12 @@ async function validateSupplierLinks(
   if (!supplierInvoiceId) return null;
 
   const invoice = (await sql`
-    SELECT supplier_id FROM supplier_invoices
+    SELECT supplier_id, status FROM supplier_invoices
     WHERE id = ${supplierInvoiceId}::UUID AND company_id = ${companyId}::UUID
   `) as Row[];
   if (invoice.length === 0) return 'Not found';
   if (String(invoice[0]!.supplier_id) !== supplierId) {
     return 'supplier_invoice_id belongs to a different supplier than supplier_id';
   }
-  return null;
+  return invoiceStatusRefusal(String(invoice[0]!.status));
 }

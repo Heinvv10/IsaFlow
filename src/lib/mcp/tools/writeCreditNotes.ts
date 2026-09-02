@@ -24,6 +24,7 @@ import {
   getCreditNoteById,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import { validateCreditNoteLinks } from '@/modules/accounting/services/ar/creditNoteLinkService';
+import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -179,9 +180,26 @@ export const approveCreditNoteTool: McpTool = {
       return toolError(`Cannot approve credit note with status: ${note.status}`);
     }
 
-    // No catch: a missing system account, a closed period or a database failure
-    // must reach the registry's savepoint rather than being flattened into a
-    // tool error that keeps a partially posted journal.
+    // A missing system account is the likeliest reason an approve fails, and it
+    // is the one an agent can actually do something about (create_gl_account
+    // with the right subtype). Left to throw, it reaches the registry as
+    // GENERIC_FAILURE naming nothing — so the agent retries the same call
+    // forever against a company that will never be able to answer it. Refusing
+    // here is pre-write and names the subtypes.
+    const NEEDED = note.type === 'customer'
+      ? ['default_revenue', 'receivable', 'vat_output']
+      : ['payable', 'default_expense', 'vat_input'];
+    const missing = (await validateSystemAccounts(ctx.companyId)).filter((k) => NEEDED.includes(k));
+    if (missing.length > 0) {
+      return toolError(
+        `Cannot approve: this company has no GL account with subtype ${missing.join(', ')}. `
+        + 'Create one with create_gl_account (needs the write:accounts permission), then retry.',
+      );
+    }
+
+    // No catch beyond that: a closed period or a database failure must reach
+    // the registry's savepoint rather than being flattened into a tool error
+    // that keeps a partially posted journal.
     const updated = await approveCreditNote(ctx.companyId, id, ctx.userId, {
       postingAgent: mcpPostingAgent('approve_credit_note'),
     });

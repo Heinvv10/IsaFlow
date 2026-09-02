@@ -90,6 +90,24 @@ function sqlCallTouches(call: unknown[], textFragment: string, value: unknown): 
   return text.includes(textFragment) && values.includes(value);
 }
 
+/**
+ * Point BOTH the row lock and the sql mock at one note.
+ *
+ * approve/cancel read the note through lockCreditNoteForUpdate, not through
+ * `sql`, so a fixture that only primes mockSql leaves the lock answering with
+ * the default row — which is how these tests silently stopped describing the
+ * case they were named for.
+ */
+function setNote(row: Record<string, unknown>, ...rest: Record<string, unknown>[][]) {
+  vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(row as never);
+  if (rest.length > 0) {
+    let chain = mockSql.mockResolvedValueOnce(rest[0]!);
+    for (const r of rest.slice(1)) chain = chain.mockResolvedValueOnce(r);
+  } else {
+    mockSql.mockResolvedValue([row]);
+  }
+}
+
 function creditNoteRow(overrides: Record<string, unknown> = {}) {
   return {
     id: CN_ID,
@@ -119,12 +137,12 @@ function creditNoteRow(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: the lock yields whatever the sql mock is currently returning, so
-  // each test keeps setting up exactly one fixture.
-  vi.mocked(lockCreditNoteForUpdate).mockImplementation(async () => {
-    const res = await (mockSql as unknown as () => Promise<unknown[]>)();
-    return (res?.[0] ?? null) as never;
-  });
+  // The lock returns the standard fixture. It must NOT delegate to mockSql:
+  // calling the tagged-template mock with no arguments records a bogus entry in
+  // mock.calls, which the INSERT-inspecting assertions below then have to step
+  // over, and it silently consumes a mockResolvedValueOnce that belonged to a
+  // real query. Tests needing a different note override this directly.
+  vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(creditNoteRow() as never);
   mockGetSystemAccount.mockImplementation(async (key: string) => ({
     id: `${key}-account-id`,
     accountCode: '1000',
@@ -148,9 +166,7 @@ beforeEach(() => {
 
 describe('approveCreditNote — credit_date normalization', () => {
   it('formats a Date-typed credit_date as YYYY-MM-DD before creating the journal entry', async () => {
-    mockSql
-      .mockResolvedValueOnce([creditNoteRow()]) // SELECT credit_notes
-      .mockResolvedValueOnce([creditNoteRow({ status: 'approved' })]); // UPDATE ... RETURNING *
+    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -160,9 +176,7 @@ describe('approveCreditNote — credit_date normalization', () => {
   });
 
   it('formats a string-typed (ISO timestamp) credit_date as YYYY-MM-DD', async () => {
-    mockSql
-      .mockResolvedValueOnce([creditNoteRow({ credit_date: '2026-07-04T00:00:00.000Z' })])
-      .mockResolvedValueOnce([creditNoteRow({ status: 'approved' })]);
+    setNote(creditNoteRow({ credit_date: '2026-07-04T00:00:00.000Z' }), [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -171,9 +185,7 @@ describe('approveCreditNote — credit_date normalization', () => {
   });
 
   it('passes through a plain YYYY-MM-DD string credit_date unchanged', async () => {
-    mockSql
-      .mockResolvedValueOnce([creditNoteRow({ credit_date: '2026-07-04' })])
-      .mockResolvedValueOnce([creditNoteRow({ status: 'approved' })]);
+    setNote(creditNoteRow({ credit_date: '2026-07-04' }), [creditNoteRow({ status: 'approved' })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -184,9 +196,7 @@ describe('approveCreditNote — credit_date normalization', () => {
 
 describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry_id', () => {
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
-    mockSql
-      .mockResolvedValueOnce([creditNoteRow()])
-      .mockResolvedValueOnce([creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
@@ -195,15 +205,18 @@ describe('approveCreditNote — no sourceDocumentId, linked via gl_journal_entry
   });
 
   it('persists gl_journal_entry_id on the credit note when approving', async () => {
-    mockSql
-      .mockResolvedValueOnce([creditNoteRow()])
-      .mockResolvedValueOnce([creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    setNote(creditNoteRow(), [creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
 
     const result = await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
 
     expect(result.glJournalEntryId).toBe(JE_ID);
-    const updateCall = mockSql.mock.calls[1]!;
-    expect(sqlCallTouches(updateCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
+    // Found by CONTENT, not by index: the note is now read through the row lock
+    // rather than through `sql`, so a positional lookup silently shifted when
+    // that landed and this assertion started reading an undefined call.
+    const updateCall = mockSql.mock.calls.find((c) =>
+      sqlCallTouches(c as unknown[], 'gl_journal_entry_id', JE_ID),
+    );
+    expect(updateCall, 'no UPDATE wrote gl_journal_entry_id').toBeDefined();
   });
 });
 
@@ -271,7 +284,7 @@ describe('createCreditNote — supplier_id is a UUID, never coerced to a number'
  */
 describe('postingAgent attribution reaches the GL services', () => {
   it('approveCreditNote forwards the stamp to createJournalEntry', async () => {
-    mockSql.mockResolvedValue([creditNoteRow()]);
+    setNote(creditNoteRow());
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID, { postingAgent: 'mcp:approve_credit_note:v1' });
     expect(mockCreateJournalEntry).toHaveBeenCalledWith(
       COMPANY_ID, expect.anything(), USER_ID,
@@ -280,7 +293,7 @@ describe('postingAgent attribution reaches the GL services', () => {
   });
 
   it('approveCreditNote leaves meta undefined when no stamp is given, keeping human attribution', async () => {
-    mockSql.mockResolvedValue([creditNoteRow()]);
+    setNote(creditNoteRow());
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
     expect(mockCreateJournalEntry).toHaveBeenCalledWith(
       COMPANY_ID, expect.anything(), USER_ID, undefined,
@@ -288,7 +301,7 @@ describe('postingAgent attribution reaches the GL services', () => {
   });
 
   it('cancelCreditNote forwards the stamp to reverseJournalEntry', async () => {
-    mockSql.mockResolvedValue([creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    setNote(creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID }));
     await cancelCreditNote(COMPANY_ID, CN_ID, USER_ID, 'duplicate', {
       postingAgent: 'mcp:cancel_credit_note:v1',
     });
@@ -308,13 +321,13 @@ describe('postingAgent attribution reaches the GL services', () => {
  */
 describe('approve and cancel go through the row lock', () => {
   it('approveCreditNote reads the note via lockCreditNoteForUpdate, not a plain SELECT', async () => {
-    mockSql.mockResolvedValue([creditNoteRow()]);
+    setNote(creditNoteRow());
     await approveCreditNote(COMPANY_ID, CN_ID, USER_ID);
     expect(lockCreditNoteForUpdate).toHaveBeenCalledWith(COMPANY_ID, CN_ID);
   });
 
   it('cancelCreditNote reads the note via lockCreditNoteForUpdate', async () => {
-    mockSql.mockResolvedValue([creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID })]);
+    setNote(creditNoteRow({ status: 'approved', gl_journal_entry_id: JE_ID }));
     await cancelCreditNote(COMPANY_ID, CN_ID, USER_ID);
     expect(lockCreditNoteForUpdate).toHaveBeenCalledWith(COMPANY_ID, CN_ID);
   });

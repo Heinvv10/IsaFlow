@@ -233,6 +233,11 @@ describe('N6 — linked credit note cannot be applied twice', () => {
       ],
     });
 
+    // apply reads the note through the row lock now, not through `sql`.
+    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(
+      { id: ENTITY_ID, status: 'applied', type: 'customer', total_amount: '115.00' } as never,
+    );
+
     await expect(
       applyCreditNoteToInvoice(COMPANY_ID, ENTITY_ID, 'bbbbbbbb-0000-4000-8000-bbbbbbbbbbbb', USER_ID),
     ).rejects.toThrow(/approved|applied/i);

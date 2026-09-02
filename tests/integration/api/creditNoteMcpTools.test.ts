@@ -28,6 +28,8 @@ const COMPANY = '00000000-0000-0000-0000-000000000aa1';
 const OTHER   = '00000000-0000-0000-0000-000000000aa2';
 const USER    = '00000000-0000-0000-e2e0-000000000001';
 let supplier: string; let customer: string; let otherCustomer: string; let invoice: string;
+/** A SECOND customer inside COMPANY — needed to reach the counterparty branch. */
+let siblingCustomer: string;
 
 // Unique per run. customer_invoices has a (company_id, invoice_number) unique
 // constraint, so a fixed number turns any teardown failure into a permanently
@@ -75,6 +77,15 @@ let ready = false;
 
 beforeAll(async () => {
   pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  // customers.company_id FKs to companies, so a database lacking either demo
+  // company kills beforeAll rather than skipping cleanly.
+  for (const [id, name] of [[COMPANY, 'CN MCP Test A'], [OTHER, 'CN MCP Test B']] as const) {
+    await sql`
+      INSERT INTO companies (id, name, registration_number, created_at)
+      VALUES (${id}::UUID, ${name}, 'CNMCP-TEST', NOW())
+      ON CONFLICT (id) DO NOTHING
+    `;
+  }
   const seeded = await sql`
     SELECT COUNT(DISTINCT account_subtype) AS n FROM gl_accounts
     WHERE company_id = ${COMPANY}::UUID AND account_subtype = ANY(${REQUIRED_SUBTYPES})
@@ -85,6 +96,7 @@ beforeAll(async () => {
   supplier = (await sql`INSERT INTO suppliers (name, company_id) VALUES (${'E2E Supplier ' + TAG}, ${COMPANY}::UUID) RETURNING id` as {id:string}[])[0]!.id;
   customer = (await sql`INSERT INTO customers (name, company_id) VALUES (${'E2E Customer ' + TAG}, ${COMPANY}::UUID) RETURNING id` as {id:string}[])[0]!.id;
   otherCustomer = (await sql`INSERT INTO customers (name, company_id) VALUES (${'E2E Other ' + TAG}, ${OTHER}::UUID) RETURNING id` as {id:string}[])[0]!.id;
+  siblingCustomer = (await sql`INSERT INTO customers (name, company_id) VALUES (${'E2E Sibling ' + TAG}, ${COMPANY}::UUID) RETURNING id` as {id:string}[])[0]!.id;
   invoice = (await sql`INSERT INTO customer_invoices (company_id, client_id, customer_id, created_by, invoice_number, invoice_date, total_amount, amount_paid, status, subtotal)
     VALUES (${COMPANY}::UUID, ${customer}::UUID, ${customer}::UUID, ${USER}::UUID, ${TAG}, '2026-06-01', 1150, 0, 'approved', 1000) RETURNING id` as {id:string}[])[0]!.id;
 });
@@ -122,7 +134,7 @@ afterAll(async () => {
   }
 
   await sql`DELETE FROM customer_invoices WHERE id = ${invoice}::UUID`;
-  await sql`DELETE FROM customers WHERE id IN (${customer}::UUID, ${otherCustomer}::UUID)`;
+  await sql`DELETE FROM customers WHERE id IN (${customer}::UUID, ${otherCustomer}::UUID, ${siblingCustomer}::UUID)`;
   await sql`DELETE FROM suppliers WHERE id = ${supplier}::UUID`;
   await pool.end();
 });
@@ -136,11 +148,36 @@ describe('credit note MCP tools — real round trip', () => {
     expect(r.content[0]!.text).toBe('Not found');
   });
 
-  it('refuses an invoice belonging to a different customer', async (t) => {
+  /**
+   * The counterparty branch, reached for real.
+   *
+   * The previous version of this test passed ctx(OTHER), so the CUSTOMER
+   * lookup failed on the tenant branch and the invoice-owner comparison was
+   * never executed — deleting that comparison left the test green, which made
+   * the headline fence of this change untested. Both ids below are legitimately
+   * visible to the calling company; only their relationship is wrong.
+   */
+  it('refuses an invoice belonging to a different customer IN THE SAME company', async (t) => {
+    if (!ready) t.skip();
+    const r = await inTx(() => createCreditNoteTool.handler(
+      {
+        type: 'customer',
+        client_id: siblingCustomer,      // exists in COMPANY
+        customer_invoice_id: invoice,    // exists in COMPANY, but belongs to `customer`
+        credit_date: '2026-06-30', subtotal: 100, idempotency_key: 'k',
+      }, ctx()));
+    expect(r.isError).toBe(true);
+    // The exact message matters: a generic 'Not found' here would mean the
+    // tenant branch answered and the counterparty check never ran.
+    expect(r.content[0]!.text).toContain('different customer');
+  });
+
+  it('refuses an invoice from another tenant with the generic miss text', async (t) => {
     if (!ready) t.skip();
     const r = await inTx(() => createCreditNoteTool.handler(
       { type: 'customer', client_id: otherCustomer, customer_invoice_id: invoice, credit_date: '2026-06-30', subtotal: 100, idempotency_key: 'k' }, ctx(OTHER)));
     expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toBe('Not found');
   });
 
   it('supplier note: create -> approve -> cancel, stamping the ledger', async (t) => {

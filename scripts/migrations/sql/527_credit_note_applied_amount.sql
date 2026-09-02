@@ -32,14 +32,12 @@ WHERE status = 'applied' AND applied_amount = 0;
 
 -- ── Stranded rows from the pre-526 cancellation bug ─────────────────────────
 --
--- Migration 526 concluded "no data backfill is possible or needed, because no
--- row ever cancelled." The conclusion was right but the reasoning was not: no
--- row reaching status='cancelled' does NOT imply no row was left half-cancelled.
 -- Every pre-526 cancel threw on the final UPDATE, AFTER reverseJournalEntry and
--- the amount_paid decrement had already committed in their own transactions —
--- so an interrupted attempt leaves a note still marked approved/applied whose
--- journal is already reversed and whose invoice was already un-applied. Such a
--- note claims credit the ledger has taken back.
+-- the amount_paid decrement had already committed — so an interrupted attempt
+-- leaves a note still marked approved/applied whose journal is already reversed
+-- and whose invoice was already un-applied. Such a note claims credit the
+-- ledger has taken back. No row reaching status='cancelled' is NOT evidence
+-- that no row was left in that half-state; it has to be checked separately.
 --
 -- Checked before writing this: 0 rows in dev and 0 in production. The statement
 -- below is therefore a no-op today and is here so that it stays correct if an

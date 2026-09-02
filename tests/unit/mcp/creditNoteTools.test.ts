@@ -37,6 +37,9 @@ vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
 vi.mock('@/modules/accounting/services/ar/creditNoteLinkService', () => ({
   validateCreditNoteLinks: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
+  validateSystemAccounts: vi.fn(),
+}));
 
 import {
   getCreditNotes,
@@ -46,6 +49,7 @@ import {
   cancelCreditNote,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import { validateCreditNoteLinks } from '@/modules/accounting/services/ar/creditNoteLinkService';
+import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { listCreditNotesTool, getCreditNoteTool } from '@/lib/mcp/tools/creditNotes';
 import {
   createCreditNoteTool,
@@ -96,6 +100,7 @@ const draftNote = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(validateCreditNoteLinks).mockResolvedValue(null);
+  vi.mocked(validateSystemAccounts).mockResolvedValue([]);
 });
 
 describe('create_credit_note — pre-write guards', () => {

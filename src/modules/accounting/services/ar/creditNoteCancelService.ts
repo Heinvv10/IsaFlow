@@ -43,7 +43,9 @@ export async function cancelCreditNote(companyId: string,
       throw new Error(`Cannot cancel credit note with status: ${cn.status}`);
     }
 
-    // Reverse GL journal entry — manages its own transaction, must stay outside
+    // Reverse the GL journal entry. (It used to manage its own transaction; it
+    // now runs on the ALS-bound request client like everything else, so the
+    // reversal and the un-apply below commit or roll back together.)
     if (cn.gl_journal_entry_id) {
       await reverseJournalEntry(
         companyId,
@@ -105,7 +107,8 @@ export async function cancelCreditNote(companyId: string,
           applied_amount = 0
       WHERE id = ${id} AND company_id = ${companyId}::UUID RETURNING *
     `) as Record<string, unknown>[];
-    const updated = cancelledRows[0] as Record<string, unknown>;
+    const updated = cancelledRows[0];
+    if (!updated) throw new Error(`Credit note ${id} vanished while being cancelled.`);
 
     log.info('Cancelled credit note', { id, reason }, 'accounting');
     return mapRow(updated);
@@ -121,11 +124,20 @@ export async function applyCreditNoteToInvoice(
   invoiceId: string,
   userId: string
 ): Promise<CreditNote> {
-  const cnRows = (await sql`
-    SELECT * FROM credit_notes WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
-  `) as Record<string, unknown>[];
-  if (cnRows.length === 0) throw new Error('Credit note not found');
-  const cn = cnRows[0]!;
+  // The note is locked FIRST, before the invoice is read — the same order
+  // approve and cancel use. Two reasons, both load-bearing:
+  //
+  //   1. This was the one credit_notes write path the row-lock change missed.
+  //      It read status unlocked and then wrote an absolute amount_paid
+  //      computed in JS, so one approved note applied concurrently to two
+  //      different invoices was consumed twice: 230 of receivable reduced for
+  //      115 of GL credit, and a later cancel un-applies from only one of them.
+  //   2. Locking note-then-invoice everywhere is what stops a concurrent MCP
+  //      cancel and UI apply taking the two rows in opposite orders and
+  //      deadlocking (40P01 surfaces as GENERIC_FAILURE, which does not read as
+  //      retryable to an agent).
+  const cn = await lockCreditNoteForUpdate(companyId, creditNoteId);
+  if (!cn) throw new Error('Credit note not found');
   if (String(cn.status) !== 'approved') throw new Error('Credit note must be approved before applying');
   if (String(cn.type) !== 'customer') throw new Error('Only customer credit notes can be applied to invoices');
 
@@ -157,7 +169,8 @@ export async function applyCreditNoteToInvoice(
     WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}
     RETURNING *
   `) as Record<string, unknown>[];
-  const updated = appliedRows[0] as Record<string, unknown>;
+  const updated = appliedRows[0];
+  if (!updated) throw new Error(`Credit note ${creditNoteId} vanished while being applied.`);
 
   log.info('Applied credit note to invoice', { creditNoteId, invoiceId, applyAmount, userId }, 'accounting');
   return mapRow(updated);

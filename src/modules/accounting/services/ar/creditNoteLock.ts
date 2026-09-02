@@ -81,6 +81,23 @@ export async function lockCreditNoteForUpdate(
       SELECT * FROM credit_notes
       WHERE id = ${creditNoteId}::UUID AND company_id = ${companyId}::UUID
       FOR UPDATE`) as DbRow[];
+    // Restore the default ON THE SUCCESS PATH ONLY. `SET LOCAL` lasts to the end
+    // of the TRANSACTION, not the statement, so without this the 5s budget
+    // silently governs every lock taken afterwards in the same request —
+    // including the journal posting and the reversal this function is usually
+    // called before. Those would then fail with a bare 55P03 that nothing maps
+    // to CreditNoteLockTimeoutError, reaching the agent as GENERIC_FAILURE.
+    //
+    // Deliberately NOT in a `finally`: after a lock timeout the transaction is
+    // aborted, so this statement would itself throw 25P02 and REPLACE the typed
+    // error with an opaque one — which is exactly what happened when it was
+    // written that way (creditNoteLock.test.ts caught it). On the failure path
+    // the setting is irrelevant, because the transaction is being rolled back.
+    //
+    // The row lock is unaffected either way: it is already held, and locks are
+    // released by COMMIT, not by this setting. (bankTxLock.ts carries the same
+    // latent leak; deliberately not changed from here.)
+    await client.query('SET LOCAL lock_timeout = DEFAULT');
     return rows[0] ?? null;
   } catch (err) {
     if (isLockTimeout(err)) throw new CreditNoteLockTimeoutError(creditNoteId);

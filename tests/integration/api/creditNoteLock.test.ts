@@ -55,6 +55,12 @@ function on<T>(client: PoolClient, fn: () => Promise<T>): Promise<T> {
 
 beforeAll(async () => {
   pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 6 });
+  // customers.company_id FKs to companies — see creditNoteMcpTools.test.ts.
+  await sql`
+    INSERT INTO companies (id, name, registration_number, created_at)
+    VALUES (${COMPANY}::UUID, 'CN Lock Test', 'CNLOCK-TEST', NOW())
+    ON CONFLICT (id) DO NOTHING
+  `;
   customer = (await sql`INSERT INTO customers (name, company_id) VALUES (${'LOCK ' + TAG}, ${COMPANY}::UUID) RETURNING id` as { id: string }[])[0]!.id;
   noteA = await makeNote();
   noteB = await makeNote();

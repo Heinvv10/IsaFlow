@@ -15,14 +15,22 @@
 -- 'approved' / 'applied' — the note claims credit that the GL has already taken
 -- back, and a second cancel attempt would reverse it again.
 --
--- Adding the columns is what makes the existing service correct; no data
--- backfill is possible or needed, because no row ever cancelled.
+-- Adding the columns is what makes the existing service correct. No row ever
+-- reached status='cancelled' anywhere, so there is nothing to backfill INTO
+-- these columns — but note that this does NOT mean no row was affected: an
+-- interrupted attempt leaves a note marked approved/applied over an
+-- already-reversed journal. Migration 527 completes any such row (0 in dev and
+-- 0 in production at the time of writing).
 
 ALTER TABLE credit_notes ADD COLUMN IF NOT EXISTS cancelled_by UUID;
 ALTER TABLE credit_notes ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ;
 ALTER TABLE credit_notes ADD COLUMN IF NOT EXISTS cancel_reason TEXT;
 
--- Mirrors idx_cn_status usage: the cancellation review screens filter on
--- status and then order by when it happened.
-CREATE INDEX IF NOT EXISTS idx_cn_cancelled_at
-  ON credit_notes(cancelled_at) WHERE cancelled_at IS NOT NULL;
+-- Leads with company_id: every query in this codebase is tenant-scoped, so an
+-- index on cancelled_at alone could not serve the review screens its own
+-- comment cited — the planner would still have to filter the whole tenant set.
+-- Not CONCURRENTLY: the column is brand new and entirely NULL, so the build is
+-- instantaneous and the write lock is not observable.
+DROP INDEX IF EXISTS idx_cn_cancelled_at;
+CREATE INDEX IF NOT EXISTS idx_cn_company_cancelled_at
+  ON credit_notes(company_id, cancelled_at DESC) WHERE cancelled_at IS NOT NULL;
