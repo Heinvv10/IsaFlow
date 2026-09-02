@@ -56,6 +56,24 @@ describe('ensureOpeningBalanceEquityAccount', () => {
     expect(mockSql.mock.calls[3]!.slice(1)).toEqual(expect.arrayContaining(['3310', 1, null]));
   });
 
+  it('loses the create race gracefully: 23505 → re-read and return the winner', async () => {
+    mockSql
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'hdr', level: 1 }])
+      .mockRejectedValueOnce(Object.assign(new Error('duplicate key'), { code: '23505' }))
+      .mockResolvedValueOnce([{ id: 'winner', account_code: '3300', account_name: 'Opening Balance Equity' }]);
+    const r = await ensureOpeningBalanceEquityAccount(COMPANY);
+    expect(r).toMatchObject({ id: 'winner', created: false });
+  });
+
+  it('rethrows any other insert failure', async () => {
+    mockSql
+      .mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([])
+      .mockRejectedValueOnce(Object.assign(new Error('boom'), { code: '42703' }));
+    await expect(ensureOpeningBalanceEquityAccount(COMPANY)).rejects.toThrow('boom');
+  });
+
   it('refuses rather than inventing a code when every preferred code is taken', async () => {
     mockSql
       .mockResolvedValueOnce([])

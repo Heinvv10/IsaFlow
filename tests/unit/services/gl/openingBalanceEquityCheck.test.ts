@@ -31,6 +31,10 @@ describe('openingBalanceEquityCheck', () => {
     const text = (mockSql.mock.calls[0]![0] as TemplateStringsArray).join('?');
     expect(text.match(/company_id = \?::UUID/g)).toHaveLength(3);
     expect(text).toContain("je.status = 'posted'");
+    // Only the system account counts — a stray non-system row carrying the
+    // subtype (the migration import path does not run subtypeErrorFor) must
+    // not pollute the residual.
+    expect(text).toContain('ga.is_system_account = true');
     expect(mockSql.mock.calls[0]!.slice(1)).toEqual([COMPANY, COMPANY, '2026-03-31', COMPANY, 'opening_balance_equity']);
   });
 });

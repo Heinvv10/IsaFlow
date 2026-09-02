@@ -90,7 +90,9 @@ export async function ensureOpeningBalanceEquityAccount(
   const parentId = parent ? String(parent.id) : null;
   const level = parent ? Number(parent.level ?? 1) + 1 : 1;
 
-  const rows = (await sql`
+  let rows: DbRow[];
+  try {
+    rows = (await sql`
     INSERT INTO gl_accounts (
       company_id, account_code, account_name, account_type, account_subtype,
       normal_balance, level, display_order, is_system_account, parent_account_id, is_active, description
@@ -101,6 +103,17 @@ export async function ensureOpeningBalanceEquityAccount(
     )
     RETURNING id, account_code, account_name
   `) as DbRow[];
+  } catch (err) {
+    // Two first calls in flight: both saw no account and picked the same
+    // code, and the unique index on (company_id, account_code) refused the
+    // loser. The account now exists, so answer with it rather than failing a
+    // post that a retry would succeed at. Any other error propagates.
+    if ((err as { code?: unknown }).code === '23505') {
+      const raced = await findExisting(companyId);
+      if (raced) return raced;
+    }
+    throw err;
+  }
   const r = rows[0]!;
   cache.invalidatePrefix(`${companyId}:gl-accounts`);
   clearSystemAccountCache(companyId);

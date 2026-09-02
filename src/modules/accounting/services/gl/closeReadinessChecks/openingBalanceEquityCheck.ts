@@ -36,6 +36,7 @@ export async function openingBalanceEquityCheck(
          AND je.status = 'posted' AND je.entry_date <= ${period.endDate}::date
     WHERE ga.company_id = ${companyId}::UUID
       AND ga.account_subtype = ${OPENING_BALANCE_EQUITY_SUBTYPE}
+      AND ga.is_system_account = true
       AND ga.is_active = true
   `) as DbRow[];
   const accounts = Number(rows[0]?.accounts ?? 0);
