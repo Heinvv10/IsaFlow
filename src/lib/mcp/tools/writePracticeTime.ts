@@ -81,6 +81,10 @@ export const logTimeEntryTool: McpTool = {
     'Log a draft time entry against a practice client, job category and work item. All three ids are required and must be active and consistent — the work item must belong to the category. Resolve them with list_practice_clients / list_job_categories / list_work_items first. Without allow_backdating, entry_date must fall in the current or previous calendar month. The entry is created as a DRAFT and is booked to the calling user; submit_time_entries moves it into the approval flow. The rate is resolved server-side from the staff/client rate table and is not accepted as an argument. Use dry_run to validate without writing.',
   scope: 'write:practice',
   write: true,
+  // The entry belongs to the user who logged it, so the key is namespaced by
+  // caller: two staff on one engagement picking the same natural key must not
+  // have the second silently served the first's entry.
+  perUserIdempotency: true,
   inputSchema: {
     type: 'object',
     properties: {
@@ -209,6 +213,8 @@ export const submitTimeEntriesTool: McpTool = {
     'Submit draft time entries for approval. Only the calling user\'s own DRAFT entries are affected — ids belonging to another user, or already past draft, are skipped rather than refused, and the reply reports which. This moves hours into the approval flow that feeds WIP and client invoicing.',
   scope: 'write:practice',
   write: true,
+  // Acts only on the caller's own entries — same reasoning as log_time_entry.
+  perUserIdempotency: true,
   inputSchema: {
     type: 'object',
     properties: {
