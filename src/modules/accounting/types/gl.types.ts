@@ -212,6 +212,8 @@ export interface JournalEntry {
   description?: string;
   source: GLEntrySource;
   sourceDocumentId?: string;
+  /** Id of the record that caused this journal, keyed by `source`. */
+  sourceRecordId?: string;
   status: GLEntryStatus;
   postedBy?: string;
   postedAt?: string;
@@ -245,7 +247,14 @@ export interface JournalEntryCreateInput {
   entryDate: string;
   description?: string;
   source?: GLEntrySource;
+  /** captured_documents(id) ONLY — it carries an FK. Anything else throws. */
   sourceDocumentId?: string;
+  /**
+   * Id of the record that caused this journal — a reconciliation, a supplier
+   * invoice — read against `source`, which says which table it points at.
+   * Not the OCR document: that is sourceDocumentId.
+   */
+  sourceRecordId?: string;
   fiscalPeriodId?: string;
   /**
    * Human-facing document reference (claim number, disposal tag, import batch).

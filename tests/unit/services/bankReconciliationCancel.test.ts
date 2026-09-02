@@ -29,12 +29,14 @@ const USER_ID = 'ffffffff-0000-0000-0000-000000000006';
 /** Queues the sequential `sql` results the service reads before the transaction. */
 function queuePreChecks(opts: {
   recon?: Record<string, unknown>[];
+  adjustments?: number;
   reconciled?: number;
 } = {}) {
   const recon = opts.recon ?? [{ id: RECON_ID, status: 'in_progress' }];
   sqlMock.mockReset();
   sqlMock
     .mockResolvedValueOnce(recon)
+    .mockResolvedValueOnce([{ cnt: opts.adjustments ?? 0 }])
     .mockResolvedValueOnce([{ cnt: opts.reconciled ?? 0 }]);
 }
 
@@ -64,6 +66,13 @@ describe('cancelReconciliation', () => {
     queuePreChecks({ recon: [{ id: RECON_ID, status: 'completed' }] });
     await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))
       .rejects.toThrow(/in-progress/i);
+    expect(withTransactionMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses while posted adjustment journals reference it', async () => {
+    queuePreChecks({ adjustments: 2 });
+    await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))
+      .rejects.toThrow(/2 posted adjustment journals/);
     expect(withTransactionMock).not.toHaveBeenCalled();
   });
 

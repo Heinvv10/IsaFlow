@@ -6,7 +6,7 @@
  * transaction goes back to 'imported' with its link cleared, an allocated one
  * keeps its status and its journal line, and the header is gone. Drop the
  * `status = 'matched'` filter from the revert and the allocated assertions go
- * red.
+ * red; drop the adjustment pre-check and the second case does.
  *
  * Everything runs inside one transaction that is rolled back.
  */
@@ -21,7 +21,10 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { getPoolForTests } from '@/lib/neon';
-import { cancelReconciliation } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
+import {
+  cancelReconciliation,
+  ReconciliationNotCancellableError,
+} from '@/modules/accounting/services/bank/bankReconciliationCancelService';
 
 type Ctx = Parameters<typeof als.run>[0];
 const USER_ID = '00000000-0000-0000-0000-0000000000aa';
@@ -112,4 +115,39 @@ describe('cancelReconciliation (real DB)', async () => {
     }
   }, 30_000);
 
+
+  it.skipIf(!reachable)('refuses while a posted adjustment journal references it', async (ctx) => {
+    assertNotProductionDb();
+    const client = await getPoolForTests().connect();
+    try {
+      const fixture = await findBankFixture(client);
+      if (!fixture) { ctx.skip('no company with a bank + expense GL account'); return; }
+
+      await client.query('BEGIN');
+      const reconId = await insertRecon(client, fixture);
+      const txId = await insertTx(client, fixture, reconId, 'imported', null);
+      // The link lives on source_record_id (migration 526) — source_document_id
+      // FKs to captured_documents and would refuse this insert outright.
+      await client.query(
+        `INSERT INTO gl_journal_entries
+           (company_id, entry_date, description, source, source_record_id, status, created_by)
+         VALUES ($1, CURRENT_DATE, 'Bank recon adjustment: fixture', 'auto_bank_recon', $2, 'posted', $3)`,
+        [fixture.companyId, reconId, USER_ID],
+      );
+
+      await expect(als.run(ctxFor(client, fixture.companyId), () =>
+        cancelReconciliation(fixture.companyId, reconId, USER_ID)))
+        .rejects.toBeInstanceOf(ReconciliationNotCancellableError);
+
+      // Nothing released, header still there.
+      const tx = await client.query<{ reconciliation_id: string | null }>(
+        'SELECT reconciliation_id FROM bank_transactions WHERE id = $1', [txId]);
+      expect(tx.rows[0]!.reconciliation_id).toBe(reconId);
+      const header = await client.query('SELECT id FROM bank_reconciliations WHERE id = $1', [reconId]);
+      expect(header.rowCount).toBe(1);
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  }, 30_000);
 });

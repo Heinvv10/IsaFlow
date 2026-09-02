@@ -53,12 +53,23 @@ export async function cancelReconciliation(
     );
   }
 
-  // Adjustment journals (source 'auto_bank_recon') are NOT checked for here and
-  // are deliberately left in the GL. Migration 409 repointed
-  // gl_journal_entries.source_document_id at captured_documents and NULLed
-  // everything else, so no journal carries a link back to a reconciliation any
-  // more — there is nothing for this DELETE to orphan. They are ordinary posted
-  // entries against the bank account and stand on their own.
+  // Adjustment journals post to the GL and name this reconciliation as the
+  // record behind them (source_record_id — migration 526). Deleting the
+  // reconciliation under them would leave posted journals pointing at nothing,
+  // so refuse until they are reversed. Reversed ones no longer count.
+  const adjRows = (await sql`
+    SELECT COUNT(*) AS cnt FROM gl_journal_entries
+    WHERE company_id = ${companyId}::UUID
+      AND source = 'auto_bank_recon'
+      AND source_record_id = ${id}::UUID
+      AND status = 'posted'`) as DbRow[];
+  const adjustments = Number(adjRows[0]!.cnt);
+  if (adjustments > 0) {
+    throw new ReconciliationNotCancellableError(
+      `Cannot cancel: ${adjustments} posted adjustment journal${adjustments === 1 ? '' : 's'} `
+      + 'reference this reconciliation — reverse them first',
+    );
+  }
 
   // 'reconciled' is only reachable through completion. Finding one under an
   // in-progress header means the data is inconsistent; releasing it would strand
