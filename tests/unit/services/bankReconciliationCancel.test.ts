@@ -1,0 +1,108 @@
+/**
+ * Unit tests for cancelReconciliation (bankReconciliationCancelService.ts)
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const { sqlMock, withTransactionMock } = vi.hoisted(() => ({
+  sqlMock: Object.assign(vi.fn(), { unsafe: vi.fn().mockReturnValue('') }),
+  withTransactionMock: vi.fn(),
+}));
+
+vi.mock('@/lib/neon', () => ({
+  sql: sqlMock,
+  withTransaction: withTransactionMock,
+}));
+vi.mock('@/lib/logger', () => ({
+  log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
+}));
+
+import {
+  cancelReconciliation,
+  ReconciliationNotCancellableError,
+} from '@/modules/accounting/services/bank/bankReconciliationCancelService';
+
+const COMPANY_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
+const RECON_ID = 'eeeeeeee-0000-0000-0000-000000000005';
+const USER_ID = 'ffffffff-0000-0000-0000-000000000006';
+
+/** Queues the sequential `sql` results the service reads before the transaction. */
+function queuePreChecks(opts: {
+  recon?: Record<string, unknown>[];
+  reconciled?: number;
+} = {}) {
+  const recon = opts.recon ?? [{ id: RECON_ID, status: 'in_progress' }];
+  sqlMock.mockReset();
+  sqlMock
+    .mockResolvedValueOnce(recon)
+    .mockResolvedValueOnce([{ cnt: opts.reconciled ?? 0 }]);
+}
+
+/** Runs the transaction body against a tx mock returning the given row sets. */
+function runTxWith(rowSets: Record<string, unknown>[][]) {
+  const txMock = vi.fn();
+  for (const rows of rowSets) txMock.mockResolvedValueOnce(rows);
+  withTransactionMock.mockReset();
+  withTransactionMock.mockImplementation((fn: (tx: unknown) => unknown) => fn(txMock));
+  return txMock;
+}
+
+beforeEach(() => {
+  sqlMock.mockReset();
+  withTransactionMock.mockReset();
+});
+
+describe('cancelReconciliation', () => {
+  it('refuses when the reconciliation does not exist', async () => {
+    queuePreChecks({ recon: [] });
+    await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))
+      .rejects.toThrow(ReconciliationNotCancellableError);
+    expect(withTransactionMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses to cancel a completed reconciliation', async () => {
+    queuePreChecks({ recon: [{ id: RECON_ID, status: 'completed' }] });
+    await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))
+      .rejects.toThrow(/in-progress/i);
+    expect(withTransactionMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses when reconciled transactions are attached', async () => {
+    queuePreChecks({ reconciled: 1 });
+    await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))
+      .rejects.toThrow(/reconciled transactions/);
+    expect(withTransactionMock).not.toHaveBeenCalled();
+  });
+
+  it('reverts matches, detaches the rest and deletes the header', async () => {
+    queuePreChecks();
+    const txMock = runTxWith([
+      [{ id: 'tx-1' }, { id: 'tx-2' }],   // matched -> imported
+      [{ id: 'tx-3' }],                    // remaining detached
+      [{ id: RECON_ID }],                  // deleted header
+    ]);
+
+    const result = await cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID);
+
+    expect(result).toEqual({ revertedMatches: 2, releasedTransactions: 3 });
+    expect(txMock).toHaveBeenCalledTimes(3);
+    const revertSql = String(txMock.mock.calls[0]![0].join('?'));
+    expect(revertSql).toContain("status = 'imported'");
+    expect(revertSql).toContain('matched_journal_line_id = NULL');
+    expect(revertSql).toContain("status = 'matched'");
+    expect(revertSql).toContain('company_id');
+    const detachSql = String(txMock.mock.calls[1]![0].join('?'));
+    expect(detachSql).not.toContain('status =');
+    const deleteSql = String(txMock.mock.calls[2]![0].join('?'));
+    expect(deleteSql).toContain('DELETE FROM bank_reconciliations');
+    expect(deleteSql).toContain("status = 'in_progress'");
+    expect(deleteSql).toContain('company_id');
+  });
+
+  it('throws when the header vanished or completed mid-cancel', async () => {
+    queuePreChecks();
+    runTxWith([[], [], []]);
+    await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))
+      .rejects.toThrow(/changed while cancelling/);
+  });
+});

@@ -508,6 +508,9 @@ describe('write-tool manifest invariants', () => {
       set_opening_balance: { ...KEY },
       // Refuses on the missing file_name before any lookup; behaviour in attachDocumentTool.test.ts.
       attach_document: { ...KEY },
+      // Refuses on the missing reconciliation_id before any lookup; behaviour
+      // in bankReconciliationTools.test.ts.
+      cancel_bank_reconciliation: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

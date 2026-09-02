@@ -79,6 +79,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // like list_agent_postings: free for the same reason.
   list_import_batches: null,
   list_journals: null,
+  list_bank_reconciliations: null,
 
   // ── Reports: free over MCP, unlike the UI ────────────────────────────────
   // The app charges 10 for each of these. Carrying that across was the initial
@@ -131,6 +132,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // rule-created allocation as a set.
   reverse_allocations: null,
   undo_bank_import: null,
+  // Cancelling a session posts nothing and unwinds work the agent may have
+  // created for free — pricing the undo of free work is the wrong incentive.
+  cancel_bank_reconciliation: null,
 
   // ── Chart of accounts: free ──────────────────────────────────────────────
   // The app does not meter COA edits, and these post nothing to the ledger.
