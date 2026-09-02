@@ -6,18 +6,19 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, Save, AlertCircle } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
 import type { PracticeTimeEntryInput } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
+import {
+  fetchWorkItems,
+  fetchEntryTemplates,
+  createEntryTemplate,
+  resolveStaffRate,
+  type WorkItem,
+  type EntryTemplate,
+} from './practiceApi';
 
 export interface Client { id: string; legalName: string; tradingName?: string | null; }
 export interface Category { id: string; name: string; }
-export interface WorkItem { id: string; name: string; categoryId: string; }
-
-interface EntryTemplate {
-  id: string; name: string;
-  practiceClientId: string | null; jobCategoryId: string | null; workItemId: string | null;
-  defaultHours: number | null; taskDescription: string | null; notes: string | null; billable: boolean;
-}
+export type { WorkItem };
 
 export interface TimeEntryFormProps {
   clients: Client[]; categories: Category[]; defaultDate: string; currentUserId: string;
@@ -70,6 +71,13 @@ function RateInfo({ ratePreview, numHours, lineTotal }: { ratePreview: RatePrevi
   );
 }
 
+function workItemPlaceholder(categoryId: string, count: number, failed: boolean): string {
+  if (!categoryId) return 'Pick a category first';
+  if (failed) return 'Could not load work items';
+  if (count === 0) return 'No work items in this category';
+  return 'Select work item…';
+}
+
 // --- main component ---
 
 export function TimeEntryForm({ clients, categories, defaultDate, currentUserId, onSubmit, onCancel }: TimeEntryFormProps) {
@@ -82,6 +90,7 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
   const [notes, setNotes] = useState('');
   const [billable, setBillable] = useState(true);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+  const [workItemError, setWorkItemError] = useState('');
   const [ratePreview, setRatePreview] = useState<RatePreview>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -90,39 +99,38 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
   const [templateName, setTemplateName] = useState('');
   const [templateWarning, setTemplateWarning] = useState('');
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const res = await apiFetch('/api/accounting/practice/entry-templates');
-        if (!res.ok) return;
-        const json = (await res.json()) as { templates?: EntryTemplate[] };
-        setTemplates(json.templates ?? []);
-      } catch { /* non-critical */ }
-    })();
+  const loadTemplates = useCallback(async () => {
+    try {
+      setTemplates(await fetchEntryTemplates());
+    } catch { /* non-critical: the picker is a shortcut, not a requirement */ }
   }, []);
 
+  useEffect(() => { void loadTemplates(); }, [loadTemplates]);
+
+  // An empty Work Item list is indistinguishable from a broken fetch to the
+  // user, and the field is required — so a load failure must say so rather than
+  // silently render an unsatisfiable dropdown.
   useEffect(() => {
-    setWorkItemId(''); setWorkItems([]);
+    setWorkItemId(''); setWorkItems([]); setWorkItemError('');
     if (!jobCategoryId) return;
+    let cancelled = false;
     void (async () => {
       try {
-        const res = await apiFetch(`/api/accounting/practice/work-items?categoryId=${jobCategoryId}&isActive=true`);
-        if (!res.ok) return;
-        const json = (await res.json()) as { workItems?: WorkItem[] } | WorkItem[];
-        setWorkItems(Array.isArray(json) ? json : (json.workItems ?? []));
-      } catch { /* leave empty */ }
+        const items = await fetchWorkItems(jobCategoryId);
+        if (!cancelled) setWorkItems(items);
+      } catch (err) {
+        if (!cancelled) setWorkItemError(err instanceof Error ? err.message : 'Failed to load work items');
+      }
     })();
+    return () => { cancelled = true; };
   }, [jobCategoryId]);
 
   const resolveRate = useCallback(async () => {
     if (!practiceClientId || !entryDate || !currentUserId) { setRatePreview(null); return; }
     setRatePreview('loading');
     try {
-      const res = await apiFetch(`/api/accounting/practice/rate-resolve?userId=${currentUserId}&clientId=${practiceClientId}&date=${entryDate}`);
-      if (res.status === 404) { setRatePreview('none'); return; }
-      if (!res.ok) { setRatePreview(null); return; }
-      const json = (await res.json()) as { rate: number };
-      setRatePreview(json.rate);
+      const rate = await resolveStaffRate(currentUserId, practiceClientId, entryDate);
+      setRatePreview(rate === null ? 'none' : rate);
     } catch { setRatePreview(null); }
   }, [practiceClientId, entryDate, currentUserId]);
 
@@ -146,18 +154,22 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
     try {
       await onSubmit({ entryDate, hours: numHours, practiceClientId, jobCategoryId, workItemId, taskDescription, notes: notes || null, billable, origin: 'manual' });
       if (saveAsTemplate && templateName.trim()) {
+        // Re-read the list rather than appending the POST response: the entry
+        // itself is already saved, so a shape surprise here must not corrupt
+        // the picker with a half-built row.
         try {
-          const tRes = await apiFetch('/api/accounting/practice/entry-templates', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: templateName.trim(), practiceClientId: practiceClientId || null, jobCategoryId: jobCategoryId || null, workItemId: workItemId || null, defaultHours: numHours, taskDescription: taskDescription || null, notes: notes || null, billable }),
+          await createEntryTemplate({
+            name: templateName.trim(),
+            practiceClientId: practiceClientId || null,
+            jobCategoryId: jobCategoryId || null,
+            workItemId: workItemId || null,
+            defaultHours: numHours,
+            taskDescription: taskDescription || null,
+            notes: notes || null,
+            billable,
           });
-          if (!tRes.ok) {
-            const errJson = (await tRes.json().catch(() => ({}))) as { message?: string };
-            setTemplateWarning(`Entry saved but template save failed: ${errJson.message ?? tRes.statusText}`);
-          } else {
-            const newT = (await tRes.json()) as EntryTemplate;
-            setTemplates((prev) => [...prev, newT]); setSaveAsTemplate(false); setTemplateName('');
-          }
+          await loadTemplates();
+          setSaveAsTemplate(false); setTemplateName('');
         } catch (tErr) { setTemplateWarning(`Entry saved but template save failed: ${tErr instanceof Error ? tErr.message : 'unknown error'}`); }
       }
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save entry'); }
@@ -172,6 +184,7 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
       {error && <AlertBanner msg={error} colour="red" />}
       {templateWarning && <AlertBanner msg={templateWarning} colour="amber" />}
+      {workItemError && <AlertBanner msg={`Could not load work items: ${workItemError}`} colour="red" />}
       <TemplateRow templates={templates} onApply={applyTemplate} />
 
       <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
@@ -200,9 +213,15 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
         <div className="md:col-span-3">
           <label className={LABEL_CLS}>Work Item <span className="text-red-400">*</span></label>
           <select required value={workItemId} onChange={(e) => setWorkItemId(e.target.value)} disabled={!jobCategoryId} className={INPUT_CLS}>
-            <option value="">{jobCategoryId ? 'Select work item…' : 'Pick a category first'}</option>
+            <option value="">{workItemPlaceholder(jobCategoryId, workItems.length, workItemError !== '')}</option>
             {workItems.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
+          {jobCategoryId && !workItemError && workItems.length === 0 && (
+            <p className="mt-1.5 text-xs text-amber-400">
+              This category has no active work items. Add one under{' '}
+              <a href="/accounting/practice/job-categories" className="underline hover:text-amber-300">Job Categories</a>.
+            </p>
+          )}
         </div>
         <div className="md:col-span-6">
           <label className={LABEL_CLS}>Task Description <span className="text-red-400">*</span></label>
