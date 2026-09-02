@@ -9,13 +9,6 @@ import Link from 'next/link';
 import { ArrowLeft, BookOpen, Loader2, AlertCircle, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
-interface GLAccount {
-  id: string;
-  accountCode: string;
-  accountName: string;
-  accountType: string;
-}
-
 interface AccountReport {
   accountCode: string;
   accountName: string;
@@ -38,88 +31,58 @@ interface AccountReport {
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
+/**
+ * Local calendar components, never toISOString(): on UTC+2 a locally-built Date
+ * at midnight serialises to the PREVIOUS day, so the default range used to open
+ * on the last day of the prior month and end yesterday. Same defect class as
+ * PR #276.
+ */
+function ymd(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 function getDefaultDates() {
   const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { periodStart: start.toISOString().split('T')[0], periodEnd: now.toISOString().split('T')[0] };
+  return { periodStart: ymd(new Date(now.getFullYear(), now.getMonth(), 1)), periodEnd: ymd(now) };
 }
 
 export default function GeneralLedgerPage() {
   const defaults = getDefaultDates();
   const [periodStart, setPeriodStart] = useState(defaults.periodStart);
   const [periodEnd, setPeriodEnd] = useState(defaults.periodEnd);
-  const [accounts, setAccounts] = useState<GLAccount[]>([]);
   const [reports, setReports] = useState<AccountReport[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    apiFetch('/api/accounting/chart-of-accounts', { credentials: 'include' })
-      .then(r => r.json())
-      .then(res => {
-        const d = res.data || res;
-        const list = Array.isArray(d) ? d : d.accounts || d.items || [];
-        setAccounts(
-          list
-            .filter((a: GLAccount & { level?: number }) => !a.level || a.level >= 3)
-            .map((a: Record<string, unknown>) => ({
-              id: String(a.id),
-              accountCode: String(a.accountCode || a.account_code || ''),
-              accountName: String(a.accountName || a.account_name || ''),
-              accountType: String(a.accountType || a.account_type || ''),
-            }))
-        );
-      })
-      .catch(() => { /* reference data load failure — non-critical, filter will show no accounts */ });
-  }, []);
+  const [filter, setFilter] = useState('');
 
   const load = useCallback(async () => {
-    if (!periodStart || !periodEnd || accounts.length === 0) return;
+    if (!periodStart || !periodEnd) return;
     setLoading(true);
     setError('');
     try {
-      const results: AccountReport[] = [];
-      const top20 = accounts.slice(0, 20);
-      await Promise.all(
-        top20.map(async (acct) => {
-          try {
-            const params = new URLSearchParams({
-              account_code: acct.accountCode,
-              period_start: periodStart,
-              period_end: periodEnd,
-            });
-            const res = await apiFetch(`/api/accounting/reports-account-transactions?${params}`, { credentials: 'include' });
-            if (!res.ok) return;
-            const json = await res.json();
-            const data = json.data;
-            if (data && (data.transactions?.length > 0 || data.openingBalance !== 0)) {
-              results.push({
-                accountCode: data.accountCode || acct.accountCode,
-                accountName: data.accountName || acct.accountName,
-                accountType: data.accountType || acct.accountType,
-                openingBalance: Number(data.openingBalance || 0),
-                closingBalance: Number(data.closingBalance || 0),
-                totalDebit: (data.transactions || []).reduce((s: number, t: { debit: number }) => s + Number(t.debit || 0), 0),
-                totalCredit: (data.transactions || []).reduce((s: number, t: { credit: number }) => s + Number(t.credit || 0), 0),
-                transactions: data.transactions || [],
-              });
-            }
-          } catch { /* skip failed accounts */ }
-        })
-      );
-      results.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
-      setReports(results);
+      const params = new URLSearchParams({ period_start: periodStart, period_end: periodEnd });
+      // ONE request for every account. The previous version fanned out one
+      // request per account from the browser and capped the list at 20, which
+      // silently truncated the report (issue #287).
+      const res = await apiFetch(`/api/accounting/reports-general-ledger?${params}`, { credentials: 'include' });
+      // apiFetch resolves on 4xx/5xx, so the status has to be checked explicitly.
+      if (!res.ok) throw new Error(`Report request failed (${res.status})`);
+      const json = await res.json();
+      setReports((json.data?.accounts ?? []) as AccountReport[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed');
+      setError(err instanceof Error ? err.message : 'Failed to load the general ledger');
+      setReports([]);
     } finally {
       setLoading(false);
     }
-  }, [periodStart, periodEnd, accounts]);
+  }, [periodStart, periodEnd]);
 
   useEffect(() => {
-    if (accounts.length > 0) void load();
-  }, [accounts, load]);
+    void load();
+  }, [load]);
 
   const toggleExpand = (code: string) => {
     setExpanded(prev => {
@@ -129,8 +92,14 @@ export default function GeneralLedgerPage() {
     });
   };
 
-  const grandTotalDebit = reports.reduce((s, r) => s + r.totalDebit, 0);
-  const grandTotalCredit = reports.reduce((s, r) => s + r.totalCredit, 0);
+  const needle = filter.trim().toLowerCase();
+  const visible = needle
+    ? reports.filter(r =>
+        r.accountCode.toLowerCase().includes(needle) || r.accountName.toLowerCase().includes(needle))
+    : reports;
+
+  const grandTotalDebit = visible.reduce((s, r) => s + r.totalDebit, 0);
+  const grandTotalCredit = visible.reduce((s, r) => s + r.totalCredit, 0);
 
   return (
     <AppLayout>
@@ -150,11 +119,20 @@ export default function GeneralLedgerPage() {
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">General Ledger</h1>
                 <p className="text-sm text-[var(--ff-text-secondary)]">
-                  All account transactions for period
+                  {reports.length > 0
+                    ? `${visible.length === reports.length ? reports.length : `${visible.length} of ${reports.length}`} account${reports.length === 1 ? '' : 's'} with activity in this period`
+                    : 'Account transactions for the selected period'}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <input
+                type="search"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+                placeholder="Filter accounts..."
+                className="ff-input text-sm"
+              />
               <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className="ff-input text-sm" />
               <span className="text-[var(--ff-text-tertiary)]">to</span>
               <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="ff-input text-sm" />
@@ -163,7 +141,6 @@ export default function GeneralLedgerPage() {
                   const params = new URLSearchParams({ period_start: periodStart ?? '', period_end: periodEnd ?? '' });
                   window.open(`/api/accounting/audit-trail-export?${params}`, '_blank');
                 }}
-                disabled={reports.length === 0}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium disabled:opacity-50 hover:bg-violet-700"
               >
                 <Download className="h-4 w-4" /> Export CSV
@@ -183,13 +160,15 @@ export default function GeneralLedgerPage() {
             <div className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
             </div>
-          ) : reports.length === 0 ? (
+          ) : visible.length === 0 ? (
             <div className="text-center py-12 text-[var(--ff-text-secondary)]">
-              No account activity for the selected period
+              {reports.length === 0
+                ? 'No account activity for the selected period'
+                : `No account matches "${filter}"`}
             </div>
           ) : (
             <div className="space-y-3">
-              {reports.map(r => {
+              {visible.map(r => {
                 const isOpen = expanded.has(r.accountCode);
                 return (
                   <div

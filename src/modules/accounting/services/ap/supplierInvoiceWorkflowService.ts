@@ -68,6 +68,14 @@ export async function approveSupplierInvoice(
   companyId: string,
   id: string,
   userId: string,
+  // Optional and last-positional so every existing caller keeps human
+  // attribution. Without it, createJournalEntry falls back to
+  // defaultHumanMeta(userId) and an MCP-approved invoice posts labelled
+  // `human:<userId>` — affirmatively claiming the token owner did it by hand,
+  // and invisible to list_agent_postings, which filters posting_agent LIKE
+  // 'mcp:%'. That review surface is the control the whole agent-write model
+  // rests on.
+  opts?: { postingAgent?: string },
 ): Promise<SupplierInvoice> {
   try {
     const invoice = await getSupplierInvoiceById(companyId, id);
@@ -108,7 +116,7 @@ export async function approveSupplierInvoice(
       description: `Supplier invoice ${invoice.invoiceNumber}`,
       source: 'auto_supplier_invoice',
       lines,
-    }, userId);
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined);
 
     await postJournalEntry(companyId, journalEntry.id, userId);
 
@@ -136,6 +144,7 @@ export async function postSupplierInvoiceToGL(
   companyId: string,
   id: string,
   userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
   const invoice = await getSupplierInvoiceById(companyId, id);
   if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
@@ -179,7 +188,7 @@ export async function postSupplierInvoiceToGL(
     description: `Supplier invoice ${invoice.invoiceNumber}`,
     source: 'auto_supplier_invoice',
     lines,
-  }, userId);
+  }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined);
 
   await postJournalEntry(companyId, journalEntry.id, userId);
 

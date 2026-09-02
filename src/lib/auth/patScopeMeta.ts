@@ -33,6 +33,10 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     label: 'Write bank transactions',
     desc: 'Allocate, edit, and post bank transactions',
   },
+  'write:accounts': {
+    label: 'Write chart of accounts',
+    desc: 'Create, edit and deactivate GL accounts, including changing an account\'s subtype and parent. Does not post anything to the ledger.',
+  },
   'write:journals': {
     label: 'Write journals',
     desc: 'Post General Ledger journal entries',
