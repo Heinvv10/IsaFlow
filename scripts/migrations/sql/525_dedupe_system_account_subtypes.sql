@@ -20,7 +20,9 @@
 -- Scoped to the three affected company_ids explicitly — never by value alone.
 -- Idempotent: a re-run finds no rn > 1.
 --
--- Expected losers (11 rows):
+-- Dry-run against PRODUCTION inside BEGIN…ROLLBACK on 2026-09-02: UPDATE 11,
+-- 0 duplicates remaining. (isaflow_dev carries different duplicates.)
+-- Expected losers in prod (11 rows):
 --   Velocity Fibre  4a159669: SYS-2, 49784393, SYS-8, SYS-7, SYS-11, SYS-9, 49784349
 --   Dotbiz          9f4cccf9: 5700
 --   Brightsphere    d27bac33: 5100 (default_expense), 2110, 1120
@@ -33,7 +35,9 @@ WITH legal(account_type, account_subtype) AS (
     ('equity', 'retained_earnings'), ('equity', 'opening_balance_equity'),
     ('revenue', 'default_revenue'), ('revenue', 'other_income'),
     ('expense', 'default_expense'), ('expense', 'admin_expense'),
-    ('expense', 'depreciation_expense')
+    ('expense', 'depreciation_expense'),
+    -- Profit/loss on disposal is a P&L line that may sit on either side.
+    ('revenue', 'disposal_profit_loss'), ('expense', 'disposal_profit_loss')
 ),
 ranked AS (
   SELECT g.id, g.company_id,

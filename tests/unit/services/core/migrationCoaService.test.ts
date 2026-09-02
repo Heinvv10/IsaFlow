@@ -74,6 +74,21 @@ describe('importChartOfAccounts', () => {
     expect(clearSystemAccountCache).toHaveBeenCalledWith(CO);
   });
 
+  it('the map is exclusive: every other system row for the role is demoted BEFORE the mapped one is flagged', async () => {
+    await importChartOfAccounts(CO, 'sess', ACCOUNTS, MAP);
+    const updates = mockSql.mock.calls
+      .map((c) => ({ text: (c[0] as TemplateStringsArray).join('?'), params: c.slice(1) }))
+      .filter((c) => c.text.includes('UPDATE gl_accounts'));
+    const demote = updates.filter((u) => u.text.includes('is_system_account = false'));
+    const promote = updates.filter((u) => u.text.includes('SET account_subtype = ?, is_system_account = true'));
+    expect(demote).toHaveLength(Object.keys(MAP).length);
+    expect(promote).toHaveLength(Object.keys(MAP).length);
+    const vatDemote = demote.find((u) => u.params.includes('vat_input'))!;
+    expect(vatDemote.params).toEqual([CO, 'vat_input', '1140']);
+    expect(vatDemote.text).toContain('account_code <> ?');
+    expect(updates.indexOf(vatDemote)).toBeLessThan(updates.indexOf(promote.find((u) => u.params.includes('vat_input'))!));
+  });
+
   it('a mapped system row keeps its role even if the payload carries a different subtype', async () => {
     await importChartOfAccounts(CO, 'sess', [acct('1140', 'asset', { accountSubtype: 'other' }), ...ACCOUNTS.filter((a) => a.accountCode !== '1140')], MAP);
     const inserts = mockSql.mock.calls.filter((c) => (c[0] as TemplateStringsArray).join('').includes('INSERT INTO gl_accounts'));

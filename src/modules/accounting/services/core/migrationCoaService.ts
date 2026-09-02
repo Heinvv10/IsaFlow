@@ -170,8 +170,21 @@ export async function importChartOfAccounts(
     }
   }
 
-  // Enforce system account subtype + flag for explicitly mapped accounts
+  // The map is the company's statement of which account holds each role, so
+  // it is EXCLUSIVE: any other row still flagged for that role is demoted
+  // first. Without this a re-import that maps a role to a new code left the
+  // old system row in place — two rows for one role, the resolver choosing
+  // between them, which is exactly how the Sage SYS-* controls came to sit
+  // beside the seeded chart in production (migration 525).
   for (const [subtype, accountCode] of Object.entries(systemAccountMap)) {
+    await sql`
+      UPDATE gl_accounts
+      SET is_system_account = false, account_subtype = NULL
+      WHERE company_id = ${companyId}::UUID
+        AND account_subtype = ${subtype}
+        AND is_system_account = true
+        AND account_code <> ${accountCode}
+    `;
     await sql`
       UPDATE gl_accounts
       SET account_subtype = ${subtype}, is_system_account = true

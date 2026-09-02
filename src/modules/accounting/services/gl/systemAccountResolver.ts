@@ -92,7 +92,8 @@ async function ensureCache(companyId: string): Promise<Map<string, CachedAccount
       accountName: String(r.account_name),
       accountType: String(r.account_type),
       accountSubtype: subtype,
-      createdAt: r.created_at instanceof Date ? r.created_at.getTime() : Date.parse(String(r.created_at)),
+      createdAt: r.created_at instanceof Date ? r.created_at.getTime()
+        : r.created_at == null ? Number.NaN : Date.parse(String(r.created_at)),
     };
     const incumbent = map.get(subtype);
     if (!incumbent) {
@@ -143,7 +144,12 @@ export function preferSystemAccount(a: CachedAccount, b: CachedAccount): CachedA
   const fa = typeFitsSubtype(a.accountType, a.accountSubtype);
   const fb = typeFitsSubtype(b.accountType, b.accountSubtype);
   if (fa !== fb) return fa ? a : b;
-  if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? a : b;
+  // created_at is nullable in the schema. NaN compares false both ways, which
+  // made the outcome depend on argument order — i.e. on fetch order again. An
+  // unknown date ranks OLDEST so a dated row always beats it, symmetrically.
+  const ca = Number.isFinite(a.createdAt) ? a.createdAt : Number.NEGATIVE_INFINITY;
+  const cb = Number.isFinite(b.createdAt) ? b.createdAt : Number.NEGATIVE_INFINITY;
+  if (ca !== cb) return ca > cb ? a : b;
   return a.id > b.id ? a : b;
 }
 

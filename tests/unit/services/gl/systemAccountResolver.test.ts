@@ -76,6 +76,24 @@ describe('duplicate system rows', () => {
     expect(log.error).not.toHaveBeenCalled();
   });
 
+  it('an unknown created_at ranks oldest, symmetrically — never "whichever came second"', () => {
+    const dated = { id: 'a', accountCode: '1', accountName: '', accountType: 'asset', accountSubtype: 'bank', createdAt: 1700000000000 };
+    const undated = { ...dated, id: 'b', createdAt: Number.NaN };
+    expect(preferSystemAccount(dated, undated).id).toBe('a');
+    expect(preferSystemAccount(undated, dated).id).toBe('a');
+    const undated2 = { ...undated, id: 'c' };
+    expect(preferSystemAccount(undated, undated2).id).toBe('c');
+    expect(preferSystemAccount(undated2, undated).id).toBe('c');
+  });
+
+  it('a NULL created_at from the database is handled, not compared as a Date string', async () => {
+    mockSql.mockResolvedValueOnce([
+      { ...row('u', '1101', 'asset', 'receivable', '2026-01-01'), created_at: null },
+      row('d', '1120', 'asset', 'receivable', '2026-04-13'),
+    ]);
+    expect((await getSystemAccount('receivable', CO)).id).toBe('d');
+  });
+
   it('preferSystemAccount is total: equal fit and created_at falls back to id', () => {
     const a = { id: 'a', accountCode: '1', accountName: '', accountType: 'asset', accountSubtype: 'bank', createdAt: 5 };
     const b = { ...a, id: 'b' };
@@ -87,6 +105,8 @@ describe('duplicate system rows', () => {
     expect(typeFitsSubtype('asset', 'vat_input')).toBe(true);
     expect(typeFitsSubtype('liability', 'vat_input')).toBe(false);
     expect(typeFitsSubtype('equity', 'opening_balance_equity')).toBe(true);
+    expect(typeFitsSubtype('revenue', 'disposal_profit_loss')).toBe(true);
+    expect(typeFitsSubtype('expense', 'disposal_profit_loss')).toBe(true);
     expect(typeFitsSubtype('nonsense', 'bank')).toBe(false);
   });
 });

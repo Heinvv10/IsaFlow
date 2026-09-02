@@ -25,7 +25,8 @@ export const tenantChecks: IntegrityCheck[] = [
                ('liability','vat_output'), ('equity','retained_earnings'),
                ('equity','opening_balance_equity'), ('revenue','default_revenue'),
                ('revenue','other_income'), ('expense','default_expense'),
-               ('expense','admin_expense'), ('expense','depreciation_expense')
+               ('expense','admin_expense'), ('expense','depreciation_expense'),
+               ('revenue','disposal_profit_loss'), ('expense','disposal_profit_loss')
       ),
       sys AS (
         SELECT g.company_id, g.account_subtype, g.account_code, g.account_name, g.account_type,
