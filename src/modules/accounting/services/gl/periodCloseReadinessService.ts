@@ -1,7 +1,7 @@
 /**
  * Period Close Readiness Service — orchestrator
  *
- * Runs 6 advisory checks to determine whether a fiscal period is ready to
+ * Runs 7 advisory checks to determine whether a fiscal period is ready to
  * close.  Each check runs inside its OWN savepoint, SEQUENTIALLY, so a
  * DB-level error in one check rolls back to that savepoint instead of poisoning
  * the shared request transaction — and one failing check still cannot blank the
@@ -13,6 +13,7 @@
  *   4. ap_ties           — AP sub-ledger ties to GL payable control account
  *   5. vat_reviewed      — a VAT return covers this period
  *   6. tb_balanced       — sum(debits) == sum(credits) for posted entries
+ *   7. opening_balance_cleared — Opening Balance Equity nets to zero at period end
  *
  * All checks are ADVISORY — they do not block period close.
  * Every SQL query is scoped by company_id (multi-tenant safe).
@@ -27,6 +28,7 @@ import { arSubLedgerCheck } from './closeReadinessChecks/arSubLedgerCheck';
 import { apSubLedgerCheck } from './closeReadinessChecks/apSubLedgerCheck';
 import { vatReviewedCheck } from './closeReadinessChecks/vatReviewedCheck';
 import { tbBalancedCheck } from './closeReadinessChecks/tbBalancedCheck';
+import { openingBalanceEquityCheck } from './closeReadinessChecks/openingBalanceEquityCheck';
 
 // ── Shared types (imported by check files) ───────────────────────────────────
 
@@ -38,7 +40,8 @@ export type ChecklistItemKey =
   | 'ar_ties'
   | 'ap_ties'
   | 'vat_reviewed'
-  | 'tb_balanced';
+  | 'tb_balanced'
+  | 'opening_balance_cleared';
 
 export interface ChecklistItem {
   key: ChecklistItemKey;
@@ -64,6 +67,7 @@ const CHECK_KEYS: ChecklistItemKey[] = [
   'ap_ties',
   'vat_reviewed',
   'tb_balanced',
+  'opening_balance_cleared',
 ];
 
 const CHECK_LABELS: string[] = [
@@ -73,6 +77,7 @@ const CHECK_LABELS: string[] = [
   'AP sub-ledger ties to GL',
   'VAT reviewed',
   'Trial balance balanced',
+  'Opening balance equity cleared',
 ];
 
 const CHECK_FALLBACK_HREFS: string[] = [
@@ -82,6 +87,7 @@ const CHECK_FALLBACK_HREFS: string[] = [
   '/accounting/supplier-invoices',
   '/accounting/reports/vat-return',
   '/accounting/trial-balance',
+  '/accounting/chart-of-accounts',
 ];
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
@@ -125,6 +131,7 @@ export async function getCloseReadiness(
     () => apSubLedgerCheck(companyId, { endDate }),
     () => vatReviewedCheck(companyId, { startDate, endDate }),
     () => tbBalancedCheck(companyId, { id: periodId }),
+    () => openingBalanceEquityCheck(companyId, { endDate }),
   ];
 
   const items: ChecklistItem[] = [];

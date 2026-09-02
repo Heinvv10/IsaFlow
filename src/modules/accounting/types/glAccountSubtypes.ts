@@ -30,7 +30,7 @@ export const GL_ACCOUNT_SUBTYPES_BY_TYPE = {
   liability: [
     'payable', 'tax', 'vat_output', 'other_current_liability', 'other',
   ],
-  equity: ['equity', 'retained_earnings', 'other'],
+  equity: ['equity', 'retained_earnings', 'opening_balance_equity', 'other'],
   revenue: ['revenue', 'default_revenue', 'other_income', 'other'],
   expense: [
     'cost_of_sales', 'operating_expense', 'default_expense', 'admin_expense',
@@ -49,6 +49,7 @@ export const GL_ACCOUNT_SUBTYPES_BY_TYPE = {
  */
 export const SYSTEM_RESERVED_SUBTYPES: readonly GLAccountSubtype[] = [
   'vat_input', 'vat_output', 'receivable', 'payable', 'retained_earnings',
+  'opening_balance_equity',
   'default_revenue', 'other_income', 'default_expense', 'admin_expense',
   'accumulated_depreciation', 'depreciation_expense',
 ];
