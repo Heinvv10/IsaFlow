@@ -56,7 +56,7 @@ import {
   listTimeEntriesTool,
 } from '@/lib/mcp/tools/practice';
 import { createJobCategoryTool, createWorkItemTool } from '@/lib/mcp/tools/writePracticeSetup';
-import { logTimeEntryTool, submitTimeEntriesTool } from '@/lib/mcp/tools/writePracticeTime';
+import { logTimeEntryTool, submitTimeEntriesTool, backdateFloor } from '@/lib/mcp/tools/writePracticeTime';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import { savepointNameFor } from '@/lib/mcp/registry';
@@ -345,36 +345,52 @@ describe('log_time_entry', () => {
     expect(createPracticeEntry).not.toHaveBeenCalled();
   });
 
-  it('refuses a backdated entry beyond the window, and names the way through', async () => {
-    const old = new Date(Date.now() - 200 * 86400000).toISOString().slice(0, 10);
-    const r = await logTimeEntryTool.handler({ ...base, entry_date: old }, ctx);
+  // The floor is the first day of the PREVIOUS calendar month, so these are
+  // computed from today rather than hard-coded — a fixed date would start
+  // failing the moment the month rolled over.
+  const today = new Date();
+  const firstOfThisMonth = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  const twoMonthsBack = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 2, 15))
+    .toISOString().slice(0, 10);
+
+  it('refuses a month older than the previous one, naming both the floor and the way through', async () => {
+    const r = await logTimeEntryTool.handler({ ...base, entry_date: twoMonthsBack }, ctx);
     expect(r.isError).toBe(true);
     expect(text(r)).toContain('allow_backdating');
     expect(createPracticeEntry).not.toHaveBeenCalled();
   });
 
-  it('allows the same backdated entry once the caller says it means it', async () => {
-    const old = new Date(Date.now() - 200 * 86400000).toISOString().slice(0, 10);
+  it('allows the same entry once the caller says it means it', async () => {
     vi.mocked(createPracticeEntry).mockResolvedValue(entry);
     const r = await logTimeEntryTool.handler(
-      { ...base, entry_date: old, allow_backdating: true }, ctx,
+      { ...base, entry_date: twoMonthsBack, allow_backdating: true }, ctx,
     );
     expect(r.isError).toBeUndefined();
     expect(createPracticeEntry).toHaveBeenCalled();
   });
 
-  it('applies the backdate guard to dry_run too, so a dry run cannot greenlight it', async () => {
-    const old = new Date(Date.now() - 200 * 86400000).toISOString().slice(0, 10);
+  it('applies the guard to dry_run too, so a dry run cannot greenlight it', async () => {
     vi.mocked(validateClientCategoryWorkItem).mockResolvedValue(undefined);
-    const r = await logTimeEntryTool.handler({ ...base, entry_date: old, dry_run: true }, ctx);
+    const r = await logTimeEntryTool.handler(
+      { ...base, entry_date: twoMonthsBack, dry_run: true }, ctx,
+    );
     expect(r.isError).toBe(true);
     expect(text(r)).toContain('allow_backdating');
   });
 
-  it('accepts an entry just inside the window without the flag', async () => {
-    const recent = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+  it('accepts the current month without the flag', async () => {
     vi.mocked(createPracticeEntry).mockResolvedValue(entry);
-    const r = await logTimeEntryTool.handler({ ...base, entry_date: recent }, ctx);
+    const r = await logTimeEntryTool.handler({ ...base, entry_date: firstOfThisMonth }, ctx);
+    expect(r.isError).toBeUndefined();
+  });
+
+  it('accepts an ordinary catch-up into the previous month', async () => {
+    // A rolling day-count would have refused this on the 1st of a month and
+    // admitted a long-invoiced period on the 30th. The period is the bound.
+    const prev = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 15))
+      .toISOString().slice(0, 10);
+    vi.mocked(createPracticeEntry).mockResolvedValue(entry);
+    const r = await logTimeEntryTool.handler({ ...base, entry_date: prev }, ctx);
     expect(r.isError).toBeUndefined();
   });
 
@@ -411,6 +427,24 @@ describe('log_time_entry', () => {
     const r = await logTimeEntryTool.handler({ ...base, dry_run: true }, ctx);
     expect(json(r).would_create.applied_rate).toBeNull();
     expect(json(r).would_create.line_total).toBeNull();
+  });
+});
+
+describe('backdateFloor', () => {
+  it('is the first day of the previous calendar month', () => {
+    expect(backdateFloor('2026-09-02')).toBe('2026-08-01');
+    expect(backdateFloor('2026-09-30')).toBe('2026-08-01');
+  });
+
+  it('rolls January back to the previous December, not month zero', () => {
+    // The edge case that would otherwise sit dormant until New Year.
+    expect(backdateFloor('2026-01-15')).toBe('2025-12-01');
+  });
+
+  it('zero-pads single-digit months so the string compare stays valid', () => {
+    // entry_date is compared as a STRING, so '2026-9-01' would sort wrong.
+    expect(backdateFloor('2026-10-05')).toBe('2026-09-01');
+    expect(backdateFloor('2026-03-05')).toBe('2026-02-01');
   });
 });
 

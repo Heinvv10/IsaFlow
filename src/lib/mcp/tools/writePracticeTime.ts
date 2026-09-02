@@ -42,29 +42,43 @@ const MAX_SUBMIT_IDS = 200;
  * How far back an agent may book time without saying so explicitly.
  *
  * Backdating itself is legitimate and must stay possible — people log Monday's
- * work on Friday, and the UI allows any past date. But a practice invoices
- * monthly, so an entry landing in a period that has already been reported on or
- * invoiced either sits in WIP never to be billed, or contradicts a report
- * already sent to the client. There is no period lock on time_entries to catch
- * that (unlike the GL), and rates are date-effective, so a backdated entry also
- * silently picks up whatever rate applied then.
+ * work on Friday, and the UI allows any past date. The floor is the first day
+ * of the PREVIOUS calendar month: a practice invoices monthly, so "this month
+ * and last month" is the catch-up window, and anything older lands in a period
+ * that has been billed and reported on.
  *
- * A person choosing a date months back is making a visible decision; an agent
- * doing it from a prompt is not. So the window is a speed bump, not a wall:
+ * A rolling day count is the wrong shape here. Ninety days on 2 September still
+ * admits early July — a month long since invoiced — while on 1 March it would
+ * refuse a perfectly ordinary catch-up into January. Periods are what the
+ * downstream code actually keys on, so the bound is a period too.
+ *
+ * What this protects is NOT the invoice. `getWipByClient` only picks up
+ * `approved` rows, and nothing an agent can call reaches `approved` — the
+ * draft → submitted → approved path needs a human, and `markEntriesBilled`
+ * permanently excludes anything already billed. The exposure is reporting:
+ * every figure in practiceReportsService windows on `te.entry_date`, so a row
+ * existing in `draft` is already enough to restate a closed month's utilisation
+ * and recovery, with no approval anywhere in the loop. Rates are date-effective
+ * too, so a backdated entry silently carries that period's rate.
+ *
+ * A person picking a date months back is making a visible decision; an agent
+ * acting on a prompt is not. So this is a speed bump, not a wall:
  * `allow_backdating` lets a caller that means it through, and the refusal names
- * the argument so a legitimate catch-up is one retry away, never a dead end.
+ * both the argument and the accepted floor so a legitimate catch-up is one
+ * retry away, never a dead end.
  */
-const BACKDATE_WINDOW_DAYS = 90;
-
-function daysBetween(fromIso: string, toIso: string): number {
-  const ms = Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`);
-  return Math.round(ms / 86_400_000);
+export function backdateFloor(todayIso: string): string {
+  const [y, m] = todayIso.split('-').map(Number) as [number, number, number];
+  // First day of the previous calendar month; January rolls to December.
+  const year = m === 1 ? y - 1 : y;
+  const month = m === 1 ? 12 : m - 1;
+  return `${year}-${String(month).padStart(2, '0')}-01`;
 }
 
 export const logTimeEntryTool: McpTool = {
   name: 'log_time_entry',
   description:
-    'Log a draft time entry against a practice client, job category and work item. All three ids are required and must be active and consistent — the work item must belong to the category. Resolve them with list_practice_clients / list_job_categories / list_work_items first. The entry is created as a DRAFT and is booked to the calling user; submit_time_entries moves it into the approval flow. The rate is resolved server-side from the staff/client rate table and is not accepted as an argument. Use dry_run to validate without writing.',
+    'Log a draft time entry against a practice client, job category and work item. All three ids are required and must be active and consistent — the work item must belong to the category. Resolve them with list_practice_clients / list_job_categories / list_work_items first. Without allow_backdating, entry_date must fall in the current or previous calendar month. The entry is created as a DRAFT and is booked to the calling user; submit_time_entries moves it into the approval flow. The rate is resolved server-side from the staff/client rate table and is not accepted as an argument. Use dry_run to validate without writing.',
   scope: 'write:practice',
   write: true,
   inputSchema: {
@@ -80,7 +94,7 @@ export const logTimeEntryTool: McpTool = {
       billable: { type: 'boolean', description: 'Defaults to true.' },
       allow_backdating: {
         type: 'boolean',
-        description: `Required to book an entry more than ${BACKDATE_WINDOW_DAYS} days old. Such a period has usually been reported on or invoiced already, and the rate applied is the one effective on that date.`,
+        description: 'Required to book into any month before the previous calendar month. Such a period has usually been invoiced and reported on; the entry would restate those reports, and it carries the rate effective on that date rather than today\'s.',
       },
       dry_run: { type: 'boolean', description: 'Validate everything and report the rate that would apply, without writing.' },
       idempotency_key: { type: 'string' },
@@ -121,11 +135,13 @@ export const logTimeEntryTool: McpTool = {
     const today = new Date().toISOString().slice(0, 10);
     if (entryDate > today) return toolError('entry_date cannot be in the future');
 
-    const age = daysBetween(entryDate, today);
-    if (age > BACKDATE_WINDOW_DAYS && args.allow_backdating !== true) {
+    const floor = backdateFloor(today);
+    if (entryDate < floor && args.allow_backdating !== true) {
       return toolError(
-        `entry_date is ${age} days old. A period that far back has usually been reported on or invoiced, ` +
-        `and the rate applied is the one effective on that date. Re-send with allow_backdating: true if that is intended.`,
+        `entry_date ${entryDate} is before ${floor}. Without allow_backdating this tool books only into the ` +
+        `current or previous month: an older period has usually been invoiced and reported on, every practice ` +
+        `report windows on entry_date so the row would restate it, and the rate applied is the one effective ` +
+        `on that date. Re-send with allow_backdating: true if that is intended.`,
       );
     }
 
