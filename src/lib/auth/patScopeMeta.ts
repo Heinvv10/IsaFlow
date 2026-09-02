@@ -22,8 +22,13 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     desc: 'List and view customer/supplier invoices',
   },
   'write:invoices': {
-    label: 'Write invoices',
-    desc: 'Create, edit, and post invoices',
+    label: 'Write invoices and credit notes',
+    // Credit notes are named explicitly because this is consent text. They run
+    // the other way to an invoice — a credit note REDUCES a receivable or a
+    // payable, and approving one that is linked to an invoice also reduces that
+    // invoice's outstanding balance. Someone granting "post invoices" would not
+    // otherwise know they had authorised that.
+    desc: 'Create, edit, and post customer and supplier invoices, and raise, approve or cancel credit notes against them (a credit note reduces what a customer owes you, or what you owe a supplier)',
   },
   'read:bank-tx': {
     label: 'Read bank transactions',

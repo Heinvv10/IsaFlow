@@ -11,8 +11,10 @@
  * already committed by the time it threw.
  *
  * Requires a company whose chart of accounts carries the six system-account
- * subtypes a credit note posts through; the suite skips itself when that
- * fixture is absent rather than failing on an unseeded database.
+ * subtypes a credit note posts through. When that fixture is absent the tests
+ * mark themselves SKIPPED via the test context rather than returning early —
+ * an early `return` reports as a PASS, which is exactly how a suite like this
+ * rots into a green light that proves nothing.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { sql } from '@/lib/neon';
@@ -61,23 +63,23 @@ afterAll(async () => {
 });
 
 describe('credit note MCP tools — real round trip', () => {
-  it('refuses a customer from another tenant', async () => {
-    if (!ready) return;
+  it('refuses a customer from another tenant', async (t) => {
+    if (!ready) t.skip();
     const r = await createCreditNoteTool.handler(
       { type: 'customer', client_id: otherCustomer, credit_date: '2026-06-30', subtotal: 100, idempotency_key: 'k' }, ctx());
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toBe('Not found');
   });
 
-  it('refuses an invoice belonging to a different customer', async () => {
-    if (!ready) return;
+  it('refuses an invoice belonging to a different customer', async (t) => {
+    if (!ready) t.skip();
     const r = await createCreditNoteTool.handler(
       { type: 'customer', client_id: otherCustomer, customer_invoice_id: invoice, credit_date: '2026-06-30', subtotal: 100, idempotency_key: 'k' }, ctx(OTHER));
     expect(r.isError).toBe(true);
   });
 
-  it('supplier note: create -> approve -> cancel, stamping the ledger', async () => {
-    if (!ready) return;
+  it('supplier note: create -> approve -> cancel, stamping the ledger', async (t) => {
+    if (!ready) t.skip();
     const created = J(await createCreditNoteTool.handler(
       { type: 'supplier', supplier_id: supplier, credit_date: '2026-06-30', subtotal: 200, idempotency_key: 'k1' }, ctx()));
     expect(created.status).toBe('draft');
@@ -119,8 +121,8 @@ describe('credit note MCP tools — real round trip', () => {
     expect(rev[0]?.posting_agent).toBe('mcp:cancel_credit_note:v1');
   });
 
-  it('linked customer note auto-applies and un-applies on cancel', async () => {
-    if (!ready) return;
+  it('linked customer note auto-applies and un-applies on cancel', async (t) => {
+    if (!ready) t.skip();
     const created = J(await createCreditNoteTool.handler(
       { type: 'customer', client_id: customer, customer_invoice_id: invoice, credit_date: '2026-06-30', subtotal: 100, idempotency_key: 'k5' }, ctx()));
     const approved = J(await approveCreditNoteTool.handler({ credit_note_id: created.id, idempotency_key: 'k6' }, ctx()));
@@ -135,8 +137,8 @@ describe('credit note MCP tools — real round trip', () => {
     expect(Number(inv[0]!.amount_paid)).toBeCloseTo(0, 2);
   });
 
-  it('reads are tenant-scoped', async () => {
-    if (!ready) return;
+  it('reads are tenant-scoped', async (t) => {
+    if (!ready) t.skip();
     const created = J(await createCreditNoteTool.handler(
       { type: 'customer', client_id: customer, credit_date: '2026-06-30', subtotal: 10, idempotency_key: 'k8' }, ctx()));
 
