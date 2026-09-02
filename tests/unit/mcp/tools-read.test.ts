@@ -4,7 +4,7 @@
  * Per-tool: happy path returns ok(data); the service receives ctx.companyId
  * (never an args-supplied company); misses return the generic NOT_FOUND text.
  * Suite-wide: token-scan (no credential material in any envelope/manifest)
- * and manifest shape (23 read tools, write:false, additionalProperties:false).
+ * and manifest shape (25 read tools, write:false, additionalProperties:false).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -430,8 +430,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 23 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(23);
+  it('exactly 25 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(25);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {

@@ -15,6 +15,12 @@ import { getAccountLedger } from '@/modules/accounting/services/reports/accountL
 import { getChartOfAccounts } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import {
+  compareGlAccountKeys,
+  decodeGlAccountCursor,
+  encodeGlAccountCursor,
+  startIndexAfter,
+} from './glAccountCursor';
 
 export const trialBalanceTool: McpTool = {
   name: 'trial_balance',
@@ -194,7 +200,8 @@ export const listGlAccountsTool: McpTool = {
   description:
     "The company's chart of accounts — resolve account codes to UUIDs in one call before allocate/journal tools, instead of one search_gl per code. " +
     'Optionally filter by account_type or by a case-insensitive substring of the code or name. ' +
-    'Returns at most 500 rows (default 200) with no pagination: a company with more accounts than that should narrow with search or account_type.',
+    'Returns at most 500 rows per call (default 200), ordered by account_code. ' +
+    'Paging: the reply carries next_cursor whenever more rows match; call again with cursor set and every other argument unchanged until next_cursor is null. total is the full match count.',
   scope: searchGlTool.scope,
   write: false,
   inputSchema: {
@@ -214,6 +221,7 @@ export const listGlAccountsTool: McpTool = {
         description: 'Exclude deactivated accounts. Defaults to true.',
       },
       limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Default 200, max 500' },
+      cursor: { type: 'string', description: 'next_cursor from the previous page.' },
     },
     additionalProperties: false,
   },
@@ -240,7 +248,21 @@ export const listGlAccountsTool: McpTool = {
       );
     });
 
-    const rows: GlAccountRow[] = matched.slice(0, clampLimit(args, 200, 500)).map((a) => ({
+    // Total order (code, id) so paging is stable across identical codes.
+    matched.sort(compareGlAccountKeys);
+    const rawCursor = strArg(args, 'cursor');
+    let start = 0;
+    if (rawCursor !== undefined) {
+      const cursor = decodeGlAccountCursor(rawCursor);
+      if (!cursor) return toolError('invalid cursor');
+      start = startIndexAfter(matched, cursor);
+    }
+    const limit = clampLimit(args, 200, 500);
+    const page = matched.slice(start, start + limit);
+    const last = page[page.length - 1];
+    const nextCursor = last && start + limit < matched.length ? encodeGlAccountCursor(last) : null;
+
+    const rows: GlAccountRow[] = page.map((a) => ({
       id: a.id,
       account_code: a.accountCode,
       account_name: a.accountName,
@@ -251,6 +273,6 @@ export const listGlAccountsTool: McpTool = {
     }));
     // `total` is the match count BEFORE the limit, so an agent can tell a
     // complete list from a truncated one and narrow instead of assuming.
-    return ok({ accounts: rows, total: matched.length });
+    return ok({ accounts: rows, total: matched.length, next_cursor: nextCursor });
   },
 };

@@ -44,6 +44,17 @@ export function allocationStateOf(tx: BankTransaction): AllocationState {
   return 'unallocated';
 }
 
+/**
+ * The service wraps the term in %…% for ILIKE and escapes nothing, so an
+ * agent's "50%" or "ref_123" would match as a wildcard pattern. Escape the
+ * three LIKE metacharacters (Postgres's default escape is backslash) so the
+ * argument means what its name says: a literal substring.
+ */
+export function escapeLikeLiteral(term: string | undefined): string | undefined {
+  if (term === undefined) return undefined;
+  return term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 function toCompact(tx: BankTransaction): CompactBankTx {
   return {
     id: tx.id,
@@ -82,7 +93,8 @@ export const listBankTransactionsTool: McpTool = {
     'Paging: the reply carries next_cursor whenever more rows match. To read a whole account, call again with cursor set to that value and every other argument unchanged, and keep looping until next_cursor is null. ' +
     'fields="compact" returns only id, date, amount, bank_reference and allocation (~10x smaller) — use it when you are scanning or bulk-allocating and do not need the full row. '
     + 'compact bank_reference is the statement reference from either column (the row\'s bank_reference, else its reference), which is exactly what allocate_bank_transaction and bulk_allocate_bank_transactions resolve. '
-    + 'compact allocation is one of allocated | suggested | unallocated | excluded; an excluded row is returned by NEITHER allocation_filter=unallocated NOR =suggested, so never treat one as work to do.',
+    + 'compact allocation is one of allocated | suggested | unallocated | excluded; an excluded row is returned by NEITHER allocation_filter=unallocated NOR =suggested, so never treat one as work to do.'
+    + ' description_contains: case-insensitive substring matched against the statement description OR reference (a literal match — % and _ are not wildcards).',
   scope: 'read:bank-tx',
   write: false,
   inputSchema: {
@@ -94,6 +106,10 @@ export const listBankTransactionsTool: McpTool = {
       to_date: { type: 'string', format: 'date' },
       limit: { type: 'integer', minimum: 1, maximum: 100 },
       cursor: { type: 'string', description: 'next_cursor from the previous page.' },
+      description_contains: {
+        type: 'string',
+        description: 'Case-insensitive substring of the description or reference.',
+      },
       fields: { type: 'string', enum: ['full', 'compact'] },
     },
     additionalProperties: false,
@@ -120,6 +136,7 @@ export const listBankTransactionsTool: McpTool = {
         toDate: strArg(args, 'to_date'),
         limit: clampLimit(args, 50, 100),
         cursor: strArg(args, 'cursor'),
+        search: escapeLikeLiteral(strArg(args, 'description_contains')),
       });
       return ok({
         transactions: compact ? result.transactions.map(toCompact) : result.transactions,
