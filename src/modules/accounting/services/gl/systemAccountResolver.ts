@@ -27,6 +27,7 @@ export type SystemAccountKey =
   | 'vat_input'                 // VAT Input (claimable)
   | 'vat_output'                // VAT Output (payable)
   | 'retained_earnings'         // Retained Earnings
+  | 'opening_balance_equity'    // Opening Balance Equity (clearing; nets to zero once the opening TB is complete)
   | 'default_revenue'           // Default revenue account
   | 'other_income'              // Other Income
   | 'default_expense'           // Default expense (Materials & Supplies)

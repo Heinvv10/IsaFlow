@@ -32,6 +32,7 @@ const ADVISORY_KIND: Record<Exclude<ChecklistItemKey, 'unposted_journals'>, Prop
   ap_ties: 'ap_untied',
   vat_reviewed: 'vat_unreviewed',
   tb_balanced: 'tb_unbalanced',
+  opening_balance_cleared: 'opening_balance_residual',
 };
 
 function moneyZa(n: number): string {

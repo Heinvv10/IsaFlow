@@ -31,6 +31,7 @@ export type GLAccountSubtype =
   | 'depreciation_expense'
   | 'equity'
   | 'retained_earnings'
+  | 'opening_balance_equity'
   | 'other_current_asset'
   | 'other_current_liability'
   | 'other';
