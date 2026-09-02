@@ -4,7 +4,7 @@
  * Per-tool: happy path returns ok(data); the service receives ctx.companyId
  * (never an args-supplied company); misses return the generic NOT_FOUND text.
  * Suite-wide: token-scan (no credential material in any envelope/manifest)
- * and manifest shape (18 read tools, write:false, additionalProperties:false).
+ * and manifest shape (20 read tools, write:false, additionalProperties:false).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -50,7 +50,15 @@ vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => 
   getBankTransactions: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/reports/vatReturnService', () => ({ getVATReturn: vi.fn() }));
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
+  getSupplierInvoices: vi.fn(),
+  getSupplierInvoiceById: vi.fn(),
+}));
 
+import {
+  getSupplierInvoices,
+  getSupplierInvoiceById,
+} from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { getCompany } from '@/modules/accounting/services/core/companyService';
 import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
@@ -422,8 +430,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 18 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(18);
+  it('exactly 20 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(20);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -464,12 +472,17 @@ describe('suite-wide invariants', () => {
     vi.mocked(getBankAccountsStatus).mockResolvedValue([]);
     vi.mocked(getBankTransactions).mockResolvedValue({ transactions: [], total: 0 } as never);
     vi.mocked(getVATReturn).mockResolvedValue({} as never);
+    vi.mocked(getSupplierInvoices).mockResolvedValue({ invoices: [], total: 0 } as never);
+    vi.mocked(getSupplierInvoiceById).mockResolvedValue(
+      { id: '2f9a4c1d-0b3e-4f8a-9c21-7d5e6a8b1c30', items: [] } as never,
+    );
 
     const happyArgs: Record<string, Record<string, unknown>> = {
       profit_and_loss: { period_start: '2026-06-01', period_end: '2026-06-30' },
       vat_status: { period_start: '2026-05-01', period_end: '2026-06-30' },
       search_gl: { account_code: '1000', from_date: '2026-01-01', to_date: '2026-06-30' },
       get_invoice: { invoice_id: '4cd9b767-2d7f-4ee8-8b51-fb1e049f6903' },
+      get_supplier_invoice: { invoice_id: '2f9a4c1d-0b3e-4f8a-9c21-7d5e6a8b1c30' },
     };
 
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })));

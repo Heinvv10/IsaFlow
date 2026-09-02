@@ -442,7 +442,8 @@ describe('write-tool manifest invariants', () => {
   it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
-      'allocate_bank_transaction', 'bulk_allocate_bank_transactions', 'finalize_invoice',
+      'allocate_bank_transaction', 'approve_supplier_invoice',
+      'bulk_allocate_bank_transactions', 'finalize_invoice',
       'post_journal', 'reverse_bank_allocation', 'reverse_bank_allocation_batch',
     ]);
   });
@@ -487,6 +488,16 @@ describe('write-tool manifest invariants', () => {
       // ends up in the envelope, and an error envelope is still an envelope.
       import_bank_statement: { ...KEY },
       undo_bank_import: { ...KEY },
+      // Same treatment for the chart-of-accounts and AP tools: each refuses on
+      // a missing required argument BEFORE touching a service, which is the
+      // only path available in a file that does not mock those services.
+      // Dedicated behaviour tests live in writeGlAccountsTool.test.ts and
+      // writeSupplierInvoicesTool.test.ts.
+      create_gl_account: { ...KEY },
+      update_gl_account: { ...KEY },
+      deactivate_gl_account: { ...KEY },
+      create_supplier_invoice: { ...KEY },
+      approve_supplier_invoice: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

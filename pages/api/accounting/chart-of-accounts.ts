@@ -16,6 +16,10 @@ import {
   createAccount,
   updateAccount,
 } from '@/modules/accounting/services/gl/chartOfAccountsService';
+import {
+  reclassifyAccount,
+  ReclassifyError,
+} from '@/modules/accounting/services/gl/accountReclassifyService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -70,15 +74,35 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === 'PUT') {
     try {
-      const { id, accountName, description, isActive, displayOrder, defaultVatCode, vatInputDenied } = req.body;
+      const {
+        id, accountName, description, isActive, displayOrder, defaultVatCode, vatInputDenied,
+        accountSubtype, parentAccountId,
+      } = req.body;
       if (!id) return apiResponse.badRequest(res, 'id is required');
+
+      // Reclassification runs FIRST and on its own guards. `undefined` means
+      // "leave alone" and `null` means "clear", so both have to be
+      // distinguishable here — a `?? undefined` would silently turn every
+      // clear into a no-op, which is how these two columns became unwritable
+      // in the first place.
+      const changingSubtype = accountSubtype !== undefined;
+      const changingParent = parentAccountId !== undefined;
+      if (changingSubtype || changingParent) {
+        await reclassifyAccount(companyId, id, {
+          ...(changingSubtype ? { accountSubtype: accountSubtype || null } : {}),
+          ...(changingParent ? { parentAccountId: parentAccountId || null } : {}),
+        });
+      }
+
       const updated = await updateAccount(companyId, id, {
         accountName, description, isActive, displayOrder, defaultVatCode,
         vatInputDenied: typeof vatInputDenied === 'boolean' ? vatInputDenied : undefined,
       });
       return apiResponse.success(res, updated);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update account';
+      const message = err instanceof ReclassifyError || err instanceof Error
+        ? err.message
+        : 'Failed to update account';
       log.error('Failed to update account', { error: err }, 'accounting-api');
       return apiResponse.badRequest(res, message);
     }

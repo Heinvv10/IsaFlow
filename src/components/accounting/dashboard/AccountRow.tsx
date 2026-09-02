@@ -7,6 +7,7 @@ import { Loader2, Pencil, Trash2, Save, X, Lock } from 'lucide-react';
 import type { GLAccount } from '@/modules/accounting/types/gl.types';
 import { apiFetch } from '@/lib/apiFetch';
 import { notify } from '@/utils/toast';
+import { subtypeOptionsFor } from './accountSubtypeOptions';
 
 export function accountTypeColor(type: string): string {
   switch (type) {
@@ -22,12 +23,21 @@ export function accountTypeColor(type: string): string {
 const VAT_LABELS: Record<string, string> = { standard: '15%', zero_rated: 'Zero Rated', exempt: 'Exempt' };
 
 export function AccountRow({
-  account, level, viewMode, onUpdate, onDelete, onCodeChanged,
+  account, level, viewMode, parentOptions, onUpdate, onDelete, onCodeChanged,
 }: {
   account: GLAccount;
   level: number;
   viewMode: string;
-  onUpdate: (id: string, data: { accountName: string; description: string; defaultVatCode: string; vatInputDenied: boolean }) => Promise<void>;
+  /** Candidate parents — the caller's active-account list, filtered here. */
+  parentOptions: GLAccount[];
+  onUpdate: (id: string, data: {
+    accountName: string;
+    description: string;
+    defaultVatCode: string;
+    vatInputDenied: boolean;
+    accountSubtype?: string | null;
+    parentAccountId?: string | null;
+  }) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onCodeChanged?: () => Promise<void> | void;
 }) {
@@ -36,6 +46,8 @@ export function AccountRow({
   const [editDesc, setEditDesc] = useState(account.description || '');
   const [editVatCode, setEditVatCode] = useState<string>(account.defaultVatCode || 'none');
   const [editVatDenied, setEditVatDenied] = useState<boolean>(Boolean(account.vatInputDenied));
+  const [editSubtype, setEditSubtype] = useState<string>(account.accountSubtype || '');
+  const [editParentId, setEditParentId] = useState<string>(account.parentAccountId || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const [isEditingCode, setIsEditingCode] = useState(false);
@@ -56,9 +68,17 @@ export function AccountRow({
 
   const handleSave = async () => {
     setIsSaving(true);
+    // Send the classification keys ONLY when they actually changed. The API
+    // reads `undefined` as "leave alone" and `null` as "clear", and
+    // reclassifying runs a separate set of structural guards (cycles, the leaf
+    // rule, orphaned bank transactions) that should not fire on a rename.
+    const currentSubtype = account.accountSubtype || '';
+    const currentParent = account.parentAccountId || '';
     await onUpdate(account.id, {
       accountName: editName, description: editDesc,
       defaultVatCode: editVatCode, vatInputDenied: editVatDenied,
+      ...(editSubtype !== currentSubtype ? { accountSubtype: editSubtype || null } : {}),
+      ...(editParentId !== currentParent ? { parentAccountId: editParentId || null } : {}),
     });
     setIsSaving(false);
     setIsEditing(false);
@@ -69,6 +89,8 @@ export function AccountRow({
     setEditDesc(account.description || '');
     setEditVatCode(account.defaultVatCode || 'none');
     setEditVatDenied(Boolean(account.vatInputDenied));
+    setEditSubtype(account.accountSubtype || '');
+    setEditParentId(account.parentAccountId || '');
     setIsEditing(false);
   };
 
@@ -105,6 +127,14 @@ export function AccountRow({
   };
 
   const indent = viewMode === 'tree' ? `${level * 1.5}rem` : '0';
+
+  const subtypeOptions = subtypeOptionsFor(account.accountType);
+  // The server refuses a cross-type parent, the account itself, and anything
+  // below it in the tree. It cannot know about descendants from this list
+  // alone, so this filter is a convenience, not the guard — the API refusal is.
+  const eligibleParents = parentOptions.filter(
+    a => a.id !== account.id && a.accountType === account.accountType,
+  );
 
   return (
     <>
@@ -157,6 +187,33 @@ export function AccountRow({
                 <option value="standard">Standard 15%</option>
                 <option value="zero_rated">Zero Rated</option>
                 <option value="exempt">Exempt</option>
+              </select>
+              {/* Subtype and parent were settable only in the Add Account
+                  dialog. An account without subtype = bank cannot receive a
+                  statement import at all, and with no edit path the only
+                  remedy was to recreate the account under a new code. */}
+              <select
+                value={editSubtype}
+                onChange={e => setEditSubtype(e.target.value)}
+                className="ff-select w-full text-xs"
+                disabled={account.isSystemAccount}
+                title={account.isSystemAccount
+                  ? 'System account — auto-posting resolves it by subtype, so the subtype is fixed'
+                  : 'Subtype. Bank is what makes an account importable from a statement.'}
+              >
+                <option value="">No subtype</option>
+                {subtypeOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+              <select
+                value={editParentId}
+                onChange={e => setEditParentId(e.target.value)}
+                className="ff-select w-full text-xs"
+                title="Parent account. Only same-type accounts with no postings of their own can be parents."
+              >
+                <option value="">No parent (top level)</option>
+                {eligibleParents.map(a => (
+                  <option key={a.id} value={a.id}>{a.accountCode} - {a.accountName}</option>
+                ))}
               </select>
               {/* Separate from the default above on purpose: an account can
                   DEFAULT to No VAT and still allow a standard claim (Insurance
@@ -227,7 +284,7 @@ export function AccountRow({
         </td>
       </tr>
       {viewMode === 'tree' && account.children?.map(child => (
-        <AccountRow key={child.id} account={child} level={level + 1} viewMode={viewMode} onUpdate={onUpdate} onDelete={onDelete} onCodeChanged={onCodeChanged} />
+        <AccountRow key={child.id} account={child} level={level + 1} viewMode={viewMode} parentOptions={parentOptions} onUpdate={onUpdate} onDelete={onDelete} onCodeChanged={onCodeChanged} />
       ))}
     </>
   );

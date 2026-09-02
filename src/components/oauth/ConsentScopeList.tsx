@@ -16,6 +16,7 @@ const SCOPE_LABELS: Record<OAuthScope, string> = {
   'read:bank-tx': 'Read your bank transactions',
   'write:bank-tx': 'Allocate and post bank transactions',
   'write:journals': 'Post General Ledger journals',
+  'write:accounts': 'Create and edit your chart of accounts',
   'read:reports': 'Read your financial reports',
   'read:contacts': 'Read your customers and suppliers',
   'read:vat': 'Read your VAT status',

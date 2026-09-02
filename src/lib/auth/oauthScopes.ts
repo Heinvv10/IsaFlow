@@ -10,6 +10,7 @@ export const OAUTH_SCOPES = [
   'read:bank-tx',
   'write:bank-tx',
   'write:journals',
+  'write:accounts',
   'read:reports',
   'read:contacts',
   'read:vat',

@@ -67,6 +67,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Reviewing what the agent did must never cost anything — it is the control
   // surface for every other write.
   list_agent_postings: null,
+  list_supplier_invoices: null,
+  get_supplier_invoice: null,
 
   // ── Reports: free over MCP, unlike the UI ────────────────────────────────
   // The app charges 10 for each of these. Carrying that across was the initial
@@ -87,6 +89,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',
+  // An AP bill is an invoice creation, priced the same as the AR one. Approval
+  // only posts what the draft already paid for, exactly like finalize_invoice.
+  create_supplier_invoice: 'invoice.create',
   create_draft_journal: 'journal.create',
   import_bank_statement: 'bank.import',
   // Quotes are not metered in the app.
@@ -94,6 +99,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
 
   // ── Already paid for at draft time ───────────────────────────────────────
   finalize_invoice: null,
+  approve_supplier_invoice: null,
   post_journal: null,
 
   // ── Bank allocation is free in the app (bank.allocate is unused there) ───
@@ -110,6 +116,14 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   reverse_bank_allocation: null,
   reverse_bank_allocation_batch: null,
   undo_bank_import: null,
+
+  // ── Chart of accounts: free ──────────────────────────────────────────────
+  // The app does not meter COA edits, and these post nothing to the ledger.
+  // Pricing them would also put a toll on the remedy for a NULL subtype, which
+  // is the state that blocks statement import in the first place.
+  create_gl_account: null,
+  update_gl_account: null,
+  deactivate_gl_account: null,
 };
 
 /**

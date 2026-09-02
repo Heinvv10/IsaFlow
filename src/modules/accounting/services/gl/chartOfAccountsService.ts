@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import { cacheThrough, cache } from '@/lib/cache';
 import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import type { GLAccount, GLAccountType } from '../../types/gl.types';
+import { subtypeErrorFor } from './accountSubtypeRules';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -234,6 +235,13 @@ export async function suggestNextAccountCode(
 
 export async function createAccount(companyId: string, input: CreateAccountInput): Promise<GLAccount> {
   try {
+    // `account_subtype` is plain TEXT with no CHECK constraint, so before this
+    // guard a typo ('bank ' with a space, 'Bank') wrote fine and then behaved
+    // exactly like NULL — invisible to every consumer that filters on a known
+    // value, with nothing anywhere reporting a problem.
+    const subtypeError = subtypeErrorFor({ accountType: input.accountType }, input.accountSubtype);
+    if (subtypeError) throw new Error(subtypeError);
+
     const existing = await sql`
       SELECT id FROM gl_accounts WHERE account_code = ${input.accountCode} AND company_id = ${companyId}
     `;

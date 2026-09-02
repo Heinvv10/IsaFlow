@@ -33,9 +33,19 @@ import {
   bulkAllocateBankTransactionsTool,
 } from './tools/writeBankBulkAllocate';
 import { reverseBankAllocationBatchTool } from './tools/writeBankReverseBatch';
+import {
+  createGlAccountTool,
+  updateGlAccountTool,
+  deactivateGlAccountTool,
+} from './tools/writeGlAccounts';
+import { listSupplierInvoicesTool, getSupplierInvoiceTool } from './tools/supplierInvoices';
+import {
+  createSupplierInvoiceTool,
+  approveSupplierInvoiceTool,
+} from './tools/writeSupplierInvoices';
 
 export const MCP_TOOLS = [
-  // read (18)
+  // read (20)
   companyProfileTool,
   trialBalanceTool,
   profitAndLossTool,
@@ -54,7 +64,9 @@ export const MCP_TOOLS = [
   getMatchCandidatesTool,
   vatStatusTool,
   listAgentPostingsTool,
-  // write (12) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  listSupplierInvoicesTool,
+  getSupplierInvoiceTool,
+  // write (17) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -69,6 +81,11 @@ export const MCP_TOOLS = [
   reverseBankAllocationBatchTool,
   importBankStatementTool,
   undoBankImportTool,
+  createGlAccountTool,
+  updateGlAccountTool,
+  deactivateGlAccountTool,
+  createSupplierInvoiceTool,
+  approveSupplierInvoiceTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();
