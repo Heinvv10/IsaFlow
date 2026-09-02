@@ -48,6 +48,14 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));
+// approve/cancel take a FOR UPDATE row lock, which refuses to run outside a
+// request transaction. This suite drives the service with a mocked sql tag and
+// no ALS context, so the lock is stubbed to return the same row the mock would
+// have yielded; the lock's own contract is covered in creditNoteLock.test.ts and
+// the real serialisation is proven in tests/integration/api/creditNoteMcpTools.
+vi.mock('@/modules/accounting/services/ar/creditNoteLock', () => ({
+  lockCreditNoteForUpdate: vi.fn(),
+}));
 
 import { sql } from '@/lib/neon';
 import {
@@ -55,6 +63,7 @@ import {
   postJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { lockCreditNoteForUpdate } from '@/modules/accounting/services/ar/creditNoteLock';
 import {
   approveCreditNote,
   createCreditNote,
@@ -110,6 +119,12 @@ function creditNoteRow(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: the lock yields whatever the sql mock is currently returning, so
+  // each test keeps setting up exactly one fixture.
+  vi.mocked(lockCreditNoteForUpdate).mockImplementation(async () => {
+    const res = await (mockSql as unknown as () => Promise<unknown[]>)();
+    return (res?.[0] ?? null) as never;
+  });
   mockGetSystemAccount.mockImplementation(async (key: string) => ({
     id: `${key}-account-id`,
     accountCode: '1000',

@@ -41,6 +41,14 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
   reverseJournalEntry: vi.fn().mockResolvedValue({ id: 'je-rev' }),
 }));
 
+// approve/cancel now take a FOR UPDATE row lock, which refuses to run outside a
+// request transaction. This suite drives the service with a mocked sql tag and
+// no ALS context, so the lock is stubbed to answer from the same mock the old
+// unlocked SELECT read. The lock's own contract is proven in
+// tests/integration/api/creditNoteLock.test.ts.
+vi.mock('@/modules/accounting/services/ar/creditNoteLock', () => ({
+  lockCreditNoteForUpdate: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn().mockResolvedValue({ id: 'acct-1' }),
 }));
@@ -52,6 +60,8 @@ import { createQuote } from '@/modules/accounting/services/ar/quoteService';
 import { softDelete } from '@/modules/accounting/services/core/softDeleteService';
 import { createCustomerPayment } from '@/modules/accounting/services/ar/customerPaymentService';
 import { approveCreditNote, applyCreditNoteToInvoice } from '@/modules/accounting/services/ar/creditNoteService';
+
+import { lockCreditNoteForUpdate } from '@/modules/accounting/services/ar/creditNoteLock';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 
@@ -192,6 +202,8 @@ describe('N6 — linked credit note cannot be applied twice', () => {
       }
       return Promise.resolve([]);
     });
+
+    vi.mocked(lockCreditNoteForUpdate).mockResolvedValue(cnRow as never);
 
     await approveCreditNote(COMPANY_ID, ENTITY_ID, USER_ID);
 

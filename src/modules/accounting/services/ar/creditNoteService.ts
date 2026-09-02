@@ -8,6 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { lockCreditNoteForUpdate } from './creditNoteLock';
 import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
@@ -131,9 +132,15 @@ export async function approveCreditNote(
   opts?: { postingAgent?: string },
 ): Promise<CreditNote> {
   try {
-    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Record<string, unknown>[];
-    if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
-    const cn = cnRows[0]!;
+    // FOR UPDATE, not a plain SELECT: the status check below and the posting
+    // that follows are a check-then-act pair. Two concurrent approvals of the
+    // same draft both read 'draft' and both post a journal — reproduced against
+    // a real database — and a linked note also bumps the invoice's amount_paid
+    // on each pass, double-crediting the receivable. The lock holds for the rest
+    // of the request, so the second caller re-reads the settled status and
+    // refuses here instead.
+    const cn = await lockCreditNoteForUpdate(companyId, id);
+    if (!cn) throw new Error(`Credit note ${id} not found`);
     if (String(cn.status) !== 'draft') throw new Error(`Cannot approve credit note with status: ${cn.status}`);
 
     let lines: JournalLineInput[];
@@ -240,9 +247,11 @@ export async function cancelCreditNote(companyId: string,
   opts?: { postingAgent?: string },
 ): Promise<CreditNote> {
   try {
-    const cnRows = (await sql`SELECT * FROM credit_notes WHERE id = ${id} AND company_id = ${companyId}`) as Record<string, unknown>[];
-    if (cnRows.length === 0) throw new Error(`Credit note ${id} not found`);
-    const cn = cnRows[0]!;
+    // Same check-then-act window as approve: two concurrent cancellations would
+    // each reverse the journal, leaving the note over-reversed and the invoice
+    // credit removed twice.
+    const cn = await lockCreditNoteForUpdate(companyId, id);
+    if (!cn) throw new Error(`Credit note ${id} not found`);
     // 'applied' is cancellable too (PR #203 review HIGH): linked notes land
     // 'applied' at approve (N6), and the un-apply + GL-reversal below already
     // handles the applied state — restricting to 'approved' made every
