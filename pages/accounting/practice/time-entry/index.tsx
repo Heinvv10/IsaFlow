@@ -9,6 +9,7 @@ import { Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight, Trash2, Send, C
 import { apiFetch } from '@/lib/apiFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import { TimeEntryForm, type Client, type Category } from '@/components/practice/TimeEntryForm';
+import { fetchActiveClients, fetchJobCategories } from '@/components/practice/practiceApi';
 import { DayTotalsBar } from '@/components/practice/DayTotalsBar';
 import { BulkRangeModal } from '@/components/practice/BulkRangeModal';
 import type { PracticeTimeEntry, PracticeTimeEntryInput } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
@@ -66,28 +67,15 @@ export default function TimeEntryPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const [cr, catr] = await Promise.all([
-          apiFetch('/api/accounting/practice/clients?status=active'),
-          apiFetch('/api/accounting/practice/job-categories?isActive=true'),
+        const [clientList, categoryList] = await Promise.all([
+          fetchActiveClients(),
+          fetchJobCategories(),
         ]);
-        if (!cr.ok || !catr.ok) throw new Error('Failed to load reference data');
-        const cj = (await cr.json()) as unknown;
-        const catj = (await catr.json()) as unknown;
-        const cPayload = (cj && typeof cj === 'object' && 'data' in cj ? (cj as { data: unknown }).data : cj) as unknown;
-        const cList = Array.isArray(cPayload)
-          ? cPayload
-          : (cPayload && typeof cPayload === 'object' && Array.isArray((cPayload as { clients?: unknown }).clients))
-            ? (cPayload as { clients: Client[] }).clients
-            : [];
-        setClients(cList as Client[]);
-        const catPayload = (catj && typeof catj === 'object' && 'data' in catj ? (catj as { data: unknown }).data : catj) as unknown;
-        const catList = Array.isArray(catPayload)
-          ? catPayload
-          : (catPayload && typeof catPayload === 'object' && Array.isArray((catPayload as { categories?: unknown }).categories))
-            ? (catPayload as { categories: Category[] }).categories
-            : [];
-        setCategories(catList as Category[]);
-      } catch { setInitError('Failed to load clients or categories. Please refresh.'); }
+        setClients(clientList);
+        setCategories(categoryList);
+      } catch (err) {
+        setInitError(`Failed to load clients or categories: ${err instanceof Error ? err.message : 'unknown error'}`);
+      }
       finally { setInitLoading(false); }
     })();
   }, []);

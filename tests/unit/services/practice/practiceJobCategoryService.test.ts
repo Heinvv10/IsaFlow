@@ -88,10 +88,24 @@ describe('listWorkItems', () => {
 
 describe('createWorkItem', () => {
   it('inserts and returns work item', async () => {
+    sqlMock.mockResolvedValueOnce([{ id: CAT_ID }]); // ownership check
     sqlMock.mockResolvedValueOnce([itemRow]);
     const result = await createWorkItem(COMPANY, CAT_ID, { name: 'Monthly Processing' });
     expect(result.id).toBe(ITEM_ID);
     expect(result.categoryId).toBe(CAT_ID);
+  });
+
+  it('refuses a category belonging to another tenant, without inserting', async () => {
+    // The ownership SELECT is company-scoped, so a foreign category returns no
+    // row. Writing anyway would create a work item with this company_id and a
+    // foreign category_id — a row no list query could ever return.
+    sqlMock.mockResolvedValueOnce([]);
+
+    await expect(
+      createWorkItem(COMPANY, 'dddddddd-0000-0000-0000-000000000009', { name: 'Sneaky' }),
+    ).rejects.toThrow('job category not found');
+
+    expect(sqlMock).toHaveBeenCalledTimes(1); // the check ran; the INSERT did not
   });
 });
 

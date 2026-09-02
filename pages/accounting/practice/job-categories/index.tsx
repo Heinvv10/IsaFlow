@@ -1,86 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Tag, Loader2, AlertCircle, Plus, ChevronDown, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
-
-interface JobCategory {
-  id: string;
-  name: string;
-  reportingTag: string | null;
-  isActive: boolean;
-}
-
-interface WorkItem {
-  id: string;
-  name: string;
-  isBillable: boolean;
-  isActive: boolean;
-}
+import { WorkItemManager } from '@/components/practice/WorkItemManager';
+import {
+  fetchJobCategories,
+  createJobCategory,
+  setJobCategoryActive,
+  type JobCategory,
+} from '@/components/practice/practiceApi';
 
 interface CategoryRowProps {
   category: JobCategory;
   onToggle: (id: string, current: boolean) => Promise<void>;
-}
-
-function WorkItemList({ categoryId }: { categoryId: string }) {
-  const [items, setItems] = useState<WorkItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    setError('');
-    apiFetch(`/api/accounting/practice/work-items?categoryId=${encodeURIComponent(categoryId)}&includeInactive=true`)
-      .then(async (res) => {
-        if (cancelled) return;
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json() as { data?: WorkItem[] } | WorkItem[];
-        const data = Array.isArray(json) ? json : ((json as { data?: WorkItem[] }).data ?? []);
-        setItems(data);
-      })
-      .catch(() => {
-        if (!cancelled) setError('Failed to load work items');
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [categoryId]);
-
-  if (isLoading) return (
-    <div className="flex items-center gap-2 px-4 py-3 text-[var(--ff-text-tertiary)] text-sm">
-      <Loader2 className="h-4 w-4 animate-spin" />
-      Loading work items…
-    </div>
-  );
-  if (error) return (
-    <div className="flex items-center gap-2 px-4 py-3 text-red-400 text-sm">
-      <AlertCircle className="h-4 w-4" />
-      {error}
-    </div>
-  );
-  if (items.length === 0) return (
-    <p className="px-4 py-3 text-sm text-[var(--ff-text-tertiary)]">No work items in this category.</p>
-  );
-
-  return (
-    <ul className="divide-y divide-[var(--ff-border-primary)]">
-      {items.map((item) => (
-        <li
-          key={item.id}
-          className="flex items-center justify-between px-4 py-2"
-        >
-          <span className={item.isActive ? 'text-sm text-[var(--ff-text-primary)]' : 'text-sm text-[var(--ff-text-tertiary)] line-through'}>
-            {item.name}
-          </span>
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${item.isBillable ? 'bg-teal-500/20 text-teal-400' : 'bg-[var(--ff-bg-tertiary)] text-[var(--ff-text-tertiary)]'}`}>
-            {item.isBillable ? 'Billable' : 'Non-billable'}
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 function CategoryRow({ category, onToggle }: CategoryRowProps) {
@@ -129,7 +60,7 @@ function CategoryRow({ category, onToggle }: CategoryRowProps) {
 
       {isExpanded && (
         <div className="border-t border-[var(--ff-border-primary)] bg-[var(--ff-bg-primary)]">
-          <WorkItemList categoryId={category.id} />
+          <WorkItemManager categoryId={category.id} />
         </div>
       )}
     </div>
@@ -148,13 +79,9 @@ export default function JobCategoriesPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/accounting/practice/job-categories?includeInactive=true');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json() as { data?: JobCategory[] } | JobCategory[];
-      const data = Array.isArray(json) ? json : ((json as { data?: JobCategory[] }).data ?? []);
-      setCategories(data);
-    } catch {
-      setError('Failed to load job categories');
+      setCategories(await fetchJobCategories(true));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load job categories');
     } finally {
       setIsLoading(false);
     }
@@ -170,28 +97,18 @@ export default function JobCategoriesPage() {
     setIsAdding(true);
     setAddError('');
     try {
-      const res = await apiFetch('/api/accounting/practice/job-categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await createJobCategory(name);
       setNewName('');
       await loadCategories();
-    } catch {
-      setAddError('Failed to add category');
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add category');
     } finally {
       setIsAdding(false);
     }
   }
 
   async function handleToggle(id: string, current: boolean) {
-    const res = await apiFetch(`/api/accounting/practice/job-categories/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ isActive: !current }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await setJobCategoryActive(id, !current);
     setCategories((prev) =>
       prev.map((c) => (c.id === id ? { ...c, isActive: !current } : c))
     );
