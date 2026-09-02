@@ -61,4 +61,13 @@ export interface PracticeEntryFilters {
   dateTo?: string;
   status?: PracticeTimeEntry['status'];
   jobId?: string;
+  /**
+   * Both optional and both omitted by default, so existing callers keep the
+   * unbounded result they were written against. Postgres treats a NULL LIMIT
+   * as LIMIT ALL and a NULL OFFSET as 0, which is what an absent filter binds
+   * to — the MCP tools pass them because an unbounded list is not a usable
+   * tool response.
+   */
+  limit?: number;
+  offset?: number;
 }

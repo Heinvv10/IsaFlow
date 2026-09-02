@@ -259,6 +259,8 @@ export async function listPracticeEntries(
   const dateTo = filters.dateTo ?? null;
   const status = filters.status ?? null;
   const jobId = filters.jobId ?? null;
+  const limit = filters.limit ?? null;
+  const offset = filters.offset ?? null;
 
   const countRows = (await sql`
     SELECT COUNT(*)::int AS cnt
@@ -294,6 +296,7 @@ export async function listPracticeEntries(
       -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
       AND te.practice_client_id IS NOT NULL
     ORDER BY te.entry_date DESC, te.created_at DESC
+    LIMIT ${limit}::INT OFFSET ${offset}::INT
   `) as DbRow[];
 
   return { entries: rows.map(mapEntry), total: Number(countRows[0]?.cnt ?? 0) };

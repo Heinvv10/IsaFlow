@@ -97,6 +97,10 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   aged_debtors: null,
   aged_creditors: null,
   vat_status: null,
+  list_practice_clients: null,
+  list_job_categories: null,
+  list_work_items: null,
+  list_time_entries: null,
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',
@@ -159,6 +163,17 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
 
   // One journal, priced like any other journal creation.
   set_opening_balance: 'journal.create',
+
+  // ── Practice: free ───────────────────────────────────────────────────────
+  // The app meters neither the taxonomy nor time capture, and none of these
+  // post to the ledger. Charging for create_work_item would also put a toll on
+  // the remedy for the state that blocks time entry outright (a category with
+  // no work items), which is the same reason the chart-of-accounts tools are
+  // free. Revenue is recognised when the WIP is invoiced, not when it is typed.
+  create_job_category: null,
+  create_work_item: null,
+  log_time_entry: null,
+  submit_time_entries: null,
 };
 
 /**

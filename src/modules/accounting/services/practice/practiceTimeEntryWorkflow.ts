@@ -155,14 +155,26 @@ export async function duplicatePracticeEntry(
   return mapEntry(rows[0]);
 }
 
-export async function submitPracticeEntries(companyId: string, ids: string[]): Promise<number> {
+/**
+ * `userId` is optional so the existing REST caller keeps its company-wide
+ * behaviour, but every NEW caller should pass it. Without it any authenticated
+ * user in the company can submit another user's drafts for approval by id —
+ * intra-tenant, but still an authorisation gap. The MCP tool passes it.
+ */
+export async function submitPracticeEntries(
+  companyId: string,
+  ids: string[],
+  userId?: string,
+): Promise<number> {
   if (!ids.length) return 0;
+  const scopedUserId = userId ?? null;
   const rows = (await sql`
     UPDATE time_entries
     SET status = 'submitted', updated_at = NOW()
     WHERE company_id = ${companyId}::UUID
       AND id = ANY(${ids}::UUID[])
       AND status = 'draft'
+      AND (${scopedUserId}::UUID IS NULL OR user_id = ${scopedUserId}::UUID)
     RETURNING id
   `) as DbRow[];
   log.info('Submitted practice time entries', { count: rows.length }, 'practice');

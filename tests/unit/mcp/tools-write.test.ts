@@ -511,6 +511,12 @@ describe('write-tool manifest invariants', () => {
       // Refuses on the missing reconciliation_id before any lookup; behaviour
       // in bankReconciliationTools.test.ts.
       cancel_bank_reconciliation: { ...KEY },
+      // All four practice write tools refuse on a missing required argument
+      // before touching the database; behaviour in practiceTools.test.ts.
+      create_job_category: { ...KEY },
+      create_work_item: { ...KEY },
+      log_time_entry: { ...KEY },
+      submit_time_entries: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
