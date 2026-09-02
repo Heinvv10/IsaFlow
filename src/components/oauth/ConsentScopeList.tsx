@@ -7,28 +7,7 @@
  */
 import { Check, AlertTriangle } from 'lucide-react';
 import type { OAuthScope } from '@/lib/auth/oauth';
-
-// Typed against the OAuth vocabulary: adding a scope to OAUTH_SCOPES without a
-// label here fails tsc.
-const SCOPE_LABELS: Record<OAuthScope, string> = {
-  'read:invoices': 'Read your invoices',
-  'write:invoices': 'Create and edit invoices',
-  'read:bank-tx': 'Read your bank transactions',
-  'write:bank-tx': 'Allocate and post bank transactions',
-  'write:journals': 'Post General Ledger journals',
-  'write:accounts': 'Create and edit your chart of accounts',
-  'read:reports': 'Read your financial reports',
-  'read:contacts': 'Read your customers and suppliers',
-  'read:vat': 'Read your VAT status',
-  'read:practice': 'Read your practice clients, job categories and logged time',
-  'write:practice': 'Create job categories and work items, and log and submit time entries',
-  // Copy tracks what the grant actually permits: it now also unlocks automated
-  // bank allocation, which posts AP/AR journals, records customer payments as
-  // confirmed, and marks supplier invoices paid. Keep in step with
-  // PAT_SCOPE_META['write:post'].
-  'write:post': 'Post journals, finalize documents, and allocate bank transactions to your ledger (irreversible)',
-  'offline_access': 'Stay connected (refresh access in the background)',
-};
+import { SCOPE_LABELS } from '@/lib/auth/consentScopeLabels';
 
 function label(scope: string): string {
   return SCOPE_LABELS[scope as OAuthScope] ?? scope;

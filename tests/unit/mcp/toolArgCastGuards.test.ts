@@ -293,6 +293,29 @@ describe('write tools — an uncastable argument is named, not generic-ified', (
     ['set_opening_balance', {
       bank_account_id: UUID, contra_account_id: UUID2, as_at: '2026-13-01', amount: 1, ...KEY,
     }, 'as_at'],
+    // Credit notes. Five arguments reach casts: the note id on approve/cancel,
+    // and on create the counterparty id, either invoice id, and credit_date —
+    // all of which land in ::UUID / ::DATE inside validateCreditNoteLinks or
+    // the INSERT.
+    ['create_credit_note', {
+      type: 'customer', client_id: 'abc', credit_date: '2026-06-30', subtotal: 100, ...KEY,
+    }, 'client_id'],
+    ['create_credit_note', {
+      type: 'supplier', supplier_id: 'abc', credit_date: '2026-06-30', subtotal: 100, ...KEY,
+    }, 'supplier_id'],
+    ['create_credit_note', {
+      type: 'customer', client_id: UUID, customer_invoice_id: 'abc',
+      credit_date: '2026-06-30', subtotal: 100, ...KEY,
+    }, 'customer_invoice_id'],
+    ['create_credit_note', {
+      type: 'supplier', supplier_id: UUID, supplier_invoice_id: 'abc',
+      credit_date: '2026-06-30', subtotal: 100, ...KEY,
+    }, 'supplier_invoice_id'],
+    ['create_credit_note', {
+      type: 'customer', client_id: UUID, credit_date: '2026-02-31', subtotal: 100, ...KEY,
+    }, 'credit_date'],
+    ['approve_credit_note', { credit_note_id: 'abc', ...KEY }, 'credit_note_id'],
+    ['cancel_credit_note', { credit_note_id: "1' OR '1'='1", ...KEY }, 'credit_note_id'],
   ];
 
   for (const [name, args, argName] of WRITE_BAD) {
