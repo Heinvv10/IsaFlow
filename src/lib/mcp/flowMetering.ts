@@ -54,6 +54,7 @@ export type DebitOutcome =
 const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // ── Reads the UI does not meter ──────────────────────────────────────────
   company_profile: null,
+  list_companies: null,
   search_gl: null,
   list_gl_accounts: null,
   list_invoices: null,
@@ -69,6 +70,11 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_agent_postings: null,
   list_supplier_invoices: null,
   get_supplier_invoice: null,
+  // Seeing the rules is the control an agent needs BEFORE it imports anything.
+  // Pricing it would discourage the check that prevents a stale rule silently
+  // re-routing a whole statement.
+  list_bank_rules: null,
+  get_bank_rule: null,
 
   // ── Reports: free over MCP, unlike the UI ────────────────────────────────
   // The app charges 10 for each of these. Carrying that across was the initial
@@ -124,6 +130,15 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   create_gl_account: null,
   update_gl_account: null,
   deactivate_gl_account: null,
+
+  // ── Bank rules: free ─────────────────────────────────────────────────────
+  // The app does not meter rule edits, and a rule posts nothing when it is
+  // written — only later, when an import or sweep runs it. disable_bank_rule
+  // is a correction, and corrections are free by the same rule as
+  // reverse_bank_allocation.
+  create_bank_rule: null,
+  update_bank_rule: null,
+  disable_bank_rule: null,
 };
 
 /**

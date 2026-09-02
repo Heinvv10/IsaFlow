@@ -4,7 +4,7 @@
  * Phase 3. The drift-guard test keeps CLIENT_MCP_TOOL_NAMES in sync.
  */
 import { McpRegistry } from './registry';
-import { companyProfileTool } from './tools/company';
+import { companyProfileTool, listCompaniesTool } from './tools/company';
 import {
   agedCreditorsTool,
   agedDebtorsTool,
@@ -43,10 +43,17 @@ import {
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
 } from './tools/writeSupplierInvoices';
+import { listBankRulesTool, getBankRuleTool } from './tools/bankRules';
+import {
+  createBankRuleTool,
+  updateBankRuleTool,
+  disableBankRuleTool,
+} from './tools/writeBankRules';
 
 export const MCP_TOOLS = [
-  // read (20)
+  // read (23)
   companyProfileTool,
+  listCompaniesTool,
   trialBalanceTool,
   profitAndLossTool,
   balanceSheetTool,
@@ -66,7 +73,9 @@ export const MCP_TOOLS = [
   listAgentPostingsTool,
   listSupplierInvoicesTool,
   getSupplierInvoiceTool,
-  // write (17) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  listBankRulesTool,
+  getBankRuleTool,
+  // write (20) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -86,6 +95,9 @@ export const MCP_TOOLS = [
   deactivateGlAccountTool,
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
+  createBankRuleTool,
+  updateBankRuleTool,
+  disableBankRuleTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

@@ -52,6 +52,12 @@ vi.mock('@/modules/accounting/services/bank/agentActivityService', () => ({ list
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({ getBankTransactions: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({ getBankAccountsStatus: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
+vi.mock('@/modules/accounting/services/bank/bankRulesService', () => ({
+  getRules: vi.fn(async () => []),
+  createRule: vi.fn(),
+  updateRule: vi.fn(),
+  toggleRule: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   getSupplierInvoices: vi.fn(),
   getSupplierInvoiceById: vi.fn(),
@@ -121,6 +127,8 @@ const BAD_UUID: Array<[string, Record<string, unknown>, string]> = [
   ['list_bank_transactions', { bank_account_id: 'abc' }, 'bank_account_id'],
   ['list_supplier_invoices', { supplier_id: 'abc' }, 'supplier_id'],
   ['get_supplier_invoice', { invoice_id: "1' OR '1'='1" }, 'invoice_id'],
+  ['list_bank_rules', { account_id: 'abc' }, 'account_id'],
+  ['get_bank_rule', { rule_id: "1' OR '1'='1" }, 'rule_id'],
 ];
 
 const BAD_DATE: Array<[string, Record<string, unknown>, string]> = [
@@ -241,6 +249,23 @@ describe('write tools — an uncastable argument is named, not generic-ified', (
       lines: [{ description: 'x', quantity: 1, unit_price: 1 }], ...KEY,
     }, 'due_date'],
     ['approve_supplier_invoice', { invoice_id: 'abc', ...KEY }, 'invoice_id'],
+    // Bank rules. gl_account_id / supplier_id / client_id all become foreign
+    // keys cast to ::UUID inside the ownership lookups, so each is guarded
+    // before the query, not by it.
+    ['create_bank_rule', {
+      rule_name: 'R', match_field: 'description', match_type: 'contains',
+      match_pattern: 'X', gl_account_id: 'abc', ...KEY,
+    }, 'gl_account_id'],
+    ['create_bank_rule', {
+      rule_name: 'R', match_field: 'description', match_type: 'contains',
+      match_pattern: 'X', supplier_id: 'abc', ...KEY,
+    }, 'supplier_id'],
+    ['create_bank_rule', {
+      rule_name: 'R', match_field: 'description', match_type: 'contains',
+      match_pattern: 'X', client_id: 'abc', ...KEY,
+    }, 'client_id'],
+    ['update_bank_rule', { rule_id: 'abc', ...KEY }, 'rule_id'],
+    ['disable_bank_rule', { rule_id: 'abc', ...KEY }, 'rule_id'],
   ];
 
   for (const [name, args, argName] of WRITE_BAD) {

@@ -25,6 +25,8 @@ import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllo
  * the truncated names stay distinct, which is what stops one tool releasing
  * another's savepoint.
  */
+import { COMPANY_ASSERT_PROPERTY, assertCompanyMatches } from './companyAssert';
+
 export function savepointNameFor(toolName: string): string {
   return `mcp_${toolName}`.slice(0, 31);
 }
@@ -45,11 +47,16 @@ export class McpRegistry {
     this.tools.set(tool.name, tool);
   }
 
+  /**
+   * The optional `company_id` assertion is injected HERE rather than written
+   * into each tool's schema, so a new write tool cannot ship without it. It is
+   * a guard, never a selector — see companyAssert.ts.
+   */
   getManifest(): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
     return [...this.tools.values()].map((t) => ({
       name: t.name,
       description: t.description,
-      inputSchema: t.inputSchema,
+      inputSchema: t.write ? withCompanyAssert(t.inputSchema) : t.inputSchema,
     }));
   }
 
@@ -86,6 +93,16 @@ export class McpRegistry {
         'This operation posts irreversible entries and requires the write:post permission, which this connection was not granted.',
         null,
       );
+    }
+
+    // Assert-only company guard. Runs before the idempotency-key check so a
+    // mismatch never burns a key, and before any handler so nothing is
+    // written. Applied to writes only: a read against the wrong company
+    // returns that company's data, which is visible and self-correcting,
+    // whereas a write is not.
+    if (tool.write) {
+      const mismatch = assertCompanyMatches(args, ctx.companyId);
+      if (mismatch) return reject(mismatch.content[0]!.text, null);
     }
 
     const rawKey = args.idempotency_key;
@@ -235,4 +252,17 @@ export class McpRegistry {
       return errorResult(GENERIC_FAILURE);
     }
   }
+}
+
+/**
+ * Add the optional `company_id` assertion to a write tool's schema without
+ * mutating the tool's own object (the manifest is rebuilt per request, and the
+ * tool records are shared).
+ */
+function withCompanyAssert(schema: Record<string, unknown>): Record<string, unknown> {
+  const properties = (schema.properties ?? {}) as Record<string, unknown>;
+  // A tool that already declares company_id keeps its own definition — nothing
+  // does today, and the drift test asserts none starts.
+  if ('company_id' in properties) return schema;
+  return { ...schema, properties: { ...properties, ...COMPANY_ASSERT_PROPERTY } };
 }

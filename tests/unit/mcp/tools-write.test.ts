@@ -498,6 +498,11 @@ describe('write-tool manifest invariants', () => {
       deactivate_gl_account: { ...KEY },
       create_supplier_invoice: { ...KEY },
       approve_supplier_invoice: { ...KEY },
+      // Bank-rule writes refuse on a missing required argument before touching
+      // a service; behaviour is covered in bankRulesTools.test.ts.
+      create_bank_rule: { ...KEY },
+      update_bank_rule: { ...KEY },
+      disable_bank_rule: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
