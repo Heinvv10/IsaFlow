@@ -242,7 +242,6 @@ export default function TimeEntryPage() {
 
       {showBulk && user?.id && (
         <BulkRangeModal
-          userId={user.id}
           onClose={() => setShowBulk(false)}
           onDone={(r) => { setBulkResult(r); setShowBulk(false); void reloadEntries(); }}
         />

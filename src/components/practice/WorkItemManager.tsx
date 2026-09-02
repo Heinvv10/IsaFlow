@@ -10,7 +10,7 @@
  * This component is the missing half of that setup flow.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Loader2, AlertCircle, Plus } from 'lucide-react';
 import {
   fetchWorkItems,
@@ -65,6 +65,11 @@ function WorkItemRow({ item, onToggle }: { item: WorkItem; onToggle: (i: WorkIte
 }
 
 export function WorkItemManager({ categoryId }: { categoryId: string }) {
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
   const [items, setItems] = useState<WorkItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -72,14 +77,17 @@ export function WorkItemManager({ categoryId }: { categoryId: string }) {
   const [billable, setBillable] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
 
+  // Collapsing the category row unmounts this component; a reload triggered by
+  // an in-flight add/toggle must not set state afterwards.
   const load = useCallback(async () => {
     setError('');
     try {
-      setItems(await fetchWorkItems(categoryId, true));
+      const next = await fetchWorkItems(categoryId, true);
+      if (alive.current) setItems(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load work items');
+      if (alive.current) setError(err instanceof Error ? err.message : 'Failed to load work items');
     } finally {
-      setIsLoading(false);
+      if (alive.current) setIsLoading(false);
     }
   }, [categoryId]);
 

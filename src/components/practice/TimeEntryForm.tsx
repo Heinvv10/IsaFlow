@@ -71,9 +71,9 @@ function RateInfo({ ratePreview, numHours, lineTotal }: { ratePreview: RatePrevi
   );
 }
 
-function workItemPlaceholder(categoryId: string, count: number, err: string): string {
+function workItemPlaceholder(categoryId: string, count: number, failed: boolean): string {
   if (!categoryId) return 'Pick a category first';
-  if (err) return 'Could not load work items';
+  if (failed) return 'Could not load work items';
   if (count === 0) return 'No work items in this category';
   return 'Select work item…';
 }
@@ -213,7 +213,7 @@ export function TimeEntryForm({ clients, categories, defaultDate, currentUserId,
         <div className="md:col-span-3">
           <label className={LABEL_CLS}>Work Item <span className="text-red-400">*</span></label>
           <select required value={workItemId} onChange={(e) => setWorkItemId(e.target.value)} disabled={!jobCategoryId} className={INPUT_CLS}>
-            <option value="">{workItemPlaceholder(jobCategoryId, workItems.length, workItemError)}</option>
+            <option value="">{workItemPlaceholder(jobCategoryId, workItems.length, workItemError !== '')}</option>
             {workItems.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
           {jobCategoryId && !workItemError && workItems.length === 0 && (

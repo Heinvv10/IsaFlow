@@ -135,6 +135,11 @@ describe('fetchActiveClients', () => {
     fetchMock.mockResolvedValue(envelope([{ id: 'p1' }]));
     await expect(fetchActiveClients()).rejects.toThrow(/no 'clients' field/);
   });
+
+  it('throws when clients is present but not an array', async () => {
+    fetchMock.mockResolvedValue(envelope({ clients: null, total: 0 }));
+    await expect(fetchActiveClients()).rejects.toThrow(/not an array/);
+  });
 });
 
 describe('fetchEntryTemplates', () => {
@@ -142,6 +147,21 @@ describe('fetchEntryTemplates', () => {
     fetchMock.mockResolvedValue(envelope({ templates: [{ id: 't1', name: 'Monthly VAT' }] }));
     const templates = await fetchEntryTemplates();
     expect(templates[0]!.name).toBe('Monthly VAT');
+  });
+
+  it('returns an array, never the wrapper object', async () => {
+    // BulkRangeModal read `data` directly and got `{ templates: [...] }` — an
+    // object. `templates.map(...)` then threw and took the modal down, so the
+    // Fill Range button was dead. Assert the array-ness the callers rely on.
+    fetchMock.mockResolvedValue(envelope({ templates: [{ id: 't1', name: 'A' }] }));
+    const templates = await fetchEntryTemplates();
+    expect(Array.isArray(templates)).toBe(true);
+    expect(() => templates.map((t) => t.id)).not.toThrow();
+  });
+
+  it('throws when templates is present but not an array', async () => {
+    fetchMock.mockResolvedValue(envelope({ templates: { t1: 'A' } }));
+    await expect(fetchEntryTemplates()).rejects.toThrow(/not an array/);
   });
 });
 
@@ -159,6 +179,11 @@ describe('resolveStaffRate', () => {
   it('still throws on a real failure', async () => {
     fetchMock.mockResolvedValue(errorEnvelope(500, 'db down'));
     await expect(resolveStaffRate('u1', 'c1', '2026-09-02')).rejects.toThrow('db down');
+  });
+
+  it('rejects a present-but-non-numeric rate instead of passing it off as a number', async () => {
+    fetchMock.mockResolvedValue(envelope({ rate: null }));
+    await expect(resolveStaffRate('u1', 'c1', '2026-09-02')).rejects.toThrow(/not a number/);
   });
 });
 

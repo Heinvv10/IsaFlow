@@ -43,12 +43,27 @@ function asArray<T>(data: unknown, what: string): T[] {
   return data as T[];
 }
 
-/** Read one required field off an object payload, refusing a silent `undefined`. */
-function asField<T>(data: unknown, field: string, what: string): T {
+/**
+ * Read one required field off an object payload, refusing a silent `undefined`.
+ * `expected` is checked too: presence alone would let a `null` or a string
+ * through as if it were the declared type, which is the same
+ * confirmed-but-wrong guess this module exists to stop.
+ */
+function asField<T>(
+  data: unknown,
+  field: string,
+  what: string,
+  expected: 'array' | 'number',
+): T {
   if (typeof data !== 'object' || data === null || !(field in data)) {
     throw new Error(`${what}: payload has no '${field}' field`);
   }
-  return (data as Record<string, T>)[field] as T;
+  const value = (data as Record<string, unknown>)[field];
+  const ok = expected === 'array' ? Array.isArray(value) : typeof value === 'number';
+  if (!ok) {
+    throw new Error(`${what}: '${field}' is not ${expected === 'array' ? 'an array' : 'a number'}`);
+  }
+  return value as T;
 }
 
 // ---------------------------------------------------------------- categories
@@ -122,14 +137,14 @@ export async function fetchActiveClients(): Promise<PracticeClient[]> {
   const data = await apiJson(
     `/api/accounting/practice/clients?status=active&limit=${CLIENT_PICKER_LIMIT}`,
   );
-  return asField<PracticeClient[]>(data, 'clients', 'practice clients');
+  return asField<PracticeClient[]>(data, 'clients', 'practice clients', 'array');
 }
 
 // ----------------------------------------------------------------- templates
 
 export async function fetchEntryTemplates(): Promise<EntryTemplate[]> {
   const data = await apiJson('/api/accounting/practice/entry-templates');
-  return asField<EntryTemplate[]>(data, 'templates', 'entry templates');
+  return asField<EntryTemplate[]>(data, 'templates', 'entry templates', 'array');
 }
 
 export async function createEntryTemplate(input: EntryTemplateInput): Promise<void> {
@@ -157,7 +172,7 @@ export async function resolveStaffRate(
       `/api/accounting/practice/rate-resolve?userId=${encodeURIComponent(userId)}` +
         `&clientId=${encodeURIComponent(clientId)}&date=${encodeURIComponent(date)}`,
     );
-    return asField<number>(data, 'rate', 'rate resolve');
+    return asField<number>(data, 'rate', 'rate resolve', 'number');
   } catch (err) {
     if (err instanceof ApiRequestError && err.status === 404) return null;
     throw err;
