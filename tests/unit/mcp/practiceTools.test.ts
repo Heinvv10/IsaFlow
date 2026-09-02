@@ -336,6 +336,48 @@ describe('log_time_entry', () => {
     expect(createPracticeEntry).not.toHaveBeenCalled();
   });
 
+  it('refuses hours that round to zero in the NUMERIC(6,2) column', async () => {
+    // 0.004 is > 0 in JS but stores as 0.00. Before the fix the entry was
+    // written with zero hours and a real line_total — invisible on a timesheet,
+    // billable on an invoice.
+    const r = await logTimeEntryTool.handler({ ...base, hours: 0.004 }, ctx);
+    expect(r.isError).toBe(true);
+    expect(createPracticeEntry).not.toHaveBeenCalled();
+  });
+
+  it('refuses a backdated entry beyond the window, and names the way through', async () => {
+    const old = new Date(Date.now() - 200 * 86400000).toISOString().slice(0, 10);
+    const r = await logTimeEntryTool.handler({ ...base, entry_date: old }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('allow_backdating');
+    expect(createPracticeEntry).not.toHaveBeenCalled();
+  });
+
+  it('allows the same backdated entry once the caller says it means it', async () => {
+    const old = new Date(Date.now() - 200 * 86400000).toISOString().slice(0, 10);
+    vi.mocked(createPracticeEntry).mockResolvedValue(entry);
+    const r = await logTimeEntryTool.handler(
+      { ...base, entry_date: old, allow_backdating: true }, ctx,
+    );
+    expect(r.isError).toBeUndefined();
+    expect(createPracticeEntry).toHaveBeenCalled();
+  });
+
+  it('applies the backdate guard to dry_run too, so a dry run cannot greenlight it', async () => {
+    const old = new Date(Date.now() - 200 * 86400000).toISOString().slice(0, 10);
+    vi.mocked(validateClientCategoryWorkItem).mockResolvedValue(undefined);
+    const r = await logTimeEntryTool.handler({ ...base, entry_date: old, dry_run: true }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('allow_backdating');
+  });
+
+  it('accepts an entry just inside the window without the flag', async () => {
+    const recent = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+    vi.mocked(createPracticeEntry).mockResolvedValue(entry);
+    const r = await logTimeEntryTool.handler({ ...base, entry_date: recent }, ctx);
+    expect(r.isError).toBeUndefined();
+  });
+
   it('refuses an over-long task_description before the 500-char column', async () => {
     const r = await logTimeEntryTool.handler({ ...base, task_description: 'x'.repeat(501) }, ctx);
     expect(r.isError).toBe(true);

@@ -17,6 +17,7 @@ import type {
   PracticeTimeEntryUpdateInput,
   PracticeEntryFilters,
 } from './practiceTimeEntryTypes';
+import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
 
 /** @internal used by practiceTimeEntryWorkflow — do not import elsewhere */
 export function mapEntry(r: DbRow): PracticeTimeEntry {
@@ -94,7 +95,9 @@ export async function createPracticeEntry(
 ): Promise<PracticeTimeEntry> {
   const today = new Date().toISOString().split('T')[0]!;
   if (input.entryDate > today) throw new Error('entry date cannot be in the future');
-  if (!(input.hours > 0 && input.hours <= 24)) {
+  // Range-check the ROUNDED value: 0.004 is > 0 here but 0.00 in the column.
+  const hours = roundHours(input.hours);
+  if (!(hours > 0 && hours <= 24)) {
     throw new Error('hours must be between 0 and 24');
   }
 
@@ -106,9 +109,7 @@ export async function createPracticeEntry(
   );
 
   const appliedRate = await resolveRate(companyId, userId, input.practiceClientId, input.entryDate);
-  const lineTotal = appliedRate != null
-    ? Math.round(input.hours * appliedRate * 100) / 100
-    : null;
+  const lineTotal = lineTotalFor(hours, appliedRate);
 
   const origin = input.origin ?? 'manual';
   const billable = input.billable !== false;
@@ -121,7 +122,7 @@ export async function createPracticeEntry(
       applied_rate, line_total, rate, amount,
       origin, status
     ) VALUES (
-      ${companyId}::UUID, ${userId}::UUID, ${input.entryDate}::DATE, ${input.hours},
+      ${companyId}::UUID, ${userId}::UUID, ${input.entryDate}::DATE, ${hours},
       ${input.practiceClientId}::UUID, ${input.jobCategoryId}::UUID, ${input.workItemId}::UUID,
       ${input.taskDescription}, ${input.notes ?? null}, ${billable},
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
@@ -186,10 +187,8 @@ export async function updatePracticeEntry(
   const userId = String(row.user_id);
 
   const appliedRate = await resolveRate(companyId, userId, clientId, entryDate);
-  const effectiveHours = input.hours ?? Number(row.hours);
-  const lineTotal = appliedRate != null
-    ? Math.round(effectiveHours * appliedRate * 100) / 100
-    : null;
+  const effectiveHours = roundHours(input.hours ?? Number(row.hours));
+  const lineTotal = lineTotalFor(effectiveHours, appliedRate);
 
   const updateNotes = 'notes' in input;
   const notesValue = input.notes ?? null;

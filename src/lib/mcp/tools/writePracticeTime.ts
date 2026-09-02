@@ -26,6 +26,7 @@ import {
 import { submitPracticeEntries } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { resolveRate } from '@/modules/accounting/services/practice/practiceStaffRateService';
 import { UUID_RE } from '@/lib/validation';
+import { roundHours, lineTotalFor } from '@/modules/accounting/services/practice/practiceTimeEntryTypes';
 import {
   guardCastableArgs,
   guardUuidList,
@@ -36,6 +37,29 @@ import {
 } from './toolHelpers';
 
 const MAX_SUBMIT_IDS = 200;
+
+/**
+ * How far back an agent may book time without saying so explicitly.
+ *
+ * Backdating itself is legitimate and must stay possible — people log Monday's
+ * work on Friday, and the UI allows any past date. But a practice invoices
+ * monthly, so an entry landing in a period that has already been reported on or
+ * invoiced either sits in WIP never to be billed, or contradicts a report
+ * already sent to the client. There is no period lock on time_entries to catch
+ * that (unlike the GL), and rates are date-effective, so a backdated entry also
+ * silently picks up whatever rate applied then.
+ *
+ * A person choosing a date months back is making a visible decision; an agent
+ * doing it from a prompt is not. So the window is a speed bump, not a wall:
+ * `allow_backdating` lets a caller that means it through, and the refusal names
+ * the argument so a legitimate catch-up is one retry away, never a dead end.
+ */
+const BACKDATE_WINDOW_DAYS = 90;
+
+function daysBetween(fromIso: string, toIso: string): number {
+  const ms = Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`);
+  return Math.round(ms / 86_400_000);
+}
 
 export const logTimeEntryTool: McpTool = {
   name: 'log_time_entry',
@@ -54,6 +78,10 @@ export const logTimeEntryTool: McpTool = {
       task_description: { type: 'string', description: 'What was actually done. Max 500 characters.' },
       notes: { type: 'string' },
       billable: { type: 'boolean', description: 'Defaults to true.' },
+      allow_backdating: {
+        type: 'boolean',
+        description: `Required to book an entry more than ${BACKDATE_WINDOW_DAYS} days old. Such a period has usually been reported on or invoiced already, and the rate applied is the one effective on that date.`,
+      },
       dry_run: { type: 'boolean', description: 'Validate everything and report the rate that would apply, without writing.' },
       idempotency_key: { type: 'string' },
     },
@@ -82,13 +110,24 @@ export const logTimeEntryTool: McpTool = {
     if (!taskDescription) return toolError('task_description is required');
     if (taskDescription.length > 500) return toolError('task_description must be 500 characters or fewer');
 
-    const hours = Number(args.hours);
+    // Range-check the value AS STORED. `hours` is NUMERIC(6,2), so 0.004 is
+    // > 0 here but 0.00 in the column; the service applies the same rule, and
+    // the tool has to agree or a dry run would pass what the write refuses.
+    const hours = roundHours(Number(args.hours));
     if (!Number.isFinite(hours) || hours <= 0 || hours > 24) {
-      return toolError('hours must be a number greater than 0 and at most 24');
+      return toolError('hours must be a number greater than 0 and at most 24 (stored to 2 decimals, so anything under 0.005 rounds to zero and is refused)');
     }
 
     const today = new Date().toISOString().slice(0, 10);
     if (entryDate > today) return toolError('entry_date cannot be in the future');
+
+    const age = daysBetween(entryDate, today);
+    if (age > BACKDATE_WINDOW_DAYS && args.allow_backdating !== true) {
+      return toolError(
+        `entry_date is ${age} days old. A period that far back has usually been reported on or invoiced, ` +
+        `and the rate applied is the one effective on that date. Re-send with allow_backdating: true if that is intended.`,
+      );
+    }
 
     const billable = args.billable === undefined ? true : args.billable === true;
 
@@ -110,7 +149,7 @@ export const logTimeEntryTool: McpTool = {
           would_create: {
             entry_date: entryDate, hours, billable,
             applied_rate: rate,
-            line_total: rate == null ? null : Math.round(hours * rate * 100) / 100,
+            line_total: lineTotalFor(hours, rate),
           },
           note: rate == null
             ? 'No staff rate is configured for this user and client on this date; the entry would be created with no rate and no line total.'

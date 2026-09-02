@@ -8,6 +8,7 @@ import {
   createPracticeEntry,
 } from './practiceTimeEntryService';
 import type { PracticeTimeEntry } from './practiceTimeEntryTypes';
+import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
 import { getEntryTemplate } from './practiceEntryTemplateService';
 
 export interface BulkFromTemplateInput {
@@ -129,10 +130,8 @@ export async function duplicatePracticeEntry(
     String(src.practice_client_id),
     newDate,
   );
-  const hours = Number(src.hours);
-  const lineTotal = appliedRate != null
-    ? Math.round(hours * appliedRate * 100) / 100
-    : null;
+  const hours = roundHours(Number(src.hours));
+  const lineTotal = lineTotalFor(hours, appliedRate);
 
   const rows = (await sql`
     INSERT INTO time_entries (
