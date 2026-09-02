@@ -36,6 +36,7 @@ vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
 }));
 vi.mock('@/modules/accounting/services/ar/creditNoteLinkService', () => ({
   validateCreditNoteLinks: vi.fn(),
+  findOpenDuplicateDraft: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   validateSystemAccounts: vi.fn(),
@@ -48,7 +49,10 @@ import {
   approveCreditNote,
   cancelCreditNote,
 } from '@/modules/accounting/services/ar/creditNoteService';
-import { validateCreditNoteLinks } from '@/modules/accounting/services/ar/creditNoteLinkService';
+import {
+  validateCreditNoteLinks,
+  findOpenDuplicateDraft,
+} from '@/modules/accounting/services/ar/creditNoteLinkService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { listCreditNotesTool, getCreditNoteTool } from '@/lib/mcp/tools/creditNotes';
 import {
@@ -101,6 +105,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(validateCreditNoteLinks).mockResolvedValue(null);
   vi.mocked(validateSystemAccounts).mockResolvedValue([]);
+  vi.mocked(findOpenDuplicateDraft).mockResolvedValue(null);
 });
 
 describe('create_credit_note — pre-write guards', () => {
@@ -171,6 +176,21 @@ describe('create_credit_note — pre-write guards', () => {
       expect.objectContaining({ type: 'supplier', supplierId: SUPPLIER }),
       expect.any(String),
     );
+  });
+
+  it('refuses an identical open draft and names it, so a fresh key cannot duplicate', async () => {
+    vi.mocked(findOpenDuplicateDraft).mockResolvedValue('dupe-id-1');
+    const r = await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER }, ctx());
+    expect(errText(r)).toContain('dupe-id-1');
+    expect(createCreditNote).not.toHaveBeenCalled();
+  });
+
+  it('checks for a duplicate using the VAT-inclusive total, not the subtotal', async () => {
+    vi.mocked(createCreditNote).mockResolvedValue(draftNote as never);
+    await createCreditNoteTool.handler({ ...base, client_id: CUSTOMER }, ctx());
+    // subtotal 100 at the default 15% is a 115 note; matching on 100 would let
+    // two notes with different VAT rates collide, and miss a real repeat.
+    expect(findOpenDuplicateDraft).toHaveBeenCalledWith(COMPANY, expect.anything(), 115);
   });
 
   it('creates a draft and reports the computed VAT totals', async () => {

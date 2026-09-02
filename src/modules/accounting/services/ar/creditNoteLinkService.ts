@@ -115,3 +115,40 @@ async function validateSupplierLinks(
   }
   return invoiceStatusRefusal(String(invoice[0]!.status));
 }
+
+/**
+ * Find an existing DRAFT note that is indistinguishable from one about to be
+ * created — same direction, counterparty, invoice link, date and amount.
+ *
+ * The MCP registry replays only on the SAME idempotency key, and an agent whose
+ * call times out routinely retries with a fresh one. Nothing else dedupes here:
+ * credit_notes has no natural key, so the retry silently produces a second
+ * draft. That is a nuisance right up until someone approves both, at which
+ * point it is two journals and two credits against one invoice — the drafts
+ * being harmless is exactly what makes the pair easy to miss.
+ *
+ * Returns the existing note's id, or null.
+ */
+export async function findOpenDuplicateDraft(
+  companyId: string,
+  input: Pick<
+    CreditNoteCreateInput,
+    'type' | 'clientId' | 'customerInvoiceId' | 'supplierId' | 'supplierInvoiceId' | 'creditDate'
+  >,
+  totalAmount: number,
+): Promise<string | null> {
+  const rows = (await sql`
+    SELECT id FROM credit_notes
+    WHERE company_id = ${companyId}::UUID
+      AND status = 'draft'
+      AND type = ${input.type}
+      AND credit_date = ${input.creditDate}::DATE
+      AND ROUND(total_amount, 2) = ROUND(${totalAmount}::NUMERIC, 2)
+      AND client_id IS NOT DISTINCT FROM ${input.clientId || null}::UUID
+      AND supplier_id IS NOT DISTINCT FROM ${input.supplierId || null}::UUID
+      AND customer_invoice_id IS NOT DISTINCT FROM ${input.customerInvoiceId || null}::UUID
+      AND supplier_invoice_id IS NOT DISTINCT FROM ${input.supplierInvoiceId || null}::UUID
+    LIMIT 1
+  `) as Row[];
+  return rows.length > 0 ? String(rows[0]!.id) : null;
+}

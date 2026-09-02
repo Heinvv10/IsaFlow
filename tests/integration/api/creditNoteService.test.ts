@@ -17,7 +17,10 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { sql } from '@/lib/neon';
 import { createCreditNote } from '@/modules/accounting/services/ar/creditNoteService';
-import { validateCreditNoteLinks } from '@/modules/accounting/services/ar/creditNoteLinkService';
+import {
+  validateCreditNoteLinks,
+  findOpenDuplicateDraft,
+} from '@/modules/accounting/services/ar/creditNoteLinkService';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -245,5 +248,78 @@ describe('createCreditNote — the tenant fence is in the service, so every call
       { type: 'customer', creditDate: '2026-04-15', subtotal: 100 },
       USER_ID,
     )).rejects.toThrow('client_id is required');
+  });
+});
+
+
+/**
+ * The dedupe predicate has to run against a real database: it leans on
+ * IS NOT DISTINCT FROM for the four nullable link columns, which a mock cannot
+ * exercise, and NULL = NULL would silently match nothing.
+ */
+describe('findOpenDuplicateDraft', () => {
+  it('matches an identical draft, and only an identical one', async () => {
+    const base = {
+      type: 'customer' as const,
+      clientId: customerA,
+      creditDate: '2026-05-01',
+      subtotal: 100,
+      taxRate: 15,
+    };
+    const cn = await createCreditNote(COMPANY_A, base, USER_ID);
+    createdIds.push(cn.id);
+
+    const key = { type: base.type, clientId: customerA, creditDate: base.creditDate };
+
+    // Same everything -> found.
+    expect(await findOpenDuplicateDraft(COMPANY_A, key, 115)).toBe(cn.id);
+
+    // Different amount, date, tenant or counterparty -> not found.
+    expect(await findOpenDuplicateDraft(COMPANY_A, key, 116)).toBeNull();
+    expect(await findOpenDuplicateDraft(COMPANY_A, { ...key, creditDate: '2026-05-02' }, 115)).toBeNull();
+    expect(await findOpenDuplicateDraft('00000000-0000-0000-b142-000000000aa2', key, 115)).toBeNull();
+    expect(await findOpenDuplicateDraft(COMPANY_A, { ...key, clientId: undefined }, 115)).toBeNull();
+
+    // A note carrying an invoice link is NOT the same as one without: the
+    // nullable columns are compared with IS NOT DISTINCT FROM precisely so the
+    // absent case is a real value rather than an unknown that matches nothing.
+    expect(await findOpenDuplicateDraft(
+      COMPANY_A, { ...key, customerInvoiceId: '00000000-0000-4000-8000-000000000123' }, 115,
+    )).toBeNull();
+  });
+
+  /**
+   * The case IS NOT DISTINCT FROM exists for. A supplier note leaves client_id
+   * and customer_invoice_id NULL, and plain `client_id = NULL` evaluates to
+   * NULL — never true — so an `=` comparison finds no supplier duplicate at
+   * all, silently. Mutating the operator makes only THIS test fail.
+   */
+  it('matches a supplier draft, whose customer columns are NULL', async () => {
+    const cn = await createCreditNote(
+      COMPANY_A,
+      { type: 'supplier', supplierId: supplierA, creditDate: '2026-05-04', subtotal: 300, taxRate: 15 },
+      USER_ID,
+    );
+    createdIds.push(cn.id);
+
+    expect(await findOpenDuplicateDraft(
+      COMPANY_A,
+      { type: 'supplier', supplierId: supplierA, creditDate: '2026-05-04' },
+      345,
+    )).toBe(cn.id);
+  });
+
+  it('ignores notes that are no longer drafts', async () => {
+    const cn = await createCreditNote(
+      COMPANY_A,
+      { type: 'customer', clientId: customerA, creditDate: '2026-05-03', subtotal: 200, taxRate: 15 },
+      USER_ID,
+    );
+    createdIds.push(cn.id);
+    const key = { type: 'customer' as const, clientId: customerA, creditDate: '2026-05-03' };
+    expect(await findOpenDuplicateDraft(COMPANY_A, key, 230)).toBe(cn.id);
+
+    await sql`UPDATE credit_notes SET status = 'approved' WHERE id = ${cn.id}::UUID`;
+    expect(await findOpenDuplicateDraft(COMPANY_A, key, 230)).toBeNull();
   });
 });

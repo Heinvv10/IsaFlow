@@ -23,7 +23,10 @@ import {
   cancelCreditNote,
   getCreditNoteById,
 } from '@/modules/accounting/services/ar/creditNoteService';
-import { validateCreditNoteLinks } from '@/modules/accounting/services/ar/creditNoteLinkService';
+import {
+  validateCreditNoteLinks,
+  findOpenDuplicateDraft,
+} from '@/modules/accounting/services/ar/creditNoteLinkService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingAgent } from '../postingAgent';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
@@ -36,7 +39,8 @@ export const createCreditNoteTool: McpTool = {
     'Create a DRAFT credit note. Posts nothing to the ledger — use approve_credit_note (needs write:post) to post it. ' +
     'type "customer" credits a customer and needs client_id (from list_customers); type "supplier" credits a supplier bill and needs supplier_id (from list_suppliers). ' +
     'subtotal is NET of VAT and must be positive — tax_rate (default 15) is applied on top, and total = subtotal + VAT. ' +
-    'Optionally link the note to the invoice it corrects with customer_invoice_id / supplier_invoice_id; a LINKED note is AUTO-APPLIED at approve, reducing that invoice\'s outstanding balance by the full total. Leave the link out to raise standalone credit.',
+    'Optionally link the note to the invoice it corrects with customer_invoice_id / supplier_invoice_id; a LINKED note is AUTO-APPLIED at approve, reducing that invoice\'s outstanding balance by up to its outstanding amount. Leave the link out to raise standalone credit. ' +
+    'An identical open draft (same counterparty, date and amount) is REFUSED and its id returned — retrying with a new idempotency_key will not create a second one.',
   scope: 'write:invoices',
   write: true,
   inputSchema: {
@@ -115,6 +119,38 @@ export const createCreditNoteTool: McpTool = {
       supplierInvoiceId,
     });
     if (linkError) return toolError(linkError);
+
+    // Natural-key dedupe, agent-boundary only.
+    //
+    // The registry replays only on the SAME idempotency key, and an agent whose
+    // call times out routinely retries with a fresh one — so nothing otherwise
+    // stops an identical second draft. Refusing beats warning: two drafts are
+    // harmless until both are approved, and then they are two journals and two
+    // credits against one invoice, which is precisely the pair nobody notices.
+    // The reply names the existing note so the agent can approve THAT one, and
+    // a genuinely distinct second note differs in date, amount or reason.
+    //
+    // Deliberately not in the service: the REST route backs a form where a
+    // person can see their own draft list, and refusing there would obstruct a
+    // legitimate duplicate. The blind retry is an agent problem.
+    const taxRateForTotal = taxRate ?? 15;
+    const total = Math.round(subtotal * (1 + taxRateForTotal / 100) * 100) / 100;
+    const duplicate = await findOpenDuplicateDraft(
+      ctx.companyId,
+      {
+        type: type as (typeof TYPES)[number],
+        clientId, supplierId, customerInvoiceId, supplierInvoiceId,
+        creditDate,
+      },
+      total,
+    );
+    if (duplicate) {
+      return toolError(
+        `An identical draft credit note already exists (id ${duplicate}) for the same counterparty, `
+        + 'date and amount. Approve that one with approve_credit_note, or change the date, amount or '
+        + 'reason if this is genuinely a second credit.',
+      );
+    }
 
     const note = await createCreditNote(
       ctx.companyId,
