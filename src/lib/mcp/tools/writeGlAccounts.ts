@@ -26,10 +26,10 @@ import {
 } from '@/modules/accounting/services/gl/accountReclassifyService';
 import {
   GL_ACCOUNT_TYPES,
-  GL_ACCOUNT_SUBTYPES,
   type GLAccountSubtype,
   type GLAccountType,
 } from '@/modules/accounting/types/gl.types';
+import { GL_ACCOUNT_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
 import { UUID_RE } from '@/lib/validation';
 import { NOT_FOUND, guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
@@ -52,15 +52,27 @@ function parseAccountType(args: Record<string, unknown>): GLAccountType | null {
 
 /**
  * `undefined` = key absent (leave alone), `null` = explicit JSON null (clear).
- * The two are different instructions and the distinction has to survive all
- * the way to the service — collapsing them is how `parent_account_id` ends up
- * with no way to be cleared.
+ * The two are different instructions and the distinction has to survive all the
+ * way to the service — collapsing them is how `parent_account_id` ends up with
+ * no way to be cleared.
+ *
+ * A present-but-wrong-typed value (`account_subtype: 123`, an array, a boolean)
+ * is NEITHER: returning `undefined` for it would silently discard an
+ * instruction the agent believes it gave, and the agent would read the success
+ * envelope as confirmation that the field changed. It gets its own sentinel so
+ * the caller can refuse.
  */
-function optionalNullable(args: Record<string, unknown>, key: string): string | null | undefined {
+const BAD_TYPE = Symbol('bad-type');
+
+function optionalNullable(
+  args: Record<string, unknown>,
+  key: string,
+): string | null | undefined | typeof BAD_TYPE {
   if (!(key in args)) return undefined;
   const value = args[key];
   if (value === null || value === '') return null;
-  return typeof value === 'string' ? value.trim() : undefined;
+  if (typeof value !== 'string') return BAD_TYPE;
+  return value.trim() || null;
 }
 
 export const createGlAccountTool: McpTool = {
@@ -177,6 +189,7 @@ export const updateGlAccountTool: McpTool = {
     if (bad) return bad;
 
     const parentAccountId = optionalNullable(args, 'parent_account_id');
+    if (parentAccountId === BAD_TYPE) return toolError('invalid parent_account_id');
     if (typeof parentAccountId === 'string' && !UUID_RE.test(parentAccountId)) {
       return toolError('invalid parent_account_id');
     }
@@ -191,7 +204,9 @@ export const updateGlAccountTool: McpTool = {
     // typo'd one.
     if (!(await getAccountById(ctx.companyId, accountId))) return toolError(NOT_FOUND);
 
-    const subtype = optionalNullable(args, 'account_subtype') as GLAccountSubtype | null | undefined;
+    const rawSubtype = optionalNullable(args, 'account_subtype');
+    if (rawSubtype === BAD_TYPE) return toolError('invalid account_subtype');
+    const subtype = rawSubtype as GLAccountSubtype | null | undefined;
     const isActive = typeof args.is_active === 'boolean' ? args.is_active : undefined;
     const accountName = strArg(args, 'account_name');
     const description = strArg(args, 'description');
