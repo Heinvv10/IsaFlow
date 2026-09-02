@@ -25,6 +25,7 @@ vi.mock('@/modules/accounting/services/practice/practiceTimeEntryService', () =>
   listPracticeEntries: vi.fn(),
   createPracticeEntry: vi.fn(),
   validateClientCategoryWorkItem: vi.fn(),
+  getEntryStatusesByIds: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/practice/practiceTimeEntryWorkflow', () => ({
   submitPracticeEntries: vi.fn(),
@@ -44,6 +45,7 @@ import {
   listPracticeEntries,
   createPracticeEntry,
   validateClientCategoryWorkItem,
+  getEntryStatusesByIds,
 } from '@/modules/accounting/services/practice/practiceTimeEntryService';
 import { submitPracticeEntries } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 import { resolveRate } from '@/modules/accounting/services/practice/practiceStaffRateService';
@@ -215,6 +217,14 @@ describe('create_job_category', () => {
     expect(createJobCategory).not.toHaveBeenCalled();
   });
 
+  it('maps a unique-index violation back to the duplicate refusal', async () => {
+    vi.mocked(listJobCategories).mockResolvedValue([]);
+    vi.mocked(createJobCategory).mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }));
+    const r = await createJobCategoryTool.handler({ name: 'VAT', ...KEY }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain('already exists');
+  });
+
   it('creates and points the agent at the required next step', async () => {
     vi.mocked(listJobCategories).mockResolvedValue([]);
     vi.mocked(createJobCategory).mockResolvedValue({
@@ -228,6 +238,7 @@ describe('create_job_category', () => {
 
 describe('create_work_item', () => {
   it('refuses a duplicate name within the category', async () => {
+    vi.mocked(listJobCategories).mockResolvedValue([{ id: CAT, name: 'VAT' } as never]);
     vi.mocked(listWorkItems).mockResolvedValue([workItem]);
     const r = await createWorkItemTool.handler(
       { category_id: CAT, name: 'vat201 SUBMISSION', ...KEY }, ctx,
@@ -237,6 +248,7 @@ describe('create_work_item', () => {
   });
 
   it('defaults default_billable to true when omitted', async () => {
+    vi.mocked(listJobCategories).mockResolvedValue([{ id: CAT, name: 'VAT' } as never]);
     vi.mocked(listWorkItems).mockResolvedValue([]);
     vi.mocked(createWorkItem).mockResolvedValue(workItem as never);
     await createWorkItemTool.handler({ category_id: CAT, name: 'New', ...KEY }, ctx);
@@ -244,6 +256,7 @@ describe('create_work_item', () => {
   });
 
   it('honours an explicit false', async () => {
+    vi.mocked(listJobCategories).mockResolvedValue([{ id: CAT, name: 'VAT' } as never]);
     vi.mocked(listWorkItems).mockResolvedValue([]);
     vi.mocked(createWorkItem).mockResolvedValue(workItem as never);
     await createWorkItemTool.handler(
@@ -252,12 +265,33 @@ describe('create_work_item', () => {
     expect(vi.mocked(createWorkItem).mock.calls[0]![2]).toMatchObject({ defaultBillable: false });
   });
 
-  it('surfaces the service\'s cross-tenant refusal', async () => {
+  it('refuses another tenant\'s category with the shared NOT_FOUND, never a distinct message', async () => {
+    // A "belongs to another company" reply would be an existence oracle: it
+    // would confirm the id is real. It must read exactly like a genuine miss.
+    vi.mocked(listJobCategories).mockResolvedValue([]);
+    const r = await createWorkItemTool.handler({ category_id: CAT, name: 'X', ...KEY }, ctx);
+    expect(r.isError).toBe(true);
+    expect(text(r)).toBe('Not found');
+    expect(createWorkItem).not.toHaveBeenCalled();
+  });
+
+  it('keeps the shared wording when the service loses a race on the same check', async () => {
+    vi.mocked(listJobCategories).mockResolvedValue([{ id: CAT, name: 'VAT' } as never]);
     vi.mocked(listWorkItems).mockResolvedValue([]);
     vi.mocked(createWorkItem).mockRejectedValue(new Error('job category not found'));
     const r = await createWorkItemTool.handler({ category_id: CAT, name: 'X', ...KEY }, ctx);
+    expect(text(r)).toBe('Not found');
+  });
+
+  it('maps a unique-index violation back to the duplicate-name refusal', async () => {
+    // Migration 527 is what actually stops the read-then-write race; the
+    // pre-check only wins when it is not raced.
+    vi.mocked(listJobCategories).mockResolvedValue([{ id: CAT, name: 'VAT' } as never]);
+    vi.mocked(listWorkItems).mockResolvedValue([]);
+    vi.mocked(createWorkItem).mockRejectedValue(Object.assign(new Error('dup'), { code: '23505' }));
+    const r = await createWorkItemTool.handler({ category_id: CAT, name: 'X', ...KEY }, ctx);
     expect(r.isError).toBe(true);
-    expect(text(r)).toContain('job category not found');
+    expect(text(r)).toContain('already exists');
   });
 });
 
@@ -339,11 +373,15 @@ describe('log_time_entry', () => {
 });
 
 describe('submit_time_entries', () => {
-  it('scopes the write to the calling user', async () => {
-    vi.mocked(listPracticeEntries).mockResolvedValue({ entries: [entry], total: 1 });
+  it('scopes both the lookup and the write to the calling user', async () => {
+    vi.mocked(getEntryStatusesByIds).mockResolvedValue(new Map([[ENTRY, 'draft']]));
     vi.mocked(submitPracticeEntries).mockResolvedValue(1);
 
     await submitTimeEntriesTool.handler({ entry_ids: [ENTRY], ...KEY }, ctx);
+
+    // Looked up BY ID — not by pulling the user's whole timesheet.
+    expect(vi.mocked(getEntryStatusesByIds).mock.calls[0]!).toEqual([COMPANY, [ENTRY], ME]);
+    expect(listPracticeEntries).not.toHaveBeenCalled();
 
     // Third argument is the user scope — without it an agent could push a
     // colleague's drafts into the approval flow.
@@ -352,14 +390,13 @@ describe('submit_time_entries', () => {
 
   it('skips ids that are not the user\'s own draft, and names why', async () => {
     const other = '88888888-8888-8888-8888-888888888888';
-    vi.mocked(listPracticeEntries).mockResolvedValue({
-      entries: [{ ...entry, status: 'approved' as const }], total: 1,
-    });
+    vi.mocked(getEntryStatusesByIds).mockResolvedValue(new Map([[ENTRY, 'approved']]));
     const r = await submitTimeEntriesTool.handler({ entry_ids: [ENTRY, other], ...KEY }, ctx);
 
     expect(r.isError).toBe(true);
     expect(text(r)).toContain("status is 'approved'");
     expect(text(r)).toContain('not found');
+    expect(text(r)).toContain(other);
     expect(submitPracticeEntries).not.toHaveBeenCalled();
   });
 
@@ -367,7 +404,7 @@ describe('submit_time_entries', () => {
     const r = await submitTimeEntriesTool.handler({ entry_ids: [ENTRY, 'junk'], ...KEY }, ctx);
     expect(r.isError).toBe(true);
     expect(text(r)).toContain('entry_ids[1]');
-    expect(listPracticeEntries).not.toHaveBeenCalled();
+    expect(getEntryStatusesByIds).not.toHaveBeenCalled();
   });
 
   it('refuses an empty list and an over-long one', async () => {
@@ -377,7 +414,7 @@ describe('submit_time_entries', () => {
   });
 
   it('dry_run reports the split without writing, and frees the key', async () => {
-    vi.mocked(listPracticeEntries).mockResolvedValue({ entries: [entry], total: 1 });
+    vi.mocked(getEntryStatusesByIds).mockResolvedValue(new Map([[ENTRY, 'draft']]));
     const r = await submitTimeEntriesTool.handler({ entry_ids: [ENTRY], dry_run: true, ...KEY }, ctx);
     expect(r.wroteNothing).toBe(true);
     expect(json(r).would_submit).toEqual([ENTRY]);
@@ -385,7 +422,7 @@ describe('submit_time_entries', () => {
   });
 
   it('deduplicates repeated ids so one entry cannot be counted twice', async () => {
-    vi.mocked(listPracticeEntries).mockResolvedValue({ entries: [entry], total: 1 });
+    vi.mocked(getEntryStatusesByIds).mockResolvedValue(new Map([[ENTRY, 'draft']]));
     vi.mocked(submitPracticeEntries).mockResolvedValue(1);
     await submitTimeEntriesTool.handler({ entry_ids: [ENTRY, ENTRY, ENTRY], ...KEY }, ctx);
     expect(vi.mocked(submitPracticeEntries).mock.calls[0]![1]).toEqual([ENTRY]);

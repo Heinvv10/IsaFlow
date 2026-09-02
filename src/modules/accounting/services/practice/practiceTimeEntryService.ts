@@ -249,6 +249,31 @@ export async function getPracticeEntry(companyId: string, id: string): Promise<P
   return rows.length ? mapEntry(rows[0]!) : null;
 }
 
+/**
+ * Resolve the status of specific entries, scoped to one company and (optionally)
+ * one user. O(ids), not O(everything the user has ever logged.)
+ *
+ * Callers that need to decide whether a supplied set of ids is actionable must
+ * use this rather than listing the user's entries and filtering in memory — a
+ * staff member with years of history would otherwise pull their entire
+ * timesheet into the process on every call.
+ */
+export async function getEntryStatusesByIds(
+  companyId: string,
+  ids: string[],
+  userId?: string,
+): Promise<Map<string, PracticeTimeEntry['status']>> {
+  if (!ids.length) return new Map();
+  const scopedUserId = userId ?? null;
+  const rows = (await sql`
+    SELECT id, status FROM time_entries
+    WHERE company_id = ${companyId}::UUID
+      AND id = ANY(${ids}::UUID[])
+      AND (${scopedUserId}::UUID IS NULL OR user_id = ${scopedUserId}::UUID)
+  `) as DbRow[];
+  return new Map(rows.map((r) => [String(r.id), String(r.status) as PracticeTimeEntry['status']]));
+}
+
 export async function listPracticeEntries(
   companyId: string,
   filters: PracticeEntryFilters = {},

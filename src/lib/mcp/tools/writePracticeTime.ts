@@ -20,7 +20,7 @@
 import type { McpTool } from '../types';
 import {
   createPracticeEntry,
-  listPracticeEntries,
+  getEntryStatusesByIds,
   validateClientCategoryWorkItem,
 } from '@/modules/accounting/services/practice/practiceTimeEntryService';
 import { submitPracticeEntries } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
@@ -184,15 +184,20 @@ export const submitTimeEntriesTool: McpTool = {
     // Resolve what is actually submittable BEFORE writing, so the reply can
     // name the skipped ids instead of just returning a count that silently
     // disagrees with what the agent asked for.
-    const { entries } = await listPracticeEntries(ctx.companyId, { userId: ctx.userId });
-    const mine = new Map(entries.map((e) => [e.id, e]));
-    const submittable = ids.filter((id) => mine.get(id)?.status === 'draft');
+    //
+    // Looked up BY ID, not by listing the user's entries and filtering: a staff
+    // member with years of history would otherwise have their whole timesheet
+    // pulled into memory on every call, dry runs included, to check at most 200
+    // ids. The lookup carries the same company + user scope the UPDATE does.
+    const statuses = await getEntryStatusesByIds(ctx.companyId, ids, ctx.userId);
+    const submittableSet = new Set(ids.filter((id) => statuses.get(id) === 'draft'));
+    const submittable = [...submittableSet];
     const skipped = ids
-      .filter((id) => !submittable.includes(id))
+      .filter((id) => !submittableSet.has(id))
       .map((id) => ({
         id,
-        reason: mine.has(id)
-          ? `status is '${mine.get(id)!.status}', not 'draft'`
+        reason: statuses.has(id)
+          ? `status is '${statuses.get(id)!}', not 'draft'`
           : 'not found, or not this user\'s entry',
       }));
 
