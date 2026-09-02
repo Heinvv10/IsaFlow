@@ -10,12 +10,11 @@
  * use it without an import cycle.
  */
 
+import type { GLAccountSubtype, GLAccountType } from '../../types/gl.types';
 import {
   GL_ACCOUNT_SUBTYPES_BY_TYPE,
   SYSTEM_RESERVED_SUBTYPES,
-  type GLAccountSubtype,
-  type GLAccountType,
-} from '../../types/gl.types';
+} from '../../types/glAccountSubtypes';
 
 export interface SubtypeCheckTarget {
   accountType: GLAccountType;

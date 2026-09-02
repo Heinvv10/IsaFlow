@@ -12,12 +12,11 @@
  * offering them would be a menu of guaranteed failures.
  */
 
+import type { GLAccountSubtype, GLAccountType } from '@/modules/accounting/types/gl.types';
 import {
   GL_ACCOUNT_SUBTYPES_BY_TYPE,
   SYSTEM_RESERVED_SUBTYPES,
-  type GLAccountSubtype,
-  type GLAccountType,
-} from '@/modules/accounting/types/gl.types';
+} from '@/modules/accounting/types/glAccountSubtypes';
 
 const LABEL_OVERRIDES: Partial<Record<GLAccountSubtype, string>> = {
   accumulated_depreciation: 'Accum. Depreciation',

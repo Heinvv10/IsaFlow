@@ -52,7 +52,16 @@ vi.mock('@/modules/accounting/services/bank/agentActivityService', () => ({ list
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({ getBankTransactions: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({ getBankAccountsStatus: vi.fn() }));
 vi.mock('@/modules/accounting/services/core/smartCategorizationService', () => ({ bulkCategorize: vi.fn() }));
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
+  getSupplierInvoices: vi.fn(),
+  getSupplierInvoiceById: vi.fn(),
+  createSupplierInvoice: vi.fn(),
+}));
 
+import {
+  getSupplierInvoices,
+  getSupplierInvoiceById,
+} from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
@@ -99,6 +108,7 @@ const SERVICES = [
   getTrialBalance, getIncomeStatement, getBalanceSheet, getARAging, getAPAging,
   getAccountLedger, listCustomerInvoices, getCustomerInvoiceDetail, getVATReturn,
   getMatchCandidates, listAgentPostings, getBankTransactions,
+  getSupplierInvoices, getSupplierInvoiceById,
 ];
 
 // [tool, args, the argument expected to be named]
@@ -109,6 +119,8 @@ const BAD_UUID: Array<[string, Record<string, unknown>, string]> = [
   ['get_invoice', { invoice_id: 'abc' }, 'invoice_id'],
   ['get_match_candidates', { transaction_id: "1' OR '1'='1" }, 'transaction_id'],
   ['list_bank_transactions', { bank_account_id: 'abc' }, 'bank_account_id'],
+  ['list_supplier_invoices', { supplier_id: 'abc' }, 'supplier_id'],
+  ['get_supplier_invoice', { invoice_id: "1' OR '1'='1" }, 'invoice_id'],
 ];
 
 const BAD_DATE: Array<[string, Record<string, unknown>, string]> = [
@@ -121,6 +133,8 @@ const BAD_DATE: Array<[string, Record<string, unknown>, string]> = [
   ['vat_status', { period_start: '2026-05-01', period_end: 'junk' }, 'period_end'],
   ['list_agent_postings', { from: '2026-02-31', to: '2026-08-31' }, 'from'],
   ['list_bank_transactions', { to_date: '2026-02-29' }, 'to_date'],
+  ['list_supplier_invoices', { from_date: '2026-02-31' }, 'from_date'],
+  ['list_supplier_invoices', { to_date: 'yesterday' }, 'to_date'],
 ];
 
 describe('read tools — an uncastable argument never reaches the service', () => {
@@ -199,6 +213,34 @@ describe('write tools — an uncastable argument is named, not generic-ified', (
       bank_account_id: 'abc', file_type: 'csv', content: 'x', statement_date: '2026-04-30', ...KEY,
     }, 'bank_account_id'],
     ['undo_bank_import', { batch_id: 'abc', ...KEY }, 'batch_id'],
+    // Chart of accounts. parent_account_id is the interesting one on both
+    // tools: on create it is guarded by guardCastableArgs, on update it can
+    // also arrive as an explicit null (a CLEAR), so its guard is separate and
+    // could drift away from the shared one.
+    ['create_gl_account', {
+      account_code: '5900', account_name: 'X', account_type: 'expense',
+      parent_account_id: 'abc', ...KEY,
+    }, 'parent_account_id'],
+    ['update_gl_account', { account_id: 'abc', account_name: 'X', ...KEY }, 'account_id'],
+    ['update_gl_account', {
+      account_id: UUID, parent_account_id: 'abc', ...KEY,
+    }, 'parent_account_id'],
+    ['deactivate_gl_account', { account_id: "1' OR '1'='1", ...KEY }, 'account_id'],
+    // Supplier invoices (AP).
+    ['create_supplier_invoice', {
+      supplier_id: 'abc', invoice_number: 'INV-1', invoice_date: '2026-06-30',
+      lines: [{ description: 'x', quantity: 1, unit_price: 1 }], ...KEY,
+    }, 'supplier_id'],
+    ['create_supplier_invoice', {
+      supplier_id: UUID, invoice_number: 'INV-1', invoice_date: '2026-02-31',
+      lines: [{ description: 'x', quantity: 1, unit_price: 1 }], ...KEY,
+    }, 'invoice_date'],
+    ['create_supplier_invoice', {
+      supplier_id: UUID, invoice_number: 'INV-1', invoice_date: '2026-06-30',
+      due_date: '2026-13-01',
+      lines: [{ description: 'x', quantity: 1, unit_price: 1 }], ...KEY,
+    }, 'due_date'],
+    ['approve_supplier_invoice', { invoice_id: 'abc', ...KEY }, 'invoice_id'],
   ];
 
   for (const [name, args, argName] of WRITE_BAD) {

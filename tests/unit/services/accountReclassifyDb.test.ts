@@ -30,6 +30,7 @@ import {
   reclassifyAccount,
   ReclassifyError,
 } from '@/modules/accounting/services/gl/accountReclassifyService';
+import { createAccount } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 type Ctx = Parameters<typeof als.run>[0];
 const USER_ID = '00000000-0000-0000-0000-0000000000aa';
@@ -65,6 +66,20 @@ async function makeAccount(
     ],
   );
   return rows[0]!.id;
+}
+
+/** Post a real journal line to `accountId`, so the leaf rule has something to bite on. */
+async function postLineTo(client: PoolClient, companyId: string, accountId: string): Promise<void> {
+  const { rows } = await client.query<{ id: string }>(
+    `INSERT INTO gl_journal_entries (company_id, entry_date, description, status, created_by)
+     VALUES ($1, CURRENT_DATE, $2, 'posted', $3) RETURNING id`,
+    [companyId, `${PREFIX} entry`, USER_ID],
+  );
+  await client.query(
+    `INSERT INTO gl_journal_lines (journal_entry_id, gl_account_id, company_id, debit, credit)
+     VALUES ($1, $2, $3, 100, 0)`,
+    [rows[0]!.id, accountId, companyId],
+  );
 }
 
 async function readAccount(client: PoolClient, id: string) {
@@ -157,7 +172,65 @@ describe('reclassifyAccount', async () => {
     }
   });
 
-  it.skipIf(!reachable)('refuses a parent that already carries postings (migration 484\'s rule)', async (ctx) => {
+  // The leaf rule bites at the level balanceSheetService actually draws: it
+  // includes an account when `level >= 3 OR NOT EXISTS(child)`. So a posted
+  // LEVEL-1 parent loses its balance when given a child, and a posted LEVEL-3
+  // parent does not. The first version of this guard refused EVERY posted
+  // parent — safer-looking and wrong, because it would have blocked ordinary
+  // chart maintenance on deep accounts that lose nothing.
+  //
+  // The fixture posts its own journal lines rather than borrowing whatever
+  // posted account the database happens to hold: the boundary is a property of
+  // the LEVEL, so a test that picks an arbitrary account proves whichever side
+  // it happens to land on.
+  it.skipIf(!reachable)('refuses a posted parent above level 3, and allows one at level 3', async (ctx) => {
+    assertNotProductionDb('This test inserts GL accounts and journal lines.');
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      const companyId = await findCompany(client);
+      if (!companyId) { ctx.skip('no company with GL accounts'); return; }
+
+      const shallow = await makeAccount(client, companyId, '4000', { level: 1 });
+      const deep = await makeAccount(client, companyId, '4001', { level: 3 });
+      await postLineTo(client, companyId, shallow);
+      await postLineTo(client, companyId, deep);
+
+      const orphanA = await makeAccount(client, companyId, '4002');
+      const orphanB = await makeAccount(client, companyId, '4003');
+
+      await als.run(ctxFor(client, companyId), async () => {
+        // Level 1 + postings: a child deletes its balance from the balance
+        // sheet. Refused on BOTH paths — createAccount used to allow it.
+        await expect(reclassifyAccount(companyId, orphanA, { parentAccountId: shallow }))
+          .rejects.toThrow(/balance would disappear/);
+        await expect(createAccount(companyId, {
+          accountCode: `${PREFIX}4004`, accountName: `${PREFIX} child`,
+          accountType: 'asset', normalBalance: 'debit', parentAccountId: shallow,
+        })).rejects.toThrow(/balance would disappear/);
+
+        // Level 3 + postings: the balance sheet keeps it either way, so this is
+        // ordinary chart maintenance and must be ALLOWED.
+        await reclassifyAccount(companyId, orphanB, { parentAccountId: deep });
+      });
+
+      expect((await readAccount(client, orphanA)).parent_account_id).toBeNull();
+      expect(await readAccount(client, orphanB))
+        .toMatchObject({ parent_account_id: deep, level: 4 });
+      const { rows: made } = await client.query(
+        'SELECT 1 FROM gl_accounts WHERE company_id = $1 AND account_code = $2',
+        [companyId, `${PREFIX}4004`],
+      );
+      expect(made).toHaveLength(0);
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  });
+
+  // The cross-type rule, through the OTHER code path. `createAccount` used to
+  // check only that the parent existed, so it shared none of these guards.
+  it.skipIf(!reachable)('createAccount refuses a cross-type parent', async (ctx) => {
     assertNotProductionDb('This test inserts GL accounts.');
     const client = await getPoolForTests().connect();
     try {
@@ -165,26 +238,20 @@ describe('reclassifyAccount', async () => {
       const companyId = await findCompany(client);
       if (!companyId) { ctx.skip('no company with GL accounts'); return; }
 
-      // A real posted account in this company — the balance sheet excludes
-      // parent headers, so giving one a child silently removes its own balance
-      // from the statements.
-      const { rows: posted } = await client.query<{ gl_account_id: string }>(
-        `SELECT gl_account_id FROM gl_journal_lines
-          WHERE company_id = $1 AND gl_account_id IS NOT NULL LIMIT 1`,
-        [companyId],
-      );
-      if (!posted[0]) { ctx.skip('no posted journal lines in this company'); return; }
-      const postedId = posted[0].gl_account_id;
-
-      const { rows: typeRows } = await client.query<{ account_type: string }>(
-        'SELECT account_type FROM gl_accounts WHERE id = $1', [postedId],
-      );
-      const orphan = await makeAccount(client, companyId, '4000', { type: typeRows[0]!.account_type });
+      const assetParent = await makeAccount(client, companyId, '6100', { type: 'asset' });
 
       await als.run(ctxFor(client, companyId), async () => {
-        await expect(reclassifyAccount(companyId, orphan, { parentAccountId: postedId }))
-          .rejects.toThrow(/balance sheet excludes headers/);
+        await expect(createAccount(companyId, {
+          accountCode: `${PREFIX}6101`, accountName: `${PREFIX} child`,
+          accountType: 'expense', normalBalance: 'debit', parentAccountId: assetParent,
+        })).rejects.toThrow(/cannot hold an expense account/);
       });
+
+      const { rows: made } = await client.query(
+        'SELECT 1 FROM gl_accounts WHERE company_id = $1 AND account_code = $2',
+        [companyId, `${PREFIX}6101`],
+      );
+      expect(made).toHaveLength(0);
     } finally {
       await client.query('ROLLBACK').catch(() => undefined);
       client.release();
