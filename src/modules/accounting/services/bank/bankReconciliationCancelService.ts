@@ -55,14 +55,29 @@ export async function cancelReconciliation(
 
   // Adjustment journals post to the GL and name this reconciliation as the
   // record behind them (source_record_id — migration 526). Deleting the
-  // reconciliation under them would leave posted journals pointing at nothing,
-  // so refuse until they are reversed. Reversed ones no longer count.
+  // reconciliation under them would leave journals pointing at nothing, so
+  // refuse until they are reversed. Reversed ones no longer count.
+  //
+  // Drafts count as well as posted. A draft is what `createAdjustmentEntry`
+  // leaves behind when the insert succeeds and the post then fails; letting the
+  // cancel through would allow that draft to be posted later against a
+  // reconciliation that no longer exists.
+  //
+  // KNOWN GAP, deliberately not papered over: this only sees journals written
+  // since migration 526, because 409 NULLed the old links and they are
+  // unrecoverable. The gap cannot reach a cancellable reconciliation today —
+  // `createAdjustmentEntry` threw on every call between 409 and 526, so no
+  // adjustment could be created in that window, and any adjustment older than
+  // 409 belongs to a reconciliation that has long since completed. Cancel
+  // refuses anything that is not `in_progress`, so a completed one is out of
+  // reach regardless. This comment is the record of why the check is
+  // prospective rather than an oversight.
   const adjRows = (await sql`
     SELECT COUNT(*) AS cnt FROM gl_journal_entries
     WHERE company_id = ${companyId}::UUID
       AND source = 'auto_bank_recon'
       AND source_record_id = ${id}::UUID
-      AND status = 'posted'`) as DbRow[];
+      AND status IN ('posted', 'draft')`) as DbRow[];
   const adjustments = Number(adjRows[0]!.cnt);
   if (adjustments > 0) {
     throw new ReconciliationNotCancellableError(
@@ -114,15 +129,27 @@ export async function cancelReconciliation(
       SET reconciliation_id = NULL, updated_at = NOW()
       WHERE reconciliation_id = ${id}::UUID AND company_id = ${companyId}::UUID
       RETURNING id`) as DbRow[];
-    // Re-assert the status in the DELETE: a concurrent complete would have moved
-    // it on after the read above, and must not be silently discarded.
+    // Re-assert BOTH conditions in the DELETE itself. The reads above ran
+    // before this transaction, so between them and here a concurrent complete
+    // could have moved the status on, or a `createAdjustmentEntry` could have
+    // committed a journal naming this reconciliation — which would then be left
+    // pointing at a deleted header. Re-checking inside the statement is what
+    // makes the guard atomic rather than advisory.
     const deleted = (await tx`
       DELETE FROM bank_reconciliations
       WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID AND status = 'in_progress'
+        AND NOT EXISTS (
+          SELECT 1 FROM gl_journal_entries
+          WHERE company_id = ${companyId}::UUID
+            AND source = 'auto_bank_recon'
+            AND source_record_id = ${id}::UUID
+            AND status IN ('posted', 'draft')
+        )
       RETURNING id`) as DbRow[];
     if (deleted.length === 0) {
       throw new ReconciliationNotCancellableError(
-        'Reconciliation changed while cancelling — reload and try again',
+        'Reconciliation changed while cancelling — it was completed, or an adjustment '
+        + 'journal was raised against it. Reload and try again.',
       );
     }
     return {

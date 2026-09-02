@@ -69,6 +69,58 @@ describe('cancelReconciliation', () => {
     expect(withTransactionMock).not.toHaveBeenCalled();
   });
 
+  it('the DELETE carries its own adjustment guard, so a racing journal still refuses', async () => {
+    // The pre-check runs BEFORE the transaction opens. An adjustment committed
+    // between the two would slip past it, and without the re-assertion the
+    // DELETE would remove the header under a posted journal that names it.
+    // Here the pre-check sees zero adjustments (the race window) and the DELETE
+    // returns no row, exactly as the NOT EXISTS clause makes it.
+    queuePreChecks({ adjustments: 0 });
+    runTxWith([
+      [{ id: 'tx-1' }],  // reverted
+      [{ id: 'tx-1' }],  // detached
+      [],                // DELETE matched nothing — the guard refused
+    ]);
+
+    await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))
+      .rejects.toThrow(/completed, or an adjustment/);
+  });
+
+  it('re-asserts BOTH conditions inside the DELETE statement itself', async () => {
+    // Structural, deliberately: the clause only changes behaviour under a race
+    // that cannot be staged against a real Postgres from here. Pinning the
+    // statement is what stops the guard silently reverting to advisory.
+    queuePreChecks({ adjustments: 0 });
+    const tx = runTxWith([[], [], [{ id: RECON_ID }]]);
+
+    await cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID);
+
+    const deleteCall = tx.mock.calls.find(
+      (c) => String((c[0] as TemplateStringsArray).join('?')).includes('DELETE FROM bank_reconciliations'),
+    );
+    expect(deleteCall).toBeDefined();
+    const text = String((deleteCall![0] as TemplateStringsArray).join('?'));
+    expect(text).toContain('NOT EXISTS');
+    expect(text).toContain('gl_journal_entries');
+    expect(text).toContain("status = 'in_progress'");
+    expect(text).toContain("'posted', 'draft'");
+  });
+
+  it('counts DRAFT adjustments in the pre-check, not just posted ones', async () => {
+    // A draft is what createAdjustmentEntry leaves behind when the insert
+    // succeeds and the post fails; cancelling under it would let that draft be
+    // posted later against a header that no longer exists.
+    queuePreChecks({ adjustments: 0 });
+    runTxWith([[], [], [{ id: RECON_ID }]]);
+    await cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID);
+
+    const preCheck = sqlMock.mock.calls.find(
+      (c) => String((c[0] as TemplateStringsArray).join('?')).includes('FROM gl_journal_entries'),
+    );
+    expect(preCheck).toBeDefined();
+    expect(String((preCheck![0] as TemplateStringsArray).join('?'))).toContain("'posted', 'draft'");
+  });
+
   it('refuses while posted adjustment journals reference it', async () => {
     queuePreChecks({ adjustments: 2 });
     await expect(cancelReconciliation(COMPANY_ID, RECON_ID, USER_ID))

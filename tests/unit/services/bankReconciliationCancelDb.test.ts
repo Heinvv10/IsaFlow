@@ -150,4 +150,39 @@ describe('cancelReconciliation (real DB)', async () => {
       client.release();
     }
   }, 30_000);
+
+  it.skipIf(!reachable)('refuses while a DRAFT adjustment journal references it', async (ctx) => {
+    // A draft is what createAdjustmentEntry leaves behind when the insert
+    // succeeds and the post then fails. Cancelling under it would let that
+    // draft be posted later against a reconciliation that no longer exists.
+    assertNotProductionDb();
+    const client = await getPoolForTests().connect();
+    try {
+      const fixture = await findBankFixture(client);
+      if (!fixture) { ctx.skip('no company with a bank + expense GL account'); return; }
+
+      await client.query('BEGIN');
+      const reconId = await insertRecon(client, fixture);
+      await client.query(
+        `INSERT INTO gl_journal_entries
+           (company_id, entry_date, description, source, source_record_id, status, created_by)
+         VALUES ($1, CURRENT_DATE, 'Draft recon adjustment', 'auto_bank_recon', $2, 'draft', $3)`,
+        [fixture.companyId, reconId, USER_ID],
+      );
+
+      // Assert the PRE-CHECK's wording, not just the error type: the DELETE's
+      // own guard also refuses drafts, so a type-only assertion would pass even
+      // with 'draft' dropped from the pre-check.
+      await expect(als.run(ctxFor(client, fixture.companyId), () =>
+        cancelReconciliation(fixture.companyId, reconId, USER_ID)))
+        .rejects.toThrow(/reverse them first/);
+
+      const header = await client.query('SELECT id FROM bank_reconciliations WHERE id = $1', [reconId]);
+      expect(header.rowCount).toBe(1);
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  }, 30_000);
+
 });
