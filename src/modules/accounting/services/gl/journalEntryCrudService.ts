@@ -42,6 +42,7 @@ export function mapEntryRow(row: Row): JournalEntry {
     description: row.description ? String(row.description) : undefined,
     source: String(row.source) as GLEntrySource,
     sourceDocumentId: row.source_document_id ? String(row.source_document_id) : undefined,
+    sourceRecordId: row.source_record_id ? String(row.source_record_id) : undefined,
     status: String(row.status) as GLEntryStatus,
     postedBy: row.posted_by ? String(row.posted_by) : undefined,
     postedAt: row.posted_at ? String(row.posted_at) : undefined,
@@ -246,12 +247,13 @@ export async function createJournalEntry(
       sql`
         INSERT INTO gl_journal_entries (
           id, company_id, entry_date, fiscal_period_id, description, source,
-          source_document_id, reference, created_by,
+          source_document_id, source_record_id, reference, created_by,
           posting_agent, source_document_hash, extraction_confidence
         ) VALUES (
           ${entryId}::UUID, ${companyId}::UUID, ${input.entryDate}, ${fiscalPeriodId || null},
           ${input.description || null}, ${input.source || 'manual'},
-          ${input.sourceDocumentId || null}, ${input.reference || null}, ${safeUserId}::UUID,
+          ${input.sourceDocumentId || null}, ${input.sourceRecordId || null}::UUID,
+          ${input.reference || null}, ${safeUserId}::UUID,
           ${resolvedMeta.postingAgent},
           ${resolvedMeta.sourceDocumentHash ?? null},
           ${resolvedMeta.extractionConfidence ?? null}

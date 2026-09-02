@@ -9,8 +9,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
   ArrowLeft, Landmark, Loader2, AlertCircle, CheckCircle2,
-  Zap, Link2, Unlink, Ban, Check,
+  Zap, Link2, Unlink, Ban, Check, Trash2,
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import type { BankReconciliation, BankTransaction } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -49,6 +50,8 @@ export default function ReconciliationDetailPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [actionLoading, setActionLoading] = useState('');
+
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
 
   // Selected items for manual matching
   const [selectedTx, setSelectedTx] = useState<string | null>(null);
@@ -218,6 +221,30 @@ export default function ReconciliationDetailPage() {
     }
   };
 
+  const handleCancelRecon = async () => {
+    setActionLoading('cancel');
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/bank-reconciliations-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'cancel', reconciliationId: reconId }),
+      });
+      const json = await res.json();
+      // apiFetch resolves on 4xx — the status is the only signal that the
+      // reconciliation was refused (already completed, reconciled rows).
+      if (!res.ok) throw new Error(json?.error?.message || 'Cannot cancel reconciliation');
+      setConfirmCancelOpen(false);
+      await router.push('/accounting/bank-reconciliation');
+    } catch (err) {
+      setConfirmCancelOpen(false);
+      setError(err instanceof Error ? err.message : 'Cannot cancel reconciliation');
+    } finally {
+      setActionLoading('');
+    }
+  };
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -276,6 +303,16 @@ export default function ReconciliationDetailPage() {
                   >
                     {actionLoading === 'auto_match' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                     Auto-Match
+                  </button>
+                )}
+                {!isCompleted && (
+                  <button
+                    onClick={() => setConfirmCancelOpen(true)}
+                    disabled={!!actionLoading}
+                    className="inline-flex items-center gap-2 px-3 py-2 bg-transparent text-red-400 rounded-lg border border-red-500/40 hover:bg-red-500/10 disabled:opacity-50 transition-colors text-sm"
+                  >
+                    {actionLoading === 'cancel' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    Cancel Reconciliation
                   </button>
                 )}
                 {canComplete && (
@@ -484,6 +521,25 @@ export default function ReconciliationDetailPage() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmCancelOpen}
+        title="Cancel this reconciliation?"
+        message={
+          <>
+            The reconciliation session is deleted and its {transactions.length} transaction
+            {transactions.length === 1 ? '' : 's'} are released back to the bank account.
+            {'\n\n'}Matches made here are undone. Allocated and excluded transactions keep
+            their status and their journal entries — nothing is removed from the GL.
+          </>
+        }
+        confirmLabel="Cancel reconciliation"
+        cancelLabel="Keep working"
+        confirmTone="danger"
+        busy={actionLoading === 'cancel'}
+        onConfirm={handleCancelRecon}
+        onCancel={() => setConfirmCancelOpen(false)}
+      />
     </AppLayout>
   );
 }

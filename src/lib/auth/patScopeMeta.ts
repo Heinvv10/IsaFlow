@@ -13,6 +13,14 @@ export interface PatScopeMeta {
 }
 
 export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
+  'read:practice': {
+    label: 'Read practice management',
+    desc: 'Practice clients, the job category / work item taxonomy, and logged time entries.',
+  },
+  'write:practice': {
+    label: 'Write practice management',
+    desc: 'Create job categories and work items, and log and submit time entries. Time entries carry a rate and feed WIP and client invoicing, but post nothing to the ledger.',
+  },
   'read:reports': {
     label: 'Read reports',
     desc: 'Trial balance, income statement, balance sheet, etc.',

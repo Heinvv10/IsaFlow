@@ -1,7 +1,7 @@
 /**
  * Bank Reconciliation Actions API
  * POST /api/accounting/bank-reconciliations-action
- *   action: complete | adjustment
+ *   action: complete | cancel | adjustment
  */
 
 import type { NextApiResponse } from 'next';
@@ -16,9 +16,11 @@ import {
   completeReconciliation,
   createAdjustmentEntry,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { cancelReconciliation } from '@/modules/accounting/services/bank/bankReconciliationCancelService';
 
 const ActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('complete'), reconciliationId: UUID }),
+  z.object({ action: z.literal('cancel'), reconciliationId: UUID }),
   z.object({
     action: z.literal('adjustment'),
     reconciliationId: UUID,
@@ -47,6 +49,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     if (body.action === 'complete') {
       const recon = await completeReconciliation(companyId, body.reconciliationId, userId);
       return apiResponse.success(res, recon);
+    }
+    if (body.action === 'cancel') {
+      const result = await cancelReconciliation(companyId, body.reconciliationId, userId);
+      return apiResponse.success(res, result);
     }
     // adjustment
     const jeId = await createAdjustmentEntry(

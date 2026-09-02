@@ -12,11 +12,13 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
+import { sql } from '@/lib/neon';
 import {
   getJournalEntries,
   createJournalEntry,
 } from '@/modules/accounting/services/gl/journalEntryService';
 import type { GLEntryStatus, GLEntrySource } from '@/modules/accounting/types/gl.types';
+import { UUID_RE } from '@/lib/validation';
 
 async function getHandler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
@@ -43,6 +45,23 @@ async function postHandler(req: AuthenticatedNextApiRequest, res: NextApiRespons
 
     if (!entryDate || !lines || !Array.isArray(lines) || lines.length === 0) {
       return apiResponse.badRequest(res, 'entryDate and lines (non-empty array) are required');
+    }
+
+    // sourceDocumentId carries an FK to captured_documents (migration 409), so
+    // an id that is not one aborts the INSERT — a 500 saying nothing, from a
+    // caller error. Checked here, and scoped by company: an id belonging to
+    // another tenant must read as invalid, not silently link this company's
+    // journal to their document.
+    if (sourceDocumentId !== undefined && sourceDocumentId !== null) {
+      if (typeof sourceDocumentId !== 'string' || !UUID_RE.test(sourceDocumentId)) {
+        return apiResponse.badRequest(res, 'sourceDocumentId must be a captured document id');
+      }
+      const owned = (await sql`
+        SELECT 1 FROM captured_documents
+        WHERE id = ${sourceDocumentId}::UUID AND company_id = ${companyId}::UUID`) as unknown[];
+      if (owned.length === 0) {
+        return apiResponse.badRequest(res, 'sourceDocumentId must be a captured document id');
+      }
     }
 
     // User identity comes from JWT (req.user), never from client request body

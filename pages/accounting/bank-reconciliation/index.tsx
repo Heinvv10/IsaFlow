@@ -7,8 +7,9 @@ import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import {
-  Landmark, Plus, Loader2, AlertCircle, ChevronRight, CheckCircle2,
+  Landmark, Plus, Loader2, AlertCircle, ChevronRight, CheckCircle2, Trash2,
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/accounting/ConfirmDialog';
 import type { BankReconciliation } from '@/modules/accounting/types/bank.types';
 import { formatCurrency } from '@/utils/formatters';
 import { apiFetch } from '@/lib/apiFetch';
@@ -30,6 +31,8 @@ export default function BankReconciliationListPage() {
   const [reconciliations, setReconciliations] = useState<BankReconciliation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [pendingCancel, setPendingCancel] = useState<BankReconciliation | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -47,6 +50,31 @@ export default function BankReconciliationListPage() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const cancelRecon = async () => {
+    if (!pendingCancel) return;
+    setIsCancelling(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/accounting/bank-reconciliations-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'cancel', reconciliationId: pendingCancel.id }),
+      });
+      const json = await res.json();
+      // apiFetch resolves on 4xx: a refusal (already completed, reconciled
+      // rows) only shows up in res.ok.
+      if (!res.ok) throw new Error(json?.error?.message || 'Cannot cancel reconciliation');
+      setPendingCancel(null);
+      await load();
+    } catch (err) {
+      setPendingCancel(null);
+      setError(err instanceof Error ? err.message : 'Cannot cancel reconciliation');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
 
   const grouped = useMemo(() => {
     const primaries: BankReconciliation[] = [];
@@ -86,10 +114,23 @@ export default function BankReconciliationListPage() {
         </span>
       </td>
       <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-      <td className="px-4 py-3 text-right">
-        <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-teal-500 hover:text-teal-400">
-          {r.status === 'completed' ? <CheckCircle2 className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        </Link>
+      <td className="px-4 py-3">
+        <div className="flex items-center justify-end gap-3">
+          {r.status === 'in_progress' && (
+            <button
+              type="button"
+              onClick={() => setPendingCancel(r)}
+              title="Cancel reconciliation"
+              aria-label={`Cancel reconciliation for ${r.bankAccountName || 'bank account'}`}
+              className="text-[var(--ff-text-tertiary)] hover:text-red-400 transition-colors"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+          <Link href={`/accounting/bank-reconciliation/${r.id}`} className="text-teal-500 hover:text-teal-400">
+            {r.status === 'completed' ? <CheckCircle2 className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </Link>
+        </div>
       </td>
     </tr>
   );
@@ -179,6 +220,26 @@ export default function BankReconciliationListPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingCancel !== null}
+        title="Cancel this reconciliation?"
+        message={
+          <>
+            {pendingCancel?.bankAccountName || 'This bank account'} —{' '}
+            {pendingCancel ? new Date(pendingCancel.statementDate).toLocaleDateString('en-ZA') : ''}
+            {'\n\n'}The session is deleted and its transactions are released back to the bank
+            account. Matches made here are undone; allocated and excluded transactions keep
+            their status and their journal entries.
+          </>
+        }
+        confirmLabel="Cancel reconciliation"
+        cancelLabel="Keep it"
+        confirmTone="danger"
+        busy={isCancelling}
+        onConfirm={cancelRecon}
+        onCancel={() => setPendingCancel(null)}
+      />
     </AppLayout>
   );
 }

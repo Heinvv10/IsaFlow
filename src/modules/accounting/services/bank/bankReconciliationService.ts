@@ -163,7 +163,9 @@ export async function createAdjustmentEntry(
     const je = await createJournalEntry(companyId, {
       entryDate: recon.statementDate,
       description: `Bank recon adjustment: ${description}`,
-      source: 'auto_bank_recon', sourceDocumentId: reconciliationId, lines,
+      // source_record_id, NOT source_document_id: the latter FKs to
+      // captured_documents (migration 409) and a reconciliation id throws on it.
+      source: 'auto_bank_recon', sourceRecordId: reconciliationId, lines,
     }, userId);
     await postJournalEntry(companyId, je.id, userId);
     await updateReconciledBalance(companyId, reconciliationId);

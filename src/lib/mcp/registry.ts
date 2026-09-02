@@ -106,10 +106,16 @@ export class McpRegistry {
     }
 
     const rawKey = args.idempotency_key;
-    const idempotencyKey =
+    const suppliedKey =
       typeof rawKey === 'string' && rawKey.trim() ? rawKey.trim() : null;
+    // A per-user tool's key is namespaced by the caller, so two staff members
+    // reusing the same natural key do not collide — see McpTool.perUserIdempotency.
+    // Everything downstream (lock, replay, audit) uses this composed value, so
+    // the existing unique index does the enforcing.
+    const idempotencyKey =
+      suppliedKey && tool.perUserIdempotency ? `u:${ctx.userId}:${suppliedKey}` : suppliedKey;
 
-    if (tool.write && !idempotencyKey) {
+    if (tool.write && !suppliedKey) {
       return reject('idempotency_key is required for write operations', null);
     }
 

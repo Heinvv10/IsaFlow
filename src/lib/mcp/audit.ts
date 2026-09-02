@@ -82,12 +82,26 @@ export async function recordToolCall(row: {
       DO NOTHING
     `;
   } catch (err) {
-    // Any other audit failure must not mask the tool result.
     log.error(
       'MCP audit: recordToolCall failed',
       { tool: row.tool, err: err instanceof Error ? err.message : String(err) },
       'mcp',
     );
+    // A READ's audit row is a record, and losing it must not mask the result.
+    //
+    // A WRITE's audit row under a key is also the IDEMPOTENCY RECORD. The
+    // registry writes, then audits: if the write commits and this INSERT fails
+    // for anything other than the handled ON CONFLICT, the retry finds no
+    // status='ok' row, the replay lookup answers 'none', and the handler runs
+    // AGAIN — a second document, a second billable time entry, with no natural
+    // key behind it to catch the duplicate. Swallowing that trades a lost audit
+    // row for a silent double write.
+    //
+    // So fail closed: rethrow, and the registry's savepoint unwinds the write.
+    // The agent retries the same key cleanly against a clean slate. Losing one
+    // write to a transient audit failure is recoverable; double-billing a
+    // client is not.
+    if (row.status === 'ok' && row.idempotencyKey !== null) throw err;
   }
 }
 

@@ -17,6 +17,7 @@ import type {
   PracticeTimeEntryUpdateInput,
   PracticeEntryFilters,
 } from './practiceTimeEntryTypes';
+import { roundHours, lineTotalFor } from './practiceTimeEntryTypes';
 
 /** @internal used by practiceTimeEntryWorkflow — do not import elsewhere */
 export function mapEntry(r: DbRow): PracticeTimeEntry {
@@ -94,7 +95,9 @@ export async function createPracticeEntry(
 ): Promise<PracticeTimeEntry> {
   const today = new Date().toISOString().split('T')[0]!;
   if (input.entryDate > today) throw new Error('entry date cannot be in the future');
-  if (!(input.hours > 0 && input.hours <= 24)) {
+  // Range-check the ROUNDED value: 0.004 is > 0 here but 0.00 in the column.
+  const hours = roundHours(input.hours);
+  if (!(hours > 0 && hours <= 24)) {
     throw new Error('hours must be between 0 and 24');
   }
 
@@ -106,9 +109,7 @@ export async function createPracticeEntry(
   );
 
   const appliedRate = await resolveRate(companyId, userId, input.practiceClientId, input.entryDate);
-  const lineTotal = appliedRate != null
-    ? Math.round(input.hours * appliedRate * 100) / 100
-    : null;
+  const lineTotal = lineTotalFor(hours, appliedRate);
 
   const origin = input.origin ?? 'manual';
   const billable = input.billable !== false;
@@ -121,7 +122,7 @@ export async function createPracticeEntry(
       applied_rate, line_total, rate, amount,
       origin, status
     ) VALUES (
-      ${companyId}::UUID, ${userId}::UUID, ${input.entryDate}::DATE, ${input.hours},
+      ${companyId}::UUID, ${userId}::UUID, ${input.entryDate}::DATE, ${hours},
       ${input.practiceClientId}::UUID, ${input.jobCategoryId}::UUID, ${input.workItemId}::UUID,
       ${input.taskDescription}, ${input.notes ?? null}, ${billable},
       ${appliedRate}, ${lineTotal}, ${appliedRate}, ${lineTotal},
@@ -186,10 +187,8 @@ export async function updatePracticeEntry(
   const userId = String(row.user_id);
 
   const appliedRate = await resolveRate(companyId, userId, clientId, entryDate);
-  const effectiveHours = input.hours ?? Number(row.hours);
-  const lineTotal = appliedRate != null
-    ? Math.round(effectiveHours * appliedRate * 100) / 100
-    : null;
+  const effectiveHours = roundHours(input.hours ?? Number(row.hours));
+  const lineTotal = lineTotalFor(effectiveHours, appliedRate);
 
   const updateNotes = 'notes' in input;
   const notesValue = input.notes ?? null;
@@ -249,6 +248,31 @@ export async function getPracticeEntry(companyId: string, id: string): Promise<P
   return rows.length ? mapEntry(rows[0]!) : null;
 }
 
+/**
+ * Resolve the status of specific entries, scoped to one company and (optionally)
+ * one user. O(ids), not O(everything the user has ever logged.)
+ *
+ * Callers that need to decide whether a supplied set of ids is actionable must
+ * use this rather than listing the user's entries and filtering in memory — a
+ * staff member with years of history would otherwise pull their entire
+ * timesheet into the process on every call.
+ */
+export async function getEntryStatusesByIds(
+  companyId: string,
+  ids: string[],
+  userId?: string,
+): Promise<Map<string, PracticeTimeEntry['status']>> {
+  if (!ids.length) return new Map();
+  const scopedUserId = userId ?? null;
+  const rows = (await sql`
+    SELECT id, status FROM time_entries
+    WHERE company_id = ${companyId}::UUID
+      AND id = ANY(${ids}::UUID[])
+      AND (${scopedUserId}::UUID IS NULL OR user_id = ${scopedUserId}::UUID)
+  `) as DbRow[];
+  return new Map(rows.map((r) => [String(r.id), String(r.status) as PracticeTimeEntry['status']]));
+}
+
 export async function listPracticeEntries(
   companyId: string,
   filters: PracticeEntryFilters = {},
@@ -259,6 +283,8 @@ export async function listPracticeEntries(
   const dateTo = filters.dateTo ?? null;
   const status = filters.status ?? null;
   const jobId = filters.jobId ?? null;
+  const limit = filters.limit ?? null;
+  const offset = filters.offset ?? null;
 
   const countRows = (await sql`
     SELECT COUNT(*)::int AS cnt
@@ -294,6 +320,7 @@ export async function listPracticeEntries(
       -- Scope to practice-side entries only; legacy time_entries without a practice_client_id belong to the old project timesheets
       AND te.practice_client_id IS NOT NULL
     ORDER BY te.entry_date DESC, te.created_at DESC
+    LIMIT ${limit}::INT OFFSET ${offset}::INT
   `) as DbRow[];
 
   return { entries: rows.map(mapEntry), total: Number(countRows[0]?.cnt ?? 0) };

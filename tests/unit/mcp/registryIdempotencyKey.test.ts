@@ -204,3 +204,63 @@ describe('McpRegistry — a dry run does not occupy the idempotency key', () => 
     expect('wroteNothing' in r).toBe(false);
   });
 });
+
+// ── Per-user idempotency ────────────────────────────────────────────────────
+//
+// The default key scope is (company, tool, key), which is right for a
+// company-owned document: two agents both creating invoice X under one key
+// should dedupe to one invoice. It is WRONG for a row owned by the user who
+// wrote it. Two staff on one engagement can plausibly pick the same natural key
+// ("time-2026-09-02-vat"); with identical args the second is served the first's
+// stored result, so their hours are never written, no error is raised, and their
+// agent is handed a colleague's id, rate and line total.
+describe('McpRegistry — perUserIdempotency namespaces the key by caller', () => {
+  const write = async () => ({ content: [{ type: 'text' as const, text: '"written"' }] });
+
+  function ctxFor(userId: string): McpToolContext {
+    return { ...ctxWithScopes([]), userId };
+  }
+
+  it('stores the key prefixed with the user id', async () => {
+    registry.register(makeTool({
+      name: 'w', scope: null, write: true, perUserIdempotency: true, handler: write,
+    }));
+    await registry.call('w', { idempotency_key: 'shared' }, ctxFor('user-a'));
+
+    const insert = auditInserts().at(-1)!;
+    expect(insert.values).toContain('u:user-a:shared');
+    // The bare key must NOT be what lands in the column — that is the collision.
+    expect(insert.values).not.toContain('shared');
+  });
+
+  it('gives two users different stored keys for the same supplied key', async () => {
+    registry.register(makeTool({
+      name: 'w', scope: null, write: true, perUserIdempotency: true, handler: write,
+    }));
+    await registry.call('w', { idempotency_key: 'shared' }, ctxFor('user-a'));
+    await registry.call('w', { idempotency_key: 'shared' }, ctxFor('user-b'));
+
+    const keys = auditInserts().map((i) => i.values.find(
+      (v) => typeof v === 'string' && v.startsWith('u:'),
+    ));
+    expect(keys).toEqual(['u:user-a:shared', 'u:user-b:shared']);
+  });
+
+  it('leaves a company-scoped tool\'s key untouched', async () => {
+    registry.register(makeTool({ name: 'c', scope: null, write: true, handler: write }));
+    await registry.call('c', { idempotency_key: 'shared' }, ctxFor('user-a'));
+
+    const insert = auditInserts().at(-1)!;
+    expect(insert.values).toContain('shared');
+    expect(insert.values.some((v) => typeof v === 'string' && v.startsWith('u:'))).toBe(false);
+  });
+
+  it('still requires a supplied key — the prefix is not one', async () => {
+    registry.register(makeTool({
+      name: 'w', scope: null, write: true, perUserIdempotency: true, handler: write,
+    }));
+    const r = await registry.call('w', {}, ctxFor('user-a'));
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('idempotency_key is required');
+  });
+});

@@ -83,7 +83,9 @@ export async function applyDRCVat(companyId: string,
     entryDate: new Date().toISOString().split('T')[0] ?? '',
     description,
     source: 'auto_vat_adjustment',
-    sourceDocumentId: supplierInvoiceId,
+    // source_record_id, NOT source_document_id: the latter FKs to
+    // captured_documents (migration 409) and a supplier invoice id throws on it.
+    sourceRecordId: supplierInvoiceId,
     lines,
   }, userId);
 

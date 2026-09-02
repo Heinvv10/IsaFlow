@@ -20,6 +20,8 @@ const SCOPE_LABELS: Record<OAuthScope, string> = {
   'read:reports': 'Read your financial reports',
   'read:contacts': 'Read your customers and suppliers',
   'read:vat': 'Read your VAT status',
+  'read:practice': 'Read your practice clients, job categories and logged time',
+  'write:practice': 'Create job categories and work items, and log and submit time entries',
   // Copy tracks what the grant actually permits: it now also unlocks automated
   // bank allocation, which posts AP/AR journals, records customer payments as
   // confirmed, and marks supplier invoices paid. Keep in step with
