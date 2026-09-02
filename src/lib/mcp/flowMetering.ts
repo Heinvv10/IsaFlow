@@ -121,6 +121,11 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // ── Corrections ──────────────────────────────────────────────────────────
   reverse_bank_allocation: null,
   reverse_bank_allocation_batch: null,
+  // Same rule as the other two reversals: pricing a correction discourages
+  // using the control the whole agent-safety model depends on. The range
+  // version matters more, not less — it is the only way to unwind a
+  // rule-created allocation as a set.
+  reverse_allocations: null,
   undo_bank_import: null,
 
   // ── Chart of accounts: free ──────────────────────────────────────────────
@@ -139,6 +144,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   create_bank_rule: null,
   update_bank_rule: null,
   disable_bank_rule: null,
+
+  // One journal, priced like any other journal creation.
+  set_opening_balance: 'journal.create',
 };
 
 /**

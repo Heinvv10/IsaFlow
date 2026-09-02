@@ -444,7 +444,8 @@ describe('write-tool manifest invariants', () => {
     expect(requiresPost).toEqual([
       'allocate_bank_transaction', 'approve_supplier_invoice',
       'bulk_allocate_bank_transactions', 'finalize_invoice',
-      'post_journal', 'reverse_bank_allocation', 'reverse_bank_allocation_batch',
+      'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
+      'reverse_bank_allocation_batch', 'set_opening_balance',
     ]);
   });
 
@@ -503,6 +504,8 @@ describe('write-tool manifest invariants', () => {
       create_bank_rule: { ...KEY },
       update_bank_rule: { ...KEY },
       disable_bank_rule: { ...KEY },
+      reverse_allocations: { ...KEY },
+      set_opening_balance: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

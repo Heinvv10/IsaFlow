@@ -33,6 +33,8 @@ import {
   bulkAllocateBankTransactionsTool,
 } from './tools/writeBankBulkAllocate';
 import { reverseBankAllocationBatchTool } from './tools/writeBankReverseBatch';
+import { reverseAllocationsTool } from './tools/writeBankReverseRange';
+import { setOpeningBalanceTool } from './tools/writeOpeningBalance';
 import {
   createGlAccountTool,
   updateGlAccountTool,
@@ -75,7 +77,7 @@ export const MCP_TOOLS = [
   getSupplierInvoiceTool,
   listBankRulesTool,
   getBankRuleTool,
-  // write (20) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // write (22) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -98,6 +100,8 @@ export const MCP_TOOLS = [
   createBankRuleTool,
   updateBankRuleTool,
   disableBankRuleTool,
+  reverseAllocationsTool,
+  setOpeningBalanceTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();
