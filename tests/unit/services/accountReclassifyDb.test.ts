@@ -30,6 +30,7 @@ import {
   reclassifyAccount,
   ReclassifyError,
 } from '@/modules/accounting/services/gl/accountReclassifyService';
+import { createAccount } from '@/modules/accounting/services/gl/chartOfAccountsService';
 
 type Ctx = Parameters<typeof als.run>[0];
 const USER_ID = '00000000-0000-0000-0000-0000000000aa';
@@ -185,6 +186,54 @@ describe('reclassifyAccount', async () => {
         await expect(reclassifyAccount(companyId, orphan, { parentAccountId: postedId }))
           .rejects.toThrow(/balance sheet excludes headers/);
       });
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  });
+
+  // The same rule, through the OTHER code path. `createAccount` used to check
+  // only that the parent existed, so a NEW child could be attached to a posted
+  // account even though MOVING one there was refused — the balance sheet
+  // excludes headers either way, so the parent's balance vanished all the same.
+  it.skipIf(!reachable)('createAccount refuses a posted parent and a cross-type parent too', async (ctx) => {
+    assertNotProductionDb('This test inserts GL accounts.');
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      const companyId = await findCompany(client);
+      if (!companyId) { ctx.skip('no company with GL accounts'); return; }
+
+      const { rows: posted } = await client.query<{ gl_account_id: string }>(
+        `SELECT gl_account_id FROM gl_journal_lines
+          WHERE company_id = $1 AND gl_account_id IS NOT NULL LIMIT 1`,
+        [companyId],
+      );
+      if (!posted[0]) { ctx.skip('no posted journal lines in this company'); return; }
+      const postedId = posted[0].gl_account_id;
+      const { rows: typeRows } = await client.query<{ account_type: string }>(
+        'SELECT account_type FROM gl_accounts WHERE id = $1', [postedId],
+      );
+      const postedType = typeRows[0]!.account_type as 'asset' | 'expense';
+      const otherType = postedType === 'expense' ? 'asset' : 'expense';
+
+      await als.run(ctxFor(client, companyId), async () => {
+        await expect(createAccount(companyId, {
+          accountCode: `${PREFIX}7000`, accountName: `${PREFIX} child`,
+          accountType: postedType, normalBalance: 'debit', parentAccountId: postedId,
+        })).rejects.toThrow(/balance sheet excludes headers/);
+
+        await expect(createAccount(companyId, {
+          accountCode: `${PREFIX}7001`, accountName: `${PREFIX} child`,
+          accountType: otherType, normalBalance: 'debit', parentAccountId: postedId,
+        })).rejects.toThrow(/cannot hold an/);
+      });
+
+      const { rows: made } = await client.query(
+        `SELECT 1 FROM gl_accounts WHERE company_id = $1 AND account_code LIKE $2`,
+        [companyId, `${PREFIX}700%`],
+      );
+      expect(made).toHaveLength(0);
     } finally {
       await client.query('ROLLBACK').catch(() => undefined);
       client.release();

@@ -230,6 +230,26 @@ describe('update_gl_account', () => {
     expect(updateAccount).not.toHaveBeenCalled();
   });
 
+  // A present-but-wrong-typed value is neither "leave alone" nor "clear".
+  // Silently treating it as absent would return a SUCCESS envelope for an
+  // instruction that was discarded — the agent reads that as confirmation the
+  // field changed.
+  it('refuses a wrong-typed account_subtype / parent_account_id instead of ignoring it', async () => {
+    for (const args of [
+      { account_id: ACCOUNT, account_subtype: 123, ...KEY },
+      { account_id: ACCOUNT, account_subtype: ['bank'], ...KEY },
+      { account_id: ACCOUNT, parent_account_id: 42, ...KEY },
+      { account_id: ACCOUNT, parent_account_id: true, ...KEY },
+    ]) {
+      vi.clearAllMocks();
+      vi.mocked(getAccountById).mockResolvedValue({ id: ACCOUNT, isActive: true } as never);
+      const r = await updateGlAccountTool.handler(args, ctx());
+      expect(errText(r)).toMatch(/invalid (account_subtype|parent_account_id)/);
+      expect(reclassifyAccount).not.toHaveBeenCalled();
+      expect(updateAccount).not.toHaveBeenCalled();
+    }
+  });
+
   it('refuses a call that would change nothing rather than issuing an empty UPDATE', async () => {
     const r = await updateGlAccountTool.handler({ account_id: ACCOUNT, ...KEY }, ctx());
     expect(errText(r)).toContain('Nothing to update');

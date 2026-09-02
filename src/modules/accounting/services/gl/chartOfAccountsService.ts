@@ -9,6 +9,7 @@ import { cacheThrough, cache } from '@/lib/cache';
 import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import type { GLAccount, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor } from './accountSubtypeRules';
+import { assertParentUsable } from './accountParentRules';
 
 export interface CreateAccountInput {
   accountCode: string;
@@ -251,14 +252,17 @@ export async function createAccount(companyId: string, input: CreateAccountInput
 
     let level = 1;
     if (input.parentAccountId) {
-      const parent = await sql`
-        SELECT id, level FROM gl_accounts
-        WHERE id = ${input.parentAccountId} AND company_id = ${companyId}
-      ` as { level: number }[];
-      if (parent.length === 0) {
-        throw new Error(`Parent account ${input.parentAccountId} not found`);
-      }
-      level = Number(parent[0]!.level) + 1;
+      // Previously this only checked the parent EXISTED in the company. It let a
+      // new child be attached to an account that already carries postings, which
+      // turns that account into a header — and the balance sheet excludes
+      // headers, so its balance silently vanishes from the statements
+      // (migration 484). `reclassifyAccount` has always refused that; this path
+      // did not, and it is reachable from the Add Account dialog, the POST route
+      // and the create_gl_account MCP tool.
+      const { childLevel } = await assertParentUsable(
+        companyId, input.parentAccountId, input.accountType,
+      );
+      level = childLevel;
     }
 
     const rows = await sql`

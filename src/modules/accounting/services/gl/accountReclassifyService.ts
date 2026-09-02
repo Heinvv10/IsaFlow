@@ -23,6 +23,7 @@ import { log } from '@/lib/logger';
 import { cache } from '@/lib/cache';
 import type { GLAccount, GLAccountSubtype, GLAccountType } from '../../types/gl.types';
 import { subtypeErrorFor } from './accountSubtypeRules';
+import { ParentAccountError, assertParentUsable } from './accountParentRules';
 import { clearSystemAccountCache } from './systemAccountResolver';
 import { getAccountById } from './chartOfAccountsService';
 
@@ -125,15 +126,10 @@ async function assertBankSubtypeRemovable(companyId: string, account: AccountRow
 }
 
 /**
- * The proposed parent must be in the company, must not be the account itself
- * or one of its descendants (a cycle makes the recursive level update and the
- * account tree non-terminating), must share the account's TYPE, and must not
- * already carry postings.
- *
- * That last rule is migration 484's: the balance sheet filters parent headers
- * out of its calculation, so giving a posted account a child silently removes
- * its own balance from the statements. `validateLeafAccount` enforces the same
- * rule on the posting side; this is the other end of it.
+ * The MOVE-specific parent rules: not itself, and not one of its own
+ * descendants (a cycle makes both recursive walks and the account tree
+ * non-terminating). Everything a move shares with a create — existence, the
+ * type match, and the leaf rule — lives in `accountParentRules`.
  */
 async function assertParentAllowed(
   companyId: string,
@@ -144,21 +140,15 @@ async function assertParentAllowed(
     throw new ReclassifyError('An account cannot be its own parent');
   }
 
-  const parents = (await sql`
-    SELECT id, account_code, account_type, level FROM gl_accounts
-     WHERE id = ${parentId}::UUID AND company_id = ${companyId}::UUID
-     LIMIT 1
-  `) as { id: string; account_code: string; account_type: string; level: number }[];
-  const parent = parents[0];
-  // Same text as a genuine miss: a distinct "belongs to another company"
-  // reply would be a cross-tenant existence oracle.
-  if (!parent) throw new ReclassifyError('Parent account not found');
-
-  if (parent.account_type !== account.account_type) {
-    throw new ReclassifyError(
-      `Parent ${parent.account_code} is an ${parent.account_type} account — ` +
-        `it cannot hold an ${account.account_type} account`,
-    );
+  // Existence, type match and the leaf rule are shared with `createAccount` —
+  // the two paths drifted apart once already, which is how a new child could be
+  // attached to a posted account while MOVING one there was refused.
+  let childLevel: number;
+  try {
+    ({ childLevel } = await assertParentUsable(companyId, parentId, account.account_type));
+  } catch (err) {
+    if (err instanceof ParentAccountError) throw new ReclassifyError(err.message);
+    throw err;
   }
 
   const descendant = (await sql`
@@ -175,25 +165,12 @@ async function assertParentAllowed(
   `) as unknown[];
   if (descendant.length > 0) {
     throw new ReclassifyError(
-      `Parent ${parent.account_code} sits below ${account.account_code} in the tree — ` +
+      `Parent ${parentId} sits below ${account.account_code} in the tree — ` +
         'that would create a cycle',
     );
   }
 
-  const posted = (await sql`
-    SELECT 1 FROM gl_journal_lines
-     WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID
-     LIMIT 1
-  `) as unknown[];
-  if (posted.length > 0) {
-    throw new ReclassifyError(
-      `Parent ${parent.account_code} has journal lines posted to it. Giving it a child ` +
-        'would turn it into a header, and the balance sheet excludes headers — its own ' +
-        'balance would disappear from the statements.',
-    );
-  }
-
-  return Number(parent.level) + 1;
+  return childLevel;
 }
 
 export async function reclassifyAccount(
