@@ -4,7 +4,7 @@
  * Per-tool: happy path returns ok(data); the service receives ctx.companyId
  * (never an args-supplied company); misses return the generic NOT_FOUND text.
  * Suite-wide: token-scan (no credential material in any envelope/manifest)
- * and manifest shape (20 read tools, write:false, additionalProperties:false).
+ * and manifest shape (23 read tools, write:false, additionalProperties:false).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -82,7 +82,7 @@ import { getBankTransactions } from '@/modules/accounting/services/bank/bankTran
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 
-import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
+import { mcpRegistry, MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
 
@@ -430,8 +430,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 20 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(20);
+  it('exactly 23 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(23);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -442,15 +442,41 @@ describe('suite-wide invariants', () => {
     }
   });
 
-  it('no tool (read OR write) accepts a company identifier in its schema', () => {
+  // This used to assert that no tool schema mentions "company" at all. That was
+  // a PROXY for the real rule, and the proxy became wrong when write tools
+  // gained an assert-only `company_id`. The real rule — no tool takes its SCOPE
+  // from an argument — is pinned in three parts below, plus behaviourally in
+  // companyAssert.test.ts. A blanket name ban would now pass by forbidding the
+  // guard while saying nothing about where scope comes from.
+  it('no tool DECLARES a company identifier of its own', () => {
     for (const t of MCP_TOOLS) {
       const props = Object.keys(
         ((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
       );
-      for (const p of props) {
-        expect(p).not.toMatch(/company/i);
-      }
+      for (const p of props) expect(p).not.toMatch(/company/i);
     }
+  });
+
+  it('the manifest offers the company_id ASSERTION on every write tool, and no read tool', () => {
+    const manifest = mcpRegistry.getManifest();
+    const byName = new Map(manifest.map((m) => [m.name, m]));
+    for (const t of MCP_TOOLS) {
+      const props = Object.keys(
+        ((byName.get(t.name)!.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
+      );
+      // A read against the wrong company returns that company's data, which is
+      // visible and self-correcting. A write is not, so only writes carry it.
+      expect(props.includes('company_id')).toBe(t.write);
+    }
+  });
+
+  it('the assertion describes itself as a guard, never a selector', () => {
+    const write = mcpRegistry.getManifest().find((m) => m.name === 'create_draft_journal')!;
+    const desc = String(
+      ((write.inputSchema as { properties: Record<string, { description?: string }> })
+        .properties.company_id.description),
+    );
+    expect(desc).toMatch(/never redirect|cannot redirect|not a selector/i);
   });
 
   it('token-scan: no credential material in the manifest or any result envelope', async () => {
