@@ -27,6 +27,13 @@ import { sql } from '@/lib/neon';
  */
 const MAX_TREE_DEPTH = 32;
 
+/**
+ * The level at and below which `balanceSheetService` includes an account
+ * regardless of whether it has children (`ga.level >= 3 OR NOT EXISTS(child)`).
+ * Above it, gaining a child removes the account from the statements.
+ */
+const BALANCE_SHEET_LEAF_LEVEL = 3;
+
 export interface ParentCheckResult {
   /** `parent.level + 1` — the level the child must take. */
   childLevel: number;
@@ -66,17 +73,34 @@ export async function assertParentUsable(
     );
   }
 
-  const posted = (await sql`
-    SELECT 1 FROM gl_journal_lines
-     WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID
-     LIMIT 1
-  `) as unknown[];
-  if (posted.length > 0) {
-    throw new ParentAccountError(
-      `Parent ${parent.account_code} has journal lines posted to it. Giving it a child ` +
-        'would turn it into a header, and the balance sheet excludes headers — its own ' +
-        'balance would disappear from the statements.',
-    );
+  // The leaf rule, and ONLY where it actually bites.
+  //
+  // `balanceSheetService` includes an account when `level >= 3 OR NOT EXISTS
+  // (child)` — so giving a child to a posted account at level 1 or 2 silently
+  // drops its balance from the statements (migration 484), while a posted
+  // account at level 3 or deeper keeps its balance whether or not it has
+  // children.
+  //
+  // The first version of this guard refused EVERY posted parent. That is the
+  // safer-looking rule and the wrong one: converting a used level-3 account
+  // into a header and posting to its children is ordinary chart maintenance
+  // (Sage-imported charts arrive that way), and refusing it would have broken
+  // the Add Account dialog for a case that loses nothing. `validateLeafAccount`
+  // still stops anyone POSTING to the parent afterwards — that is an explicit
+  // refusal at post time, not silent loss, and it is the accountant's call.
+  if (Number(parent.level) < BALANCE_SHEET_LEAF_LEVEL) {
+    const posted = (await sql`
+      SELECT 1 FROM gl_journal_lines
+       WHERE gl_account_id = ${parentId}::UUID AND company_id = ${companyId}::UUID
+       LIMIT 1
+    `) as unknown[];
+    if (posted.length > 0) {
+      throw new ParentAccountError(
+        `Parent ${parent.account_code} is a level-${parent.level} account with journal lines ` +
+          'posted to it. Giving it a child would turn it into a header, and the balance sheet ' +
+          'excludes headers above level 3 — its own balance would disappear from the statements.',
+      );
+    }
   }
 
   const childLevel = Number(parent.level) + 1;
