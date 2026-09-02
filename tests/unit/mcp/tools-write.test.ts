@@ -442,8 +442,9 @@ describe('write-tool manifest invariants', () => {
   it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
-      'allocate_bank_transaction', 'approve_supplier_invoice',
-      'bulk_allocate_bank_transactions', 'finalize_invoice',
+      'allocate_bank_transaction', 'approve_credit_note',
+      'approve_supplier_invoice',
+      'bulk_allocate_bank_transactions', 'cancel_credit_note', 'finalize_invoice',
       'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
       'reverse_bank_allocation_batch', 'set_opening_balance',
     ]);
@@ -455,6 +456,30 @@ describe('write-tool manifest invariants', () => {
         ((tool(name).inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
       );
       for (const p of props) expect(p).not.toMatch(/company/i);
+    }
+  });
+
+  /**
+   * The registry does NOT validate args against inputSchema — getManifest only
+   * decorates it (registry.ts). So `required`, `enum`, `exclusiveMinimum` and
+   * `additionalProperties: false` are advisory to the MODEL, not enforced: a
+   * handler that trusts its schema is trusting nothing.
+   *
+   * What this pins: called with the idempotency key alone, no write tool may
+   * answer with a SUCCESS envelope. That is the shape that matters — a handler
+   * reading a required argument as undefined and carrying on into a write.
+   *
+   * What it does NOT pin, deliberately stated rather than implied: it does not
+   * prove the refusal came from an explicit argument check. A tool that drops
+   * its `if (!id) return toolError(...)` guard usually still refuses, one step
+   * later, when the id it invented misses its ownership read — verified by
+   * mutation, and that mutant survives this test. Per-tool argument handling is
+   * covered in each tool's own suite; this is the floor beneath all of them.
+   */
+  it('every write tool refuses when called with only an idempotency key', async () => {
+    for (const name of WRITE_NAMES) {
+      const r = await tool(name).handler({ ...KEY }, ctx());
+      expect(r.isError, `${name} did not refuse a call carrying no arguments`).toBe(true);
     }
   });
 
@@ -517,6 +542,11 @@ describe('write-tool manifest invariants', () => {
       create_work_item: { ...KEY },
       log_time_entry: { ...KEY },
       submit_time_entries: { ...KEY },
+      // Credit-note writes each refuse on a missing required argument before
+      // touching a service; behaviour in creditNoteTools.test.ts.
+      create_credit_note: { ...KEY },
+      approve_credit_note: { ...KEY },
+      cancel_credit_note: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

@@ -71,6 +71,10 @@ export interface CreditNote {
   taxRate: number;
   taxAmount: number;
   totalAmount: number;
+  /** What was actually credited to the linked invoice — the apply path caps at
+   *  the invoice's outstanding balance, so this is <= totalAmount. Cancel
+   *  reverses THIS, never the face value. */
+  appliedAmount: number;
   status: CreditNoteStatus;
   glJournalEntryId?: string;
   projectId?: string;

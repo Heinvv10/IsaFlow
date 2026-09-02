@@ -59,6 +59,16 @@ import {
   getSupplierInvoices,
   getSupplierInvoiceById,
 } from '@/modules/accounting/services/ap/supplierInvoiceService';
+
+vi.mock('@/modules/accounting/services/ar/creditNoteService', () => ({
+  getCreditNotes: vi.fn(),
+  getCreditNoteById: vi.fn(),
+}));
+
+import {
+  getCreditNotes,
+  getCreditNoteById,
+} from '@/modules/accounting/services/ar/creditNoteService';
 import { getCompany } from '@/modules/accounting/services/core/companyService';
 import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
@@ -430,8 +440,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 30 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(30);
+  it('exactly 32 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(32);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -502,6 +512,10 @@ describe('suite-wide invariants', () => {
     vi.mocked(getSupplierInvoiceById).mockResolvedValue(
       { id: '2f9a4c1d-0b3e-4f8a-9c21-7d5e6a8b1c30', items: [] } as never,
     );
+    vi.mocked(getCreditNotes).mockResolvedValue({ creditNotes: [], total: 0 } as never);
+    vi.mocked(getCreditNoteById).mockResolvedValue(
+      { id: '8b1c30d5-2f9a-4c1d-9c21-7d5e6a0b3e4f', type: 'customer' } as never,
+    );
 
     const happyArgs: Record<string, Record<string, unknown>> = {
       profit_and_loss: { period_start: '2026-06-01', period_end: '2026-06-30' },
@@ -509,6 +523,7 @@ describe('suite-wide invariants', () => {
       search_gl: { account_code: '1000', from_date: '2026-01-01', to_date: '2026-06-30' },
       get_invoice: { invoice_id: '4cd9b767-2d7f-4ee8-8b51-fb1e049f6903' },
       get_supplier_invoice: { invoice_id: '2f9a4c1d-0b3e-4f8a-9c21-7d5e6a8b1c30' },
+      get_credit_note: { credit_note_id: '8b1c30d5-2f9a-4c1d-9c21-7d5e6a0b3e4f' },
     };
 
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })));

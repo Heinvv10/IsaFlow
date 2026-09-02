@@ -80,6 +80,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_import_batches: null,
   list_journals: null,
   list_bank_reconciliations: null,
+  list_credit_notes: null,
+  get_credit_note: null,
 
   // ── Reports: free over MCP, unlike the UI ────────────────────────────────
   // The app charges 10 for each of these. Carrying that across was the initial
@@ -160,6 +162,22 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   create_bank_rule: null,
   update_bank_rule: null,
   disable_bank_rule: null,
+
+  // ── Credit notes: free ───────────────────────────────────────────────────
+  // The app meters neither credit-note route, and a credit note IS a
+  // correction — the same rule that keeps reverse_bank_allocation free. The
+  // asymmetry with create_supplier_invoice is deliberate: a bill creates an
+  // obligation, a credit note retracts one, and putting a toll on the retract
+  // side is exactly the incentive not to build.
+  //
+  // create_credit_note is free for the same reason and not by oversight: the
+  // draft it writes posts nothing to the ledger (create_draft_quote is free on
+  // that precedent), and it is the first step of a correction that the two
+  // steps after it complete. Charging the first step of an unwind while the
+  // rest is free would price the correction by the back door.
+  create_credit_note: null,
+  approve_credit_note: null,
+  cancel_credit_note: null,
 
   // One journal, priced like any other journal creation.
   set_opening_balance: 'journal.create',
