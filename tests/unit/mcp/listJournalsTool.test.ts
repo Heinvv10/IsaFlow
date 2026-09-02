@@ -76,3 +76,16 @@ describe('list_journals', () => {
     await expect(listJournalsTool.handler({}, ctx)).rejects.toThrow('boom');
   });
 });
+
+describe('journal cursor validation', () => {
+  it('rejects a timestamp that is well-shaped but out of range — it would be a 22008 at the cast', async () => {
+    const { decodeJournalCursor } = await import('@/modules/accounting/services/gl/journalEntryListService');
+    const enc = (c: string) => Buffer.from(JSON.stringify({ d: '2026-01-01', c, id: ACC })).toString('base64url');
+    for (const bad of ['9999-99-99T99:99:99Z', '2026-01-01T24:00:00Z', '2026-02-30 10:00:00+02', '2026-01-01T10:00:00+99', 'junk']) {
+      expect(() => decodeJournalCursor(enc(bad)), bad).toThrow(InvalidCursorError);
+    }
+    for (const good of ['2026-09-02 04:27:40.123456+02', '2026-09-02T04:27:40Z', '2026-09-02 04:27:40-05:30']) {
+      expect(decodeJournalCursor(enc(good)).c, good).toBe(good);
+    }
+  });
+});

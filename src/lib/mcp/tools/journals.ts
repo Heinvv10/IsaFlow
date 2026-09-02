@@ -18,7 +18,7 @@ export const listJournalsTool: McpTool = {
   description:
     'GL journal entries for this company in an entry-date window, across ALL accounts and sources (bank allocations, invoices, manual, auto-post), newest first. ' +
     'Unlike list_agent_postings it is not limited to MCP-created entries. ' +
-    'status: draft = not yet posted; posted = in the ledger; reversed = posted entries that a contra has already been posted against (status stays "posted" after a reversal — reversed: true is the only signal). ' +
+    'status: draft = not yet posted; posted = in the ledger; reversed = posted entries that a contra has already been posted against. status=posted INCLUDES reversed entries (status never flips on reversal — reversed: true on the row is the only signal), so filter them out client-side or ask for status=reversed to see just those. ' +
     'account_id restricts to journals with at least one line on that account. ' +
     'include_lines=true adds each journal\'s lines (account code/name, debit, credit) — leave it off when scanning. ' +
     'limit is capped at 100 (default 50). Paging: the reply carries next_cursor whenever more rows match; call again with cursor set and every other argument unchanged until next_cursor is null.',

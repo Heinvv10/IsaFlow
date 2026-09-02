@@ -17,7 +17,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
-import { UUID_RE, isRealCalendarDate } from '@/lib/validation';
+import { UUID_RE, isRealCalendarDate, isRealTimestamp } from '@/lib/validation';
 import { InvalidCursorError } from '../bank/bankTxCursor';
 
 export const JOURNAL_LIST_STATUSES = ['draft', 'posted', 'reversed'] as const;
@@ -70,14 +70,15 @@ interface JournalCursor { d: string; c: string; id: string }
 const MAX_CURSOR_CHARS = 512;
 const MAX_LIMIT = 100;
 
-/**
+/*
  * created_at travels in the cursor as Postgres's own text rendering, NOT a JS
  * Date: toISOString() keeps milliseconds and Postgres keeps microseconds, so a
  * cursor built from a Date sits BELOW the row it names and every row sharing
  * that millisecond (a batch inserted in one transaction shares now()) is
- * skipped on the next page. The integration test caught exactly that.
+ * skipped on the next page. The integration test caught exactly that. It is
+ * validated by isRealTimestamp (component ranges, not digit counts) because
+ * it is cast `::TIMESTAMPTZ` on a read path with no savepoint.
  */
-const PG_TIMESTAMPTZ_RE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}(:?\d{2})?)$/;
 
 function encodeCursor(c: JournalCursor): string {
   return Buffer.from(JSON.stringify(c), 'utf8').toString('base64url');
@@ -95,7 +96,7 @@ export function decodeJournalCursor(raw: string): JournalCursor {
   if (!parsed || typeof parsed !== 'object') throw new InvalidCursorError();
   const { d, c, id } = parsed as Record<string, unknown>;
   if (typeof d !== 'string' || !isRealCalendarDate(d)) throw new InvalidCursorError();
-  if (typeof c !== 'string' || !PG_TIMESTAMPTZ_RE.test(c)) throw new InvalidCursorError();
+  if (typeof c !== 'string' || !isRealTimestamp(c)) throw new InvalidCursorError();
   if (typeof id !== 'string' || !UUID_RE.test(id.trim())) throw new InvalidCursorError();
   return { d, c, id: id.trim() };
 }
