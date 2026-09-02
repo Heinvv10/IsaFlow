@@ -51,6 +51,25 @@ export interface McpTool {
   scope: string | null;
   /** Write tools REQUIRE args.idempotency_key (enforced by the registry). */
   write: boolean;
+  /**
+   * Scope the idempotency key to the CALLING USER as well as the company.
+   *
+   * The default is company-wide, which is right for a company-owned document:
+   * two agents that both try to create invoice X under one key should dedupe to
+   * one invoice. It is wrong for a row OWNED BY the user who wrote it. Two staff
+   * on one engagement can plausibly pick the same natural key
+   * ("time-2026-09-02-vat"), and with identical args the second call is served
+   * the first's stored result — the second person's hours are never written, no
+   * error is raised, and their agent is handed a colleague's id, applied_rate
+   * and line_total. With differing args they get `conflict` and cannot use that
+   * key at all.
+   *
+   * Set on any tool whose write belongs to one user rather than to the company.
+   * The registry prefixes the stored key with the user id, so the existing
+   * (company_id, tool, idempotency_key) unique index enforces per-user
+   * uniqueness with no schema change and no effect on other tools.
+   */
+  perUserIdempotency?: boolean;
   /** Additionally requires the 'write:post' scope (posting/finalizing). */
   requiresPost?: boolean;
   handler(args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult>;
