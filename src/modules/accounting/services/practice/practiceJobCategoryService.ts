@@ -158,6 +158,16 @@ export async function createWorkItem(
   categoryId: string,
   input: { name: string; sortOrder?: number; defaultBillable?: boolean; defaultRateOverride?: number },
 ): Promise<WorkItem> {
+  // The category id arrives from the client. Without this check a caller could
+  // hang a work item off another tenant's category: the row would be written
+  // with THIS company_id but a foreign category_id, and every list query
+  // (which filters on both) would then hide it forever.
+  const owned = (await sql`
+    SELECT id FROM practice_job_categories
+    WHERE id = ${categoryId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  if (!owned.length) throw new Error('job category not found');
+
   const rows = (await sql`
     INSERT INTO practice_work_items (company_id, category_id, name, sort_order, default_billable, default_rate_override)
     VALUES (

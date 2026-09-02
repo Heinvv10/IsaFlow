@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { CalendarRange, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import type { EntryTemplate } from '@/modules/accounting/services/practice/practiceEntryTemplateService';
+import { fetchEntryTemplates, type EntryTemplate } from './practiceApi';
 import type { BulkFromTemplateInput, BulkFromTemplateResult } from '@/modules/accounting/services/practice/practiceTimeEntryWorkflow';
 
 function todayIso() { return new Date().toISOString().slice(0, 10); }
@@ -25,12 +25,11 @@ function ErrorBanner({ msg }: { msg: string }) {
 }
 
 export interface BulkRangeModalProps {
-  userId: string;
   onClose: () => void;
   onDone: (result: BulkFromTemplateResult) => void;
 }
 
-export function BulkRangeModal({ userId, onClose, onDone }: BulkRangeModalProps) {
+export function BulkRangeModal({ onClose, onDone }: BulkRangeModalProps) {
   const today = todayIso();
   const [templates, setTemplates] = useState<EntryTemplate[]>([]);
   const [templateId, setTemplateId] = useState('');
@@ -42,18 +41,24 @@ export function BulkRangeModal({ userId, onClose, onDone }: BulkRangeModalProps)
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // The endpoint replies `{ data: { templates } }` and always scopes to the
+  // session user (the `?userId=` this used to send was ignored). Reading
+  // `j.data` therefore yielded the WRAPPER OBJECT, not an array: `templates.map`
+  // then threw and took the whole modal down. Go through the shared fetcher.
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       try {
-        const res = await apiFetch(`/api/accounting/practice/entry-templates?userId=${userId}`);
-        if (!res.ok) return;
-        const j = (await res.json()) as { data?: EntryTemplate[] } | EntryTemplate[];
-        const list = Array.isArray(j) ? j : (j.data ?? []);
+        const list = await fetchEntryTemplates();
+        if (cancelled) return;
         setTemplates(list);
         if (list[0]) setTemplateId(list[0].id);
-      } catch { /* non-critical — user can still type if templates fail to load */ }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load templates');
+      }
     })();
-  }, [userId]);
+    return () => { cancelled = true; };
+  }, []);
 
   function toggleDay(d: number) {
     setWeekdays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort());
