@@ -459,6 +459,30 @@ describe('write-tool manifest invariants', () => {
     }
   });
 
+  /**
+   * The registry does NOT validate args against inputSchema — getManifest only
+   * decorates it (registry.ts). So `required`, `enum`, `exclusiveMinimum` and
+   * `additionalProperties: false` are advisory to the MODEL, not enforced: a
+   * handler that trusts its schema is trusting nothing.
+   *
+   * What this pins: called with the idempotency key alone, no write tool may
+   * answer with a SUCCESS envelope. That is the shape that matters — a handler
+   * reading a required argument as undefined and carrying on into a write.
+   *
+   * What it does NOT pin, deliberately stated rather than implied: it does not
+   * prove the refusal came from an explicit argument check. A tool that drops
+   * its `if (!id) return toolError(...)` guard usually still refuses, one step
+   * later, when the id it invented misses its ownership read — verified by
+   * mutation, and that mutant survives this test. Per-tool argument handling is
+   * covered in each tool's own suite; this is the floor beneath all of them.
+   */
+  it('every write tool refuses when called with only an idempotency key', async () => {
+    for (const name of WRITE_NAMES) {
+      const r = await tool(name).handler({ ...KEY }, ctx());
+      expect(r.isError, `${name} did not refuse a call carrying no arguments`).toBe(true);
+    }
+  });
+
   it('token-scan: no credential material in write-tool results or manifest', async () => {
     vi.mocked(createDraftCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', invoiceNumber: 'INV-1' });
     vi.mocked(createQuote).mockResolvedValue({ id: 'q-1' } as never);
