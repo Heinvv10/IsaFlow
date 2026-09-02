@@ -44,17 +44,12 @@ describe('recordToolCall', () => {
     );
   });
 
-  it('SWALLOWS a DB failure (logs, does not throw) — audit must never mask the tool result', async () => {
-    sqlMock.mockRejectedValueOnce(
-      Object.assign(new Error('duplicate key value violates unique constraint "mcp_tool_calls_idem_uq"'), {
-        code: '23505',
-      }),
-    );
-    // The whole point: this resolves, it does not reject.
+  it('SWALLOWS a DB failure for a READ — audit must never mask the tool result', async () => {
+    sqlMock.mockRejectedValueOnce(new Error('connection reset'));
     await expect(
       recordToolCall({
-        ctx: ctx(), tool: 't', argsHash: 'h1', idempotencyKey: 'k1',
-        status: 'ok', result: { content: [] }, durationMs: 5,
+        ctx: ctx(), tool: 't', argsHash: 'h1', idempotencyKey: null,
+        status: 'ok', result: null, durationMs: 5,
       }),
     ).resolves.toBeUndefined();
     expect(log.error).toHaveBeenCalledWith(
@@ -62,6 +57,44 @@ describe('recordToolCall', () => {
       expect.objectContaining({ tool: 't' }),
       'mcp',
     );
+  });
+
+  it('RETHROWS for a successful KEYED write — the audit row IS the idempotency record', async () => {
+    // The registry writes, then audits. If the write commits and this INSERT
+    // fails, the retry finds no status='ok' row, the replay answers 'none', and
+    // the handler runs AGAIN — a second billable row with no natural key to
+    // catch it. Failing closed lets the savepoint unwind the write so the retry
+    // starts clean. Losing one write is recoverable; double-billing is not.
+    sqlMock.mockRejectedValueOnce(new Error('connection reset'));
+    await expect(
+      recordToolCall({
+        ctx: ctx(), tool: 't', argsHash: 'h1', idempotencyKey: 'k1',
+        status: 'ok', result: { content: [] }, durationMs: 5,
+      }),
+    ).rejects.toThrow('connection reset');
+    expect(log.error).toHaveBeenCalled();
+  });
+
+  it('still swallows for a REFUSAL, which is audited with a NULL key and wrote nothing', async () => {
+    sqlMock.mockRejectedValueOnce(new Error('connection reset'));
+    await expect(
+      recordToolCall({
+        ctx: ctx(), tool: 't', argsHash: 'h1', idempotencyKey: null,
+        status: 'rejected', result: null, durationMs: 5,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('still swallows a handled 23505 — ON CONFLICT covers the concurrent duplicate', async () => {
+    // The unique-violation path is the one the ON CONFLICT clause exists for;
+    // it must not be turned into a rollback by the fail-closed rule above.
+    sqlMock.mockResolvedValueOnce([]);
+    await expect(
+      recordToolCall({
+        ctx: ctx(), tool: 't', argsHash: 'h1', idempotencyKey: 'k1',
+        status: 'ok', result: { content: [] }, durationMs: 5,
+      }),
+    ).resolves.toBeUndefined();
   });
 });
 

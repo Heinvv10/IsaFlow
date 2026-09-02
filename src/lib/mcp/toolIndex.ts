@@ -56,13 +56,25 @@ import {
   cancelCreditNoteTool,
 } from './tools/writeCreditNotes';
 import {
+  listBankReconciliationsTool,
+  cancelBankReconciliationTool,
+} from './tools/bankReconciliations';
+import {
   createBankRuleTool,
   updateBankRuleTool,
   disableBankRuleTool,
 } from './tools/writeBankRules';
+import {
+  listPracticeClientsTool,
+  listJobCategoriesTool,
+  listWorkItemsTool,
+  listTimeEntriesTool,
+} from './tools/practice';
+import { createJobCategoryTool, createWorkItemTool } from './tools/writePracticeSetup';
+import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (27)
+  // read (32)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -88,9 +100,14 @@ export const MCP_TOOLS = [
   getBankRuleTool,
   listImportBatchesTool,
   listJournalsTool,
+  listBankReconciliationsTool,
+  listPracticeClientsTool,
+  listJobCategoriesTool,
+  listWorkItemsTool,
+  listTimeEntriesTool,
   listCreditNotesTool,
   getCreditNoteTool,
-  // write (26) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // write (31) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -116,6 +133,13 @@ export const MCP_TOOLS = [
   reverseAllocationsTool,
   setOpeningBalanceTool,
   attachDocumentTool,
+  cancelBankReconciliationTool,
+  // Practice: setup posts nothing; log/submit book billable hours that feed WIP
+  // and invoicing but write no journal, so neither is requiresPost.
+  createJobCategoryTool,
+  createWorkItemTool,
+  logTimeEntryTool,
+  submitTimeEntriesTool,
   createCreditNoteTool,
   approveCreditNoteTool,
   cancelCreditNoteTool,

@@ -2,7 +2,7 @@
  * Credit-note CANCEL and APPLY — the un-posting and allocation paths.
  *
  * Cancel reverses the approval journal and un-applies exactly what the note
- * credited (`applied_amount`, migration 527), never its face value. Apply is
+ * credited (`applied_amount`, migration 529), never its face value. Apply is
  * the manual allocation of an already-approved note to one invoice, capped at
  * that invoice's outstanding balance.
  *

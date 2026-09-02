@@ -1,4 +1,4 @@
--- 526: credit_notes cancellation columns
+-- 528: credit_notes cancellation columns
 --
 -- cancelCreditNote has always written cancelled_by / cancelled_at /
 -- cancel_reason, but migration 202 never created them and no later migration
@@ -19,7 +19,7 @@
 -- reached status='cancelled' anywhere, so there is nothing to backfill INTO
 -- these columns — but note that this does NOT mean no row was affected: an
 -- interrupted attempt leaves a note marked approved/applied over an
--- already-reversed journal. Migration 527 completes any such row (0 in dev and
+-- already-reversed journal. Migration 529 completes any such row (0 in dev and
 -- 0 in production at the time of writing).
 
 ALTER TABLE credit_notes ADD COLUMN IF NOT EXISTS cancelled_by UUID;

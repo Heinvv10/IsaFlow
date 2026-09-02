@@ -56,6 +56,8 @@ Authorization: Bearer pat_xxxxxxxx… → https://app.isaflow.co.za/api/mcp
 |---|---|---|
 | Read reports, invoices, contacts, bank, VAT; review what the agent posted | `read:*` | Safe, read-only |
 | Create **draft** invoices / quotes / journals, suggest bank allocations | `write:invoices`, `write:journals`, `write:bank-tx` | On their own these create drafts and suggestions only. Every tool that actually posts carries a `write:*` scope **and** additionally requires `write:post` — so holding `write:bank-tx` alone still cannot post anything |
+| Read practice clients, the job taxonomy and logged time | `read:practice` | Safe, read-only. Defaults to the token's own time entries — the whole practice's must be asked for explicitly |
+| Create job categories and work items; log and submit time entries | `write:practice` | Posts nothing to the ledger, but a time entry carries a rate, lands in WIP and is what a client is ultimately invoiced for. Agent-logged hours are always stamped `origin = 'assisted'`, and the rate is resolved server-side — an agent cannot set it. Time can only be logged and submitted for the token's own user |
 | **Post** journals, **finalize** invoices, **allocate** and **reverse** bank transactions | `write:post` | **Irreversible except by a reversing entry.** Off by default — you must tick it explicitly at connect time |
 
 `write:post` is **unchecked by default even if the client asks for it**. Grant it only to

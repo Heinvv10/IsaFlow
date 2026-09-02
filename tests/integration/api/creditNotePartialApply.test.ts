@@ -8,7 +8,7 @@
  * 50 of a 115 note, and un-crediting 115 left it showing 115 outstanding against
  * a true 50, with GREATEST(0, ...) silently absorbing the difference.
  *
- * Migration 527 records applied_amount and cancel reverses THAT. This has to run
+ * Migration 529 records applied_amount and cancel reverses THAT. This has to run
  * against a database: the defect is in the arithmetic two SQL statements perform
  * on a real row, and a mocked sql tag asserts nothing about it.
  *

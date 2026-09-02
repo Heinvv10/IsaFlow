@@ -5,7 +5,7 @@
  * entirely in what reached Postgres and were invisible to the unit suite:
  * `Number(supplierId)` sent NaN to a UUID column, and cancelCreditNote wrote
  * cancelled_by / cancelled_at / cancel_reason, which migration 202 never
- * created (added in 526). The second is the reason the cancel round trip below
+ * created (added in 528). The second is the reason the cancel round trip below
  * is asserted rather than assumed: the failing UPDATE was the LAST statement in
  * cancelCreditNote, so the journal reversal and the invoice un-apply had
  * already committed by the time it threw.
@@ -216,7 +216,7 @@ describe('credit note MCP tools — real round trip', () => {
     const cancelled = J(await inTx(() => cancelCreditNoteTool.handler({ credit_note_id: created.id, reason: 'e2e', idempotency_key: 'k4' }, ctx())));
     expect(cancelled.status).toBe('cancelled');
 
-    // Migration 526: without these columns the UPDATE throws AFTER the journal
+    // Migration 528: without these columns the UPDATE throws AFTER the journal
     // reversal has already committed, stranding a reversed ledger under a note
     // still marked approved.
     const row = await sql`

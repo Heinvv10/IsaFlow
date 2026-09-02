@@ -79,6 +79,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // like list_agent_postings: free for the same reason.
   list_import_batches: null,
   list_journals: null,
+  list_bank_reconciliations: null,
   list_credit_notes: null,
   get_credit_note: null,
 
@@ -98,6 +99,10 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   aged_debtors: null,
   aged_creditors: null,
   vat_status: null,
+  list_practice_clients: null,
+  list_job_categories: null,
+  list_work_items: null,
+  list_time_entries: null,
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',
@@ -133,6 +138,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // rule-created allocation as a set.
   reverse_allocations: null,
   undo_bank_import: null,
+  // Cancelling a session posts nothing and unwinds work the agent may have
+  // created for free — pricing the undo of free work is the wrong incentive.
+  cancel_bank_reconciliation: null,
 
   // ── Chart of accounts: free ──────────────────────────────────────────────
   // The app does not meter COA edits, and these post nothing to the ledger.
@@ -173,6 +181,17 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
 
   // One journal, priced like any other journal creation.
   set_opening_balance: 'journal.create',
+
+  // ── Practice: free ───────────────────────────────────────────────────────
+  // The app meters neither the taxonomy nor time capture, and none of these
+  // post to the ledger. Charging for create_work_item would also put a toll on
+  // the remedy for the state that blocks time entry outright (a category with
+  // no work items), which is the same reason the chart-of-accounts tools are
+  // free. Revenue is recognised when the WIP is invoiced, not when it is typed.
+  create_job_category: null,
+  create_work_item: null,
+  log_time_entry: null,
+  submit_time_entries: null,
 };
 
 /**

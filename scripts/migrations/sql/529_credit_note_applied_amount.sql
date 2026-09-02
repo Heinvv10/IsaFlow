@@ -1,4 +1,4 @@
--- 527: credit_notes.applied_amount — what was ACTUALLY credited to the invoice
+-- 529: credit_notes.applied_amount — what was ACTUALLY credited to the invoice
 --
 -- The apply and un-apply paths disagreed about how much a note is worth.
 --
@@ -30,9 +30,9 @@ UPDATE credit_notes
 SET applied_amount = total_amount
 WHERE status = 'applied' AND applied_amount = 0;
 
--- ── Stranded rows from the pre-526 cancellation bug ─────────────────────────
+-- ── Stranded rows from the pre-528 cancellation bug ─────────────────────────
 --
--- Every pre-526 cancel threw on the final UPDATE, AFTER reverseJournalEntry and
+-- Every pre-528 cancel threw on the final UPDATE, AFTER reverseJournalEntry and
 -- the amount_paid decrement had already committed — so an interrupted attempt
 -- leaves a note still marked approved/applied whose journal is already reversed
 -- and whose invoice was already un-applied. Such a note claims credit the
@@ -48,7 +48,7 @@ WHERE status = 'applied' AND applied_amount = 0;
 UPDATE credit_notes cn
 SET status = 'cancelled',
     cancelled_at = COALESCE(cn.cancelled_at, je.reversed_at),
-    cancel_reason = COALESCE(cn.cancel_reason, 'Completed by migration 527: journal already reversed')
+    cancel_reason = COALESCE(cn.cancel_reason, 'Completed by migration 529: journal already reversed')
 FROM gl_journal_entries je
 WHERE je.id = cn.gl_journal_entry_id
   AND cn.status IN ('approved', 'applied')
