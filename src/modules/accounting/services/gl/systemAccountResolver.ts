@@ -12,6 +12,8 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
+import type { GLAccountType } from '../../types/gl.types';
 
 import type { DbRow } from '@/types/db';
 
@@ -44,6 +46,8 @@ interface CachedAccount {
   accountName: string;
   accountType: string;
   accountSubtype: string;
+  /** Epoch ms of gl_accounts.created_at — the tiebreak between duplicate system rows. */
+  createdAt: number;
 }
 
 interface CompanyCache {
@@ -70,7 +74,7 @@ async function ensureCache(companyId: string): Promise<Map<string, CachedAccount
   }
 
   const rows = (await sql`
-    SELECT id, account_code, account_name, account_type, account_subtype
+    SELECT id, account_code, account_name, account_type, account_subtype, created_at
     FROM gl_accounts
     WHERE company_id = ${companyId}::UUID
       AND is_system_account = true
@@ -79,19 +83,74 @@ async function ensureCache(companyId: string): Promise<Map<string, CachedAccount
   `) as DbRow[];
 
   const map = new Map<string, CachedAccount>();
+  const contested = new Map<string, CachedAccount[]>();
   for (const r of rows) {
     const subtype = String(r.account_subtype);
-    map.set(subtype, {
+    const candidate: CachedAccount = {
       id: String(r.id),
       accountCode: String(r.account_code),
       accountName: String(r.account_name),
       accountType: String(r.account_type),
       accountSubtype: subtype,
-    });
+      createdAt: r.created_at instanceof Date ? r.created_at.getTime()
+        : r.created_at == null ? Number.NaN : Date.parse(String(r.created_at)),
+    };
+    const incumbent = map.get(subtype);
+    if (!incumbent) {
+      map.set(subtype, candidate);
+      continue;
+    }
+    // Two system rows claim the same role. This used to be last-row-wins in
+    // heap order — production (2026-09-02) had Velocity Fibre with two
+    // vat_input system rows, one a LIABILITY named "VAT Payable", and which one
+    // every auto-posting used depended on physical row order. Pick
+    // deterministically instead and shout: a type-consistent row beats a
+    // mistyped one, then the newer row (the one a later import or seed
+    // deliberately put there) beats the older.
+    const winner = preferSystemAccount(incumbent, candidate);
+    map.set(subtype, winner);
+    const list = contested.get(subtype) ?? [incumbent];
+    list.push(candidate);
+    contested.set(subtype, list);
+  }
+  for (const [subtype, candidates] of contested) {
+    if (!RESOLVED_SUBTYPES.has(subtype)) continue; // e.g. payroll_liability: many by design
+    log.error('Duplicate system accounts for one subtype — resolver picked one; fix the chart', {
+      companyId, subtype,
+      picked: map.get(subtype)?.accountCode,
+      candidates: candidates.map((c) => `${c.accountCode} ${c.accountName} (${c.accountType})`),
+    }, 'accounting');
   }
 
   companyCache.set(companyId, { map, loadedAt: Date.now() });
   return map;
+}
+
+/** Subtypes the resolver actually hands out — the only ones a duplicate matters for. */
+const RESOLVED_SUBTYPES: ReadonlySet<string> = new Set<SystemAccountKey>([
+  'bank', 'receivable', 'payable', 'vat_input', 'vat_output', 'retained_earnings',
+  'default_revenue', 'other_income', 'default_expense', 'admin_expense',
+  'accumulated_depreciation', 'depreciation_expense', 'disposal_profit_loss', 'opening_balance_equity',
+]);
+
+/** True when `accountType` may legally carry `subtype` (glAccountSubtypes.ts). */
+export function typeFitsSubtype(accountType: string, subtype: string): boolean {
+  const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType as GLAccountType] as readonly string[] | undefined;
+  return allowed?.includes(subtype) ?? false;
+}
+
+/** Exported for the unit test; deterministic and total over (typeFits, createdAt, id). */
+export function preferSystemAccount(a: CachedAccount, b: CachedAccount): CachedAccount {
+  const fa = typeFitsSubtype(a.accountType, a.accountSubtype);
+  const fb = typeFitsSubtype(b.accountType, b.accountSubtype);
+  if (fa !== fb) return fa ? a : b;
+  // created_at is nullable in the schema. NaN compares false both ways, which
+  // made the outcome depend on argument order — i.e. on fetch order again. An
+  // unknown date ranks OLDEST so a dated row always beats it, symmetrically.
+  const ca = Number.isFinite(a.createdAt) ? a.createdAt : Number.NEGATIVE_INFINITY;
+  const cb = Number.isFinite(b.createdAt) ? b.createdAt : Number.NEGATIVE_INFINITY;
+  if (ca !== cb) return ca > cb ? a : b;
+  return a.id > b.id ? a : b;
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
