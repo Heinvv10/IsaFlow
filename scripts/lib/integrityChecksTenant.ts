@@ -12,6 +12,49 @@ import type { CheckResult, IntegrityCheck, IntegritySql } from './integrityTypes
 import { plural } from './integrityTypes';
 
 export const tenantChecks: IntegrityCheck[] = [
+  // 9b — Exactly one system account per resolved role, and its type must fit.
+  // systemAccountResolver hands these rows to every auto-posting path; a
+  // duplicate made the winner depend on heap order (found in prod 2026-09-02,
+  // migration 525), and a mistyped row (a liability flagged vat_input) posts
+  // VAT to the wrong side of the balance sheet.
+  async (sql: IntegritySql): Promise<CheckResult> => {
+    const rows = (await sql`
+      WITH legal(account_type, account_subtype) AS (
+        VALUES ('asset','bank'), ('asset','receivable'), ('asset','vat_input'),
+               ('asset','accumulated_depreciation'), ('liability','payable'),
+               ('liability','vat_output'), ('equity','retained_earnings'),
+               ('equity','opening_balance_equity'), ('revenue','default_revenue'),
+               ('revenue','other_income'), ('expense','default_expense'),
+               ('expense','admin_expense'), ('expense','depreciation_expense'),
+               ('revenue','disposal_profit_loss'), ('expense','disposal_profit_loss')
+      ),
+      sys AS (
+        SELECT g.company_id, g.account_subtype, g.account_code, g.account_name, g.account_type,
+               EXISTS (SELECT 1 FROM legal l WHERE l.account_type = g.account_type
+                                               AND l.account_subtype = g.account_subtype) AS fits
+        FROM gl_accounts g
+        WHERE g.is_system_account = true AND g.is_active = true
+          AND g.account_subtype IN (SELECT account_subtype FROM legal)
+      )
+      SELECT s.company_id, s.account_subtype, s.account_code, s.account_name, s.account_type,
+             CASE WHEN NOT s.fits THEN 'type mismatch' ELSE 'duplicate' END AS problem
+      FROM sys s
+      WHERE NOT s.fits
+         OR (SELECT COUNT(*) FROM sys d
+             WHERE d.company_id = s.company_id AND d.account_subtype = s.account_subtype) > 1
+      ORDER BY s.company_id, s.account_subtype, s.account_code
+      LIMIT 40
+    `) as Array<Record<string, string>>;
+    if (rows.length === 0) {
+      return { label: 'One system account per role', status: 'pass', detail: '0 duplicate or mistyped system accounts' };
+    }
+    return {
+      label: 'One system account per role', status: 'fail',
+      detail: `${rows.length} system ${plural(rows.length, 'row', 'rows')} share a role with another or carry a subtype their type cannot`,
+      lines: rows.map((r) => `co=${String(r.company_id).slice(0, 8)}  ${r.account_subtype}: ${r.account_code} ${r.account_name} (${r.account_type}) — ${r.problem}`),
+    };
+  },
+
   // 10 — Journal line references a GL account owned by a different company
   async (sql: IntegritySql): Promise<CheckResult> => {
     const rows = (await sql`

@@ -29,6 +29,7 @@ export type GLAccountSubtype =
   | 'default_expense'
   | 'admin_expense'
   | 'depreciation_expense'
+  | 'disposal_profit_loss'
   | 'equity'
   | 'retained_earnings'
   | 'opening_balance_equity'

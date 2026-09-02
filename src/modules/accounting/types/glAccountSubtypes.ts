@@ -31,10 +31,10 @@ export const GL_ACCOUNT_SUBTYPES_BY_TYPE = {
     'payable', 'tax', 'vat_output', 'other_current_liability', 'other',
   ],
   equity: ['equity', 'retained_earnings', 'opening_balance_equity', 'other'],
-  revenue: ['revenue', 'default_revenue', 'other_income', 'other'],
+  revenue: ['revenue', 'default_revenue', 'other_income', 'disposal_profit_loss', 'other'],
   expense: [
     'cost_of_sales', 'operating_expense', 'default_expense', 'admin_expense',
-    'depreciation_expense', 'other',
+    'depreciation_expense', 'disposal_profit_loss', 'other',
   ],
 } as const satisfies Record<GLAccountType, readonly GLAccountSubtype[]>;
 
@@ -51,7 +51,7 @@ export const SYSTEM_RESERVED_SUBTYPES: readonly GLAccountSubtype[] = [
   'vat_input', 'vat_output', 'receivable', 'payable', 'retained_earnings',
   'opening_balance_equity',
   'default_revenue', 'other_income', 'default_expense', 'admin_expense',
-  'accumulated_depreciation', 'depreciation_expense',
+  'accumulated_depreciation', 'depreciation_expense', 'disposal_profit_loss',
 ];
 
 /** Every subtype any account_type may carry, flattened. */
