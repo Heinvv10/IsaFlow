@@ -150,6 +150,36 @@ arithmetic is right.
   make the UI call it too, in the same PR.
 - Return the definition you used in `figureBasis`.
 
+### The figure registry
+
+`src/lib/mcp/contracts/figures.ts` names every shared figure, its **one owning
+service function**, what it includes and what it deliberately excludes. Call
+`figureBasis('ar.subledger.v1')` — it **throws** on an unknown id, because a
+typo'd basis is worse than none: it looks authoritative in a response someone is
+using to decide whether two reports agree.
+
+A test asserts that every named owner actually exists and is exported. A
+definition pointing at a function that isn't there reads as settled and isn't.
+
+**Two figures that should be equal are still two figures.** `ar.subledger.v1`
+(the sum of open invoices) and `ar.control.v1` (the GL control account balance)
+are separate entries on purpose. Collapsing them into one "AR" destroys the only
+thing that can detect a reconciliation break — the gap between them on
+Brightsphere was R1,429,774, and `reconcile_subledger` exists to measure exactly
+that. It cannot, if they share an implementation. The same holds for
+`equity.residual.v1` and `equity.ledger.v1`: a balance sheet that balances only
+because equity is the plug proves nothing, and reporting both is what exposes the
+R8.46m of retained earnings with no journal lines behind it.
+
+**Unowned figures are assigned, not orphaned.** `cash.balance.v1`, `ar.control.v1`,
+`ap.control.v1` and `equity.ledger.v1` have `owner: null` and list their competing
+implementations in `contested`. The workstream that first needs the figure settles
+it, removes the duplicates, and fills in the owner **in the same PR**. Cash goes to
+W3, the control accounts and equity to W2.
+
+Adding a figure: add it here in the PR that computes it, with a real owner. A
+definition with no owner and no assigned workstream is a promise, not a contract.
+
 If you find yourself writing an aggregate that another workstream also needs,
 stop and raise it with the integrator. Duplicating it is the failure this
 programme was commissioned to fix.

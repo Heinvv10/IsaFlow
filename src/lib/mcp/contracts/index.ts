@@ -10,3 +10,4 @@ export * from './cursor';
 export * from './mutation';
 export * from './actor';
 export * from './externalRef';
+export * from './figures';
