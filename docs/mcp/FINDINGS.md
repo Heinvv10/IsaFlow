@@ -162,6 +162,51 @@ report and a finding.
 
 ---
 
+## A-payroll. The statutory exposure, re-derived from the production ledger
+
+The specification says "R2.72m salaries understated" and treats payroll as an
+absent module. Both are wrong. The module is real and unused, and the exposure is
+**4.7x larger** than stated.
+
+### R12,807,325.13 of salaries posted with no payroll run behind any of it
+
+| Company | Account | Net posted | Route |
+|---|---|---|---|
+| Velocity Fibre | `49784360 Salaries & Wages - EX4000` | R7,734,785.71 | 217 bank allocations |
+| Velocity Fibre | `49784353 COS - Casual wages - EX2009` | R2,327,887.50 | 116 bank allocations + 143 supplier invoices |
+| Brightsphere | `34024641 Salaries & Wages` | R2,744,651.92 | 211 bank allocations |
+| | **total** | **R12,807,325.13** | **544 bank allocations, 143 supplier invoices** |
+
+A further R106,843.88 sits in DRAFT on Brightsphere and is correctly excluded.
+The 143 supplier invoices are to an unnamed "Casuals".
+
+### And no statutory liability was ever raised. Zero, not "understated"
+
+Every one of these carries **zero journal lines on both companies**:
+`2140 PAYE Payable`, `2150 UIF Payable`, `2160 SDL Payable`,
+`2170 Net Salaries Payable`, `2175 Other Employee Deductions Payable`. Likewise
+Brightsphere's `2102 PAYE Liability` and `5200`/`6001 Salaries & Wages`, and
+Velocity's `49784361 Workmans Compensation`.
+
+Zero `payroll_run_headers` and zero `payroll_employees` on both companies. All 127
+`auto_payroll` journals in the database belong to ISAFlow Demo. There are 87 pay
+runs in the system, not 86 — Dotbiz has one — and every one is demo data.
+
+So net pay was coded straight to an expense account by bank allocation, 544 times,
+and no PAYE, UIF or SDL was ever computed, raised or remitted against R12.8m of
+employment cost.
+
+### R399,735.97 of input VAT claimed on salary payments
+
+R400,388.14 DR less R652.17 CR, across 30 of the 217 Velocity salary journals.
+Those journals touch only three bank accounts, the salary account and VAT Input.
+
+**Salaries are not a VATable supply.** This is not a classification argument — it
+is input tax claimed on something that cannot carry it, and it is a direct
+over-claim against SARS on top of the R5.1m box-15 defect already recorded.
+
+---
+
 ## B. Defects found that the specification never mentions
 
 These are the ones that matter most: nobody was looking for them.
