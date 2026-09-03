@@ -12,8 +12,8 @@ import {
   listGlAccountsTool,
   profitAndLossTool,
   searchGlTool,
-  trialBalanceTool,
 } from './tools/reports';
+import { trialBalanceTool } from './tools/reportsTrialBalance';
 import { getInvoiceTool, listInvoicesTool, listQuotesTool } from './tools/invoices';
 import { listCustomersTool, listSuppliersTool } from './tools/contacts';
 import { bankAccountsStatusTool, listBankTransactionsTool } from './tools/bank';

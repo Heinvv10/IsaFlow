@@ -5,7 +5,6 @@
  */
 import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
-import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
@@ -22,35 +21,14 @@ import {
   startIndexAfter,
 } from './glAccountCursor';
 
-export const trialBalanceTool: McpTool = {
-  name: 'trial_balance',
-  description:
-    'Trial balance for the connected company for a fiscal period (defaults to the period containing today). Amounts in the company base currency.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      fiscal_period_id: {
-        type: 'string',
-        description: 'Fiscal period UUID; defaults to the period containing today',
-      },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { uuid: ['fiscal_period_id'] });
-    if (bad) return bad;
-    const periodId =
-      strArg(args, 'fiscal_period_id') ??
-      (await getFiscalPeriodIdForDate(ctx.companyId, new Date()));
-    if (!periodId) {
-      return toolError('No fiscal period covers today. Provide fiscal_period_id explicitly.');
-    }
-    const rows = await getTrialBalance(ctx.companyId, periodId);
-    return ok({ fiscal_period_id: periodId, rows });
-  },
-};
+/**
+ * `trial_balance` moved to `reportsTrialBalance.ts` when it became a WRAP of
+ * `getTrialBalanceReport`. The version that lived here called `getTrialBalance`
+ * with a single fiscal_period_id and returned bare rows — a period-MOVEMENT
+ * listing wearing a trial balance's name, which is how 7 of 118 accounts came
+ * to be stamped "Difference R0.00 · Balanced". It is not re-exported: nothing
+ * should be able to reach it by accident.
+ */
 
 export const profitAndLossTool: McpTool = {
   name: 'profit_and_loss',

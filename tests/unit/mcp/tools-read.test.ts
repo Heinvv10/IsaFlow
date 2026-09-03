@@ -26,7 +26,15 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/trialBalanceService', () => ({ getTrialBalance: vi.fn() }));
+// Spread the real module rather than enumerating its exports. This stub broke
+// the moment trial_balance became a WRAP of getTrialBalanceReport, and it also
+// has to carry the exported BALANCE_TOLERANCE the tool reports back. Enumerating
+// makes every new export a test failure in a file that does not care about it.
+vi.mock('@/modules/accounting/services/gl/trialBalanceService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/trialBalanceService')>()),
+  getTrialBalance: vi.fn(),
+  getTrialBalanceReport: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({ getFiscalPeriodIdForDate: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/incomeStatementService', () => ({ getIncomeStatement: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ getBalanceSheet: vi.fn() }));
@@ -70,7 +78,7 @@ import {
   getCreditNoteById,
 } from '@/modules/accounting/services/ar/creditNoteService';
 import { getCompany } from '@/modules/accounting/services/core/companyService';
-import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
+import { getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
@@ -150,11 +158,21 @@ describe('company_profile', () => {
 describe('reports tools', () => {
   it('trial_balance defaults to the fiscal period containing today', async () => {
     vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue('fp-1');
-    vi.mocked(getTrialBalance).mockResolvedValue([{ accountCode: '1000' }] as never);
+    vi.mocked(getTrialBalanceReport).mockResolvedValue({
+      fiscalPeriodId: 'fp-1', rows: [{ accountCode: '1000', accountName: 'Bank' }],
+      accountCount: 1, totalDebit: 100, totalCredit: 100, difference: 0, balanced: true,
+      periodStart: '2026-03-01', periodEnd: '2026-03-31', fiscalYearStart: '2026-03-01',
+      costCentreId: null,
+    } as never);
     const data = parseOk(await tool('trial_balance').handler({}, ctx())) as Record<string, unknown>;
     expect(getFiscalPeriodIdForDate).toHaveBeenCalledWith(COMPANY_ID, expect.any(Date));
-    expect(getTrialBalance).toHaveBeenCalledWith(COMPANY_ID, 'fp-1');
+    expect(getTrialBalanceReport).toHaveBeenCalledWith(COMPANY_ID, 'fp-1', expect.any(Object));
     expect(data.fiscal_period_id).toBe('fp-1');
+    // The assertion, and the scope it covers, both come from the SERVICE.
+    // Recomputing either here is the defect this tool exists to stop repeating.
+    expect(data.balanced).toBe(true);
+    expect(data.difference).toBe(0);
+    expect(data.accountCount).toBe(1);
   });
 
   it('profit_and_loss requires both dates and passes companyId first', async () => {
@@ -496,7 +514,11 @@ describe('suite-wide invariants', () => {
     // Feed every service mock innocuous data, run every tool, scan everything.
     vi.mocked(getCompany).mockResolvedValue({ name: 'Co' } as never);
     vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue('fp-1');
-    vi.mocked(getTrialBalance).mockResolvedValue([] as never);
+    vi.mocked(getTrialBalanceReport).mockResolvedValue({
+      fiscalPeriodId: 'fp-1', rows: [], accountCount: 0, totalDebit: 0, totalCredit: 0,
+      difference: 0, balanced: true, periodStart: '2026-03-01', periodEnd: '2026-03-31',
+      fiscalYearStart: '2026-03-01', costCentreId: null,
+    } as never);
     vi.mocked(getIncomeStatement).mockResolvedValue({} as never);
     vi.mocked(getBalanceSheet).mockResolvedValue({} as never);
     vi.mocked(getARAging).mockResolvedValue([] as never);

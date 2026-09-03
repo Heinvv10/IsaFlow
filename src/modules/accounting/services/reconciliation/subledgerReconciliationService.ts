@@ -144,7 +144,7 @@ export async function reconcileSubledger(
 
     const cash =
       controlAccounts.length === 0
-        ? { withPaymentRecord: [], withoutPaymentRecord: [], total: 0, postedThrough: null }
+        ? { withPaymentRecord: [], appliedRecords: [], withoutPaymentRecord: [], total: 0, postedThrough: null }
         : await getUnappliedControlCash(
             companyId,
             role,
