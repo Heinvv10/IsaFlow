@@ -61,6 +61,18 @@ describe('classifyAccount', () => {
     expect(classifyAccount(acct({ postedLines: 0, balance: 0 }))).not.toContain('inactive_with_balance');
   });
 
+  /**
+   * `chartOfAccountsHealthService` reads the balance through
+   * `COALESCE(p.balance, 0)` on a LEFT JOIN LATERAL, which collapses "no
+   * postings" and "postings that net to zero" into the same 0. The distinction
+   * survives ONLY because `never_posted` keys off postedLines and not off the
+   * balance. If it ever keys off the balance, an account that has been posted
+   * to all year and happens to net to zero is reported as never used.
+   */
+  it('does not call an account with netting postings "never posted"', () => {
+    expect(classifyAccount(acct({ postedLines: 40, balance: 0 }))).toEqual([]);
+  });
+
   it('reports a deactivated account that still carries a balance', () => {
     // Brightsphere 1121 Loan Account — Blitz Fibre, R130,000, dropped from a
     // Caseware export by an is_active filter and out of balance by exactly that.

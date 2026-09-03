@@ -69,10 +69,22 @@ async function seed(client: PoolClient): Promise<string> {
   const vatIn = await account('1200', 'VAT Input', 'asset', 'vat_input');
   const revenue = await account('4000', 'Sales', 'revenue', 'default_revenue');
   const cos = await account('5000', 'Cost of Sales — Materials', 'expense', 'default_expense');
+  // Velocity's ACTUAL shape: eight cost-of-sales accounts with NO SUBTYPE AT
+  // ALL. `NULL <> 'cost_of_sales'` evaluates to NULL, not TRUE, so a predicate
+  // without COALESCE drops every one of them and the check reports a clean
+  // book. Verified against production: 8 accounts with the COALESCE, 0
+  // without, hiding R81,852,355.20.
+  const cosNoSubtype = await account('5001', 'COS - Direct Material', 'expense', null);
   const clearing = await account('1150', 'Interbank Transfer Clearing', 'asset', 'other_current_asset');
   const clearing2 = await account('1151', 'Payment Suspense', 'asset', 'other_current_asset');
   const dormant = await account('1121', 'Loan Account — dormant', 'asset', 'other_current_asset', false);
   const loan = await account('1300', 'Loan Account — in credit', 'asset', 'other_current_asset');
+  // Brightsphere 1120 "Accounts Receivable": an asset with NO SUBTYPE carrying
+  // a R10,000 credit — the QA Test Customer balance the audit named. The
+  // accumulated-depreciation exclusion must COALESCE, or `NULL <>
+  // 'accumulated_depreciation'` is NULL and this account is dropped along with
+  // the finding.
+  const arNoSubtype = await account('1122', 'Accounts Receivable — untyped', 'asset', null);
   const equity = await account('3000', 'Share Capital', 'equity', 'equity');
   // An ordinary expense, so the cost-of-sales figure is exactly what was seeded.
   const opex = await account('6000', 'Office Costs', 'expense', 'operating_expense');
@@ -153,7 +165,9 @@ async function seed(client: PoolClient): Promise<string> {
   // 5 / 6 / 7 / 8 — the four chart-of-accounts shapes.
   await journal('JE-DORMANT', '2026-05-01', 'manual', [[dormant, 130000, 0, null], [revenue, 0, 130000, null]]);
   await journal('JE-LOANCR', '2026-05-02', 'manual', [[loan, 0, 4847978.30, null], [revenue, 4847978.30, 0, null]]);
+  await journal('JE-ARCR', '2026-05-02', 'manual', [[arNoSubtype, 0, 10000, null], [revenue, 10000, 0, null]]);
   await journal('JE-COS', '2026-05-03', 'manual', [[cos, 574253.66, 0, null], [bank, 0, 574253.66, null]]);
+  await journal('JE-COS2', '2026-05-03', 'manual', [[cosNoSubtype, 11.11, 0, null], [bank, 0, 11.11, null]]);
   await journal('JE-CLEARING', '2026-05-04', 'manual', [[clearing, 14081940.13, 0, null], [bank, 0, 14081940.13, null]]);
   // A SECOND non-nil clearing account, so a check that reports its own sample
   // size as the count can be caught. With limit 1 the sample is one row and the
@@ -258,8 +272,9 @@ describe('runIntegrityChecks against a real ledger', () => {
       expect(by(report.checks, 'journal_date_differs_from_bank_date')).toMatchObject({ count: 1 });
       expect(by(report.checks, 'duplicate_bank_references')).toMatchObject({ count: 1, amount: 300 });
       expect(by(report.checks, 'deactivated_accounts_with_balance')).toMatchObject({ count: 1, amount: 130000 });
-      expect(by(report.checks, 'asset_accounts_with_credit_balance')).toMatchObject({ count: 1, amount: -4847978.3 });
-      expect(by(report.checks, 'cost_of_sales_typed_as_expense')).toMatchObject({ count: 1, amount: 574253.66 });
+      expect(by(report.checks, 'asset_accounts_with_credit_balance')).toMatchObject({ count: 2, amount: -4857978.3 });
+      // BOTH shapes: typed default_expense, and typed nothing at all.
+      expect(by(report.checks, 'cost_of_sales_typed_as_expense')).toMatchObject({ count: 2, amount: 574264.77 });
       expect(by(report.checks, 'clearing_accounts_not_nil')).toMatchObject({ count: 2, amount: 14081947.9 });
       expect(by(report.checks, 'duplicate_control_accounts').count).toBe(2);
       expect(by(report.checks, 'documents_outside_open_period')).toMatchObject({ count: 1 });
@@ -286,6 +301,89 @@ describe('runIntegrityChecks against a real ledger', () => {
       const control = by(report.checks, 'duplicate_control_accounts');
       expect(control.sample).toHaveLength(1);
       expect(control.count).toBe(2);
+    });
+  });
+
+  /**
+   * NULL IS THE FINDING, AND A BARE COMPARISON DROPS IT.
+   *
+   * These three predicates each COALESCE a NULL before comparing it, and every
+   * one of them is load-bearing in the REVEALING direction — the opposite of
+   * the usual COALESCE hazard. Verified against production:
+   *
+   *   - `COALESCE(account_subtype, '') <> 'cost_of_sales'` finds 8 Velocity
+   *     accounts holding R81,852,355.20. Without it: 0, because
+   *     `NULL <> 'cost_of_sales'` is NULL, not TRUE.
+   *   - `COALESCE(suggested_vat_code, 'no_vat') = 'no_vat'` finds 3,247
+   *     transactions across both companies. EVERY ONE of them has a NULL code,
+   *     so without it the check finds nothing at all.
+   *
+   * A future cleanup removing either reads as tidying and silently returns a
+   * clean bill of health on the two largest findings in the suite. Hence these
+   * tests.
+   */
+  it('finds a cost-of-sales account with NO subtype, not only a mistyped one', async () => {
+    if (!dbUp) return;
+    await withFixture(async (companyId) => {
+      const report = await runIntegrityChecks(companyId, {
+        asAt: AS_AT, limit: 20, checks: ['cost_of_sales_typed_as_expense'],
+      });
+      const check = by(report.checks, 'cost_of_sales_typed_as_expense');
+      expect(check.count).toBe(2);
+      expect(check.sample.map((r) => r.label)).toContain('5001 COS - Direct Material');
+      expect(check.sample.find((r) => r.label.startsWith('5001'))?.detail).toContain('no subtype');
+    });
+  });
+
+  it('finds an asset account in credit that has no subtype at all', async () => {
+    if (!dbUp) return;
+    await withFixture(async (companyId) => {
+      // Removing the COALESCE from the accumulated-depreciation exclusion takes
+      // Brightsphere's 1120 "Accounts Receivable" and its R10,000 credit — the
+      // QA Test Customer balance — out of the production result: 9 accounts
+      // become 8, and R9,809,698.79 becomes R9,799,698.79.
+      const report = await runIntegrityChecks(companyId, {
+        asAt: AS_AT, checks: ['asset_accounts_with_credit_balance'],
+      });
+      const check = by(report.checks, 'asset_accounts_with_credit_balance');
+      expect(check.count).toBe(2);
+      expect(check.sample.map((r) => r.label)).toContain('1122 Accounts Receivable — untyped');
+    });
+  });
+
+  it('finds a bank transaction whose displayed VAT code is NULL, not only one that says no_vat', async () => {
+    if (!dbUp) return;
+    await withFixture(async (companyId) => {
+      // BT-VATCLAIM carries suggested_vat_code NULL, which is how all 3,247
+      // production rows look. "Shows nothing" and "says no VAT" are the same
+      // thing to a reader and must be the same thing to the check.
+      const report = await runIntegrityChecks(companyId, {
+        asAt: AS_AT, checks: ['vat_displayed_differs_from_posted'],
+      });
+      const check = by(report.checks, 'vat_displayed_differs_from_posted');
+      expect(check.count).toBe(1);
+      expect(check.sample[0]?.detail).toContain('displayed "No VAT"');
+    });
+  });
+
+  /**
+   * A predicate in a LEFT JOIN ON clause restricts nothing — unmatched rows
+   * survive with NULL columns. `kpiChartsService` put `is_active` and
+   * `account_subtype` in a LEFT JOIN ON and summed every bank transaction
+   * regardless of account. Here the failure inverts: moving
+   * `fp.status IN ('closed','locked')` from WHERE into the ON clause makes
+   * EVERY journal match with fp.id NULL, and the `fp.id IS NULL` arm then flags
+   * the entire ledger.
+   */
+  it('restricts on the fiscal period in WHERE, not in the LEFT JOIN ON clause', async () => {
+    if (!dbUp) return;
+    await withFixture(async (companyId) => {
+      const report = await runIntegrityChecks(companyId, {
+        asAt: AS_AT, checks: ['documents_outside_open_period'],
+      });
+      // Exactly one journal sits in the closed period. Every other fixture
+      // journal is in the open one and must not be flagged.
+      expect(by(report.checks, 'documents_outside_open_period').count).toBe(1);
     });
   });
 
