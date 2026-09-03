@@ -186,9 +186,13 @@ export const reconcileSubledgerTool: McpTool = {
       posted_through: rec.postedThrough ?? NO_LEDGER_READ,
       next_cursor: nextCursor,
       excludedRows: rec.excludedRows,
-      // Rows here are produced BY the reconciler; nothing is filtered out of a
-      // wider candidate set, so the universe is exactly what was accounted for.
-      universeTotal: rowsTotal + rec.excludedRows.length,
+      // universeTotal is DELIBERATELY ABSENT. There is no wider candidate set
+      // here: these rows are PRODUCED by the report, not selected out of a
+      // pool, so any universe would have to be synthesized from the very
+      // numbers the envelope checks against it — `rowsTotal + excludedRows`.
+      // That is the anti-pattern CONTRACTS.md §1 names, and it cannot fail
+      // whatever this code did. An absent completeness claim is honest; one
+      // that cannot fail is worse than none, because it reads as verification.
       figureBasis: figureBasis(subledger === 'ap' ? 'ap.subledger.v1' : 'ar.subledger.v1'),
     });
 

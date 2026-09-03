@@ -218,4 +218,16 @@ describe('aged_creditors', () => {
     expect((body.rows as Array<{ id: string }>).map((r) => r.id)).toEqual(['b1']);
     expect(body.total).toBe(900);
   });
+
+  it('makes NO completeness claim it cannot fail, on either shape', async () => {
+    const body = payload(await agedCreditorsTool.handler({ as_at: '2026-08-31' }, CTX));
+    // universeTotal must be absent here. These rows are produced by the report,
+    // not selected from a wider pool, so any universe would be synthesized from
+    // the very numbers the envelope checks against it — an identity that cannot
+    // fail whatever the code did. CONTRACTS.md §1 names that anti-pattern, and
+    // an absent claim is honest where one that always passes reads as
+    // verification.
+    expect(body).not.toHaveProperty('universeTotal');
+    expect(body).not.toHaveProperty('completenessFault');
+  });
 });

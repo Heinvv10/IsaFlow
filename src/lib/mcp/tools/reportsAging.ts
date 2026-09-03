@@ -134,7 +134,13 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
       detail,
       as_at: asAt,
       posted_through: postedThrough,
-      universeTotal: one.invoices.length,
+      // universeTotal is DELIBERATELY ABSENT. There is no wider candidate set
+      // here: these rows are PRODUCED by the report, not selected out of a
+      // pool, so any universe would have to be synthesized from the very
+      // numbers the envelope checks against it — `rowsTotal + excludedRows`.
+      // That is the anti-pattern CONTRACTS.md §1 names, and it cannot fail
+      // whatever this code did. An absent completeness claim is honest; one
+      // that cannot fail is worse than none, because it reads as verification.
       figureBasis: figureBasis(side.figure),
     });
     return ok({
@@ -169,8 +175,13 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
     as_at: asAt,
     posted_through: postedThrough,
     next_cursor: nextCursor,
-    // Every entity the aging returned is served; nothing is classified out.
-    universeTotal: ordered.length,
+    // universeTotal is DELIBERATELY ABSENT. There is no wider candidate set
+    // here: these rows are PRODUCED by the report, not selected out of a
+    // pool, so any universe would have to be synthesized from the very
+    // numbers the envelope checks against it — `rowsTotal + excludedRows`.
+    // That is the anti-pattern CONTRACTS.md §1 names, and it cannot fail
+    // whatever this code did. An absent completeness claim is honest; one
+    // that cannot fail is worse than none, because it reads as verification.
     figureBasis: figureBasis(side.figure),
   });
 

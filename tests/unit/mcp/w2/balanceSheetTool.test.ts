@@ -216,4 +216,16 @@ describe('balance_sheet', () => {
     expect(d).toContain('tautology');
     expect(d).toContain('queried from the equity accounts rather than injected');
   });
+
+  it('makes NO completeness claim it cannot fail', async () => {
+    const body = payload(await balanceSheetTool.handler({ as_at: '2026-08-31' }, CTX));
+    // universeTotal must be absent here. These rows are produced by the report,
+    // not selected from a wider pool, so any universe would be synthesized from
+    // the very numbers the envelope checks against it — an identity that cannot
+    // fail whatever the code did. CONTRACTS.md §1 names that anti-pattern, and
+    // an absent claim is honest where one that always passes reads as
+    // verification.
+    expect(body).not.toHaveProperty('universeTotal');
+    expect(body).not.toHaveProperty('completenessFault');
+  });
 });

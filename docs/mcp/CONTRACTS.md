@@ -87,6 +87,37 @@ derived from the very numbers it is supposed to check?**
 `universeTotal` is **required on every assurance report**. Omit it only on a
 listing where completeness is not a claim being made.
 
+**`universeTotal` must be INDEPENDENTLY DERIVED, or omitted.** This is the rule
+the paragraph above implies and W2 broke in four places before a blind review
+caught one of them.
+
+`universeTotal: rowsTotal + excludedRows.length` synthesizes the universe from
+the two numbers the envelope checks against it. The identity then holds whatever
+the report did — including in `reconcile_subledger`, the endpoint whose own
+description warns callers that a zero can be satisfied by construction. The same
+shape appears as `universeTotal: rows.length` beside `rowsTotal: rows.length`,
+and as `excludedTotal: universeTotal - rowsTotal`.
+
+So:
+
+- If there IS a wider candidate set, **count it separately**.
+  `general_ledger` runs a second unfiltered scan for exactly this reason: a count
+  taken over the matched set is a filtered count by construction.
+- If the rows are **produced** by the report rather than selected from a pool —
+  reconciling items, computed statement lines, aggregated buckets — there is no
+  universe, and `universeTotal` must be **omitted**. An absent completeness
+  claim is honest. One that cannot fail is worse than none, because it reads as
+  verification.
+- Never compute `excludedTotal` as `universeTotal - rowsTotal`. If the only
+  reason rows are missing is a display cap, that is **truncation**, which
+  `truncated` already reports — not an exclusion.
+
+And note the limit even when it is done right: an exclusion that is only
+COUNTED, never enumerated, makes the identity **informational rather than a
+check**. It tells a reader "this is a subset of N", which is worth having; it
+cannot detect a wrong N. Only an independently enumerated `excludedRows` makes
+the arithmetic capable of failing.
+
 `universeTotal` is now **echoed back** on the envelope, not merely consumed. It
 used to be an input this module checked and nobody else could see, so a reader
 looking at `truncated: false` and an empty `excludedRows` had no way to ask "out

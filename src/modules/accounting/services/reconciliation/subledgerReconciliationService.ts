@@ -56,6 +56,7 @@ import { getUnappliedControlCash } from './unappliedCashService';
 import { getUnpostedSubledgerDocuments } from './unpostedDocumentService';
 import { getAgedReportTotal } from './agedReportTotal';
 import { getSettlementFlagged, type SettlementFlagged } from './settlementFlagService';
+import { getLedgerPostedThrough } from '../reports/postedThroughService';
 import {
   buildAgedBridgeItems,
   buildControlBridgeItems,
@@ -140,6 +141,16 @@ export async function reconcileSubledger(
     const snapshot = await readSubledger(companyId, role, asAtDate);
     const agedTotal = await getAgedReportTotal(companyId, role, asAtDate);
     const settlementFlagged = await getSettlementFlagged(companyId, role, asAtDate);
+    // The LEDGER side of posted_through. Half this endpoint's answer is
+    // `controlAccountBalance`, read from the journals, and the subledger's own
+    // MAX(created_at) says nothing about them: a journal posted to a control
+    // account after the newest document, dated on or before as_at, moves the
+    // difference while leaving posted_through untouched. The contract's
+    // invariant — same as_at plus same posted_through reproduces the same
+    // figures — would then be false in the one endpoint where the control side
+    // IS the question. Same function every other report uses; one definition of
+    // how fresh a figure is.
+    const ledgerPostedThrough = await getLedgerPostedThrough(companyId, asAtDate);
 
     const excludedRows: SubledgerReconciliation['excludedRows'] = [];
     // A control balance of zero and NO control account are different facts.
@@ -176,7 +187,9 @@ export async function reconcileSubledger(
         difference: null,
         reconcilingItems: [],
         unexplainedDifference: null,
-        postedThrough: null,
+        // The GL side is still reported for these roles, so its freshness is
+        // still a claim this response makes.
+        postedThrough: ledgerPostedThrough,
       };
     }
 
@@ -224,7 +237,10 @@ export async function reconcileSubledger(
       difference,
       reconcilingItems: items,
       unexplainedDifference: unexplained,
-      postedThrough: laterOf(snapshot.postedThrough, cash.postedThrough),
+      postedThrough: laterOf(
+        laterOf(snapshot.postedThrough, cash.postedThrough),
+        ledgerPostedThrough,
+      ),
     };
   } catch (err) {
     log.error('Failed to reconcile subledger', { role, error: err }, 'accounting');

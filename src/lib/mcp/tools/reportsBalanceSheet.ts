@@ -154,9 +154,13 @@ export const balanceSheetTool: McpTool = {
       detail,
       as_at: asAt,
       posted_through: postedThrough,
-      // Every line the service returned is served; nothing is classified out,
-      // so the universe is exactly what was reported.
-      universeTotal: rows.length,
+      // universeTotal is DELIBERATELY ABSENT. There is no wider candidate set
+      // here: these rows are PRODUCED by the report, not selected out of a
+      // pool, so any universe would have to be synthesized from the very
+      // numbers the envelope checks against it — `rowsTotal + excludedRows`.
+      // That is the anti-pattern CONTRACTS.md §1 names, and it cannot fail
+      // whatever this code did. An absent completeness claim is honest; one
+      // that cannot fail is worse than none, because it reads as verification.
     });
 
     const prior =

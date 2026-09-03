@@ -209,4 +209,16 @@ describe('reconcile_subledger', () => {
     expect(d).toContain('ATTRIBUTION');
     expect(d).toContain('must not be added to them');
   });
+
+  it('makes NO completeness claim it cannot fail', async () => {
+    const body = payload(await reconcileSubledgerTool.handler({ subledger: 'ar' }, CTX));
+    // universeTotal must be absent here. These rows are produced by the report,
+    // not selected from a wider pool, so any universe would be synthesized from
+    // the very numbers the envelope checks against it — an identity that cannot
+    // fail whatever the code did. CONTRACTS.md §1 names that anti-pattern, and
+    // an absent claim is honest where one that always passes reads as
+    // verification.
+    expect(body).not.toHaveProperty('universeTotal');
+    expect(body).not.toHaveProperty('completenessFault');
+  });
 });

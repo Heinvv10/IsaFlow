@@ -36,12 +36,16 @@ vi.mock('@/modules/accounting/services/reconciliation/unpostedDocumentService', 
 vi.mock('@/modules/accounting/services/reconciliation/agedReportTotal', () => ({
   getAgedReportTotal: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
+  getLedgerPostedThrough: vi.fn(),
+}));
 
 import { getControlAccountBalances } from '@/modules/accounting/services/gl/controlAccountService';
 import { getARSubledger } from '@/modules/accounting/services/ar/arSubledgerService';
 import { getUnappliedControlCash } from '@/modules/accounting/services/reconciliation/unappliedCashService';
 import { getUnpostedSubledgerDocuments } from '@/modules/accounting/services/reconciliation/unpostedDocumentService';
 import { getAgedReportTotal } from '@/modules/accounting/services/reconciliation/agedReportTotal';
+import { getLedgerPostedThrough } from '@/modules/accounting/services/reports/postedThroughService';
 import { reconcileSubledger } from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -77,6 +81,7 @@ beforeEach(() => {
   // Default: the aged report agrees with the subledger, so the aged bridge is
   // empty and a test that does not care about it is not paying for one.
   vi.mocked(getAgedReportTotal).mockReset().mockResolvedValue(1000);
+  vi.mocked(getLedgerPostedThrough).mockReset().mockResolvedValue('2026-01-01T00:00:00.000Z');
 });
 
 describe('reconcileSubledger — AR', () => {
@@ -315,5 +320,35 @@ describe('reconcileSubledger — subledgers with no document-level source', () =
     expect(rec.subledgerUnavailable).toMatchObject({ reason: 'no_subledger_source' });
     expect(rec.controlAccounts).toHaveLength(1);
     expect(rec.reconcilingItems).toEqual([]);
+  });
+
+  it('carries the LEDGER side in posted_through, not just the documents', async () => {
+    // The contract's invariant is that the same as_at plus the same
+    // posted_through reproduces the same figures. Half this endpoint's answer
+    // is `controlAccountBalance`, read from the journals — so a journal posted
+    // to a control account AFTER the subledger's last write, dated on or before
+    // as_at, moves the difference while leaving posted_through untouched. The
+    // figure changes and nothing says it could have.
+    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl()]);
+    vi.mocked(getARSubledger).mockResolvedValue(
+      arSnapshot({ postedThrough: '2026-01-01T00:00:00.000Z' }) as never,
+    );
+    // The ledger has moved since the newest document and the newest receipt.
+    vi.mocked(getLedgerPostedThrough).mockResolvedValue('2026-09-03T10:42:46.155Z');
+
+    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
+    expect(rec.postedThrough).toBe('2026-09-03T10:42:46.155Z');
+    expect(vi.mocked(getLedgerPostedThrough).mock.calls[0]).toEqual([COMPANY, AS_AT]);
+  });
+
+  it('still takes the LATER of the two when the documents are fresher', async () => {
+    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl()]);
+    vi.mocked(getARSubledger).mockResolvedValue(
+      arSnapshot({ postedThrough: '2026-09-03T23:00:00.000Z' }) as never,
+    );
+    vi.mocked(getLedgerPostedThrough).mockResolvedValue('2026-09-03T10:42:46.155Z');
+
+    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
+    expect(rec.postedThrough).toBe('2026-09-03T23:00:00.000Z');
   });
 });

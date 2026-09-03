@@ -162,14 +162,20 @@ export const profitAndLossTool: McpTool = {
 
     const envelope = buildEnvelope({
       rows: detail === 'summary' ? [] : rows,
-      rowsTotal: rows.length,
+      // The COMPLETE count of unclassified accounts, from the coverage query —
+      // not `rows.length`, which is the capped sample. `truncated` then means
+      // what it says, and the cap is reported as truncation rather than
+      // dressed up as an exclusion.
+      rowsTotal: universeTotal,
       detail,
       as_at: periodEnd,
       posted_through: postedThrough,
+      // Independently derived: it is the coverage service's own count, not
+      // `rowsTotal + excluded` computed back from the numbers being checked.
+      // `excludedTotal` is deliberately NOT passed — nothing is excluded here,
+      // the list is truncated, and computing it as `universeTotal - rowsTotal`
+      // is the anti-pattern CONTRACTS.md §1 names.
       universeTotal,
-      // The named list is capped; the COUNT is complete. Without this the
-      // identity would raise a fault whose cause is the cap, not lost rows.
-      excludedTotal: Math.max(universeTotal - rows.length, 0),
     });
 
     const sideOut = (side: CoverageSide) => ({

@@ -226,4 +226,33 @@ describe('profit_and_loss', () => {
     }
     expect(vi.mocked(getFinancialFigures)).not.toHaveBeenCalled();
   });
+
+  it('derives universeTotal from the coverage COUNT, not from the rows it served', async () => {
+    // The list of named accounts is capped at 50. rowsTotal must be the
+    // service's own complete count, so `truncated` means what it says and the
+    // cap is reported as truncation rather than dressed up as an exclusion.
+    // Computing excludedTotal as `universeTotal - rowsTotal` is the anti-pattern
+    // CONTRACTS.md §1 names: it passes unconditionally, having proved nothing.
+    vi.mocked(getClassificationCoverage).mockResolvedValue({
+      revenue: {
+        totalAmount: 100, classifiedAmount: 0, unclassifiedAmount: 100,
+        unclassifiedAccountCount: 300,
+        accounts: [{ accountId: 'a', accountCode: '4000', accountName: 'Sales', accountSubtype: null, amount: 100 }],
+        truncated: true,
+      },
+      expense: {
+        totalAmount: 0, classifiedAmount: 0, unclassifiedAmount: 0,
+        unclassifiedAccountCount: 0, accounts: [], truncated: false,
+      },
+    } as never);
+    const body = payload(await profitAndLossTool.handler(
+      { period_start: '2026-03-01', period_end: '2026-03-31' }, CTX,
+    ));
+    assertEnvelopeSound(body as never);
+    expect(body.rowsTotal).toBe(300);
+    expect(body.universeTotal).toBe(300);
+    expect(body.rowsReturned).toBe(1);
+    expect(body.truncated).toBe(true);
+    expect(body).not.toHaveProperty('excludedTotal');
+  });
 });
