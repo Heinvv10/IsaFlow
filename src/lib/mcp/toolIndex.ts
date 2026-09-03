@@ -33,6 +33,8 @@ import {
   updateSupplierTool,
 } from './tools/writeContacts';
 import { vatStatusTool } from './tools/vat';
+import { chartOfAccountsHealthTool, dataIntegrityChecksTool } from './tools/integrity';
+import { lockVatPeriodTool, vat201ExportTool, vatReconciliationTool } from './tools/vatReports';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import { auditTrailTool } from './tools/auditTrail';
 import {
@@ -103,7 +105,7 @@ import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (43)
+  // read (47)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -122,6 +124,10 @@ export const MCP_TOOLS = [
   listBankTransactionsTool,
   getMatchCandidatesTool,
   vatStatusTool,
+  vatReconciliationTool,
+  vat201ExportTool,
+  dataIntegrityChecksTool,
+  chartOfAccountsHealthTool,
   listAgentPostingsTool,
   // Governance (W5). audit_trail supersedes list_agent_postings, which stays
   // registered: it is on the wire and agents are mid-flight against it.
@@ -151,7 +157,7 @@ export const MCP_TOOLS = [
   periodCloseChecklistTool,
   bankStatementCoverageTool,
   getOpeningBalancesTool,
-  // write (43) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // write (44) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -205,6 +211,9 @@ export const MCP_TOOLS = [
   reopenFiscalPeriodTool,
   yearEndCloseTool,
   performBankReconciliationTool,
+  // Records that a VAT period has been filed. requiresPost because it freezes
+  // a filed return: a control an agent can set without write:post is not one.
+  lockVatPeriodTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

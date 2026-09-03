@@ -1,0 +1,24 @@
+# Files where `is_active` filters a query that computes a balance, as at
+# 2026-09-03. Another session is sweeping these; the guard fails on any file NOT
+# listed here, so no new offender can be added while the list shrinks.
+#
+# casewareExportService is the confirmed one: it dropped a dormant account
+# carrying R130,000 and left the export out of balance by exactly that.
+# kpiChartsService carried the predicate in a LEFT JOIN ON clause, where it
+# restricted nothing at all and the cash trend summed every transaction.
+#
+# Delete a line when the file is clean. Delete the FILE when the sweep is done —
+# the guard then fails on the first offence anywhere.
+pages/api/accounting/budget-vs-actual-export.ts
+pages/api/accounting/dashboard-stats.ts
+pages/api/accounting/reports-budget-vs-actual.ts
+pages/api/accounting/reports/cash-movement.ts
+src/modules/accounting/services/afs/noteGenerators/noteHelpers.ts
+src/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers.ts
+src/modules/accounting/services/gl/closeReadinessChecks/openingBalanceEquityCheck.ts
+src/modules/accounting/services/reports/casewareExportService.ts
+src/modules/accounting/services/reports/cashFlowForecastDataService.ts
+src/modules/accounting/services/reports/consolidatedReportingService.ts
+src/modules/accounting/services/reports/kpiChartsService.ts
+src/modules/accounting/services/reports/kpiDashboardService.ts
+src/modules/bureau/services/bureauClientMetricsService.ts
