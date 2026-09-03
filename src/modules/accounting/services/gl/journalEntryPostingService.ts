@@ -35,6 +35,50 @@ export class ClosedFiscalPeriodError extends Error {
   }
 }
 
+/**
+ * Thrown when an entry targets a GL account that has been deactivated.
+ * Carries the offending account codes so a caller can act on them, and is
+ * `instanceof`-matchable for the same reason ClosedFiscalPeriodError is:
+ * automated posters decide swallow-vs-re-throw on the class, not the wording.
+ */
+export class InactiveAccountError extends Error {
+  readonly accounts: string[];
+  constructor(accounts: { code: string; name: string }[]) {
+    const listed = accounts.map((a) => `${a.code} ${a.name}`).join(', ');
+    super(
+      `Cannot post to deactivated GL account${accounts.length === 1 ? '' : 's'}: ${listed}. ` +
+        `Reactivate the account, or recode the line to an active one.`,
+    );
+    this.name = 'InactiveAccountError';
+    this.accounts = accounts.map((a) => a.code);
+  }
+}
+
+/**
+ * Refuse if any line of `entryId` targets a deactivated GL account.
+ *
+ * Exported because two paths post with a direct UPDATE instead of calling
+ * postJournalEntry, and both must still enforce this. postJournalEntry is the
+ * canonical posting path; anything calling this directly is diverging from it
+ * and should say why.
+ */
+export async function assertNoInactiveAccountLines(companyId: string, entryId: string): Promise<void> {
+  const inactiveRows = (await sql`
+    SELECT DISTINCT ga.account_code, ga.account_name
+    FROM gl_journal_lines jl
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
+    WHERE jl.journal_entry_id = ${entryId}
+      AND jl.company_id = ${companyId}::UUID
+      AND ga.is_active = false
+    ORDER BY ga.account_code
+  `) as Row[];
+  if (inactiveRows.length > 0) {
+    throw new InactiveAccountError(
+      inactiveRows.map((r) => ({ code: String(r.account_code), name: String(r.account_name) })),
+    );
+  }
+}
+
 export async function postJournalEntry(companyId: string, id: string, userId: string): Promise<JournalEntry> {
   try {
     const entry = await getJournalEntryById(companyId, id);
@@ -59,6 +103,18 @@ export async function postJournalEntry(companyId: string, id: string, userId: st
       })));
       if (!validation.valid) throw new Error(`Entry not balanced: ${validation.errors.join('; ')}`);
     }
+
+    // A deactivated account must not accept a new posting. is_active means the
+    // account has been withdrawn from the chart, so posting to it contradicts
+    // the flag outright -- and it is the one route by which an account can end
+    // up inactive AND holding money despite the balance guard on
+    // updateAccount/deleteAccount: deactivate while only drafts exist (balance
+    // 0, correctly allowed), then post the draft.
+    //
+    // Refuse the WHOLE entry. Skipping the offending line would leave the
+    // journal unbalanced, and the refusal has to land before the UPDATE so the
+    // surrounding transaction commits nothing (the 400-after-write class).
+    await assertNoInactiveAccountLines(companyId, id);
 
     const safePostUserId = await resolveUserUuid(userId);
     const rows = (await sql`

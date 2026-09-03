@@ -7,6 +7,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Scale, Loader2, AlertCircle, Download, Building2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { TBSummaryCards, TBBalanceFooter } from '@/components/accounting/group/TBSummaryCards';
+import { TBConsolidationWarnings } from '@/components/accounting/group/TBConsolidationWarnings';
+import type { UnmappedEntity } from '@/components/accounting/group/TBConsolidationWarnings';
 
 interface EntityBalance { debit: number; credit: number }
 
@@ -22,7 +24,12 @@ interface ConsolidatedTBRow {
 }
 
 interface ConsolidatedTBResponse {
-  rows: ConsolidatedTBRow[];
+  /**
+   * CANONICAL KEY. This page read `rows`, which the service has never returned,
+   * so `data.rows.length` threw on any group that had data. Only production's
+   * single fully-unmapped group hid it.
+   */
+  groupAccounts: ConsolidatedTBRow[];
   entityNames: { [companyId: string]: string };
   totals: {
     entities: { [companyId: string]: EntityBalance };
@@ -31,6 +38,16 @@ interface ConsolidatedTBResponse {
     consolidatedDebit: number;
     consolidatedCredit: number;
   };
+  accountCount: number;
+  difference: number;
+  /** Authoritative — see getConsolidatedTrialBalance. Never recompute it here. */
+  balanced: boolean;
+  unmapped: {
+    accountCount: number;
+    value: number;
+    byEntity: UnmappedEntity[];
+  };
+  coterminous: boolean;
 }
 
 interface EntityGroup { id: string; name: string }
@@ -38,9 +55,21 @@ interface EntityGroup { id: string; name: string }
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
+/**
+ * Local calendar date as YYYY-MM-DD. Never `.toISOString()`: this host runs in
+ * SAST (UTC+2), so before 02:00 that reports the PREVIOUS day — see
+ * src/lib/pgTypes.ts.
+ */
+const localIso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** South African fiscal year start (1 March), which is what every company here uses. */
+const FY_START_MONTH = 3;
+
 const today = new Date();
-const defaultPeriodStart = `${today.getFullYear()}-01-01`;
-const defaultPeriodEnd = today.toISOString().substring(0, 10);
+const fyYear = today.getMonth() + 1 >= FY_START_MONTH ? today.getFullYear() : today.getFullYear() - 1;
+const defaultPeriodStart = `${fyYear}-${String(FY_START_MONTH).padStart(2, '0')}-01`;
+const defaultPeriodEnd = localIso(today);
 const cls = 'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
 
 export default function ConsolidatedTrialBalancePage() {
@@ -83,18 +112,19 @@ export default function ConsolidatedTrialBalancePage() {
 
   const totals = data?.totals;
 
-  const consolidatedBalanced = useMemo(() => {
-    if (!totals) return true;
-    return Math.abs(totals.consolidatedDebit - totals.consolidatedCredit) < 0.02;
-  }, [totals]);
+  // Authoritative, from getConsolidatedTrialBalance. Recomputing it here with a
+  // 0.02 slop was a fifth independent "balanced" check that could disagree with
+  // the report it was labelling.
+  const consolidatedBalanced = data?.balanced === true;
+  const difference = data?.difference ?? 0;
 
   const handleExport = useCallback(() => {
-    if (!data || data.rows.length === 0) return;
+    if (!data || data.groupAccounts.length === 0) return;
     const headerCols = ['Group Account Code', 'Account Name', 'Account Type'];
     entityIds.forEach(eid => { const name = data.entityNames[eid] || eid; headerCols.push(`${name} Debit`, `${name} Credit`); });
     headerCols.push('Eliminations Debit', 'Eliminations Credit', 'Consolidated Debit', 'Consolidated Credit');
     const csvRows: string[] = [headerCols.map(c => `"${c}"`).join(',')];
-    for (const row of data.rows) {
+    for (const row of data.groupAccounts) {
       const cols: string[] = [`"${row.groupAccountCode}"`, `"${row.groupAccountName}"`, `"${row.accountType}"`];
       entityIds.forEach(eid => { const eb = row.entities[eid]; cols.push(String(eb?.debit ?? 0), String(eb?.credit ?? 0)); });
       cols.push(String(row.eliminationDebit), String(row.eliminationCredit), String(row.consolidatedDebit), String(row.consolidatedCredit));
@@ -125,7 +155,7 @@ export default function ConsolidatedTrialBalancePage() {
               <div className="p-2 rounded-lg bg-indigo-500/10"><Building2 className="h-6 w-6 text-indigo-500" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Consolidated Trial Balance</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Multi-entity trial balance with elimination entries</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">Multi-entity balances with elimination entries — balance-sheet accounts cumulative to the end date, income-statement accounts over the range</p>
               </div>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
@@ -135,7 +165,7 @@ export default function ConsolidatedTrialBalancePage() {
               </select>
               <input type="date" value={periodStart} onChange={e => setPeriodStart(e.target.value)} className={cls} />
               <input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className={cls} />
-              <button onClick={handleExport} disabled={!data || data.rows.length === 0}
+              <button onClick={handleExport} disabled={!data || data.groupAccounts.length === 0}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
               </button>
@@ -144,15 +174,23 @@ export default function ConsolidatedTrialBalancePage() {
         </div>
 
         <div className="p-6">
-          {!loading && data && data.rows.length > 0 && totals && (
-            <TBSummaryCards totals={totals} consolidatedBalanced={consolidatedBalanced} />
+          {!loading && data && (
+            <TBConsolidationWarnings unmapped={data.unmapped} coterminous={data.coterminous} />
+          )}
+
+          {!loading && data && data.groupAccounts.length > 0 && totals && (
+            <TBSummaryCards
+              totals={totals}
+              consolidatedBalanced={consolidatedBalanced}
+              difference={difference}
+            />
           )}
 
           {loading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-indigo-500" /></div>
           ) : error ? (
             <div className="flex items-center gap-2 text-red-400 py-8 justify-center"><AlertCircle className="h-5 w-5" /><span>{error}</span></div>
-          ) : !data || data.rows.length === 0 ? (
+          ) : !data || data.groupAccounts.length === 0 ? (
             <div className="text-center py-12">
               <Scale className="h-12 w-12 text-[var(--ff-text-tertiary)] mx-auto mb-3" />
               <p className="text-[var(--ff-text-secondary)]">No consolidated trial balance data</p>
@@ -187,7 +225,7 @@ export default function ConsolidatedTrialBalancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.rows.map(row => {
+                  {data.groupAccounts.map(row => {
                     const elimRow = hasElimination(row);
                     const unmapped = isUnmapped(row);
                     const rowBg = unmapped ? 'bg-red-500/10' : elimRow ? 'bg-amber-500/5' : '';
@@ -240,12 +278,12 @@ export default function ConsolidatedTrialBalancePage() {
             </div>
           )}
 
-          {!loading && data && data.rows.length > 0 && totals && (
+          {!loading && data && data.groupAccounts.length > 0 && totals && (
             <TBBalanceFooter
-              totals={totals}
               consolidatedBalanced={consolidatedBalanced}
-              hasUnmapped={data.rows.some(isUnmapped)}
-              hasEliminations={data.rows.some(hasElimination)}
+              difference={difference}
+              hasUnmapped={(data.unmapped?.accountCount ?? 0) > 0}
+              hasEliminations={data.groupAccounts.some(hasElimination)}
             />
           )}
         </div>

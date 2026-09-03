@@ -29,7 +29,11 @@ export function ReportsTab() {
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [trialBalance, setTrialBalance] = useState<TrialBalanceRow[]>([]);
-  const [totals, setTotals] = useState({ debit: 0, credit: 0 });
+  // `difference` and `balanced` come from the API, which gets them from
+  // getTrialBalanceReport. Comparing the two totals here with `!==` treated
+  // sub-cent float noise as an out-of-balance ledger, and — worse — asserted a
+  // balance over whatever subset of accounts happened to be returned.
+  const [totals, setTotals] = useState({ debit: 0, credit: 0, difference: 0, balanced: true });
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => { void loadPeriods(); }, []);
@@ -54,7 +58,12 @@ export function ReportsTab() {
       const data = await res.json();
       const payload = data.data || data;
       setTrialBalance(payload.rows || []);
-      setTotals({ debit: payload.totalDebit || 0, credit: payload.totalCredit || 0 });
+      setTotals({
+        debit: payload.totalDebit || 0,
+        credit: payload.totalCredit || 0,
+        difference: payload.difference || 0,
+        balanced: payload.balanced === true,
+      });
     } catch (err) {
       log.error('Failed to load trial balance', { error: err }, 'accounting-ui');
     } finally {
@@ -141,13 +150,13 @@ export function ReportsTab() {
                   <td className="px-6 py-3 text-sm text-right font-bold text-[var(--ff-text-primary)]">{fmtCurrency(totals.debit)}</td>
                   <td className="px-6 py-3 text-sm text-right font-bold text-[var(--ff-text-primary)]">{fmtCurrency(totals.credit)}</td>
                 </tr>
-                {totals.debit !== totals.credit && (
+                {!totals.balanced && (
                   <tr className="bg-red-500/10">
                     <td colSpan={3} className="px-6 py-2 text-xs font-medium text-red-400 flex items-center gap-1">
                       <AlertCircle className="h-3 w-3" /> Out of balance
                     </td>
                     <td colSpan={2} className="px-6 py-2 text-xs text-right text-red-400">
-                      Difference: {fmtCurrency(Math.abs(totals.debit - totals.credit))}
+                      Difference: {fmtCurrency(Math.abs(totals.difference))}
                     </td>
                   </tr>
                 )}

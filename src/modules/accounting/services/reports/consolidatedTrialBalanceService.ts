@@ -1,37 +1,19 @@
 /**
  * Consolidated Trial Balance Service
  *
- * Shared types, shared DB helpers, and the consolidated trial balance generator.
+ * Shared types and shared DB helpers for consolidated reporting.
+ * The trial balance generator itself lives in consolidatedTrialBalanceReport.ts
+ * and is re-exported here so existing import sites keep working.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { log } from '@/lib/logger';
 
 type Row = DbRow;
 
 // ── Shared Types ──────────────────────────────────────────────────────────────
 
 export interface EntityBalance { debit: number; credit: number; }
-
-interface ConsolidatedTrialBalanceRow {
-  groupAccountId: string; accountCode: string; accountName: string; accountType: string;
-  entities: Record<string, EntityBalance>;
-  eliminationDebit: number; eliminationCredit: number;
-  consolidatedDebit: number; consolidatedCredit: number;
-}
-
-interface ConsolidatedTrialBalanceTotals {
-  entities: Record<string, EntityBalance>;
-  eliminationDebit: number; eliminationCredit: number;
-  consolidatedDebit: number; consolidatedCredit: number;
-}
-
-export interface ConsolidatedTrialBalance {
-  groupId: string; periodStart: string; periodEnd: string;
-  groupAccounts: ConsolidatedTrialBalanceRow[];
-  totals: ConsolidatedTrialBalanceTotals;
-}
 
 export interface ConsolidatedLineItem {
   groupAccountId: string; accountCode: string; accountName: string;
@@ -132,6 +114,8 @@ export async function getCoaMappingsForCompanies(
 
 export interface EliminationLineWithAccount {
   groupAccountId: string; groupAccountCode: string; groupAccountName: string;
+  /** Group account type — decides whether an elimination accumulates or resets each year. */
+  groupAccountType: string;
   debit: number; credit: number;
 }
 
@@ -149,12 +133,13 @@ export async function getPostedEliminations(
     const lines = typeof adj.lines === 'string' ? JSON.parse(adj.lines) : adj.lines;
     for (const line of lines) {
       const gaRows = (await sql`
-        SELECT id, account_code, account_name FROM group_accounts WHERE id = ${line.groupAccountId}::UUID
+        SELECT id, account_code, account_name, account_type FROM group_accounts WHERE id = ${line.groupAccountId}::UUID
       `) as Row[];
       if (gaRows.length > 0) {
         allLines.push({
           groupAccountId: String(gaRows[0]!.id), groupAccountCode: String(gaRows[0]!.account_code),
           groupAccountName: String(gaRows[0]!.account_name),
+          groupAccountType: String(gaRows[0]!.account_type ?? ''),
           debit: Number(line.debit || 0), credit: Number(line.credit || 0),
         });
       }
@@ -165,89 +150,5 @@ export async function getPostedEliminations(
 
 // ── Consolidated Trial Balance ─────────────────────────────────────────────────
 
-export async function getConsolidatedTrialBalance(
-  groupId: string, periodStart: string, periodEnd: string
-): Promise<ConsolidatedTrialBalance> {
-  try {
-    const members = await getGroupMembers(groupId);
-    const accountMap = new Map<string, ConsolidatedTrialBalanceRow>();
-
-    // Preload all CoA mappings in a single query to avoid N+1 round-trips
-    const allMappings = await getCoaMappingsForCompanies(groupId, members.map((m) => m.companyId));
-
-    for (const member of members) {
-      const mappings = allMappings.get(member.companyId) ?? new Map<string, MappingEntry>();
-      const rows = (await sql`
-        SELECT ga.id AS account_id,
-               COALESCE(SUM(jl.debit), 0) AS total_debit,
-               COALESCE(SUM(jl.credit), 0) AS total_credit
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE je.status = 'posted'
-          AND je.company_id = ${member.companyId}::UUID
-          AND jl.company_id = ${member.companyId}::UUID
-          AND ga.company_id = ${member.companyId}::UUID
-          AND je.entry_date >= ${periodStart} AND je.entry_date <= ${periodEnd}
-        GROUP BY ga.id
-        HAVING COALESCE(SUM(jl.debit), 0) != 0 OR COALESCE(SUM(jl.credit), 0) != 0
-      `) as Row[];
-
-      for (const r of rows) {
-        const mapping = mappings.get(String(r.account_id));
-        if (!mapping) continue;
-        const debit = Number(r.total_debit); const credit = Number(r.total_credit);
-        let entry = accountMap.get(mapping.groupAccountId);
-        if (!entry) {
-          entry = {
-            groupAccountId: mapping.groupAccountId, accountCode: mapping.groupAccountCode,
-            accountName: mapping.groupAccountName, accountType: mapping.groupAccountType,
-            entities: {}, eliminationDebit: 0, eliminationCredit: 0, consolidatedDebit: 0, consolidatedCredit: 0,
-          };
-          accountMap.set(mapping.groupAccountId, entry);
-        }
-        if (!entry.entities[member.companyId]) entry.entities[member.companyId] = { debit: 0, credit: 0 };
-        entry.entities[member.companyId]!.debit += debit;
-        entry.entities[member.companyId]!.credit += credit;
-      }
-    }
-
-    for (const elim of await getPostedEliminations(groupId, periodStart, periodEnd)) {
-      let entry = accountMap.get(elim.groupAccountId);
-      if (!entry) {
-        entry = {
-          groupAccountId: elim.groupAccountId, accountCode: elim.groupAccountCode,
-          accountName: elim.groupAccountName, accountType: '',
-          entities: {}, eliminationDebit: 0, eliminationCredit: 0, consolidatedDebit: 0, consolidatedCredit: 0,
-        };
-        accountMap.set(elim.groupAccountId, entry);
-      }
-      entry.eliminationDebit += elim.debit;
-      entry.eliminationCredit += elim.credit;
-    }
-
-    const groupAccounts: ConsolidatedTrialBalanceRow[] = [];
-    const totals: ConsolidatedTrialBalanceTotals = { entities: {}, eliminationDebit: 0, eliminationCredit: 0, consolidatedDebit: 0, consolidatedCredit: 0 };
-
-    for (const entry of accountMap.values()) {
-      let entityDebitSum = 0, entityCreditSum = 0;
-      for (const [companyId, bal] of Object.entries(entry.entities)) {
-        entityDebitSum += bal.debit; entityCreditSum += bal.credit;
-        if (!totals.entities[companyId]) totals.entities[companyId] = { debit: 0, credit: 0 };
-        totals.entities[companyId]!.debit += bal.debit;
-        totals.entities[companyId]!.credit += bal.credit;
-      }
-      entry.consolidatedDebit = entityDebitSum + entry.eliminationDebit;
-      entry.consolidatedCredit = entityCreditSum + entry.eliminationCredit;
-      totals.eliminationDebit += entry.eliminationDebit; totals.eliminationCredit += entry.eliminationCredit;
-      totals.consolidatedDebit += entry.consolidatedDebit; totals.consolidatedCredit += entry.consolidatedCredit;
-      groupAccounts.push(entry);
-    }
-
-    groupAccounts.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
-    return { groupId, periodStart, periodEnd, groupAccounts, totals };
-  } catch (err) {
-    log.error('Failed to generate consolidated trial balance', { groupId, error: err }, 'accounting');
-    throw err;
-  }
-}
+export { getConsolidatedTrialBalance } from './consolidatedTrialBalanceReport';
+export type { ConsolidatedTrialBalance } from './consolidatedTrialBalanceReport';

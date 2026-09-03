@@ -20,6 +20,16 @@ vi.mock('@/lib/neon', () => {
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+// Retained earnings resolves through the system-account resolver, not a name
+// match — see yearEndRetainedEarnings.test.ts for that contract.
+const getSystemAccountCandidatesMock = vi.fn();
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', async (importOriginal) => ({
+  // Spread the real module rather than enumerating exports: a partial mock that
+  // hand-lists them breaks the moment the module gains one, and it fails
+  // looking like the production code is broken instead of the mock being stale.
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/systemAccountResolver')>()),
+  getSystemAccountCandidates: (...a: unknown[]) => getSystemAccountCandidatesMock(...a),
+}));
 
 import { sql, withTransaction } from '@/lib/neon';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
@@ -231,10 +241,12 @@ describe('yearEndService — tenant isolation (S-002)', () => {
       sqlMock.mockResolvedValueOnce([
         { id: 'exp-acc-001', account_code: '6000', account_name: 'Cost of Sales', balance: '600' },
       ]);
-      // call 4: app_settings for retained_earnings_account
-      sqlMock.mockResolvedValueOnce([{ value: '3200' }]);
-      // call 5: gl_accounts for retained earnings
-      sqlMock.mockResolvedValueOnce([{ id: RE_ACCOUNT_ID }]);
+      // Retained earnings comes from the system-account resolver, so it costs
+      // no sql call here.
+      getSystemAccountCandidatesMock.mockResolvedValue([{
+        id: RE_ACCOUNT_ID, accountCode: '3200', accountName: 'Retained Earnings',
+        accountType: 'equity', accountSubtype: 'retained_earnings', createdAt: 0,
+      }]);
       // withTransaction inner calls (insert journal entry + lines + lock)
       const txMock = sqlMock;
       (withTransaction as ReturnType<typeof vi.fn>).mockImplementationOnce(

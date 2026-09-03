@@ -128,7 +128,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const accounts = await getBankAccountsStatus(companyId);
+    // Active-only by default: this endpoint also feeds the account pickers on
+    // bank-transactions/new and bank/statements/import-pdf, and a retired
+    // account must not be offered for coding. Balance views opt in.
+    const includeInactive = req.query.include_inactive === 'true';
+    const accounts = await getBankAccountsStatus(companyId, { includeInactive });
 
     return apiResponse.success(res, accounts);
   } catch (err) {

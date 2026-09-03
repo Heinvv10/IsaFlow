@@ -41,10 +41,13 @@ vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: vi.fn(async () => true) }));
 // ── Mock client builder ──────────────────────────────────────────────────────
 function makeClient(opts: {
   events: string[];
-  membershipRows?: Array<{ role: string }>;
+  membershipRows?: Array<{ role: string; account_user_id: string | null; is_active: boolean | null; status: string | null; suspended_at: Date | null }>;
   commitThrows?: boolean;
 }): MockClient {
-  const membershipRows = opts.membershipRows ?? [{ role: 'admin' }];
+  // Default: an active member. The membership lookup now LEFT JOINs
+  // public.users, so the row must carry the account-standing columns or
+  // withAuth denies before the handler runs.
+  const membershipRows = opts.membershipRows ?? [{ role: 'admin', account_user_id: 'user-1', is_active: true, status: 'active', suspended_at: null }];
   return {
     query: vi.fn(async (text: string) => {
       const verb = typeof text === 'string' ? text.trim().split(/\s+/)[0]!.toUpperCase() : 'PARAM';

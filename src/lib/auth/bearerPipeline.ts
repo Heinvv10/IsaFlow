@@ -22,6 +22,7 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
 
 /**
  * Auto rate-limit table — must stay in sync with the equivalent table in
@@ -141,13 +142,27 @@ export async function runBearerRequest(
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
     await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [ctx.companyId]);
 
-    // Belt-and-braces membership check — same posture as withAuth. Catches
-    // the case where a user's company access was revoked since the token was
-    // minted (we don't auto-revoke tokens on company_users delete).
-    let membership: { rows: Array<{ role: string }> };
+    // Belt-and-braces membership + account-standing check — same posture as
+    // withAuth. Catches the case where a user's company access was revoked
+    // since the token was minted (we don't auto-revoke tokens on company_users
+    // delete), and the case where the user was suspended (suspendUser flips
+    // users.is_active/suspended_at but does not revoke PATs or OAuth grants,
+    // so without the join a suspended user's MCP token keeps writing to the
+    // ledger). LEFT JOIN so a membership with no profile behind it is denied
+    // by the predicate rather than looking like a missing membership.
+    type MembershipRow = UserAccountRow & { role: string; account_user_id: string | null };
+    let membership: { rows: MembershipRow[] };
     try {
-      membership = await client.query<{ role: string }>(
-        `SELECT role FROM company_users WHERE user_id = $1::text AND company_id = $2::uuid LIMIT 1`,
+      membership = await client.query<MembershipRow>(
+        `SELECT cu.role,
+                u.id AS account_user_id,
+                u.is_active,
+                u.status,
+                u.suspended_at
+           FROM company_users cu
+           LEFT JOIN users u ON u.id = cu.user_id
+          WHERE cu.user_id = $1::text AND cu.company_id = $2::uuid
+          LIMIT 1`,
         [ctx.userId, ctx.companyId],
       );
     } catch (err) {
@@ -170,6 +185,26 @@ export async function runBearerRequest(
       res
         .status(403)
         .json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
+      return;
+    }
+
+    // Two distinct refusals — a missing profile is a broken data state, not a
+    // suspension, and must not be reported as one.
+    const account = membership.rows[0]!;
+    if (account.account_user_id === null) {
+      await client.query('ROLLBACK');
+      log.warn('bearerPipeline: membership has no users profile', {
+        userId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method, url: req.url,
+      }, 'Auth');
+      res.status(403).json({ success: false, error: { ...MISSING_PROFILE_ERROR } });
+      return;
+    }
+    if (!isActiveUserAccount(account)) {
+      await client.query('ROLLBACK');
+      log.warn('bearerPipeline: account not in good standing', {
+        userId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method, url: req.url,
+      }, 'Auth');
+      res.status(403).json({ success: false, error: { ...SUSPENDED_ACCOUNT_ERROR } });
       return;
     }
 

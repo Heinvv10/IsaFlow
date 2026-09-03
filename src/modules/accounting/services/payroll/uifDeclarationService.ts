@@ -8,6 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateUIF } from './uifEngine';
 import { getTaxYear } from './taxTables';
+import { UI19_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 import { getAccountByCode } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
@@ -108,6 +109,9 @@ export async function getUifDeclaration(
 
   const decl = mapDeclaration(rows[0]);
   const taxYear = getTaxYear(decl.periodMonth, decl.periodYear);
+  // Bound as an array rather than inlined literals so the vocabulary lives in
+  // exactly one place (@/lib/constants/payrollRunStatuses).
+  const declarableStatuses: string[] = [...UI19_DECLARABLE_STATUSES];
 
   // Pull per-employee lines from the payroll run for this period
   const lineRows = (await sql`
@@ -125,7 +129,7 @@ export async function getUifDeclaration(
     WHERE prh.company_id = ${companyId}::uuid
       AND prh.period_year  = ${decl.periodYear}
       AND prh.period_month = ${decl.periodMonth}
-      AND prh.status IN ('calculated', 'approved', 'paid')
+      AND prh.status = ANY(${declarableStatuses}::text[])
     ORDER BY pe.employee_number
   `) as Row[];
 
@@ -157,6 +161,8 @@ export async function generateUifDeclaration(
 ): Promise<UifDeclaration> {
   log.info('Generating UIF declaration', { companyId, year, month }, 'uifDeclarationService');
 
+  const declarableStatuses: string[] = [...UI19_DECLARABLE_STATUSES];
+
   // Aggregate from payroll run lines for the period
   const aggRows = (await sql`
     SELECT
@@ -168,7 +174,7 @@ export async function generateUifDeclaration(
     WHERE prh.company_id  = ${companyId}::uuid
       AND prh.period_year  = ${year}
       AND prh.period_month = ${month}
-      AND prh.status IN ('calculated', 'approved', 'paid')
+      AND prh.status = ANY(${declarableStatuses}::text[])
   `) as Row[];
 
   const agg = aggRows[0];

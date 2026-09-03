@@ -575,6 +575,27 @@ export async function listConnectedApps(userId: string, companyId: string): Prom
   }));
 }
 
+/**
+ * Revoke EVERY live OAuth authorisation belonging to a user, across all their
+ * companies and every connected app. Counterpart to revokeAllUserPats; used by
+ * suspendUser. validateOauthAccessToken filters on `revoked_at IS NULL`, so
+ * both the access token and any refresh flow stop at the next request.
+ *
+ * Returns the number of authorisations actually revoked.
+ */
+export async function revokeAllUserAuthorisations(userId: string): Promise<number> {
+  const rows = (await sql`
+    UPDATE oauth_authorisations
+    SET revoked_at = NOW()
+    WHERE user_id = ${userId}
+      AND revoked_at IS NULL
+    RETURNING id
+  `) as Row[];
+
+  if (rows.length > 0) log.info('All OAuth authorisations revoked for user', { userId, count: rows.length }, 'oauth');
+  return rows.length;
+}
+
 export async function revokeAuthorisation(
   authorisationId: string,
   userId: string,

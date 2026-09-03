@@ -41,6 +41,19 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
   }
 
+  // DELIBERATELY UNGATED for account standing — this is not an oversight.
+  //
+  // Every other verifyToken() caller consults `requireActiveAccount` (see
+  // src/lib/auth/userAccountStatus.ts). This one must not, because `callerId`
+  // here is the IMPERSONATED TARGET, not the admin. The realistic sequence is
+  // an admin impersonating a user to investigate, then suspending them —
+  // gating on the caller would strand that admin holding a suspended user's
+  // cookies with no route back to their own session.
+  //
+  // Nothing is lost by allowing it: this endpoint only restores the admin's
+  // stashed session, and that restored session is itself gated by withAuth and
+  // withPlatformAdmin. The other end is closed too — userImpersonationService
+  // refuses to START impersonation of an inactive target (TARGET_INACTIVE).
   let callerId: string;
   try {
     const claims = await verifyToken(accessToken);

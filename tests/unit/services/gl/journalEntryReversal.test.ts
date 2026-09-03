@@ -99,6 +99,8 @@ describe('reverseJournalEntry — semantics', () => {
     // then reverseJournalEntry's two link-back UPDATEs.
     mockSql
       .mockResolvedValueOnce([{ status: 'open' }])
+      // postJournalEntry's inactive-account guard: none on the contra
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ entry_number: 'JE-2026-00002', status: 'posted' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
@@ -142,6 +144,8 @@ describe('reverseJournalEntry — contra attribution', () => {
     mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID, entryNumber: 'JE-2026-00002' });
     mockSql
       .mockResolvedValueOnce([{ status: 'open' }])
+      // postJournalEntry's inactive-account guard: none on the contra
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ entry_number: 'JE-2026-00002', status: 'posted' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);

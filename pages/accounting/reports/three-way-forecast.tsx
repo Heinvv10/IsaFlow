@@ -9,6 +9,10 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, TrendingUp, Loader2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import {
+  DataQualityNotice,
+  type UnclassifiedWarning,
+} from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
@@ -46,6 +50,7 @@ export default function ThreeWayForecastPage() {
   const [taxRate, setTaxRate] = useState(27);
   const [forecast, setForecast] = useState<ForecastResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('pnl');
 
   const runForecast = useCallback(async () => {
@@ -61,6 +66,7 @@ export default function ThreeWayForecastPage() {
       });
       const res = await apiFetch(`/api/accounting/reports-three-way-forecast?${params}`).then(r => r.json());
       if (res.data?.forecast) setForecast(res.data.forecast);
+      setUnclassified(res.data?.unclassifiedAccounts ?? null);
     } catch (err) { log.error('Failed to run forecast', { error: err instanceof Error ? err.message : String(err) }); }
     finally { setLoading(false); }
   }, [months, revenueGrowth, cosGrowth, opexGrowth, capex, taxRate]);
@@ -98,6 +104,7 @@ export default function ThreeWayForecastPage() {
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">
+          <DataQualityNotice unclassifiedAccounts={unclassified} />
           {/* Parameter Panel */}
           <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
             <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Forecast Parameters</h2>

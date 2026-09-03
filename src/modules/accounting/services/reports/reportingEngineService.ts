@@ -40,12 +40,23 @@ export interface RatioResult {
   operatingProfitMargin: number;
   currentRatio: number;
   quickRatio: number;
-  debtToEquity: number;
+  /** null when equity is <= 0 — see `notMeaningful`. */
+  debtToEquity: number | null;
   returnOnAssets: number;
-  returnOnEquity: number;
+  /** null when equity is <= 0 — see `notMeaningful`. */
+  returnOnEquity: number | null;
   debtorDays: number;
   creditorDays: number;
   inventoryTurnover: number;
+  /**
+   * Ratios that could not be computed, keyed by field name, with the reason.
+   *
+   * A ratio dividing by equity is arithmetically meaningless once equity is
+   * zero or negative, and reporting a number anyway is worse than reporting
+   * nothing: with `lowerIsBetter`, an insolvent company's negative
+   * debt-to-equity scores as the healthiest possible reading (AN-07).
+   */
+  notMeaningful: Record<string, string>;
 }
 
 export interface ExtendedRatioResult extends RatioResult {
@@ -58,7 +69,8 @@ export interface ExtendedRatioResult extends RatioResult {
   // Leverage
   interestCoverage: number;
   debtRatio: number;
-  equityMultiplier: number;
+  /** null when equity is <= 0 — see `notMeaningful`. */
+  equityMultiplier: number | null;
   // Liquidity
   cashRatio: number;
   workingCapital: number;
@@ -89,7 +101,8 @@ export interface ExtendedRatioResult extends RatioResult {
   // DuPont Decomposition
   dupontMargin: number;
   dupontTurnover: number;
-  dupontLeverage: number;
+  /** null when equity is <= 0 — see `notMeaningful`. */
+  dupontLeverage: number | null;
 }
 
 export interface VarianceResult {
@@ -119,6 +132,8 @@ export interface ManagementPack {
   sections: ManagementPackSection[];
 }
 
+import { equityBasisFailure, equityNotMeaningful } from './ratioBasis';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // FINANCIAL RATIOS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -133,6 +148,8 @@ function pct(numerator: number, denominator: number): number {
 
 export function calculateFinancialRatios(data: FinancialData): RatioResult {
   const grossProfit = data.revenue - data.costOfSales;
+  const equityFailure = equityBasisFailure(data.totalEquity);
+  const notMeaningful = equityNotMeaningful(data.totalEquity);
   const operatingProfit = grossProfit - data.operatingExpenses;
 
   return {
@@ -141,12 +158,15 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
     operatingProfitMargin: pct(operatingProfit, data.revenue),
     currentRatio: Math.round(safeDiv(data.currentAssets, data.currentLiabilities) * 100) / 100,
     quickRatio: Math.round(safeDiv(data.currentAssets - data.inventory, data.currentLiabilities) * 100) / 100,
-    debtToEquity: Math.round(safeDiv(data.totalLiabilities, data.totalEquity) * 100) / 100,
+    debtToEquity: equityFailure
+      ? null
+      : Math.round(safeDiv(data.totalLiabilities, data.totalEquity) * 100) / 100,
     returnOnAssets: pct(data.netProfit, data.totalAssets),
-    returnOnEquity: pct(data.netProfit, data.totalEquity),
+    returnOnEquity: equityFailure ? null : pct(data.netProfit, data.totalEquity),
     debtorDays: Math.round(safeDiv(data.accountsReceivable, data.revenue) * 365 * 100) / 100,
     creditorDays: Math.round(safeDiv(data.accountsPayable, data.costOfSales) * 365 * 100) / 100,
     inventoryTurnover: Math.round(safeDiv(data.costOfSales, data.inventory) * 100) / 100,
+    notMeaningful,
   };
 }
 
@@ -156,6 +176,8 @@ export function calculateFinancialRatios(data: FinancialData): RatioResult {
 
 export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResult {
   const base = calculateFinancialRatios(data);
+  const equityFailure = equityBasisFailure(data.totalEquity);
+  const notMeaningful = { ...base.notMeaningful, ...equityNotMeaningful(data.totalEquity) };
   const grossProfit = data.revenue - data.costOfSales;
   const ebit = grossProfit - data.operatingExpenses;
   const dep = data.depreciation ?? 0;
@@ -193,7 +215,9 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
     // Leverage
     interestCoverage: interestExp > 0 ? r2(safeDiv(ebit, interestExp)) : 0,
     debtRatio: r2(safeDiv(data.totalLiabilities, data.totalAssets)),
-    equityMultiplier: r2(safeDiv(data.totalAssets, data.totalEquity)),
+    equityMultiplier: equityFailure
+      ? null
+      : r2(safeDiv(data.totalAssets, data.totalEquity)),
     // Liquidity
     cashRatio: r2(safeDiv(data.cash, data.currentLiabilities)),
     workingCapital: r2(data.currentAssets - data.currentLiabilities),
@@ -224,7 +248,10 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
     // DuPont Decomposition
     dupontMargin: pct(data.netProfit, data.revenue),
     dupontTurnover: r2(safeDiv(data.revenue, data.totalAssets)),
-    dupontLeverage: r2(safeDiv(data.totalAssets, data.totalEquity)),
+    dupontLeverage: equityFailure
+      ? null
+      : r2(safeDiv(data.totalAssets, data.totalEquity)),
+    notMeaningful,
   };
 }
 

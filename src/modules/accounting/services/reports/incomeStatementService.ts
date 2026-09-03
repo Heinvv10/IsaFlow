@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { IncomeStatementReport } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
+import { canonicalSubtype } from '@/modules/accounting/services/gl/accountClassification';
 
 
 interface ReportLineItem {
@@ -67,7 +68,9 @@ async function fetchIncomeStatementRows(
       const amount = debit - credit;
       if (Math.abs(amount) > 0.001) {
         const item = { accountCode: String(r.account_code), accountName: String(r.account_name), amount };
-        if (subtype === 'cost_of_sales') costOfSales.push(item);
+        // Canonicalise: production charts also carry 'cogs' and
+        // 'cost_of_goods_sold' spellings for the same thing.
+        if (canonicalSubtype(subtype) === 'cost_of_sales') costOfSales.push(item);
         else operatingExpenses.push(item);
       }
     }

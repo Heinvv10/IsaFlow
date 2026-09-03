@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { assertNoInactiveAccountLines } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import type {
   Row,
@@ -125,7 +126,10 @@ export async function commitARInvoice(
       (${invoiceId}::UUID, ${inv.reference ?? `Invoice ${inv.invoiceNumber}`},
        ${inv.subtotal}, 1, ${inv.subtotal}, ${taxRate}, 'ZAR')
   `;
-  await postCustomerInvoiceToGL(companyId, invoiceId, userId);
+  // historicalImport: a migrated invoice belongs in its ORIGINAL period, which
+  // is usually closed. Without this the canonical path would refuse it, and
+  // refusing is right everywhere except here.
+  await postCustomerInvoiceToGL(companyId, invoiceId, userId, { historicalImport: true });
   return { invoiceId, created: true };
 }
 
@@ -150,6 +154,11 @@ export async function commitAPInvoice(
   }, userId);
 
   // Post JE directly — bypasses workflow helper that blocks backdated periods.
+  // postJournalEntry is the canonical posting path; this diverges from it for
+  // that ONE reason. A migrated supplier invoice belongs in its original
+  // period, which is usually closed, so the period guard cannot apply. Every
+  // other guard still does — see assertNoInactiveAccountLines below, called
+  // before the status UPDATE so a refusal writes nothing.
   const [apAccount, vatAccount, expenseAccount] = await Promise.all([
     getSystemAccount('payable', companyId),
     getSystemAccount('vat_input', companyId),
@@ -165,6 +174,7 @@ export async function commitAPInvoice(
     source: 'auto_supplier_invoice', lines,
   }, userId);
 
+  await assertNoInactiveAccountLines(companyId, je.id);
   await sql`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW() WHERE id = ${je.id}::UUID AND company_id = ${companyId}::UUID`;
   await sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`;
   return { invoiceId: created.id, created: true };

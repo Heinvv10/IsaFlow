@@ -8,6 +8,10 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import {
+  DataQualityNotice,
+  type UnclassifiedWarning,
+} from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 
 type PackType = 'board' | 'management' | 'monthly';
@@ -113,6 +117,7 @@ export default function ReportPacksPage() {
   const [pack, setPack] = useState<ReportPack | null>(null);
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
 
@@ -121,6 +126,7 @@ export default function ReportPacksPage() {
     try {
       const res = await apiFetch(`/api/accounting/reports-pack?type=${selectedType}&from=${from}&to=${to}`).then(r => r.json());
       if (res.data?.pack) setPack(res.data.pack);
+      if (res.data) setUnclassified(res.data.unclassifiedAccounts ?? null);
     } catch (err) { log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) }); }
     finally { setLoading(false); }
   }, [selectedType, from, to]);
@@ -175,6 +181,7 @@ export default function ReportPacksPage() {
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">
+          <DataQualityNotice unclassifiedAccounts={unclassified} />
           {/* Pack Type Selector */}
           <div className="grid grid-cols-3 gap-4">
             {PACK_CONFIGS.map(cfg => (

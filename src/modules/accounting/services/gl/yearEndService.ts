@@ -6,6 +6,7 @@
 
 import { sql, withTransaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getSystemAccountCandidates } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // BL-13: gl_journal_lines now has company_id (migration 329). Queries use BOTH
 // jl.company_id and je.company_id for defense-in-depth scoping.
@@ -129,7 +130,8 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearSumm
 export type CloseYearError =
   | { error: 'open_periods'; count: number }
   | { error: 'year_not_found' }
-  | { error: 'no_retained_earnings'; accountCode: string };
+  | { error: 'no_retained_earnings' }
+  | { error: 'ambiguous_retained_earnings'; accountCodes: string[] };
 
 export async function closeFiscalYear(
   companyId: string,
@@ -192,21 +194,26 @@ export async function closeFiscalYear(
   const totalExpenses = expenseAccounts.reduce((s, a) => s + Number(a.balance), 0);
   const netIncome = totalRevenue - totalExpenses;
 
-  // 5. Locate retained earnings account
-  let reAccountCode = '3200';
-  try {
-    const settingRows = await sql`SELECT value FROM app_settings WHERE key = 'retained_earnings_account'`;
-    if (settingRows[0]?.value) reAccountCode = String(settingRows[0].value);
-  } catch (err) { log.warn('Could not load retained_earnings_account setting, using default 3200', { error: String(err) }, 'yearEnd'); }
-
-  const reRows = await sql`
-    SELECT id FROM gl_accounts
-    WHERE company_id = ${companyId}
-      AND (account_code = ${reAccountCode} OR account_name ILIKE '%retained earnings%')
-    LIMIT 1
-  `;
-  if (!reRows[0]) return { error: 'no_retained_earnings', accountCode: reAccountCode };
-  const retainedEarningsId = reRows[0].id;
+  // 5. Retained earnings — system-account resolver only, and CANDIDATES rather
+  // than its winner. The old lookup ORed in `account_name ILIKE '%retained
+  // earnings%'` behind a hard-coded '3200', so a year's closing entry could
+  // land on any account named that way. getSystemAccount would instead break a
+  // tie deterministically and only log.error it — right for callers that must
+  // keep working, wrong here, where one entry moves a whole year's profit.
+  // Both refusals happen before the write transaction opens.
+  const reCandidates = await getSystemAccountCandidates('retained_earnings', companyId);
+  if (reCandidates.length === 0) {
+    log.error('Year-end close refused: no retained earnings system account',
+      { companyId, yearLabel }, 'yearEnd');
+    return { error: 'no_retained_earnings' };
+  }
+  if (reCandidates.length > 1) {
+    const accountCodes = reCandidates.map((a) => a.accountCode);
+    log.error('Year-end close refused: retained earnings role is contested',
+      { companyId, yearLabel, accountCodes }, 'yearEnd');
+    return { error: 'ambiguous_retained_earnings', accountCodes };
+  }
+  const retainedEarningsId = reCandidates[0]!.id;
 
   // 6. Create closing journal entry
   const totalDebit  = totalRevenue  + (netIncome < 0 ? Math.abs(netIncome) : 0);

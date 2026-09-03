@@ -28,6 +28,8 @@ interface EMP201Data {
   periodStart: string;
   periodEnd: string;
   totalPAYE: number;
+  totalETI: number;
+  payePayable: number;
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;
@@ -141,6 +143,8 @@ export default function EMP201Page() {
     const rows = [
       ['Field', 'Description', 'Amount (ZAR)'],
       ['PAYE', 'Total PAYE withheld', data.totalPAYE.toFixed(2)],
+      ['ETI', 'Employment Tax Incentive claimed', data.totalETI.toFixed(2)],
+      ['PAYE Payable', 'PAYE net of ETI', data.payePayable.toFixed(2)],
       ['UIF (Employee)', 'UIF employee contribution', data.totalUIF_employee.toFixed(2)],
       ['UIF (Employer)', 'UIF employer contribution', data.totalUIF_employer.toFixed(2)],
       ['UIF Total', 'Total UIF', data.totalUIF.toFixed(2)],
@@ -271,6 +275,8 @@ export default function EMP201Page() {
                     <p className="text-xs font-semibold text-blue-500 uppercase tracking-wider">Deductions</p>
                   </div>
                   <SummaryRow label="PAYE (Pay As You Earn)" value={fmt(data.totalPAYE)} />
+                  <SummaryRow label="Less: ETI (Employment Tax Incentive)" value={fmt(-data.totalETI)} />
+                  <SummaryRow label="PAYE payable" value={fmt(data.payePayable)} bold />
                   <SummaryRow label="UIF — Employee contribution" value={fmt(data.totalUIF_employee)} />
                   <SummaryRow label="UIF — Employer contribution" value={fmt(data.totalUIF_employer)} />
                   <SummaryRow label="Total UIF" value={fmt(data.totalUIF)} bold />

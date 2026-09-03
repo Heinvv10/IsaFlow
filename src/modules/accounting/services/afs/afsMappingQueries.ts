@@ -70,11 +70,24 @@ export async function getUnmappedAccounts(companyId: string): Promise<Array<{
   accountType: string;
   accountSubtype: string | null;
 }>> {
+  // An inactive account is normally not worth offering for mapping -- is_active
+  // is the chart-of-accounts picker flag. But getMappedTrialBalance reads every
+  // MAPPED account regardless of is_active, so an inactive account that carries
+  // posted activity and is excluded here can never be mapped, and its balance
+  // silently misses the financial statements. Confirmed in production: four
+  // deactivated Brightsphere accounts held R137,317.39 between them, none of
+  // them mappable. So: offer active accounts, plus inactive ones with posted
+  // GL activity. Dormant inactive accounts stay out of the work queue.
   const rows = await sql`
     SELECT a.id, a.account_code, a.account_name, a.account_type, a.account_subtype
     FROM gl_accounts a
     WHERE a.company_id = ${companyId}
-      AND a.is_active = true
+      AND (a.is_active = true OR EXISTS (
+        SELECT 1 FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
+          AND je.company_id = a.company_id AND je.status = 'posted'
+      ))
       AND NOT EXISTS (
         SELECT 1 FROM afs_account_mappings m
         WHERE m.company_id = a.company_id AND m.gl_account_id = a.id
@@ -114,9 +127,18 @@ export async function getMappedTrialBalance(
   const activeLines = lines.filter((l) => l.isActive);
 
   // Derive balances from posted journal lines (source of truth) rather than the
-  // gl_account_balances cache. That cache is maintained only by a gl_journal_lines
-  // trigger that skips non-posted entries and is never refreshed when an entry
-  // flips draft -> posted, so it silently drops rows -> understated statements.
+  // gl_account_balances cache.
+  //
+  // The original reason given here was that the cache silently drops rows when
+  // an entry flips draft -> posted. That WAS true, and migration 499 fixed it:
+  // trg_gl_je_status_balance now recomputes from posted lines on exactly that
+  // transition, in both directions. Re-measured 2026-09-03 against a computed
+  // aggregate -- 2657 rows matched, 0 missing, max drift 0.00.
+  //
+  // The behaviour stays anyway, on a reason that does not expire: a financial
+  // statement should compute from the ledger. The cache is an optimisation with
+  // two triggers and a fiscal-period key; the statements are the output being
+  // audited, and they should not inherit an optimisation's failure modes.
   const currentRows = await sql`
     SELECT
       m.afs_line_code,
@@ -210,7 +232,16 @@ export async function getMappingStats(companyId: string): Promise<{
 }> {
   const rows = await sql`
     SELECT
-      (SELECT COUNT(*) FROM gl_accounts WHERE company_id = ${companyId} AND is_active = true)::int AS total_accounts,
+      -- Same mappable set as getUnmappedAccounts, so coverage never reports
+      -- more mapped accounts than the denominator admits.
+      (SELECT COUNT(*) FROM gl_accounts a
+        WHERE a.company_id = ${companyId}
+          AND (a.is_active = true OR EXISTS (
+            SELECT 1 FROM gl_journal_lines jl
+            JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+            WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
+              AND je.company_id = a.company_id AND je.status = 'posted'
+          )))::int AS total_accounts,
       (SELECT COUNT(*) FROM afs_account_mappings WHERE company_id = ${companyId})::int AS mapped_accounts,
       (SELECT COUNT(*) FROM afs_statement_lines WHERE company_id = ${companyId})::int AS total_lines,
       (SELECT COUNT(*) FROM afs_statement_lines WHERE company_id = ${companyId} AND is_active = true)::int AS active_lines,

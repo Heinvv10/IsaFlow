@@ -70,13 +70,22 @@ export async function userCreatedGroup(userId: string, groupId: string): Promise
   return rows.length > 0;
 }
 
+/**
+ * True when the user belongs to a company that is a CURRENT member of the group.
+ *
+ * `cgm.left_date IS NULL` is load-bearing: membership rows are retired by setting
+ * left_date, never deleted, so without the predicate a company removed from the
+ * group kept its users' access to the group's consolidated financials forever.
+ * intercompany-transactions.ts already applied this filter — this is the same rule.
+ */
 export async function userBelongsToGroup(userId: string, groupId: string): Promise<boolean> {
   const rows = (await sql`
     SELECT 1
     FROM   company_group_members cgm
     JOIN   company_users cu ON cu.company_id = cgm.company_id
-    WHERE  cgm.group_id = ${groupId}::UUID
-      AND  cu.user_id   = ${userId}
+    WHERE  cgm.group_id  = ${groupId}::UUID
+      AND  cgm.left_date IS NULL
+      AND  cu.user_id    = ${userId}
     LIMIT  1
   `) as Record<string, unknown>[];
 

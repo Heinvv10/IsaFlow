@@ -10,13 +10,19 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { EMP201_DECLARABLE_STATUSES } from '@/lib/constants/payrollRunStatuses';
 
 type Row = DbRow;
 
 export interface EMP201Data {
   periodStart: string;
   periodEnd: string;
+  /** Gross PAYE withheld from employees, before the ETI offset. */
   totalPAYE: number;
+  /** Employment Tax Incentive claimed for the period — an offset against PAYE. */
+  totalETI: number;
+  /** PAYE actually remitted to SARS: totalPAYE − totalETI, floored at zero. */
+  payePayable: number;
   totalUIF_employee: number;
   totalUIF_employer: number;
   totalUIF: number;
@@ -34,6 +40,8 @@ export interface EMP201PayrollRun {
   employeeCount: number;
   grossPay: number;
   paye: number;
+  /** ETI claimed on this run — offsets `paye` when remitting. */
+  eti: number;
   uif: number;
   sdl: number;
 }
@@ -60,6 +68,8 @@ export async function generateEMP201(
     periodStart,
     periodEnd,
     totalPAYE: 0,
+    totalETI: 0,
+    payePayable: 0,
     totalUIF_employee: 0,
     totalUIF_employer: 0,
     totalUIF: 0,
@@ -90,6 +100,9 @@ export async function generateEMP201(
   try {
     const startDate = periodStart.slice(0, 10);
     const endDate = periodEnd.slice(0, 10);
+    // Bound as an array rather than inlined literals so the vocabulary lives in
+    // exactly one place (@/lib/constants/payrollRunStatuses).
+    const declarableStatuses: string[] = [...EMP201_DECLARABLE_STATUSES];
 
     const runs = (await sql`
       SELECT
@@ -100,10 +113,11 @@ export async function generateEMP201(
         prh.total_gross,
         prh.total_paye,
         prh.total_uif,
-        prh.total_sdl
+        prh.total_sdl,
+        prh.total_eti
       FROM payroll_run_headers prh
       WHERE prh.company_id = ${companyId}::uuid
-        AND prh.status = 'calculated'
+        AND prh.status = ANY(${declarableStatuses}::text[])
         AND make_date(prh.period_year, prh.period_month, 1) >= ${startDate}::date
         AND make_date(prh.period_year, prh.period_month, 1) <= ${endDate}::date
       ORDER BY prh.period_year, prh.period_month
@@ -112,6 +126,7 @@ export async function generateEMP201(
     if (runs.length === 0) return emptyResult;
 
     let totalPAYE = 0;
+    let totalETI = 0;
     let totalUIF = 0;
     let totalSDL = 0;
     let totalGross = 0;
@@ -119,12 +134,16 @@ export async function generateEMP201(
 
     const payrollRuns: EMP201PayrollRun[] = runs.map((r: Row) => {
       const paye = Number(r.total_paye) || 0;
+      // total_eti is NOT NULL in the schema, but a NULL from a LEFT-joined or
+      // legacy row must degrade to 0 rather than NaN-ing the whole declaration.
+      const eti = Number(r.total_eti) || 0;
       const uif = Number(r.total_uif) || 0;
       const sdl = Number(r.total_sdl) || 0;
       const gross = Number(r.total_gross) || 0;
       const count = Number(r.employee_count) || 0;
 
       totalPAYE += paye;
+      totalETI += eti;
       totalUIF += uif;
       totalSDL += sdl;
       totalGross += gross;
@@ -137,6 +156,7 @@ export async function generateEMP201(
         employeeCount: count,
         grossPay: roundCents(gross),
         paye: roundCents(paye),
+        eti: roundCents(eti),
         uif: roundCents(uif),
         sdl: roundCents(sdl),
       };
@@ -148,17 +168,24 @@ export async function generateEMP201(
     const uifEmployee = roundCents(totalUIF / 2);
     const uifEmployer = roundCents(totalUIF / 2);
 
+    // ETI is an offset against PAYE, never a refund: SARS caps the claim at the
+    // PAYE withheld for the month, so the payable side floors at zero.
+    const payePayable = roundCents(Math.max(0, totalPAYE - totalETI));
+
     return {
       periodStart,
       periodEnd,
       totalPAYE: roundCents(totalPAYE),
+      totalETI: roundCents(totalETI),
+      payePayable,
       totalUIF_employee: uifEmployee,
       totalUIF_employer: uifEmployer,
       totalUIF: roundCents(totalUIF),
       totalSDL: roundCents(totalSDL),
       employeeCount: maxEmployeeCount,
       totalTaxableRemuneration: roundCents(totalGross),
-      totalDeductions: roundCents(totalPAYE + totalUIF + totalSDL),
+      // Total remitted to SARS — PAYE net of ETI, plus UIF and SDL.
+      totalDeductions: roundCents(payePayable + totalUIF + totalSDL),
       payrollRuns,
     };
   } catch (err) {

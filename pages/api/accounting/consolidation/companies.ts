@@ -1,7 +1,19 @@
 /**
  * Consolidation: Group Companies API
  * GET  — list parent + direct subsidiaries for the current company
- * POST — add a subsidiary relationship (child must be accessible to current user)
+ * POST — add a subsidiary relationship (the caller must be a member of the child
+ *        company: consolidated reads cross company_id, so an unchecked child is
+ *        a full cross-tenant GL leak)
+ * DELETE — withdraw a subsidiary relationship (soft delete, migration 531)
+ *
+ * The two write methods are deliberately gated differently. POST creates a
+ * cross-tenant read grant, so it is gated on membership of the CHILD — the
+ * tenant whose ledger becomes visible. DELETE only revokes such a grant, so it
+ * is gated on the PARENT alone, enforced by scoping the write to the caller's
+ * authenticated companyId. Requiring child access to revoke would strand a link
+ * created in error — or by someone since removed from the child — with no way
+ * back short of raw SQL, leaving the GL exposed. Revocation must never be
+ * harder than creation.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -13,7 +25,9 @@ import { log } from '@/lib/logger';
 import {
   getGroupCompanies,
   createCompanyRelationship,
+  deleteCompanyRelationship,
 } from '@/modules/accounting/services/reports/consolidationService';
+import { userBelongsToCompany } from '@/modules/accounting/services/core/companyAccessService';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
@@ -52,6 +66,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.notFound(res, 'Child company not found');
     }
 
+    // Existence is NOT authorisation. consolidation/trial-balance and
+    // consolidation/intercompany-balances aggregate every child's GL, so
+    // attaching a company the caller does not belong to reads that tenant's
+    // whole ledger. 403 (not 404) — the company demonstrably exists.
+    if (!(await userBelongsToCompany(userId, childCompanyId))) {
+      log.warn(
+        'Refused subsidiary link to a company the user does not belong to',
+        { companyId, childCompanyId, userId },
+        'consolidation-api',
+      );
+      return apiResponse.forbidden(res, 'Access denied to the specified child company');
+    }
+
     try {
       await createCompanyRelationship(
         companyId,
@@ -68,7 +95,30 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
   }
 
-  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
+  if (req.method === 'DELETE') {
+    const childCompanyId =
+      typeof req.query.childCompanyId === 'string'
+        ? req.query.childCompanyId
+        : (req.body as { childCompanyId?: string } | undefined)?.childCompanyId;
+
+    if (!childCompanyId) {
+      return apiResponse.badRequest(res, 'childCompanyId is required');
+    }
+
+    // companyId comes from withAuth, so passing it as the parent IS the
+    // authorisation check: the UPDATE matches nothing for any other parent.
+    const removed = await deleteCompanyRelationship(companyId, childCompanyId, userId);
+
+    if (!removed) {
+      return apiResponse.notFound(res, 'No active subsidiary relationship found');
+    }
+
+    log.info('Subsidiary relationship withdrawn', { companyId, childCompanyId, userId }, 'consolidation-api');
+    const items = await getGroupCompanies(companyId);
+    return apiResponse.success(res, { items });
+  }
+
+  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST', 'DELETE']);
 }
 
 export default withAuth(withErrorHandler(withCsrf(handler as Parameters<typeof withAuth>[0])));

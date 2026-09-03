@@ -92,6 +92,20 @@ export async function getVatReconciliation(
         AND gje.status = 'posted'
         AND gje.entry_date >= ${periodStart}::DATE
         AND gje.entry_date <= ${periodEnd}::DATE
+        -- V-05: vatSubmissionService's clearing journal moves the whole period's
+        -- output and input tax back off these two control accounts, so without
+        -- this the monthly GL net came out SIGN-INVERTED (demo company 2026-02:
+        -- -R82,870.39 against a true +R42,549.38) and the report compared a
+        -- contaminated GL side against correct invoice and vat_returns figures.
+        -- Dating the journal outside the period is not enough: it then lands in
+        -- the FOLLOWING month instead. IS DISTINCT FROM, not <>: source is
+        -- nullable and an inequality against NULL yields NULL, dropping every
+        -- NULL-source journal. Narrow by construction — 'auto_vat_adjustment' is
+        -- a separate value in gl_journal_entries_source_check, so manual and
+        -- automated VAT adjustments are still counted. Full rationale at the
+        -- same predicate in vatReturnService. The revenue arm of this query is
+        -- unaffected: the clearing journal posts no revenue line.
+        AND gje.source IS DISTINCT FROM 'auto_vat_submission'
         AND (ga.account_type = 'revenue' OR ga.account_subtype IN ('vat_output', 'vat_input'))
       GROUP BY TO_CHAR(gje.entry_date, 'YYYY-MM')
       ORDER BY month
@@ -150,6 +164,12 @@ export async function getVatReconciliation(
         AND gje.status = 'posted'
         AND gje.entry_date >= ${periodStart}::DATE
         AND gje.entry_date <= ${periodEnd}::DATE
+        -- V-05, same predicate as query 1. This split keys off vat_type and the
+        -- clearing journal ships vat_type NULL, which both arms of the CASE
+        -- happen to drop — so today it is excluded BY LUCK, not by rule.
+        -- Excluding by SOURCE keeps it excluded if the clearing entry ever
+        -- starts stamping vat_type.
+        AND gje.source IS DISTINCT FROM 'auto_vat_submission'
         AND ga.account_subtype IN ('vat_output', 'vat_input')
       GROUP BY TO_CHAR(gje.entry_date, 'YYYY-MM')
       ORDER BY month
@@ -310,6 +330,13 @@ export async function getVatMultiYearSummary(
       WHERE gjl.company_id = ${companyId}
         AND gje.status = 'posted'
         AND EXTRACT(YEAR FROM gje.entry_date) >= ${startYear}
+        -- V-05, same predicate and same reason as the monthly query above: the
+        -- clearing journal for every filed period falls inside the years this
+        -- summary spans, so without it each year's output and input tax netted
+        -- itself away and the multi-year trend was the settlement schedule, not
+        -- the trade. Revenue is unaffected — the clearing journal posts no
+        -- revenue line. IS DISTINCT FROM, not <>: source is nullable.
+        AND gje.source IS DISTINCT FROM 'auto_vat_submission'
         AND (ga.account_type = 'revenue' OR ga.account_subtype IN ('vat_output', 'vat_input'))
       GROUP BY EXTRACT(YEAR FROM gje.entry_date)
       ORDER BY year

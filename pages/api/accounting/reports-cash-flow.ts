@@ -1,4 +1,10 @@
 import { sql } from '@/lib/neon';
+import {
+  CASH_SUBTYPES,
+  RECEIVABLE_SUBTYPES,
+  PAYABLE_SUBTYPES,
+  INVESTING_ASSET_SUBTYPES,
+} from '@/modules/accounting/services/gl/accountClassification';
 import { fmtDate } from '@/lib/fmtDate';
 /**
  * Cash Flow Statement API
@@ -52,7 +58,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-            WHERE ga.account_subtype = 'bank'
+            WHERE ga.account_type = 'asset'
+              AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
               AND je.company_id = ${companyId}
               AND jl.company_id = ${companyId}::UUID
               AND je.status = 'posted'
@@ -65,8 +72,8 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-            WHERE (ga.account_name ILIKE '%bank%' OR ga.account_code LIKE '11%')
-              AND ga.account_type = 'asset'
+            WHERE ga.account_type = 'asset'
+              AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
               AND je.company_id = ${companyId}
               AND jl.company_id = ${companyId}::UUID
               AND je.status = 'posted'
@@ -85,11 +92,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit END), 0)::numeric
           - COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit END), 0)::numeric
             AS net_income,
-          COALESCE(SUM(CASE WHEN ga.account_subtype = 'receivable' THEN jl.credit - jl.debit END), 0)::numeric
+          COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit END), 0)::numeric
             AS ar_delta,
-          COALESCE(SUM(CASE WHEN ga.account_subtype = 'payable' THEN jl.credit - jl.debit END), 0)::numeric
+          COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit END), 0)::numeric
             AS ap_delta,
-          COALESCE(SUM(CASE WHEN ga.account_subtype IN ('fixed_asset', 'other_asset') THEN jl.credit - jl.debit END), 0)::numeric
+          COALESCE(SUM(CASE WHEN ga.account_subtype = ANY(${INVESTING_ASSET_SUBTYPES as string[]}::TEXT[]) THEN jl.credit - jl.debit END), 0)::numeric
             AS investing,
           COALESCE(SUM(CASE WHEN ga.account_type = 'equity'
             AND (ga.account_subtype IS NULL OR ga.account_subtype != 'retained_earnings')

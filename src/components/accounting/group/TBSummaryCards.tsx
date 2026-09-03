@@ -11,9 +11,11 @@ interface Totals {
 interface Props {
   totals: Totals;
   consolidatedBalanced: boolean;
+  /** From the service. Do not derive it from the two totals — they can disagree. */
+  difference: number;
 }
 
-export function TBSummaryCards({ totals, consolidatedBalanced }: Props) {
+export function TBSummaryCards({ totals, consolidatedBalanced, difference }: Props) {
   return (
     <div className="grid grid-cols-3 gap-4 mb-6">
       <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
@@ -27,7 +29,7 @@ export function TBSummaryCards({ totals, consolidatedBalanced }: Props) {
       <div className={`rounded-lg border p-4 ${consolidatedBalanced ? 'bg-teal-500/5 border-teal-500/30' : 'bg-red-500/5 border-red-500/30'}`}>
         <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Difference</p>
         <p className={`text-xl font-bold ${consolidatedBalanced ? 'text-teal-400' : 'text-red-400'}`}>
-          {fmt(Math.abs(totals.consolidatedDebit - totals.consolidatedCredit))}
+          {fmt(Math.abs(difference))}
           <span className="text-sm ml-2">{consolidatedBalanced ? 'Balanced' : 'Out of Balance'}</span>
         </p>
       </div>
@@ -36,25 +38,26 @@ export function TBSummaryCards({ totals, consolidatedBalanced }: Props) {
 }
 
 interface FooterProps {
-  totals: Totals;
   consolidatedBalanced: boolean;
+  /** From the service — the last place this was derived from the two totals. */
+  difference: number;
   hasUnmapped: boolean;
   hasEliminations: boolean;
 }
 
-export function TBBalanceFooter({ totals, consolidatedBalanced, hasUnmapped, hasEliminations }: FooterProps) {
+export function TBBalanceFooter({ consolidatedBalanced, difference, hasUnmapped, hasEliminations }: FooterProps) {
   return (
     <div className="mt-4 flex items-center gap-4 text-sm flex-wrap">
       <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg ${consolidatedBalanced ? 'bg-teal-500/10 text-teal-400' : 'bg-red-500/10 text-red-400'}`}>
         {consolidatedBalanced ? <Scale className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
         {consolidatedBalanced
           ? 'Consolidated trial balance is in balance'
-          : `Out of balance by ${fmt(Math.abs(totals.consolidatedDebit - totals.consolidatedCredit))}`}
+          : `Out of balance by ${fmt(Math.abs(difference))}`}
       </div>
       {hasUnmapped && (
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400">
           <AlertCircle className="h-4 w-4" />
-          Unmapped accounts detected — review group account mappings
+          Accounts excluded for want of a group mapping — see the warning above
         </div>
       )}
       {hasEliminations && (

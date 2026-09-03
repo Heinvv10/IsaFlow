@@ -16,9 +16,12 @@ export interface KPITargetConfig {
 export interface KPIScorecardItem {
   ratioKey: string;
   name: string;
-  value: number;
+  /** null when the ratio could not be computed — see `reason`. */
+  value: number | null;
   target: number;
-  status: 'green' | 'amber' | 'red';
+  status: 'green' | 'amber' | 'red' | 'not_meaningful';
+  /** Why the ratio could not be scored. Present only when status is not_meaningful. */
+  reason?: string;
   percentOfTarget: number;
 }
 
@@ -75,7 +78,22 @@ export function buildKPIScorecard(
 ): KPIScorecardItem[] {
   return targets.map(config => {
     const value = (ratios as unknown as Record<string, unknown>)[config.ratioKey];
-    const numValue = typeof value === 'number' ? value : 0;
+    // A ratio the engine could not compute is null, and coercing that to 0 is
+    // how AN-07 scored an insolvent company green: debt-to-equity is
+    // lowerIsBetter, so 0 beat every target. Report it as unscored instead.
+    const reason = ratios.notMeaningful?.[config.ratioKey];
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return {
+        ratioKey: config.ratioKey,
+        name: RATIO_NAMES[config.ratioKey] || config.ratioKey,
+        value: null,
+        target: config.target,
+        percentOfTarget: 0,
+        status: 'not_meaningful' as const,
+        reason: reason ?? 'This ratio could not be computed from the available figures.',
+      };
+    }
+    const numValue = value;
 
     const percentOfTarget = config.target !== 0
       ? Math.round((numValue / config.target) * 10000) / 100

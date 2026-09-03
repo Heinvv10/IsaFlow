@@ -157,6 +157,12 @@ export async function deleteGroupAccount(accountId: string, groupId?: string): P
 }
 
 export async function autoGenerateGroupCOA(groupId: string, sourceCompanyId: string): Promise<number> {
+  // is_active alone would strand an account that still holds money: the
+  // consolidated trial balance reads MAPPED accounts regardless of is_active, so
+  // an account kept out of the group chart here can never be mapped and its
+  // balance never consolidates. Same silent omission the AFS mapping queries
+  // carried. Offer active accounts plus inactive ones with posted GL activity;
+  // dormant inactive accounts stay out.
   const rows = (await sql`
     INSERT INTO group_accounts (group_id, account_code, account_name, account_type, account_subtype, normal_balance, level, display_order)
     SELECT
@@ -169,7 +175,13 @@ export async function autoGenerateGroupCOA(groupId: string, sourceCompanyId: str
       COALESCE(a.level, 1),
       COALESCE(a.display_order, 0)
     FROM gl_accounts a
-    WHERE a.company_id = ${sourceCompanyId}::UUID AND a.is_active = true
+    WHERE a.company_id = ${sourceCompanyId}::UUID
+      AND (a.is_active = true OR EXISTS (
+        SELECT 1 FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        WHERE jl.gl_account_id = a.id AND jl.company_id = a.company_id
+          AND je.company_id = a.company_id AND je.status = 'posted'
+      ))
     ON CONFLICT (group_id, account_code) DO NOTHING
     RETURNING id
   `) as Row[];
@@ -225,6 +237,10 @@ export async function removeCoaMapping(mappingId: string, groupId: string): Prom
 }
 
 export async function autoMapAccounts(groupId: string, companyId: string): Promise<number> {
+  // See autoGenerateGroupCOA: active accounts plus inactive ones with posted
+  // activity, so nothing holding a balance is stranded unmapped. ga.is_active
+  // (group_accounts) stays -- that IS a picker flag on the group chart, and
+  // mapping onto a retired group account is never right.
   const rows = (await sql`
     INSERT INTO group_coa_mappings (group_id, company_id, company_account_id, group_account_id)
     SELECT
@@ -234,7 +250,13 @@ export async function autoMapAccounts(groupId: string, companyId: string): Promi
       ga.id
     FROM gl_accounts ca
     JOIN group_accounts ga ON ga.group_id = ${groupId}::UUID AND ga.account_code = ca.account_code AND ga.is_active = true
-    WHERE ca.company_id = ${companyId}::UUID AND ca.is_active = true
+    WHERE ca.company_id = ${companyId}::UUID
+      AND (ca.is_active = true OR EXISTS (
+        SELECT 1 FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        WHERE jl.gl_account_id = ca.id AND jl.company_id = ca.company_id
+          AND je.company_id = ca.company_id AND je.status = 'posted'
+      ))
     ON CONFLICT (group_id, company_id, company_account_id) DO NOTHING
     RETURNING id
   `) as Row[];
@@ -252,7 +274,12 @@ export async function getUnmappedAccounts(groupId: string, companyId: string): P
     SELECT ca.id, ca.account_code, ca.account_name, ca.account_type
     FROM gl_accounts ca
     WHERE ca.company_id = ${companyId}::UUID
-      AND ca.is_active = true
+      AND (ca.is_active = true OR EXISTS (
+        SELECT 1 FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        WHERE jl.gl_account_id = ca.id AND jl.company_id = ca.company_id
+          AND je.company_id = ca.company_id AND je.status = 'posted'
+      ))
       AND NOT EXISTS (
         SELECT 1 FROM group_coa_mappings m
         WHERE m.group_id = ${groupId}::UUID

@@ -250,7 +250,10 @@ describe('contact + bank + vat tools', () => {
 
     expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit');
     expect(listSuppliers).toHaveBeenCalledWith(COMPANY_ID, expect.any(Object));
-    expect(getBankAccountsStatus).toHaveBeenCalledWith(COMPANY_ID);
+    // companyId stays first — the point of this test. The options arg opts the
+    // tool into inactive accounts: an agent asking for status is asking about
+    // money, and a deactivated account still holds a balance.
+    expect(getBankAccountsStatus).toHaveBeenCalledWith(COMPANY_ID, { includeInactive: true });
     expect(getBankTransactions).toHaveBeenCalledWith(
       COMPANY_ID, expect.objectContaining({ allocationFilter: 'unallocated', limit: 50 }),
     );

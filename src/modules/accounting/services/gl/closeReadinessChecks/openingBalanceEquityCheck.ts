@@ -36,8 +36,10 @@ export async function openingBalanceEquityCheck(
          AND je.status = 'posted' AND je.entry_date <= ${period.endDate}::date
     WHERE ga.company_id = ${companyId}::UUID
       AND ga.account_subtype = ${OPENING_BALANCE_EQUITY_SUBTYPE}
+      -- is_active is a picker flag, never a statement about the balance: a
+      -- residual on a deactivated clearing account is exactly the uncleared
+      -- opening balance this check exists to surface.
       AND ga.is_system_account = true
-      AND ga.is_active = true
   `) as DbRow[];
   const accounts = Number(rows[0]?.accounts ?? 0);
   if (accounts === 0) {

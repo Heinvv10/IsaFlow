@@ -146,6 +146,18 @@ async function getVatEstimateCurrentPeriod(companyId: string): Promise<number> {
         AND je.status       = 'posted'
         AND je.entry_date  >= cp.start_date
         AND je.entry_date  <= cp.end_date
+        -- V-05: exclude vatSubmissionService's clearing journal. It moves the
+        -- whole filed period's output and input tax back off these two control
+        -- accounts, which inverted this tile's sign — demo company 2026-08 read
+        -- -R42,856.25 (a refund from SARS) against a true +R50,266.28 payable.
+        -- The V-05 date change dates that journal day 1 of the FOLLOWING
+        -- period, so without this the current period's tile is polluted by the
+        -- previous period's settlement every period. IS DISTINCT FROM, not <>:
+        -- source is nullable and an inequality against NULL yields NULL, which
+        -- would drop every NULL-source journal. 'auto_vat_adjustment' is a
+        -- separate value in gl_journal_entries_source_check and is still
+        -- counted. Full rationale at the same predicate in vatReturnService.
+        AND je.source IS DISTINCT FROM 'auto_vat_submission'
         AND ga.account_subtype IN ('vat_input', 'vat_output')
     )
     SELECT

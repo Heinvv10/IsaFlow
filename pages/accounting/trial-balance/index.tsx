@@ -25,12 +25,19 @@ export default function TrialBalancePage() {
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [totalDebit, setTotalDebit] = useState(0);
   const [totalCredit, setTotalCredit] = useState(0);
+  // Authoritative, from the service. Recomputing these client-side is how a
+  // partial trial balance came to be stamped "Difference R0.00 · Balanced".
+  const [difference, setDifference] = useState(0);
+  const [balanced, setBalanced] = useState(true);
+  const [accountCount, setAccountCount] = useState(0);
+  const [fiscalYearStart, setFiscalYearStart] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
   const [comparePeriodId, setComparePeriodId] = useState('');
+  const [showMovement, setShowMovement] = useState(false);
   const [evidenceTarget, setEvidenceTarget] = useState<EvidenceTarget | null>(null);
 
   useEffect(() => {
@@ -74,6 +81,10 @@ export default function TrialBalancePage() {
       setRows(data.rows || []);
       setTotalDebit(Number(data.totalDebit || 0));
       setTotalCredit(Number(data.totalCredit || 0));
+      setDifference(Number(data.difference || 0));
+      setBalanced(data.balanced === true);
+      setAccountCount(Number(data.accountCount || 0));
+      setFiscalYearStart(String(data.fiscalYearStart || ''));
     } catch { setError('Failed to load trial balance'); }
     finally { setLoading(false); }
   }, [selectedPeriod, costCentreId, comparePeriodId]);
@@ -84,7 +95,8 @@ export default function TrialBalancePage() {
     if (selectedPeriod) window.open(`/api/accounting/trial-balance-export?fiscal_period_id=${selectedPeriod}`, '_blank');
   };
 
-  const balanced = Math.abs(totalDebit - totalCredit) < 0.02;
+  const sumOf = (key: 'openingDebit' | 'openingCredit' | 'periodDebit' | 'periodCredit') =>
+    rows.reduce((s, r) => s + (r[key] ?? 0), 0);
 
   const selectedPeriodObj = periods.find(p => p.id === selectedPeriod);
   const todayStr = new Date().toISOString().substring(0, 10);
@@ -96,7 +108,7 @@ export default function TrialBalancePage() {
     : todayStr;
 
   const selectClass = 'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
-  const colSpan = comparePeriodId ? 7 : 5;
+  const colSpan = 5 + (comparePeriodId ? 2 : 0) + (showMovement ? 4 : 0);
 
   return (
     <AppLayout>
@@ -107,7 +119,7 @@ export default function TrialBalancePage() {
               <div className="p-2 rounded-lg bg-indigo-500/10"><Scale className="h-6 w-6 text-indigo-500" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Trial Balance</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Account balances for selected fiscal period — Click any account to drill down</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">Balances as at the end of the selected period — balance-sheet accounts cumulative, income-statement accounts year-to-date. Click any account to drill down</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -128,6 +140,15 @@ export default function TrialBalancePage() {
                   <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
                 ))}
               </select>
+              <button
+                onClick={() => setShowMovement(v => !v)}
+                aria-pressed={showMovement}
+                className={`px-4 py-2 rounded-lg border text-sm font-medium ${showMovement
+                  ? 'border-indigo-500 bg-indigo-500/10 text-indigo-500'
+                  : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
+              >
+                {showMovement ? 'Hide movement' : 'Show movement'}
+              </button>
               <button onClick={handleExport} disabled={rows.length === 0}
                 className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium disabled:opacity-50">
                 <Download className="h-4 w-4" /> Export CSV
@@ -151,8 +172,12 @@ export default function TrialBalancePage() {
                 <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">Difference</p>
                 <p className={`text-xl font-bold flex items-center gap-1.5 ${balanced ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-400'}`}>
                   {balanced ? <CheckCircle2 className="h-5 w-5" aria-hidden="true" /> : <AlertTriangle className="h-5 w-5" aria-hidden="true" />}
-                  {fmt(Math.abs(totalDebit - totalCredit))}
+                  {fmt(Math.abs(difference))}
                   <span className="text-sm ml-1 font-normal">{balanced ? 'Balanced' : 'Out of Balance'}</span>
+                </p>
+                <p className="text-[11px] text-[var(--ff-text-tertiary)] mt-1">
+                  Across {accountCount} account{accountCount === 1 ? '' : 's'}
+                  {fiscalYearStart && ` · income statement from ${fiscalYearStart}`}
                 </p>
               </div>
             </div>
@@ -176,8 +201,16 @@ export default function TrialBalancePage() {
                     <th className="px-4 py-3">Code</th>
                     <th className="px-4 py-3">Account</th>
                     <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3 text-right">Debit</th>
-                    <th className="px-4 py-3 text-right">Credit</th>
+                    {showMovement && (
+                      <>
+                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Opening Dr</th>
+                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Opening Cr</th>
+                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Movement Dr</th>
+                        <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Movement Cr</th>
+                      </>
+                    )}
+                    <th className="px-4 py-3 text-right">Closing Dr</th>
+                    <th className="px-4 py-3 text-right">Closing Cr</th>
                     {comparePeriodId && (
                       <>
                         <th className="px-4 py-3 text-right text-[var(--ff-text-tertiary)]">Prior Dr</th>
@@ -196,6 +229,7 @@ export default function TrialBalancePage() {
                       onToggle={code => setExpandedAccount(prev => prev === code ? null : code)}
                       onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
                       showComparative={!!comparePeriodId}
+                      showMovement={showMovement}
                       drillDownStart={drillDownStart}
                       drillDownEnd={drillDownEnd}
                       colSpan={colSpan}
@@ -205,6 +239,14 @@ export default function TrialBalancePage() {
                 <tfoot>
                   <tr className="border-t-2 border-[var(--ff-border-light)] font-bold">
                     <td colSpan={3} className="px-4 py-3 text-[var(--ff-text-primary)]">TOTALS</td>
+                    {showMovement && (
+                      <>
+                        <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] text-xs">{fmt(sumOf('openingDebit'))}</td>
+                        <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] text-xs">{fmt(sumOf('openingCredit'))}</td>
+                        <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] text-xs">{fmt(sumOf('periodDebit'))}</td>
+                        <td className="px-4 py-3 text-right text-[var(--ff-text-secondary)] text-xs">{fmt(sumOf('periodCredit'))}</td>
+                      </>
+                    )}
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(totalDebit)}</td>
                     <td className="px-4 py-3 text-right text-[var(--ff-text-primary)]">{fmt(totalCredit)}</td>
                     {comparePeriodId && (

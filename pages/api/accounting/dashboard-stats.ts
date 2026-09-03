@@ -5,6 +5,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountClassification';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -38,18 +39,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Bank account balances from GL (posted journal lines against bank accounts)
       // Reads from gl_journal_lines so the balance matches the Trial Balance,
       // not the raw bank_transactions sum which inflates unreconciled imports.
+      //
+      // The posted filter MUST live inside this subquery. It used to sit in the
+      // ON-clause of a LEFT JOIN onto gl_journal_entries while the SUM read
+      // gl_journal_lines, so it restricted nothing: a draft line simply got NULL
+      // entry columns and was still summed. That understated Brightsphere cash
+      // by R106,843.88.
+      //
+      // is_active is deliberately absent. It is a chart-of-accounts picker flag,
+      // not a statement about whether the account holds money. This currently
+      // adds R6,550.00 on account 1110 Bank - Primary, which is deactivated and
+      // still carries a balance.
       sql`
         SELECT ga.account_code, ga.account_name,
-          COALESCE(SUM(jl.debit - jl.credit), 0) AS balance
+          COALESCE(b.balance, 0) AS balance
         FROM gl_accounts ga
-        LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-        LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          AND je.company_id = ${companyId}::UUID
-          AND je.status = 'posted'
-        WHERE ga.account_subtype = 'bank'
-          AND ga.is_active = true
+        LEFT JOIN (
+          SELECT jl.gl_account_id, SUM(jl.debit - jl.credit) AS balance
+          FROM gl_journal_lines jl
+          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          WHERE jl.company_id = ${companyId}::UUID
+            AND je.company_id = ${companyId}::UUID
+            AND je.status = 'posted'
+          GROUP BY jl.gl_account_id
+        ) b ON b.gl_account_id = ga.id
+        WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}::TEXT[])
           AND ga.company_id = ${companyId}::UUID
-        GROUP BY ga.id, ga.account_code, ga.account_name
         ORDER BY ga.account_code
       `,
       // Accounts Payable total (from supplier_invoices, matching AP aging)

@@ -2,11 +2,20 @@
  * Trial Balance Report API
  * GET /api/accounting/reports-trial-balance?fiscal_period_id=...
  *
- * Response shape:
- *   { success: true, data: { fiscalPeriodId, comparePeriodId, rows: TrialBalanceRow[], totalDebit, totalCredit } }
+ * Response shape: `TrialBalanceReport` plus `comparePeriodId` —
+ *   { fiscalPeriodId, periodStart, periodEnd, fiscalYearStart, rows,
+ *     accountCount, totalDebit, totalCredit, difference, balanced }
  *
  * The canonical key for the account lines is **`rows`** (not `accounts`).
  * Frontend reads `data.rows`; any external consumer must use `data.rows`.
+ *
+ * `difference` and `balanced` are computed in the service and are authoritative.
+ * A consumer that recomputes them can disagree with the report it is displaying —
+ * that is how a 7-of-118-account trial balance got stamped "Balanced".
+ *
+ * `?include_zero_balances=true` keeps accounts whose balance and movement both
+ * net to zero. Accounts that carry a balance but did not move are ALWAYS
+ * returned, with periodDebit/periodCredit at zero.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -16,7 +25,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
-import { getTrialBalance } from '@/modules/accounting/services/gl/journalEntryService';
+import { getTrialBalance, getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -33,27 +42,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return apiResponse.badRequest(res, 'fiscal_period_id is required');
     }
 
-    const rows = await getTrialBalance(companyId,fiscalPeriodId, costCentreId || undefined);
-    const totalDebit = rows.reduce((sum, r) => sum + r.debitBalance, 0);
-    const totalCredit = rows.reduce((sum, r) => sum + r.creditBalance, 0);
+    const includeZeroBalances = req.query.include_zero_balances === 'true';
+    const report = await getTrialBalanceReport(companyId, fiscalPeriodId, {
+      costCentreId: costCentreId || undefined,
+      includeZeroBalances,
+    });
 
     if (comparePeriodId) {
-      const priorRows = await getTrialBalance(companyId,comparePeriodId, costCentreId || undefined);
+      const priorRows = await getTrialBalance(companyId, comparePeriodId, costCentreId || undefined, {
+        includeZeroBalances,
+      });
       const priorMap = new Map(priorRows.map(r => [r.accountCode, r]));
-      for (const row of rows) {
+      for (const row of report.rows) {
         const prior = priorMap.get(row.accountCode);
         row.priorDebitBalance = prior?.debitBalance ?? 0;
         row.priorCreditBalance = prior?.creditBalance ?? 0;
       }
     }
 
-    return apiResponse.success(res, {
-      fiscalPeriodId,
-      comparePeriodId,
-      rows,
-      totalDebit,
-      totalCredit,
-    });
+    // `difference` / `balanced` come from the service — see getTrialBalanceReport.
+    // Do NOT recompute them here or in any consumer.
+    return apiResponse.success(res, { ...report, comparePeriodId });
   } catch (err) {
     log.error('Failed to get trial balance', { error: err }, 'accounting-api');
     return apiResponse.internalError(res, err, 'Failed to get trial balance');

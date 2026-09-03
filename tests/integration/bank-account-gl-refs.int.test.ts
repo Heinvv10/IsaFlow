@@ -42,6 +42,12 @@ const SUPPLIER_A = '00000000-0000-0000-0000-00000000ba50';
 
 const CASH_A = 1500.25;
 const CASH_B = -400.5;
+// Held on COMPANY_A's DEACTIVATED bank account. This IS reported: see the
+// group cash tests below.
+const CASH_A_INACTIVE = 88888;
+// Held on a non-bank (debtors) account. This is NOT reported.
+const DEBTORS_DECOY_A = 99999;
+const EXPECTED_CASH_A = CASH_A + CASH_A_INACTIVE;
 // One open invoice each, part-paid, plus a settled one that must be excluded.
 const AR_A = 1000 - 250;
 const AP_A = 500 - 100;
@@ -93,11 +99,24 @@ describe('bank accounts resolve through gl_accounts, not the vestigial bank_acco
        VALUES
          ($1, $2, CURRENT_DATE, $5, 'BA Fixture inflow A',  'imported'),
          ($3, $4, CURRENT_DATE, $6, 'BA Fixture outflow B', 'imported'),
-         -- Decoys. Neither may reach the cash figure: one sits on a non-bank
-         -- account, the other on a deactivated bank account. They make the
-         -- account_subtype and is_active filters load-bearing.
-         ($1, $7, CURRENT_DATE, 99999, 'BA Fixture debtors decoy',  'imported'),
-         ($1, $8, CURRENT_DATE, 88888, 'BA Fixture inactive decoy', 'imported')`,
+         -- Two accounts that are NOT plain active bank accounts, and they are
+         -- treated differently on purpose.
+         --
+         -- account_subtype is still load-bearing: the debtors row must never
+         -- reach a cash figure, because a receivable is not cash.
+         --
+         -- is_active is NOT a filter any more, and this row is the assertion
+         -- of that. It used to be a decoy pinning the opposite rule. The rule
+         -- changed: is_active is a chart-of-accounts PICKER flag meaning "stop
+         -- offering this account when coding new transactions", and it says
+         -- nothing about whether the account still holds money. Filtering on it
+         -- made deactivated accounts vanish from cash, the AFS and the close
+         -- checks -- four production accounts held R137,317.39 that no report
+         -- would show. So a deactivated bank account's balance IS reported, and
+         -- deactivating an account that holds money is now refused outright
+         -- (chartOfAccountsService.updateAccount / deleteAccount).
+         ($1, $7, CURRENT_DATE, ${DEBTORS_DECOY_A}, 'BA Fixture debtors decoy',  'imported'),
+         ($1, $8, CURRENT_DATE, ${CASH_A_INACTIVE}, 'BA Fixture inactive bank', 'imported')`,
       [COMPANY_A, GL_BANK_A, COMPANY_B, GL_BANK_B, CASH_A, CASH_B, GL_DEBTORS_A, GL_BANK_A_INACTIVE]
     );
 
@@ -209,14 +228,32 @@ describe('bank accounts resolve through gl_accounts, not the vestigial bank_acco
       const a = stats.entitySummaries.find(e => e.companyId === COMPANY_A);
       const b = stats.entitySummaries.find(e => e.companyId === COMPANY_B);
 
-      expect(a?.cashPosition).toBeCloseTo(CASH_A, 2);
+      expect(a?.cashPosition).toBeCloseTo(EXPECTED_CASH_A, 2);
       expect(b?.cashPosition).toBeCloseTo(CASH_B, 2);
+    });
+
+    it('includes a DEACTIVATED bank account balance — is_active must not hide money', async () => {
+      const stats = await getGroupDashboardStats(GROUP);
+      const a = stats.entitySummaries.find(e => e.companyId === COMPANY_A);
+
+      // The whole point: without the inactive account this would be CASH_A.
+      expect(a?.cashPosition).toBeCloseTo(CASH_A + CASH_A_INACTIVE, 2);
+      expect(a?.cashPosition).not.toBeCloseTo(CASH_A, 2);
+    });
+
+    it('still excludes a non-bank account — account_subtype stays load-bearing', async () => {
+      const stats = await getGroupDashboardStats(GROUP);
+      const a = stats.entitySummaries.find(e => e.companyId === COMPANY_A);
+
+      // The debtors decoy dwarfs every other figure, so any leak is obvious.
+      expect(a?.cashPosition).toBeLessThan(DEBTORS_DECOY_A);
+      expect(a?.cashPosition).not.toBeCloseTo(EXPECTED_CASH_A + DEBTORS_DECOY_A, 2);
     });
 
     it('combines cash across the group', async () => {
       const stats = await getGroupDashboardStats(GROUP);
 
-      expect(stats.combinedCashPosition).toBeCloseTo(CASH_A + CASH_B, 2);
+      expect(stats.combinedCashPosition).toBeCloseTo(EXPECTED_CASH_A + CASH_B, 2);
     });
 
     it('sums outstanding AR and AP from total_amount - amount_paid, excluding settled and draft invoices', async () => {
@@ -231,6 +268,12 @@ describe('bank accounts resolve through gl_accounts, not the vestigial bank_acco
     it('counts active bank-subtype GL accounts', async () => {
       // COMPANY_A owns three GL accounts: one active bank, one inactive bank,
       // one active debtors. Only the active bank counts.
+      //
+      // This one KEEPS its is_active filter while the cash figures above drop
+      // theirs, and the difference is the question being asked. This backs the
+      // setup-guide task "has this company set up a bank account?" -- a
+      // configuration check about whether a usable account exists, not a
+      // balance. A deactivated account must not mark that task complete.
       expect(await countBankAccounts(COMPANY_A)).toBe(1);
     });
 

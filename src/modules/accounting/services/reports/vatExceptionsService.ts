@@ -17,6 +17,7 @@ import {
   findVatOnBalanceSheetLines,
   mapVatOnBalanceSheetLine,
 } from './vatBalanceSheetExceptions';
+import { findVatControlMovement } from './vatControlMovement';
 import type { VatControlRecon, VatExceptionsReport } from './vatExceptionsTypes';
 
 export type {
@@ -46,7 +47,11 @@ export async function getVatExceptions(
     balanceSheetVat, vat201,
   ] =
     await Promise.all([
-      // 1. Posted GL lines on VAT control accounts with no vat_type coding
+      // 1. Posted GL lines on VAT control accounts with no vat_type coding.
+      // Excludes the VAT submission clearing journal (same predicate and same
+      // reasoning as vatControlMovement.ts): its two control-account legs are
+      // vat_type NULL by construction, so every filed period grew two
+      // exceptions nobody could ever clear — 12 rows in production.
       sql`
         SELECT jl.journal_entry_id, je.entry_number, je.entry_date,
           ga.account_code, ga.account_name, ga.account_subtype,
@@ -63,6 +68,7 @@ export async function getVatExceptions(
           AND je.entry_date >= ${periodStart}::DATE
           AND je.entry_date <= ${periodEnd}::DATE
           AND ga.account_subtype IN ('vat_input', 'vat_output')
+          AND je.source IS DISTINCT FROM 'auto_vat_submission'
           AND jl.vat_type IS NULL
         ORDER BY je.entry_date, je.entry_number
         LIMIT ${LIST_CAP}
@@ -168,23 +174,11 @@ export async function getVatExceptions(
         ORDER BY si.invoice_date, si.invoice_number
         LIMIT ${LIST_CAP}
       ` as Promise<Row[]>,
-      // 6. GL VAT control account movement for the period
-      sql`
-        SELECT
-          COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_output'
-            THEN jl.credit - jl.debit ELSE 0 END), 0) AS gl_output,
-          COALESCE(SUM(CASE WHEN ga.account_subtype = 'vat_input'
-            THEN jl.debit - jl.credit ELSE 0 END), 0) AS gl_input
-        FROM gl_journal_lines jl
-        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-        WHERE jl.company_id = ${companyId}::UUID
-          AND je.company_id = ${companyId}::UUID
-          AND je.status = 'posted'
-          AND je.entry_date >= ${periodStart}::DATE
-          AND je.entry_date <= ${periodEnd}::DATE
-          AND ga.account_subtype IN ('vat_input', 'vat_output')
-      ` as Promise<Row[]>,
+      // 6. GL VAT control account movement for the period.
+      // Extracted so the long "why this is not getVATReturn, and why the VAT
+      // submission clearing journal is excluded" rationale lives next to the
+      // SQL it governs. Read it before collapsing the two aggregations.
+      findVatControlMovement(companyId, periodStart, periodEnd),
       // 7. Invoice VAT not yet posted to the GL (context for recon variance).
       // Supplier side aggregates from supplier_invoice_items when an invoice
       // has items — the same source generateVAT201 uses for field10 — falling

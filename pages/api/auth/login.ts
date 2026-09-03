@@ -6,6 +6,7 @@ import { setAuthCookies, setActiveCompanyCookie, setOnboardingDoneCookie, setPen
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from '@/lib/auth/userAccountStatus';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -53,6 +54,31 @@ const handler: NextApiHandler = async (req, res) => {
       });
     }
     return res.status(401).json({ success: false, error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' } });
+  }
+
+  // Account-standing gate. Placed AFTER signIn (so we only ever reveal
+  // standing to someone who already proved the password) and BEFORE the MFA
+  // branch (a closed account should not be walked through a 2FA challenge).
+  //
+  // Disclosure: the explicit ACCOUNT_SUSPENDED message is deliberate and costs
+  // nothing. Reaching this line requires a correct password, so the caller has
+  // already established the account exists — an "invalid credentials" fudge
+  // would hide nothing from an attacker while leaving a suspended legitimate
+  // user with no idea why they are stuck.
+  //
+  // Not an existence check: registration creates the GoTrue identity before
+  // tenantProvisioningService INSERTs into public.users, so a missing row means
+  // "not provisioned yet", not "revoked".
+  const accountRows = await sql<UserAccountRow>`
+    SELECT is_active, status, suspended_at
+    FROM users
+    WHERE id = ${token.user.id}
+    LIMIT 1
+  `;
+  const account = accountRows[0];
+  if (account && !isActiveUserAccount(account)) {
+    log.warn('login refused — account not in good standing', { userId: token.user.id, email: cleanEmail, ip }, 'Auth');
+    return res.status(403).json({ success: false, error: { ...SUSPENDED_ACCOUNT_ERROR } });
   }
 
   // MFA gate: if the user has any verified factor, withhold cookies and ask for a code.

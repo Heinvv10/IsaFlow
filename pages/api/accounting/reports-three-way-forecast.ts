@@ -7,16 +7,17 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
-import { sql } from '@/lib/neon';
+import {
+  getFinancialFigures,
+  totalEquity,
+  unclassifiedWarning,
+} from '@/modules/accounting/services/gl/financialFiguresService';
 import { log } from '@/lib/logger';
 import {
   generateThreeWayForecast,
   type HistoricalFinancials,
   type ForecastParams,
 } from '@/modules/accounting/services/reports/threeWayForecastService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = Record<string, any>;
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
@@ -35,14 +36,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   fromDate.setMonth(fromDate.getMonth() - 12);
   const from = fromDate.toISOString().split('T')[0]!;
 
-  const [pnlRow, balancesRow] = await Promise.all([
-    getPnLTotals(companyId, from, to),
-    getBalanceSheet(companyId, to),
-  ]);
+  const figures = await getFinancialFigures(companyId, from, to);
+  const { period, cumulative } = figures;
 
-  const revenue = parseFloat(pnlRow?.revenue || '0') / 12; // annualised → monthly
-  const costOfSales = parseFloat(pnlRow?.cost_of_sales || '0') / 12;
-  const operatingExpenses = parseFloat(pnlRow?.operating_expenses || '0') / 12;
+  // The window above is 12 months, so the P&L is annual — divide to monthly.
+  const revenue = period.revenue / 12;
+  const costOfSales = period.costOfSales / 12;
+  const operatingExpenses = period.operatingExpenses / 12;
   const netProfit = revenue - costOfSales - operatingExpenses;
 
   const historical: HistoricalFinancials = {
@@ -50,15 +50,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     costOfSales,
     operatingExpenses,
     netProfit,
-    totalAssets: parseFloat(balancesRow?.total_assets || '0'),
-    totalLiabilities: parseFloat(balancesRow?.total_liabilities || '0'),
-    totalEquity: parseFloat(balancesRow?.total_equity || '0') + netProfit,
-    currentAssets: parseFloat(balancesRow?.current_assets || '0'),
-    currentLiabilities: parseFloat(balancesRow?.current_liabilities || '0'),
-    cash: parseFloat(balancesRow?.cash || '0'),
-    accountsReceivable: parseFloat(balancesRow?.accounts_receivable || '0'),
-    accountsPayable: parseFloat(balancesRow?.accounts_payable || '0'),
-    inventory: parseFloat(balancesRow?.inventory || '0'),
+    totalAssets: cumulative.totalAssets,
+    totalLiabilities: cumulative.totalLiabilities,
+    totalEquity: totalEquity(figures),
+    currentAssets: cumulative.currentAssets,
+    currentLiabilities: cumulative.currentLiabilities,
+    cash: cumulative.cash,
+    accountsReceivable: cumulative.accountsReceivable,
+    accountsPayable: cumulative.accountsPayable,
+    inventory: cumulative.inventory,
   };
 
   const params: ForecastParams = {
@@ -73,44 +73,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Three-way forecast generated', { companyId, forecastMonths, revenueGrowthRate }, 'accounting');
 
-  return apiResponse.success(res, { forecast, historical, params });
+  return apiResponse.success(res, {
+    forecast,
+    historical,
+    params,
+    unclassifiedAccounts: unclassifiedWarning(cumulative),
+  });
 }
-
-async function getPnLTotals(companyId: string, from: string, to: string): Promise<Row | undefined> {
-  const rows = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as cost_of_sales,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
-  `) as Row[];
-  return rows[0];
-}
-
-async function getBalanceSheet(companyId: string, to: string): Promise<Row | undefined> {
-  const rows = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '1%' THEN jl.debit - jl.credit ELSE 0 END), 0) as total_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '2%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '3%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_equity,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '1100' AND ga.account_code < '1200' THEN jl.debit - jl.credit ELSE 0 END), 0) as current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date <= ${to}::date
-  `) as Row[];
-  return rows[0];
-}
-
 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));

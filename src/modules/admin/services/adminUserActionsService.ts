@@ -10,9 +10,40 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { generateLink } from '@/lib/auth/gotrue-admin-link';
 import { adminRevokeAllUserSessions } from '@/lib/auth/gotrue';
+import { revokeAllUserPats } from '@/lib/auth/personalAccessTokens';
+import { revokeAllUserAuthorisations } from '@/lib/auth/oauth';
 
 type Row = DbRow;
 
+/**
+ * Suspend a user and revoke every credential they hold.
+ *
+ * Order matters. The `is_active`/`suspended_at` flag is written FIRST because
+ * it is the durable gate: withAuth, bearerPipeline, withUserAuth and
+ * /api/auth/login all refuse a user who fails it (see
+ * `src/lib/auth/userAccountStatus.ts`). Once that row is written the account is
+ * closed even if every revocation below fails.
+ *
+ * Revocation is belt-and-braces on top of that gate — a revoked-at-source
+ * credential cannot be replayed by some future code path that forgets to
+ * consult the gate:
+ *   - GoTrue refresh tokens, so a live browser session dies now instead of at
+ *     token expiry (access tokens are stateless HS256 JWTs; GoTrue is the only
+ *     thing that can stop the refresh loop);
+ *   - PATs and OAuth authorisations, which suspension previously ignored
+ *     entirely — an ex-employee's MCP token kept writing to the ledger.
+ *
+ * `DELETE FROM user_sessions` is retained for hygiene only. That table has had
+ * NO writer anywhere in the codebase since the GoTrue cutover (every remaining
+ * reference is a read for admin dashboards or a delete); prod's newest row is
+ * from 2026-04-18 and none are unexpired. It is NOT session revocation — do
+ * not mistake it for one.
+ *
+ * Throws if GoTrue revocation fails. The suspension itself has already landed
+ * and is enforced; the throw exists so the admin learns that pre-existing
+ * browser sessions may survive until their token expires, rather than seeing a
+ * silent success.
+ */
 export async function suspendUser(userId: string, reason: string): Promise<void> {
   await sql`
     UPDATE users
@@ -23,7 +54,28 @@ export async function suspendUser(userId: string, reason: string): Promise<void>
     WHERE id = ${userId}
   `;
   await sql`DELETE FROM user_sessions WHERE user_id = ${userId}`;
-  log.info('suspendUser', { userId, reason }, 'AdminUserActionsService');
+
+  // DB-side revocations first: same database as the flag, so these are the
+  // ones that reliably land. GoTrue is a network hop and may be down.
+  const pats = await revokeAllUserPats(userId);
+  const authorisations = await revokeAllUserAuthorisations(userId);
+
+  try {
+    await adminRevokeAllUserSessions(userId);
+  } catch (err) {
+    log.error('suspendUser — user suspended but GoTrue session revocation failed', {
+      userId,
+      pats,
+      authorisations,
+      message: err instanceof Error ? err.message : String(err),
+    }, 'AdminUserActionsService');
+    throw new Error(
+      'User suspended and API tokens revoked, but existing browser sessions could not be revoked — ' +
+      'they will expire on their own. Retry Force Logout once GoTrue is reachable.',
+    );
+  }
+
+  log.info('suspendUser', { userId, reason, pats, authorisations }, 'AdminUserActionsService');
 }
 
 export async function activateUser(userId: string): Promise<void> {

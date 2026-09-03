@@ -267,6 +267,15 @@ export async function noteTaxation(companyId: string, fiscalYear: number): Promi
       AND ga.account_subtype IN ('vat_input', 'vat_output')
       AND gje.entry_date BETWEEN ${start} AND ${end}
       AND gje.status = 'posted'
+      -- V-05: exclude vatSubmissionService's clearing journal. The FORWARD
+      -- settlement posts DR VAT Output / CR VAT Input, the opposite side to the
+      -- two FILTERs above, so it misses this note by direction. A REVERSAL does
+      -- not: reverseJournalEntry copies the source value verbatim and posts CR VAT
+      -- Output / DR VAT Input, which lands in both FILTERs and inflates a
+      -- signed set of financial statements. IS DISTINCT FROM, not <>: source is
+      -- nullable. 'auto_vat_adjustment' is a separate source value and is still
+      -- counted. Full rationale at the same predicate in vatReturnService.
+      AND gje.source IS DISTINCT FROM 'auto_vat_submission'
   ` as DbRow[];
 
   const r = rows[0] ?? {};

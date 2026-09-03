@@ -77,6 +77,10 @@ export async function findVatAllocationMismatches(
   const limit = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 5000) : 500;
 
   const rows = (await sql`
+    -- V-05 census: no auto_vat_submission exclusion is needed. This sweep is
+    -- anchored on bank_transactions and reaches the GL only through
+    -- bt.matched_journal_line_id; the clearing journal is matched to no bank
+    -- transaction, so it is out of reach by construction.
     WITH allocated AS (
       SELECT
         bt.id                                   AS bank_transaction_id,

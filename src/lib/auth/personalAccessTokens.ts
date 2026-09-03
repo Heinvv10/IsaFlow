@@ -166,6 +166,32 @@ export async function createPat(input: CreatePatInput): Promise<{ id: string; ra
   return { id: rows[0].id as string, raw, prefix };
 }
 
+/**
+ * Revoke EVERY live PAT belonging to a user, across all their companies.
+ *
+ * Used by suspendUser: a suspended user's PAT is already blocked at the
+ * bearerPipeline gate, but revoking at source means a future code path that
+ * forgets the gate still cannot mint ledger writes with it. Company-scoped
+ * revokePat cannot serve this — suspension is a user-level act with no company
+ * in hand. validatePat filters on `revoked_at IS NULL`, so this takes effect
+ * on the very next request.
+ *
+ * Returns the number of tokens actually revoked (already-revoked rows are not
+ * re-stamped, so the count is honest).
+ */
+export async function revokeAllUserPats(userId: string): Promise<number> {
+  const rows = (await sql`
+    UPDATE personal_access_tokens
+    SET revoked_at = NOW()
+    WHERE user_id = ${userId}
+      AND revoked_at IS NULL
+    RETURNING id
+  `) as Row[];
+
+  if (rows.length > 0) log.info('All PATs revoked for user', { userId, count: rows.length }, 'pat');
+  return rows.length;
+}
+
 export async function revokePat(id: string, userId: string, companyId: string): Promise<boolean> {
   const rows = (await sql`
     UPDATE personal_access_tokens

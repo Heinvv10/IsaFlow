@@ -77,11 +77,18 @@ function toCompact(tx: BankTransaction): CompactBankTx {
 export const bankAccountsStatusTool: McpTool = {
   name: 'bank_accounts_status',
   description:
-    'All active bank accounts with balances, reconciled/unreconciled amounts, and allocation counts.',
+    'Bank accounts with balances, reconciled/unreconciled amounts, and allocation counts. '
+    + 'Includes inactive (deactivated) accounts: this is a question about money, and an inactive account '
+    + 'still holds a balance and an unreconciled backlog. Each row carries isActive — false means '
+    + 'the account is no longer offered when coding new transactions, so report its balance but '
+    + 'never pick it as the target of a new allocation or payment.',
   scope: 'read:bank-tx',
   write: false,
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-  handler: async (_args, ctx) => ok(await getBankAccountsStatus(ctx.companyId)),
+  // includeInactive: an agent asking for status is asking about money, not
+  // choosing an account to code against. The row shape is unchanged — isActive
+  // was already returned — so this is additive for existing MCP clients.
+  handler: async (_args, ctx) => ok(await getBankAccountsStatus(ctx.companyId, { includeInactive: true })),
 };
 
 export const listBankTransactionsTool: McpTool = {

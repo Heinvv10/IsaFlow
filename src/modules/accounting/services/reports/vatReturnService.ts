@@ -81,6 +81,24 @@ export async function getVATReturn(companyId: string,
         AND jl.company_id = ${companyId}::UUID
         AND je.entry_date >= ${periodStart}
         AND je.entry_date <= ${periodEnd}
+        -- V-05: never count the journal this report's own settlement posts.
+        -- vatSubmissionService's clearing entry moves the whole period's output
+        -- and input tax off the control accounts, with vat_type NULL on every
+        -- line — so the unclassified fallback below would sweep it into box 1 /
+        -- box 15 with the opposite sign and net the period to nil. Dating it
+        -- outside the period is not enough on its own: it would then land in the
+        -- FOLLOWING period as a negative box 1.
+        --
+        -- Narrow by construction: 'auto_vat_submission' is written in exactly
+        -- one place (vatSubmissionService.submitVATReturn), and
+        -- gl_journal_entries_source_check carries 'auto_vat_adjustment' as a
+        -- SEPARATE value — so manual and automated VAT adjustments are a
+        -- different source and are still counted.
+        --
+        -- IS DISTINCT FROM, not a plain inequality: je.source is nullable, and
+        -- an inequality against a NULL source yields NULL, not true, which
+        -- would silently drop every NULL-source journal from the return.
+        AND je.source IS DISTINCT FROM 'auto_vat_submission'
         AND (
           ga.account_subtype IN ('vat_input', 'vat_output', 'tax')
         )

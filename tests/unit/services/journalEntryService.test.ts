@@ -450,6 +450,8 @@ describe('postJournalEntry', () => {
     vi.mocked(sql).mockResolvedValueOnce([{ status: 'open' }] as never);
     // resolveUserUuid
     // (USER_ID is UUID format — no extra query)
+    // inactive-account guard: no deactivated accounts on this entry
+    vi.mocked(sql).mockResolvedValueOnce([] as never);
     // UPDATE gl_journal_entries
     vi.mocked(sql).mockResolvedValueOnce([makeEntryRow({ status: 'posted' })] as never);
 

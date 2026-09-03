@@ -8,6 +8,13 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import {
+  getFinancialFigures,
+  toFinancialData,
+  inventoryWarning,
+  unclassifiedWarning,
+  type PeriodFigures,
+} from '@/modules/accounting/services/gl/financialFiguresService';
 import { calculateExtendedRatios, type FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 import { buildKPIScorecard, type KPITargetConfig } from '@/modules/accounting/services/reports/kpiScorecardService';
 
@@ -34,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const from: string = (req.query.from as string) || '2026-01-01';
   const to: string = (req.query.to as string) || new Date().toISOString().split('T')[0]!
 
-  const data = await buildFinancialData(companyId, from, to);
+  const { data, figures } = await buildFinancialData(companyId, from, to);
   const ratios = calculateExtendedRatios(data);
   const scorecard = buildKPIScorecard(ratios, DEFAULT_TARGETS);
 
@@ -45,62 +52,36 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     total: scorecard.length,
   };
 
-  return apiResponse.success(res, { period: { from, to }, scorecard, summary });
+  return apiResponse.success(res, {
+    period: { from, to },
+    scorecard,
+    summary,
+    inventory: inventoryWarning(figures),
+    unclassifiedAccounts: unclassifiedWarning(figures.cumulative),
+  });
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = Record<string, any>;
 
-async function buildFinancialData(companyId: string, from: string, to: string): Promise<FinancialData> {
-  const [[totals], [bal], [empCount]] = await Promise.all([
-    sql`
-      SELECT
-        COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
-        COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as cost_of_sales,
-        COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses,
-        COALESCE(SUM(CASE WHEN ga.account_code = '5800' THEN jl.debit - jl.credit ELSE 0 END), 0) as depreciation
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-        AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
-    ` as Promise<Row[]>,
-    sql`
-      SELECT
-        COALESCE(SUM(CASE WHEN ga.account_code LIKE '1%' THEN jl.debit - jl.credit ELSE 0 END), 0) as total_assets,
-        COALESCE(SUM(CASE WHEN ga.account_code LIKE '2%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_liabilities,
-        COALESCE(SUM(CASE WHEN ga.account_code >= '1100' AND ga.account_code < '1200' THEN jl.debit - jl.credit ELSE 0 END), 0) as current_assets,
-        COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
-        COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
-        COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as ar,
-        COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as ap,
-        COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted' AND je.entry_date <= ${to}::date
-    ` as Promise<Row[]>,
+async function buildFinancialData(
+  companyId: string,
+  from: string,
+  to: string
+): Promise<{ data: FinancialData; figures: PeriodFigures }> {
+  const [figures, [empCount]] = await Promise.all([
+    getFinancialFigures(companyId, from, to),
     sql`SELECT COUNT(*)::int as count FROM payroll_employees WHERE company_id = ${companyId}::uuid AND (end_date IS NULL OR end_date > NOW())` as Promise<Row[]>,
   ]);
 
-  const revenue = parseFloat(totals?.revenue || '0');
-  const cos = parseFloat(totals?.cost_of_sales || '0');
-  const opex = parseFloat(totals?.operating_expenses || '0');
-
-  return {
-    revenue, costOfSales: cos, operatingExpenses: opex, netProfit: revenue - cos - opex,
-    totalAssets: parseFloat(bal?.total_assets || '0'),
-    totalLiabilities: parseFloat(bal?.total_liabilities || '0'),
-    totalEquity: Math.max(1, parseFloat(bal?.total_assets || '0') - parseFloat(bal?.total_liabilities || '0')),
-    currentAssets: parseFloat(bal?.current_assets || '0'),
-    currentLiabilities: parseFloat(bal?.current_liabilities || '0'),
-    inventory: parseFloat(bal?.inventory || '0'),
-    accountsReceivable: parseFloat(bal?.ar || '0'),
-    accountsPayable: parseFloat(bal?.ap || '0'),
-    cash: parseFloat(bal?.cash || '0'),
-    depreciation: parseFloat(totals?.depreciation || '0'),
+  // Equity passes through unclamped. It used to be Math.max(1, equity), which
+  // made an insolvent company divide by 1 and score green (AN-07); the ratio
+  // engine now marks equity-divided ratios not meaningful instead.
+  const data: FinancialData = {
+    ...toFinancialData(figures),
     employeeCount: empCount?.count || 0,
   };
+  return { data, figures };
 }
 
  

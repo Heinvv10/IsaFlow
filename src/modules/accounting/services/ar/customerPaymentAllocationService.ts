@@ -12,6 +12,8 @@ import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
 import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { assertNoInactiveAccountLines } from '../gl/journalEntryPostingService';
+import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -147,7 +149,7 @@ export async function postCustomerInvoiceToGL(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts?: { postingAgent?: string; historicalImport?: boolean },
 ): Promise<string> {
   try {
     const invRows = (await sql`
@@ -190,6 +192,26 @@ export async function postCustomerInvoiceToGL(
     // auto_invoice journal was dated one day before its invoice (baseline
     // finding N4). fmtDate uses local getters and handles both shapes.
     const entryDate = fmtDate(inv.invoice_date);
+
+    // Closed-period check runs HERE, before createJournalEntry, not inside
+    // postJournalEntry afterwards. pages/api/accounting/customer-invoices-gl.ts
+    // catches every error from this function and answers 400, and withAuth only
+    // ROLLBACKs on >= 500 -- so a refusal raised after the entry was created
+    // would COMMIT an orphan draft journal while reporting failure. Refusing
+    // before any write keeps that 400 honest.
+    //
+    // historicalImport waives it for the Sage migration alone, which exists to
+    // land 2022-2024 invoices in their real periods (955 such journals already
+    // sit in closed periods in production). Nothing else may pass it.
+    if (!opts?.historicalImport) {
+      const periodStatus = await getPeriodStatusForDate(companyId, entryDate);
+      if (periodStatus === 'closed') {
+        throw new Error(
+          `Cannot post invoice ${inv.invoice_number} to GL — its fiscal period is closed. ` +
+            `Reopen the period, or date the invoice in an open one.`,
+        );
+      }
+    }
     // sourceDocumentId FKs to captured_documents(id) — not customer_invoices.
     // The invoice↔JE link is maintained via customer_invoices.gl_journal_entry_id
     // below.
@@ -200,7 +222,23 @@ export async function postCustomerInvoiceToGL(
       lines,
     }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
 
-    const safeUserId = await resolveUserUuid(userId);
+    if (opts?.historicalImport) {
+      // Historical import diverges from the canonical path (postJournalEntry)
+      // for ONE reason: a migrated invoice belongs in its original period, and
+      // postJournalEntry refuses a closed one. Every other guard still applies,
+      // so the inactive-account check is made explicitly here.
+      await assertNoInactiveAccountLines(companyId, je.id);
+      const safeUserId = await resolveUserUuid(userId);
+      await sql`
+        UPDATE gl_journal_entries
+        SET status = 'posted', posted_by = ${safeUserId}::UUID, posted_at = NOW()
+        WHERE id = ${je.id}::UUID AND company_id = ${companyId}
+      `;
+    } else {
+      // Canonical path: inherits the balance, period and inactive-account
+      // guards rather than restating them here.
+      await postJournalEntry(companyId, je.id, userId);
+    }
 
     // Use the ALS-bound connection (plain `sql`) rather than withTransaction.
     // withTransaction gets a fresh pool connection that can't see the invoice
@@ -208,11 +246,6 @@ export async function postCustomerInvoiceToGL(
     // admin Sage commit handler), so the link-back UPDATE silently matched
     // 0 rows. Same-connection queries participate in the outer tx and see
     // the invoice row.
-    await sql`
-      UPDATE gl_journal_entries
-      SET status = 'posted', posted_by = ${safeUserId}::UUID, posted_at = NOW()
-      WHERE id = ${je.id}::UUID AND company_id = ${companyId}
-    `;
     await sql`
       UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID

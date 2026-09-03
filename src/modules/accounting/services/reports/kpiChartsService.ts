@@ -90,12 +90,23 @@ export async function getCashFlowChart(companyId: string, months: number): Promi
         COALESCE(SUM(CASE WHEN bt.amount > 0 THEN bt.amount ELSE 0 END), 0) AS inflows,
         COALESCE(SUM(CASE WHEN bt.amount < 0 THEN ABS(bt.amount) ELSE 0 END), 0) AS outflows
       FROM months m
+      -- The bank-subtype restriction lives in the bank_transactions join, as an
+      -- EXISTS. It used to be a LEFT JOIN onto gl_accounts, which restricted
+      -- nothing at all: unmatched rows survived with NULL account columns and
+      -- were still summed. is_active is deliberately absent -- it is a picker
+      -- flag, and deactivating an account must not erase its cash movements.
+      -- Latent, not benign: R0 delta today only because no inactive bank
+      -- account holds a bank_transactions row yet. Do not reinstate.
       LEFT JOIN bank_transactions bt
         ON bt.company_id = ${companyId}::UUID
         AND bt.transaction_date >= m.month_start
         AND bt.transaction_date < m.month_start + '1 month'::INTERVAL
-      LEFT JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-        AND ga.account_subtype = 'bank' AND ga.is_active = true
+        AND EXISTS (
+          SELECT 1 FROM gl_accounts ga
+          WHERE ga.id = bt.bank_account_id
+            AND ga.company_id = ${companyId}::UUID
+            AND ga.account_subtype = 'bank'
+        )
       GROUP BY m.month_start
       ORDER BY m.month_start
     `) as DbRow[];

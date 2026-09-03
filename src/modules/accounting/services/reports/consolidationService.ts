@@ -19,6 +19,11 @@ import type {
   IntercompanyBalance,
 } from './consolidationTypes';
 
+export {
+  createCompanyRelationship,
+  deleteCompanyRelationship,
+} from './companyRelationshipService';
+
 export type {
   GroupCompany,
   ConsolidatedAccount,
@@ -36,6 +41,7 @@ async function getChildCompanyIds(parentCompanyId: string): Promise<string[]> {
     SELECT child_company_id
     FROM company_relationships
     WHERE parent_company_id = ${parentCompanyId}::UUID
+      AND deleted_at IS NULL
     ORDER BY created_at
   `) as Row[];
   return rows.map((r) => String(r.child_company_id));
@@ -92,6 +98,7 @@ export async function getGroupCompanies(companyId: string): Promise<GroupCompany
       FROM company_relationships cr
       JOIN companies c ON c.id = cr.child_company_id
       WHERE cr.parent_company_id = ${companyId}::UUID
+        AND cr.deleted_at IS NULL
       ORDER BY c.name
     `) as Row[];
 
@@ -105,38 +112,6 @@ export async function getGroupCompanies(companyId: string): Promise<GroupCompany
     return [parent, ...children];
   } catch (err) {
     log.error('getGroupCompanies failed', { companyId, error: err }, 'consolidation');
-    throw err;
-  }
-}
-
-/**
- * Adds or updates a parent-child company relationship.
- * Validates that child != parent (IDOR guard).
- */
-export async function createCompanyRelationship(
-  companyId: string,
-  childCompanyId: string,
-  ownershipPercent: number,
-  _userId: string,
-  relationshipType: string = 'subsidiary',
-): Promise<void> {
-  if (companyId === childCompanyId) throw new Error('A company cannot be its own subsidiary');
-  if (ownershipPercent < 0 || ownershipPercent > 100) throw new Error('ownershipPercent must be 0–100');
-
-  try {
-    await sql`
-      INSERT INTO company_relationships
-        (parent_company_id, child_company_id, relationship_type, ownership_percent)
-      VALUES
-        (${companyId}::UUID, ${childCompanyId}::UUID, ${relationshipType}, ${ownershipPercent})
-      ON CONFLICT (parent_company_id, child_company_id)
-      DO UPDATE SET
-        relationship_type = EXCLUDED.relationship_type,
-        ownership_percent = EXCLUDED.ownership_percent
-    `;
-    log.info('Company relationship created', { companyId, childCompanyId, ownershipPercent }, 'consolidation');
-  } catch (err) {
-    log.error('createCompanyRelationship failed', { companyId, childCompanyId, error: err }, 'consolidation');
     throw err;
   }
 }

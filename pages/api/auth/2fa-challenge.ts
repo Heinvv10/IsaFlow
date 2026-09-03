@@ -17,6 +17,7 @@ import { verifyToken } from '@/lib/auth/gotrue';
 import { checkLockout, recordFailure, clearLockout } from '@/lib/auth/accountLockout';
 import { checkRateLimit, getClientIp, withRateLimit } from '@/lib/rateLimit';
 import { sql } from '@/lib/neon';
+import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -67,6 +68,16 @@ const handler: NextApiHandler = async (req, res) => {
         error: { code: 'ACCOUNT_LOCKED', message: 'Too many failed attempts. Try again later.' },
       });
     }
+  }
+
+  // Account-standing gate. login refuses a suspended user before the MFA
+  // branch, so this covers the remaining window: a user suspended BETWEEN
+  // password entry and code entry must not be handed a session. Checked before
+  // the code is verified — a closed account gets no oracle on code validity.
+  const refusal = await requireActiveAccount(userId);
+  if (refusal) {
+    log.warn('2fa challenge refused — account not in good standing', { userId }, 'Auth');
+    return res.status(403).json({ success: false, error: refusal });
   }
 
   try {

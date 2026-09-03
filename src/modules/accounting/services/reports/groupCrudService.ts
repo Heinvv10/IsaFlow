@@ -84,7 +84,15 @@ export async function listGroupsForUser(userId: string): Promise<Array<CompanyGr
            COUNT(DISTINCT cgm2.id) FILTER (WHERE cgm2.left_date IS NULL)::int AS member_count
     FROM company_groups cg
     LEFT JOIN companies hc ON hc.id = cg.holding_company_id
-    LEFT JOIN company_group_members cgm ON cgm.group_id = cg.id
+    -- cgm.left_date IS NULL is the visibility guard, and it must sit on the JOIN
+    -- (not in WHERE) or the LEFT JOIN collapses to an inner one and creator-only
+    -- groups with no members vanish from the list. Membership rows are retired by
+    -- setting left_date, never deleted, so without it a company that has LEFT the
+    -- group still shows its users the group name, holding-company name and member
+    -- count — while userBelongsToGroup 403s them on open. Same rule, both places.
+    LEFT JOIN company_group_members cgm
+           ON cgm.group_id = cg.id
+          AND cgm.left_date IS NULL
     LEFT JOIN company_users cu
            ON cu.company_id = cgm.company_id
           AND cu.user_id = ${userId}

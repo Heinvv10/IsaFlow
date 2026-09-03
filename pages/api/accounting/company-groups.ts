@@ -74,6 +74,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     if (action === 'mappings' && groupId) {
+      if (!(await verifyGroupAccess(groupId))) return apiResponse.forbidden(res, 'Access denied to this group');
       const companyId = req.query.company_id as string | undefined;
       if (companyId) {
         if (!(await verifyCompanyMembership(companyId))) {

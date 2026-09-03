@@ -7,6 +7,10 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import {
+  DataQualityNotice,
+  type UnclassifiedWarning,
+} from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 import { WaterfallChart } from '@/components/shared/WaterfallChart';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
@@ -17,6 +21,7 @@ export default function WaterfallPage() {
   const [tab, setTab] = useState<TabType>('profit');
   const [steps, setSteps] = useState<WaterfallStep[]>([]);
   const [loading, setLoading] = useState(true);
+  const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -28,6 +33,7 @@ export default function WaterfallPage() {
       const res = await apiFetch(`/api/accounting/reports-waterfall?type=${tab}&from=${from}&to=${to}`);
       const json = await res.json();
       if (json.data?.steps) setSteps(json.data.steps);
+      setUnclassified(json.data?.unclassifiedAccounts ?? null);
     } catch { /* empty state */ }
     finally { setLoading(false); }
   }, [tab]);
@@ -56,6 +62,7 @@ export default function WaterfallPage() {
         </div>
 
         <div className="p-6 max-w-5xl space-y-6">
+          <DataQualityNotice unclassifiedAccounts={unclassified} />
           {/* Tab selector */}
           <div className="flex gap-1 bg-[var(--ff-bg-secondary)] rounded-lg p-1 w-fit border border-[var(--ff-border-light)]">
             {(['profit', 'cashflow'] as TabType[]).map(t => (
