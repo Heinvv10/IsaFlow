@@ -195,18 +195,23 @@ describe('yearEndService — tenant isolation (S-002)', () => {
 
   describe('closeFiscalYear', () => {
     it('returns open_periods error when periods are still open', async () => {
-      sqlMock.mockResolvedValueOnce([{ cnt: '2' }]); // 2 open periods
+      // The probe now returns the open period ROWS, not a count: an agent
+      // cannot act on "2 periods are open" and can act on their names.
+      sqlMock.mockResolvedValueOnce([
+        { id: 'p1', period_name: 'March 2026', period_number: 1 },
+        { id: 'p2', period_name: 'April 2026', period_number: 2 },
+      ]);
 
       const result = await closeFiscalYear(COMPANY_A, YEAR_LABEL, USER_ID);
 
-      expect(result).toEqual({ error: 'open_periods', count: 2 });
+      expect(result).toMatchObject({ error: 'open_periods', count: 2 });
       // Should NOT have queried revenue/expense accounts
       expect(sqlMock).toHaveBeenCalledTimes(1);
     });
 
     it('returns year_not_found when fiscal periods have no rows', async () => {
       sqlMock
-        .mockResolvedValueOnce([{ cnt: '0' }])  // no open periods
+        .mockResolvedValueOnce([])  // no open periods
         .mockResolvedValueOnce([]);              // no range rows
 
       const result = await closeFiscalYear(COMPANY_A, YEAR_LABEL, USER_ID);
@@ -230,7 +235,7 @@ describe('yearEndService — tenant isolation (S-002)', () => {
       const RE_ACCOUNT_ID = 'eeeeeeee-0000-0000-0000-000000000010';
 
       // call 0: open periods count
-      sqlMock.mockResolvedValueOnce([{ cnt: '0' }]);
+      sqlMock.mockResolvedValueOnce([]);
       // call 1: year date range
       sqlMock.mockResolvedValueOnce([{ start_date: START_DATE, end_date: END_DATE }]);
       // call 2: revenue accounts for company A (balance = 1000)
@@ -282,7 +287,7 @@ describe('yearEndService — tenant isolation (S-002)', () => {
     it('passes companyId to revenue and expense account queries', async () => {
       // Minimal setup: early exit via year_not_found to limit mocks needed
       sqlMock
-        .mockResolvedValueOnce([{ cnt: '0' }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]); // no range → year_not_found
 
       await closeFiscalYear(COMPANY_A, YEAR_LABEL, USER_ID);

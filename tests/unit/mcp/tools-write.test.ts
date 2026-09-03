@@ -444,9 +444,14 @@ describe('write-tool manifest invariants', () => {
     expect(requiresPost).toEqual([
       'allocate_bank_transaction', 'approve_credit_note',
       'approve_supplier_invoice',
-      'bulk_allocate_bank_transactions', 'cancel_credit_note', 'finalize_invoice',
-      'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
-      'reverse_bank_allocation_batch', 'set_opening_balance',
+      'bulk_allocate_bank_transactions', 'cancel_credit_note',
+      // Closing a period changes what may post; closing a year posts to equity
+      // and locks every period behind it; reopening removes a posting lock; and
+      // completing a reconciliation marks transactions terminally reconciled.
+      'close_fiscal_period', 'finalize_invoice',
+      'perform_bank_reconciliation',
+      'post_journal', 'reopen_fiscal_period', 'reverse_allocations', 'reverse_bank_allocation',
+      'reverse_bank_allocation_batch', 'set_opening_balance', 'year_end_close',
     ]);
   });
 
@@ -547,6 +552,12 @@ describe('write-tool manifest invariants', () => {
       create_credit_note: { ...KEY },
       approve_credit_note: { ...KEY },
       cancel_credit_note: { ...KEY },
+      // Period-control writes each refuse on the missing required argument
+      // before any service call; behaviour in fiscalPeriodTools.test.ts.
+      close_fiscal_period: { ...KEY },
+      reopen_fiscal_period: { ...KEY },
+      year_end_close: { ...KEY },
+      perform_bank_reconciliation: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

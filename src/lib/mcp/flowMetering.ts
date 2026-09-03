@@ -82,6 +82,16 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_bank_reconciliations: null,
   list_credit_notes: null,
   get_credit_note: null,
+  // Period control and bank completeness. Free, and deliberately so: these are
+  // the review surfaces the safety model depends on. Charging to ask "is this
+  // period open" or "does this account's history have a hole in it" would put a
+  // toll on the check, and 56 prior periods stand open today precisely because
+  // nothing was asking.
+  list_fiscal_periods: null,
+  get_fiscal_period: null,
+  period_close_checklist: null,
+  bank_statement_coverage: null,
+  get_opening_balances: null,
 
   // ── Reports: free over MCP, unlike the UI ────────────────────────────────
   // The app charges 10 for each of these. Carrying that across was the initial
@@ -141,6 +151,17 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Cancelling a session posts nothing and unwinds work the agent may have
   // created for free — pricing the undo of free work is the wrong incentive.
   cancel_bank_reconciliation: null,
+  // Closing a period posts nothing and the app meters neither the workbench nor
+  // the fiscal-period screen; reopening is a correction, free like every other.
+  close_fiscal_period: null,
+  reopen_fiscal_period: null,
+  // Starting and auto-matching a reconciliation posts no journal — matching
+  // links a transaction to a journal line that already exists. The app does not
+  // meter the reconciliation screen either.
+  perform_bank_reconciliation: null,
+  // The year-end close DOES post a journal, and is priced as one, like
+  // set_opening_balance. One journal, whatever its size.
+  year_end_close: 'journal.create',
 
   // ── Chart of accounts: free ──────────────────────────────────────────────
   // The app does not meter COA edits, and these post nothing to the ledger.

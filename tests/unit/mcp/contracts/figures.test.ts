@@ -57,8 +57,16 @@ describe('figure registry', () => {
     for (const d of unownedFigures()) {
       expect(d.owner).toBeNull();
     }
-    // Cash is the headline case: four answers, none of them yet the owner.
-    expect(FIGURE_DEFINITIONS['cash.balance.v1']!.contested?.length).toBeGreaterThan(1);
+    // Cash was the headline case and is now settled: W3 owns the ledger basis.
+    // The statement basis is a SEPARATE figure, not a rival implementation —
+    // two of the four "competing" call sites were answering a different
+    // question, which is why they never agreed.
+    expect(FIGURE_DEFINITIONS['cash.balance.v1']!.owner)
+      .toBe('bank/cashBalanceService#getCashBalance');
+    expect(FIGURE_DEFINITIONS['cash.balance.v1']!.contested).toBeUndefined();
+    expect(FIGURE_DEFINITIONS['cash.statement.v1']).toBeDefined();
+    expect(FIGURE_DEFINITIONS['cash.statement.v1']!.owner)
+      .not.toBe(FIGURE_DEFINITIONS['cash.balance.v1']!.owner);
   });
 
   it('throws on an unknown basis rather than emitting an authoritative-looking typo', () => {

@@ -71,10 +71,22 @@ import {
   listTimeEntriesTool,
 } from './tools/practice';
 import { createJobCategoryTool, createWorkItemTool } from './tools/writePracticeSetup';
+import {
+  listFiscalPeriodsTool,
+  getFiscalPeriodTool,
+  periodCloseChecklistTool,
+} from './tools/fiscalPeriods';
+import { bankStatementCoverageTool, getOpeningBalancesTool } from './tools/bankCoverage';
+import {
+  closeFiscalPeriodTool,
+  reopenFiscalPeriodTool,
+  yearEndCloseTool,
+} from './tools/writeFiscalPeriods';
+import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (32)
+  // read (37)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -107,7 +119,14 @@ export const MCP_TOOLS = [
   listTimeEntriesTool,
   listCreditNotesTool,
   getCreditNoteTool,
-  // write (31) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // Period control and bank completeness (W3). The first five reads that let a
+  // caller see the posting lock and prove a bank account's history.
+  listFiscalPeriodsTool,
+  getFiscalPeriodTool,
+  periodCloseChecklistTool,
+  bankStatementCoverageTool,
+  getOpeningBalancesTool,
+  // write (35) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -143,6 +162,12 @@ export const MCP_TOOLS = [
   createCreditNoteTool,
   approveCreditNoteTool,
   cancelCreditNoteTool,
+  // Period control: close/reopen a period and close a year. All three require
+  // write:post — each one changes what may post, or posts to equity.
+  closeFiscalPeriodTool,
+  reopenFiscalPeriodTool,
+  yearEndCloseTool,
+  performBankReconciliationTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

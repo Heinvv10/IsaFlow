@@ -87,18 +87,29 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
   }),
   'cash.balance.v1': def({
     id: 'cash.balance.v1',
-    label: 'Cash and cash equivalents',
-    // Not settled. W3 owns this: it is the workstream that has to make the GL
-    // balance, the statement balance and the computed balance agree, and it
-    // cannot do that while three other call sites each answer differently.
-    owner: null,
-    includes: 'GL balance of every account of subtype bank, as at the reporting date.',
+    label: 'Cash and cash equivalents, per the ledger',
+    // Settled by W3. The four "competing implementations" were not four
+    // answers to one question — two of them were answering a DIFFERENT
+    // question. `bankAccountStatusService` and the dashboard sum
+    // `bank_transactions.amount`, which is the statement balance and is now
+    // `cash.statement.v1`. `cashFlowDirectService.fetchOpeningCash` had this
+    // basis and kept it private to one file; it now calls the owner.
+    owner: 'bank/cashBalanceService#getCashBalance',
+    includes:
+      'Posted GL balance of every account of subtype bank as at the reporting date, INCLUDING deactivated accounts — is_active is a picker flag and Brightsphere\'s deactivated 1110 carries R6,550 of cash.',
     excludes:
-      'Clearing and suspense accounts, which are reported as exceptions instead — Interbank Transfer Clearing is R14,081,940 and a clearing account should be nil.',
+      'Draft journals, and the statement balance, which is a different figure (cash.statement.v1) and is deliberately not reconciled into this one. Clearing and suspense accounts fall outside it because they are not of subtype bank; no clearing SUBTYPE exists in this schema, so detecting a non-nil clearing account by NAME is left to chart_of_accounts_health rather than done here — account NAME is the discriminator that overstated gross profit by R562,428.',
+  }),
+  'cash.statement.v1': def({
+    id: 'cash.statement.v1',
+    label: 'Cash per the imported bank statements',
+    owner: 'bank/bankAccountStatusService#getBankAccountsStatus',
+    includes:
+      'SUM of bank_transactions.amount per bank account — what the bank says, not what the ledger says.',
+    excludes:
+      'Any recorded opening balance (the column is display metadata that no balance calculation adds), and any GL movement with no statement line behind it. On Velocity Fibre this reads R1,018,633.08 against a GL balance of R3,458,375.43; the GAP is the finding, which is why the two figures are separate entries. NOTE: this owner still filters is_active = TRUE and so omits a deactivated bank account carrying R6,550 — bank_statement_coverage is the complete surface.',
     contested: [
-      'bank/bankAccountStatusService#getBankAccountsStatus',
-      'afs/cashFlowDirectService#getCashFlowDirect',
-      'reports/balanceSheetService#getBalanceSheet',
+      'reports/kpiDashboardService — same basis, same is_active filter, computed separately for the dashboard tile',
     ],
   }),
   'equity.residual.v1': def({

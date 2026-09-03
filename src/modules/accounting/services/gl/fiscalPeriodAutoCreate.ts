@@ -36,7 +36,12 @@
  */
 
 import { log } from '@/lib/logger';
-import { createFiscalYear, getFiscalPeriodIdForDate } from './fiscalPeriodService';
+import {
+  createFiscalYear,
+  getFiscalPeriodIdForDate,
+  resolveFiscalYearStartMonth,
+} from './fiscalPeriodService';
+import { fiscalYearOfDate } from './fiscalYearCalendar';
 
 /**
  * How far back a date may reach and still have its year created automatically.
@@ -82,9 +87,29 @@ export async function ensureFiscalPeriodForDate(
   const existing = await lookup(companyId, entryDate);
   if (existing) return existing;
 
-  // The YEAR the date names, not the current one — an import of 2019 books must
-  // create 2019, not this year.
-  const year = Number(entryDate.slice(0, 4));
+  // The FISCAL year the date falls in, not the calendar year and not the
+  // current one. `Number(entryDate.slice(0, 4))` was the calendar year, which on
+  // a March-start company is wrong for ten months out of twelve: a June 2026
+  // date belongs to FY2027, and creating FY2026 builds Mar 2025 – Feb 2026 and
+  // leaves the date uncovered exactly as before. The start month comes from
+  // resolveFiscalYearStartMonth, which follows the layout the company's existing
+  // periods already use — so a tenant on calendar periods keeps getting calendar
+  // years and nothing here half-migrates it.
+  let year: number;
+  try {
+    const alignment = await resolveFiscalYearStartMonth(companyId);
+    year = fiscalYearOfDate(entryDate, alignment.startMonth);
+  } catch (err) {
+    // An unparseable date, or a company row that has gone. Null is the
+    // pre-existing behaviour for a date no period covers; a throw here would
+    // turn a journal that posts today into a 500.
+    log.warn(
+      'Could not resolve a fiscal year for this date',
+      { companyId, entryDate, error: String(err) },
+      'accounting',
+    );
+    return null;
+  }
   if (!Number.isInteger(year) || !isAutoCreatableYear(year, opts?.today)) {
     log.warn(
       'No fiscal period covers this date and its year is outside the auto-create window',
