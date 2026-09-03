@@ -10,6 +10,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import {
+  getFinancialFigures,
+  totalEquity as companyEquity,
+  unclassifiedWarning,
+} from '@/modules/accounting/services/gl/financialFiguresService';
 import { log } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import {
@@ -39,34 +44,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('ai-commentary: building management pack data', { companyId, from, to });
 
-  // Current period financials
-  const [currTotals] = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) AS cost_of_sales,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) AS operating_expenses
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
-  `) as Row[];
-
-  const [currBalances] = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '1%' THEN jl.debit - jl.credit ELSE 0 END), 0) AS total_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '2%' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '3%' THEN jl.credit - jl.debit ELSE 0 END), 0) AS total_equity,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '1100' AND ga.account_code < '1200' THEN jl.debit - jl.credit ELSE 0 END), 0) AS current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) AS current_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) AS inventory
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date <= ${to}::date
-  `) as Row[];
-
   // Prior period: same duration ending one day before 'from'
   const fromDate = new Date(from);
   const toDate = new Date(to);
@@ -76,52 +53,46 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const priorFromStr = priorFrom.toISOString().split('T')[0]!;
   const priorToStr = priorTo.toISOString().split('T')[0]!;
 
-  const [priorTotals] = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) AS cost_of_sales,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) AS operating_expenses
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date >= ${priorFromStr}::date AND je.entry_date <= ${priorToStr}::date
-  `) as Row[];
+  const [current, prior] = await Promise.all([
+    getFinancialFigures(companyId, from, to),
+    getFinancialFigures(companyId, priorFromStr, priorToStr),
+  ]);
 
   const [company] = (await sql`
     SELECT name FROM companies WHERE id = ${companyId}
   `) as Row[];
 
   // Build ManagementPackData
-  const revenue = parseFloat(currTotals?.revenue ?? '0');
-  const costOfSales = parseFloat(currTotals?.cost_of_sales ?? '0');
-  const operatingExpenses = parseFloat(currTotals?.operating_expenses ?? '0');
-  const grossProfit = revenue - costOfSales;
-  const netProfit = grossProfit - operatingExpenses;
+  const { period, cumulative } = current;
+  const revenue = period.revenue;
+  const costOfSales = period.costOfSales;
+  const operatingExpenses = period.operatingExpenses;
+  const grossProfit = period.grossProfit;
+  const netProfit = period.netProfit;
 
-  const totalAssets = parseFloat(currBalances?.total_assets ?? '0');
-  const totalLiabilities = parseFloat(currBalances?.total_liabilities ?? '0');
-  const totalEquity = parseFloat(currBalances?.total_equity ?? '0') + netProfit;
-  const currentAssets = parseFloat(currBalances?.current_assets ?? '0');
-  const currentLiabilities = parseFloat(currBalances?.current_liabilities ?? '0');
-  const inventory = parseFloat(currBalances?.inventory ?? '0');
+  const totalAssets = cumulative.totalAssets;
+  const totalLiabilities = cumulative.totalLiabilities;
+  const equity = companyEquity(current);
+  const currentAssets = cumulative.currentAssets;
+  const currentLiabilities = cumulative.currentLiabilities;
+  const inventory = cumulative.inventory;
 
   const currentRatio = currentLiabilities > 0 ? currentAssets / currentLiabilities : 0;
-  const debtEquityRatio = totalEquity > 0 ? totalLiabilities / totalEquity : 0;
+  const debtEquityRatio = equity > 0 ? totalLiabilities / equity : 0;
   const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
   const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
 
-  const priorRevenue = parseFloat(priorTotals?.revenue ?? '0');
-  const priorCostOfSales = parseFloat(priorTotals?.cost_of_sales ?? '0');
-  const priorOperatingExpenses = parseFloat(priorTotals?.operating_expenses ?? '0');
-  const priorGrossProfit = priorRevenue - priorCostOfSales;
-  const priorNetProfit = priorGrossProfit - priorOperatingExpenses;
+  const priorRevenue = prior.period.revenue;
+  const priorCostOfSales = prior.period.costOfSales;
+  const priorOperatingExpenses = prior.period.operatingExpenses;
+  const priorGrossProfit = prior.period.grossProfit;
+  const priorNetProfit = prior.period.netProfit;
 
   const packData: ManagementPackData = {
     companyName: company?.name ?? 'Company',
     period: `${from} to ${to}`,
     incomeStatement: { revenue, costOfSales, grossProfit, operatingExpenses, netProfit },
-    balanceSheet: { totalAssets, totalLiabilities, equity: totalEquity, currentRatio, debtEquityRatio },
+    balanceSheet: { totalAssets, totalLiabilities, equity, currentRatio, debtEquityRatio },
     priorPeriod: { revenue: priorRevenue, costOfSales: priorCostOfSales, grossProfit: priorGrossProfit, operatingExpenses: priorOperatingExpenses, netProfit: priorNetProfit },
     ratios: { grossMargin, netMargin, currentRatio, quickRatio: currentLiabilities > 0 ? (currentAssets - inventory) / currentLiabilities : 0 },
   };
@@ -132,12 +103,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('ai-commentary: complete', { companyId, keyDriversCount: keyDrivers.length, riskCount: riskAreas.length });
 
+  // The caveat goes INSIDE the narrative, not in a sibling field. This endpoint
+  // has no UI: it is consumed as prose (MCP, exports, downstream summarisers),
+  // so a field nobody renders is the same "written but never read" defect. The
+  // commentary editorialises — profit "up"/"down", risk severities — and prose
+  // built on a R114m default is misleading whichever way it was generated.
+  const unclassified = unclassifiedWarning(cumulative);
+  if (unclassified) {
+    riskAreas.unshift({
+      area: 'Unclassified Accounts',
+      severity: 'medium',
+      description:
+        `${unclassified.message} This commentary is derived from those figures. ` +
+        unclassified.byType
+          .map((t) => `${t.accounts} ${t.type} account(s) treated as ${t.defaultedTo}`)
+          .join('; '),
+    });
+  }
+
   return apiResponse.success(res, {
     period: { from, to },
     executiveSummary,
     keyDrivers,
     riskAreas,
     financials: packData,
+    unclassifiedAccounts: unclassified,
   });
 }
 

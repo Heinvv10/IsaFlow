@@ -1,8 +1,19 @@
 /**
- * Audit P2 carry-over: the cash-flow export's account_subtype column probe
- * was a bare try/catch around a SELECT. Inside withAuth's request-wide
- * transaction a failed probe aborts the tx, so every fallback query after it
- * 500s. The probe must run inside a savepoint.
+ * Audit P2 carry-over, then the reporting audit.
+ *
+ * This endpoint used to probe for the `account_subtype` column and, if the
+ * probe failed, fall back to classifying accounts by NAME —
+ * `account_name ILIKE '%bank%'`, `'%receivable%'`, `'%payable%'`. That fallback
+ * produced the figures the reporting audit found: opening cash of
+ * R14,081,940.13 against a true R234,353.19 on Velocity Fibre, because the
+ * `PC - Paycard - …` and `ABSA - PC : …` bank accounts contain neither "bank"
+ * nor "cash" in their names.
+ *
+ * The column has existed since migration 260+, so the branch was unreachable by
+ * design — but the probe's `.catch(() => false)` meant any transient fault
+ * silently routed a live request down it and answered 200 with wrong numbers.
+ * Both the probe and the fallback are now gone: classification is by subtype
+ * only, and a genuine schema or connection fault surfaces as an error.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -40,38 +51,71 @@ function mockReqRes() {
   return { req, res: res as unknown as NextApiResponse & typeof res };
 }
 
+/** Joined template text with SQL comments stripped, so assertions read the query, not prose. */
+function queryTexts(): string[] {
+  return sqlMock.mock.calls.map((c) =>
+    (c[0] as readonly string[])
+      .join('?')
+      .replace(/\/\*[\s\S]*?\*\//g, ' ')
+      .replace(/--[^\n]*/g, ' '),
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  sqlMock.mockImplementation(async () => []);
 });
 
-describe('cash-flow-export account_subtype probe', () => {
-  it('runs the probe inside a savepoint and survives a missing column', async () => {
-    sqlMock.mockImplementation(async (strings: readonly string[]) => {
-      const q = strings.join('?');
-      if (q.includes('account_subtype FROM gl_accounts LIMIT 1')) {
-        throw new Error('column "account_subtype" does not exist');
-      }
-      return [];
+describe('cash-flow-export classification', () => {
+  it('produces the report and never probes for the account_subtype column', async () => {
+    const { req, res } = mockReqRes();
+    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(String(res.sent)).toContain('Operating Activities');
+
+    // The probe existed only to choose between branches. With one branch left
+    // it is dead weight whose failure mode was silent wrongness.
+    expect(withSavepointMock).not.toHaveBeenCalled();
+    for (const t of queryTexts()) {
+      expect(t).not.toMatch(/SELECT account_subtype FROM gl_accounts LIMIT 1/);
+    }
+  });
+
+  it('carries no name-matching classification anywhere', async () => {
+    const { req, res } = mockReqRes();
+    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
+
+    for (const t of queryTexts()) {
+      expect(t).not.toMatch(/account_name\s+(NOT\s+)?I?LIKE/i);
+    }
+  });
+
+  it('classifies cash, receivables, payables and investing assets by subtype', async () => {
+    const { req, res } = mockReqRes();
+    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
+
+    const subtypeQueries = queryTexts().filter((t) => t.includes('account_subtype = ANY('));
+    expect(subtypeQueries.length).toBeGreaterThanOrEqual(4);
+
+    const params = sqlMock.mock.calls.flatMap((c) => c.slice(1)).filter(Array.isArray).flat();
+    expect(params).toContain('bank');
+    expect(params).toContain('cash');
+    expect(params).toContain('receivable');
+    expect(params).toContain('payable');
+    expect(params).toContain('fixed_asset');
+    // The plural spelling is 30 accounts in production.
+    expect(params).toContain('fixed_assets');
+  });
+
+  it('surfaces a query fault instead of answering with downgraded numbers', async () => {
+    sqlMock.mockImplementation(async () => {
+      throw new Error('connection reset');
     });
 
     const { req, res } = mockReqRes();
-    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
-
-    expect(withSavepointMock.mock.calls.map((c) => c[0])).toContain('subtype_probe');
-    expect(res.statusCode).toBe(200);
-    expect(String(res.sent)).toContain('Operating Activities');
-  });
-
-  it('uses the subtype queries when the column exists', async () => {
-    sqlMock.mockImplementation(async () => []);
-
-    const { req, res } = mockReqRes();
-    await (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res);
-
-    expect(res.statusCode).toBe(200);
-    const subtypeQueries = sqlMock.mock.calls.filter((c) =>
-      (c[0] as readonly string[]).join('?').includes("account_subtype = 'bank'"),
-    );
-    expect(subtypeQueries.length).toBeGreaterThan(0);
+    await expect(
+      (handler as (rq: NextApiRequest, rs: NextApiResponse) => Promise<unknown>)(req, res),
+    ).rejects.toThrow(/connection reset/);
   });
 });

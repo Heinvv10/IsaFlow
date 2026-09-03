@@ -10,18 +10,30 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
-import { defaultHumanMeta } from '../gl/journalEntryMeta';
+import { defaultHumanMeta, actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { assertNoInactiveAccountLines } from '../gl/journalEntryPostingService';
+import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { getCustomerPaymentById } from './customerPaymentService';
 import type { CustomerPayment } from '../../types/ar.types';
 import type { JournalLineInput } from '../../types/gl.types';
 
 type Row = DbRow;
 
+/**
+ * @param opts.postingAgent Stamp for the DR Bank / CR AR journal this posts.
+ *   Optional and last-positional so every existing caller keeps its current
+ *   `human:<userId>` attribution; only callers that are NOT a human clicking
+ *   Confirm (the MCP settle_by_contra tool) pass it. Without it
+ *   `createJournalEntry` falls back to `defaultHumanMeta(userId)`, which
+ *   affirmatively claims the token owner made the entry by hand and hides it
+ *   from `list_agent_postings`. Mirrors postCustomerInvoiceToGL.
+ */
 export async function confirmCustomerPayment(
   companyId: string,
   id: string,
   userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<CustomerPayment> {
   try {
     const payment = await getCustomerPaymentById(companyId, id);
@@ -47,7 +59,7 @@ export async function confirmCustomerPayment(
       description: `Customer payment ${payment.paymentNumber}`,
       source: 'auto_payment',
       lines,
-    }, userId);
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
     await postJournalEntry(companyId, je.id, userId);
 
     // Update invoice balances and mark payment confirmed — runs on the ALS-bound
@@ -147,7 +159,7 @@ export async function postCustomerInvoiceToGL(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts?: PostingActorOpts & { historicalImport?: boolean },
 ): Promise<string> {
   try {
     const invRows = (await sql`
@@ -190,6 +202,26 @@ export async function postCustomerInvoiceToGL(
     // auto_invoice journal was dated one day before its invoice (baseline
     // finding N4). fmtDate uses local getters and handles both shapes.
     const entryDate = fmtDate(inv.invoice_date);
+
+    // Closed-period check runs HERE, before createJournalEntry, not inside
+    // postJournalEntry afterwards. pages/api/accounting/customer-invoices-gl.ts
+    // catches every error from this function and answers 400, and withAuth only
+    // ROLLBACKs on >= 500 -- so a refusal raised after the entry was created
+    // would COMMIT an orphan draft journal while reporting failure. Refusing
+    // before any write keeps that 400 honest.
+    //
+    // historicalImport waives it for the Sage migration alone, which exists to
+    // land 2022-2024 invoices in their real periods (955 such journals already
+    // sit in closed periods in production). Nothing else may pass it.
+    if (!opts?.historicalImport) {
+      const periodStatus = await getPeriodStatusForDate(companyId, entryDate);
+      if (periodStatus === 'closed') {
+        throw new Error(
+          `Cannot post invoice ${inv.invoice_number} to GL — its fiscal period is closed. ` +
+            `Reopen the period, or date the invoice in an open one.`,
+        );
+      }
+    }
     // sourceDocumentId FKs to captured_documents(id) — not customer_invoices.
     // The invoice↔JE link is maintained via customer_invoices.gl_journal_entry_id
     // below.
@@ -198,9 +230,25 @@ export async function postCustomerInvoiceToGL(
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       lines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
+    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
 
-    const safeUserId = await resolveUserUuid(userId);
+    if (opts?.historicalImport) {
+      // Historical import diverges from the canonical path (postJournalEntry)
+      // for ONE reason: a migrated invoice belongs in its original period, and
+      // postJournalEntry refuses a closed one. Every other guard still applies,
+      // so the inactive-account check is made explicitly here.
+      await assertNoInactiveAccountLines(companyId, je.id);
+      const safeUserId = await resolveUserUuid(userId);
+      await sql`
+        UPDATE gl_journal_entries
+        SET status = 'posted', posted_by = ${safeUserId}::UUID, posted_at = NOW()
+        WHERE id = ${je.id}::UUID AND company_id = ${companyId}
+      `;
+    } else {
+      // Canonical path: inherits the balance, period and inactive-account
+      // guards rather than restating them here.
+      await postJournalEntry(companyId, je.id, userId);
+    }
 
     // Use the ALS-bound connection (plain `sql`) rather than withTransaction.
     // withTransaction gets a fresh pool connection that can't see the invoice
@@ -208,11 +256,6 @@ export async function postCustomerInvoiceToGL(
     // admin Sage commit handler), so the link-back UPDATE silently matched
     // 0 rows. Same-connection queries participate in the outer tx and see
     // the invoice row.
-    await sql`
-      UPDATE gl_journal_entries
-      SET status = 'posted', posted_by = ${safeUserId}::UUID, posted_at = NOW()
-      WHERE id = ${je.id}::UUID AND company_id = ${companyId}
-    `;
     await sql`
       UPDATE customer_invoices SET gl_journal_entry_id = ${je.id}::UUID
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID

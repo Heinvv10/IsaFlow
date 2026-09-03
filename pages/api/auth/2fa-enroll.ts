@@ -5,6 +5,7 @@ import { enrollTotp, GotrueMfaError } from '@/lib/auth/gotrue-mfa';
 import { verifyToken } from '@/lib/auth/gotrue';
 import { log } from '@/lib/logger';
 import { withCsrf } from '@/lib/auth/withCsrf';
+import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
 
 const handler: NextApiHandler = async (req, res) => {
   if (req.method !== 'POST') {
@@ -15,12 +16,23 @@ const handler: NextApiHandler = async (req, res) => {
     return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
   }
   let email: string;
+  let userId: string;
   try {
     const claims = await verifyToken(token);
     email = typeof claims.email === 'string' ? claims.email : '';
+    userId = claims.sub;
   } catch {
     return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
   }
+
+  // Account-standing gate: a suspended user must not reconfigure the security
+  // settings of a closed account.
+  const refusal = await requireActiveAccount(userId);
+  if (refusal) {
+    log.warn('2fa enrol refused — account not in good standing', { userId }, 'Auth');
+    return res.status(403).json({ success: false, error: refusal });
+  }
+
   try {
     const result = await enrollTotp(token, email);
     return res.status(200).json({ success: true, data: result });

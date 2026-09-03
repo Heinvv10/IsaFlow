@@ -80,14 +80,30 @@ export async function getDashboardKPIs(companyId: string,
         SELECT COALESCE(SUM(bt.amount), 0) AS total
         FROM bank_transactions bt
         JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-        WHERE ga.account_subtype = 'bank' AND ga.is_active = true
+        -- No is_active filter: is_active is a chart-of-accounts picker flag,
+        -- not a statement about whether the account still holds money.
+        -- Deactivating a bank account must not make its cash disappear.
+        -- Latent, not benign: the delta is R0 today only because no inactive
+        -- bank account currently holds a bank_transactions row. Deactivate
+        -- 1049686 Brighttech Absa and R1,911,554.82 of cash leaves this figure
+        -- silently. Do not reinstate the filter because the change looks
+        -- like a no-op.
+        WHERE ga.account_subtype = 'bank'
           AND bt.company_id = ${companyId}::UUID
       `,
       sql`
         SELECT COALESCE(SUM(bt.amount), 0) AS total
         FROM bank_transactions bt
         JOIN gl_accounts ga ON ga.id = bt.bank_account_id
-        WHERE ga.account_subtype = 'bank' AND ga.is_active = true
+        -- No is_active filter: is_active is a chart-of-accounts picker flag,
+        -- not a statement about whether the account still holds money.
+        -- Deactivating a bank account must not make its cash disappear.
+        -- Latent, not benign: the delta is R0 today only because no inactive
+        -- bank account currently holds a bank_transactions row. Deactivate
+        -- 1049686 Brighttech Absa and R1,911,554.82 of cash leaves this figure
+        -- silently. Do not reinstate the filter because the change looks
+        -- like a no-op.
+        WHERE ga.account_subtype = 'bank'
           AND bt.company_id = ${companyId}::UUID
           AND bt.transaction_date <= ${priorToStr}
       `,

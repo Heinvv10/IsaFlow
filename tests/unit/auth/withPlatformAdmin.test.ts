@@ -47,11 +47,20 @@ function makeFakeClient(roleRow: string | null, shouldError = false): FakeClient
     get released() { return released; },
     async query(text: string, values: unknown[] = []) {
       queries.push({ text, values });
-      if (shouldError && /SELECT role FROM users/i.test(text)) {
+      // Matched on the table, not the column list: the gate query now also
+      // selects the account-standing columns, and a text-exact mock would have
+      // silently stopped matching.
+      if (shouldError && /FROM users/i.test(text)) {
         throw new Error('simulated DB failure');
       }
-      if (/SELECT role FROM users/i.test(text)) {
-        return { rows: roleRow ? [{ role: roleRow }] : [] };
+      if (/FROM users/i.test(text)) {
+        // Standing columns describe an active account — suspension cases live
+        // in tests/unit/auth/suspendedIdentityPaths.test.ts.
+        return {
+          rows: roleRow
+            ? [{ role: roleRow, is_active: true, status: 'active', suspended_at: null }]
+            : [],
+        };
       }
       return { rows: [] };
     },

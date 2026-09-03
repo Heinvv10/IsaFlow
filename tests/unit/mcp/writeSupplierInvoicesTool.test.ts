@@ -183,7 +183,7 @@ describe('approve_supplier_invoice', () => {
     const r = parseOk(await approveSupplierInvoiceTool.handler({ invoice_id: INVOICE, ...KEY }, ctx()));
     expect(r.gl_journal_entry_id).toBe('88888888-8888-4888-8888-888888888888');
     expect(vi.mocked(approveSupplierInvoice).mock.calls[0]![3])
-      .toEqual({ postingAgent: 'mcp:approve_supplier_invoice:v1' });
+      .toEqual({ postingAgent: 'mcp:approve_supplier_invoice:v1', actorType: 'agent', actorTokenJti: 'jti' });
   });
 
   it('requires write:post — it posts an irreversible journal', () => {

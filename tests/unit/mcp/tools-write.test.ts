@@ -152,6 +152,9 @@ describe('create_draft_invoice', () => {
     expect(createDraftCustomerInvoice).toHaveBeenCalledWith(
       COMPANY_ID, USER_ID,
       expect.objectContaining({ clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', items: [{ description: 'Work', unitPrice: 100, quantity: 2 }] }),
+      // The document itself records the actor: a draft invoice posts no
+      // journal, so until approval this is the only trace of who raised it.
+      { postingAgent: 'mcp:create_draft_invoice:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
     );
     expect(data.invoiceNumber).toBe('INV-0001');
   });
@@ -215,7 +218,7 @@ describe('create_draft_journal', () => {
         ],
       }),
       USER_ID,
-      { postingAgent: 'mcp:create_draft_journal:v1' },
+      { postingAgent: 'mcp:create_draft_journal:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
     );
   });
 
@@ -234,7 +237,7 @@ describe('create_draft_journal', () => {
     }, ctx());
 
     const meta = vi.mocked(createJournalEntry).mock.calls[0]![3];
-    expect(meta).toEqual({ postingAgent: 'mcp:create_draft_journal:v1' });
+    expect(meta).toEqual({ postingAgent: 'mcp:create_draft_journal:v1', actorType: 'agent', actorTokenJti: 'jti-1' });
     expect(meta?.postingAgent).not.toContain('human:');
   });
 
@@ -291,7 +294,8 @@ describe('post_journal / finalize_invoice (post tools)', () => {
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: 'je-9', evidenceDocumentId: null });
     parseOk(await tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx()));
     expect(approveCustomerInvoice).toHaveBeenCalledWith(
-      COMPANY_ID, 'eec03106-2910-4a7a-8e91-0c4f396ec98f', USER_ID, { postingAgent: 'mcp:finalize_invoice:v1' },
+      COMPANY_ID, 'eec03106-2910-4a7a-8e91-0c4f396ec98f', USER_ID,
+      { postingAgent: 'mcp:finalize_invoice:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
     );
   });
 
@@ -442,7 +446,9 @@ describe('write-tool manifest invariants', () => {
   it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
-      'allocate_bank_transaction', 'approve_credit_note',
+      'allocate_bank_transaction', 'apply_payment_to_supplier_invoice',
+      'apply_receipt_to_invoice',
+      'approve_credit_note',
       'approve_supplier_invoice',
       'bulk_allocate_bank_transactions', 'cancel_credit_note', 'finalize_invoice',
       // lock_vat_period posts no journal, and it requires write:post anyway:
@@ -450,7 +456,8 @@ describe('write-tool manifest invariants', () => {
       // posting permission is not a control.
       'lock_vat_period',
       'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
-      'reverse_bank_allocation_batch', 'set_opening_balance',
+      'reverse_bank_allocation_batch', 'reverse_journal_entry',
+      'set_opening_balance', 'settle_by_contra',
     ]);
   });
 
@@ -554,6 +561,19 @@ describe('write-tool manifest invariants', () => {
       create_credit_note: { ...KEY },
       approve_credit_note: { ...KEY },
       cancel_credit_note: { ...KEY },
+      // Refuses on neither-source-named before any lookup; behaviour in
+      // applyReceiptTool.test.ts.
+      apply_receipt_to_invoice: { ...KEY },
+      apply_payment_to_supplier_invoice: { ...KEY },
+      // Refuses on the missing journal_entry_id before any lookup.
+      reverse_journal_entry: { ...KEY },
+      // Refuses on the missing subledger before any lookup.
+      settle_by_contra: { ...KEY },
+      // Each refuses on its missing required argument before any lookup.
+      create_customer: { ...KEY },
+      update_customer: { ...KEY },
+      create_supplier: { ...KEY },
+      update_supplier: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

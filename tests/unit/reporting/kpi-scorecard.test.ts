@@ -80,6 +80,12 @@ describe('KPI Scorecard Engine', () => {
     ];
     const sc = buildKPIScorecard(sampleRatios, bad);
     expect(sc.length).toBeLessThanOrEqual(1);
-    if (sc.length === 1) expect(sc[0]!.value).toBe(0);
+    if (sc.length === 1) {
+      // An unknown key has no value. It used to be coerced to 0, which is a
+      // fabricated reading — the same coercion that scored a negative
+      // debt-to-equity as green (AN-07). Report it as unscored instead.
+      expect(sc[0]!.value).toBeNull();
+      expect(sc[0]!.status).toBe('not_meaningful');
+    }
   });
 });

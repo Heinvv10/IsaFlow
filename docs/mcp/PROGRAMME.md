@@ -80,10 +80,18 @@ An endpoint is done when **all** of these hold. A PR missing any one comes back.
    regression test named in the specification where one is given.
 2. Conforms to `ReportEnvelope` — completeness fields, `detail`, `as_at`,
    `posted_through`, `excludedRows`.
-3. **Run against the live Velocity Fibre books over the MCP connection**, and the
-   result checked against the figures in the audit. A trial balance that still
-   returns 7 accounts is not done. A `vat_status` whose box 15 does not tie to
-   input tax at 15% is not done.
+3. **Run against the live Velocity Fibre books over the MCP connection.** A trial
+   balance that still returns 7 accounts is not done. A `vat_status` whose box 15
+   does not tie to input tax at 15% is not done.
+
+   **The audit document's figures are LEADS, NOT GROUND TRUTH.** Several of its
+   numbers came from a single agent's query and have since been corrected on a
+   second pass — it names two deactivated accounts carrying a balance, and there
+   are four, holding R137,317.39. So **re-derive any figure you use as an
+   acceptance criterion**, and report the number you actually get. Where it
+   disagrees with the document, that disagreement is itself a finding and belongs
+   in your report. Never tune a check to reproduce a figure from the document: it
+   will look correct in review and be wrong in production.
 4. Mutating endpoints have `dry_run` and an idempotency key, and **the dry run is
    exercised in a test**.
 5. Every query `company_id` scoped, and the review says so explicitly.

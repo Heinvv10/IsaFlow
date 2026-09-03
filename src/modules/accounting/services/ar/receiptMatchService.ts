@@ -30,7 +30,6 @@ import {
   entityNameMatches,
   fetchBankTransaction,
 } from '@/modules/accounting/services/bank/bankMatchCandidatesService';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 
 const REFERENCE_EXACT_BONUS = 40;
 const REFERENCE_PARTIAL_BONUS = 20;
@@ -53,13 +52,19 @@ interface InvoiceCandidateRow extends DbRow {
 /**
  * Top-N scored customer-invoice candidates for a receipt (positive bank tx).
  * Always returns [] for non-receipt transactions or unknown tx ids.
+ *
+ * `poolConsidered` and `scoredTotal` are reported alongside the shortlist so a
+ * caller can state its own completeness honestly: five candidates out of fifty
+ * open invoices and five out of five are very different answers, and the
+ * shortlist alone cannot tell them apart. Existing callers destructure
+ * `{ candidates }` and are unaffected.
  */
 export async function getReceiptMatchCandidates(
   bankTransactionId: string,
   companyId: string,
-): Promise<{ candidates: MatchCandidate[] }> {
+): Promise<{ candidates: MatchCandidate[]; poolConsidered: number; scoredTotal: number }> {
   const tx = await fetchBankTransaction(bankTransactionId, companyId);
-  if (!tx || tx.amount <= 0) return { candidates: [] };
+  if (!tx || tx.amount <= 0) return { candidates: [], poolConsidered: 0, scoredTotal: 0 };
 
   const { amount: txAmount, transactionDate: txDate, description: txDesc, reference: txRef } = tx;
   const absAmount = Math.abs(txAmount);
@@ -85,7 +90,10 @@ export async function getReceiptMatchCandidates(
     topScore: top[0]?.score ?? 0,
   }, 'accounting-api');
 
-  return { candidates: top };
+  // poolConsidered is the pool AFTER the entity narrowing, because that is the
+  // set every returned score was computed against. Reporting the pre-narrowing
+  // count would overstate what the shortlist is a shortlist OF.
+  return { candidates: top, poolConsidered: filtered.length, scoredTotal: scored.length };
 }
 
 /**
@@ -222,137 +230,7 @@ function buildMatchReason(
   return parts.length > 0 ? parts.join(' + ') : undefined;
 }
 
-// ── Confirm allocation ────────────────────────────────────────────────────────
-
-export interface ConfirmReceiptMatchResult {
-  journalEntryId: string;
-  customerPaymentId: string | null;
-  invoiceId: string;
-  invoiceStatus: string;
-  amountApplied: number;
-  newBalance: number;
-}
-
-/**
- * Allocates a bank receipt to a customer invoice. Called by the "Confirm"
- * action in the AR receipt-match UI.
- *
- * Steps (all within a single logical flow):
- *   1. Resolve the invoice's customer_id (so allocateTransaction can create a
- *      customer_payments row).
- *   2. Delegate to bankAllocationService.allocateTransaction(allocType='customer')
- *      — posts the DR Bank / CR AR journal, flips the bank_transaction to
- *      'allocated', and inserts a confirmed customer_payments row.
- *   3. Attach the resulting customer_payment to the invoice via
- *      customer_payment_allocations AND bump customer_invoices.amount_paid /
- *      status atomically.
- *
- * The invoice-balance update lives here (not in allocateTransaction) because
- * allocateTransaction is the generic bank → GL flow used by non-invoice
- * allocations too. Keeping this wrapper scoped to PRD-06 Phase 4 means no
- * behaviour change for existing bank-rec callers.
- */
-export async function confirmReceiptMatch(
-  companyId: string,
-  params: { bankTxId: string; customerInvoiceId: string; amount: number; userId: string },
-): Promise<ConfirmReceiptMatchResult> {
-  const { bankTxId, customerInvoiceId, amount, userId } = params;
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error('amount must be a positive number');
-  }
-
-  const invRows = (await sql`
-    SELECT ci.id, ci.invoice_number, ci.total_amount, ci.amount_paid, ci.status,
-           COALESCE(ci.client_id, ci.customer_id) AS customer_id
-    FROM customer_invoices ci
-    WHERE ci.id = ${customerInvoiceId}::UUID AND ci.company_id = ${companyId}::UUID
-  `) as DbRow[];
-  if (invRows.length === 0) {
-    throw new Error(`Customer invoice ${customerInvoiceId} not found`);
-  }
-  const invoice = invRows[0]!;
-  const customerId = invoice.customer_id ? String(invoice.customer_id) : null;
-  if (!customerId) {
-    throw new Error(`Customer invoice ${customerInvoiceId} has no customer link`);
-  }
-
-  const invoiceTotal = Number(invoice.total_amount);
-  const invoicePaid = Number(invoice.amount_paid ?? 0);
-  const balanceBefore = invoiceTotal - invoicePaid;
-  if (amount > balanceBefore + 0.01) {
-    throw new Error(
-      `amount R${amount.toFixed(2)} exceeds outstanding balance R${balanceBefore.toFixed(2)}`,
-    );
-  }
-
-  const { journalEntryId } = await allocateTransaction(
-    companyId,
-    bankTxId,
-    null,
-    userId,
-    `Receipt allocated to ${String(invoice.invoice_number)}`,
-    'customer',
-    customerId,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    customerInvoiceId,
-  );
-
-  const paymentRows = (await sql`
-    SELECT id FROM customer_payments
-    WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id = ${journalEntryId}::UUID
-    ORDER BY created_at DESC LIMIT 1
-  `) as DbRow[];
-  const customerPaymentId = paymentRows.length > 0 ? String(paymentRows[0]!.id) : null;
-
-  if (customerPaymentId) {
-    await sql`
-      INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
-      VALUES (${customerPaymentId}::UUID, ${customerInvoiceId}::UUID, ${amount})
-    `;
-  }
-  await sql`
-    UPDATE customer_invoices
-    SET amount_paid = COALESCE(amount_paid, 0) + ${amount},
-        status = CASE
-          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${amount})) <= 0.01 THEN 'paid'
-          WHEN (COALESCE(amount_paid, 0) + ${amount}) > 0 THEN 'partially_paid'
-          ELSE status
-        END,
-        paid_at = CASE
-          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${amount})) <= 0.01 THEN NOW()
-          ELSE paid_at
-        END,
-        updated_at = NOW()
-    WHERE id = ${customerInvoiceId}::UUID AND company_id = ${companyId}::UUID
-  `;
-  const afterRows = (await sql`
-    SELECT status, total_amount, amount_paid
-    FROM customer_invoices
-    WHERE id = ${customerInvoiceId}::UUID AND company_id = ${companyId}::UUID
-  `) as DbRow[];
-  const afterRow = afterRows[0]!;
-  const invoiceStatus = String(afterRow.status);
-  const newBalance = Number(afterRow.total_amount) - Number(afterRow.amount_paid ?? 0);
-
-  log.info('Confirmed receipt-match allocation', {
-    bankTxId,
-    customerInvoiceId,
-    journalEntryId,
-    customerPaymentId,
-    amount,
-    invoiceStatus,
-  }, 'accounting-api');
-
-  return {
-    journalEntryId,
-    customerPaymentId,
-    invoiceId: customerInvoiceId,
-    invoiceStatus,
-    amountApplied: amount,
-    newBalance,
-  };
-}
+// `confirmReceiptMatch` — the write half — moved to `receiptMatchConfirmService.ts`
+// when it was widened from one invoice to many. This file was already 358 lines
+// against a 300-line cap, and scoring a shortlist and posting a journal share
+// nothing but a domain.

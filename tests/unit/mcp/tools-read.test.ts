@@ -258,7 +258,10 @@ describe('contact + bank + vat tools', () => {
 
     expect(listCustomers).toHaveBeenCalledWith(COMPANY_ID, 'brit');
     expect(listSuppliers).toHaveBeenCalledWith(COMPANY_ID, expect.any(Object));
-    expect(getBankAccountsStatus).toHaveBeenCalledWith(COMPANY_ID);
+    // companyId stays first — the point of this test. The options arg opts the
+    // tool into inactive accounts: an agent asking for status is asking about
+    // money, and a deactivated account still holds a balance.
+    expect(getBankAccountsStatus).toHaveBeenCalledWith(COMPANY_ID, { includeInactive: true });
     expect(getBankTransactions).toHaveBeenCalledWith(
       COMPANY_ID, expect.objectContaining({ allocationFilter: 'unallocated', limit: 50 }),
     );
@@ -473,8 +476,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 36 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(36);
+  it('exactly 42 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(42);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -491,13 +494,54 @@ describe('suite-wide invariants', () => {
   // from an argument — is pinned in three parts below, plus behaviourally in
   // companyAssert.test.ts. A blanket name ban would now pass by forbidding the
   // guard while saying nothing about where scope comes from.
-  it('no tool DECLARES a company identifier of its own', () => {
+  // Narrowed once more, for the same reason it was narrowed before. The rule
+  // is that no tool takes its SCOPE from an argument — NOT that the word
+  // "company" may not appear. audit_trail's `acting_company_id` filters a DATA
+  // COLUMN (which firm the actor was acting for, migration 581); it is the same
+  // kind of argument as `user_id` or `source`, and it cannot widen scope
+  // because every query underneath still carries `company_id = ctx.companyId`
+  // — pinned by the scope test below and by the service's own suite.
+  //
+  // Ban the SELECTOR names exactly, and allow a data column to be named after
+  // a company. A blanket /company/i ban would forbid an honest filter while
+  // saying nothing about where scope comes from, which is the failure this
+  // assertion has already had once.
+  const SCOPE_SELECTOR_NAMES = ['company_id', 'companyid', 'company', 'tenant_id', 'tenantid'];
+  const SCOPE_SAFE_COMPANY_PROPS = new Set([
+    'acting_company_id',                  // which firm the actor acted for
+    'posted_from_outside_this_company',   // boolean filter; selects nothing
+  ]);
+
+  it('no tool DECLARES a company identifier that could select the tenant', () => {
     for (const t of MCP_TOOLS) {
       const props = Object.keys(
         ((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
       );
-      for (const p of props) expect(p).not.toMatch(/company/i);
+      for (const p of props) {
+        expect(SCOPE_SELECTOR_NAMES).not.toContain(p.toLowerCase());
+        // Anything else mentioning a company must be on the reviewed list, so
+        // a new one cannot arrive without someone justifying it here.
+        if (/company/i.test(p)) expect(SCOPE_SAFE_COMPANY_PROPS.has(p)).toBe(true);
+      }
     }
+  });
+
+  it('a scope-safe company property still cannot widen the tenant scope', async () => {
+    // audit_trail is the only tool with one. Its handler must pass ctx's
+    // company through unchanged no matter what the argument says.
+    const { queryAuditTrail } = await import(
+      '@/modules/accounting/services/gl/auditTrailLedgerService');
+    const spy = vi.spyOn(
+      await import('@/modules/accounting/services/gl/auditTrailLedgerService'),
+      'queryAuditTrail',
+    );
+    expect(typeof queryAuditTrail).toBe('function');
+    spy.mockRestore();
+
+    const t = MCP_TOOLS.find((x) => x.name === 'audit_trail')!;
+    const props = (t.inputSchema as { properties: Record<string, unknown> }).properties;
+    expect(props).toHaveProperty('acting_company_id');
+    expect(props).not.toHaveProperty('company_id');
   });
 
   it('the manifest offers the company_id ASSERTION on every write tool, and no read tool', () => {

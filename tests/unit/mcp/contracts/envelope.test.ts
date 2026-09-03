@@ -143,3 +143,50 @@ describe('isDetailLevel', () => {
     expect(isDetailLevel(v)).toBe(false);
   });
 });
+
+describe('capped exclusion samples', () => {
+  const BASE2 = { as_at: '2026-09-03', posted_through: '2026-09-03T10:00:00.000Z' };
+  const sample = Array.from({ length: 200 }, (_, i) => ({ id: `x${i}`, reason: 'unattributed_posting' }));
+
+  // A report that caps its exclusion list must not be told it has lost rows.
+  it('counts the TOTAL excluded, not the sample, against the universe', () => {
+    const env = buildEnvelope({
+      ...BASE2,
+      rows: [1, 2],
+      rowsTotal: 800,
+      universeTotal: 1300,
+      excludedRows: sample,
+      excludedTotal: 500,
+      detail: 'standard',
+    });
+    expect(env.completenessFault).toBeUndefined();
+    expect(env.excludedTotal).toBe(500);
+    expect(env.truncatedExcludedRows).toBe(true);
+  });
+
+  it('still raises a fault when the true totals do not foot', () => {
+    const env = buildEnvelope({
+      ...BASE2,
+      rows: [1, 2],
+      rowsTotal: 800,
+      universeTotal: 1400,
+      excludedRows: sample,
+      excludedTotal: 500,
+      detail: 'standard',
+    });
+    expect(env.completenessFault).toMatch(/100 unaccounted/);
+  });
+
+  it('flags an excludedTotal below the rows actually served', () => {
+    const env = buildEnvelope({
+      ...BASE2, rows: [], rowsTotal: 0, excludedRows: sample, excludedTotal: 3, detail: 'standard',
+    });
+    expect(env.completenessFault).toMatch(/excludedTotal/);
+  });
+
+  it('omits both fields when the exclusion list is complete', () => {
+    const env = buildEnvelope({ ...BASE2, rows: [], rowsTotal: 0, detail: 'standard' });
+    expect('excludedTotal' in env).toBe(false);
+    expect('truncatedExcludedRows' in env).toBe(false);
+  });
+});

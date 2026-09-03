@@ -8,6 +8,7 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountClassification';
 import { analyzeTrend } from '@/modules/accounting/services/reports/trendAnalysisService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -42,12 +43,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
             WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-              AND ga.account_code = '1110' AND je.entry_date <= ${to}::date
+              AND ga.account_type = 'asset'
+              AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
+              AND je.entry_date <= ${to}::date
           `
         : sql`
             SELECT
-              COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
-              COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' THEN jl.debit - jl.credit ELSE 0 END), 0) as expenses
+              COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
+              COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit ELSE 0 END), 0) as expenses
             FROM gl_journal_lines jl
             JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
             JOIN gl_accounts ga ON ga.id = jl.gl_account_id
