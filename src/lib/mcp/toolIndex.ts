@@ -22,6 +22,8 @@ import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
 import { vatStatusTool } from './tools/vat';
+import { chartOfAccountsHealthTool, dataIntegrityChecksTool } from './tools/integrity';
+import { lockVatPeriodTool, vat201ExportTool, vatReconciliationTool } from './tools/vatReports';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import {
   createDraftInvoiceTool,
@@ -74,7 +76,7 @@ import { createJobCategoryTool, createWorkItemTool } from './tools/writePractice
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (32)
+  // read (36)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -93,6 +95,10 @@ export const MCP_TOOLS = [
   listBankTransactionsTool,
   getMatchCandidatesTool,
   vatStatusTool,
+  vatReconciliationTool,
+  vat201ExportTool,
+  dataIntegrityChecksTool,
+  chartOfAccountsHealthTool,
   listAgentPostingsTool,
   listSupplierInvoicesTool,
   getSupplierInvoiceTool,
@@ -107,7 +113,7 @@ export const MCP_TOOLS = [
   listTimeEntriesTool,
   listCreditNotesTool,
   getCreditNoteTool,
-  // write (31) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // write (32) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -143,6 +149,9 @@ export const MCP_TOOLS = [
   createCreditNoteTool,
   approveCreditNoteTool,
   cancelCreditNoteTool,
+  // Records that a VAT period has been filed. requiresPost because it freezes
+  // a filed return: a control an agent can set without write:post is not one.
+  lockVatPeriodTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

@@ -445,6 +445,10 @@ describe('write-tool manifest invariants', () => {
       'allocate_bank_transaction', 'approve_credit_note',
       'approve_supplier_invoice',
       'bulk_allocate_bank_transactions', 'cancel_credit_note', 'finalize_invoice',
+      // lock_vat_period posts no journal, and it requires write:post anyway:
+      // it freezes a filed return, and a control an agent can set without the
+      // posting permission is not a control.
+      'lock_vat_period',
       'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
       'reverse_bank_allocation_batch', 'set_opening_balance',
     ]);
@@ -538,6 +542,9 @@ describe('write-tool manifest invariants', () => {
       cancel_bank_reconciliation: { ...KEY },
       // All four practice write tools refuse on a missing required argument
       // before touching the database; behaviour in practiceTools.test.ts.
+      // lock_vat_period refuses on the missing period before reading anything;
+      // behaviour is covered in vatPeriodLock.db.test.ts against a real ledger.
+      lock_vat_period: { ...KEY },
       create_job_category: { ...KEY },
       create_work_item: { ...KEY },
       log_time_entry: { ...KEY },
