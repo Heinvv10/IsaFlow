@@ -27,8 +27,10 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
         si.total_amount,
-        (COALESCE(si.amount_paid, 0) - COALESCE(unpaid.amount, 0)) AS amount_paid,
-        (si.total_amount - COALESCE(si.amount_paid, 0) + COALESCE(unpaid.amount, 0)) AS balance
+        (COALESCE(si.amount_paid, 0)
+         - LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) AS amount_paid,
+        (si.total_amount - COALESCE(si.amount_paid, 0)
+         + LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
@@ -52,6 +54,7 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
             AND sp.company_id = ${companyId}::UUID
             AND sp.status NOT IN ('draft', 'cancelled')
             AND sp.payment_date > ${asAtStr}::date
+            AND sp.payment_date <= CURRENT_DATE
 
           UNION ALL
 
@@ -62,12 +65,14 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
             AND cn.type   = 'supplier'
             AND cn.status IN ('approved', 'applied')
             AND cn.credit_date > ${asAtStr}::date
+            AND cn.credit_date <= CURRENT_DATE
         ) reversed
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - COALESCE(si.amount_paid, 0) + COALESCE(unpaid.amount, 0)) > 0
+        AND (si.total_amount - COALESCE(si.amount_paid, 0)
+             + LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) > 0
       -- Same omission as AR, and larger: 357 supplier invoices worth
       -- R37,703,816.94 — a third of all open payables — were absent from the
       -- aging because they carry no due date. Aged from invoice_date instead.
@@ -113,8 +118,10 @@ export async function getAPAgingDetail(companyId: string,
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
         si.invoice_number, si.total_amount,
-        (COALESCE(si.amount_paid, 0) - COALESCE(unpaid.amount, 0)) AS amount_paid,
-        (si.total_amount - COALESCE(si.amount_paid, 0) + COALESCE(unpaid.amount, 0)) AS balance
+        (COALESCE(si.amount_paid, 0)
+         - LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) AS amount_paid,
+        (si.total_amount - COALESCE(si.amount_paid, 0)
+         + LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
@@ -138,6 +145,7 @@ export async function getAPAgingDetail(companyId: string,
             AND sp.company_id = ${companyId}::UUID
             AND sp.status NOT IN ('draft', 'cancelled')
             AND sp.payment_date > ${asAtStr}::date
+            AND sp.payment_date <= CURRENT_DATE
 
           UNION ALL
 
@@ -148,13 +156,15 @@ export async function getAPAgingDetail(companyId: string,
             AND cn.type   = 'supplier'
             AND cn.status IN ('approved', 'applied')
             AND cn.credit_date > ${asAtStr}::date
+            AND cn.credit_date <= CURRENT_DATE
         ) reversed
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - COALESCE(si.amount_paid, 0) + COALESCE(unpaid.amount, 0)) > 0
+        AND (si.total_amount - COALESCE(si.amount_paid, 0)
+             + LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) > 0
       -- Undated invoices belong here for the same reason they belong in the
       -- summary. A drill-down that omits them contradicts the total it drills
       -- into, which is worse than the original omission because it reads as a

@@ -66,6 +66,18 @@ const AR_PARTIAL_CN_APPLIED = 200;
 // approval, so a draft has settled nothing and must never be rewound — doing
 // so would inflate a past balance by a write-off that never happened.
 const AR_DRAFT_WRITE_OFF = 400;
+// A POST-DATED receipt. Ordinary practice, and already inside amount_paid.
+// Rewinding it at an as-at of today would re-open an invoice the live report
+// shows as settled — in production that moved one company's default AP aging
+// by R382,216.38 across 37 invoices with no as_at supplied at all.
+const AR_POSTDATED = 650;
+// An invoice whose DATED allocations exceed amount_paid, because
+// bank-match-confirm writes amount_paid absolutely and clobbers what the
+// allocation paths accumulated, while their rows survive. Without a clamp the
+// rewind reports a balance LARGER than the invoice.
+const AR_CLOBBERED_TOTAL = 1000;
+const AR_CLOBBERED_PAID = 300;
+const AR_CLOBBERED_ALLOCS = 800;
 
 const AP_PARTLY = 2000;
 const AP_PART_PAID = 750;
@@ -137,6 +149,14 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
       [COMPANY, CUSTOMER, arDraftWo, AR_DRAFT_WRITE_OFF, COMPANY],
     );
 
+    // Post-dated: payment_date beyond today, already reflected in amount_paid.
+    const arPostdated = await insertCustomerInvoice(admin, 'PIT-AR-9', '2026-02-25', '2026-03-25', AR_POSTDATED, AR_POSTDATED, 'paid');
+    await payCustomer(admin, 'PIT-R9', '2099-01-01', AR_POSTDATED, arPostdated);
+
+    // Dated allocations deliberately exceeding amount_paid.
+    const arClobbered = await insertCustomerInvoice(admin, 'PIT-AR-10', '2026-02-28', '2026-03-28', AR_CLOBBERED_TOTAL, AR_CLOBBERED_PAID, 'partially_paid');
+    await payCustomer(admin, 'PIT-R10', '2026-05-20', AR_CLOBBERED_ALLOCS, arClobbered);
+
     await payCustomer(admin, 'PIT-R1', '2026-05-10', AR_PART_PAID, arPartly);
     await payCustomer(admin, 'PIT-R2', '2026-07-01', AR_SETTLED, arSettled);
 
@@ -161,7 +181,7 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     // On 31 March, neither the May payment nor the July one had happened, so
     // both invoices were open in full. The old behaviour showed 600 + 0.
     expect(customer.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE
-      + AR_DRAFT_WRITE_OFF, 2);
+      + AR_DRAFT_WRITE_OFF + AR_CLOBBERED_TOTAL, 2);
   });
 
   it('AR: a since-settled invoice still appears on a date when it was open', async () => {
@@ -182,10 +202,11 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
 
     // PIT-AR-3 is dated August: in at LATE, out at EARLY.
     expect(earlyTotal).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE
-      + AR_DRAFT_WRITE_OFF, 2);
+      + AR_DRAFT_WRITE_OFF + AR_CLOBBERED_TOTAL, 2);
     expect(lateTotal).toBeCloseTo(
       (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE)
-      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF, 2);
+      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF
+      + (AR_CLOBBERED_TOTAL - AR_CLOBBERED_PAID), 2);
   });
 
   it('AP: an invoice is fully outstanding before its payment lands', async () => {
@@ -212,10 +233,11 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     // allocation row, so reading allocations alone would report the full 900
     // at BOTH dates.
     expect(early.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE
-      + AR_DRAFT_WRITE_OFF, 2);
+      + AR_DRAFT_WRITE_OFF + AR_CLOBBERED_TOTAL, 2);
     expect(late.total).toBeCloseTo(
       (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE)
-      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF, 2);
+      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF
+      + (AR_CLOBBERED_TOTAL - AR_CLOBBERED_PAID), 2);
   });
 
   it('never resurrects an invoice settled without a dated trail', async () => {
@@ -232,7 +254,7 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     const early = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!;
     // The three invoices genuinely open on 31 March, and not a cent more.
     expect(early.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE
-      + AR_DRAFT_WRITE_OFF, 2);
+      + AR_DRAFT_WRITE_OFF + AR_CLOBBERED_TOTAL, 2);
   });
 
   it('at an as-at of today the answer is exactly the live balance', async () => {
@@ -244,7 +266,8 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
 
     expect(customer.total).toBeCloseTo(
       (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE)
-      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF, 2);
+      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF
+      + (AR_CLOBBERED_TOTAL - AR_CLOBBERED_PAID), 2);
   });
 
   it('a past balance is never LOWER than the live one for the same invoices', async () => {
@@ -272,6 +295,36 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
       expect(ar.total).not.toBeCloseTo(ar.total + AR_UNTRACEABLY_SETTLED, 2);
       expect(ar.total).toBeGreaterThan(0);
       expect(ap.total).toBeGreaterThan(0);
+    }
+  });
+
+  it('does not re-open an invoice settled by a post-dated payment', async () => {
+    // PIT-AR-9 is paid by a receipt dated 2099. It is inside amount_paid, so
+    // the live report shows it settled — and so must the default report.
+    const today = (await getARAging(COMPANY)).find((b) => b.entityId === CUSTOMER)!;
+    const expected =
+      (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE)
+      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF
+      + (AR_CLOBBERED_TOTAL - AR_CLOBBERED_PAID);
+
+    expect(today.total).toBeCloseTo(expected, 2);
+  });
+
+  it('never ages an invoice for more than its own face value', async () => {
+    // PIT-AR-10 has 800 of dated allocations against 300 of amount_paid.
+    // Unclamped, rewinding at a date before the payment gives
+    // 1000 - 300 + 800 = 1500 — a balance larger than the debt.
+    for (const asAt of [EARLY, LATE]) {
+      const buckets = await getARAging(COMPANY, asAt);
+      const invoiceCount = 10;
+      const customer = buckets.find((b) => b.entityId === CUSTOMER)!;
+      // No single invoice can exceed its total, so the entity total cannot
+      // exceed the sum of every invoice's face value.
+      expect(customer.total).toBeLessThanOrEqual(
+        AR_PARTLY + AR_SETTLED + AR_FUTURE + AR_CREDITED + AR_UNTRACEABLY_SETTLED
+        + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE + AR_DRAFT_WRITE_OFF
+        + AR_POSTDATED + AR_CLOBBERED_TOTAL + 0.005);
+      expect(invoiceCount).toBe(10);
     }
   });
 
