@@ -129,7 +129,6 @@ export interface Vat201Report {
   };
   rows: Vat201Row[];
   rowsTotal: number;
-  universeTotal: number;
   /** One row per ACCOUNT, not per line — see VatExcludedLine. */
   excludedRows: VatExcludedLine[];
   /** Posted lines and rands behind excludedRows, which the grouping must never hide. */
@@ -252,7 +251,13 @@ export async function getVat201Report(
     },
     rows,
     rowsTotal: allRows.length,
-    universeTotal: allRows.length + basis.excluded.length,
+    // No universeTotal. It was `allRows.length + basis.excluded.length` — the
+    // two quantities buildEnvelope checks against each other — so the identity
+    // could not fail whatever this report did. Both buckets come from ONE
+    // query that filters, so a leg its WHERE drops appears in neither and the
+    // sum still balances. CONTRACTS.md names this shape and its remedy: omit
+    // the claim rather than synthesize it. excludedLineCount and excludedAmount
+    // below ARE independently derived and stay.
     excludedRows: basis.excluded,
     excludedLineCount: basis.excludedLineCount,
     excludedAmount: basis.excludedAmount,
