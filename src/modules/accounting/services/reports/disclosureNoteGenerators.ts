@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import type { DisclosureNote } from './disclosureNoteService';
 import type { DbRow } from '@/types/db';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 
 function fmt(n: number | null | undefined): string {
@@ -14,9 +15,9 @@ function fmt(n: number | null | undefined): string {
   return new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 }
 
-function fiscalRange(year: number): { start: string; end: string } {
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
-}
+// A private second copy of the January-December assumption used to live here,
+// so fixing the AFS one left these disclosure notes reporting the wrong twelve
+// months. There is now one fiscal calendar, in afs/afsFiscalPeriod.
 
 // ── Note 1: Accounting Policies ───────────────────────────────────────────────
 
@@ -59,7 +60,7 @@ export async function noteAccountingPolicies(companyId: string, _fiscalYear: num
 // ── Note 2: Property, Plant & Equipment ───────────────────────────────────────
 
 export async function notePPE(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   const rows = await sql`
     SELECT
@@ -106,7 +107,7 @@ export async function notePPE(companyId: string, fiscalYear: number): Promise<Di
 // ── Note 3: Trade & Other Receivables ─────────────────────────────────────────
 
 export async function noteReceivables(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   const rows = await sql`
     SELECT
@@ -151,7 +152,7 @@ export async function noteReceivables(companyId: string, fiscalYear: number): Pr
 // ── Note 4: Trade & Other Payables ────────────────────────────────────────────
 
 export async function notePayables(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   const rows = await sql`
     SELECT
@@ -191,7 +192,7 @@ export async function notePayables(companyId: string, fiscalYear: number): Promi
 // ── Note 5: Revenue ───────────────────────────────────────────────────────────
 
 export async function noteRevenue(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   const rows = await sql`
     SELECT ga.account_name, ga.account_code,
@@ -223,7 +224,7 @@ export async function noteRevenue(companyId: string, fiscalYear: number): Promis
 // ── Note 6: Cash and Cash Equivalents ─────────────────────────────────────────
 
 export async function noteCash(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   const rows = await sql`
     SELECT ga.account_name, ga.account_code,
@@ -254,7 +255,7 @@ export async function noteCash(companyId: string, fiscalYear: number): Promise<D
 // ── Note 7: Taxation (VAT) ────────────────────────────────────────────────────
 
 export async function noteTaxation(companyId: string, fiscalYear: number): Promise<DisclosureNote> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   const rows = await sql`
     SELECT

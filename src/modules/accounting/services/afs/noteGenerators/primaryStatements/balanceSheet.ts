@@ -9,8 +9,8 @@
 
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
-import { fiscalRange } from '../noteHelpers';
 import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, type SectionLine } from './_helpers';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // Asset codes from the canonical catalogue. Anything not in this set
 // (and on the BS) is treated as equity or liability and sign-flipped.
@@ -31,15 +31,32 @@ export async function generateStatementOfFinancialPosition(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateStatementOfFinancialPosition', { companyId, fiscalYear }, 'AfsPrimary');
+  const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
   const lines = rollUpTotals(await fetchSectionLines(companyId, 'balance_sheet', fiscalYear, fiscalYear - 1));
   const adjusted = lines.map((l) => (isAssetLine(l) ? l : flipSign(l)));
   const blocks = renderHierarchicalTable(adjusted, true);
+
+  // Published so the pre-export blockers have something to check. They used to
+  // read totalAssets/totalLiabilities/totalEquity from a snapshot that only
+  // ever contained `lines`, so all three read 0, the difference was 0, and the
+  // "balance sheet balances" blocker passed on every document ever exported.
+  //
+  // Reported in the reader's signs: assets positive, and liabilities and equity
+  // positive too (they are credit-balances, negative in raw debit-minus-credit).
+  const amountOf = (code: string): number =>
+    lines.find((l) => l.code === code)?.currentAmount ?? 0;
+
+  const totalAssets = amountOf('BS038');
+  const totalEquity = -amountOf('BS048');
+  const totalLiabilities = -(amountOf('BS057') + amountOf('BS073'));
+  const cash = amountOf('BS035') + amountOf('BS036');
+
   return {
-    dataSnapshot: { lines },
+    dataSnapshot: { lines, totalAssets, totalLiabilities, totalEquity, cash },
     content: {
       title: 'Statement of Financial Position',
       blocks: [
-        { type: 'paragraph', text: `As at ${fiscalRange(fiscalYear).end}.` },
+        { type: 'paragraph', text: `As at ${fyEnd}.` },
         ...blocks,
       ],
     },

@@ -53,6 +53,7 @@ function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
     { label: 'Dividends paid',  key: 'dividends' },
     { label: 'Share issue',     key: 'shareIssue' },
     { label: 'Revaluation',     key: 'revaluation' },
+    { label: 'Other movements', key: 'otherMovements' },
     { label: 'Closing balance', key: 'closing' },
   ];
   const totalByRow: Record<string, number> = {
@@ -61,6 +62,7 @@ function ChangesInEquitySection({ report }: { report: ChangesInEquityReport }) {
     dividends:     report.totalDividends,
     shareIssue:    report.totalShareIssue,
     revaluation:   report.totalRevaluation,
+    otherMovements: report.totalOtherMovements,
     closing:       report.totalClosing,
   };
   return (

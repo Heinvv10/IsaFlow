@@ -22,15 +22,22 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
 
     const rows = (await sql`
       SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
-        ci.due_date, ci.total_amount, ci.amount_paid,
+        COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
+        (ci.due_date IS NULL) AS due_date_missing,
+        ci.total_amount, ci.amount_paid,
         (ci.total_amount - ci.amount_paid) AS balance
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId}
         AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
         AND (ci.total_amount - ci.amount_paid) > 0
-        AND ci.due_date IS NOT NULL
-      ORDER BY ci.due_date
+      -- An invoice with no due date is still a debt. Filtering
+      -- due_date IS NOT NULL here dropped 34 invoices worth R13,908,380.43
+      -- from production's AR aging — not shown in a bucket, not in a total,
+      -- and not reported as excluded. Every such row carries an invoice_date,
+      -- so it is aged from that instead, which is conservative: an undated
+      -- invoice reads as older than it may be, rather than vanishing.
+      ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
@@ -41,6 +48,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       entityId: String(r.entity_id),
       entityName: String(r.entity_name),
       dueDate: String(r.due_date),
+      dueDateMissing: r.due_date_missing === true,
       totalAmount: Number(r.total_amount),
       amountPaid: Number(r.amount_paid),
       balance: Number(r.balance),
@@ -90,7 +98,9 @@ export async function getARAgingDetail(companyId: string,
 
     const rows = (await sql`
       SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
-        ci.due_date, ci.invoice_number, ci.total_amount, ci.amount_paid,
+        COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
+        (ci.due_date IS NULL) AS due_date_missing,
+        ci.invoice_number, ci.total_amount, ci.amount_paid,
         (ci.total_amount - ci.amount_paid) AS balance
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
@@ -98,8 +108,13 @@ export async function getARAgingDetail(companyId: string,
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
         AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
         AND (ci.total_amount - ci.amount_paid) > 0
-        AND ci.due_date IS NOT NULL
-      ORDER BY ci.due_date
+      -- An invoice with no due date is still a debt. Filtering
+      -- due_date IS NOT NULL here dropped 34 invoices worth R13,908,380.43
+      -- from production's AR aging — not shown in a bucket, not in a total,
+      -- and not reported as excluded. Every such row carries an invoice_date,
+      -- so it is aged from that instead, which is conservative: an undated
+      -- invoice reads as older than it may be, rather than vanishing.
+      ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
@@ -110,6 +125,7 @@ export async function getARAgingDetail(companyId: string,
       entityId: String(r.entity_id),
       entityName: String(r.entity_name),
       dueDate: String(r.due_date),
+      dueDateMissing: r.due_date_missing === true,
       totalAmount: Number(r.total_amount),
       amountPaid: Number(r.amount_paid),
       balance: Number(r.balance),
