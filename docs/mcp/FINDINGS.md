@@ -53,6 +53,60 @@ figure passes review and fails in production.
 
 ---
 
+## A-live. Verified against the live Velocity Fibre books over MCP, 2026-09-03
+
+Definition-of-done item 3, finally executable: a live connector to Velocity
+Fibre. Every figure below came from the production MCP connection, not from the
+database and not from the audit.
+
+**`trial_balance` is FIXED and deployed. It now returns 74 accounts, not 7.**
+Totals computed by hand from the response: R158,946,486.95 debit, R158,946,486.95
+credit, **difference R0.00**. The audit's headline live evidence no longer holds,
+and this is the first figure in the programme that can be signed.
+
+**But the tool still cannot say so.** The response carries no `totalDebits`, no
+`totalCredits`, no `difference`, no `balanced` and no `accountCount` — the service
+computes all five and none is wired to MCP. An agent reading it cannot answer the
+one question a trial balance exists to answer. That is W2's remaining scope.
+
+**`aged_debtors` is unchanged and the audit's claim is exact.** Ten rows, no
+total, no `rowsTotal`, no `truncated`, no envelope. Total (summed by hand):
+**R63,133,371.78** — matching the audit's R63.1m.
+
+### "What are we owed?" has three defensible answers, R35.2m apart
+
+| | |
+|---|---|
+| Aged debtors total | R63,133,371.78 |
+| `1120 Accounts Receivable` | R27,924,289.10 |
+| `SYS-7 Trade Receivables` | R32,704,547.38 |
+| both control accounts combined | R60,628,836.48 |
+
+| reconciling question | gap |
+|---|---|
+| aged vs `1120` alone | **R35,209,082.68** |
+| aged vs `SYS-7` alone | **R30,428,824.40** |
+| aged vs both combined | **R2,504,535.30** |
+
+All three are defensible, all three are different, and nothing in the schema says
+which is right. This is B3 demonstrated on live production data, and it is why
+`ar.control.v1` is deliberately unowned. The same holds on the payables side:
+`2110` at R7,925,176.42 beside `SYS-8 Trade Payables` at R37,703,241.94.
+
+### Three more things visible on the face of the live trial balance
+
+- **`SYS-9 VAT Payable` is a liability carrying a DEBIT of R4,917,814.24** — B36,
+  the input tax on a NULL-subtype account that drops out of the VAT201 entirely.
+  It is in plain sight and no report was reading it.
+- **Sixteen accounts carry a balance on the wrong side for their type.** Thirteen
+  are paycards — asset accounts in credit. `49844679 Loan - B Oosthuizen` is a
+  liability in debit. And `RE-BF` shows retained earnings as a **debit of
+  R39,247,376.29**: accumulated losses of R39.2m, against R51.9m of revenue and a
+  R45m Populace loan.
+- **`49775627 Unallocated Expense` holds R5,742,472.04.**
+
+---
+
 ## B. Defects found that the specification never mentions
 
 These are the ones that matter most: nobody was looking for them.
