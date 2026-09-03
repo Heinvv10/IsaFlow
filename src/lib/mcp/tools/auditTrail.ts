@@ -22,7 +22,8 @@ export const auditTrailTool: McpTool = {
   description:
     'WHO POSTED TO THE GENERAL LEDGER, and whether that attribution is a recorded fact or an inference. ' +
     'One row per GL journal entry in an entry-date range, with the actor (human | agent | system), the MCP token behind an agent posting, the posting_agent stamp, and the entry\'s status and amount. ' +
-    'TWO PEOPLE, NOT ONE: user_id/user_name is who RAISED the entry, posted_by_user_id/posted_by_user_name is who COMMITTED it to the ledger. They are the same person on every production journal today, which is itself the segregation-of-duties finding; a draft has no poster at all. company_id, on the response rather than on each row, is whose books these are — the token decides it, so a page is never mixed. ' +
+    'TWO PEOPLE, NOT ONE: user_id/user_name is who RAISED the entry, posted_by_user_id/posted_by_user_name is who COMMITTED it to the ledger. Across every production company today those are the SAME person on every single journal — there is no segregation of duties anywhere in this system, and that is a control conclusion you can state from this endpoint in one line rather than sampling for it. A draft has no poster at all. company_id, on the response rather than on each row, is whose books these are — the token decides it, so a page is never mixed. ' +
+    'WHICH FIRM the actor was acting for is acting_company_id — the practice, on a client engagement. Read acting_company_known first: when it is false the firm was NOT RECORDED, and cross_company is null, meaning UNKNOWN. Null is not "in-house": it is the absence of a record, and every row written before migration 581 has it. Never read a null as "posted from inside this company". Filter posted_from_outside_this_company to get only postings made into these books by someone acting for a DIFFERENT recorded company — the first question a client\'s auditor asks of a practice engagement. Rows with no recorded firm can never satisfy it, so that filter under-reports while the write side is still being built. ' +
     'READ actor_provenance ON EVERY ROW. "recorded" means the write itself stored the actor. "derived" means it was inferred from the posting_agent stamp because the row predates that column, and the inference is ASYMMETRIC: an "mcp:" stamp does prove an agent, but a "human:" one proves only "not stamped as an agent" — journal creation falls back to a human stamp whenever a caller omits the posting metadata, so an unknown number of agent postings sit under derived human. actor_caveat spells this out per row. Never report a derived human as a person having typed the entry. ' +
     'AND A RECORDED HUMAN IS A WEAKER CLAIM THAN IT LOOKS: nothing in IsaFlow writes actor_type "human" by default, so a recorded human means some caller explicitly asserted one — it is not produced by a person using the UI, and the absence of an agent stamp is not proof of a person. An agent posting is provable; a human posting is not. Say "not recorded as an agent", never "typed by a person". ' +
     'The attribution block totals recorded vs derived across the whole filtered range (not just the page), which is the honest measure of how much of this ledger can be relied on. ' +
@@ -39,6 +40,8 @@ export const auditTrailTool: McpTool = {
       to: { type: 'string', description: 'Entry date to, YYYY-MM-DD (inclusive).' },
       actor_type: { type: 'string', enum: [...ACTOR_TYPES], description: 'Matches recorded actors AND the equivalent legacy posting_agent stamp.' },
       token_jti: { type: 'string', description: 'Only postings made by one MCP token — the first question after a credential is withdrawn. Recorded postings only.' },
+      acting_company_id: { type: 'string', description: 'Only postings made while acting for this firm. Recorded firms only; rows with no recorded firm never match.' },
+      posted_from_outside_this_company: { type: 'boolean', description: 'Only postings whose recorded acting company DIFFERS from the company whose books these are. Rows with no recorded firm are excluded — they cannot answer the question either way.' },
       user_id: { type: 'string', description: 'The user the entry is booked against (created_by).' },
       source: { type: 'string', description: 'Journal source, e.g. manual, auto_bank_recon, auto_invoice.' },
       entity_type: { type: 'string', enum: [...AUDIT_ENTITY_TYPES] },
@@ -82,6 +85,11 @@ export const auditTrailTool: McpTool = {
     }
     const detail: DetailLevel = detailRaw ?? 'standard';
 
+    // acting_company_id reaches a ::TEXT comparison, but guard it anyway: a
+    // caller passing a company NAME should be told which argument is wrong.
+    const badUuid = guardCastableArgs(args, { uuid: ['acting_company_id'] });
+    if (badUuid) return badUuid;
+
     const rawCursor = strArg(args, 'cursor');
     // Two parts: (entry_date, id) — the page's own ordering.
     const cursor = rawCursor === undefined ? null : decodeCursor(rawCursor, 2);
@@ -94,6 +102,9 @@ export const auditTrailTool: McpTool = {
         limit: clampLimit(args, 50, MAX_LIMIT),
         ...(actorTypeRaw === undefined ? {} : { actorType: actorTypeRaw }),
         ...(strArg(args, 'token_jti') === undefined ? {} : { tokenJti: strArg(args, 'token_jti')! }),
+        ...(strArg(args, 'acting_company_id') === undefined
+          ? {} : { actingCompanyId: strArg(args, 'acting_company_id')! }),
+        ...(args.posted_from_outside_this_company === true ? { crossCompanyOnly: true } : {}),
         ...(strArg(args, 'user_id') === undefined ? {} : { userId: strArg(args, 'user_id')! }),
         ...(strArg(args, 'source') === undefined ? {} : { source: strArg(args, 'source')! }),
         ...(entityType === undefined ? {} : { entityType: entityType as AuditEntityType }),
@@ -120,6 +131,11 @@ export const auditTrailTool: McpTool = {
         company_id: ctx.companyId,
         from,
         to,
+        // Reported unconditionally: excludedRows is a capped sample, and a
+        // count that only appeared when it happened to fit would be the same
+        // silent undercount the envelope exists to prevent.
+        excluded_total: page.excludedTotal,
+        excluded_truncated: page.excludedTruncated,
         attribution: page.attribution,
       });
     } catch (err) {
@@ -145,6 +161,10 @@ function toWireRow(r: Entry) {
     actor_provenance: r.actorProvenance,
     actor_caveat: r.actorCaveat,
     actor_token_jti: r.actorTokenJti,
+    acting_company_id: r.actingCompanyId,
+    acting_company_known: r.actingCompanyKnown,
+    cross_company: r.crossCompany,
+    acting_company_caveat: r.actingCompanyCaveat,
     posting_agent: r.postingAgent,
     user_id: r.userId,
     user_name: r.userName,

@@ -25,6 +25,7 @@ function mockFourQueries(page: unknown[], buckets: unknown[], excluded: unknown[
     .mockResolvedValueOnce(page as never)
     .mockResolvedValueOnce(buckets as never)
     .mockResolvedValueOnce(excluded as never)
+    .mockResolvedValueOnce([{ cnt: excluded.length }] as never)  // unattributed total
     .mockResolvedValueOnce([{ cnt: universe }] as never);
 }
 
@@ -32,7 +33,7 @@ const PAGE_ROW = {
   id: 'je-1', entry_number: 'JE-1', entry_date: '2026-09-01', description: 'x',
   source: 'manual', status: 'posted', posting_agent: 'mcp:create_draft_journal:v1',
   actor_type: 'agent', actor_token_jti: 'tok-1', created_by: 'u1', created_by_name: 'Hein van Vuuren',
-  posted_by: 'u2', posted_by_name: 'Willem Marneweck',
+  posted_by: 'u2', posted_by_name: 'Willem Marneweck', acting_company_id: null,
   created_at: '2026-09-01T10:00:00Z', posted_at: '2026-09-01T10:00:01Z',
   reversed_at: null, reversal_of_id: null, source_record_id: null, source_document_id: null,
   amount: 100,
@@ -202,6 +203,133 @@ describe('queryAuditTrail', () => {
  * about; it is unavoidable here because a COUNT cannot call a TS function. This
  * pins them together so a change to either shows up as a failure.
  */
+/**
+ * The fourth axis. NULL means UNKNOWN, never "same company" — the identical
+ * discipline actor_type is under. Deriving it would make the trail assert
+ * something nobody recorded.
+ */
+describe('acting_company_id — which firm the actor was acting for', () => {
+  const FIRM = '99999999-9999-4999-8999-999999999999';
+
+  it('reports a recorded firm as itself', async () => {
+    mockFourQueries([{ ...PAGE_ROW, acting_company_id: FIRM }], [], [], 1);
+    const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    expect(res.rows[0]!.actingCompanyId).toBe(FIRM);
+    expect(res.rows[0]!.actingCompanyKnown).toBe(true);
+    expect(res.rows[0]!.crossCompany).toBe(true);
+  });
+
+  it('a NULL is UNKNOWN — never resolved to the company whose books these are', async () => {
+    mockFourQueries([{ ...PAGE_ROW, acting_company_id: null }], [], [], 1);
+    const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    expect(res.rows[0]!.actingCompanyId).toBeNull();
+    expect(res.rows[0]!.actingCompanyKnown).toBe(false);
+    // NOT false — "we do not know" is a third answer, and collapsing it to
+    // "no" is the same lie as reporting a derived human as a recorded one.
+    expect(res.rows[0]!.crossCompany).toBeNull();
+    expect(res.rows[0]!.actingCompanyCaveat).toMatch(/not recorded/i);
+  });
+
+  it('a firm equal to the company itself is in-house, not cross-company', async () => {
+    mockFourQueries([{ ...PAGE_ROW, acting_company_id: COMPANY }], [], [], 1);
+    const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    expect(res.rows[0]!.crossCompany).toBe(false);
+  });
+
+  it('filters by a named firm', async () => {
+    mockFourQueries([], [], [], 0);
+    await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50, actingCompanyId: FIRM });
+    // The COLUMN is cast, not the parameter: a malformed uuid then compares
+    // false instead of throwing 22P02 inside a read that has no savepoint.
+    expect(texts()[0]).toMatch(/je\.acting_company_id::TEXT\s*=\s*\?/);
+    expect(texts()[0]).not.toMatch(/acting_company_id\s*=\s*\?::UUID/);
+    expect(params()).toContain(FIRM);
+  });
+
+  it('answers "posted into this company by someone outside it" as its own filter', async () => {
+    mockFourQueries([], [], [], 0);
+    await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50, crossCompanyOnly: true });
+    const t = texts()[0]!;
+    // Must require a RECORDED firm that differs. A NULL is unknown, so it
+    // cannot answer this question either way and must not be swept in.
+    expect(t).toMatch(/je\.acting_company_id IS NOT NULL/);
+    expect(t).toMatch(/je\.acting_company_id <> je\.company_id/);
+  });
+
+  it('a firm filter makes the result a selection — universeTotal is withheld', async () => {
+    mockFourQueries([], [{ bucket: 'agent', recorded: true, cnt: 3, latest: '2026-09-01T00:00:00Z' }], [], 3);
+    const byFirm = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50, actingCompanyId: FIRM });
+    expect(byFirm.universeTotal).toBeUndefined();
+    vi.mocked(sql).mockReset();
+    mockFourQueries([], [{ bucket: 'agent', recorded: true, cnt: 3, latest: '2026-09-01T00:00:00Z' }], [], 3);
+    const cross = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50, crossCompanyOnly: true });
+    expect(cross.universeTotal).toBeUndefined();
+  });
+});
+
+/** Blind-review MEDIUM 1: the excluded query ignored every caller filter. */
+describe('excludedRows respects the caller\'s filters', () => {
+  it('applies source, user, action and entity to the unattributed query too', async () => {
+    mockFourQueries([], [], [], 0);
+    await queryAuditTrail(COMPANY, {
+      from: '2026-09-01', to: '2026-09-30', limit: 50,
+      source: 'manual', userId: 'u1', action: 'posted',
+      entityType: 'journal', entityId: 'je-1',
+    });
+    const excluded = texts().find((t) => /je\.actor_type IS NULL AND je\.posting_agent IS NULL/.test(t))!;
+    expect(excluded).toMatch(/je\.source\s*=\s*\?/);
+    expect(excluded).toMatch(/je\.created_by::TEXT\s*=\s*\?/);
+    expect(excluded).toMatch(/reversed_at IS NULL AND je\.status = 'posted'/);
+    expect(excluded).toMatch(/je\.id::TEXT\s*=\s*\?/);
+  });
+
+  it('does NOT apply the actor filters — an unattributed row has no actor to match', async () => {
+    mockFourQueries([], [], [], 0);
+    await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50, actorType: 'agent' });
+    const excluded = texts().find((t) => /je\.actor_type IS NULL AND je\.posting_agent IS NULL/.test(t))!;
+    expect(excluded).not.toMatch(/posting_agent LIKE 'mcp:%'/);
+  });
+});
+
+/** Blind-review MEDIUM 2: the 200-row cap undercounted with nothing flagged. */
+describe('a capped excludedRows sample states its own truncation', () => {
+  it('counts every unattributed row, not just the sampled ones', async () => {
+    vi.mocked(sql).mockReset();
+    vi.mocked(sql)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ bucket: 'human', recorded: false, cnt: 10, latest: '2026-09-01T00:00:00Z' }] as never)
+      .mockResolvedValueOnce(
+        Array.from({ length: 200 }, (_, i) => ({ id: `je-${i}`, entry_number: `JE-${i}`, amount: 1 })) as never)
+      .mockResolvedValueOnce([{ cnt: 812 }] as never)   // unattributed total
+      .mockResolvedValueOnce([{ cnt: 822 }] as never);  // universe
+
+    const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    expect(res.excludedRows).toHaveLength(200);
+    expect(res.excludedTotal).toBe(812);
+    expect(res.excludedTruncated).toBe(true);
+    // Withheld deliberately: buildEnvelope checks rowsTotal + excludedRows.LENGTH
+    // against it, so a capped sample would raise a fault about paging rather
+    // than about completeness — noise that erodes the signal it exists to give.
+    // excludedTotal is reported instead, so nothing is silent.
+    expect(res.universeTotal).toBeUndefined();
+  });
+
+  it('an uncapped sample still states its total and is not truncated', async () => {
+    vi.mocked(sql).mockReset();
+    vi.mocked(sql)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([{ bucket: 'human', recorded: false, cnt: 4, latest: '2026-09-01T00:00:00Z' }] as never)
+      .mockResolvedValueOnce([{ id: 'je-9', entry_number: 'JE-9', amount: 4200 }] as never)
+      .mockResolvedValueOnce([{ cnt: 1 }] as never)
+      .mockResolvedValueOnce([{ cnt: 5 }] as never);
+
+    const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    expect(res.excludedTotal).toBe(1);
+    expect(res.excludedTruncated).toBe(false);
+    expect(res.universeTotal).toBe(5);
+  });
+});
+
 describe('the SQL bucket and resolveLegacyActorType agree', () => {
   const SQL_RULE = (agent: string | null) =>
     agent === null ? null

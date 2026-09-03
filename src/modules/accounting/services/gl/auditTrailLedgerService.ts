@@ -49,6 +49,15 @@ export interface AuditTrailFilters {
   limit: number;
   actorType?: ActorType;
   tokenJti?: string;
+  /** Postings made while acting for this firm. */
+  actingCompanyId?: string;
+  /**
+   * "Everything posted into this company by someone outside it" — the first
+   * question a client's auditor asks of a practice engagement. Requires a
+   * RECORDED firm that differs; a NULL cannot answer it either way and is
+   * never swept in.
+   */
+  crossCompanyOnly?: boolean;
   userId?: string;
   source?: string;
   entityType?: AuditEntityType;
@@ -71,6 +80,21 @@ export interface AuditTrailEntry {
   /** Why a derived value may be wrong. Null on a recorded one. */
   actorCaveat: string | null;
   actorTokenJti: string | null;
+  /**
+   * The company the actor was operating FROM — the practice, on a client
+   * engagement (migration 581). NULL means UNKNOWN, never "same company".
+   */
+  actingCompanyId: string | null;
+  /** False when the column is NULL. The row states nothing about the firm. */
+  actingCompanyKnown: boolean;
+  /**
+   * true / false / **null for unknown**. Three answers, not two: collapsing
+   * "not recorded" to "not cross-company" is the same lie as reporting a
+   * derived human as a recorded one.
+   */
+  crossCompany: boolean | null;
+  /** Present when the firm was not recorded. */
+  actingCompanyCaveat: string | null;
   postingAgent: string | null;
   /** Who RAISED it (created_by). */
   userId: string | null;
@@ -102,6 +126,10 @@ export interface AuditTrailPage {
    */
   universeTotal?: number;
   excludedRows: ExcludedRow[];
+  /** Every unattributed row matching the filters, not just the sampled ones. */
+  excludedTotal: number;
+  /** True when excludedRows is a capped sample of excludedTotal. */
+  excludedTruncated: boolean;
   nextCursor: string | null;
   /** MAX(created_at) of the rows consumed. Never now(). */
   postedThrough: string;
@@ -122,13 +150,17 @@ function actionOf(row: DbRow): AuditAction {
   return String(row.status ?? '') === 'posted' ? 'posted' : 'draft';
 }
 
-function mapEntry(r: DbRow): AuditTrailEntry {
+const ACTING_UNKNOWN =
+  'The acting company was not recorded on this row. Treat as UNKNOWN — it does NOT mean the actor was acting for this company. Rows written before migration 581, and any written before a token carries a firm binding, are all NULL.';
+
+function mapEntry(r: DbRow, companyId: string): AuditTrailEntry {
   const postingAgent = r.posting_agent != null ? String(r.posting_agent) : null;
   const recorded = isActorType(r.actor_type) ? r.actor_type : null;
   // ONE actor model: contracts/actor.ts decides, this only supplies the inputs.
   const resolved = recorded
     ? resolveRecordedActorType(recorded)
     : resolveLegacyActorType(postingAgent);
+  const actingCompanyId = r.acting_company_id != null ? String(r.acting_company_id) : null;
   return {
     journalEntryId: String(r.id),
     entryNumber: String(r.entry_number ?? ''),
@@ -142,6 +174,10 @@ function mapEntry(r: DbRow): AuditTrailEntry {
     actorProvenance: resolved.provenance,
     actorCaveat: resolved.caveat ?? null,
     actorTokenJti: r.actor_token_jti != null ? String(r.actor_token_jti) : null,
+    actingCompanyId,
+    actingCompanyKnown: actingCompanyId !== null,
+    crossCompany: actingCompanyId === null ? null : actingCompanyId !== companyId,
+    actingCompanyCaveat: actingCompanyId === null ? ACTING_UNKNOWN : null,
     postingAgent,
     userId: r.created_by != null ? String(r.created_by) : null,
     userName: r.created_by_name != null ? String(r.created_by_name) : null,
@@ -167,6 +203,8 @@ export async function queryAuditTrail(
     const action = f.action ?? null;
     const entityId = f.entityId ?? null;
     const entityType = f.entityType ?? null;
+    const actingCompanyId = f.actingCompanyId ?? null;
+    const crossOnly = f.crossCompanyOnly === true;
     const cur = f.cursor?.parts ?? null;
     const curDate = cur ? cur[0]! : null;
     const curId = cur ? cur[1]! : null;
@@ -179,6 +217,7 @@ export async function queryAuditTrail(
              je.posting_agent, je.actor_type, je.actor_token_jti,
              je.created_by, je.posted_by, je.created_at, je.posted_at, je.reversed_at,
              je.reversal_of_id, je.source_record_id, je.source_document_id,
+             je.acting_company_id,
              CONCAT_WS(' ', u.first_name, u.last_name) AS created_by_name,
              CONCAT_WS(' ', pu.first_name, pu.last_name) AS posted_by_name,
              COALESCE(SUM(jl.debit), 0) AS amount
@@ -202,6 +241,9 @@ export async function queryAuditTrail(
               OR (je.actor_type IS NULL AND ${actorType} = 'human'  AND je.posting_agent IS NOT NULL
                   AND je.posting_agent NOT LIKE 'mcp:%' AND je.posting_agent NOT LIKE 'system:%')))
         AND (${tokenJti}::TEXT IS NULL OR je.actor_token_jti = ${tokenJti})
+        AND (${actingCompanyId}::TEXT IS NULL OR je.acting_company_id::TEXT = ${actingCompanyId})
+        AND (NOT ${crossOnly}::BOOLEAN
+             OR (je.acting_company_id IS NOT NULL AND je.acting_company_id <> je.company_id))
         AND (${userId}::TEXT IS NULL OR je.created_by::TEXT = ${userId})
         AND (${source}::TEXT IS NULL OR je.source = ${source})
         AND (${action}::TEXT IS NULL OR (
@@ -219,12 +261,15 @@ export async function queryAuditTrail(
       LIMIT ${f.limit + 1}
     `) as DbRow[];
 
-    const page = rows.slice(0, f.limit).map(mapEntry);
+    const page = rows.slice(0, f.limit).map((r) => mapEntry(r, companyId));
     const nextCursor = rows.length > f.limit && page.length > 0
       ? encodeCursor({ parts: [page[page.length - 1]!.entryDate, page[page.length - 1]!.journalEntryId] })
       : null;
 
-    const summary = await summarise(companyId, f, actorType, tokenJti, userId, source, action, entityType, entityId);
+    const summary = await summarise(companyId, f, {
+      actorType, tokenJti, userId, source, action, entityType, entityId,
+      actingCompanyId, crossOnly,
+    });
     return { rows: page, nextCursor, ...summary };
   } catch (err) {
     log.error('Failed to query audit trail', { companyId, error: err }, 'accounting');

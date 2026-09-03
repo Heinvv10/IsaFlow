@@ -23,10 +23,13 @@ const PAGE = {
     actorCaveat: 'NOT PROVEN HUMAN. …', actorTokenJti: null,
     postingAgent: 'human:u1', userId: 'u1', userName: 'Hein van Vuuren',
     postedByUserId: 'u2', postedByUserName: 'Willem Marneweck',
+    actingCompanyId: null, actingCompanyKnown: false, crossCompany: null,
+    actingCompanyCaveat: 'The acting company was not recorded on this row.',
     createdAt: '2026-09-01T10:00:00.000Z', postedAt: null, reversedAt: null,
     reversalOfId: null, sourceRecordId: null,
   }],
-  rowsTotal: 1, universeTotal: 1, excludedRows: [], nextCursor: null,
+  rowsTotal: 1, universeTotal: 1, excludedRows: [], excludedTotal: 0,
+  excludedTruncated: false, nextCursor: null,
   postedThrough: '2026-09-01T10:00:00.000Z',
   attribution: {
     recorded: 0, derived: 1,
@@ -114,6 +117,50 @@ describe('audit_trail', () => {
     expect(env.rows).toEqual([]);
     expect(env.rowsTotal).toBe(1);
     expect(env.attribution).toEqual(PAGE.attribution);
+  });
+
+  it('surfaces the firm axis, and an unrecorded firm as UNKNOWN not "in-house"', async () => {
+    vi.mocked(queryAuditTrail).mockResolvedValue(PAGE as never);
+    const env = payload(await auditTrailTool.handler({ from: '2026-09-01', to: '2026-09-30' }, ctx) as never);
+    const row = (env.rows as Record<string, unknown>[])[0]!;
+    expect(row.acting_company_id).toBeNull();
+    expect(row.acting_company_known).toBe(false);
+    expect(row.cross_company).toBeNull();
+    expect(row.acting_company_caveat).toMatch(/not recorded/i);
+  });
+
+  it('passes the cross-company filter through — the client auditor\'s first question', async () => {
+    vi.mocked(queryAuditTrail).mockResolvedValue(PAGE as never);
+    await auditTrailTool.handler(
+      { from: '2026-09-01', to: '2026-09-30', posted_from_outside_this_company: true }, ctx);
+    expect(vi.mocked(queryAuditTrail).mock.calls[0]![1].crossCompanyOnly).toBe(true);
+  });
+
+  it('passes a named firm through and refuses one that is not a uuid', async () => {
+    vi.mocked(queryAuditTrail).mockResolvedValue(PAGE as never);
+    await auditTrailTool.handler(
+      { from: '2026-09-01', to: '2026-09-30', acting_company_id: '99999999-9999-4999-8999-999999999999' }, ctx);
+    expect(vi.mocked(queryAuditTrail).mock.calls[0]![1].actingCompanyId)
+      .toBe('99999999-9999-4999-8999-999999999999');
+
+    vi.clearAllMocks();
+    const res = await auditTrailTool.handler(
+      { from: '2026-09-01', to: '2026-09-30', acting_company_id: 'nope' }, ctx);
+    expect(res.isError).toBe(true);
+    expect(queryAuditTrail).not.toHaveBeenCalled();
+  });
+
+  it('reports the excluded total and its truncation, so a capped sample is never silent', async () => {
+    vi.mocked(queryAuditTrail).mockResolvedValue({
+      ...PAGE, excludedRows: [], excludedTotal: 812, excludedTruncated: true, universeTotal: undefined,
+    } as never);
+    const env = payload(await auditTrailTool.handler({ from: '2026-09-01', to: '2026-09-30' }, ctx) as never);
+    expect(env.excluded_total).toBe(812);
+    expect(env.excluded_truncated).toBe(true);
+  });
+
+  it('states the segregation-of-duties finding in the description', () => {
+    expect(auditTrailTool.description).toMatch(/segregation of duties/i);
   });
 
   it('refuses an unparseable date before it reaches a ::DATE cast in a savepoint-free read', async () => {
