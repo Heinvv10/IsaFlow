@@ -460,6 +460,10 @@ describe('write-tool manifest invariants', () => {
       // completing a reconciliation marks transactions terminally reconciled.
       'close_fiscal_period',
       'finalize_invoice',
+      // lock_vat_period posts no journal, and requires write:post anyway: it
+      // freezes a filed return, and a control an agent can set without the
+      // posting permission is not a control.
+      'lock_vat_period',
       'perform_bank_reconciliation',
       'post_journal',
       'reopen_fiscal_period',
@@ -563,6 +567,9 @@ describe('write-tool manifest invariants', () => {
       cancel_bank_reconciliation: { ...KEY },
       // All four practice write tools refuse on a missing required argument
       // before touching the database; behaviour in practiceTools.test.ts.
+      // lock_vat_period refuses on the missing period before reading anything;
+      // behaviour is covered in vatPeriodLock.db.test.ts against a real ledger.
+      lock_vat_period: { ...KEY },
       create_job_category: { ...KEY },
       create_work_item: { ...KEY },
       log_time_entry: { ...KEY },
