@@ -27,7 +27,32 @@ vi.mock('@/lib/logger', () => ({
 
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: vi.fn() }));
 vi.mock('@/modules/accounting/services/gl/trialBalanceService', () => ({ getTrialBalance: vi.fn() }));
-vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({ getFiscalPeriodIdForDate: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
+  getFiscalPeriodIdForDate: vi.fn(),
+  getFiscalPeriods: vi.fn().mockResolvedValue([]),
+  getFiscalPeriodById: vi.fn().mockResolvedValue(null),
+  getJournalCountsByYear: vi.fn().mockResolvedValue({}),
+  resolveCompanyPeriodAlignment: vi.fn().mockResolvedValue({
+    declaredStartMonth: 3, observedStartMonth: null, startMonth: 3, aligned: true,
+  }),
+}));
+vi.mock('@/modules/accounting/services/gl/periodCloseReadinessService', () => ({
+  getCloseReadiness: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('@/modules/accounting/services/bank/bankStatementCoverageService', () => ({
+  DEFAULT_MIN_GAP_DAYS: 7,
+  getBankStatementCoverage: vi.fn().mockResolvedValue({
+    asAt: '2026-09-03', accounts: [],
+    totals: { glBalance: 0, statementBalance: 0, computedBalance: 0, difference: 0, transactionCount: 0 },
+    postedThrough: null,
+  }),
+}));
+vi.mock('@/modules/accounting/services/gl/openingBalanceReadService', () => ({
+  getOpeningBalances: vi.fn().mockResolvedValue({
+    rows: [], disagreements: [], accountsWithoutOpeningBalance: [],
+    totals: { posted: 0, metadata: 0 }, postedThrough: null,
+  }),
+}));
 vi.mock('@/modules/accounting/services/reports/incomeStatementService', () => ({ getIncomeStatement: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ getBalanceSheet: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/arAgingService', () => ({ getARAging: vi.fn() }));
@@ -443,8 +468,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 38 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(38);
+  it('exactly 43 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(43);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {

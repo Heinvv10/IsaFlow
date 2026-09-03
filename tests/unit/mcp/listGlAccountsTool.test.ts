@@ -207,7 +207,7 @@ describe('list_gl_accounts', () => {
 
     expect(MCP_TOOLS.map((t) => t.name)).toContain('list_gl_accounts');
     expect(CLIENT_MCP_TOOL_NAMES).toContain('list_gl_accounts');
-    expect(MCP_TOOLS.filter((t) => !t.write)).toHaveLength(38);
-    expect(MCP_TOOLS).toHaveLength(77);
+    expect(MCP_TOOLS.filter((t) => !t.write)).toHaveLength(43);
+    expect(MCP_TOOLS).toHaveLength(86);
   });
 });
