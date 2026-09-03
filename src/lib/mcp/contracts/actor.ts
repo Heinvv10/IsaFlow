@@ -21,8 +21,17 @@ import type { McpToolContext } from '../types';
  * - `agent`  — an MCP token acting on a person's behalf.
  * - `system` — IsaFlow itself: recurring journals, year-end close, migrations.
  *
- * Stored as text, not an enum type, so adding a fourth never needs a migration
- * on a table this large.
+ * Stored as TEXT with a CHECK constraint (migration 530), not as an enum type.
+ * Widening it is then an ALTER of one constraint; widening an enum is
+ * ALTER TYPE ADD VALUE, whose transactional behaviour is version-dependent and
+ * which rewrites dependent objects on a table holding every journal in the
+ * system.
+ *
+ * NULL on every row written before migration 530. Those are resolved from
+ * `posting_agent` at READ time rather than backfilled — a derived value can be
+ * corrected when the derivation turns out to be wrong, and a backfilled one
+ * cannot afterwards be told from a recorded one, which is the property that
+ * makes an audit trail worth having.
  */
 export type ActorType = 'human' | 'agent' | 'system';
 
