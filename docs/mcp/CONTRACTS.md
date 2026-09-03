@@ -288,6 +288,50 @@ arithmetic is right.
   make the UI call it too, in the same PR.
 - Return the definition you used in `figureBasis`.
 
+### The ONE accepted exception: the P&L, and it is temporary
+
+This rule has been held everywhere else in the programme. It is being broken
+once, deliberately, and it survives only because it is written down here.
+
+There are two P&L implementations:
+
+| | |
+|---|---|
+| `reports/incomeStatementService#getIncomeStatement` | Splits two ways. Everything revenue-typed is turnover, so **other income reaches gross profit**; every expense that is not cost of sales is an operating expense, so **finance cost and tax sit inside operating expenses**. |
+| `gl/accountClassification#aggregateFigures`, via `gl/financialFiguresService` | The full layer, plus a count of the accounts whose subtype is unknown. |
+
+**The MCP `profit_and_loss` tool wraps the SECOND. The income-statement page,
+`reports-management-accounts` and AFS all consume the FIRST.**
+
+Three things make that survivable, and all three must stay true or the exception
+lapses:
+
+1. **The divergence is PRESENTATIONAL, not a disagreement.** The two agree on
+   the **bottom line to the cent** on both production companies. The only
+   difference is which band a figure sits in — Brightsphere's R158,412.82 of tax
+   is inside operating expenses on one and below the operating line on the
+   other. One answer presented two ways is survivable as a recorded divergence
+   in a way two answers would not be.
+2. **It is recorded where a reader will hit it**: a `contested` entry on
+   `revenue.period.v1` and `costofsales.period.v1` saying exactly the above, and
+   a paragraph in the tool description telling anyone comparing against the UI
+   why the operating-expense line differs and by precisely what.
+3. **It has a named successor.** The income-statement convergence PR rebuilds
+   `getIncomeStatement` on `aggregateFigures`, with its own blind review and the
+   AFS owner in the loop. It was NOT done inside W2 because converging changes
+   `totalRevenue`, `grossProfit` and `totalOperatingExpenses` for the page and
+   for an AFS module a parallel session repaired and deployed the same day.
+   Changing its inputs without its owner is how a good fix gets blamed for
+   someone else's regression.
+
+The owners of `revenue.period.v1` and `costofsales.period.v1` deliberately did
+NOT move to the classifier. The page still consumes the old shape, and moving
+the owner would make the registry lie about what the UI does.
+
+**Do not treat this as precedent.** The next divergence needs the same three
+properties, stated the same way, or it is the fifth answer to a question that
+already has four.
+
 ### The figure registry
 
 `src/lib/mcp/contracts/figures.ts` names every shared figure, its **one owning

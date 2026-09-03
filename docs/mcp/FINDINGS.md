@@ -444,6 +444,30 @@ Brightsphere's operating profit is R3,919,212.00 against a net profit of
 R3,760,799.18, the difference being tax now reported below the operating line
 where `getIncomeStatement` had it inside operating costs.
 
+### Every W2 tool, re-run live after the envelope change
+
+Seven tools, both production companies, read-only, **no completeness fault on
+any response**:
+
+| | Brightsphere | Velocity Fibre |
+|---|---|---|
+| `reconcile_subledger` AR / AP residual | R0.00 / R0.00 | R0.00 / R0.00 |
+| `general_ledger` balanced | **true** — R76,213,877.10 each side, 11,741 lines | **true** — R519,723,273.19 each side, 21,871 lines |
+| `balance_sheet` posted equity vs residual | R0.00 vs R8,394,848.60 | R0.00 vs −R34,816,224.89 |
+| `aged_debtors` total vs `reconcile_subledger` agedTotal | R14,272,647.60 = R14,272,647.60 | R75,864,129.21 = R75,864,129.21 |
+| `aged_creditors` total vs agedTotal | R613,641.77 = R613,641.77 | R106,743,768.45 = R106,743,768.45 |
+| `profit_and_loss` coverage reliable | false | false |
+
+**Brightsphere's ledger balances too** — R76,213,877.10 on each side across
+11,741 lines. Both production ledgers can now be extracted whole and shown to
+balance, which is the thing the audit said could not be done.
+
+The `universeTotal` fix is visible on the filtered call: Velocity's
+`general_ledger` restricted to `auto_supplier_payment` returns
+`rowsTotal: 2,180`, `universeTotal: 21,871`, `excludedTotal: 19,691`. Before the
+fix it reported a universe of 2,180 — certifying a filtered extract as the
+complete ledger.
+
 ### Two identities that read clean because they could not do otherwise
 
 Recorded together because it is the same failure twice in one day, in the two
