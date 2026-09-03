@@ -218,12 +218,20 @@ The GL structure exists at 2140/2150/2160/2170/2175, deactivated and empty.
 | `emp201_status`, `irp5_data` | WRAP | `reports/emp201Service`, `reports/irp5Service`. **Wrap the version on `fix/reporting-audit-p0`, not master**: the status filter was `'calculated'`, which misses 85 of 86 production pay runs. The fix moves it to `approved`/`paid` and adds ETI |
 | `project_profitability` | WRAP | `reports/projectProfitabilityService#getProjectProfitability` — a direct match |
 | `wip_report` | WRAP | `practice/practiceWipService` — practice-scoped; widen only if the general case is needed |
-| Budgets | WRAP | `core/budgetService`, `reports/budgetVsActualLines` |
+| Budgets | ~~WRAP~~ **BUILD** | The spec's verdict was wrong. `core/budgetService` had never executed — twelve month columns that do not exist, two missing NOT NULL columns, an `ON CONFLICT` with no constraint behind it. Rebuilt against the live `period_amounts` JSONB schema; migration 590 supplies the arbiter index. `budget_variance` registered on `reports/budgetVarianceService` |
 | `customer_statement` | WRAP | `ar/statementEmailService#fetchStatementData` — a real builder whose only consumer is email |
 | Fixed assets | EXTEND | calc logic is pure (`items/assetService`, `farDepreciationService`, `farDisposalService`) but CRUD is inline SQL in `pages/api/accounting/assets.ts:18` — extract a service first |
 | Inventory | EXTEND | `items/itemService` has real CRUD |
 | `supplier_statement` | BUILD | |
 | `job_cost_report` (general) | BUILD | |
 
-Catches: R2.72m of understated employment cost · R7,500 of depreciation against
-assets not on the balance sheet · no contract-level P&L for a fibre contractor.
+Catches: R7,500 of depreciation against assets not on the balance sheet · no
+contract-level P&L for a fibre contractor.
+
+**The "R2.72m of understated employment cost" does not survive re-derivation.**
+All 86 pay runs and all 11 `payroll_employees` rows are ISAFlow Demo; Velocity
+and Brightsphere have zero of each, so nothing of theirs can be understated *by
+a pay run*. Re-derived, the exposure is **R12,807,325.13** posted straight to
+salary and wage accounts with no payroll behind it and no PAYE, UIF or SDL ever
+raised — see FINDINGS **B42**, and **B43** for the R399,735.97 of input VAT
+claimed on top of it. Reported, not fixed: this programme does not correct data.

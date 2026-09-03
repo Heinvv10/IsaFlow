@@ -16,6 +16,10 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import {
+  budgetMonthKeysInWindow,
+  sumBudgetForWindow,
+} from '@/modules/accounting/services/reports/budgetPeriodWindow';
+import {
   buildBudgetVsActualLines,
   type RawActualRow,
 } from '@/modules/accounting/services/reports/budgetVsActualLines';
@@ -52,36 +56,30 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         : (now.toISOString().split('T')[0] ?? '');
     }
 
-    // Load budgets from accounting_budgets table.
-    // The schema uses period_amounts JSONB keyed by 0-based month index ("0".."11")
-    // or ISO month names ("jan".."dec"). Sum only the months within the period window.
+    // Load budgets from accounting_budgets table. Months live in period_amounts
+    // JSONB, keyed by calendar month name ('jan'..'dec') — see budgetService.
+    //
+    // The window used to be derived by comparing Date.getMonth() bounds, which
+    // is a calendar-year assumption. Every company here runs March–February, so
+    // once the year-to-date window crossed into January the loop ran zero times
+    // and the report showed R0.00 of budget against real actuals — visually
+    // indistinguishable from nobody having set a budget.
     let budgets: Record<string, number> = {};
-    const fiscalYear = new Date(startDate).getFullYear();
-    const startMonth = new Date(startDate).getMonth(); // 0-based
-    const endMonth = new Date(endDate).getMonth();
-    const monthKeys = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const fiscalYear = Number(startDate.slice(0, 4));
+    const monthKeys = budgetMonthKeysInWindow(startDate, endDate);
 
     const budgetRows = await sql`
       SELECT ab.gl_account_id, ga.account_code, ab.period_amounts, ab.annual_amount
       FROM accounting_budgets ab
-      JOIN gl_accounts ga ON ga.id = ab.gl_account_id
-      WHERE ab.company_id = ${companyId} AND ab.fiscal_year = ${fiscalYear}
+      JOIN gl_accounts ga ON ga.id = ab.gl_account_id AND ga.company_id = ${companyId}::UUID
+      WHERE ab.company_id = ${companyId}::UUID AND ab.fiscal_year = ${fiscalYear}
     `;
     for (const row of budgetRows) {
-      let total = 0;
-      const pa: Record<string, unknown> = row.period_amounts ?? {};
-      for (let m = startMonth; m <= endMonth; m++) {
-        // Accept both 0-based numeric keys ("0".."11") and lowercase month name keys
-        const byIdx = Number(pa[String(m)] ?? 0);
-        const byName = Number(pa[monthKeys[m] ?? ''] ?? 0);
-        total += byIdx || byName;
-      }
-      // Spread annual_amount only when period_amounts is genuinely missing/empty.
-      // Gate on key count (not total === 0) so legitimate zero-budget months are preserved.
-      if (Object.keys(pa).length === 0 && row.annual_amount) {
-        const monthsInPeriod = endMonth - startMonth + 1;
-        total = Number(row.annual_amount) * (monthsInPeriod / 12);
-      }
+      const total = sumBudgetForWindow(
+        (row.period_amounts ?? {}) as Record<string, unknown>,
+        Number(row.annual_amount ?? 0),
+        monthKeys,
+      );
       budgets[row.account_code] = total;
       budgets[row.gl_account_id] = total;
     }

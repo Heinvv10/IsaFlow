@@ -150,6 +150,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   stock_valuation: null,
   supplier_statement: null,
   job_cost_report: null,
+  budget_variance: null,
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',

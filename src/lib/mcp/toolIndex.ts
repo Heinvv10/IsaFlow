@@ -97,6 +97,7 @@ import {
   projectProfitabilityTool,
   wipReportTool,
 } from './tools/domainReports';
+import { budgetVarianceTool } from './tools/budgetVariance';
 import { jobCostReportTool } from './tools/jobCost';
 import { listFixedAssetsTool, assetRegisterTool } from './tools/assets';
 import {
@@ -187,6 +188,7 @@ export const MCP_TOOLS = [
   stockValuationTool,
   supplierStatementTool,
   jobCostReportTool,
+  budgetVarianceTool,
   // write (46) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.

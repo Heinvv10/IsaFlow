@@ -78,6 +78,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'stock_valuation',
   'supplier_statement',
   'job_cost_report',
+  'budget_variance',
   // write
   'create_draft_invoice',
   'create_draft_quote',

@@ -195,6 +195,18 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     excludes:
       'Every employer contribution. Reported separately from payroll.employmentcost.v1 on purpose: net pay is all these books have ever carried, and the gap between the two figures IS the understatement of employment cost. Collapsing them would destroy the only thing that measures it.',
   }),
+  'budget.actual.v1': def({
+    id: 'budget.actual.v1',
+    label: 'Actual movement, as compared against a budget',
+    owner: 'reports/budgetVarianceService#getBudgetVariance',
+    includes:
+      'Posted journal-line movement per revenue or expense account over the window, signed so that a revenue credit and an expense debit are both positive. The same number the trial balance shows for the account.',
+    excludes:
+      'Draft journals, and every layer the income statement adds on top: no cost-of-sales bucketing, no other-income or finance-cost section, no tax. That is deliberate — incomeStatementService has open defects in exactly that layering (rolling-window comparative, cost of sales chosen by account NAME), and a variance against a net profit known to be wrong would carry more authority than it deserves.',
+    contested: [
+      'reports/incomeStatementService#getIncomeStatement reports P&L for the same accounts through a different, defective classification layer',
+    ],
+  }),
   'gl.trialbalance.v2': def({
     id: 'gl.trialbalance.v2',
     label: 'Trial balance',
