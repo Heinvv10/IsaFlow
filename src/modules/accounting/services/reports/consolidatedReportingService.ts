@@ -94,6 +94,11 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
 
     // Batch all 4 queries using company_id = ANY(...) instead of N loops
     const [cashRows, arRows, apRows, plRows] = await Promise.all([
+      // is_active is NOT a filter here: it is a chart-of-accounts picker
+      // flag, so a deactivated member bank account must still contribute its
+      // cash to the group position.
+      // Latent, not benign: R0 delta today only because no inactive bank
+      // account holds a bank_transactions row yet. Do not reinstate.
       // Cash is SUM(bank_transactions.amount) over bank-subtype GL accounts —
       // the same definition kpiDashboardService and bankAccountStatusService
       // use. bank_accounts.current_balance was read here previously, but
@@ -104,7 +109,7 @@ export async function getGroupDashboardStats(groupId: string): Promise<GroupDash
           JOIN gl_accounts ga ON ga.id = bt.bank_account_id
           WHERE bt.company_id = ANY(${companyIds}::UUID[])
             AND ga.company_id = ANY(${companyIds}::UUID[])
-            AND ga.account_subtype = 'bank' AND ga.is_active = true
+            AND ga.account_subtype = 'bank'
           GROUP BY bt.company_id` as Promise<DbRow[]>,
       // There is no balance_due column on either invoice table — these queries
       // threw 42703, taking the whole dashboard down. Outstanding is

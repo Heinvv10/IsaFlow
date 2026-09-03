@@ -216,6 +216,17 @@ export async function getAccountTransactions(
 }
 
 // ── Audit Trail ─────────────────────────────────────────────────────────────
+//
+// This is the PERIOD EXPORT view: every entry in a date range, unbounded, with
+// both debit and credit totals, consumed by reports-audit-trail.ts and
+// audit-trail-export.ts.
+//
+// It is NOT the attribution view. `gl/auditTrailLedgerService#queryAuditTrail`
+// answers "who posted this, and is that recorded or inferred" — paginated,
+// actor-filtered, and carrying provenance per row. The two are kept apart
+// deliberately: this one must stay unbounded and must keep returning credit
+// totals, and folding either shape into the other would change an existing
+// signed export. Neither re-derives the other's figures.
 
 export interface AuditTrailRow {
   entryDate: string;

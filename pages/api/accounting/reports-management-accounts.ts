@@ -15,6 +15,11 @@ import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
+import {
+  CASH_SUBTYPES,
+  RECEIVABLE_SUBTYPES,
+  PAYABLE_SUBTYPES,
+} from '@/modules/accounting/services/gl/accountClassification';
 
 type Row = Record<string, unknown>;
 
@@ -50,7 +55,7 @@ async function getCashFlowSummary(
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'asset'
-          AND ga.account_name ILIKE '%receivable%'
+          AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
           AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
@@ -60,7 +65,7 @@ async function getCashFlowSummary(
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'liability'
-          AND ga.account_name ILIKE '%payable%'
+          AND ga.account_subtype = ANY(${PAYABLE_SUBTYPES as string[]}::TEXT[])
           AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
@@ -70,9 +75,11 @@ async function getCashFlowSummary(
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'asset'
-          AND ga.account_name NOT ILIKE '%receivable%'
-          AND ga.account_name NOT ILIKE '%cash%'
-          AND ga.account_name NOT ILIKE '%bank%'
+          -- COALESCE, not NOT(... = ANY ...): a NULL subtype makes that
+          -- expression NULL, which would silently drop every unclassified
+          -- asset from investing activities.
+          AND COALESCE(ga.account_subtype, '') <> ALL(${RECEIVABLE_SUBTYPES as string[]}::TEXT[])
+          AND COALESCE(ga.account_subtype, '') <> ALL(${CASH_SUBTYPES as string[]}::TEXT[])
           AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
@@ -82,13 +89,13 @@ async function getCashFlowSummary(
         JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
         JOIN gl_accounts ga ON ga.id = jl.gl_account_id
         WHERE jl.company_id = ${companyId}::UUID AND ga.account_type = 'equity'
-          AND ga.account_name NOT ILIKE '%retained%'
+          AND ga.account_subtype IS DISTINCT FROM 'retained_earnings'
           AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
           AND je.entry_date >= ${startDate} AND je.entry_date <= ${endDate}
       ` as Promise<Row[]>,
       sql`
         SELECT COALESCE(SUM(
-          CASE WHEN ga.account_name ILIKE '%cash%' OR ga.account_name ILIKE '%bank%'
+          CASE WHEN ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
                THEN jl.debit - jl.credit ELSE 0 END
         ), 0)::numeric AS balance
         FROM gl_journal_lines jl

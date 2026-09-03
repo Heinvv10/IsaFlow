@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getPostedAccountBalance, holdsMoney, formatAccountBalance } from './glAccountBalance';
 import { cacheThrough, cache } from '@/lib/cache';
 import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import type { GLAccount, GLAccountType } from '../../types/gl.types';
@@ -346,11 +347,32 @@ export async function updateAccount(companyId: string, id: string, input: Update
   try {
     const account = await sql`SELECT * FROM gl_accounts WHERE id = ${id} AND company_id = ${companyId}` as {
       is_system_account: boolean;
+      account_name: string;
     }[];
     if (account.length === 0) throw new Error(`Account ${id} not found`);
 
     if (account[0]!.is_system_account && input.isActive === false) {
       throw new Error('Cannot deactivate a system account');
+    }
+
+    // Money in the account blocks deactivation, the same rule deleteAccount
+    // enforces. Without it the edit form, the bulk PUT and the MCP update tool
+    // could each do what the delete path forbade -- which is how four
+    // production accounts ended up deactivated holding R137,317.39 between
+    // them, invisible to every report that filtered on is_active.
+    //
+    // Only deactivation is checked. REACTIVATION must stay possible whatever
+    // the balance (an account holding money is exactly the one you may need to
+    // switch back on), and an edit that leaves is_active alone never pays for
+    // the query.
+    if (input.isActive === false) {
+      const balance = await getPostedAccountBalance(companyId, id);
+      if (holdsMoney(balance)) {
+        throw new Error(
+          `Cannot deactivate "${account[0]!.account_name}" — GL balance is R ${formatAccountBalance(balance)}. ` +
+            `Transfer the balance to another account or reconcile it to zero first.`,
+        );
+      }
     }
 
     const rows = await sql`
@@ -405,25 +427,16 @@ export async function deleteAccount(companyId: string, id: string): Promise<void
     //    "Cannot delete if there's money in it." An account that has
     //    been used but fully reconciled back to zero is fine to close;
     //    an account with a live balance is not.
-    const glBalanceRows = await sql`
-      SELECT
-        COALESCE(SUM(debit), 0) AS debit_total,
-        COALESCE(SUM(credit), 0) AS credit_total
-      FROM gl_journal_lines jl
-      WHERE jl.gl_account_id = ${id} AND jl.company_id = ${companyId}::UUID
-    ` as { debit_total: string; credit_total: string }[];
+    //    Shared with updateAccount so both refusals use ONE definition of
+    //    "holds money" -- the trial balance's. This query used to be inline
+    //    here and summed ALL journal lines including drafts, so it disagreed
+    //    with the report the user was looking at and could block a legitimate
+    //    close over a draft that is not money yet.
+    const balance = await getPostedAccountBalance(companyId, id);
 
-    const debitTotal = Number(glBalanceRows[0]?.debit_total ?? '0');
-    const creditTotal = Number(glBalanceRows[0]?.credit_total ?? '0');
-    const balance = debitTotal - creditTotal;
-
-    if (Math.abs(balance) > 0.005) {
-      // Round to 2dp so the user sees a clean ZAR figure. The sign
-      // makes sense regardless of normal balance: a positive number
-      // means debits exceed credits, negative means credits exceed debits.
-      const displayBalance = (Math.round(balance * 100) / 100).toFixed(2);
+    if (holdsMoney(balance)) {
       throw new Error(
-        `Cannot delete "${accountName}" — GL balance is R ${displayBalance}. ` +
+        `Cannot delete "${accountName}" — GL balance is R ${formatAccountBalance(balance)}. ` +
           `Transfer the balance to another account or reconcile it to zero first.`,
       );
     }

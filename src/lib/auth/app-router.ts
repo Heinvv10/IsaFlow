@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken } from './gotrue';
 import { ACCESS_COOKIE } from './cookies';
+import { requireActiveAccount } from './requireActiveAccount';
 
 export type AppRouterUser = {
   id: string;
@@ -47,6 +48,11 @@ export async function getUserFromRequest(req: NextRequest): Promise<AppRouterUse
   try {
     const claims = await verifyToken(token);
     if (!claims.sub) return null;
+    // A suspended account resolves to null, so every caller's existing
+    // null-check turns into a 401 with no extra work. This helper has no
+    // callers today; it is gated so the first App Router route to adopt it
+    // does not silently reintroduce the ungated-identity hole.
+    if (await requireActiveAccount(claims.sub)) return null;
     return {
       id: claims.sub,
       email: typeof claims.email === 'string' ? claims.email : undefined,

@@ -13,6 +13,7 @@ import { validateThreeWayMatch } from '../../utils/threeWayMatch';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
 import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
+import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 
 type Row = DbRow;
 
@@ -75,7 +76,7 @@ export async function approveSupplierInvoice(
   // and invisible to list_agent_postings, which filters posting_agent LIKE
   // 'mcp:%'. That review surface is the control the whole agent-write model
   // rests on.
-  opts?: { postingAgent?: string },
+  opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
     const invoice = await getSupplierInvoiceById(companyId, id);
@@ -116,7 +117,7 @@ export async function approveSupplierInvoice(
       description: `Supplier invoice ${invoice.invoiceNumber}`,
       source: 'auto_supplier_invoice',
       lines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined);
+    }, userId, actorMeta(opts));
 
     await postJournalEntry(companyId, journalEntry.id, userId);
 
@@ -144,7 +145,7 @@ export async function postSupplierInvoiceToGL(
   companyId: string,
   id: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; alreadyPosted: boolean }> {
   const invoice = await getSupplierInvoiceById(companyId, id);
   if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
@@ -188,7 +189,7 @@ export async function postSupplierInvoiceToGL(
     description: `Supplier invoice ${invoice.invoiceNumber}`,
     source: 'auto_supplier_invoice',
     lines,
-  }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined);
+  }, userId, actorMeta(opts));
 
   await postJournalEntry(companyId, journalEntry.id, userId);
 

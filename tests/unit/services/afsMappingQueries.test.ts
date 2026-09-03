@@ -4,17 +4,24 @@
  * Financial-statement correctness guard.
  *
  * The AFS mapped trial balance derived each account's balance from the
- * `gl_account_balances` cache via LEFT JOIN. That cache is maintained only by
- * a trigger on `gl_journal_lines` which early-returns while the parent entry is
- * still `draft`, and there is NO trigger on `gl_journal_entries` to refresh it
- * when status flips draft -> posted. So entries posted after their lines were
- * inserted leave the cache missing rows (confirmed: 71 missing (account,period)
- * rows in a real DB), and the LEFT JOIN silently yields 0 — understating or
- * omitting figures in the financial statements.
+ * `gl_account_balances` cache via LEFT JOIN, and the cache was missing rows:
+ * its only trigger sat on `gl_journal_lines` and early-returned while the
+ * parent entry was still `draft`, with nothing on `gl_journal_entries` to
+ * refresh it when the status flipped. 71 (account, period) rows were missing
+ * in a real DB, and the LEFT JOIN silently yielded 0.
  *
- * Fix: derive balances from posted `gl_journal_lines` (source of truth),
- * matching every sibling report service. These tests assert the balance query
- * reads journal lines (not the cache) and is company + period scoped.
+ * That hole is CLOSED. Migration 499 added `trg_gl_je_status_balance`, which
+ * recomputes from posted lines on exactly that transition, both directions.
+ * Re-measured against a computed aggregate on 2026-09-03: 2657 rows matched,
+ * 0 missing, max absolute drift 0.00. Do not carry the old claim forward — it
+ * describes the schema before 499, and re-deriving it is how a fixed bug gets
+ * reported as live.
+ *
+ * The behaviour these tests pin stays, on a reason that does not expire: a
+ * financial statement should compute from the ledger, not from an optimisation
+ * with two triggers and a fiscal-period key. So the balance query must read
+ * posted `gl_journal_lines`, company + period scoped, like every sibling
+ * report service.
  *
  * All DB calls are mocked — no real connection required.
  */

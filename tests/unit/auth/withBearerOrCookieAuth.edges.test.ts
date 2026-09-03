@@ -110,7 +110,7 @@ function makeRes(): FakeRes {
   return res as unknown as FakeRes;
 }
 
-let membershipImpl: () => Promise<{ rows: Array<{ role: string }> }>;
+let membershipImpl: () => Promise<{ rows: Array<{ role: string; account_user_id: string | null; is_active: boolean | null; status: string | null; suspended_at: Date | null }> }>;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -119,7 +119,7 @@ beforeEach(() => {
     patId: PAT_ID, userId: USER_ID, companyId: COMPANY_ID, scopes: ['read:reports'],
   });
   vi.mocked(checkRateLimit).mockResolvedValue(true);
-  membershipImpl = async () => ({ rows: [{ role: 'member' }] });
+  membershipImpl = async () => ({ rows: [{ role: 'member', account_user_id: USER_ID, is_active: true, status: 'active', suspended_at: null }] });
   h.clientQuery.mockImplementation(async (text: unknown) => {
     if (typeof text === 'string' && text.includes('company_users')) return membershipImpl();
     return { rows: [] };

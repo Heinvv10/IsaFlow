@@ -9,6 +9,11 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, BarChart3, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import {
+  DataQualityNotice,
+  type UnclassifiedWarning,
+  type InventoryWarning,
+} from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
@@ -22,9 +27,10 @@ const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.Respons
 interface ScorecardItem {
   ratioKey: string;
   name: string;
-  value: number;
+  value: number | null;
   target: number;
-  status: 'green' | 'amber' | 'red';
+  status: 'green' | 'amber' | 'red' | 'not_meaningful';
+  reason?: string;
   percentOfTarget: number;
 }
 
@@ -35,8 +41,8 @@ interface TrendItem {
   changePercent: number;
 }
 
-const statusColors = { green: 'text-teal-400 bg-teal-500/10 border-teal-500/30', amber: 'text-amber-400 bg-amber-500/10 border-amber-500/30', red: 'text-red-400 bg-red-500/10 border-red-500/30' };
-const statusDots = { green: 'bg-teal-400', amber: 'bg-amber-400', red: 'bg-red-400' };
+const statusColors = { green: 'text-teal-400 bg-teal-500/10 border-teal-500/30', amber: 'text-amber-400 bg-amber-500/10 border-amber-500/30', red: 'text-red-400 bg-red-500/10 border-red-500/30', not_meaningful: 'text-[var(--ff-text-secondary)] bg-[var(--ff-bg-secondary)] border-[var(--ff-border-light)]' };
+const statusDots = { green: 'bg-teal-400', amber: 'bg-amber-400', red: 'bg-red-400', not_meaningful: 'bg-[var(--ff-text-secondary)]' };
 const trendIcons = { improving: TrendingUp, declining: TrendingDown, stable: Minus };
 const trendColors = { improving: 'text-teal-400', declining: 'text-red-400', stable: 'text-gray-400' };
 
@@ -54,6 +60,8 @@ export default function FinancialAnalysisPage() {
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [summary, setSummary] = useState<{ green: number; amber: number; red: number; total: number } | null>(null);
   const [ratios, setRatios] = useState<Record<string, number>>({});
+  const [inventoryWarning, setInventoryWarning] = useState<InventoryWarning | null>(null);
+  const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [loading, setLoading] = useState(true);
   const [months, setMonths] = useState(6);
 
@@ -71,12 +79,16 @@ export default function FinancialAnalysisPage() {
       if (scRes.data) {
         setScorecard(scRes.data.scorecard || []);
         setSummary(scRes.data.summary || null);
+        // The quick ratio on this page does not exclude inventory unless the
+        // chart classifies one — say so rather than showing quick == current.
+        setInventoryWarning(scRes.data.inventory ?? null);
       }
       if (trRes.data) {
         setTrends(trRes.data.trends || []);
       }
       const ratioRes = await apiFetch(`/api/accounting/reports-extended-ratios?from=${from}&to=${to}`).then(r => r.json());
       if (ratioRes.data?.ratios) setRatios(ratioRes.data.ratios);
+      if (ratioRes.data) setUnclassified(ratioRes.data.unclassifiedAccounts ?? null);
     } catch (err) { log.error('Failed to load financial analysis data', { error: err }, 'FinancialAnalysisPage'); }
     finally { setLoading(false); }
   }, [months]);
@@ -104,6 +116,11 @@ export default function FinancialAnalysisPage() {
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : (
             <>
+              <DataQualityNotice
+                unclassifiedAccounts={unclassified}
+                inventory={inventoryWarning}
+              />
+
               {/* KPI Scorecard Summary */}
               {summary && (
                 <div className="grid grid-cols-4 gap-4">
@@ -136,11 +153,22 @@ export default function FinancialAnalysisPage() {
                         <span className="text-xs font-medium opacity-70">{item.name}</span>
                         <span className={`w-2.5 h-2.5 rounded-full ${statusDots[item.status]}`} />
                       </div>
-                      <p className="text-xl font-bold">{fmt(item.value)}</p>
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-xs opacity-60">Target: {fmt(item.target)}</span>
-                        <span className="text-xs font-medium">{item.percentOfTarget.toFixed(0)}%</span>
-                      </div>
+                      {item.status === 'not_meaningful' ? (
+                        <>
+                          {/* A blank cell reads as a broken report. Say what is
+                              true instead: the ratio has no meaning here. */}
+                          <p className="text-sm font-semibold">Not meaningful</p>
+                          <p className="mt-1 text-xs opacity-70">{item.reason}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-xl font-bold">{fmt(item.value ?? 0)}</p>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs opacity-60">Target: {fmt(item.target)}</span>
+                            <span className="text-xs font-medium">{item.percentOfTarget.toFixed(0)}%</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                 </div>

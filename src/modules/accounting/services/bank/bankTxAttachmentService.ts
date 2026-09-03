@@ -89,3 +89,39 @@ export async function addBankTxAttachment(
 
   return { ok: true, attachment: mapRow(row!, input.mimeType) };
 }
+
+export interface BankTxAttachmentDetail extends BankTxAttachmentRow {
+  /** Base64 file bytes, present only when the caller asked for them. */
+  content?: string;
+}
+
+/**
+ * One attachment, by id. The read side of addBankTxAttachment.
+ *
+ * The tenant fence is the JOIN to bank_transactions — this table has no
+ * company_id — so a document belonging to another company returns null and is
+ * indistinguishable from a genuine miss.
+ *
+ * `file_url` holds a `data:<mime>;base64,…` URL (see the module note), so the
+ * mime type and the bytes are both parsed out of it rather than stored
+ * separately.
+ */
+export async function getBankTxAttachment(
+  companyId: string,
+  attachmentId: string,
+  includeContent = false,
+): Promise<BankTxAttachmentDetail | null> {
+  const [row] = (await sql`
+    SELECT a.id, a.bank_transaction_id, a.file_name, a.file_size, a.created_at, a.file_url
+    FROM bank_transaction_attachments a
+    JOIN bank_transactions bt ON bt.id = a.bank_transaction_id
+    WHERE a.id = ${attachmentId}::UUID AND bt.company_id = ${companyId}::UUID
+  `) as DbRow[];
+  if (!row) return null;
+
+  const url = String(row.file_url ?? '');
+  const match = /^data:([^;]+);base64,(.*)$/s.exec(url);
+  const mimeType = match ? match[1]! : 'application/octet-stream';
+  const base = mapRow(row, mimeType);
+  return includeContent && match ? { ...base, content: match[2]! } : base;
+}

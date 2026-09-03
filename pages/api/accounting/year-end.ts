@@ -79,7 +79,16 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
         case 'no_retained_earnings':
           return apiResponse.badRequest(
             res,
-            `Retained Earnings account not found (${result.accountCode}). Create the account or set 'retained_earnings_account' in app_settings.`
+            'No Retained Earnings system account is configured. Mark the equity ' +
+              "account as a system account with account_subtype 'retained_earnings', " +
+              'then run the year-end close again.'
+          );
+        case 'ambiguous_retained_earnings':
+          return apiResponse.badRequest(
+            res,
+            `More than one account is flagged as the Retained Earnings system account ` +
+              `(${result.accountCodes.join(', ')}). Year-end close posts the whole year's ` +
+              `result to one account, so it will not guess — un-flag all but one and try again.`
           );
       }
     }

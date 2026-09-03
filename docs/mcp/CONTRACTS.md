@@ -67,6 +67,14 @@ classification filter*. `buildEnvelope` then checks
 `completenessFault` when rows fall through the gap. That turns completeness from
 something you assert into arithmetic somebody else can check.
 
+**If you cap your exclusion list, pass `excludedTotal` too.** The identity then
+counts the true number excluded rather than the sample served. Without it, a
+report that caps `excludedRows` at 200 raises a `completenessFault` the moment it
+exceeds the cap — arithmetically true, and telling the reader the wrong thing,
+because the cause is paging rather than unaccounted rows. A misleading fault is
+worse than none: it erodes the one signal the field exists to give.
+`truncatedExcludedRows` then tells the reader the list is shorter than the count.
+
 `universeTotal` is **required on every assurance report**. Omit it only on a
 listing where completeness is not a claim being made.
 
@@ -80,9 +88,32 @@ dormant account still carrying R130,000, leaving the export out of balance by
 exactly that amount. A deactivated account with a live balance is still on the
 balance sheet.
 
+`gl_accounts.is_active` is a **picker flag** — it decides whether an account
+appears in a dropdown. It says nothing about whether the account holds money, and
+four inactive production accounts carry R137,317.39 between them, including
+R6,550 of cash. It is legitimate in a list a human chooses from, and never
+legitimate in a query that computes a balance, a total or a valuation. That is
+the discriminator: **is this query producing a figure, or populating a picker?**
+
 Before you add any `WHERE` clause to a report, ask what it excludes and whether
 that belongs in `excludedRows` instead. `is_active`, `status`, `due_date IS NOT
 NULL` and `fiscal_period_id = …` have all produced a finding in these books.
+
+### A predicate in a `LEFT JOIN ... ON` clause restricts nothing
+
+The mirror image of the above, and it fails in the opposite direction — too much
+data rather than too little.
+
+`kpiChartsService` carried `is_active = true AND account_subtype = 'bank'` inside
+a `LEFT JOIN ... ON`. Because the join is outer, unmatched `bank_transactions`
+rows survived with NULL account columns and were summed anyway: the cash trend
+chart included every transaction in the company regardless of account, and the
+total still looked plausible.
+
+A predicate that must restrict the result belongs in `WHERE`, not in the `ON`
+clause of an outer join. If a row can legitimately have no match, decide
+explicitly whether it belongs in `rows` or in `excludedRows` — never let it
+through carrying NULLs into an arithmetic expression.
 
 ### `posted_through` is not decoration
 
@@ -141,6 +172,7 @@ code; add new ones to this list in the same PR.
 | `unmapped_vat_treatment` | VAT code has no posting treatment. |
 | `deactivated_account` | Account is inactive but carries a balance. |
 | `ambiguous_control_account` | More than one live control account for the role. |
+
 | `unknown_counterparty` | The customer or supplier the document names no longer exists or has been deleted. Added by W1 for `list_unapplied_receipts`: a receipt whose customer row is gone is still real cash, and dropping it would understate the unapplied total by exactly its amount. |
 
 ---
@@ -348,6 +380,39 @@ all are reviewed explicitly:
   against `users.id` or `company_users.user_id` — cast the uuid side `::TEXT`.
 - **`TOOL_FLOW_OPERATIONS` must name every registered tool.** Reads are free;
   writes cost what the equivalent endpoint costs. A missing entry fails the build.
+
+---
+
+## 9a. A test that mocks the SQL template cannot catch a schema error
+
+**Three separate defects shipped past review today for this one reason.** It is
+now the most reliable failure class in this codebase.
+
+`yearEndService.closeFiscalYear` INSERTed `total_debit` and `total_credit` into
+`gl_journal_entries`. Neither column exists — not in dev, not in production — so
+every year-end close threw 42703 before writing a line, over MCP and through the
+UI route alike. Four unclosed year-ends and an R8.46m retained-earnings plug were
+read as an oversight by whoever runs the close. **The operation was impossible.**
+
+Its tests passed throughout, because they mock the `tx` tagged template. A mocked
+template asserts *the shape of a statement*, and a statement Postgres would reject
+outright has exactly the same shape as one it accepts.
+
+So, for anything that writes:
+
+- **A mocked-template test proves the code builds a statement. It proves nothing
+  about whether the database will accept it.** Both are worth testing; do not
+  mistake the first for the second.
+- **Every table a service writes needs at least one DB-gated test** that actually
+  executes against `isaflow_dev`. One is enough to catch a column that is not
+  there.
+- Better still, assert the column list against the catalogue: read the columns out
+  of the service's own source and check them against `information_schema`. That
+  cannot drift, because it fails the moment either side moves.
+- The same applies to types. `${param}::UUID` against `users.id` — which is
+  `varchar(255)` — throws at runtime and looks perfectly well-formed in a mock.
+
+A guard above a query is worth nothing if the query cannot run.
 
 ---
 

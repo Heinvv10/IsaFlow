@@ -20,6 +20,7 @@ import {
   REMEMBER_ME_COOKIE,
 } from '@/lib/auth/cookies';
 import { withRateLimit } from '@/lib/rateLimit';
+import { requireActiveAccount } from '@/lib/auth/requireActiveAccount';
 import { log } from '@/lib/logger';
 
 const handler: NextApiHandler = async (req, res) => {
@@ -50,6 +51,20 @@ const handler: NextApiHandler = async (req, res) => {
     return res
       .status(401)
       .json({ success: false, error: { code: 'REFRESH_FAILED', message: 'Session expired. Please sign in.' } });
+  }
+
+  // Account-standing gate. refresh renews a session indefinitely, so without
+  // this a suspended user whose GoTrue revocation failed (suspendUser warns
+  // about exactly that case) keeps a live session forever. Checking here makes
+  // suspension self-healing: the next refresh closes the session for good.
+  //
+  // Cookies are cleared on refusal so the browser stops retrying rather than
+  // looping against a 403 every 50 minutes via the session heartbeat.
+  const refusal = await requireActiveAccount(token.user.id);
+  if (refusal) {
+    log.warn('auth refresh refused — account not in good standing', { userId: token.user.id }, 'Auth');
+    clearAuthCookies(res);
+    return res.status(403).json({ success: false, error: refusal });
   }
 
   // Preserve the original "Keep me signed in" choice by reading the hint cookie.
