@@ -17,6 +17,8 @@ export const PAT_SCOPES = [
   'read:vat',
   'read:practice',
   'write:practice',
+  'read:payroll',
+  'write:payroll',
   'write:post',
 ] as const;
 

@@ -416,6 +416,20 @@ programme was commissioned to fix.
 
 ---
 
+### A variance is worth no more than its actual
+
+`budget_variance` computes its actual as a raw per-account posted-GL aggregate,
+not through `incomeStatementService`, and `budget.actual.v1` says so in its
+`excludes`. That service has open defects in exactly the layer a variance would
+inherit — a rolling-window comparative, cost of sales bucketed by account NAME
+rather than subtype, and no other-income / finance-cost / tax section at all.
+
+The rule this generalises: **when the natural upstream figure is known to be
+wrong, do not build a comparison on top of it and do not quietly substitute a
+different one either.** Name the basis you actually used, register it, and list
+the defective implementation in `contested` so a reviewer can see the two are
+answering the same question differently on purpose.
+
 ## 6. Every mutating tool: `dry_run` + `idempotency_key`
 
 ```ts

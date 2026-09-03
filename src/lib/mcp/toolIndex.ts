@@ -88,6 +88,22 @@ import {
   listTimeEntriesTool,
 } from './tools/practice';
 import { createJobCategoryTool, createWorkItemTool } from './tools/writePracticeSetup';
+import { listEmployeesTool, listPayRunsTool } from './tools/payroll';
+import { emp201StatusTool, irp5DataTool } from './tools/payrollSars';
+import {
+  customerStatementTool,
+  projectProfitabilityTool,
+  wipReportTool,
+} from './tools/domainReports';
+import { budgetVarianceTool } from './tools/budgetVariance';
+import { jobCostReportTool } from './tools/jobCost';
+import { listFixedAssetsTool, assetRegisterTool } from './tools/assets';
+import {
+  listItemsTool,
+  stockValuationTool,
+  supplierStatementTool,
+} from './tools/inventoryAndAp';
+import { createPayRunTool, postPayrollJournalTool } from './tools/writePayroll';
 import {
   listFiscalPeriodsTool,
   getFiscalPeriodTool,
@@ -103,7 +119,7 @@ import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (48)
+  // read (63)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -157,7 +173,23 @@ export const MCP_TOOLS = [
   periodCloseChecklistTool,
   bankStatementCoverageTool,
   getOpeningBalancesTool,
-  // write (44) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // New domains (W6): payroll, statements, project P&L, WIP, assets, inventory
+  // and job costing. All reads.
+  listEmployeesTool,
+  listPayRunsTool,
+  emp201StatusTool,
+  irp5DataTool,
+  customerStatementTool,
+  projectProfitabilityTool,
+  wipReportTool,
+  listFixedAssetsTool,
+  assetRegisterTool,
+  listItemsTool,
+  stockValuationTool,
+  supplierStatementTool,
+  jobCostReportTool,
+  budgetVarianceTool,
+  // write (46) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -193,6 +225,10 @@ export const MCP_TOOLS = [
   createCreditNoteTool,
   approveCreditNoteTool,
   cancelCreditNoteTool,
+  // Payroll: create_pay_run opens an empty period and posts nothing, so it is
+  // not requiresPost. post_payroll_journal writes to gl_journal_entries and is.
+  createPayRunTool,
+  postPayrollJournalTool,
   // Cash application: moves a customer's outstanding balance, and on the
   // bank-line branch posts DR Bank / CR Accounts Receivable. requiresPost.
   applyReceiptToInvoiceTool,

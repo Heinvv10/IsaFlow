@@ -466,6 +466,9 @@ describe('write-tool manifest invariants', () => {
       'lock_vat_period',
       'perform_bank_reconciliation',
       'post_journal',
+      // create_pay_run opens an empty period and posts nothing; posting the
+      // payroll journal writes to gl_journal_entries, so only this one posts.
+      'post_payroll_journal',
       'reopen_fiscal_period',
       'reverse_allocations',
       'reverse_bank_allocation',
@@ -598,6 +601,10 @@ describe('write-tool manifest invariants', () => {
       reopen_fiscal_period: { ...KEY },
       year_end_close: { ...KEY },
       perform_bank_reconciliation: { ...KEY },
+      // Payroll writes refuse on a missing/invalid required argument before
+      // touching a service; behaviour in payrollTools.test.ts.
+      create_pay_run: { ...KEY },
+      post_payroll_journal: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
