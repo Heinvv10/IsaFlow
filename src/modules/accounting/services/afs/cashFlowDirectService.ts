@@ -1,4 +1,5 @@
 import { sql } from '@/lib/neon';
+import { getCashBalance } from '../bank/cashBalanceService';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -40,24 +41,18 @@ const OPERATING_GROUPS = new Set([
   'other_operating',
 ]);
 
+/**
+ * Opening cash — `cash.balance.v1`, from its owning service.
+ *
+ * This function used to carry its own copy of the query. It had the right basis
+ * (posted GL movement on bank-subtype accounts) and kept it private, so the
+ * dashboard and the balance sheet each grew their own and cash ended up with
+ * four answers. It is exclusive on the date because an opening balance is the
+ * closing balance of the day before the period starts.
+ */
 async function fetchOpeningCash(companyId: string, beforeDate: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(
-      CASE WHEN ga.normal_balance = 'debit'
-        THEN jl.debit - jl.credit
-        ELSE jl.credit - jl.debit END
-    ), 0)::numeric AS balance
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = 'bank'
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.status     = 'posted'
-      AND je.entry_date < ${beforeDate}
-  `) as Row[];
-  return Number(rows[0]?.balance ?? 0);
+  const cash = await getCashBalance(companyId, beforeDate, { exclusive: true });
+  return cash.total;
 }
 
 async function fetchGroupedAllocations(

@@ -58,16 +58,29 @@ function queryTexts(): string[] {
   );
 }
 
-/** Drives the service to step 5 (retained-earnings resolution) with a clean year. */
+/**
+ * Drives the service to the retained-earnings resolution with a clean year.
+ *
+ * The open-period probe returns the open period ROWS, not a count — an agent
+ * cannot act on "3 periods are open" and can act on their names. And the close
+ * now reads `companies.financial_year_start` to check that the periods it is
+ * about to close actually ARE the company's fiscal year: 1 Mar 2025 to
+ * 28 Feb 2026 IS FY2026 on a March start, so this fixture passes that guard.
+ */
 function primeSqlToStepFive() {
   let call = 0;
   sqlMock.mockImplementation(async () => {
     call += 1;
-    if (call === 1) return [{ cnt: 0 }];                                   // no open periods
+    if (call === 1) return [];                                             // no open periods
     if (call === 2) return [{ start_date: '2025-03-01', end_date: '2026-02-28' }];
-    if (call === 3) return [{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000' }];
-    if (call === 4) return [{ id: 'exp-1', account_code: '5000', account_name: 'Rent', balance: '400' }];
-    return [];
+    if (call === 3) return [{ financial_year_start: 3 }];
+    if (call === 4) return [{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '1000' }];
+    if (call === 5) return [{ id: 'exp-1', account_code: '5000', account_name: 'Rent', balance: '400' }];
+    // The fiscal period covering the closing date, resolved before the write
+    // transaction opens: a NULL fiscal_period_id would leave the year-end
+    // journal outside the trial balance permanently, and the next statement
+    // locks every period in the year.
+    return [{ id: 'fp-closing' }];
   });
 }
 

@@ -199,9 +199,11 @@ export async function autoMatchTransactions(
       WHERE jl.gl_account_id = ${bankAccountId}::UUID
         AND jl.company_id = ${companyId}::UUID
         AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
+        -- company_id on the subquery: unscoped it read every tenant's rows.
         AND jl.id NOT IN (
           SELECT matched_journal_line_id FROM bank_transactions
-          WHERE matched_journal_line_id IS NOT NULL)
+          WHERE matched_journal_line_id IS NOT NULL
+            AND company_id = ${companyId}::UUID)
       ORDER BY je.entry_date`) as DbRow[];
     const bankTxs = bankTxRows.map((r: DbRow) => ({
       id: String(r.id), amount: Number(r.amount), transactionDate: String(r.transaction_date),

@@ -446,14 +446,32 @@ describe('write-tool manifest invariants', () => {
   it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
-      'allocate_bank_transaction', 'apply_payment_to_supplier_invoice',
+      'allocate_bank_transaction',
+      // Cash application moves a document's outstanding balance and, on the
+      // bank-line branch, posts DR Bank / CR AR.
+      'apply_payment_to_supplier_invoice',
       'apply_receipt_to_invoice',
       'approve_credit_note',
       'approve_supplier_invoice',
-      'bulk_allocate_bank_transactions', 'cancel_credit_note', 'finalize_invoice',
-      'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
-      'reverse_bank_allocation_batch', 'reverse_journal_entry',
-      'set_opening_balance', 'settle_by_contra',
+      'bulk_allocate_bank_transactions',
+      'cancel_credit_note',
+      // Closing a period changes what may post; closing a year posts to equity
+      // and locks every period behind it; reopening removes a posting lock; and
+      // completing a reconciliation marks transactions terminally reconciled.
+      'close_fiscal_period',
+      'finalize_invoice',
+      'perform_bank_reconciliation',
+      'post_journal',
+      'reopen_fiscal_period',
+      'reverse_allocations',
+      'reverse_bank_allocation',
+      'reverse_bank_allocation_batch',
+      'reverse_journal_entry',
+      'set_opening_balance',
+      // A contra settles a debtor or creditor against a balance-sheet account,
+      // so it posts.
+      'settle_by_contra',
+      'year_end_close',
     ]);
   });
 
@@ -567,6 +585,12 @@ describe('write-tool manifest invariants', () => {
       update_customer: { ...KEY },
       create_supplier: { ...KEY },
       update_supplier: { ...KEY },
+      // Period-control writes each refuse on the missing required argument
+      // before any service call; behaviour in fiscalPeriodTools.test.ts.
+      close_fiscal_period: { ...KEY },
+      reopen_fiscal_period: { ...KEY },
+      year_end_close: { ...KEY },
+      perform_bank_reconciliation: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

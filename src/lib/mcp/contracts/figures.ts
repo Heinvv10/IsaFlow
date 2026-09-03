@@ -85,20 +85,40 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     // the wrong one, which is how AP movement showed as R0.
     contested: ['afs/cashFlowDirectService#getCashFlowDirect resolves a different control account'],
   }),
-  'cash.balance.v1': def({
-    id: 'cash.balance.v1',
-    label: 'Cash and cash equivalents',
-    // Not settled. W3 owns this: it is the workstream that has to make the GL
-    // balance, the statement balance and the computed balance agree, and it
-    // cannot do that while three other call sites each answer differently.
-    owner: null,
-    includes: 'GL balance of every account of subtype bank, as at the reporting date.',
+  'cash.ledger.v1': def({
+    id: 'cash.ledger.v1',
+    label: 'Cash and cash equivalents, per the ledger',
+    owner: 'bank/cashBalanceService#getCashBalance',
+    includes:
+      'Posted GL balance of every account of subtype bank OR cash, as at the reporting date, INCLUDING deactivated accounts — is_active is a picker flag, and Brightsphere\'s deactivated 1110 carries R6,550 of cash.',
     excludes:
-      'Clearing and suspense accounts, which are reported as exceptions instead — Interbank Transfer Clearing is R14,081,940 and a clearing account should be nil.',
+      'Draft journals. And the statement feed, which is cash.statement.v1 and is a DIFFERENT question, not a rival implementation of this one. Clearing and suspense accounts fall outside by subtype; no clearing SUBTYPE exists in this schema, so finding a non-nil clearing account by NAME belongs to chart_of_accounts_health — account name is the discriminator that overstated gross profit by R562,428.',
+  }),
+  'cash.statement.v1': def({
+    id: 'cash.statement.v1',
+    label: 'Cash per the imported bank statements',
+    owner: 'bank/bankAccountStatusService#getBankAccountsStatus',
+    includes: 'SUM of bank_transactions.amount per bank account — the evidence, i.e. what the bank says.',
+    excludes:
+      'Any recorded opening balance (that column is display metadata no balance calculation adds), and any GL movement with no statement line behind it. It is NOT a worse version of cash.ledger.v1: the two answer different questions and the gap between them is the output of bank_statement_coverage, which decomposes it exactly into GL-only movement and statement-only rows. Do not reconcile them into one number. NOTE this owner still filters is_active = TRUE and so omits a deactivated bank account carrying R6,550; bank_statement_coverage is the complete surface.',
     contested: [
-      'bank/bankAccountStatusService#getBankAccountsStatus',
-      'afs/cashFlowDirectService#getCashFlowDirect',
-      'reports/balanceSheetService#getBalanceSheet',
+      'reports/kpiDashboardService — same basis, same is_active filter, computed separately for the dashboard tile',
+    ],
+  }),
+  'fiscalyear.start.v1': def({
+    id: 'fiscalyear.start.v1',
+    label: 'The month a company\'s financial year begins',
+    owner: 'gl/fiscalYearBasis#getFiscalYearStartMonth',
+    includes:
+      'companies.financial_year_start as a month 1-12. Write paths (createFiscalYear, year_end_close) call it with NO fallback and take the refusal; a read path that must survive a misconfigured tenant opts into a fallback at the call site, where the assumption is visible.',
+    excludes:
+      'fiscal_periods.fiscal_year, which is CALENDAR-based and is not this: February 2026 is stored as fiscal_year 2026 and belongs to the March-2025 fiscal year. Also excludes any silent default — all 13 production companies declare 3, and assuming March for a company genuinely on a December year end produces a year-end close a full quarter out with nothing flagging it.',
+    contested: [
+      'afs/cipcFilingGuideService.ts:125 — financial_year_start || 3',
+      'afs/pisCalculatorService.ts:266 — financial_year_start || 3',
+      'afs/complianceAlertService.ts:159 — financial_year_start || 3',
+      'pages/api/payroll/period-context.ts:42 — COALESCE(financial_year_start, 3)',
+      'pages/api/accounting/afs/pis-score.ts:37 — COALESCE(financial_year_start, 3)',
     ],
   }),
   'equity.residual.v1': def({

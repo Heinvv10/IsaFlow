@@ -4,9 +4,8 @@
  * create closing journal entry, lock periods.
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { getSystemAccountCandidates } from '@/modules/accounting/services/gl/systemAccountResolver';
 
 // BL-13: gl_journal_lines now has company_id (migration 329). Queries use BOTH
 // jl.company_id and je.company_id for defense-in-depth scoping.
@@ -33,12 +32,6 @@ export interface FiscalYearSummary {
    */
   revenue_error?: boolean;
   expense_error?: boolean;
-}
-
-export interface CloseYearResult {
-  closingEntry: Record<string, unknown>;
-  netIncome: number;
-  message: string;
 }
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
@@ -126,170 +119,15 @@ export async function listFiscalYears(companyId: string): Promise<FiscalYearSumm
 }
 
 // ─── Close year ───────────────────────────────────────────────────────────────
-
-export type CloseYearError =
-  | { error: 'open_periods'; count: number }
-  | { error: 'year_not_found' }
-  | { error: 'no_retained_earnings' }
-  | { error: 'ambiguous_retained_earnings'; accountCodes: string[] };
-
-export async function closeFiscalYear(
-  companyId: string,
-  yearLabel: string,
-  userId: string
-): Promise<CloseYearResult | CloseYearError> {
-  // 1. Ensure all periods are closed
-  const openRows = await sql`
-    SELECT COUNT(*)::int AS cnt FROM fiscal_periods
-    WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId} AND status = 'open'
-  `;
-  const openCount = Number(openRows[0]?.cnt ?? 0);
-  if (openCount > 0) return { error: 'open_periods', count: openCount };
-
-  // 2. Get year date range
-  const rangeRows = await sql`
-    SELECT MIN(start_date) AS start_date, MAX(end_date) AS end_date
-    FROM fiscal_periods WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
-  `;
-  const yearRange = rangeRows[0];
-  if (!yearRange) return { error: 'year_not_found' };
-
-  // 3. Revenue account balances
-  const revenueAccounts = await sql`
-    SELECT ga.id, ga.account_code, ga.account_name,
-      COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS balance
-    FROM gl_accounts ga
-    LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}
-    WHERE ga.account_type = 'revenue'
-      AND ga.company_id = ${companyId}
-      AND (je.id IS NULL OR (
-        je.status     = 'posted'
-        AND je.entry_date >= ${yearRange.start_date}
-        AND je.entry_date <= ${yearRange.end_date}
-      ))
-    GROUP BY ga.id, ga.account_code, ga.account_name
-    HAVING COALESCE(SUM(jl.credit - jl.debit), 0) != 0
-  `;
-
-  // 4. Expense account balances
-  const expenseAccounts = await sql`
-    SELECT ga.id, ga.account_code, ga.account_name,
-      COALESCE(SUM(jl.debit - jl.credit), 0)::numeric AS balance
-    FROM gl_accounts ga
-    LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-    LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id AND je.company_id = ${companyId}
-    WHERE ga.account_type = 'expense'
-      AND ga.company_id = ${companyId}
-      AND (je.id IS NULL OR (
-        je.status     = 'posted'
-        AND je.entry_date >= ${yearRange.start_date}
-        AND je.entry_date <= ${yearRange.end_date}
-      ))
-    GROUP BY ga.id, ga.account_code, ga.account_name
-    HAVING COALESCE(SUM(jl.debit - jl.credit), 0) != 0
-  `;
-
-  const totalRevenue = revenueAccounts.reduce((s, a) => s + Number(a.balance), 0);
-  const totalExpenses = expenseAccounts.reduce((s, a) => s + Number(a.balance), 0);
-  const netIncome = totalRevenue - totalExpenses;
-
-  // 5. Retained earnings — system-account resolver only, and CANDIDATES rather
-  // than its winner. The old lookup ORed in `account_name ILIKE '%retained
-  // earnings%'` behind a hard-coded '3200', so a year's closing entry could
-  // land on any account named that way. getSystemAccount would instead break a
-  // tie deterministically and only log.error it — right for callers that must
-  // keep working, wrong here, where one entry moves a whole year's profit.
-  // Both refusals happen before the write transaction opens.
-  const reCandidates = await getSystemAccountCandidates('retained_earnings', companyId);
-  if (reCandidates.length === 0) {
-    log.error('Year-end close refused: no retained earnings system account',
-      { companyId, yearLabel }, 'yearEnd');
-    return { error: 'no_retained_earnings' };
-  }
-  if (reCandidates.length > 1) {
-    const accountCodes = reCandidates.map((a) => a.accountCode);
-    log.error('Year-end close refused: retained earnings role is contested',
-      { companyId, yearLabel, accountCodes }, 'yearEnd');
-    return { error: 'ambiguous_retained_earnings', accountCodes };
-  }
-  const retainedEarningsId = reCandidates[0]!.id;
-
-  // 6. Create closing journal entry
-  const totalDebit  = totalRevenue  + (netIncome < 0 ? Math.abs(netIncome) : 0);
-  const totalCredit = totalExpenses + (netIncome >= 0 ? netIncome : 0);
-
-  // Steps 6-10 wrapped in transaction for atomicity — partial year-end close is unrecoverable
-  const closingEntry = await withTransaction(async (tx) => {
-    const closingRows = await tx`
-      INSERT INTO gl_journal_entries (
-        id, company_id, entry_number, entry_date, description,
-        source, status, total_debit, total_credit, created_by, created_at,
-        posting_agent
-      ) VALUES (
-        gen_random_uuid(),
-        ${companyId},
-        ${'YE-' + yearLabel},
-        ${yearRange.end_date},
-        ${'Year-End Closing: ' + yearLabel},
-        'year_end', 'posted',
-        ${totalDebit}, ${totalCredit},
-        ${userId}, NOW(),
-        'system:year-end-close'
-      )
-      RETURNING *
-    `;
-    const closingEntry = (closingRows as Record<string, unknown>[])[0];
-    if (!closingEntry) throw new Error('Failed to create closing journal entry');
-
-    // 7. DR revenue accounts (zero them out)
-    for (const rev of revenueAccounts) {
-      await tx`
-        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
-        VALUES (gen_random_uuid(), ${closingEntry.id}, ${rev.id}, ${Number(rev.balance)}, 0, 'Year-end close', NOW(), ${companyId}::UUID)
-      `;
-    }
-
-    // 8. CR expense accounts (zero them out)
-    for (const exp of expenseAccounts) {
-      await tx`
-        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
-        VALUES (gen_random_uuid(), ${closingEntry.id}, ${exp.id}, 0, ${Number(exp.balance)}, 'Year-end close', NOW(), ${companyId}::UUID)
-      `;
-    }
-
-    // 9. Net income → retained earnings
-    if (netIncome >= 0) {
-      await tx`
-        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
-        VALUES (gen_random_uuid(), ${closingEntry.id}, ${retainedEarningsId}, 0, ${netIncome}, 'Net income to retained earnings', NOW(), ${companyId}::UUID)
-      `;
-    } else {
-      await tx`
-        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
-        VALUES (gen_random_uuid(), ${closingEntry.id}, ${retainedEarningsId}, ${Math.abs(netIncome)}, 0, 'Net loss to retained earnings', NOW(), ${companyId}::UUID)
-      `;
-    }
-
-    // 10. Lock all periods
-    await tx`
-      UPDATE fiscal_periods SET status = 'locked'
-      WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
-    `;
-
-    return closingEntry;
-  });
-
-  log.info('Year-end processed', {
-    year: yearLabel,
-    entryId: closingEntry.id,
-    netIncome,
-    module: 'accounting',
-  });
-
-  return {
-    closingEntry,
-    netIncome,
-    message: `Year ${yearLabel} closed. Net income R${netIncome.toFixed(2)} transferred to Retained Earnings.`,
-  };
-}
+// Lives in yearEndCloseService: it gained a dry run (which is the half that
+// matters — four year-ends in one call, then every period locked) and this file
+// was close to the 300-line cap.
+export {
+  closeFiscalYear,
+  type CloseYearResult,
+  type CloseYearDryRunResult,
+  type CloseYearError,
+  type CloseYearOptions,
+  type YearEndJournalLine,
+  type YearEndJournalPreview,
+} from './yearEndCloseService';

@@ -3,7 +3,7 @@
  * Fiscal Period Service
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -129,49 +129,14 @@ export async function getFiscalPeriodIdForDate(
   }
 }
 
-export async function createFiscalYear(companyId: string, year: number): Promise<FiscalPeriod[]> {
-  try {
-    const existing = (await sql`
-      SELECT COUNT(*) AS cnt FROM fiscal_periods WHERE company_id = ${companyId} AND fiscal_year = ${year}
-    `) as Row[];
-    if (Number(existing[0]!.cnt) > 0) {
-      throw new Error(`Fiscal year ${year} already exists`);
-    }
-
-    const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-
-    // Build period metadata before opening the transaction (no DB calls needed)
-    const periodDefs = Array.from({ length: 12 }, (_, i) => {
-      const periodNum = i + 1;
-      const startDate = `${year}-${String(periodNum).padStart(2, '0')}-01`;
-      const lastDay = new Date(year, periodNum, 0).getDate();
-      const endDate = `${year}-${String(periodNum).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-      return { periodNum, name: months[i]! + ' ' + year, startDate, endDate };
-    });
-
-    // All 12 periods inserted atomically — partial failure rolls back the entire year
-    const periods = await withTransaction(async (tx) => {
-      const created: FiscalPeriod[] = [];
-      for (const def of periodDefs) {
-        const rows = (await tx`
-          INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date)
-          VALUES (${companyId}, ${def.name}, ${def.periodNum}, ${year}, ${def.startDate}, ${def.endDate})
-          RETURNING *
-        `) as Row[];
-        created.push(mapRow(rows[0]!));
-      }
-      return created;
-    });
-
-    return periods;
-  } catch (err) {
-    log.error('Failed to create fiscal year', { year, error: err }, 'accounting');
-    throw err;
-  }
-}
+// createFiscalYear lives in fiscalYearCreateService: it stopped being a
+// calendar loop when period generation started reading the company's
+// financial_year_start, and this file was already on the 300-line cap.
+export {
+  createFiscalYear,
+  resolveCompanyPeriodAlignment,
+  FiscalPeriodOverlapError,
+} from './fiscalYearCreateService';
 
 export async function closePeriod(companyId: string, id: string, userId: string): Promise<FiscalPeriod> {
   try {

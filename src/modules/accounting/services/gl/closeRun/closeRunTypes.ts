@@ -19,7 +19,8 @@ export type ProposalKind =
   | 'ap_untied'
   | 'vat_unreviewed'
   | 'tb_unbalanced'
-  | 'opening_balance_residual';
+  | 'opening_balance_residual'
+  | 'orphan_period_journals';
 
 export type ProposalActionType = 'auto_post' | 'advisory';
 

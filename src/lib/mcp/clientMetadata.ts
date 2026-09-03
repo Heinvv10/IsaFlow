@@ -13,7 +13,7 @@ export const MCP_PROD_ENDPOINT = `${MCP_PROD_ORIGIN}${MCP_PATH}`;
 export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-server';
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
-/** All MCP tool names (32 read + 31 write). Drift-guarded against toolIndex. */
+/** All MCP tool names (37 read + 35 write). Drift-guarded against toolIndex. */
 export const CLIENT_MCP_TOOL_NAMES = [
   // read
   'company_profile',
@@ -54,6 +54,11 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'get_credit_note',
   'suggest_receipt_matches',
   'list_unapplied_receipts',
+  'list_fiscal_periods',
+  'get_fiscal_period',
+  'period_close_checklist',
+  'bank_statement_coverage',
+  'get_opening_balances',
   // write
   'create_draft_invoice',
   'create_draft_quote',
@@ -94,4 +99,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'update_customer',
   'create_supplier',
   'update_supplier',
+  'close_fiscal_period',
+  'reopen_fiscal_period',
+  'year_end_close',
+  'perform_bank_reconciliation',
 ] as const;

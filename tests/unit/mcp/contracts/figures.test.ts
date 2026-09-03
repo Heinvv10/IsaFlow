@@ -57,8 +57,33 @@ describe('figure registry', () => {
     for (const d of unownedFigures()) {
       expect(d.owner).toBeNull();
     }
-    // Cash is the headline case: four answers, none of them yet the owner.
-    expect(FIGURE_DEFINITIONS['cash.balance.v1']!.contested?.length).toBeGreaterThan(1);
+    // Cash is TWO figures, not one settled figure. Two of the four "competing"
+    // implementations were answering a different question — the statement feed
+    // — which is why they never agreed. Collapsing them would destroy the only
+    // thing that can detect the break, exactly as for ar.subledger vs
+    // ar.control. bank_statement_coverage is what measures the gap.
+    expect(FIGURE_DEFINITIONS['cash.balance.v1']).toBeUndefined();
+    expect(FIGURE_DEFINITIONS['cash.ledger.v1']!.owner)
+      .toBe('bank/cashBalanceService#getCashBalance');
+    expect(FIGURE_DEFINITIONS['cash.statement.v1']!.owner)
+      .toBe('bank/bankAccountStatusService#getBankAccountsStatus');
+    expect(FIGURE_DEFINITIONS['cash.ledger.v1']!.owner)
+      .not.toBe(FIGURE_DEFINITIONS['cash.statement.v1']!.owner);
+    // Each must say the other exists, or a reader will treat one as the answer.
+    expect(FIGURE_DEFINITIONS['cash.ledger.v1']!.excludes).toMatch(/cash\.statement\.v1/);
+    expect(FIGURE_DEFINITIONS['cash.statement.v1']!.excludes).toMatch(/cash\.ledger\.v1/);
+  });
+
+  it('names the fiscal-year start as a figure, with every ad-hoc site recorded', () => {
+    // Six implementations, not one: the five pre-existing `financial_year_start
+    // || 3` sites plus the shared basis. Recording them in `contested` is what
+    // stops a seventh; they are NOT converged here (two are payroll and two are
+    // AFS, which would collide with W6).
+    const fy = FIGURE_DEFINITIONS['fiscalyear.start.v1']!;
+    expect(fy.owner).toBe('gl/fiscalYearBasis#getFiscalYearStartMonth');
+    expect(fy.contested).toHaveLength(5);
+    // The trap the peer flagged, recorded where a reader will hit it.
+    expect(fy.excludes).toMatch(/fiscal_periods\.fiscal_year/);
   });
 
   it('throws on an unknown basis rather than emitting an authoritative-looking typo', () => {
