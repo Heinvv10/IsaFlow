@@ -142,6 +142,18 @@ export interface ReportEnvelope<TRow> {
   excludedTotal?: number;
   /** True when `excludedRows` shows fewer rows than `excludedTotal` counts. */
   truncatedExcludedRows?: boolean;
+  /**
+   * The unfiltered universe the report drew from, ECHOED BACK.
+   *
+   * It was previously consumed as an input and never emitted, so the identity
+   * `rowsTotal + excluded === universeTotal` could be checked by this module
+   * and by nobody else. A reader could see `truncated: false` and no exclusions
+   * and had no way to ask "out of how many?" — which is exactly the question a
+   * filtered extract has to be able to answer before anyone signs it.
+   *
+   * Absent when the report made no completeness claim.
+   */
+  universeTotal?: number;
 }
 
 export interface BuildEnvelopeInput<TRow> {
@@ -255,6 +267,7 @@ export function buildEnvelope<TRow>(input: BuildEnvelopeInput<TRow>): ReportEnve
     as_at: input.as_at,
     posted_through: input.posted_through,
     ...(input.figureBasis === undefined ? {} : { figureBasis: input.figureBasis }),
+    ...(input.universeTotal === undefined ? {} : { universeTotal: input.universeTotal }),
     ...(input.excludedTotal === undefined
       ? {}
       : {

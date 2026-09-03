@@ -9,6 +9,8 @@
 - **Period management**: `fiscalPeriodService.ts`, `monthEndCloseService.ts` (pure checklist logic), `yearEndService.ts`, `continuousCloseService.ts` (pure planning), `continuousCloseQueryService.ts` (its four work-queue reads).
 - **Import + recurring**: `glImportService.ts`, `glImportExecuteService.ts`, `recurringJournalService.ts`.
 - **Reporting primitives**: `trialBalanceService.ts`, `transactionLedgerService.ts`.
+- **General ledger**: `generalLedgerReportService.ts` (nested by account, unbounded — for the page) and `generalLedgerStreamService.ts` (flat, filtered, keyset-paged — for MCP). The stream's `runningBalance` includes each account's OPENING balance and is computed with a window over the whole period, then keyset-filtered, so it does not depend on a caller-supplied cursor value. It is `null` under a line-level filter (`sources`/`minAmount`/`search`), because a running total over a subset of an account's lines is not a balance the account ever held; account-level filters preserve it. `balanced` is `null` under ANY filter. The cursor carries `created_at` at MICROSECOND precision — a millisecond round trip through a JS `Date` re-admits every row inside that millisecond and returned 10,603 lines where 10,460 exist.
+- **Control accounts**: `controlAccountService.ts` — EVERY candidate for a subledger role, never one, found by subtype AND by where documents posted. An account the invoice journals move against the control direction is the contra leg and is excluded; that rule uses no account name. Never filter on `is_active`.
 - **Workflow**: `approvalService.ts`, `glCrossModuleHooks.ts` (FAR depreciation/disposal → GL).
 
 ## Caller contract

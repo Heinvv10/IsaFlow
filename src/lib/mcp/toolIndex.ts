@@ -5,19 +5,17 @@
  */
 import { McpRegistry } from './registry';
 import { companyProfileTool, listCompaniesTool } from './tools/company';
-import {
-  agedCreditorsTool,
-  agedDebtorsTool,
-  balanceSheetTool,
-  listGlAccountsTool,
-  profitAndLossTool,
-  searchGlTool,
-  trialBalanceTool,
-} from './tools/reports';
+import { listGlAccountsTool, searchGlTool } from './tools/reports';
+import { trialBalanceTool } from './tools/reportsTrialBalance';
 import { getInvoiceTool, listInvoicesTool, listQuotesTool } from './tools/invoices';
 import { listCustomersTool, listSuppliersTool } from './tools/contacts';
 import { bankAccountsStatusTool, listBankTransactionsTool } from './tools/bank';
 import { listImportBatchesTool } from './tools/importBatches';
+import { reconcileSubledgerTool } from './tools/reconcileSubledger';
+import { generalLedgerTool } from './tools/generalLedger';
+import { balanceSheetTool } from './tools/reportsBalanceSheet';
+import { agedCreditorsTool, agedDebtorsTool } from './tools/reportsAging';
+import { profitAndLossTool } from './tools/reportsProfitAndLoss';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
@@ -105,7 +103,7 @@ import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (47)
+  // read (48)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -113,6 +111,8 @@ export const MCP_TOOLS = [
   balanceSheetTool,
   agedDebtorsTool,
   agedCreditorsTool,
+  reconcileSubledgerTool,
+  generalLedgerTool,
   searchGlTool,
   listGlAccountsTool,
   listInvoicesTool,

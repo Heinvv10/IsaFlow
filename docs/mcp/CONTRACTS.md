@@ -87,8 +87,88 @@ derived from the very numbers it is supposed to check?**
 `universeTotal` is **required on every assurance report**. Omit it only on a
 listing where completeness is not a claim being made.
 
+**`universeTotal` must be INDEPENDENTLY DERIVED, or omitted.** This is the rule
+the paragraph above implies and W2 broke in four places before a blind review
+caught one of them.
+
+`universeTotal: rowsTotal + excludedRows.length` synthesizes the universe from
+the two numbers the envelope checks against it. The identity then holds whatever
+the report did — including in `reconcile_subledger`, the endpoint whose own
+description warns callers that a zero can be satisfied by construction. The same
+shape appears as `universeTotal: rows.length` beside `rowsTotal: rows.length`,
+and as `excludedTotal: universeTotal - rowsTotal`.
+
+So:
+
+- If there IS a wider candidate set, **count it separately**.
+  `general_ledger` runs a second unfiltered scan for exactly this reason: a count
+  taken over the matched set is a filtered count by construction.
+- If the rows are **produced** by the report rather than selected from a pool —
+  reconciling items, computed statement lines, aggregated buckets — there is no
+  universe, and `universeTotal` must be **omitted**. An absent completeness
+  claim is honest. One that cannot fail is worse than none, because it reads as
+  verification.
+- Never compute `excludedTotal` as `universeTotal - rowsTotal`. If the only
+  reason rows are missing is a display cap, that is **truncation**, which
+  `truncated` already reports — not an exclusion.
+
+And note the limit even when it is done right: an exclusion that is only
+COUNTED, never enumerated, makes the identity **informational rather than a
+check**. It tells a reader "this is a subset of N", which is worth having; it
+cannot detect a wrong N. Only an independently enumerated `excludedRows` makes
+the arithmetic capable of failing.
+
+`universeTotal` is now **echoed back** on the envelope, not merely consumed. It
+used to be an input this module checked and nobody else could see, so a reader
+looking at `truncated: false` and an empty `excludedRows` had no way to ask "out
+of how many?" — which is the first question a filtered extract has to be able to
+answer before anyone signs it.
+
 Completeness remains **your** obligation. The envelope narrows where you can hide
 a mistake; it does not find one for you.
+
+### Every self-checking identity we ship is NECESSARY AND NOT SUFFICIENT. Say so next to it.
+
+This generalises past the envelope and it is the most important sentence in this
+document.
+
+An identity that always closes cannot detect its own defects, and **the more
+reliably it closes the more it invites being trusted without inspection.** Two
+errors that cancel satisfy any identity exactly, and the result is not a report
+that looks broken — it is a report that looks unusually clean.
+
+This is not a hypothetical. It has now happened twice in one day, in the two
+endpoints specifically built to catch it:
+
+- **`reconcile_subledger` reported `unexplainedDifference: 0.00` on every
+  production company, both roles, while wrongly counting `SYS-9 VAT Payable` as
+  an AP control account.** The account contributed −R4,917,814.24 to the control
+  balance and a `document_not_on_control_account` item of exactly +R4,917,814.24
+  across the same 356 documents removed it again. Every number was internally
+  consistent. The identity closed. The answer was wrong.
+- **`balance_sheet` reported `equityReconciles: true` on all three production
+  companies** while comparing the residual against itself, because
+  `getBalanceSheet` injects a computed retained-earnings plug into equity, so
+  `totalEquity` equals assets less liabilities by construction. Querying the
+  equity ACCOUNTS instead showed two companies carrying R0.00 of posted equity.
+
+So, three obligations on anything shipping an identity:
+
+1. **The two sides must be independently derived.** If one is computed from the
+   other, the check is a tautology wearing a check's name. Ask: could this side
+   have been derived from the very numbers it is supposed to check? That is the
+   same question §"But note what this costs" asks about `excludedTotal`, and it
+   is the same question — the envelope's completeness arithmetic is a
+   self-checking identity too, and widening it with `excludedTotal` made it
+   *easier* to satisfy vacuously, not harder.
+2. **The tool description must carry the caveat in the response's own words.** A
+   reader never sees this file or the service. `reconcile_subledger` states that
+   zero means the items sum to the difference, not that they are the right
+   items, and that a phantom control account paired with a phantom offset
+   satisfies it. Copy that pattern.
+3. **State what a reader should do with a zero.** Not "the books tie" —
+   "inspect the items". A residual of zero is an invitation to look, not a
+   conclusion.
 
 ### A filter that drops rows is the defect, not the fix
 
@@ -239,6 +319,50 @@ arithmetic is right.
   make the UI call it too, in the same PR.
 - Return the definition you used in `figureBasis`.
 
+### The ONE accepted exception: the P&L, and it is temporary
+
+This rule has been held everywhere else in the programme. It is being broken
+once, deliberately, and it survives only because it is written down here.
+
+There are two P&L implementations:
+
+| | |
+|---|---|
+| `reports/incomeStatementService#getIncomeStatement` | Splits two ways. Everything revenue-typed is turnover, so **other income reaches gross profit**; every expense that is not cost of sales is an operating expense, so **finance cost and tax sit inside operating expenses**. |
+| `gl/accountClassification#aggregateFigures`, via `gl/financialFiguresService` | The full layer, plus a count of the accounts whose subtype is unknown. |
+
+**The MCP `profit_and_loss` tool wraps the SECOND. The income-statement page,
+`reports-management-accounts` and AFS all consume the FIRST.**
+
+Three things make that survivable, and all three must stay true or the exception
+lapses:
+
+1. **The divergence is PRESENTATIONAL, not a disagreement.** The two agree on
+   the **bottom line to the cent** on both production companies. The only
+   difference is which band a figure sits in — Brightsphere's R158,412.82 of tax
+   is inside operating expenses on one and below the operating line on the
+   other. One answer presented two ways is survivable as a recorded divergence
+   in a way two answers would not be.
+2. **It is recorded where a reader will hit it**: a `contested` entry on
+   `revenue.period.v1` and `costofsales.period.v1` saying exactly the above, and
+   a paragraph in the tool description telling anyone comparing against the UI
+   why the operating-expense line differs and by precisely what.
+3. **It has a named successor.** The income-statement convergence PR rebuilds
+   `getIncomeStatement` on `aggregateFigures`, with its own blind review and the
+   AFS owner in the loop. It was NOT done inside W2 because converging changes
+   `totalRevenue`, `grossProfit` and `totalOperatingExpenses` for the page and
+   for an AFS module a parallel session repaired and deployed the same day.
+   Changing its inputs without its owner is how a good fix gets blamed for
+   someone else's regression.
+
+The owners of `revenue.period.v1` and `costofsales.period.v1` deliberately did
+NOT move to the classifier. The page still consumes the old shape, and moving
+the owner would make the registry lie about what the UI does.
+
+**Do not treat this as precedent.** The next divergence needs the same three
+properties, stated the same way, or it is the fifth answer to a question that
+already has four.
+
 ### The figure registry
 
 `src/lib/mcp/contracts/figures.ts` names every shared figure, its **one owning
@@ -268,6 +392,20 @@ R8.46m of retained earnings with no journal lines behind it.
 implementations in `contested`. The workstream that first needs the figure settles
 it, removes the duplicates, and fills in the owner **in the same PR**. Cash goes to
 W3, the control accounts and equity to W2.
+
+**`ar.control.v1` and `ap.control.v1` are the exception, and stay unowned by
+decision.** W2 built `reconcile_subledger` on them and did not settle them:
+naming an owner means naming ONE control account, and there is no canonical one
+in this schema (C1). Thirteen accounts carry `subtype = 'receivable'` and the
+accounts actually holding money carry NULL, so any owner would encode an
+arbitrary choice as truth and destroy the only thing that can detect the break.
+The endpoint reports **every** candidate with how it was found, sums them, and
+sets `controlAccountAmbiguous` — which is `true` on all four production AR/AP
+roles. W2 did narrow the candidate set: an account the invoice journals move
+AGAINST the control direction is the contra leg and is excluded, which removed
+`SYS-9 VAT Payable` from Velocity's AP control. That is a correction to the
+resolver, not a resolution of the ambiguity. Deciding which account SHOULD be
+canonical remains **Hein's** call about the chart of accounts.
 
 Adding a figure: add it here in the PR that computes it, with a real owner. A
 definition with no owner and no assigned workstream is a promise, not a contract.

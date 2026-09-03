@@ -8,6 +8,7 @@
 - **Customer invoices / credit notes**: `invoicePdfService.ts` (facade), `invoicePdfBuilder.ts`, `invoicePdfSnapshotService.ts` (PRD-06 sealed PDF evidence), `creditNoteService.ts`, `creditNotePdfBuilder.ts`.
 - **Payments + write-offs**: `customerPaymentService.ts`, `customerPaymentAllocationService.ts` (confirm/cancel use ALS-bound `sql`), `writeOffService.ts`, `receiptMatchService.ts`, `readReceiptService.ts`.
 - **Recurring + collections**: `recurringInvoiceService.ts`, `smartCollectionsService.ts` (pure tone/escalation), `arAgingService.ts`, `debtorsManagerService.ts`.
+- **Subledger snapshot (point-in-time)**: `arSubledgerService.ts`, `subledgerShared.ts`, `subledgerTypes.ts` — every open customer document as at a date, on the SAME population and the SAME settlement rewind (`shared/agingRewind.ts`) as `arAgingService`. Consumed by `services/reconciliation/`. Two populations would make `reconcile_subledger`'s aged-versus-subledger comparison meaningless, so do not diverge them.
 - **Dunning (PRD-06 Phase 5)**: `dunningService.ts` (render + send), `dunningCronService.ts`, `dunningAdmin.ts`, `dunningDefaults.ts`, `dunningOverridesService.ts`, `dunningInboundParseService.ts`.
 - **Sent-folder mirror (PRD-06 Phase 6)**: `sentMirrorService.ts`, `sentMirrorAdmin.ts`.
 - **Disputes (PRD-06 Phase 3)**: `disputeService.ts`.

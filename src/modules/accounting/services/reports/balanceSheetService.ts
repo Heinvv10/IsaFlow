@@ -37,6 +37,70 @@ async function calculateRetainedEarnings(companyId: string, asAtDate: string, co
   return Number(rows[0]!.revenue) - Number(rows[0]!.expenses);
 }
 
+/**
+ * The TWO equity figures, kept apart.
+ *
+ * `getBalanceSheet`'s `totalEquity` is not an independent opinion about equity:
+ * `fetchBalanceSheetData` computes retained earnings as revenue less expenses
+ * to the date and INJECTS it into the equity section. By double entry,
+ * assets − liabilities − posted equity IS revenue less expenses, so
+ * `totalEquity` equals assets − liabilities by construction and agreeing with
+ * the residual tells a reader nothing.
+ *
+ * It looked like it told them something. On all three production companies the
+ * two agreed to the cent. Querying the equity ACCOUNTS says otherwise:
+ * Brightsphere and Velocity Fibre each carry R0.00 of posted equity, so every
+ * cent of Brightsphere's R8,394,848.60 and of Velocity's −R34,816,224.89 is a
+ * derived plug — profit that no year-end close has ever posted to an equity
+ * account.
+ *
+ * The identity a caller can check:
+ *   assets − liabilities = posted + derivedRetainedEarnings
+ */
+export interface EquityBases {
+  /** Sum of POSTED equity-account balances. No derived retained earnings. */
+  posted: number;
+  /** Revenue less expenses to the date — the figure the balance sheet injects. */
+  derivedRetainedEarnings: number;
+}
+
+/**
+ * @param asAtDate 'YYYY-MM-DD'. A string throughout, as everywhere on this path.
+ */
+export async function getEquityBases(
+  companyId: string,
+  asAtDate: string,
+  costCentreId?: string,
+): Promise<EquityBases> {
+  const ccId = costCentreId ?? null;
+  try {
+    const rows = (await sql`
+      SELECT COALESCE(SUM(CASE WHEN ga.account_type = 'equity'
+                               THEN jl.credit - jl.debit ELSE 0 END), 0) AS posted
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+      WHERE je.status = 'posted'
+        AND je.company_id = ${companyId}::UUID
+        AND jl.company_id = ${companyId}::UUID
+        AND ga.company_id = ${companyId}::UUID
+        AND je.entry_date <= ${asAtDate}
+        AND ga.account_type = 'equity'
+        AND (${ccId}::TEXT IS NULL OR jl.cost_center_id = ${ccId}::UUID)
+    `) as Row[];
+
+    return {
+      posted: Number(rows[0]?.posted ?? 0),
+      // The same function the balance sheet injects from, so the two cannot
+      // drift into two answers about one figure.
+      derivedRetainedEarnings: await calculateRetainedEarnings(companyId, asAtDate, costCentreId),
+    };
+  } catch (err) {
+    log.error('Failed to read the equity bases', { error: err }, 'accounting');
+    throw err;
+  }
+}
+
 async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCentreId?: string) {
   const ccId = costCentreId ?? null;
 

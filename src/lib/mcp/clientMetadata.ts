@@ -23,6 +23,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'balance_sheet',
   'aged_debtors',
   'aged_creditors',
+  'reconcile_subledger',
+  'general_ledger',
   'search_gl',
   'list_gl_accounts',
   'list_invoices',
