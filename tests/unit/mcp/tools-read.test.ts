@@ -192,7 +192,11 @@ describe('reports tools', () => {
     vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue('fp-1');
     vi.mocked(getTrialBalanceReport).mockResolvedValue({
       fiscalPeriodId: 'fp-1', rows: [{ accountCode: '1000', accountName: 'Bank' }],
-      accountCount: 1, totalDebit: 100, totalCredit: 100, difference: 0, balanced: true,
+      // Deliberately NON-TRIVIAL and deliberately inconsistent with the single
+      // row served: a mock that returns balanced:true / difference:0 /
+      // accountCount:rows.length cannot tell a pass-through from a hardcode,
+      // because those are exactly the values a hardcode would produce.
+      accountCount: 7, totalDebit: 112.5, totalCredit: 100, difference: 12.5, balanced: false,
       periodStart: '2026-03-01', periodEnd: '2026-03-31', fiscalYearStart: '2026-03-01',
       costCentreId: null,
     } as never);
@@ -201,10 +205,15 @@ describe('reports tools', () => {
     expect(getTrialBalanceReport).toHaveBeenCalledWith(COMPANY_ID, 'fp-1', expect.any(Object));
     expect(data.fiscal_period_id).toBe('fp-1');
     // The assertion, and the scope it covers, both come from the SERVICE.
-    // Recomputing either here is the defect this tool exists to stop repeating.
-    expect(data.balanced).toBe(true);
-    expect(data.difference).toBe(0);
-    expect(data.accountCount).toBe(1);
+    // Recomputing either here is the defect this tool exists to stop repeating,
+    // so these values are the service's and must survive unchanged.
+    expect(data.balanced).toBe(false);
+    expect(data.difference).toBe(12.5);
+    expect(data.totalDebit).toBe(112.5);
+    // accountCount is the scope the balanced assertion covers, NOT the page
+    // size — 7 accounts asserted over while one row is served.
+    expect(data.accountCount).toBe(7);
+    expect(data.rowsTotal).toBe(7);
   });
 
   it('profit_and_loss requires both dates and passes companyId first', async () => {
