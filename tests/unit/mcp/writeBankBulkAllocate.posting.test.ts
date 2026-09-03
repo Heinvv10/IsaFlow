@@ -65,7 +65,7 @@ import {
 } from '@/lib/mcp/tools/writeBankBulkAllocate';
 import { reverseBankAllocationBatchTool } from '@/lib/mcp/tools/writeBankReverseBatch';
 
-const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
+const ctx = { companyId: 'company-1', userId: 'user-1', tokenJti: 'jti', oauthAppId: null } as never;
 const BATCH = '0f000000-0000-4000-8000-000000000001';
 // Real UUIDs: every id on a line is a uuid column, and the parser refuses a
 // malformed one before any SQL runs (a 'tx-1'::uuid cast raises 22P02, which
@@ -114,7 +114,7 @@ describe('bulk_allocate_bank_transactions — posting', () => {
     for (const call of vi.mocked(allocateTransaction).mock.calls) {
       expect(call[0]).toBe('company-1');
       expect(call[3]).toBe('user-1');
-      expect(call[12]).toEqual({ postingAgent: 'mcp:bulk_allocate_bank_transactions:v1' });
+      expect(call[12]).toEqual({ postingAgent: 'mcp:bulk_allocate_bank_transactions:v1', actorType: 'agent', actorTokenJti: 'jti' });
     }
     const body = payload(res as never);
     expect(body.batch_id).toBe(BATCH);

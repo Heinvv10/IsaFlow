@@ -23,6 +23,12 @@ import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
 import { vatStatusTool } from './tools/vat';
 import { listAgentPostingsTool } from './tools/agentActivity';
+import { auditTrailTool } from './tools/auditTrail';
+import {
+  listDocumentsTool,
+  getDocumentTool,
+  listUnsupportedTransactionsTool,
+} from './tools/documents';
 import {
   createDraftInvoiceTool,
   createDraftQuoteTool,
@@ -74,7 +80,7 @@ import { createJobCategoryTool, createWorkItemTool } from './tools/writePractice
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (32)
+  // read (36)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -94,6 +100,12 @@ export const MCP_TOOLS = [
   getMatchCandidatesTool,
   vatStatusTool,
   listAgentPostingsTool,
+  // Governance (W5). audit_trail supersedes list_agent_postings, which stays
+  // registered: it is on the wire and agents are mid-flight against it.
+  auditTrailTool,
+  listDocumentsTool,
+  getDocumentTool,
+  listUnsupportedTransactionsTool,
   listSupplierInvoicesTool,
   getSupplierInvoiceTool,
   listBankRulesTool,
