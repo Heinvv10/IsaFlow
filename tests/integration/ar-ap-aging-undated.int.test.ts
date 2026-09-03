@@ -20,8 +20,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
-import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
+import { getARAging, getARAgingDetail } from '@/modules/accounting/services/ar/arAgingService';
+import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -117,6 +117,36 @@ describeIfDb('aging reports include invoices with no due date', () => {
     // and understate the overdue book.
     expect(supplier.current).toBeCloseTo(0, 2);
     expect(supplier.days120Plus).toBeCloseTo(AP_DATED + AP_UNDATED, 2);
+  });
+
+  it('the AP drill-down agrees with the AP summary for the same supplier', async () => {
+    // The summary and the detail are two queries over the same population. If
+    // only one of them is fixed, the drill-down contradicts the total it drills
+    // into — which reads as a reconciled figure and is worse than the original
+    // omission.
+    const summary = await getAPAging(COMPANY, AS_AT);
+    const detail = await getAPAgingDetail(COMPANY, SUPPLIER, AS_AT);
+
+    const supplierTotal = summary.find((b) => b.entityId === SUPPLIER)!.total;
+    expect(detail.buckets?.total).toBeCloseTo(supplierTotal, 2);
+    expect(detail.invoices).toHaveLength(2);
+  });
+
+  it('the AR drill-down agrees with the AR summary for the same customer', async () => {
+    const summary = await getARAging(COMPANY, AS_AT);
+    const detail = await getARAgingDetail(COMPANY, CUSTOMER, AS_AT);
+
+    const customerTotal = summary.find((b) => b.entityId === CUSTOMER)!.total;
+    expect(detail.buckets?.total).toBeCloseTo(customerTotal, 2);
+    expect(detail.invoices).toHaveLength(2);
+  });
+
+  it('flags a derived due date rather than presenting it as recorded', async () => {
+    const detail = await getAPAgingDetail(COMPANY, SUPPLIER, AS_AT);
+
+    const undated = detail.invoices.find((i) => i.id !== undefined && i.dueDateMissing === true);
+    expect(undated).toBeDefined();
+    expect(detail.invoices.filter((i) => i.dueDateMissing === true)).toHaveLength(1);
   });
 
   it('the totals still foot to the sum of the buckets', async () => {

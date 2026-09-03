@@ -16,14 +16,26 @@ export interface EquityColumn {
   shareIssue: number;
   revaluation: number;
   /**
-   * Equity movements that are none of the above — most often a year-end close
-   * transferring the prior result into retained earnings, or a reclassification
-   * between reserves.
+   * Equity movements on a reserve none of the other rows recognise — a foreign
+   * currency translation reserve, say, or any subtype `canonicalSubtype` does
+   * not know.
    *
    * This column exists so the movement rows PARTITION the period's equity
    * postings rather than sampling them. Without it an unrecognised movement is
    * silently dropped and the closing balance stops tying to the balance sheet —
    * the same failure mode as an unmapped account vanishing from a statement.
+   *
+   * NOT a year-end close. A close credits retained earnings with the year's
+   * result and is a transfer rather than a distribution, so it belongs here
+   * and is currently reported under `dividends` instead. That is not worth
+   * routing yet because the close CANNOT RUN AT ALL: yearEndService inserts
+   * source = 'year_end', which gl_journal_entries_source_check rejects with
+   * 23514, and the constraint is deliberately the only guard on that
+   * unvalidated INSERT-at-posted path (see
+   * tests/unit/services/glEntrySourceConstraint.test.ts). When that writer is
+   * converted to createJournalEntry/postJournalEntry and the source admitted,
+   * route `source = 'year_end'` here — a branch added before then would be
+   * unreachable and untestable.
    */
   otherMovements: number;
   closing: number;

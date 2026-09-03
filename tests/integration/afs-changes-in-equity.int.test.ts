@@ -59,6 +59,12 @@ const SHARE_CAPITAL_OPENING = 10000;
 const PRIOR_PROFIT = 3000;
 
 // ── Inside the period ────────────────────────────────────────────────────────
+// NOTE: there is deliberately no year-end-close fixture here. yearEndService
+// writes source = 'year_end', which gl_journal_entries_source_check rejects —
+// the constraint is the only guard on that unvalidated INSERT-at-posted path.
+// A close therefore cannot exist in any ledger, and a test that seeded one
+// would be testing a state the database forbids.
+
 const PERIOD_REVENUE = 8000;
 const PERIOD_EXPENSES = 3000;
 const PERIOD_PROFIT = PERIOD_REVENUE - PERIOD_EXPENSES; // 5000
@@ -75,9 +81,11 @@ const SHARE_ISSUE = 2000;
 // Movement on the unrecognised reserve.
 const OTHER_RESERVE_MOVEMENT = 400;
 
+
 const EXPECTED_OPENING = SHARE_CAPITAL_OPENING + PRIOR_PROFIT; // 13000
 const EXPECTED_CLOSING =
-  EXPECTED_OPENING + PERIOD_PROFIT + NET_DIVIDEND + SHARE_ISSUE + OTHER_RESERVE_MOVEMENT; // 19700
+  EXPECTED_OPENING + PERIOD_PROFIT + NET_DIVIDEND + SHARE_ISSUE
+  + OTHER_RESERVE_MOVEMENT; // 19700
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
@@ -225,6 +233,34 @@ describeIfDb('AFS statement of changes in equity reconciles to the other stateme
     // balance sheet — which is exactly how an unmapped account vanishes.
     expect(report.totalOtherMovements).toBeCloseTo(OTHER_RESERVE_MOVEMENT, 2);
   });
+
+  it('every column closes on opening plus its own movements', async () => {
+    const report = await getChangesInEquity(COMPANY, PERIOD_START, PERIOD_END);
+
+    for (const col of report.columns) {
+      const movements =
+        col.profitForYear + col.dividends + col.shareIssue + col.revaluation + col.otherMovements;
+      expect(col.closing).toBeCloseTo(col.opening + movements, 2);
+    }
+
+    // And the totals row is the sum of the columns, so the table foots.
+    const summedClosing = report.columns.reduce((s, c) => s + c.closing, 0);
+    expect(report.totalClosing).toBeCloseTo(summedClosing, 2);
+  });
+
+  it('share issues land in their own column, not in distributions', async () => {
+    const report = await getChangesInEquity(COMPANY, PERIOD_START, PERIOD_END);
+    expect(report.totalShareIssue).toBeCloseTo(SHARE_ISSUE, 2);
+  });
+
+  it('carries a movement on an unrecognised reserve instead of dropping it', async () => {
+    const report = await getChangesInEquity(COMPANY, PERIOD_START, PERIOD_END);
+
+    // If this movement is not reported anywhere, closing stops tying to the
+    // balance sheet — which is exactly how an unmapped account vanishes.
+    expect(report.totalOtherMovements).toBeCloseTo(OTHER_RESERVE_MOVEMENT, 2);
+  });
+
 });
 
 // ── fixture helpers ──────────────────────────────────────────────────────────
@@ -240,12 +276,13 @@ async function postEntry(
   entryNumber: string,
   entryDate: string,
   legs: Leg[],
+  source = 'manual',
 ): Promise<void> {
   const { rows } = await admin.query(
-    `INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by)
-     VALUES ($1, $2, $3, 'equity fixture', 'posted', $4)
+    `INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by, source)
+     VALUES ($1, $2, $3, 'equity fixture', 'posted', $4, $5)
      RETURNING id`,
-    [COMPANY, entryNumber, entryDate, COMPANY],
+    [COMPANY, entryNumber, entryDate, COMPANY, source],
   );
   const entryId = rows[0].id as string;
 

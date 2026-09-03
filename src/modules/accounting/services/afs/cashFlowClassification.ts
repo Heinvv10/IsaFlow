@@ -63,7 +63,11 @@ export function classifyCashGroup(
     case 'other_income':
       return 'cash_received_from_customers';
 
+    // Both sides of payroll: the salary expense itself, and the PAYE, UIF and
+    // pension withheld from it. Only the liability was recognised, so every
+    // salary payment was reported as cash paid to suppliers.
     case 'payroll_liability':
+    case 'payroll_expense':
       return 'cash_paid_to_employees';
 
     case 'payable':
@@ -124,10 +128,25 @@ export interface CashAllocation {
  *
  * Cash-equivalent contras are excluded first — a transfer between two bank
  * accounts is not a cash flow, and both its legs are handled independently.
- * The remaining contras take a share proportional to their own magnitude. In a
- * balanced single-bank-leg entry that share works out to exactly the negated
- * contra amount; the proportional form is what keeps the total exact when an
- * entry carries more than one bank leg.
+ * The remaining contras take a share proportional to their SIGNED amount.
+ *
+ * Signed, not magnitude. Weighting by |amount| is wrong the moment an entry's
+ * contras carry mixed signs, which is the shape of every payroll payment: bank
+ * pays 70,000 net against salaries of 100,000 less 20,000 PAYE and 10,000
+ * pension withheld. Magnitude weighting splits the 70,000 in the ratio
+ * 100:20:10 and reports -53,846.15 of salary — 77% of the run — while showing
+ * the withheld amounts as further outflows rather than the inflows they are.
+ * It crosses section boundaries too: a 120,000 loan repayment net of 20,000
+ * interest received reads as 85,714 financing and 14,286 operating instead of
+ * 120,000 financing against a 20,000 operating inflow.
+ *
+ * That defect hides, which is why it is worth the comment: the pieces sum to
+ * the cash leg under either rule, so closing cash still ties to the ledger and
+ * the pre-export blocker still passes. Only the split is wrong.
+ *
+ * With signed weights, a balanced single-cash-leg entry gives each contra
+ * exactly its own negated amount, and the proportional form keeps the total
+ * exact when an entry carries more than one cash leg.
  *
  * When there is no classifiable contra at all (a pure bank-to-bank transfer),
  * the whole leg goes to `other_operating`. Its opposite leg carries the
@@ -141,14 +160,17 @@ export function apportionBankLeg(
     (c) => !isCashEquivalent(c.accountType, c.accountSubtype),
   );
 
-  const totalWeight = classifiable.reduce((s, c) => s + Math.abs(c.amount), 0);
+  const totalWeight = classifiable.reduce((s, c) => s + c.amount, 0);
 
+  // A zero signed total means the contras cancel out — a reclassification
+  // between two accounts, say — so there is no proportion to divide by. The
+  // leg still has to be reported or the tie-out to the ledger breaks.
   if (classifiable.length === 0 || totalWeight === 0) {
     return [{ cashGroup: 'other_operating', amount: bankAmount }];
   }
 
   return classifiable.map((c) => ({
     cashGroup: classifyCashGroup(c.accountType, c.accountSubtype),
-    amount: bankAmount * (Math.abs(c.amount) / totalWeight),
+    amount: bankAmount * (c.amount / totalWeight),
   }));
 }

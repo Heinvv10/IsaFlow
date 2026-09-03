@@ -31,6 +31,16 @@ describe('classifyCashGroup', () => {
     expect(classifyCashGroup('liability', 'payroll_liability')).toBe('cash_paid_to_employees');
     expect(classifyCashGroup('liability', 'payroll_liabilities')).toBe('cash_paid_to_employees');
 
+    // Salaries and wages are paid to employees, not to suppliers. Only the
+    // payroll LIABILITY subtypes were recognised, so every salary expense
+    // account landed on "Cash paid to suppliers".
+    expect(classifyCashGroup('expense', 'salaries')).toBe('cash_paid_to_employees');
+    expect(classifyCashGroup('expense', 'wages')).toBe('cash_paid_to_employees');
+    expect(classifyCashGroup('expense', 'salaries_and_wages')).toBe('cash_paid_to_employees');
+    expect(classifyCashGroup('expense', 'payroll_expense')).toBe('cash_paid_to_employees');
+    expect(classifyCashGroup('expense', 'staff_costs')).toBe('cash_paid_to_employees');
+    expect(classifyCashGroup('expense', 'employee_benefits')).toBe('cash_paid_to_employees');
+
     expect(classifyCashGroup('expense', 'operating_expense')).toBe('cash_paid_to_suppliers');
     expect(classifyCashGroup('expense', 'operating_expenses')).toBe('cash_paid_to_suppliers');
     expect(classifyCashGroup('expense', 'admin_expense')).toBe('cash_paid_to_suppliers');
@@ -112,6 +122,61 @@ describe('apportionBankLeg', () => {
   it('reports a leg with no contra lines rather than discarding it', () => {
     const allocations = apportionBankLeg(250, []);
     expect(allocations).toEqual([{ cashGroup: 'other_operating', amount: 250 }]);
+  });
+
+  it('apportions a payroll payment by the signed contra amounts, not their magnitudes', () => {
+    // Bank pays 70,000 net: salaries of 100,000 less 30,000 withheld as PAYE
+    // and pension liabilities. The contras carry MIXED SIGNS, and weighting by
+    // |amount| gets this badly wrong: it splits the 70,000 across all three in
+    // the ratio 100:20:10, putting -53,846.15 on the salaries line rather than
+    // the -100,000 that was actually incurred, and reporting the withheld
+    // amounts as further outflows instead of the inflows they are.
+    //
+    // It is insidious because the pieces still sum to the bank leg either way,
+    // so closing cash ties out and the pre-export blocker passes regardless.
+    const allocations = apportionBankLeg(-70000, [
+      contra('expense', 'operating_expense', 100000),
+      contra('liability', 'payroll_liability', -20000),
+      contra('liability', 'payroll_liability', -10000),
+    ]);
+
+    const byGroup = new Map<string, number>();
+    for (const a of allocations) {
+      byGroup.set(a.cashGroup, (byGroup.get(a.cashGroup) ?? 0) + a.amount);
+    }
+
+    expect(byGroup.get('cash_paid_to_suppliers')).toBeCloseTo(-100000, 6);
+    expect(byGroup.get('cash_paid_to_employees')).toBeCloseTo(30000, 6);
+    expect(allocations.reduce((s, a) => s + a.amount, 0)).toBeCloseTo(-70000, 6);
+  });
+
+  it('keeps a contra on the correct side of the statement across sections', () => {
+    // Bank pays 100,000: a loan repayment of 120,000 net of 20,000 interest
+    // received. Magnitude weighting reports 85,714 financing and 14,286
+    // operating; the real movement is 120,000 financing against a 20,000
+    // operating inflow.
+    const allocations = apportionBankLeg(-100000, [
+      contra('liability', 'long_term_liability', 120000),
+      contra('revenue', 'other_income', -20000),
+    ]);
+
+    const byGroup = new Map(allocations.map((a) => [a.cashGroup, a.amount]));
+    expect(byGroup.get('financing')).toBeCloseTo(-120000, 6);
+    expect(byGroup.get('cash_received_from_customers')).toBeCloseTo(20000, 6);
+    expect(allocations.reduce((s, a) => s + a.amount, 0)).toBeCloseTo(-100000, 6);
+  });
+
+  it('falls back to operating when the contras net to zero', () => {
+    // A reclassification between two accounts nets to nothing, so there is no
+    // proportion to divide by. The leg must still be reported or the tie-out
+    // breaks.
+    const allocations = apportionBankLeg(500, [
+      contra('expense', 'operating_expense', 400),
+      contra('expense', 'operating_expense', -400),
+    ]);
+
+    expect(allocations.reduce((s, a) => s + a.amount, 0)).toBeCloseTo(500, 6);
+    expect(allocations.every((a) => Number.isFinite(a.amount))).toBe(true);
   });
 
   it('does not divide by zero when every contra line is zero-valued', () => {
