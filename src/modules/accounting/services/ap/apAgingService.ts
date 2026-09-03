@@ -32,13 +32,28 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
-        SELECT SUM(pa.amount_allocated) AS amount
-        FROM payment_allocations pa
-        JOIN supplier_payments sp ON sp.id = pa.payment_id
-        WHERE pa.invoice_id = si.id
-          AND sp.company_id = ${companyId}::UUID
-          AND sp.status NOT IN ('draft', 'cancelled')
-          AND sp.payment_date <= ${asAtStr}::date
+        -- Payments AND supplier credit notes: creditNoteApproveService raises
+        -- supplier_invoices.amount_paid without writing an allocation row, so
+        -- allocations alone would overstate what is still owed.
+        SELECT SUM(amount) AS amount FROM (
+          SELECT pa.amount_allocated AS amount
+          FROM payment_allocations pa
+          JOIN supplier_payments sp ON sp.id = pa.payment_id
+          WHERE pa.invoice_id = si.id
+            AND sp.company_id = ${companyId}::UUID
+            AND sp.status NOT IN ('draft', 'cancelled')
+            AND sp.payment_date <= ${asAtStr}::date
+
+          UNION ALL
+
+          SELECT cn.total_amount
+          FROM credit_notes cn
+          WHERE cn.supplier_invoice_id = si.id
+            AND cn.company_id = ${companyId}::UUID
+            AND cn.type   = 'supplier'
+            AND cn.status IN ('approved', 'applied')
+            AND cn.credit_date <= ${asAtStr}::date
+        ) settled
       ) paid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
@@ -94,13 +109,28 @@ export async function getAPAgingDetail(companyId: string,
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
-        SELECT SUM(pa.amount_allocated) AS amount
-        FROM payment_allocations pa
-        JOIN supplier_payments sp ON sp.id = pa.payment_id
-        WHERE pa.invoice_id = si.id
-          AND sp.company_id = ${companyId}::UUID
-          AND sp.status NOT IN ('draft', 'cancelled')
-          AND sp.payment_date <= ${asAtStr}::date
+        -- Payments AND supplier credit notes: creditNoteApproveService raises
+        -- supplier_invoices.amount_paid without writing an allocation row, so
+        -- allocations alone would overstate what is still owed.
+        SELECT SUM(amount) AS amount FROM (
+          SELECT pa.amount_allocated AS amount
+          FROM payment_allocations pa
+          JOIN supplier_payments sp ON sp.id = pa.payment_id
+          WHERE pa.invoice_id = si.id
+            AND sp.company_id = ${companyId}::UUID
+            AND sp.status NOT IN ('draft', 'cancelled')
+            AND sp.payment_date <= ${asAtStr}::date
+
+          UNION ALL
+
+          SELECT cn.total_amount
+          FROM credit_notes cn
+          WHERE cn.supplier_invoice_id = si.id
+            AND cn.company_id = ${companyId}::UUID
+            AND cn.type   = 'supplier'
+            AND cn.status IN ('approved', 'applied')
+            AND cn.credit_date <= ${asAtStr}::date
+        ) settled
       ) paid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID

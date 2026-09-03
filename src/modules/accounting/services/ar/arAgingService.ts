@@ -33,13 +33,33 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       LEFT JOIN LATERAL (
-        SELECT SUM(cpa.amount_allocated) AS amount
-        FROM customer_payment_allocations cpa
-        JOIN customer_payments cp ON cp.id = cpa.payment_id
-        WHERE cpa.invoice_id = ci.id
-          AND cp.company_id = ${companyId}
-          AND cp.status NOT IN ('draft', 'cancelled')
-          AND cp.payment_date <= ${asAtStr}::date
+        -- Everything that had REDUCED this invoice by the as-at date. Two
+        -- mechanisms write customer_invoices.amount_paid, and both must be
+        -- here or the reconstruction overstates the debt:
+        --   1. payment allocations, dated by the payment
+        --   2. a credit note applied to the invoice, dated by the credit note.
+        --      Approving one raises amount_paid and writes NO allocation row,
+        --      so reading allocations alone would leave a credited invoice
+        --      looking fully outstanding.
+        SELECT SUM(amount) AS amount FROM (
+          SELECT cpa.amount_allocated AS amount
+          FROM customer_payment_allocations cpa
+          JOIN customer_payments cp ON cp.id = cpa.payment_id
+          WHERE cpa.invoice_id = ci.id
+            AND cp.company_id = ${companyId}
+            AND cp.status NOT IN ('draft', 'cancelled')
+            AND cp.payment_date <= ${asAtStr}::date
+
+          UNION ALL
+
+          SELECT cn.total_amount
+          FROM credit_notes cn
+          WHERE cn.customer_invoice_id = ci.id
+            AND cn.company_id = ${companyId}
+            AND cn.type   = 'customer'
+            AND cn.status IN ('approved', 'applied')
+            AND cn.credit_date <= ${asAtStr}::date
+        ) settled
       ) paid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('draft', 'cancelled')
@@ -135,13 +155,33 @@ export async function getARAgingDetail(companyId: string,
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       LEFT JOIN LATERAL (
-        SELECT SUM(cpa.amount_allocated) AS amount
-        FROM customer_payment_allocations cpa
-        JOIN customer_payments cp ON cp.id = cpa.payment_id
-        WHERE cpa.invoice_id = ci.id
-          AND cp.company_id = ${companyId}
-          AND cp.status NOT IN ('draft', 'cancelled')
-          AND cp.payment_date <= ${asAtStr}::date
+        -- Everything that had REDUCED this invoice by the as-at date. Two
+        -- mechanisms write customer_invoices.amount_paid, and both must be
+        -- here or the reconstruction overstates the debt:
+        --   1. payment allocations, dated by the payment
+        --   2. a credit note applied to the invoice, dated by the credit note.
+        --      Approving one raises amount_paid and writes NO allocation row,
+        --      so reading allocations alone would leave a credited invoice
+        --      looking fully outstanding.
+        SELECT SUM(amount) AS amount FROM (
+          SELECT cpa.amount_allocated AS amount
+          FROM customer_payment_allocations cpa
+          JOIN customer_payments cp ON cp.id = cpa.payment_id
+          WHERE cpa.invoice_id = ci.id
+            AND cp.company_id = ${companyId}
+            AND cp.status NOT IN ('draft', 'cancelled')
+            AND cp.payment_date <= ${asAtStr}::date
+
+          UNION ALL
+
+          SELECT cn.total_amount
+          FROM credit_notes cn
+          WHERE cn.customer_invoice_id = ci.id
+            AND cn.company_id = ${companyId}
+            AND cn.type   = 'customer'
+            AND cn.status IN ('approved', 'applied')
+            AND cn.credit_date <= ${asAtStr}::date
+        ) settled
       ) paid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID

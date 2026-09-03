@@ -41,6 +41,11 @@ const AR_PARTLY = 1000;   // invoiced Jan, 400 paid in May
 const AR_PART_PAID = 400;
 const AR_SETTLED = 800;   // invoiced Feb, settled in full in July
 const AR_FUTURE = 500;    // invoiced Aug — not yet issued at EARLY
+// Invoiced Feb, then partly CREDITED in June. Approving a credit note raises
+// amount_paid and writes no allocation row, so a reconstruction that reads
+// allocations alone leaves this invoice looking fully outstanding forever.
+const AR_CREDITED = 900;
+const AR_CREDIT_NOTE = 300;
 
 const AP_PARTLY = 2000;
 const AP_PART_PAID = 750;
@@ -77,6 +82,14 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     const arSettled = await insertCustomerInvoice(admin, 'PIT-AR-2', '2026-02-01', '2026-03-01', AR_SETTLED, AR_SETTLED, 'paid');
     await insertCustomerInvoice(admin, 'PIT-AR-3', '2026-08-01', '2026-09-01', AR_FUTURE, 0, 'approved');
 
+    const arCredited = await insertCustomerInvoice(admin, 'PIT-AR-4', '2026-02-10', '2026-03-10', AR_CREDITED, AR_CREDIT_NOTE, 'partially_paid');
+    await admin.query(
+      `INSERT INTO credit_notes
+         (company_id, client_id, customer_invoice_id, credit_note_number, credit_date, type, status, total_amount, created_by)
+       VALUES ($1,$2,$3,'PIT-CN1','2026-06-01','customer','applied',$4,$5)`,
+      [COMPANY, CUSTOMER, arCredited, AR_CREDIT_NOTE, COMPANY],
+    );
+
     await payCustomer(admin, 'PIT-R1', '2026-05-10', AR_PART_PAID, arPartly);
     await payCustomer(admin, 'PIT-R2', '2026-07-01', AR_SETTLED, arSettled);
 
@@ -100,7 +113,7 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
 
     // On 31 March, neither the May payment nor the July one had happened, so
     // both invoices were open in full. The old behaviour showed 600 + 0.
-    expect(customer.total).toBeCloseTo(AR_PARTLY + AR_SETTLED, 2);
+    expect(customer.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED, 2);
   });
 
   it('AR: a since-settled invoice still appears on a date when it was open', async () => {
@@ -120,8 +133,9 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     const lateTotal = late.find((b) => b.entityId === CUSTOMER)?.total ?? 0;
 
     // PIT-AR-3 is dated August: in at LATE, out at EARLY.
-    expect(earlyTotal).toBeCloseTo(AR_PARTLY + AR_SETTLED, 2);
-    expect(lateTotal).toBeCloseTo(AR_PARTLY - AR_PART_PAID + AR_FUTURE, 2);
+    expect(earlyTotal).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED, 2);
+    expect(lateTotal).toBeCloseTo(
+      (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE), 2);
   });
 
   it('AP: an invoice is fully outstanding before its payment lands', async () => {
@@ -138,6 +152,18 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     const supplier = late.find((b) => b.entityId === SUPPLIER)!;
 
     expect(supplier.total).toBeCloseTo(AP_PARTLY - AP_PART_PAID, 2);
+  });
+
+  it('AR: a credit note reduces the debt from its credit date, not before', async () => {
+    const early = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!;
+    const late = (await getARAging(COMPANY, LATE)).find((b) => b.entityId === CUSTOMER)!;
+
+    // The credit note is dated June. Nothing settles PIT-AR-4 through an
+    // allocation row, so reading allocations alone would report the full 900
+    // at BOTH dates.
+    expect(early.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED, 2);
+    expect(late.total).toBeCloseTo(
+      (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE), 2);
   });
 
   it('the as-at date changes the answer at all', async () => {
@@ -212,6 +238,7 @@ async function paySupplier(
 async function cleanup(admin: Pool): Promise<void> {
   await admin.query(`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = $1)`, [COMPANY]);
   await admin.query(`DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = $1)`, [COMPANY]);
+  await admin.query('DELETE FROM credit_notes WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM customer_payments WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM supplier_payments WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM customer_invoices WHERE company_id = $1', [COMPANY]);
