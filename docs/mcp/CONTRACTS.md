@@ -381,6 +381,39 @@ all are reviewed explicitly:
 
 ---
 
+## 9a. A test that mocks the SQL template cannot catch a schema error
+
+**Three separate defects shipped past review today for this one reason.** It is
+now the most reliable failure class in this codebase.
+
+`yearEndService.closeFiscalYear` INSERTed `total_debit` and `total_credit` into
+`gl_journal_entries`. Neither column exists — not in dev, not in production — so
+every year-end close threw 42703 before writing a line, over MCP and through the
+UI route alike. Four unclosed year-ends and an R8.46m retained-earnings plug were
+read as an oversight by whoever runs the close. **The operation was impossible.**
+
+Its tests passed throughout, because they mock the `tx` tagged template. A mocked
+template asserts *the shape of a statement*, and a statement Postgres would reject
+outright has exactly the same shape as one it accepts.
+
+So, for anything that writes:
+
+- **A mocked-template test proves the code builds a statement. It proves nothing
+  about whether the database will accept it.** Both are worth testing; do not
+  mistake the first for the second.
+- **Every table a service writes needs at least one DB-gated test** that actually
+  executes against `isaflow_dev`. One is enough to catch a column that is not
+  there.
+- Better still, assert the column list against the catalogue: read the columns out
+  of the service's own source and check them against `information_schema`. That
+  cannot drift, because it fails the moment either side moves.
+- The same applies to types. `${param}::UUID` against `users.id` — which is
+  `varchar(255)` — throws at runtime and looks perfectly well-formed in a mock.
+
+A guard above a query is worth nothing if the query cannot run.
+
+---
+
 ## 10. Tool descriptions
 
 Written for an agent that has never seen the system: **what it returns, what it
