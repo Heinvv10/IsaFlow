@@ -107,6 +107,11 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // has ever been raised is the control, and pricing it discourages the check.
   list_employees: null,
   list_pay_runs: null,
+  // Statements, project P&L and WIP are reports, and reports are free over MCP
+  // for the same reason trial_balance is — see the note above.
+  customer_statement: null,
+  project_profitability: null,
+  wip_report: null,
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',

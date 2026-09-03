@@ -26,11 +26,32 @@ interface StatementTransaction {
   balance: number;
 }
 
-interface StatementPayload {
+/** A candidate row the statement could not include, and why. */
+export interface StatementExclusion {
+  id: string;
+  /** Machine-stable snake_case code — callers branch on it. */
+  reason: string;
+  detail?: string;
+  amount?: number;
+  documentNumber?: string;
+}
+
+export interface StatementPayload {
   customer: { id: string; name: string; email: string | null };
+  /**
+   * The date of the EARLIEST transaction on the statement, not a rolling
+   * window. None of the three queries has a lower bound, so a statement runs
+   * from inception; the previous value was `Date.now() − 365 days` computed
+   * through toISOString(), which both claimed a window the query did not use
+   * and rolled back a day on this UTC+2 host.
+   */
   fromDate: string;
   toDate: string;
   transactions: StatementTransaction[];
+  /** Candidate rows deliberately left out of the running balance. Never omitted. */
+  excluded: StatementExclusion[];
+  /** Candidate rows before any classification filter: transactions + excluded. */
+  universeTotal: number;
   summary: {
     totalInvoiced: number;
     totalPaid: number;
@@ -64,9 +85,6 @@ export async function fetchStatementData(
   customerId: string,
   asAtDate: string
 ): Promise<StatementPayload | null> {
-  const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
-    .toISOString().split('T')[0] as string;
-
   const customerRows = await sql`
     SELECT id, name, email
     FROM customers
@@ -88,24 +106,22 @@ export async function fetchStatementData(
     ` as Promise<Row[]>,
 
     sql`
-      SELECT cp.id, cp.payment_number, cp.payment_date,
+      SELECT cp.id, cp.payment_number, cp.payment_date, cp.status,
         COALESCE(SUM(cpa.amount_allocated), cp.total_amount) AS amount_allocated
       FROM customer_payments cp
       LEFT JOIN customer_payment_allocations cpa ON cpa.payment_id = cp.id
       WHERE cp.client_id = ${customerId}::UUID
         AND cp.company_id = ${companyId}::UUID
-        AND cp.status IN ('confirmed', 'reconciled')
         AND cp.payment_date <= ${asAtDate}::DATE
-      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.total_amount
+      GROUP BY cp.id, cp.payment_number, cp.payment_date, cp.total_amount, cp.status
     ` as Promise<Row[]>,
 
     sql`
-      SELECT id, credit_note_number, credit_date, total_amount
+      SELECT id, credit_note_number, credit_date, total_amount, status
       FROM credit_notes
       WHERE client_id = ${customerId}::UUID
         AND company_id = ${companyId}::UUID
         AND type = 'customer'
-        AND status = 'approved'
         AND credit_date <= ${asAtDate}::DATE
     ` as Promise<Row[]>,
   ]);
@@ -122,7 +138,30 @@ export async function fetchStatementData(
       balance: 0,
     });
   }
+  // A receipt only settles anything once it is confirmed or reconciled, so a
+  // draft or cancelled one must not reduce the balance. Dropping it SILENTLY
+  // is the defect: it is named instead, with its amount, so a reader can see
+  // that the customer has paid money nobody has confirmed.
+  const SETTLING_PAYMENT_STATUSES = new Set(['confirmed', 'reconciled']);
+  // A credit note is 'approved' while it stands alone and 'applied' once it has
+  // been set against an invoice. Both are live credits the customer holds;
+  // filtering to 'approved' alone hid every applied note and overstated the
+  // balance by their full value.
+  const LIVE_CREDIT_NOTE_STATUSES = new Set(['approved', 'applied']);
+  const excluded: StatementExclusion[] = [];
+
   for (const pmt of payments) {
+    const status = String(pmt.status ?? '');
+    if (!SETTLING_PAYMENT_STATUSES.has(status)) {
+      excluded.push({
+        id: String(pmt.id),
+        reason: 'payment_not_confirmed',
+        detail: `Receipt is '${status}'; it settles nothing until it is confirmed or reconciled.`,
+        amount: Number(pmt.amount_allocated),
+        documentNumber: String(pmt.payment_number ?? ''),
+      });
+      continue;
+    }
     transactions.push({
       date: toISODate(pmt.payment_date),
       type: 'payment',
@@ -133,6 +172,17 @@ export async function fetchStatementData(
     });
   }
   for (const cn of creditNotes) {
+    const status = String(cn.status ?? '');
+    if (!LIVE_CREDIT_NOTE_STATUSES.has(status)) {
+      excluded.push({
+        id: String(cn.id),
+        reason: 'credit_note_not_live',
+        detail: `Credit note is '${status}'; only approved and applied notes credit the customer.`,
+        amount: Number(cn.total_amount),
+        documentNumber: String(cn.credit_note_number ?? ''),
+      });
+      continue;
+    }
     transactions.push({
       date: toISODate(cn.credit_date),
       type: 'credit_note',
@@ -168,9 +218,11 @@ export async function fetchStatementData(
       name: String(cust.name),
       email: cust.email ? String(cust.email) : null,
     },
-    fromDate: oneYearAgo,
+    fromDate: transactions[0]?.date ?? asAtDate,
     toDate: asAtDate,
     transactions,
+    excluded,
+    universeTotal: transactions.length + excluded.length,
     summary: { totalInvoiced, totalPaid, totalCredits, balance: running },
   };
 }
