@@ -33,6 +33,10 @@ const ADVISORY_KIND: Record<Exclude<ChecklistItemKey, 'unposted_journals'>, Prop
   vat_reviewed: 'vat_unreviewed',
   tb_balanced: 'tb_unbalanced',
   opening_balance_cleared: 'opening_balance_residual',
+  // Advisory here, blocking in close_fiscal_period. The Month-End Workbench
+  // shows a person what stands in the way and lets them decide; a caller that
+  // is not a person gets a refusal. Same check, two audiences.
+  orphan_period_journals: 'orphan_period_journals',
 };
 
 function moneyZa(n: number): string {

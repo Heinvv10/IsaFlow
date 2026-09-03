@@ -9,6 +9,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { defaultHumanMeta } from '../gl/journalEntryMeta';
 import { getSupplierPaymentById } from './supplierPaymentService';
 import type { SupplierPayment } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
@@ -38,10 +39,18 @@ export async function approveSupplierPayment(
   }
 }
 
+/**
+ * @param opts.postingAgent Stamp for the DR Accounts Payable / CR Bank journal
+ *   this posts. Optional and last-positional so every existing caller keeps its
+ *   `human:<userId>` attribution; only non-human callers (the MCP
+ *   settle_by_contra tool) pass it. Same reasoning as
+ *   approveSupplierInvoice / postSupplierInvoiceToGL.
+ */
 export async function processSupplierPayment(
   companyId: string,
   id: string,
   userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<SupplierPayment> {
   try {
     const payment = await getSupplierPaymentById(companyId, id);
@@ -75,7 +84,7 @@ export async function processSupplierPayment(
       description: `Supplier payment ${payment.paymentNumber}`,
       source: 'auto_supplier_payment',
       lines,
-    }, userId);
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
 
     await postJournalEntry(companyId, journalEntry.id, userId);
 

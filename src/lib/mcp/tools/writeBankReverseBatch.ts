@@ -18,7 +18,7 @@ import {
   getAllocationBatchLines,
 } from '@/modules/accounting/services/bank/bankAllocationBatchService';
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const REVERSE_TOOL = 'reverse_bank_allocation_batch';
@@ -113,7 +113,7 @@ export const reverseBankAllocationBatchTool: McpTool = {
       // The contra journal is stamped too — without it the agent's own
       // correction posts as human:<userId> and drops out of list_agent_postings.
       await reverseReconciledTransaction(ctx.companyId, l.transactionId, ctx.userId, {
-        postingAgent: mcpPostingAgent(REVERSE_TOOL),
+        ...mcpPostingOpts(ctx, REVERSE_TOOL),
         ...(reversalDate === undefined ? {} : { reversalDate }),
       });
     }

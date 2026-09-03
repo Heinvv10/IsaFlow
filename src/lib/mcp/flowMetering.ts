@@ -68,6 +68,13 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Reviewing what the agent did must never cost anything — it is the control
   // surface for every other write.
   list_agent_postings: null,
+  // Same reason, and it is the reason audit_trail exists: pricing the control
+  // surface the safety model depends on discourages using it.
+  audit_trail: null,
+  // Reading what evidence exists — and what has none — is a review surface too.
+  list_documents: null,
+  get_document: null,
+  list_unsupported_transactions: null,
   list_supplier_invoices: null,
   get_supplier_invoice: null,
   // Seeing the rules is the control an agent needs BEFORE it imports anything.
@@ -82,6 +89,21 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_bank_reconciliations: null,
   list_credit_notes: null,
   get_credit_note: null,
+  // Proposing a receipt match posts nothing and is how an agent avoids
+  // applying cash to the wrong invoice; listing unapplied cash is a review
+  // surface like list_agent_postings. Both free, like every other read.
+  suggest_receipt_matches: null,
+  list_unapplied_receipts: null,
+  // Period control and bank completeness. Free, and deliberately so: these are
+  // the review surfaces the safety model depends on. Charging to ask "is this
+  // period open" or "does this account's history have a hole in it" would put a
+  // toll on the check, and 56 prior periods stand open today precisely because
+  // nothing was asking.
+  list_fiscal_periods: null,
+  get_fiscal_period: null,
+  period_close_checklist: null,
+  bank_statement_coverage: null,
+  get_opening_balances: null,
 
   // ── Reports: free over MCP, unlike the UI ────────────────────────────────
   // The app charges 10 for each of these. Carrying that across was the initial
@@ -99,6 +121,14 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   aged_debtors: null,
   aged_creditors: null,
   vat_status: null,
+  vat_reconciliation: null,
+  vat201_export: null,
+  // The integrity suite is free for the same reason list_agent_postings is:
+  // it is a control surface. Putting a price on the call that finds a
+  // R1,058,000 invoice missing from the aging is the wrong incentive, and it
+  // is the cheapest endpoint in the module to serve.
+  data_integrity_checks: null,
+  chart_of_accounts_health: null,
   list_practice_clients: null,
   list_job_categories: null,
   list_work_items: null,
@@ -158,6 +188,17 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Cancelling a session posts nothing and unwinds work the agent may have
   // created for free — pricing the undo of free work is the wrong incentive.
   cancel_bank_reconciliation: null,
+  // Closing a period posts nothing and the app meters neither the workbench nor
+  // the fiscal-period screen; reopening is a correction, free like every other.
+  close_fiscal_period: null,
+  reopen_fiscal_period: null,
+  // Starting and auto-matching a reconciliation posts no journal — matching
+  // links a transaction to a journal line that already exists. The app does not
+  // meter the reconciliation screen either.
+  perform_bank_reconciliation: null,
+  // The year-end close DOES post a journal, and is priced as one, like
+  // set_opening_balance. One journal, whatever its size.
+  year_end_close: 'journal.create',
 
   // ── Chart of accounts: free ──────────────────────────────────────────────
   // The app does not meter COA edits, and these post nothing to the ledger.
@@ -196,6 +237,42 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   approve_credit_note: null,
   cancel_credit_note: null,
 
+  // ── Cash application: free ───────────────────────────────────────────────
+  // The rule is that a write costs what the equivalent app endpoint costs, and
+  // BOTH equivalents are unmetered: POST /api/accounting/customer-allocations
+  // (applying an existing receipt) and the bank allocation path
+  // (allocate_bank_transaction, free above). It is also a correction — the
+  // ledger is wrong until the receipts are applied, and R2.45m of unapplied
+  // cash is not a state to put a toll on clearing. Deliberately NOT priced at
+  // payment.record: that meters RECORDING a payment (POST customer-payments),
+  // which this tool does not do — the cash is already in the ledger on one
+  // branch and posted by the free allocation path on the other.
+  apply_receipt_to_invoice: null,
+  // Same reasoning on the AP side: POST /api/accounting/supplier-allocations is
+  // unmetered and the bank allocation path is free.
+  apply_payment_to_supplier_invoice: null,
+
+  // A reversal is a correction, and every other reversal here is free for the
+  // same reason: pricing the control the agent-safety model depends on is the
+  // wrong incentive. post_journal is free too, so its undo cannot cost more
+  // than the thing it undoes.
+  reverse_journal_entry: null,
+
+  // A contra settlement is a payment document plus its journal. The equivalent
+  // app route (POST /api/accounting/customer-payments, supplier-payments) IS
+  // metered at payment.record, so unlike the two apply tools this one has a
+  // priced equivalent and is charged the same.
+  settle_by_contra: 'payment.record',
+
+  // ── Contacts: free ───────────────────────────────────────────────────────
+  // The app meters neither contact route, and none of these posts anything.
+  // Pricing them would also toll the remedy for the state that blocks raising
+  // an invoice at all — no customer to raise it against — which is the same
+  // reasoning that keeps the chart-of-accounts tools free.
+  create_customer: null,
+  update_customer: null,
+  create_supplier: null,
+  update_supplier: null,
   // ── Payroll: free ────────────────────────────────────────────────────────
   // The app meters neither payroll route. create_pay_run opens an empty period
   // and writes no ledger row at all. post_payroll_journal posts one journal,
@@ -218,6 +295,12 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   create_work_item: null,
   log_time_entry: null,
   submit_time_entries: null,
+
+  // ── VAT period lock: free ────────────────────────────────────────────────
+  // It posts nothing to the ledger — it records that a return was filed. The
+  // app does not meter it either, and pricing a control that stops a period
+  // being changed after filing would discourage using it.
+  lock_vat_period: null,
 };
 
 /**

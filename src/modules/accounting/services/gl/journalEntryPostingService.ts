@@ -15,7 +15,7 @@ import {
   resolveUserUuid,
   mapEntryRow,
 } from './journalEntryCrudService';
-import { defaultHumanMeta } from './journalEntryMeta';
+import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
 import { getPeriodStatusForDate } from './periodStatusService';
 
 type Row = DbRow;
@@ -185,7 +185,15 @@ function isCalendarDate(value: string): boolean {
  * `no_period` from `closed`, and the two get different messages because the
  * remedies differ: create the fiscal year, versus re-open the period.
  */
-async function resolveReversalDate(
+/**
+ * Exported so a caller that must distinguish a REFUSAL from a FAILURE can run
+ * these guards first. It is read-only, so calling it twice costs two period
+ * lookups and nothing else. `apply`-style MCP tools need this: only pre-write
+ * validation may return a `toolError`, and once `reverseJournalEntry` has been
+ * entered a caller cannot tell a bad date from a failure after the contra
+ * posted.
+ */
+export async function resolveReversalDate(
   companyId: string,
   originalDate: string,
   requested: string | undefined,
@@ -227,7 +235,7 @@ export async function reverseJournalEntry(
   companyId: string,
   id: string,
   userId: string,
-  opts?: { postingAgent?: string; reversalDate?: string },
+  opts?: PostingActorOpts & { reversalDate?: string },
 ): Promise<JournalEntry> {
   try {
     const entry = await getJournalEntryById(companyId, id);
@@ -274,7 +282,7 @@ export async function reverseJournalEntry(
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,
       lines: reversalLines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
+    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
 
     try {
       await postJournalEntry(companyId, reversalEntry.id, userId);

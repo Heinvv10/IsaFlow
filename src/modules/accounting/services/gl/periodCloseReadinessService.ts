@@ -14,6 +14,11 @@
  *   5. vat_reviewed      — a VAT return covers this period
  *   6. tb_balanced       — sum(debits) == sum(credits) for posted entries
  *   7. opening_balance_cleared — Opening Balance Equity nets to zero at period end
+ *   8. orphan_period_journals — no POSTED journal belongs to zero periods
+ *
+ * Check 8 is the only COMPANY-scoped one. An orphan journal belongs to no
+ * period, so no period-scoped query can find it — and a close asserts a period
+ * is complete, which is exactly what an invisible journal defeats.
  *
  * All checks are ADVISORY — they do not block period close.
  * Every SQL query is scoped by company_id (multi-tenant safe).
@@ -29,6 +34,7 @@ import { apSubLedgerCheck } from './closeReadinessChecks/apSubLedgerCheck';
 import { vatReviewedCheck } from './closeReadinessChecks/vatReviewedCheck';
 import { tbBalancedCheck } from './closeReadinessChecks/tbBalancedCheck';
 import { openingBalanceEquityCheck } from './closeReadinessChecks/openingBalanceEquityCheck';
+import { orphanPeriodJournalsCheck } from './closeReadinessChecks/orphanPeriodJournalsCheck';
 
 // ── Shared types (imported by check files) ───────────────────────────────────
 
@@ -41,7 +47,8 @@ export type ChecklistItemKey =
   | 'ap_ties'
   | 'vat_reviewed'
   | 'tb_balanced'
-  | 'opening_balance_cleared';
+  | 'opening_balance_cleared'
+  | 'orphan_period_journals';
 
 export interface ChecklistItem {
   key: ChecklistItemKey;
@@ -68,6 +75,7 @@ const CHECK_KEYS: ChecklistItemKey[] = [
   'vat_reviewed',
   'tb_balanced',
   'opening_balance_cleared',
+  'orphan_period_journals',
 ];
 
 const CHECK_LABELS: string[] = [
@@ -78,6 +86,7 @@ const CHECK_LABELS: string[] = [
   'VAT reviewed',
   'Trial balance balanced',
   'Opening balance equity cleared',
+  'Journals outside every period',
 ];
 
 const CHECK_FALLBACK_HREFS: string[] = [
@@ -88,6 +97,7 @@ const CHECK_FALLBACK_HREFS: string[] = [
   '/accounting/reports/vat-return',
   '/accounting/trial-balance',
   '/accounting/chart-of-accounts',
+  '/accounting/journal-entries',
 ];
 
 // ── Aggregation ──────────────────────────────────────────────────────────────
@@ -132,6 +142,8 @@ export async function getCloseReadiness(
     () => vatReviewedCheck(companyId, { startDate, endDate }),
     () => tbBalancedCheck(companyId, { id: periodId }),
     () => openingBalanceEquityCheck(companyId, { endDate }),
+    // Company-scoped by design — see the note at the top of this file.
+    () => orphanPeriodJournalsCheck(companyId),
   ];
 
   const items: ChecklistItem[] = [];

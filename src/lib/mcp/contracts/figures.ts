@@ -85,20 +85,40 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     // the wrong one, which is how AP movement showed as R0.
     contested: ['afs/cashFlowDirectService#getCashFlowDirect resolves a different control account'],
   }),
-  'cash.balance.v1': def({
-    id: 'cash.balance.v1',
-    label: 'Cash and cash equivalents',
-    // Not settled. W3 owns this: it is the workstream that has to make the GL
-    // balance, the statement balance and the computed balance agree, and it
-    // cannot do that while three other call sites each answer differently.
-    owner: null,
-    includes: 'GL balance of every account of subtype bank, as at the reporting date.',
+  'cash.ledger.v1': def({
+    id: 'cash.ledger.v1',
+    label: 'Cash and cash equivalents, per the ledger',
+    owner: 'bank/cashBalanceService#getCashBalance',
+    includes:
+      'Posted GL balance of every account of subtype bank OR cash, as at the reporting date, INCLUDING deactivated accounts — is_active is a picker flag, and Brightsphere\'s deactivated 1110 carries R6,550 of cash.',
     excludes:
-      'Clearing and suspense accounts, which are reported as exceptions instead — Interbank Transfer Clearing is R14,081,940 and a clearing account should be nil.',
+      'Draft journals. And the statement feed, which is cash.statement.v1 and is a DIFFERENT question, not a rival implementation of this one. Clearing and suspense accounts fall outside by subtype; no clearing SUBTYPE exists in this schema, so finding a non-nil clearing account by NAME belongs to chart_of_accounts_health — account name is the discriminator that overstated gross profit by R562,428.',
+  }),
+  'cash.statement.v1': def({
+    id: 'cash.statement.v1',
+    label: 'Cash per the imported bank statements',
+    owner: 'bank/bankAccountStatusService#getBankAccountsStatus',
+    includes: 'SUM of bank_transactions.amount per bank account — the evidence, i.e. what the bank says.',
+    excludes:
+      'Any recorded opening balance (that column is display metadata no balance calculation adds), and any GL movement with no statement line behind it. It is NOT a worse version of cash.ledger.v1: the two answer different questions and the gap between them is the output of bank_statement_coverage, which decomposes it exactly into GL-only movement and statement-only rows. Do not reconcile them into one number. NOTE this owner still filters is_active = TRUE and so omits a deactivated bank account carrying R6,550; bank_statement_coverage is the complete surface.',
     contested: [
-      'bank/bankAccountStatusService#getBankAccountsStatus',
-      'afs/cashFlowDirectService#getCashFlowDirect',
-      'reports/balanceSheetService#getBalanceSheet',
+      'reports/kpiDashboardService — same basis, same is_active filter, computed separately for the dashboard tile',
+    ],
+  }),
+  'fiscalyear.start.v1': def({
+    id: 'fiscalyear.start.v1',
+    label: 'The month a company\'s financial year begins',
+    owner: 'gl/fiscalYearBasis#getFiscalYearStartMonth',
+    includes:
+      'companies.financial_year_start as a month 1-12. Write paths (createFiscalYear, year_end_close) call it with NO fallback and take the refusal; a read path that must survive a misconfigured tenant opts into a fallback at the call site, where the assumption is visible.',
+    excludes:
+      'fiscal_periods.fiscal_year, which is CALENDAR-based and is not this: February 2026 is stored as fiscal_year 2026 and belongs to the March-2025 fiscal year. Also excludes any silent default — all 13 production companies declare 3, and assuming March for a company genuinely on a December year end produces a year-end close a full quarter out with nothing flagging it.',
+    contested: [
+      'afs/cipcFilingGuideService.ts:125 — financial_year_start || 3',
+      'afs/pisCalculatorService.ts:266 — financial_year_start || 3',
+      'afs/complianceAlertService.ts:159 — financial_year_start || 3',
+      'pages/api/payroll/period-context.ts:42 — COALESCE(financial_year_start, 3)',
+      'pages/api/accounting/afs/pis-score.ts:37 — COALESCE(financial_year_start, 3)',
     ],
   }),
   'equity.residual.v1': def({
@@ -139,18 +159,24 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
   'vat.output.v1': def({
     id: 'vat.output.v1',
     label: 'Output tax for a VAT period',
-    owner: 'reports/vat201Service#generateVAT201',
+    // Settled by W4. NOT vat201Service#generateVAT201, which the specification
+    // named: that is the invoice-based generator the VAT-return PAGE uses, and
+    // it was never what vat_status called. The MCP tool called
+    // vatReturnService#getVATReturn, whose tax came from the VAT control
+    // accounts while its box 1 and box 15 values came from the invoice tables —
+    // two populations, one question, and box 15 out by R5.1m on Velocity.
+    owner: 'reports/vat201ReportService#getVat201Report',
     includes: 'Output tax posted to the VAT control account over the period.',
     excludes:
-      'Cancelled invoices. Box 1 must be derived from THESE journals, so that box 1 at 15% ties to this figure — it currently fails SARS’s own check by R5.1m on Velocity.',
+      'Cancelled invoices — their tax leaves the boxes and is named in excludedRows, because the journal is still posted and the GL still has it. Box 1 is derived from THESE journals, so box 1 at 15% ties to this figure: R0.00 of variance on Velocity 2026-07/08, against R5.1m before.',
   }),
   'vat.input.v1': def({
     id: 'vat.input.v1',
     label: 'Input tax for a VAT period',
-    owner: 'reports/vat201Service#generateVAT201',
+    owner: 'reports/vat201ReportService#getVat201Report',
     includes: 'Input tax posted to the VAT control account over the period.',
     excludes:
-      'Denied input tax (entertainment). Box 15 must be derived from these same journals so the 15% check ties.',
+      'Denied input tax (entertainment), and tax on an account with no VAT posting treatment — R4,917,814.24 on Velocity SYS-9, which appears in excludedRows rather than in a box. Box 15 is derived from these same journals, so the 15% check ties to R4,407.45 on Velocity 2026-07/08 rather than R5.1m.',
   }),
   'payroll.employmentcost.v1': def({
     id: 'payroll.employmentcost.v1',
