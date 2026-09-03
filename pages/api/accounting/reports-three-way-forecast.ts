@@ -7,7 +7,11 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
-import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
+import {
+  getFinancialFigures,
+  totalEquity,
+  unclassifiedWarning,
+} from '@/modules/accounting/services/gl/financialFiguresService';
 import { log } from '@/lib/logger';
 import {
   generateThreeWayForecast,
@@ -32,7 +36,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   fromDate.setMonth(fromDate.getMonth() - 12);
   const from = fromDate.toISOString().split('T')[0]!;
 
-  const { period, cumulative } = await getFinancialFigures(companyId, from, to);
+  const figures = await getFinancialFigures(companyId, from, to);
+  const { period, cumulative } = figures;
 
   // The window above is 12 months, so the P&L is annual — divide to monthly.
   const revenue = period.revenue / 12;
@@ -47,8 +52,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     netProfit,
     totalAssets: cumulative.totalAssets,
     totalLiabilities: cumulative.totalLiabilities,
-    // Current-year profit is not closed into retained earnings until year end.
-    totalEquity: cumulative.totalEquity + period.netProfit,
+    totalEquity: totalEquity(figures),
     currentAssets: cumulative.currentAssets,
     currentLiabilities: cumulative.currentLiabilities,
     cash: cumulative.cash,
@@ -69,7 +73,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Three-way forecast generated', { companyId, forecastMonths, revenueGrowthRate }, 'accounting');
 
-  return apiResponse.success(res, { forecast, historical, params });
+  return apiResponse.success(res, {
+    forecast,
+    historical,
+    params,
+    unclassifiedAccounts: unclassifiedWarning(cumulative),
+  });
 }
 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));

@@ -10,7 +10,11 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
+import {
+  getFinancialFigures,
+  totalEquity as companyEquity,
+  unclassifiedWarning,
+} from '@/modules/accounting/services/gl/financialFiguresService';
 import { log } from '@/lib/logger';
 import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import {
@@ -68,14 +72,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const totalAssets = cumulative.totalAssets;
   const totalLiabilities = cumulative.totalLiabilities;
-  // Current-year profit is not closed into retained earnings until year end.
-  const totalEquity = cumulative.totalEquity + netProfit;
+  const equity = companyEquity(current);
   const currentAssets = cumulative.currentAssets;
   const currentLiabilities = cumulative.currentLiabilities;
   const inventory = cumulative.inventory;
 
   const currentRatio = currentLiabilities > 0 ? currentAssets / currentLiabilities : 0;
-  const debtEquityRatio = totalEquity > 0 ? totalLiabilities / totalEquity : 0;
+  const debtEquityRatio = equity > 0 ? totalLiabilities / equity : 0;
   const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
   const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
 
@@ -89,7 +92,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     companyName: company?.name ?? 'Company',
     period: `${from} to ${to}`,
     incomeStatement: { revenue, costOfSales, grossProfit, operatingExpenses, netProfit },
-    balanceSheet: { totalAssets, totalLiabilities, equity: totalEquity, currentRatio, debtEquityRatio },
+    balanceSheet: { totalAssets, totalLiabilities, equity, currentRatio, debtEquityRatio },
     priorPeriod: { revenue: priorRevenue, costOfSales: priorCostOfSales, grossProfit: priorGrossProfit, operatingExpenses: priorOperatingExpenses, netProfit: priorNetProfit },
     ratios: { grossMargin, netMargin, currentRatio, quickRatio: currentLiabilities > 0 ? (currentAssets - inventory) / currentLiabilities : 0 },
   };
@@ -100,12 +103,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('ai-commentary: complete', { companyId, keyDriversCount: keyDrivers.length, riskCount: riskAreas.length });
 
+  // The caveat goes INSIDE the narrative, not in a sibling field. This endpoint
+  // has no UI: it is consumed as prose (MCP, exports, downstream summarisers),
+  // so a field nobody renders is the same "written but never read" defect. The
+  // commentary editorialises — profit "up"/"down", risk severities — and prose
+  // built on a R114m default is misleading whichever way it was generated.
+  const unclassified = unclassifiedWarning(cumulative);
+  if (unclassified) {
+    riskAreas.unshift({
+      area: 'Unclassified Accounts',
+      severity: 'medium',
+      description:
+        `${unclassified.message} This commentary is derived from those figures. ` +
+        unclassified.byType
+          .map((t) => `${t.accounts} ${t.type} account(s) treated as ${t.defaultedTo}`)
+          .join('; '),
+    });
+  }
+
   return apiResponse.success(res, {
     period: { from, to },
     executiveSummary,
     keyDrivers,
     riskAreas,
     financials: packData,
+    unclassifiedAccounts: unclassified,
   });
 }
 

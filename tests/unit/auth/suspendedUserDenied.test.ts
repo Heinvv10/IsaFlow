@@ -132,15 +132,17 @@ describe('withAuth — suspended account gate', () => {
     });
   }
 
-  it('denies a membership row with no users profile behind it', async () => {
+  it('denies a membership row with no users profile — and does NOT call it a suspension', async () => {
     // company_users.user_id has NO foreign key to users — a membership can
-    // outlive the profile. Fail closed rather than trust the orphan.
+    // outlive the profile. Fail closed rather than trust the orphan, but report
+    // the actual condition: nobody suspended this account, the profile is gone.
     const { handler, res, state } = await run([
       { role: 'admin', account_user_id: null, is_active: null, status: null, suspended_at: null },
     ]);
     expect(handler).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(403);
-    expect(errorCode(state.body)).toBe('ACCOUNT_SUSPENDED');
+    expect(errorCode(state.body)).toBe('ACCOUNT_PROFILE_MISSING');
+    expect(errorCode(state.body)).not.toBe('ACCOUNT_SUSPENDED');
   });
 
   it('still 403s a non-member with the membership reason, not the suspension one', async () => {

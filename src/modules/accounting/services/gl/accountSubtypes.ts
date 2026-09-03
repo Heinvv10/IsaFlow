@@ -220,6 +220,14 @@ export const CASH_SUBTYPES: readonly string[] = rawSubtypesFor('bank', 'cash');
  */
 export const INVENTORY_SUBTYPES: readonly string[] = rawSubtypesFor('inventory');
 
+/**
+ * Raw spellings meaning a BANK account specifically — narrower than
+ * CASH_SUBTYPES, which also covers petty cash. Use this where the surface is
+ * about bank accounts (a bank-account picker, a "Bank Balances" tile, a feed
+ * pairing) and CASH_SUBTYPES where it is about cash and cash equivalents.
+ */
+export const BANK_SUBTYPES: readonly string[] = rawSubtypesFor('bank');
+
 /** Raw spellings meaning trade receivables. */
 export const RECEIVABLE_SUBTYPES: readonly string[] = rawSubtypesFor('receivable');
 

@@ -10,6 +10,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import {
   getFinancialFigures,
   toFinancialData,
+  unclassifiedWarning,
 } from '@/modules/accounting/services/gl/financialFiguresService';
 import { calculateRatioTrends } from '@/modules/accounting/services/reports/ratioTrendService';
 import type { FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
@@ -38,6 +39,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     monthSlots.map(({ from, to }) => buildMonthData(companyId, from, to))
   );
 
+  // Warn off the widest window in the series: an account unclassified in the
+  // latest month is unclassified in every earlier one, and one banner per month
+  // would be noise.
+  const latest = monthSlots[monthSlots.length - 1]!;
+  const latestFigures = await getFinancialFigures(companyId, latest.from, latest.to);
+
   for (let i = 0; i < monthSlots.length; i++) {
     periodsData.push(results[i] as FinancialData);
     periodLabels.push(monthSlots[i]!.label);
@@ -45,19 +52,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const trends = calculateRatioTrends(periodsData, periodLabels);
 
-  return apiResponse.success(res, { months, trends });
+  return apiResponse.success(res, {
+    months,
+    trends,
+    unclassifiedAccounts: unclassifiedWarning(latestFigures.cumulative),
+  });
 }
 
 async function buildMonthData(companyId: string, from: string, to: string): Promise<FinancialData> {
-  const figures = await getFinancialFigures(companyId, from, to);
-  return {
-    ...toFinancialData(figures),
-    // Ratio trends divide by equity; guard the zero-equity chart of accounts.
-    totalEquity: Math.max(
-      1,
-      figures.cumulative.totalEquity + figures.period.netProfit
-    ),
-  };
+  // Equity passes through unclamped: negative equity is a real, reportable
+  // state and the ratio engine marks the ratios that divide by it as not
+  // meaningful rather than inventing a denominator.
+  return toFinancialData(await getFinancialFigures(companyId, from, to));
 }
 
  

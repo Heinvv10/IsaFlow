@@ -35,6 +35,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
+/**
+ * Locates the bank-balance query. It filters on the shared BANK_SUBTYPES
+ * vocabulary — `account_subtype = ANY($n::TEXT[])` — rather than the literal
+ * `'bank'` it used to carry, so the locator accepts both forms. This is a
+ * locator only: what the tests below assert about is_active and draft
+ * exclusion is unchanged.
+ */
+const BANK_SUBTYPE_FILTER = /account_subtype = (?:'bank'|ANY\()/;
+
 const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({
   sql: (...a: unknown[]) => sqlMock(...a),
@@ -108,7 +117,7 @@ describe('class 1 — is_active never filters a balance query', () => {
     const { req, res } = mockReqRes();
     await (dashboardStatsHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
 
-    const [q] = matching(/account_subtype = 'bank'/);
+    const [q] = matching(BANK_SUBTYPE_FILTER);
     expect(q).toBeDefined();
     expect(q!).not.toMatch(GA_IS_ACTIVE);
   });
@@ -120,7 +129,7 @@ describe('class 1 — is_active never filters a balance query', () => {
     const qs = matching(/FROM gl_accounts ga LEFT JOIN bank_transactions bt/i);
     expect(qs).toHaveLength(2); // opening balance + period movement
     for (const q of qs) {
-      expect(q).toMatch(/account_subtype = 'bank'/);
+      expect(q).toMatch(BANK_SUBTYPE_FILTER);
       expect(q).not.toMatch(GA_IS_ACTIVE);
     }
   });
@@ -147,7 +156,7 @@ describe('class 1 — is_active never filters a balance query', () => {
   it('bureau client cash ignores is_active', async () => {
     await clientMetricsSnapshot(COMPANY);
 
-    const [q] = matching(/account_subtype = 'bank'/);
+    const [q] = matching(BANK_SUBTYPE_FILTER);
     expect(q).toBeDefined();
     expect(q!).not.toMatch(GA_IS_ACTIVE);
   });
@@ -188,7 +197,7 @@ describe('class 2 — journal-entry predicates must actually restrict the summed
     const { req, res } = mockReqRes();
     await (dashboardStatsHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, res);
 
-    const [q] = matching(/account_subtype = 'bank'/);
+    const [q] = matching(BANK_SUBTYPE_FILTER);
     expect(q!).not.toMatch(LEAKY_LINE_JOIN);
     // The posted filter now lives in a subquery that owns its own WHERE.
     expect(q!).toMatch(/JOIN gl_journal_entries je ON je\.id = jl\.journal_entry_id WHERE/i);
@@ -198,7 +207,7 @@ describe('class 2 — journal-entry predicates must actually restrict the summed
   it('bureau client cash excludes draft journal lines', async () => {
     await clientMetricsSnapshot(COMPANY);
 
-    const [q] = matching(/account_subtype = 'bank'/);
+    const [q] = matching(BANK_SUBTYPE_FILTER);
     expect(q!).not.toMatch(LEAKY_LINE_JOIN);
     expect(q!).toMatch(/je\.status = 'posted'/);
   });

@@ -4,34 +4,47 @@
  * GRP-06: this used to filter `je.entry_date >= periodStart`, so every
  * balance-sheet account reported the range's MOVEMENT rather than its balance
  * — which is why it disagreed with the consolidated balance sheet, which reads
- * cumulatively. It now follows the same basis as the single-company trial
- * balance (see gl/trialBalanceBasis.ts):
+ * cumulatively. It now genuinely follows the single-company basis (see
+ * gl/trialBalanceBasis.ts and gl/fiscalYearBasis.ts):
  *
  *   - balance-sheet group accounts: cumulative from inception to periodEnd;
- *   - income-statement group accounts: movement over periodStart..periodEnd;
- *   - each entity's profit earned before periodStart on a single DERIVED
- *     brought-forward row, since the ledger has no closing journals. It is not
- *     merged into a posted equity account — see BROUGHT_FORWARD_CODE.
+ *   - income-statement group accounts: YEAR-TO-DATE from each member's own
+ *     fiscal year start. P2-6: the header claimed this basis while the code cut
+ *     P&L at periodStart, so the same entity reported two different revenue
+ *     figures depending on which report you opened;
+ *   - each entity's profit earned before that fiscal year start on a single
+ *     DERIVED brought-forward row, since the ledger has no closing journals. It
+ *     is not merged into a posted equity account — see BROUGHT_FORWARD_CODE.
  *
  * Eliminations follow the same split: cumulative for balance-sheet group
  * accounts (as getConsolidatedBalanceSheet already does), range-bound for
  * income-statement ones.
+ *
+ * P2-5: accounts with no group-CoA mapping are excluded from the rows AND from
+ * the brought-forward sum, and the count and value of what was dropped is
+ * reported. The group report consolidates a DEFINED group chart, so an unmapped
+ * account has no group account to land on — excluding it is the only option;
+ * doing so silently, while its profit still reached the brought-forward row,
+ * put the statement out by exactly the unmapped amount with nothing on screen
+ * to say so. Production's only group has three members carrying R152m and R952m
+ * of ledger and ZERO mappings, and this report called that healthy.
  */
 
-import { sql } from '@/lib/neon';
-import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { BROUGHT_FORWARD_CODE, broughtForwardLine, round2, splitNet } from '../gl/trialBalanceBasis';
+import { BALANCE_TOLERANCE } from '../gl/trialBalanceService';
+import {
+  memberBalances,
+  memberBroughtForward,
+  memberFiscalYearStart,
+} from './consolidatedTrialBalanceMembers';
 import {
   getGroupMembers,
   getCoaMappingsForCompanies,
   getPostedEliminations,
   type EntityBalance,
   type MappingEntry,
-  type GroupMember,
 } from './consolidatedTrialBalanceService';
-
-type Row = DbRow;
 
 /** The earliest date the ledger can hold — "since inception" for a range query. */
 const INCEPTION = '1900-01-01';
@@ -53,10 +66,43 @@ interface ConsolidatedTrialBalanceTotals {
   consolidatedDebit: number; consolidatedCredit: number;
 }
 
+/** One member's contribution to what the consolidation could not represent. */
+export interface ConsolidatedUnmappedEntity {
+  companyId: string; companyName: string; accountCount: number; value: number;
+}
+
+/**
+ * Accounts discarded for want of a group-CoA mapping. `value` is the signed net
+ * (debit-positive) of the balances that did not reach the consolidation.
+ */
+export interface ConsolidatedUnmapped {
+  accountCount: number;
+  value: number;
+  byEntity: ConsolidatedUnmappedEntity[];
+}
+
 export interface ConsolidatedTrialBalance {
   groupId: string; periodStart: string; periodEnd: string;
   groupAccounts: ConsolidatedTrialBalanceRow[];
   totals: ConsolidatedTrialBalanceTotals;
+  /** Rows returned. The balanced assertion below describes exactly these. */
+  accountCount: number;
+  totalDebit: number;
+  totalCredit: number;
+  /** totalDebit − totalCredit, rounded to cents. */
+  difference: number;
+  /** True when |difference| is within BALANCE_TOLERANCE. Never recompute it. */
+  balanced: boolean;
+  unmapped: ConsolidatedUnmapped;
+  /** Member company id → name, so a consumer can label the per-entity columns. */
+  entityNames: Record<string, string>;
+  /** The fiscal year start each member's income statement was measured from. */
+  fiscalYearStarts: Record<string, string>;
+  /**
+   * False when members do not share a year end, so the income-statement columns
+   * cover different windows and are not additive without adjustment.
+   */
+  coterminous: boolean;
 }
 
 function blankRow(
@@ -87,47 +133,6 @@ function addEntityNet(row: ConsolidatedTrialBalanceRow, companyId: string, net: 
   const { debit, credit } = splitNet(net);
   row.entities[companyId]!.debit = round2(row.entities[companyId]!.debit + debit);
   row.entities[companyId]!.credit = round2(row.entities[companyId]!.credit + credit);
-}
-
-/** Per-account balances for one member on the trial-balance basis. */
-async function memberBalances(
-  member: GroupMember, periodStart: string, periodEnd: string,
-): Promise<Row[]> {
-  return (await sql`
-    SELECT ga.id AS account_id,
-           COALESCE(SUM(CASE WHEN ga.account_type IN ('asset', 'liability', 'equity')
-                               OR je.entry_date >= ${periodStart}
-                             THEN jl.debit ELSE 0 END), 0) AS total_debit,
-           COALESCE(SUM(CASE WHEN ga.account_type IN ('asset', 'liability', 'equity')
-                               OR je.entry_date >= ${periodStart}
-                             THEN jl.credit ELSE 0 END), 0) AS total_credit
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.status = 'posted'
-      AND je.company_id = ${member.companyId}::UUID
-      AND jl.company_id = ${member.companyId}::UUID
-      AND ga.company_id = ${member.companyId}::UUID
-      AND je.entry_date <= ${periodEnd}
-    GROUP BY ga.id
-  `) as Row[];
-}
-
-/** Profit the member earned strictly before `periodStart`, as a credit. */
-async function memberBroughtForward(companyId: string, periodStart: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(SUM(jl.credit - jl.debit), 0) AS retained
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.status = 'posted'
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
-      AND je.entry_date < ${periodStart}
-      AND ga.account_type IN ('revenue', 'expense')
-  `) as Row[];
-  return round2(Number(rows[0]?.retained ?? 0));
 }
 
 async function applyEliminations(
@@ -161,12 +166,28 @@ export async function getConsolidatedTrialBalance(
     // Preload all CoA mappings in a single query to avoid N+1 round-trips
     const allMappings = await getCoaMappingsForCompanies(groupId, members.map((m) => m.companyId));
 
+    const unmappedByEntity: ConsolidatedUnmappedEntity[] = [];
+    const fiscalYearStarts: Record<string, string> = {};
+    const entityNames: Record<string, string> = Object.fromEntries(
+      members.map(m => [m.companyId, m.companyName]),
+    );
+
     for (const member of members) {
       const mappings = allMappings.get(member.companyId) ?? new Map<string, MappingEntry>();
-      for (const r of await memberBalances(member, periodStart, periodEnd)) {
-        const mapping = mappings.get(String(r.account_id));
-        if (!mapping) continue;
+      const fyStart = await memberFiscalYearStart(member.companyId, periodStart);
+      fiscalYearStarts[member.companyId] = fyStart;
+
+      let unmappedCount = 0;
+      let unmappedValue = 0;
+
+      for (const r of await memberBalances(member.companyId, fyStart, periodEnd)) {
         const net = round2(Number(r.total_debit) - Number(r.total_credit));
+        const mapping = mappings.get(String(r.account_id));
+        if (!mapping) {
+          // Dropped: no group account to carry it. Counted, not swallowed.
+          if (net !== 0) { unmappedCount += 1; unmappedValue = round2(unmappedValue + net); }
+          continue;
+        }
         if (net === 0) continue;
         const entry = upsert(
           accountMap, mapping.groupAccountId, mapping.groupAccountCode,
@@ -175,11 +196,25 @@ export async function getConsolidatedTrialBalance(
         addEntityNet(entry, member.companyId, net);
       }
 
-      // Profit earned before the range, on its own DERIVED row — never merged
-      // into a posted equity account. See BROUGHT_FORWARD_CODE.
-      const broughtForward = await memberBroughtForward(member.companyId, periodStart);
+      if (unmappedCount > 0) {
+        unmappedByEntity.push({
+          companyId: member.companyId, companyName: member.companyName,
+          accountCount: unmappedCount, value: unmappedValue,
+        });
+        log.warn(
+          'Consolidated trial balance: accounts dropped for want of a group CoA mapping',
+          { groupId, companyId: member.companyId, accountCount: unmappedCount, value: unmappedValue },
+          'accounting',
+        );
+      }
+
+      // Brought forward over the SAME chart the rows used, at the SAME date the
+      // income statement was cut. Either mismatch unbalances the statement.
+      const broughtForward = await memberBroughtForward(
+        member.companyId, fyStart, [...mappings.keys()],
+      );
       if (Math.abs(broughtForward) < 0.01) continue;
-      const bf = broughtForwardLine(periodStart);
+      const bf = broughtForwardLine(fyStart);
       const entry = upsert(accountMap, BROUGHT_FORWARD_CODE, bf.accountCode, bf.accountName, 'equity');
       entry.derived = true;
       addEntityNet(entry, member.companyId, -broughtForward);
@@ -214,7 +249,28 @@ export async function getConsolidatedTrialBalance(
     }
 
     groupAccounts.sort((a, b) => a.accountCode.localeCompare(b.accountCode));
-    return { groupId, periodStart, periodEnd, groupAccounts, totals };
+
+    // Computed ONCE, here, on the shared tolerance — exactly as the
+    // single-company report does. No consumer may derive its own.
+    const difference = round2(totals.consolidatedDebit - totals.consolidatedCredit);
+    const years = Object.values(fiscalYearStarts);
+
+    return {
+      groupId, periodStart, periodEnd, groupAccounts, totals,
+      accountCount: groupAccounts.length,
+      totalDebit: totals.consolidatedDebit,
+      totalCredit: totals.consolidatedCredit,
+      difference,
+      balanced: Math.abs(difference) < BALANCE_TOLERANCE,
+      unmapped: {
+        accountCount: unmappedByEntity.reduce((n, e) => n + e.accountCount, 0),
+        value: round2(unmappedByEntity.reduce((v, e) => v + e.value, 0)),
+        byEntity: unmappedByEntity,
+      },
+      entityNames,
+      fiscalYearStarts,
+      coterminous: years.length <= 1 || years.every(y => y.slice(5) === years[0]!.slice(5)),
+    };
   } catch (err) {
     log.error('Failed to generate consolidated trial balance', { groupId, error: err }, 'accounting');
     throw err;

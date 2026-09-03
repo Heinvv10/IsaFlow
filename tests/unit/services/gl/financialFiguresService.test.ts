@@ -16,12 +16,22 @@ vi.mock('@/lib/neon', () => {
   return { sql: sqlMock, withTransaction: vi.fn() };
 });
 
+const broughtForwardMock = vi.fn();
+vi.mock('@/modules/accounting/services/gl/trialBalanceBasis', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/gl/trialBalanceBasis')>()),
+  getRetainedEarningsBroughtForward: (...a: unknown[]) => broughtForwardMock(...a),
+}));
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { sql } from '@/lib/neon';
 import {
   getFinancialFigures,
   toFinancialData,
   unclassifiedWarning,
   inventoryWarning,
+  totalEquity,
 } from '@/modules/accounting/services/gl/financialFiguresService';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -58,6 +68,8 @@ describe('lastQueryText', () => {
 
 beforeEach(() => {
   mockSql.mockReset();
+  broughtForwardMock.mockReset();
+  broughtForwardMock.mockResolvedValue(0);
 });
 
 describe('getFinancialFigures', () => {
@@ -244,5 +256,134 @@ describe('inventory resolvability', () => {
     expect(text).not.toMatch(/gl_journal_lines/);
     const params = probe.slice(1).filter(Array.isArray).flat();
     expect(params).toContain('inventory');
+  });
+});
+
+describe('accounting equation', () => {
+  /**
+   * The defect this exists to catch: `cumulative` is since-inception but
+   * excludes revenue and expense, so equity has to carry the accumulated
+   * result. Adding back only the CURRENT period's net profit drops everything
+   * earned before `from`.
+   *
+   * Measured on Velocity Fibre as at 2026-09-30 with from = 2026-01-01:
+   *   assets       89,049,547.41
+   *   liabilities 106,131,424.03
+   *   equity posted        0.00
+   *   period net profit  11,274,884.13
+   *   brought forward   -28,356,760.75   ← was dropped
+   * Without the brought-forward term the sheet is out by exactly R28,356,760.75.
+   */
+  const VELOCITY = {
+    assets: 89_049_547.41,
+    liabilities: 106_131_424.03,
+    periodNetProfit: 11_274_884.13,
+    broughtForward: -28_356_760.75,
+  };
+
+  function primeVelocity() {
+    mockSql
+      .mockResolvedValueOnce([
+        {
+          account_type: 'asset', account_subtype: 'bank', account_count: '1',
+          period_debit: '0', period_credit: '0',
+          cumulative_debit: String(VELOCITY.assets), cumulative_credit: '0',
+        },
+        {
+          account_type: 'liability', account_subtype: 'payable', account_count: '1',
+          period_debit: '0', period_credit: '0',
+          cumulative_debit: '0', cumulative_credit: String(VELOCITY.liabilities),
+        },
+        {
+          account_type: 'revenue', account_subtype: 'sales', account_count: '1',
+          period_debit: '0', period_credit: String(VELOCITY.periodNetProfit),
+          cumulative_debit: '0', cumulative_credit: '0',
+        },
+      ])
+      .mockResolvedValueOnce([{ has_inventory: false }]);
+    broughtForwardMock.mockResolvedValue(VELOCITY.broughtForward);
+  }
+
+  it('balances: totalAssets === totalLiabilities + totalEquity', async () => {
+    primeVelocity();
+    const data = toFinancialData(await getFinancialFigures(COMPANY, '2026-01-01', '2026-09-30'));
+    expect(data.totalLiabilities + data.totalEquity).toBeCloseTo(data.totalAssets, 2);
+  });
+
+  it('carries pre-period accumulated result into equity', async () => {
+    primeVelocity();
+    const data = toFinancialData(await getFinancialFigures(COMPANY, '2026-01-01', '2026-09-30'));
+    // 0 posted equity + 11,274,884.13 period profit - 28,356,760.75 brought forward.
+    expect(data.totalEquity).toBeCloseTo(-17_081_876.62, 2);
+  });
+
+  it('balances for a company whose pre-period result is a profit', async () => {
+    mockSql
+      .mockResolvedValueOnce([
+        {
+          account_type: 'asset', account_subtype: 'bank', account_count: '1',
+          period_debit: '0', period_credit: '0',
+          cumulative_debit: '150000', cumulative_credit: '0',
+        },
+        {
+          account_type: 'liability', account_subtype: 'payable', account_count: '1',
+          period_debit: '0', period_credit: '0',
+          cumulative_debit: '0', cumulative_credit: '40000',
+        },
+        {
+          account_type: 'equity', account_subtype: 'equity', account_count: '1',
+          period_debit: '0', period_credit: '0',
+          cumulative_debit: '0', cumulative_credit: '25000',
+        },
+        {
+          account_type: 'revenue', account_subtype: 'sales', account_count: '1',
+          period_debit: '0', period_credit: '10000',
+          cumulative_debit: '0', cumulative_credit: '0',
+        },
+      ])
+      .mockResolvedValueOnce([{ has_inventory: false }]);
+    broughtForwardMock.mockResolvedValue(75_000);
+
+    const data = toFinancialData(await getFinancialFigures(COMPANY, '2026-01-01', '2026-09-30'));
+    expect(data.totalEquity).toBeCloseTo(110_000, 2);
+    expect(data.totalLiabilities + data.totalEquity).toBeCloseTo(data.totalAssets, 2);
+  });
+
+  it('asks the shared helper for the accumulated result before `from`', async () => {
+    primeVelocity();
+    await getFinancialFigures(COMPANY, '2026-01-01', '2026-09-30');
+    // Reuse, not a second implementation: trialBalanceBasis owns this quantity
+    // and the trial balance depends on it being right.
+    expect(broughtForwardMock).toHaveBeenCalledWith(COMPANY, '2026-01-01');
+  });
+});
+
+describe('totalEquity is defined exactly once', () => {
+  it('sums posted equity, the period result and the brought-forward result', () => {
+    const figures = {
+      period: { netProfit: 11_274_884.13 },
+      cumulative: { totalEquity: 0 },
+      retainedEarningsBroughtForward: -28_356_760.75,
+    } as Parameters<typeof totalEquity>[0];
+    expect(totalEquity(figures)).toBeCloseTo(-17_081_876.62, 2);
+  });
+
+  it('no endpoint re-derives equity inline', () => {
+    // Seven endpoints each carried their own `cumulative.totalEquity +
+    // period.netProfit`, so the missing brought-forward term had to be found
+    // and fixed seven times. One definition, or it drifts again.
+    const root = join(__dirname, '../../../..');
+    const endpoints = [
+      'reports-html', 'reports-executive-summary', 'reports-pack',
+      'reports-three-way-forecast', 'reports-ratio-trends',
+      'reports-kpi-scorecard', 'ai-commentary', 'reports-ratios',
+      'reports-extended-ratios',
+    ];
+    for (const name of endpoints) {
+      const src = readFileSync(join(root, `pages/api/accounting/${name}.ts`), 'utf8');
+      expect(src, `${name} re-derives equity`).not.toMatch(
+        /cumulative\.totalEquity\s*\+/,
+      );
+    }
   });
 });

@@ -11,7 +11,12 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
+import {
+  getFinancialFigures,
+  totalEquity,
+  unclassifiedWarning,
+} from '@/modules/accounting/services/gl/financialFiguresService';
+import { buildDataQualityNotices } from '@/modules/accounting/services/reports/dataQualityNotices';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import {
@@ -53,11 +58,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'from and to must be ISO dates (YYYY-MM-DD)');
   }
 
-  const [{ period, cumulative }, companyRow] = await Promise.all([
+  const [figures, companyRow] = await Promise.all([
     getFinancialFigures(companyId, from, to),
     getCompanyName(companyId),
   ]);
 
+  const { period, cumulative } = figures;
   const netProfit = period.netProfit;
 
   const data: ReportPackInput = {
@@ -69,8 +75,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     netProfit,
     totalAssets: cumulative.totalAssets,
     totalLiabilities: cumulative.totalLiabilities,
-    // Current-year profit is not closed into retained earnings until year end.
-    totalEquity: cumulative.totalEquity + netProfit,
+    totalEquity: totalEquity(figures),
     currentAssets: cumulative.currentAssets,
     currentLiabilities: cumulative.currentLiabilities,
     cash: cumulative.cash,
@@ -80,7 +85,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   };
 
   const pack = buildReportPack(type as PackType, data, from, to);
-  const html = buildReportHtml(pack, type as PackType, from, to);
+  // This endpoint returns a document, not JSON — the caveat has to be IN the
+  // document or nobody sees it.
+  const notices = buildDataQualityNotices({
+    unclassifiedAccounts: unclassifiedWarning(cumulative),
+  });
+  const html = buildReportHtml(pack, type as PackType, from, to, notices);
 
   log.info('HTML report generated', { companyId, type, from, to }, 'accounting');
 
@@ -194,9 +204,18 @@ function buildReportHtml(
   type: PackType,
   from: string,
   to: string,
+  notices: string[] = [],
 ): string {
   const packLabel = type === 'board' ? 'Board Pack' : type === 'management' ? 'Management Pack' : 'Monthly Pack';
   const generatedAt = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  // escapeHtml: notices interpolate account counts and amounts we derived, but
+  // the type labels come from the same path as DB-derived strings elsewhere.
+  const noticesHtml = notices.length === 0 ? '' : `
+    <section class="data-quality">
+      <h2>These figures rest on an assumption</h2>
+      <ul>${notices.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>
+    </section>`;
 
   const sectionsHtml = pack.sections.map(section => `
     <section>
@@ -238,6 +257,9 @@ function buildReportHtml(
       section h2 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
+    .data-quality { border: 1px solid #d9a441; background: #fdf6e6; padding: 12px 16px; margin-bottom: 20px; border-radius: 6px; }
+    .data-quality h2 { font-size: 14px; margin: 0 0 6px; }
+    .data-quality ul { margin: 0; padding-left: 18px; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -248,6 +270,7 @@ function buildReportHtml(
   <div class="company-name">${escapeHtml(pack.companyName)}</div>
   <div class="period-info">Period: ${from} to ${to}</div>
   <div class="content">
+    ${noticesHtml}
     ${sectionsHtml}
   </div>
   <div class="footer">

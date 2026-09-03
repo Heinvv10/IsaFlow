@@ -14,6 +14,7 @@ import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest } from '@/lib/auth';
+import { fmtDate } from '@/lib/fmtDate';
 import {
   getFinancialFigures,
   toFinancialData,
@@ -30,7 +31,10 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const companyId = (req as CompanyAuthedRequest).companyId;
 
-  const to = (req.query.to as string) || new Date().toISOString().split('T')[0]!;
+  // fmtDate uses local calendar getters. toISOString() converts to UTC first,
+  // so on this UTC+2 host "today" between 00:00 and 02:00 SAST came back as
+  // yesterday and the report silently lost a day.
+  const to = (req.query.to as string) || fmtDate(new Date());
   // Slice the year off the string rather than round-tripping through Date —
   // `new Date('2026-01-01').getFullYear()` is timezone-dependent.
   const from = (req.query.from as string) || `${to.slice(0, 4)}-01-01`;

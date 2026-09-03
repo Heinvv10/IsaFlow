@@ -43,6 +43,7 @@ export {
   isActiveUserAccount,
   ACTIVE_USER_STATUS,
   SUSPENDED_ACCOUNT_ERROR,
+  MISSING_PROFILE_ERROR,
   type UserAccountRow,
 } from './userAccountStatus';
 

@@ -127,9 +127,18 @@ export async function getMappedTrialBalance(
   const activeLines = lines.filter((l) => l.isActive);
 
   // Derive balances from posted journal lines (source of truth) rather than the
-  // gl_account_balances cache. That cache is maintained only by a gl_journal_lines
-  // trigger that skips non-posted entries and is never refreshed when an entry
-  // flips draft -> posted, so it silently drops rows -> understated statements.
+  // gl_account_balances cache.
+  //
+  // The original reason given here was that the cache silently drops rows when
+  // an entry flips draft -> posted. That WAS true, and migration 499 fixed it:
+  // trg_gl_je_status_balance now recomputes from posted lines on exactly that
+  // transition, in both directions. Re-measured 2026-09-03 against a computed
+  // aggregate -- 2657 rows matched, 0 missing, max drift 0.00.
+  //
+  // The behaviour stays anyway, on a reason that does not expire: a financial
+  // statement should compute from the ledger. The cache is an optimisation with
+  // two triggers and a fiscal-period key; the statements are the output being
+  // audited, and they should not inherit an optimisation's failure modes.
   const currentRows = await sql`
     SELECT
       m.afs_line_code,

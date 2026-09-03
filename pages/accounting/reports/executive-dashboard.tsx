@@ -75,7 +75,7 @@ function KPICard({ label, value, sub, trend }: { label: string; value: string; s
 
 export default function ExecutiveDashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [scorecard, setScorecard] = useState<Array<{ ratioKey: string; name: string; value: number; target: number; status: 'green' | 'amber' | 'red' }>>([]);
+  const [scorecard, setScorecard] = useState<Array<{ ratioKey: string; name: string; value: number | null; target: number; status: 'green' | 'amber' | 'red' | 'not_meaningful'; reason?: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [inventory, setInventory] = useState<InventoryWarning | null>(null);
@@ -197,13 +197,24 @@ export default function ExecutiveDashboardPage() {
                   <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">KPI Scorecard</h2>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {scorecard.slice(0, 8).map(item => (
-                      <div key={item.ratioKey} className={`rounded-lg border p-3 ${item.status === 'green' ? 'border-teal-500/30 bg-teal-500/10' : item.status === 'amber' ? 'border-amber-500/30 bg-amber-500/10' : 'border-red-500/30 bg-red-500/10'}`}>
+                      <div key={item.ratioKey} className={`rounded-lg border p-3 ${item.status === 'green' ? 'border-teal-500/30 bg-teal-500/10' : item.status === 'amber' ? 'border-amber-500/30 bg-amber-500/10' : item.status === 'not_meaningful' ? 'border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]' : 'border-red-500/30 bg-red-500/10'}`}>
                         <div className="flex justify-between mb-1">
                           <span className="text-xs opacity-70">{item.name}</span>
-                          <span className={`w-2 h-2 rounded-full ${item.status === 'green' ? 'bg-teal-400' : item.status === 'amber' ? 'bg-amber-400' : 'bg-red-400'}`} />
+                          <span className={`w-2 h-2 rounded-full ${item.status === 'green' ? 'bg-teal-400' : item.status === 'amber' ? 'bg-amber-400' : item.status === 'not_meaningful' ? 'bg-[var(--ff-text-secondary)]' : 'bg-red-400'}`} />
                         </div>
-                        <p className={`text-lg font-bold ${item.status === 'green' ? 'text-teal-400' : item.status === 'amber' ? 'text-amber-400' : 'text-red-400'}`}>{item.value.toFixed(2)}</p>
-                        <p className="text-xs opacity-60">Target: {item.target}</p>
+                        {item.status === 'not_meaningful' || item.value === null ? (
+                          <>
+                            {/* Stating the condition beats an empty cell, which
+                                reads as a broken report rather than a true one. */}
+                            <p className="text-sm font-semibold text-[var(--ff-text-secondary)]">Not meaningful</p>
+                            <p className="text-xs opacity-60">{item.reason}</p>
+                          </>
+                        ) : (
+                          <>
+                            <p className={`text-lg font-bold ${item.status === 'green' ? 'text-teal-400' : item.status === 'amber' ? 'text-amber-400' : 'text-red-400'}`}>{item.value.toFixed(2)}</p>
+                            <p className="text-xs opacity-60">Target: {item.target}</p>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>

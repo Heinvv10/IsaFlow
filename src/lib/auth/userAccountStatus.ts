@@ -27,6 +27,26 @@ export const SUSPENDED_ACCOUNT_ERROR = {
   message: 'Your account has been suspended. Contact your administrator.',
 } as const;
 
+/**
+ * Refusal for a membership (or token) whose `public.users` row is absent.
+ *
+ * Deliberately NOT the suspension message. A missing profile is a broken data
+ * state, not an administrative act — telling an operator "suspended" when
+ * nobody suspended anything sends them hunting through the admin console for a
+ * suspension that does not exist.
+ *
+ * Root cause, not fixed here: `company_users.user_id` is TEXT with no foreign
+ * key to `users.id`, so a membership can outlive (or precede) its profile.
+ * Denying is the correct symptom-level response — a membership with no profile
+ * grants tenant access while nothing establishes who holds it — but the FK is
+ * the real fix and needs its own migration plus a decision about the existing
+ * orphan row.
+ */
+export const MISSING_PROFILE_ERROR = {
+  code: 'ACCOUNT_PROFILE_MISSING',
+  message: 'Your user profile is missing. Contact your administrator.',
+} as const;
+
 /** The `public.users` columns the gate reads. Nothing else is consulted. */
 export interface UserAccountRow {
   is_active: boolean | null;

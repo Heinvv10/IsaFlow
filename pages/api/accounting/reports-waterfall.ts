@@ -9,7 +9,10 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountClassification';
-import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
+import {
+  getFinancialFigures,
+  unclassifiedWarning,
+} from '@/modules/accounting/services/gl/financialFiguresService';
 import { buildProfitWaterfall, buildCashFlowWaterfall } from '@/modules/accounting/services/reports/waterfallDataService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,7 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const to: string = (req.query.to as string) || new Date().toISOString().split('T')[0]!;
 
   if (type === 'profit') {
-    const { period } = await getFinancialFigures(companyId, from, to);
+    const { period, cumulative } = await getFinancialFigures(companyId, from, to);
 
     const steps = buildProfitWaterfall({
       revenue: period.revenue,
@@ -36,7 +39,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       netProfit: period.netProfit,
     });
 
-    return apiResponse.success(res, { type: 'profit', period: { from, to }, steps });
+    return apiResponse.success(res, {
+      type: 'profit',
+      period: { from, to },
+      steps,
+      unclassifiedAccounts: unclassifiedWarning(cumulative),
+    });
   }
 
   if (type === 'cashflow') {

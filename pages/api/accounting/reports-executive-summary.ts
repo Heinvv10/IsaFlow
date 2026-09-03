@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import {
   getFinancialFigures,
   unclassifiedWarning,
+  totalEquity,
 } from '@/modules/accounting/services/gl/financialFiguresService';
 import { log } from '@/lib/logger';
 import {
@@ -50,8 +51,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     netProfit,
     totalAssets: cumulative.totalAssets,
     totalLiabilities: cumulative.totalLiabilities,
-    // Current-year profit is not closed into retained earnings until year end.
-    totalEquity: cumulative.totalEquity + netProfit,
+    totalEquity: totalEquity(figures),
     currentAssets: cumulative.currentAssets,
     currentLiabilities: cumulative.currentLiabilities,
     cash: cumulative.cash,

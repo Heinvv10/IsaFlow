@@ -74,13 +74,11 @@ async function buildFinancialData(
     sql`SELECT COUNT(*)::int as count FROM payroll_employees WHERE company_id = ${companyId}::uuid AND (end_date IS NULL OR end_date > NOW())` as Promise<Row[]>,
   ]);
 
+  // Equity passes through unclamped. It used to be Math.max(1, equity), which
+  // made an insolvent company divide by 1 and score green (AN-07); the ratio
+  // engine now marks equity-divided ratios not meaningful instead.
   const data: FinancialData = {
     ...toFinancialData(figures),
-    // Scorecard ratios divide by equity; guard the zero-equity chart of accounts.
-    totalEquity: Math.max(
-      1,
-      figures.cumulative.totalEquity + figures.period.netProfit
-    ),
     employeeCount: empCount?.count || 0,
   };
   return { data, figures };

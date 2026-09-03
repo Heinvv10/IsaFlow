@@ -154,6 +154,10 @@ export async function exportCaseWareTB(
 ): Promise<string> {
   log.info('Exporting CaseWare trial balance', { companyId, periodStart, periodEnd }, 'casewareExportService');
 
+  // V-05 census: this is a TRIAL BALANCE and deliberately carries NO
+  // auto_vat_submission exclusion — the clearing journal is a real posted
+  // movement on the control accounts and dropping it would leave the export
+  // out of balance and disagreeing with the balance sheet.
   const rows = await sql`
     SELECT
       ga.id AS ga_id,

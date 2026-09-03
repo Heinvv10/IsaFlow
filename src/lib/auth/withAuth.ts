@@ -13,7 +13,7 @@ import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { ROLE_HIERARCHY, type AuthRole } from './types';
-import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from './userAccountStatus';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
 
 /**
  * Route categories that get per-company rate limiting applied inside withAuth
@@ -156,13 +156,25 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
       }
 
+      // Two distinct refusals. A membership with no profile behind it is a
+      // broken data state, not a suspension — conflating them sends an operator
+      // hunting for a suspension that was never applied.
       const account = membership.rows[0]!;
-      if (account.account_user_id === null || !isActiveUserAccount(account)) {
+      if (account.account_user_id === null) {
+        await client.query('ROLLBACK');
+        log.warn('withAuth: membership has no users profile', {
+          userId: claims.sub,
+          companyId: activeCompanyId,
+          url: req.url,
+        }, 'Auth');
+        clearAuthCookies(res);
+        return res.status(403).json({ success: false, error: { ...MISSING_PROFILE_ERROR } });
+      }
+      if (!isActiveUserAccount(account)) {
         await client.query('ROLLBACK');
         log.warn('withAuth: account not in good standing', {
           userId: claims.sub,
           companyId: activeCompanyId,
-          profileMissing: account.account_user_id === null,
           url: req.url,
         }, 'Auth');
         clearAuthCookies(res);

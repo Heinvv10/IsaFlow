@@ -322,3 +322,81 @@ describe('rawSubtypesFor', () => {
     expect(raws).not.toContain('bank');
   });
 });
+
+describe('unclassified counting covers every account type', () => {
+  /**
+   * The resolver's headline promise is "an explicit unclassified count". It
+   * originally counted asset and liability only, so on production 39 expense
+   * accounts carrying R114,177,043.06 fell into `operatingExpenses` and 4
+   * revenue accounts carrying R44,635,279.65 fell into `revenue`, neither
+   * counted nor surfaced. A default that silently moves R158.8m between
+   * reported lines is exactly what the count exists to disclose.
+   */
+  it('counts an unknown EXPENSE subtype defaulted into operating expenses', () => {
+    const f = aggregateFigures([row('expense', null, 114_177_043.06, 0, 39)]);
+    expect(f.operatingExpenses).toBeCloseTo(114_177_043.06, 2);
+    expect(f.unclassifiedCount).toBe(39);
+    expect(f.unclassifiedTotal).toBeCloseTo(114_177_043.06, 2);
+    expect(f.unclassifiedByType.expense.accounts).toBe(39);
+    expect(f.unclassifiedByType.expense.amount).toBeCloseTo(114_177_043.06, 2);
+  });
+
+  it('counts an unknown REVENUE subtype defaulted into revenue', () => {
+    const f = aggregateFigures([row('revenue', null, 0, 44_635_279.65, 4)]);
+    expect(f.revenue).toBeCloseTo(44_635_279.65, 2);
+    expect(f.unclassifiedByType.revenue.accounts).toBe(4);
+    expect(f.unclassifiedByType.revenue.amount).toBeCloseTo(44_635_279.65, 2);
+  });
+
+  it("does NOT count an unknown EQUITY subtype, because nothing is defaulted", () => {
+    // Equity has no sub-split in these figures: the account lands in
+    // totalEquity on account_type alone, which is authoritative and
+    // CHECK-constrained. No default is applied, so there is nothing to warn
+    // about, and warning anyway would be noise that trains users to ignore the
+    // banner. If equity ever gains a sub-classification, this test is the
+    // record of why it must then start counting.
+    const f = aggregateFigures([row('equity', null, 0, 500_000, 14)]);
+    expect(f.totalEquity).toBe(500_000);
+    expect(f.unclassifiedCount).toBe(0);
+    expect(f.unclassifiedByType.equity.accounts).toBe(0);
+  });
+
+  it('reports per type as well as in aggregate, because the remedy differs', () => {
+    // Production's real spread, all companies, accounts with movement.
+    const f = aggregateFigures([
+      row('asset', null, 32_872_547.38, 0, 7),
+      row('liability', null, 0, 84_267_599.40, 13),
+      row('expense', null, 114_177_043.06, 0, 39),
+      row('revenue', null, 0, 44_635_279.65, 4),
+    ]);
+    expect(f.unclassifiedCount).toBe(63);
+    expect(f.unclassifiedByType.asset.accounts).toBe(7);
+    expect(f.unclassifiedByType.liability.accounts).toBe(13);
+    expect(f.unclassifiedByType.expense.accounts).toBe(39);
+    expect(f.unclassifiedByType.revenue.accounts).toBe(4);
+    // The aggregate must be the sum of the parts, not a separate tally.
+    const summed = (['asset', 'liability', 'equity', 'revenue', 'expense'] as const)
+      .reduce((n, t) => n + f.unclassifiedByType[t].accounts, 0);
+    expect(summed).toBe(f.unclassifiedCount);
+  });
+
+  it('an unrecognised spelling counts the same as a NULL', () => {
+    // 'other' appears on both expenses and liabilities in production and says
+    // nothing about which line the money belongs on.
+    const f = aggregateFigures([row('expense', 'other', 1_000, 0, 1)]);
+    expect(f.unclassifiedByType.expense.accounts).toBe(1);
+    expect(f.operatingExpenses).toBe(1_000);
+  });
+
+  it('a recognised subtype is never counted, on any type', () => {
+    const f = aggregateFigures([
+      row('expense', 'cost_of_sales', 100, 0),
+      row('revenue', 'other_income', 0, 100),
+      row('asset', 'bank', 100, 0),
+      row('liability', 'payable', 0, 100),
+      row('equity', 'retained_earnings', 0, 100),
+    ]);
+    expect(f.unclassifiedCount).toBe(0);
+    expect(f.unclassifiedTotal).toBe(0);
+  });
+});

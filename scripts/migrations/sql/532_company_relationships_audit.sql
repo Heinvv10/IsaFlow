@@ -36,7 +36,7 @@ ALTER TABLE company_relationships
   ADD COLUMN IF NOT EXISTS deleted_by UUID;
 
 COMMENT ON COLUMN company_relationships.created_by IS
-  'User who attached this subsidiary. NULL for rows predating migration 531.';
+  'User who attached this subsidiary. NULL for rows predating migration 532.';
 COMMENT ON COLUMN company_relationships.deleted_at IS
   'Soft-delete marker. Every read of this table MUST filter deleted_at IS NULL — '
   'a live row grants the parent read access to the child''s general ledger.';

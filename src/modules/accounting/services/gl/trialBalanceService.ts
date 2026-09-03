@@ -120,7 +120,9 @@ async function rowsForBasis(
 
     const rows = (await sql`
       SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
-        COALESCE(SUM(CASE WHEN je.entry_date >= ${fyStart} THEN jl.debit ELSE 0 END), 0) AS closing_debit,
+        COALESCE(SUM(CASE WHEN ga.account_type IN ('asset', 'liability', 'equity')
+                            OR je.entry_date >= ${fyStart}
+                          THEN jl.debit ELSE 0 END), 0) AS closing_debit,
         COALESCE(SUM(CASE WHEN ga.account_type IN ('asset', 'liability', 'equity')
                             OR je.entry_date >= ${fyStart}
                           THEN jl.credit ELSE 0 END), 0) AS closing_credit,

@@ -30,6 +30,14 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(),
 }));
+// P2-11: submitVATReturn now asserts the clearing date HAS a fiscal period
+// before posting. This suite mocks `sql` wholesale, so the real lookup would
+// read from a mock that returns undefined. Resolving to a period keeps these
+// cases on the path they are about — the DATE of the entry. The guard itself is
+// covered by vatSubmissionClearingPeriodGuardDb.test.ts against a real database.
+vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
+  getFiscalPeriodIdForDate: vi.fn().mockResolvedValue('11111111-1111-1111-1111-111111111111'),
+}));
 
 import { sql } from '@/lib/neon';
 import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';

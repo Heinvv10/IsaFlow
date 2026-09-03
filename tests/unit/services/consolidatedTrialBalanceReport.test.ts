@@ -26,9 +26,11 @@ vi.mock('@/modules/accounting/services/reports/consolidatedTrialBalanceService',
 
 import { sql } from '@/lib/neon';
 import { getConsolidatedTrialBalance } from '@/modules/accounting/services/reports/consolidatedTrialBalanceReport';
+import { BALANCE_TOLERANCE } from '@/modules/accounting/services/gl/trialBalanceService';
 
 const GROUP_ID = 'eeeeeeee-0000-0000-0000-000000000001';
 const CO_A = 'aaaaaaaa-0000-0000-0000-000000000001';
+const CO_B = 'aaaaaaaa-0000-0000-0000-000000000002';
 const PERIOD_START = '2025-03-01';
 const PERIOD_END = '2026-02-28';
 
@@ -71,26 +73,43 @@ beforeEach(() => {
   getPostedEliminations.mockResolvedValue([]);
 });
 
-/** Queue the per-member queries: balances, then brought-forward profit. */
-function primeMember(balanceRows: Record<string, unknown>[], broughtForward = '0') {
+/**
+ * Queue the per-member queries, in order:
+ *   0 fiscal-year lookup, 1 balances, 2 brought-forward profit.
+ */
+function primeMember(
+  balanceRows: Record<string, unknown>[],
+  broughtForward = '0',
+  fyStartMonth: unknown = 3,
+) {
   const mockSql = sql as SqlMock;
-  mockSql.mockResolvedValueOnce(balanceRows).mockResolvedValueOnce([{ retained: broughtForward }]);
+  mockSql
+    .mockResolvedValueOnce([{ financial_year_start: fyStartMonth }])
+    .mockResolvedValueOnce(balanceRows)
+    .mockResolvedValueOnce([{ retained: broughtForward }]);
   return mockSql;
 }
 
 describe('getConsolidatedTrialBalance (GRP-06 — balances, not range movement)', () => {
-  it('bounds the entity query by periodEnd and cuts income statement accounts at periodStart', async () => {
+  /**
+   * P2-6: this used to assert the income statement was cut at periodStart —
+   * it encoded the defect. PERIOD_START here IS a fiscal year start
+   * (2025-03-01), so the two coincide; the dedicated test below uses a
+   * mid-year period where they cannot.
+   */
+  it('bounds the entity query by periodEnd and exempts balance-sheet accounts from the year cut', async () => {
     const mockSql = primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '250' }]);
     await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
 
-    const params = (mockSql.mock.calls[0] as unknown[]).slice(1);
+    const params = (mockSql.mock.calls[1] as unknown[]).slice(1);
     expect(params).toContain(PERIOD_END);
-    expect(params).toContain(PERIOD_START);
 
-    const text = sqlTextOf(mockSql, 0);
-    // Balance-sheet types must be exempt from the periodStart cut-off.
+    const text = sqlTextOf(mockSql, 1);
     expect(text).toContain("ga.account_type IN ('asset', 'liability', 'equity')");
     expect(text).toContain('je.entry_date <=');
+    // No lower bound on the ROW SET — that is CS-01. See trialBalanceService.
+    const whereClause = text.slice(text.indexOf('FROM gl_journal_lines'));
+    expect(whereClause.match(/je\.entry_date\s*>=/g) ?? []).toHaveLength(0);
   });
 
   it('reports one net balance per entity, not gross debit and credit turnover', async () => {
@@ -142,9 +161,9 @@ describe('getConsolidatedTrialBalance (GRP-06 — balances, not range movement)'
   it('asks for the brought-forward profit strictly before periodStart', async () => {
     const mockSql = primeMember([{ account_id: 'acc-bank', total_debit: '1', total_credit: '0' }], '5000');
     await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
-    const params = (mockSql.mock.calls[1] as unknown[]).slice(1);
+    const params = (mockSql.mock.calls[2] as unknown[]).slice(1);
     expect(params).toContain(PERIOD_START);
-    expect(((mockSql.mock.calls[1] as unknown[])[0] as string[]).join('')).toContain('je.entry_date <');
+    expect(sqlTextOf(mockSql, 2)).toMatch(/je\.entry_date\s*<\s*\?/);
   });
 
   it('reports the profit even when the group has no retained earnings mapping', async () => {
@@ -180,5 +199,166 @@ describe('getConsolidatedTrialBalance (eliminations follow the same basis)', () 
     expect(bank.eliminationCredit).toBe(500);   // cumulative, not the 111 in-range figure
     const revenue = tb.groupAccounts.find(a => a.groupAccountId === 'ie-1')!;
     expect(revenue.eliminationDebit).toBe(300); // in-range, not the 9999 cumulative figure
+  });
+});
+
+// ── P2-5: the assertion the single-company report has ─────────────────────────
+
+describe('getConsolidatedTrialBalance — balanced assertion and dropped accounts', () => {
+  /**
+   * Production's only group has three members carrying R152m and R952m of gross
+   * ledger and ZERO group-CoA mappings. Every row is discarded, and the report
+   * currently says nothing at all about that.
+   */
+  it('reports totals, difference, balanced and accountCount', async () => {
+    primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '250' }]);
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
+
+    expect(tb.totalDebit).toBe(750);
+    expect(tb.totalCredit).toBe(0);
+    expect(tb.difference).toBe(750);
+    expect(tb.balanced).toBe(false);
+    expect(tb.accountCount).toBe(1);
+  });
+
+  it('says it balances only when it does, on the shared tolerance', async () => {
+    getCoaMappingsForCompanies.mockResolvedValue(mappings([
+      ['acc-bank', BANK_MAPPING],
+      ['acc-cred', { ...BANK_MAPPING, groupAccountId: 'gggggggg-0000-0000-0000-00000000000c',
+                     groupAccountCode: 'C100', groupAccountName: 'Trade payables',
+                     groupAccountType: 'liability', companyAccountId: 'acc-cred' }],
+    ]));
+    primeMember([
+      { account_id: 'acc-bank', total_debit: '1000', total_credit: '0' },
+      { account_id: 'acc-cred', total_debit: '0', total_credit: '1000' },
+    ]);
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
+    expect(tb.balanced).toBe(true);
+    expect(tb.difference).toBe(0);
+    expect(Math.abs(tb.difference)).toBeLessThan(BALANCE_TOLERANCE);
+  });
+
+  it('counts and values the accounts it dropped for want of a group mapping', async () => {
+    primeMember([
+      { account_id: 'acc-bank', total_debit: '1000', total_credit: '250' },
+      { account_id: 'acc-UNMAPPED', total_debit: '500000', total_credit: '0' },
+      { account_id: 'acc-ALSO-UNMAPPED', total_debit: '0', total_credit: '20000' },
+    ]);
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
+
+    expect(tb.unmapped.accountCount).toBe(2);
+    expect(tb.unmapped.value).toBe(480000);
+    expect(tb.unmapped.byEntity).toHaveLength(1);
+    expect(tb.unmapped.byEntity[0]!.companyId).toBe(CO_A);
+    expect(tb.unmapped.byEntity[0]!.accountCount).toBe(2);
+  });
+
+  it('reports an entirely unmapped group as empty AND says so, rather than looking healthy', async () => {
+    // Production's Incendio Global: members with real ledgers, no mappings.
+    primeMember([
+      { account_id: 'acc-UNMAPPED', total_debit: '152427754.20', total_credit: '0' },
+    ]);
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
+
+    expect(tb.groupAccounts).toHaveLength(0);
+    expect(tb.accountCount).toBe(0);
+    expect(tb.unmapped.accountCount).toBe(1);
+    expect(tb.unmapped.value).toBe(152427754.2);
+  });
+
+  /**
+   * The defect: rows were filtered on `if (!mapping) continue`, but the
+   * brought-forward sum covered EVERY revenue and expense account. The b/f then
+   * carried profit from accounts whose balances had been dropped, and the group
+   * TB went out by exactly the unmapped amount — with nothing to say so.
+   */
+  it('excludes unmapped accounts from the brought-forward sum too, so it still balances', async () => {
+    const mockSql = sql as SqlMock;
+    mockSql
+      .mockResolvedValueOnce([{ financial_year_start: 3 }])
+      .mockResolvedValueOnce([
+        { account_id: 'acc-bank', total_debit: '1000', total_credit: '0' },
+        { account_id: 'acc-UNMAPPED', total_debit: '0', total_credit: '1000' },
+      ])
+      .mockResolvedValueOnce([{ retained: '0' }]);
+
+    await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
+
+    // The brought-forward query must be restricted to the mapped accounts.
+    const bfText = sqlTextOf(mockSql, 2);
+    expect(bfText).toContain('ga.id = ANY');
+    const bfParams = (mockSql.mock.calls[2] as unknown[]).slice(1);
+    expect(bfParams.some(p => Array.isArray(p) && (p as string[]).includes('acc-bank'))).toBe(true);
+    expect(bfParams.some(p => Array.isArray(p) && (p as string[]).includes('acc-UNMAPPED'))).toBe(false);
+  });
+});
+
+// ── P2-6: the basis the header claims ────────────────────────────────────────
+
+describe('getConsolidatedTrialBalance — income statement is year-to-date', () => {
+  /**
+   * The header claimed "the same basis as the single-company trial balance",
+   * but the code cut P&L at periodStart while trialBalanceService cuts at
+   * fiscalYearStart(periodStart). Same entity, two different revenue figures,
+   * and a comment asserting they agreed.
+   */
+  it('cuts income statement accounts at the member fiscal year start, not periodStart', async () => {
+    const mockSql = primeMember([{ account_id: 'acc-bank', total_debit: '1000', total_credit: '0' }]);
+    // Period 2026-02-01..2026-02-28 with a March year end → FY starts 2025-03-01.
+    await getConsolidatedTrialBalance(GROUP_ID, '2026-02-01', '2026-02-28');
+
+    const params = (mockSql.mock.calls[1] as unknown[]).slice(1);
+    expect(params).toContain('2025-03-01');
+    expect(params).toContain('2026-02-28');
+  });
+
+  it('takes the brought-forward profit at the same fiscal year start it cut the P&L at', async () => {
+    const mockSql = primeMember([{ account_id: 'acc-bank', total_debit: '1', total_credit: '0' }], '5000');
+    await getConsolidatedTrialBalance(GROUP_ID, '2026-02-01', '2026-02-28');
+    expect((mockSql.mock.calls[2] as unknown[]).slice(1)).toContain('2025-03-01');
+  });
+
+  it('exposes each member fiscal year start and flags a group that is not coterminous', async () => {
+    getGroupMembers.mockResolvedValue([
+      { companyId: CO_A, companyName: 'Co A', ownershipPct: 100, consolidationMethod: 'full' },
+      { companyId: CO_B, companyName: 'Co B', ownershipPct: 100, consolidationMethod: 'full' },
+    ]);
+    getCoaMappingsForCompanies.mockResolvedValue(
+      new Map([[CO_A, new Map([['acc-bank', BANK_MAPPING]])], [CO_B, new Map([['acc-bank', BANK_MAPPING]])]]),
+    );
+    const mockSql = sql as SqlMock;
+    // Co A: March year end. Co B: December year end.
+    mockSql
+      .mockResolvedValueOnce([{ financial_year_start: 3 }])
+      .mockResolvedValueOnce([{ account_id: 'acc-bank', total_debit: '100', total_credit: '0' }])
+      .mockResolvedValueOnce([{ retained: '0' }])
+      .mockResolvedValueOnce([{ financial_year_start: 12 }])
+      .mockResolvedValueOnce([{ account_id: 'acc-bank', total_debit: '100', total_credit: '0' }])
+      .mockResolvedValueOnce([{ retained: '0' }]);
+
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, '2026-02-01', '2026-02-28');
+    expect(tb.fiscalYearStarts[CO_A]).toBe('2025-03-01');
+    expect(tb.fiscalYearStarts[CO_B]).toBe('2025-12-01');
+    expect(tb.coterminous).toBe(false);
+  });
+
+  /**
+   * The page reads `data.entityNames` to label its per-entity columns and
+   * `data.groupAccounts` for the rows. The service returned neither `rows` nor
+   * `entityNames`, so `Object.keys(data.entityNames)` and `data.rows.length`
+   * both threw — the envelope-mismatch defect class again, invisible only
+   * because production's one group returns nothing.
+   */
+  it('names the member entities so a consumer can label its columns', async () => {
+    primeMember([{ account_id: 'acc-bank', total_debit: '100', total_credit: '0' }]);
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, PERIOD_START, PERIOD_END);
+    expect(tb.entityNames[CO_A]).toBe('Co A');
+  });
+
+  it('is coterminous when every member shares a year end', async () => {
+    primeMember([{ account_id: 'acc-bank', total_debit: '100', total_credit: '0' }]);
+    const tb = await getConsolidatedTrialBalance(GROUP_ID, '2026-02-01', '2026-02-28');
+    expect(tb.coterminous).toBe(true);
+    expect(tb.fiscalYearStarts[CO_A]).toBe('2025-03-01');
   });
 });

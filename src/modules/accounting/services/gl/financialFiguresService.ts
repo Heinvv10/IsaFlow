@@ -16,6 +16,7 @@ import {
   type ClassificationRow,
   type ClassifiedFigures,
 } from './accountClassification';
+import { getRetainedEarningsBroughtForward } from './trialBalanceBasis';
 import type { FinancialData } from '@/modules/accounting/services/reports/reportingEngineService';
 
 interface RawRow {
@@ -37,6 +38,18 @@ export interface PeriodFigures {
    * inventory. See `inventoryWarning`.
    */
   inventoryClassified: boolean;
+  /**
+   * Accumulated profit (credit-positive) earned strictly BEFORE `from`.
+   *
+   * `cumulative` is since-inception but holds no revenue or expense, so equity
+   * has to carry the accumulated result or the balance sheet does not balance.
+   * Adding back only `period.netProfit` drops everything earned earlier —
+   * R28,356,760.75 of accumulated loss on Velocity Fibre alone.
+   *
+   * Computed by trialBalanceBasis, which owns this quantity and which the
+   * trial balance already depends on being right. Not reimplemented here.
+   */
+  retainedEarningsBroughtForward: number;
   /** Movement inside [from, to] — the P&L. */
   period: ClassifiedFigures;
   /** Movement up to and including `to` — the balance sheet. */
@@ -53,7 +66,7 @@ export async function getFinancialFigures(
   from: string,
   to: string
 ): Promise<PeriodFigures> {
-  const [rows, inventoryProbe] = await Promise.all([
+  const [rows, inventoryProbe, broughtForward] = await Promise.all([
     sql`
     SELECT
       ga.account_type,
@@ -83,6 +96,7 @@ export async function getFinancialFigures(
           AND account_subtype = ANY(${INVENTORY_SUBTYPES as string[]}::TEXT[])
       ) AS has_inventory
     ` as unknown as Promise<Array<{ has_inventory: boolean }>>,
+    getRetainedEarningsBroughtForward(companyId, from),
   ]);
 
   const asPeriod: ClassificationRow[] = rows.map((r) => ({
@@ -102,18 +116,42 @@ export async function getFinancialFigures(
 
   return {
     inventoryClassified: inventoryProbe[0]?.has_inventory === true,
+    retainedEarningsBroughtForward: broughtForward,
     period: aggregateFigures(asPeriod),
     cumulative: aggregateFigures(asCumulative),
   };
 }
 
 /**
- * Map the resolver output onto the `FinancialData` shape the reporting engine
- * and report packs consume. Equity carries the period result because the
- * current year's profit is not closed into retained earnings until year end —
- * the same convention the previous per-endpoint SQL used.
+ * Total equity: posted equity, plus this period's result, plus everything
+ * accumulated before `from`.
+ *
+ * The one definition. Seven endpoints used to inline
+ * `cumulative.totalEquity + period.netProfit`, which silently dropped the
+ * pre-period result and left the balance sheet out by R28,356,760.75 on
+ * Velocity Fibre alone. Call this rather than re-deriving it.
  */
-export function toFinancialData({ period, cumulative }: PeriodFigures): FinancialData {
+export function totalEquity(figures: PeriodFigures): number {
+  return (
+    figures.cumulative.totalEquity +
+    figures.period.netProfit +
+    figures.retainedEarningsBroughtForward
+  );
+}
+
+/**
+ * Map the resolver output onto the `FinancialData` shape the reporting engine
+ * and report packs consume.
+ *
+ * Equity carries the accumulated result — this period's plus everything before
+ * `from` — because profit is not closed into retained earnings until year end
+ * and `cumulative` excludes revenue and expense entirely. The previous
+ * per-endpoint SQL added back only the current period and so reported a balance
+ * sheet that did not balance; centralising the defect here is what let one fix
+ * settle it for all ten endpoints.
+ */
+export function toFinancialData(figures: PeriodFigures): FinancialData {
+  const { period, cumulative } = figures;
   return {
     revenue: period.revenue,
     costOfSales: period.costOfSales,
@@ -121,7 +159,7 @@ export function toFinancialData({ period, cumulative }: PeriodFigures): Financia
     netProfit: period.netProfit,
     totalAssets: cumulative.totalAssets,
     totalLiabilities: cumulative.totalLiabilities,
-    totalEquity: cumulative.totalEquity + period.netProfit,
+    totalEquity: totalEquity(figures),
     currentAssets: cumulative.currentAssets,
     currentLiabilities: cumulative.currentLiabilities,
     inventory: cumulative.inventory,
@@ -139,16 +177,39 @@ export function toFinancialData({ period, cumulative }: PeriodFigures): Financia
  */
 export function unclassifiedWarning(
   figures: ClassifiedFigures
-): { accounts: number; amount: number; message: string } | null {
+): {
+  accounts: number;
+  amount: number;
+  message: string;
+  byType: Array<{ type: AccountType; accounts: number; amount: number; defaultedTo: string }>;
+} | null {
   if (figures.unclassifiedCount === 0) return null;
+  const byType = (Object.keys(DEFAULT_DESTINATION) as AccountType[])
+    .map((type) => ({
+      type,
+      accounts: figures.unclassifiedByType[type].accounts,
+      amount: figures.unclassifiedByType[type].amount,
+      defaultedTo: DEFAULT_DESTINATION[type],
+    }))
+    .filter((t) => t.accounts > 0);
   return {
     accounts: figures.unclassifiedCount,
     amount: figures.unclassifiedTotal,
     message:
-      `${figures.unclassifiedCount} account(s) have no recognised subtype and were ` +
-      `treated as current. Set account_subtype on them for an accurate current/non-current split.`,
+      `${figures.unclassifiedCount} account(s) have no recognised subtype, so a default ` +
+      `was applied. Set account_subtype on them for accurate figures.`,
+    byType,
   };
 }
+
+/** What an unknown subtype of each type is silently treated as. */
+const DEFAULT_DESTINATION: Record<AccountType, string> = {
+  asset: 'current assets',
+  liability: 'current liabilities',
+  equity: '',
+  revenue: 'revenue rather than other income',
+  expense: 'operating expenses rather than cost of sales',
+};
 
 /**
  * Warning payload for any report publishing a quick (acid-test) ratio.

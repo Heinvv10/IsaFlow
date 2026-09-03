@@ -42,6 +42,8 @@ import { log } from '@/lib/logger';
 import { getVATReturn } from './vatReturnService';
 import { createJournalEntry, postJournalEntry, resolveUserUuid } from '../gl/journalEntryService';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { getFiscalPeriodIdForDate } from '../gl/fiscalPeriodService';
+import { isAutoCreatableYear } from '../gl/fiscalPeriodAutoCreate';
 import type { JournalLineInput } from '../../types/gl.types';
 
 /**
@@ -150,6 +152,51 @@ function mapRow(row: Row): VATReturnRecord {
   };
 }
 
+/**
+ * Refuse to post the clearing journal if its date has no fiscal period (P2-11).
+ *
+ * `createJournalEntry` INSERTs `fiscal_period_id = NULL` when it cannot resolve
+ * a covering period, and `postJournalEntry` guards its closed-period check
+ * behind `if (entry.fiscalPeriodId)` — so the entry POSTS and is then invisible
+ * to every period-scoped report while still sitting in the ledger. Migration 501
+ * names what that cost the last time: Britech's R267,109.70 salary
+ * understatement, 200+ rows. A VAT settlement is the worst journal to lose that
+ * way: it is the entry that clears the control accounts, so an invisible one
+ * leaves the liability standing with no trace of the filing that settled it.
+ *
+ * V-05 made this reachable by moving the clearing date from periodEnd — always
+ * inside the period being filed, and therefore always covered — to
+ * periodEnd + 1 day, which can fall past the last period a company has.
+ *
+ * Scope, deliberately narrow. Only the SILENT case is refused:
+ *   - a covering period exists                  → proceed, unchanged;
+ *   - none exists but the year is inside
+ *     `fiscalPeriodAutoCreate`'s window         → proceed: the write path
+ *     creates the year itself, and when it cannot (an existing year with a gap)
+ *     it throws on its own — pre-empting that would refuse filings that work;
+ *   - none exists and the year is outside it    → REFUSE, before any write.
+ *
+ * It does NOT create a period. Provisioning a fiscal year is a decision an
+ * accountant makes, not a side effect of filing a VAT return.
+ */
+async function assertClearingDateHasFiscalPeriod(
+  companyId: string,
+  clearingDate: string,
+): Promise<void> {
+  if (await getFiscalPeriodIdForDate(companyId, clearingDate)) return;
+
+  const year = Number(clearingDate.slice(0, 4));
+  if (Number.isInteger(year) && isAutoCreatableYear(year)) return;
+
+  throw new Error(
+    `Cannot file this VAT return: no fiscal period covers the clearing date ${clearingDate} `
+    + `(the first day after the period being filed), and ${year} is outside the range in which `
+    + 'fiscal years are created automatically. The settlement journal would post with no fiscal '
+    + 'period and be invisible to the trial balance, the VAT201 and the AFS. Create the fiscal '
+    + `year ${year} first, then file again.`,
+  );
+}
+
 // ── submitVATReturn ───────────────────────────────────────────────────────────
 
 /**
@@ -252,6 +299,10 @@ export async function submitVATReturn(
   // 5. Create and post the journal entry — skip entirely for a nil return
   let journalEntryId: string | null = null;
   if (lines.length > 0) {
+    // Before the first write of the whole flow. A nil return posts no journal,
+    // so it cannot go invisible and is not refused.
+    await assertClearingDateHasFiscalPeriod(companyId, clearingDate);
+
     const je = await createJournalEntry(companyId, {
       // First day of the FOLLOWING period — see the V-05 note in the file header.
       entryDate:   clearingDate,

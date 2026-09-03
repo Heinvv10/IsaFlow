@@ -59,3 +59,14 @@ describe('isActiveUserAccount', () => {
     expect(SUSPENDED_ACCOUNT_ERROR.message).toMatch(/suspend/i);
   });
 });
+
+describe('MISSING_PROFILE_ERROR', () => {
+  it('is a distinct code from suspension and never says "suspended"', async () => {
+    const { MISSING_PROFILE_ERROR, SUSPENDED_ACCOUNT_ERROR } = await import('@/lib/auth/userAccountStatus');
+    expect(MISSING_PROFILE_ERROR.code).toBe('ACCOUNT_PROFILE_MISSING');
+    expect(MISSING_PROFILE_ERROR.code).not.toBe(SUSPENDED_ACCOUNT_ERROR.code);
+    // The whole point of the split: an operator must not go hunting for a
+    // suspension that was never applied.
+    expect(MISSING_PROFILE_ERROR.message).not.toMatch(/suspend/i);
+  });
+});

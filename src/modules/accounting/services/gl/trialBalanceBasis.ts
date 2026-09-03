@@ -90,9 +90,18 @@ export function broughtForwardLine(fromDate: string): BroughtForwardLine {
   };
 }
 
-/** Round to cents, killing the float noise that SUM() of NUMERIC → Number leaves behind. */
+/**
+ * Round to cents, killing the float noise that SUM() of NUMERIC → Number leaves
+ * behind.
+ *
+ * Normalises negative zero. A balanced ledger whose raw difference is a tiny
+ * negative drift rounds to -0, which `Object.is` distinguishes from 0 and which
+ * formats as "-R0.00" in the UI and the CSV export — a trial balance reporting
+ * a negative nothing.
+ */
 export function round2(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
+  const rounded = Math.round((n + Number.EPSILON) * 100) / 100;
+  return rounded === 0 ? 0 : rounded;
 }
 
 /**

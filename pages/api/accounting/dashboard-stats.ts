@@ -5,6 +5,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { BANK_SUBTYPES } from '@/modules/accounting/services/gl/accountClassification';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -62,7 +63,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             AND je.status = 'posted'
           GROUP BY jl.gl_account_id
         ) b ON b.gl_account_id = ga.id
-        WHERE ga.account_subtype = 'bank'
+        WHERE ga.account_subtype = ANY(${BANK_SUBTYPES as string[]}::TEXT[])
           AND ga.company_id = ${companyId}::UUID
         ORDER BY ga.account_code
       `,

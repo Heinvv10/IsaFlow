@@ -22,7 +22,7 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
-import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from './userAccountStatus';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
 
 /**
  * Auto rate-limit table — must stay in sync with the equivalent table in
@@ -188,15 +188,21 @@ export async function runBearerRequest(
       return;
     }
 
+    // Two distinct refusals — a missing profile is a broken data state, not a
+    // suspension, and must not be reported as one.
     const account = membership.rows[0]!;
-    if (account.account_user_id === null || !isActiveUserAccount(account)) {
+    if (account.account_user_id === null) {
+      await client.query('ROLLBACK');
+      log.warn('bearerPipeline: membership has no users profile', {
+        userId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method, url: req.url,
+      }, 'Auth');
+      res.status(403).json({ success: false, error: { ...MISSING_PROFILE_ERROR } });
+      return;
+    }
+    if (!isActiveUserAccount(account)) {
       await client.query('ROLLBACK');
       log.warn('bearerPipeline: account not in good standing', {
-        userId: ctx.userId,
-        companyId: ctx.companyId,
-        authMethod: ctx.method,
-        profileMissing: account.account_user_id === null,
-        url: req.url,
+        userId: ctx.userId, companyId: ctx.companyId, authMethod: ctx.method, url: req.url,
       }, 'Auth');
       res.status(403).json({ success: false, error: { ...SUSPENDED_ACCOUNT_ERROR } });
       return;

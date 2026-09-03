@@ -216,6 +216,43 @@ describe('getTrialBalance (CS-01 — balances, not period movement)', () => {
     expect(text.match(exemption)?.length).toBe(2);
   });
 
+  /**
+   * LOAD-BEARING — do not delete as redundant with the CASE-arm tests above.
+   *
+   * This pins the WHERE clause, which is a different defect vector from the
+   * CASE arms. Adding `AND je.entry_date >= ${periodStart}` to the WHERE
+   * bounds the ROW SET, not a column: it is CS-01 exactly, and measured
+   * against production (Velocity Fibre, September 2026) it returned 7 of 83
+   * accounts and R3,564,987.50 of R139,181,540.68 — only what moved that
+   * month, valued at movement rather than balance.
+   *
+   * It survived the original suite because `periodStart` was ALREADY a bound
+   * parameter (the two movement CASE arms use it), so `params.toContain(...)`
+   * still passed, and no `fiscal_period_id` appeared for the not.toContain
+   * check to catch.
+   *
+   * Note this is NOT the same as adding `OR je.entry_date >= ${periodStart}`
+   * to a closing CASE arm, which is genuinely vacuous — `fyStart <=
+   * periodStart` always, so that OR admits no extra rows. Vacuous there,
+   * catastrophic here.
+   */
+  it('does not bound the row set below — no lower entry_date bound in the WHERE clause', async () => {
+    const mockSql = primeSql([makeDbRow()]);
+    await getTrialBalance(COMPANY_ID, PERIOD_ID);
+    const text = sqlTextOf(mockSql, 1);
+
+    // Exactly four lower bounds on entry_date, all inside CASE arms:
+    // two for the fiscal-year cut-off, two for the period movement columns.
+    // A fifth means someone bounded the row set itself.
+    const lowerBounds = text.match(/je\.entry_date\s*>=/g) ?? [];
+    expect(lowerBounds).toHaveLength(4);
+
+    // The only entry_date predicate in the WHERE clause is the upper bound.
+    const whereClause = text.slice(text.indexOf('FROM gl_journal_lines'));
+    expect(whereClause.match(/je\.entry_date\s*>=/g) ?? []).toHaveLength(0);
+    expect(whereClause).toMatch(/je\.entry_date\s*<=/);
+  });
+
   it('never bounds the closing balance below by the period start', async () => {
     const mockSql = primeSql([makeDbRow()]);
     await getTrialBalance(COMPANY_ID, PERIOD_ID);

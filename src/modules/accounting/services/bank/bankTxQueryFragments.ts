@@ -18,6 +18,10 @@ import type { BankTxFilters } from './bankTxFilters';
 // 'standard' is asserted from the PRESENCE OF A VAT-ACCOUNT LINE, not from
 // gl_journal_lines.vat_type: the tax line is what reaches VAT201, and a vat_type
 // left unset on the contra line would otherwise hide a real claim.
+// V-05 census: no auto_vat_submission exclusion is needed here. This is a
+// per-transaction lateral entered through bt.matched_journal_line_id, and the
+// clearing journal is not matched to any bank transaction, so it cannot reach
+// this aggregate at all.
 const POSTED_VAT_LATERAL = `
   SELECT
     CASE

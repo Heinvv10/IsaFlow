@@ -22,6 +22,7 @@ export {
   isCashEquivalent,
   rawSubtypesFor,
   CASH_SUBTYPES,
+  BANK_SUBTYPES,
   INVENTORY_SUBTYPES,
   RECEIVABLE_SUBTYPES,
   PAYABLE_SUBTYPES,
@@ -58,10 +59,25 @@ export interface ClassifiedFigures {
   accountsReceivable: number;
   accountsPayable: number;
   inventory: number;
-  /** GL accounts whose subtype was NULL or unrecognised, so a default was applied. */
+  /**
+   * GL accounts whose subtype was NULL or unrecognised, so a default was
+   * applied that moves money between reported lines. Across every account type
+   * where such a default exists — see `unclassifiedByType`.
+   */
   unclassifiedCount: number;
   /** Signed balance carried by those accounts. */
   unclassifiedTotal: number;
+  /**
+   * The same tally split by account type, because the remedy differs: "39
+   * expense accounts defaulted into operating expenses" tells a user what to
+   * go and fix, where a lump "63 accounts" does not.
+   *
+   * Equity is always zero by design. It has no sub-split in these figures — an
+   * equity account lands in `totalEquity` on `account_type` alone, which is
+   * NOT NULL and CHECK-constrained — so an unknown equity subtype causes no
+   * default and there is nothing to disclose.
+   */
+  unclassifiedByType: Record<AccountType, { accounts: number; amount: number }>;
 }
 
 const num = (v: number | string | null | undefined): number => {
@@ -76,7 +92,30 @@ const zero = (): ClassifiedFigures => ({
   currentAssets: 0, nonCurrentAssets: 0, currentLiabilities: 0, nonCurrentLiabilities: 0,
   cash: 0, accountsReceivable: 0, accountsPayable: 0, inventory: 0,
   unclassifiedCount: 0, unclassifiedTotal: 0,
+  unclassifiedByType: {
+    asset: { accounts: 0, amount: 0 },
+    liability: { accounts: 0, amount: 0 },
+    equity: { accounts: 0, amount: 0 },
+    revenue: { accounts: 0, amount: 0 },
+    expense: { accounts: 0, amount: 0 },
+  },
 });
+
+/**
+ * Account types where an unknown subtype causes a DEFAULT that changes a
+ * reported figure, and so must be disclosed:
+ *   asset      — current/non-current, and cash / receivable / inventory
+ *   liability  — current/non-current, and payable
+ *   revenue    — revenue vs other income
+ *   expense    — operating vs cost of sales vs other expenses
+ * Equity is absent deliberately: it has no sub-split, so nothing is defaulted.
+ */
+const DEFAULTED_WHEN_UNKNOWN: ReadonlySet<AccountType> = new Set<AccountType>([
+  'asset',
+  'liability',
+  'revenue',
+  'expense',
+]);
 
 /** Expense subtypes reported below the operating line. */
 const OTHER_EXPENSE: ReadonlySet<CanonicalSubtype> = new Set<CanonicalSubtype>([
@@ -102,9 +141,11 @@ export function aggregateFigures(rows: readonly ClassificationRow[]): Classified
     const balance =
       type === 'asset' || type === 'expense' ? debit - credit : credit - debit;
 
-    if (canon === null && (type === 'asset' || type === 'liability')) {
+    if (canon === null && DEFAULTED_WHEN_UNKNOWN.has(type)) {
       f.unclassifiedCount += count;
       f.unclassifiedTotal += balance;
+      f.unclassifiedByType[type].accounts += count;
+      f.unclassifiedByType[type].amount += balance;
     }
 
     switch (type) {
