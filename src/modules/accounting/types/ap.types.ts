@@ -233,6 +233,13 @@ export interface AgingInvoice {
   balance: number;
   /** Open-dispute amount for this invoice (AR only). Subtracted from balance before bucketing. */
   disputedAmount?: number;
+  /**
+   * True when the invoice carries no due date and `dueDate` above is its
+   * invoice date instead. These rows used to be filtered out of the aging
+   * entirely; they are aged conservatively and flagged so a reader can see
+   * that the age is derived rather than recorded.
+   */
+  dueDateMissing?: boolean;
 }
 
 // ── Supplier Batch Payments ──────────────────────────────────────────────────

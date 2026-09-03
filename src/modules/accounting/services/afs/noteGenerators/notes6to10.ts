@@ -5,7 +5,8 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
-import { fmt, toNum, fiscalRange } from './noteHelpers';
+import { fmt, toNum } from './noteHelpers';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -53,7 +54,7 @@ export async function generateNote8FinancialAssets(
   companyId: string,
   fiscalYear: number,
 ): Promise<NoteResult> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('Generating note 8 — tax expense', { companyId, fiscalYear }, 'noteGenerators');
 
@@ -113,7 +114,7 @@ export async function generateNote9Inventories(
   companyId: string,
   fiscalYear: number,
 ): Promise<NoteResult> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('Generating note 9 — inventories', { companyId, fiscalYear }, 'noteGenerators');
 
@@ -181,7 +182,7 @@ export async function generateNote10TradeReceivables(
   companyId: string,
   fiscalYear: number,
 ): Promise<NoteResult> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('Generating note 10 — trade receivables', { companyId, fiscalYear }, 'noteGenerators');
 

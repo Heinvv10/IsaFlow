@@ -111,7 +111,20 @@ export async function getConsolidatedIncomeStatement(
 
     for (const elim of await getPostedEliminations(groupId, periodStart, periodEnd)) {
       const entry = lineMap.get(elim.groupAccountId);
-      if (entry) entry.eliminationAmount += elim.credit - elim.debit;
+      // The elimination must land in the SAME direction the member amounts
+      // were accumulated in, a few lines above:
+      //     amount = type === 'revenue' ? credit - debit : debit - credit
+      // This was unconditionally `credit - debit`, so on an expense line the
+      // elimination carried the same sign as the expense itself and group
+      // expenses went UP by the eliminated amount instead of down. A standard
+      // elimination journal (debit revenue, credit expense) therefore moved
+      // group profit by twice the amount eliminated, in the wrong direction.
+      // getConsolidatedBalanceSheet already keys this off normal_balance.
+      if (entry) {
+        entry.eliminationAmount += entry.category === 'revenue'
+          ? elim.credit - elim.debit
+          : elim.debit - elim.credit;
+      }
     }
 
     const revenue: ConsolidatedLineItem[] = [];

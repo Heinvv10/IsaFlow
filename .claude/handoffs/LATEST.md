@@ -1,108 +1,115 @@
-> **There is a second open handoff:** `.claude/handoffs/2026-08-17-0941-mcp-connector-next-features.md` (MCP connector — next-features roadmap, Tier 1 payments vs VAT201 wedge). Read it if continuing that work. NOTE: it references master @ `16b0b7f2`, which is stale — master is now `6b81b3c8`.
+# Handoff — 2026-09-03 12:12 SAST
 
-# Handoff — 2026-08-17 09:55 SAST
-
-**Project:** IsaFlow
-**Branch:** `master`, clean, in sync with `origin/master` @ `6b81b3c8`
-**Session goal:** Continue from the prior handoff; ended up fixing the group-companies feature end to end, which uncovered a systemic API-envelope defect class. **Next session's job: triage and fix that class.**
+**Project:** IsaFlow (`/home/hein/Workspace/IsaFlow`)
+**Branch:** `fix/reporting-p0-round2` @ `387bd061` — pushed, 0 unpushed. Stacked on `fix/afs-p0` @ `79e2e80d`+ (PR #303).
+**Session goal:** Fix the remaining reporting P0s from the 2026-09-03 audit (AFS, AR/AP, consolidation, exports, inventory/assets).
 
 ## Status
 
-Production = master = **`6b81b3c8`**, deployed 2026-08-17 09:46:59 SAST (business hours, on Hein's explicit instruction). 0 migrations, golden paths 12/12, integrity 15/15, 0 restarts, 0 journal errors. Rollback target **`cb4476fc`** at `/home/velo/isaflow-rollback`.
+Two PRs are open and **both are waiting on Hein**. Neither is merged, neither is deployed. Everything still unfinished is blocked on a decision, not on effort.
 
-The group-companies feature now works and **was verified in a real browser** — `/accounting/group` renders Incendio Global with 3 entities, populated stat cards and a reconciling entity table, zero console errors. Screenshot at `/tmp/claude-1003/-home-hein-Workspace-IsaFlow/2ff16a3a-fb35-43c8-9ae3-43ba4c5ecf40/scratchpad/group-renders.png` (temp — copy it if you need it).
+- **PR #303** -> `master`, 15 commits. AFS (all 6 P0s), AR/AP aging due-date, customer statement, consolidation sign inversion, report-pack zeros, asset disposal. Two independent blind reviews, all findings fixed.
+- **PR #306** -> `fix/afs-p0`, 12 commits. Point-in-time AR/AP aging. Four review rounds. **Merge #303 first** — #306's base is that branch.
 
-**The open work is a defect class, not a feature.** A blind-review repo sweep (~483 `.json()` call sites) found **13 HIGH/HIGH-MEDIUM UI bugs** where a call site re-guesses the API response envelope. Full detail in memory: **`project_api_envelope_defect_class`**.
+Deploy was never attempted: the session ran 06:20–12:12 SAST, entirely inside the 08:00–17:00 Mon–Fri production block.
 
 ## What got done this session
 
-Four PRs, all merged and deployed:
+Verified every numeric claim against **production** read-only before coding. Several audit figures were wrong; corrections are in the commit messages.
 
-| PR | Squash | What |
-|---|---|---|
-| #248 | `f631ad70` | continuous-close 42703 — 4 dead schema references |
-| #249 | `3e20746f` | vestigial `bank_accounts` table read in 3 live call sites |
-| #250 | `1f75cddb` | 16 user-identity `::UUID` casts throwing `text = uuid` |
-| #251 | `cb4476fc` | group setup surface — 9 casing/action breakages |
-| #252 | `6b81b3c8` | group dashboard page crash + 5th envelope instance |
+**AFS (PR #303)**
+- `1f1cad8c` cash flow — fan-out (audit said 20x, it is **2x**; company `4a159669` reported net cash **-R9,089,506.51** vs a true **+R381,207.22**) plus a second defect the audit missed: classification matched subtype spellings that barely exist, so **4,650 of 6,341** contra lines fell into the catch-all.
+- `60741392` changes in equity — profit was invented from posting signs; opening dropped accumulated profit.
+- `79e2e80d` fiscal year — `fiscalRange()` was Jan–Dec in **four** copies, not one (incl. the prior-year comparatives).
+- `9a355b76` the six headline totals (migration **533**) + export blockers that structurally could not fail + new AFS-to-ledger tie-out.
+- `aba3d62e` first blind review: seeder never wrote `total_basis`; tie-out counted a mapping row without resolving it; cash blocker compared two different definitions of cash.
+- `58f4d500` second review: `IS485` "Accumulated income end of year" showed only the current year.
 
-Also deployed the 8 pentest fixes that were merged-but-undeployed at session start (incl. a live cross-tenant NL-query bypass).
+**AR/AP + others (PR #303)**
+- `75cfec1f` aging dropped every invoice with no due date — **AR R13,908,380.43** (34), **AP R37,703,816.94** (357, = 33% of open payables).
+- `5f7ac6ba` customer statement billed **130 drafts (R5,555,315.66)** + 58 cancelled, and omitted **93 credit notes (R372,634.32)**.
+- `99107ff0` report pack had **four** hardcoded zeros (audit said two) and classified current assets by account-code range.
+- `575234b7` consolidation: a R100 elimination moved group profit by R200 (verified empirically).
+- `fbfed185` asset disposal posted no GL journal. **Live**: prod has 1 disposal, R8,000, `journal_entry_id` NULL.
 
-New CI step **`user-id-casts`** (`scripts/ci/audit-user-id-casts.ts` + `userIdCastRules.ts`, 14 own unit tests) wired into BOTH `scripts/ci/run-ci.sh` and `.github/workflows/ci.yml`.
-
-**Incendio Global group created in prod** (`ac239a4d-b912-4fdf-9f0b-94507304cbd8`): Brightsphere, H10 Holdings, Velocity Fibre. `holding_company_id` is **NULL by Hein's decision** — Incendio itself is the holding company and has no company record in IsaFlow. **Do not create an Incendio tenant or set a holding company without asking.**
+**Point-in-time aging (PR #306)** — three designs, two wrong. See "Context" below.
 
 ## What's next
 
-**Triage and fix the API-envelope defect class.** Read `project_api_envelope_defect_class` in memory first.
-
-### Confirmed by direct code inspection (6)
-
-| # | File | Reads | API returns | Symptom |
-|---|---|---|---|---|
-| 1 | `pages/admin/users/[id].tsx:158` | `json.data.token` | `pages/api/admin/users/[id]/impersonate.ts:116` → `{data:{redirect}}`, never a token (auth is cookie-based) | **Admin "Login As" 100% broken** — always throws `'No token returned'` AFTER the impersonation succeeded server-side |
-| 2 | `src/components/dashboard/widgets/VatSummaryWidget.tsx:52-56` | `output_vat`/`outputVat`/`input_vat`/`inputVat`/`net_vat`/`netVat` | `vatReturnService.ts:187-189` → `outputVAT`/`inputVAT`/`netVAT` (full-caps VAT) | **Dashboard VAT always R0.00** |
-| 3 | `pages/accounting/settings/currencies.tsx:33` | `json.data?.currencies` | `pages/api/accounting/currencies.ts:20` → `apiResponse.success(res, currencies)` = bare array | Currencies list always empty |
-| 4-6 | `pages/accounting/migration/{ar-invoices,customers,opening-balances}.tsx` | `sessionJson.data?.id` | `pages/api/accounting/migration/session.ts:31,46` → `{data:{session:{...}}}` | **3 of 4 migration flows always fail "No active session."** `migration/index.tsx:76` unwraps correctly (`json.data.session ?? json.data`) — proves the other three are the regression, not shape ambiguity |
-
-### Reported by the sweep, NOT independently verified (7) — verify before fixing
-
-- `pages/accounting/expenses/[id].tsx:117` — `json.data?.accounts`; GL account dropdown always empty
-- `pages/accounting/batch-payments/[batchId].tsx:178` — `batch.payments`; claim is the mapper never sets it at all
-- `src/components/.../CaptureApiKeysSection.tsx` + `ThreeWayMatchPanel.tsx` — `json.error` assumed string, actually `{code,message}` → React "objects are not valid as a child" **crash**
-- `pages/accounting/capture/settings.tsx` — inbox address never shows
-- `pages/accounting/suppliers/[supplierId]/rules.tsx` — cost-centre picker never renders
-- `src/components/.../TimeEntryForm.tsx` — templates/work-items/rate all broken
-- `OverviewTab.tsx` (provisional-entries banner), `DetailsTab.tsx` + `company-settings.tsx` (documents tab empty)
-- plus ~10 LOW `{error:string}` vs `{error:{code,message}}` → `[object Object]` toasts across practice/bank/financial-years pages
+1. **Merge #303, then #306.** Both need Hein reading the diff — this modifies live customer-facing reporting, so it fails the CLAUDE.md autonomy boundary on 3 of 5 conditions.
+2. Deploy **after 17:00 SAST** from a clean detached worktree at the merge commit (`deploy.sh` builds the CURRENT tree at current HEAD; it does NOT fetch master).
+3. Migrations to apply: **533** (afs_statement_lines total_basis/components) and **535** (two credit_notes invoice indexes). Both idempotent, both re-applied on dev.
+4. Then the blocked items below, in whatever order Hein decides.
 
 ## Open questions / blockers
 
-- **HEIN'S DECISION, still unanswered: structural fix vs patch round.** Options put to him: (a) build a typed `apiFetch<T>()` forcing callers to import the real response type, plus a CI guard banning bare `.json()` casts, THEN sweep; (b) fix the worst 3-4 now (Login-As, VAT widget, migration sessions) and defer the structural work; (c) catalogue and decide later. **My recommendation was (a)** — this class was declared closed twice and was wrong twice; fixing 13 sites against the same untyped floor yields a 14th. Counter-argument: the typed-client work is day-shaped, and three of the bugs are user-facing and cheap now.
-- **Proposed CI guard shape** (narrow, to stay decidable): flag files that BOTH declare a local `interface`/`type` AND contain `res.json()` / `json.data ?? json`, requiring an explicit opt-out comment. Precedent that worked: `scripts/ci/audit-user-id-casts.ts`.
-- **Off-host backup destination** — unchanged, asked repeatedly across sessions, still unanswered. Daily dumps + weekly base + continuous WAL + Sunday restore drill all exist but ALL on this one machine. Options: `fibreflow-wa-vps` over Tailscale, or cloud object storage.
+All of these are Hein's calls. None can be resolved from the code.
+
+- **AR/AP control account (blocks task 2a).** A control-account reconciliation needs the AR control account named. 13 accounts carry `subtype='receivable'`, one carries NULL; two reasonable queries give two answers. The MCP figure registry deliberately leaves `ar.control.v1` / `ap.control.v1` UNOWNED for this reason.
+- **Non-controlling interest (3a).** The schema cannot distinguish subsidiary from associate, and IFRS treats them differently (consolidate 100% + show NCI, vs equity method). All 3 prod group members are at 100%, so NCI is arithmetically inert today. Implementing it means guessing which.
+- **Inventory (5a).** TWO parallel inventory models. `stock_items` and `items` are **0 rows** globally; `stock_movements` (240 rows, all `purchase`, all demo company) belongs to a different subsystem (`products`/`warehouses`). Wiring movements into `stock_items` means building on whichever model Hein has not chosen. Also: `stock_movements` has **no `company_id` column at all**.
+- **The R8,000 disposal with no journal.** Correcting it writes to a client ledger.
+- **`packDeliveryService`** emails packs with `skipChecks: true` and no watermark, bypassing the export blockers. Outbound customer communication.
+- **8 production expense accounts** named salary/wage/payroll are subtyped `operating_expense` or NULL, so they classify as payments to suppliers. Fixed the *vocabulary* (`payroll_expense` canonical subtype); deliberately did NOT name-match, because that is the defect class #300 removed. Their subtype needs setting — a data change.
 
 ## Context the next session needs
 
-- **The defect is NOT scoped by directory.** Two sweeps were scoped by folder and both missed live bugs. The defect shape is "a UI file declares its own copy of an API response shape and feeds an untyped `res.json()` into it". Sweep repo-wide by shape.
-- **The fix pattern that works:** stop redeclaring — import or re-export the service's own exported type. In #252, deleting one local redeclaration surfaced **26 compile errors** that had all been silent `undefined` reads. tsc becomes the guard once the local type is gone.
-- **A test asserting a hardcoded fixture against a TYPE is decorative.** Mine passed 8/8 with the production page reverted to the exact crash, while its own comment claimed it would fail. Blind review caught it. Test the real service against the real schema; let tsc guard field names. Deleted file: `tests/unit/components/groupDashboardContract.test.ts`.
-- **A dead code path hides its own bugs.** Three times this session, repairing a path exposed the next defect behind it: #250's guard threw before #249's repaired queries ran; #251's casing fix would have activated an ungated `holdingCompanyId` (pentest-H1 vector); #252's crash only became reachable once #250 and the group creation both landed. When reviving a dead path, re-review every guard it passes and every field it forwards.
-- **"The SQL works" is not "the route works", and "the API works" is not "the page renders."** I reported the group dashboard fixed twice on query-level proof. It crashed on the first real browser load. For anything user-facing, load it.
-- **Integration-test baseline is 33 failures / 14 files** (`api/health`, `api/zod-validation`, `csp-headers`, `rls-policy-coverage`) — pre-existing, need a running dev server + GoTrue. `bun run ci` exits 1 because of them. Compare the failing FILE SET against `origin/master`, not the pass count.
-- **`bun run ci` runs integration only if `DATABASE_URL` is exported.** In a bare shell it silently skips. `.env.local` cannot be `source`d (line 34 `SMTP_FROM=ISAFlow <noreply@...>` is unquoted).
-- **Query params on `/api/accounting/company-groups` are snake_case; JSON bodies are camelCase.** Deliberate, not a tidy-up target — the DELETE branches read `req.query.member_id`. `src/components/accounting/group/groupRequests.ts` encodes both.
-- **Fixture UUIDs must be valid hex.** `...cu01` and `...bas0` were both rejected (`u`, `s` are not hex). Cost two round trips.
-- **`pgrep -f "next dev|next-server"` self-matches your own shell** whose cmdline contains the pattern. It produced three false "dev server running" alarms. Verify via `/proc/PID/cwd` and `ls -la /proc/PID`, or check the listening port owner. Port 3200 belongs to **ApexSignal**, not IsaFlow.
-- **Deploy timing:** a ~6-minute deploy started after ~07:52 on a weekday WILL cross the 08:00 gate. Don't treat "started before 08:00" as "finished before 08:00".
-- **Read the rollback target off the deploy log's `Snapshotting current release (SHA)` line.** I twice stated a stale prod SHA from memory; the snapshot line is the authority.
+**Point-in-time aging was wrong twice before it was right.** Read `src/modules/accounting/services/shared/agingRewind.ts` before touching it — the formula, the census and all four limitations live there.
 
-### DO NOT RESURRECT
+1. *Rebuild-from-zero* (abandoned): reconstructed paid amounts from allocation history. Assumes every settlement leaves a dated trail. It does not — invoices settled by an untracked path **reappeared at full face value as delinquent debt** (105 invoices for one client on dev).
+2. *Anchored, unguarded* (abandoned): fixed that, then post-dated payments were rewound on the **default** report (one company's AP aging moved R7,241,000.56 -> R7,623,216.94 with no `as_at` supplied), and rewinding could exceed the anchor (a supplier aged R50,275.55 on a R38,614.57 invoice).
+3. *Current*: anchored + two-sided clamp + rewind window bounded at today from ONE clock.
 
-- **`userCreatedGroup` on the `auto-map` handler** — it was applied there by accident (Python `str.replace()` has no count limit and `auto-map` had a byte-identical guard block), reverted after review. `auto-map` is membership-only. `userCreatedGroup` exists ONLY to let a group creator add the FIRST member, and must NOT be folded into `userBelongsToGroup`, which fronts consolidated financial reads and stays membership-only.
-- **`listGroups()`** in `groupCrudService.ts` — unscoped, returns every tenant's groups. No caller; documented as a footgun. Use `listGroupsForUser(userId)`.
-- **A local `interface` mirroring an API response** anywhere in `pages/` or `src/components/` — that IS the defect class.
+**Unallocated receipts are the norm, not the exception** — 36/58 on Velocity (R37,050,347.68), 37/37 on Brightsphere (R2,691,024.00). This is why anchoring beats rebuilding, and why "allocations reconcile to amount_paid" is a **false** premise (an earlier measurement of mine appeared to confirm it because both sides read zero and agreed trivially).
+
+**`bank-match-confirm.ts` writes `amount_paid` ABSOLUTELY**, clobbering what the allocation paths accumulated while their allocation rows survive. This is the root cause of the two ledgers disagreeing at all — dated settlement exceeds `amount_paid` on 40 production invoices by R124,960.37. **A live settlement-path defect, independent of any report.** Ranked highest of the un-actioned findings.
+
+**The year-end close still cannot post.** `yearEndService` writes `source = 'year_end'`, which `gl_journal_entries_source_check` rejects with 23514 (proved on dev in a rolled-back transaction). PR #304 (parallel session) fixed a *different* year-end defect — a 42703 undefined column. Verified on master: `year_end` is still absent from `GL_ENTRY_SOURCES` and no migration added it.
+
+**`fiscal_periods` are seeded Jan–Dec for all 12 companies regardless of `companies.financial_year_start`** (which is 3 for all 13 — the unset column default). Hein ruled the *settings* value authoritative, so AFS now follows it. Period *closing* still follows the periods table. The two disagree; unresolved.
+
+**Census counts were wrong FIVE times this session** (`amount_paid` writers). The final one is in `agingRewind.ts` and explicitly tells the reader to re-derive rather than trust it. A census built from the service layer misses route handlers, webhooks, scripts and importers.
+
+**Entity-total assertions swallow defects.** Four tests passed on broken code — including the test *guarding the clamp*, which bounded an entity total loosely enough that the unclamped value sat inside it. Assert on a single invoice via the drill-down, not on a total.
+
+**Three self-inflicted tooling traps, all repeated:**
+- A backtick OR `${...}` inside a SQL comment in a `sql` tagged template. Backticks fail at build time; interpolations fail at RUNTIME with `42P18 could not determine data type of parameter $1`, naming a parameter unrelated to the comment. Guarded by `tests/unit/ci/noBacktickInSqlComment.test.ts` (hit 3x before the guard).
+- `python replace-in-a-while-loop` where the replacement text re-matches the search pattern -> infinite loop (hit 3x). Do it in one pass.
+- `git checkout -- <file>` on a file with uncommitted work destroyed the clamp + date bound + comment. Use a `cp` backup for mutation testing, never `git checkout`.
+
+**DO NOT RESURRECT:**
+- **Migration 534 (`534_gl_source_year_end.sql`), which added `'year_end'` to `gl_journal_entries_source_check`.** Written, applied to dev, then REVERTED and deleted. `tests/unit/services/glEntrySourceConstraint.test.ts` exists precisely to catch this and did. The constraint is the ONLY guard on an unvalidated INSERT-at-posted path that moves a whole year's profit — `yearEndService` inserts straight to `status='posted'` without `validateJournalEntry`, and `trg_gl_je_balanced` is BEFORE UPDATE only. Convert the writer to `createJournalEntry`/`postJournalEntry` FIRST, then admit the source.
+- **Rebuilding point-in-time paid amounts from allocation history.** Looks like the obvious design; resurrects settled invoices as delinquent debt. See above.
+- **Using `customer_invoices.paid_at` to date the undated settlement remainder.** It is 100% populated on one prod company and looks usable. It marks when an invoice became FULLY paid, so attributing the whole remainder to it asserts nothing was paid earlier — on an invoice with part-payments that INVENTS a delinquency.
+- **Weighting the cash-flow apportionment by `Math.abs(amount)`.** Wrong for every mixed-sign entry (i.e. every payroll run): put -R53,846.15 of a R70,000 payroll on "cash paid to suppliers". Signed weights.
+
+**Verification baseline at handoff:** 593 unit files / 7036 tests pass serially (`bunx vitest run --no-file-parallelism`), 38 DB-backed AR/AP integration tests, typecheck clean, lint 0 errors (6 warnings, all pre-existing in `creditNoteApproveService`/`creditNoteCancelService`, untouched by these branches).
+
+**8 integration test files always fail locally** — `2fa-*`, `csrf`, `csp-headers`, `zod-validation`, `impersonation-flow`, `admin-reset-2fa`. Cause is `Dev server not reachable at http://localhost:3200`, not the code. Pre-existing.
 
 ## Git state
 
-- **Uncommitted:** clean (`.claude/audit-manifest.json` and `.claude/handoffs/LATEST.md` were modified earlier this session and have since been committed/superseded)
-- **Unpushed commits:** none
-- **Stashes:** 16, all pre-dating this session
-- **Worktrees:** 15
+- **Uncommitted:** `.claude/handoffs/LATEST.md` only (this handoff overwrote it; the prior content is archived at `.claude/handoffs/2026-09-03-0620.md`, untracked but on disk).
+- **Unpushed commits:** none. Both branches pushed.
+- **Stashes:** 5, all pre-existing from other sessions (`refactor/afs-validation-helpers` x2, `master` x2, `audit/p1-schema-validation-afs` x1). **None are mine. Do not pop blindly** — `stash push -- <path>` makes no entry when the path is clean, so a paired bare `pop` grabs another session's `stash@{0}`.
 
 ## Session teardown
 
-Nothing from this session is running. These belong to **other projects** and were already running — do not kill them:
-- PID 1195412 / 1195418 — `next dev` in `/home/hein/Workspace/FF_Next.js-actions` (FibreFlow)
-- PID 3147030 — `next dev` in `/home/hein/Workspace/FF_Next.js-histstock` (FibreFlow)
+Background processes still running (**reported, not killed**):
+- PIDs `74951` / `76504` / `76510` — `next dev` for **CrestaHQ**, a different project. Not ours.
+- PIDs `258500` / `258503` — a `next build && next start` walkthrough capture on port 3006. Not ours.
+- Docker `setup-test-db-1`, up 26h (healthy).
+- **14 git worktrees open.** 8 belong to the parallel MCP session (`w0`-`w6`, `fix-audit-silent-failures`), plus `IsaFlow-deployfix`, `IsaFlow-vat-fix`, `IsaFlow_wt/bankcol`, `IsaFlow_wt/deploy-a2bb7ff7`.
 
-No `gh run watch`, no test DB containers, no IsaFlow dev server.
+**A parallel session (`isaflow-bf`) is active on this repo.** It owns migration prefixes **540-609** and merged PRs #301, #302, #304, #305 during this session. Master moved three times; both my branches were rebased onto it. My prefixes 533/535 do not collide.
 
 ## Where to resume
 
+Read this file, then:
+
 ```bash
-git fetch origin && git log origin/master --oneline -5
-curl -s https://app.isaflow.co.za/api/health
+git fetch origin && gh pr view 303 --json state,mergeable
+gh pr view 306 --json state,baseRefName
 ```
 
-Then read memory `project_api_envelope_defect_class`, and **ask Hein the structural-vs-patch question before writing code** — it changes the shape of the whole task.
+If both still open: the next action is Hein reading #303. If #303 has merged, rebase `fix/reporting-p0-round2` onto master and retarget #306.

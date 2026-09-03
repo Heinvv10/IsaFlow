@@ -108,6 +108,60 @@ which is right. This is B3 demonstrated on live production data, and it is why
 
 ---
 
+## A-live-2. The shipped endpoints, run against the live books, 2026-09-03
+
+Definition-of-done item 3 for W1 and W5, satisfied after the deploy of
+`a2bb7ff7`. Every figure below is the endpoint's own output from the production
+MCP connection.
+
+### `list_unapplied_receipts` reproduces its own finding
+
+```
+totalUnapplied  R37,050,347.68   36 receipts
+origins.agent   R37,050,347.68   36 receipts   100%
+agent_tools     mcp:bulk_allocate_bank_transactions:v1
+```
+
+The endpoint built to find B28 returns B28's figure exactly, attributes all of it
+to one tool, and says in its own description that the balance is still growing
+and why. `not_stamped_as_agent` and `no_journal` are both zero here, and are
+reported separately rather than folded into a human bucket.
+
+### `audit_trail` admits the gap rather than papering over it
+
+```
+rowsTotal 9   attribution: recorded 0, derived 9   (all agent)
+```
+
+Correct: nothing has posted through the new code path since the deploy, so
+nothing is yet a recorded fact. An endpoint reporting `recorded: 0` on its first
+run is the design working — the alternative is an attribution that looks
+authoritative and is inferred.
+
+**Note the selection semantics.** It selects by ENTRY date, not by when the tool
+ran, so the 842 `bulk_allocate` journals written today do not appear in a
+1–3 September window — they carry their bank transactions' dates. Correct, and
+documented, but it reads as a bug if unexpected.
+
+### The R10,000 audit test has an answer, and it is zero
+
+```
+transactions_in_scope        1,217
+transactions_with_a_document     0
+```
+
+**Not "few". Zero.** Over the whole of 2026 to date on Velocity Fibre, every one
+of 1,217 transactions above R10,000 has nothing attached. The largest are two
+**R6,000,000** Fibertime credits and a **R4,500,000** transfer, none carrying so
+much as a reference.
+
+The specification called this test "currently unanswerable". It is answerable
+now, and `transactions_in_scope` / `transactions_with_a_document` size the
+exposure rather than merely listing rows — which is the difference between a
+report and a finding.
+
+---
+
 ## B. Defects found that the specification never mentions
 
 These are the ones that matter most: nobody was looking for them.
@@ -154,6 +208,8 @@ These are the ones that matter most: nobody was looking for them.
 | B39 | **A completed bank reconciliation is trivially balanced before anything happens** — `startReconciliation` sets `reconciled_balance = gl_balance`, so an empty session reconciles at R0.00 with nothing matched. That is how the one "completed" production reconciliation got there | — | FIXING (W3) |
 | B40 | **Platform-wide fiscal-period cliff.** Every company's periods end 2027-12-31 and the depreciation hook dates `CURRENT_DATE`, so all ten start writing NULL-period journals on **2028-01-01**. Separately the demo company has a **1,096-day hole (2028-01-01 → 2030-12-31)** that is reachable *today* — the only such gap in the database, and worse than an end date because nothing counts down to it. Zero NULL-period journals exist today | — | Detection FIXING (W3); prevention **OPEN — C5** |
 | B41 | `afs_statement_lines.is_active` filtered in three AFS note generators — an inactive statement-line definition whose mapped accounts still hold money is dropped from the annual financial statements. Same shape as B5, different table | — | REPORTED |
+| B42 | `writePracticeTime.ts:139` uses `toISOString().slice(0,10)` — the UTC calendar day. SAST is UTC+2, so any call between midnight and 02:00 local stamps YESTERDAY. Same class this repo already fixed once via `fmtDate`; the twin in `fiscalPeriods.ts` is fixed | — | **OPEN** |
+| B43 | **The completeness identity now carries TWO self-reported numbers.** `buildEnvelope` accepts `excludedTotal` as well as `universeTotal`, so a service computing `excludedTotal := universeTotal - rowsTotal` passes unconditionally regardless of what it actually excluded. No documented invariant breaks — CONTRACTS §1 already says the envelope proves internal consistency and not completeness — but a call site passing `excludedTotal` must be reviewed on its own terms, because the envelope cannot catch it | — | REPORTED — caveat in CONTRACTS |
 | B19 | **Cash has two legitimate and disagreeing senses** — the GL ledger sense and the bank-statement-feed sense. `cash-movement` reads the feed, `reports-bank-transactions` reads the GL | — | FIXING (W3) — registering BOTH, gap is `bank_statement_coverage`'s output |
 | B42 | **R12,807,325.13 has been coded straight to salary and wage accounts on Velocity and Brightsphere with no payroll run behind any of it, and not one cent of PAYE, UIF or SDL was raised against it.** Route: 544 bank allocations coding net pay direct to the expense account, plus 143 supplier invoices to unnamed "Casuals". `2140 PAYE Payable`, `2150 UIF Payable`, `2160 SDL Payable`, `2170 Net Salaries Payable` and `2175 Other Employee Deductions Payable` carry **zero journal lines on both companies** — the accounts exist and have never been touched. Velocity R10,062,673.21 (`49784360 Salaries & Wages - EX4000` R7,734,785.71 over 217 bank allocations; `49784353 COS - Casual wages - EX2009` R2,327,887.50 over 116 bank allocations + 143 supplier invoices), Brightsphere R2,744,651.92 (`34024641 Salaries & Wages`, 211 bank allocations). The only `auto_payroll` journals in the database — 127 of them — belong to ISAFlow Demo | **R12,807,325.13** | REPORTED — statutory exposure, not this programme's to fix |
 | B43 | **Input VAT was claimed on payments coded to salaries.** 30 of the 217 Velocity `49784360` bank allocations split the payment DR Salaries / DR `1140 VAT Input` / CR Bank — e.g. JE-2025-04159, a R345,000 payment described "Salaries & Wages", booked R300,000 salary + R45,000 input VAT. Salaries are not a taxable supply. Those 217 journals touch only three bank accounts, the salary account and VAT Input, so there is no other expense line the VAT could belong to | **R399,735.97** | REPORTED |

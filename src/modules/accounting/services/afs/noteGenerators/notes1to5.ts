@@ -5,8 +5,9 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
-import { fmt, toNum, fiscalRange, getAccountingPolicies, type FrameworkType } from './noteHelpers';
+import { fmt, toNum, getAccountingPolicies, type FrameworkType } from './noteHelpers';
 import { isVatRegistered, normalizeVatBasis } from '@/modules/bureau/services/vatPeriodHelper';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 type NoteResult = { dataSnapshot: Record<string, unknown>; content: NoteContent };
 
@@ -79,7 +80,7 @@ export async function generateNote2SignificantEstimates(
 ): Promise<NoteResult> {
   log.info('Generating AFS note 2', { companyId }, 'noteGenerators');
 
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   const rows = (await sql`
     SELECT ga.account_subtype, ga.account_name,
@@ -144,7 +145,7 @@ export async function generateNote3PropertyPlantEquipment(
 ): Promise<NoteResult> {
   log.info('Generating AFS note 3', { companyId }, 'noteGenerators');
 
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   const rows = (await sql`
     SELECT a.category,
@@ -241,7 +242,7 @@ export async function generateNote5IntangibleAssets(
   companyId: string,
   fiscalYear: number,
 ): Promise<NoteResult> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('Generating AFS note 5 — intangible assets', { companyId, fiscalYear }, 'noteGenerators');
 

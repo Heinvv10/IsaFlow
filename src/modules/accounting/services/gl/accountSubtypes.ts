@@ -55,6 +55,7 @@ export type CanonicalSubtype =
   | 'admin_expense'
   | 'depreciation_expense'
   | 'insurance_expense'
+  | 'payroll_expense'
   | 'finance_cost'
   | 'tax_expense'
   | 'other_expense';
@@ -157,6 +158,22 @@ const SUBTYPE_ALIASES: Record<string, CanonicalSubtype> = {
   amortisation: 'depreciation_expense',
   amortization: 'depreciation_expense',
   insurance_expense: 'insurance_expense',
+  // Salaries and wages. Distinct from `payroll_liability`, which is the PAYE,
+  // UIF and pension withheld and not yet paid over. Without these the cash
+  // flow reported every salary payment as cash paid to SUPPLIERS.
+  payroll_expense: 'payroll_expense',
+  payroll_expenses: 'payroll_expense',
+  salary: 'payroll_expense',
+  salaries: 'payroll_expense',
+  salary_expense: 'payroll_expense',
+  salaries_and_wages: 'payroll_expense',
+  wage: 'payroll_expense',
+  wages: 'payroll_expense',
+  staff_cost: 'payroll_expense',
+  staff_costs: 'payroll_expense',
+  employee_cost: 'payroll_expense',
+  employee_costs: 'payroll_expense',
+  employee_benefits: 'payroll_expense',
   finance_cost: 'finance_cost',
   finance_costs: 'finance_cost',
   interest_expense: 'finance_cost',
