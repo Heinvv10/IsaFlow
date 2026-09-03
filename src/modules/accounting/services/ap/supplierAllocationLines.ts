@@ -18,6 +18,7 @@
  * why its allocations never affected anything downstream.
  */
 
+import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
@@ -213,21 +214,21 @@ export async function applyLineToBill(
   companyId: string,
   line: SupplierApplicationLine,
 ): Promise<void> {
+  // MONEY ONLY, mirroring the AR twin. `status`, `payment_matched` and
+  // `payment_matched_at` all derive from ONE threshold — `amount_paid >=
+  // total_amount - EPS` — and `recomputeInvoiceStatus` owns that threshold.
+  // Three columns on one condition, written in one place.
+  //
+  // BEHAVIOUR CHANGE, deliberate: the helper restricts itself to
+  // `status = ANY(BALANCE_DERIVED)`, which this statement never did. A bill
+  // that is `cancelled`, `draft` or `written_off` is now left alone entirely,
+  // flag included — a payment figure is not evidence about any of them. The
+  // inline version would happily have flagged a cancelled bill matched.
   await sql`
     UPDATE supplier_invoices
     SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount},
-        status = CASE
-          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${line.amount})) <= ${EPS} THEN 'paid'
-          WHEN (COALESCE(amount_paid, 0) + ${line.amount}) > 0 THEN 'partially_paid'
-          ELSE status
-        END,
-        payment_matched = ((total_amount - (COALESCE(amount_paid, 0) + ${line.amount})) <= ${EPS}),
-        payment_matched_at = CASE
-          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${line.amount})) <= ${EPS}
-            THEN COALESCE(payment_matched_at, NOW())
-          ELSE NULL
-        END,
         updated_at = NOW()
     WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
   `;
+  await recomputeInvoiceStatus(companyId, 'supplier', line.invoiceId);
 }
