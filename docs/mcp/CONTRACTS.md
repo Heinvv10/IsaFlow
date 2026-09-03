@@ -80,9 +80,32 @@ dormant account still carrying R130,000, leaving the export out of balance by
 exactly that amount. A deactivated account with a live balance is still on the
 balance sheet.
 
+`gl_accounts.is_active` is a **picker flag** — it decides whether an account
+appears in a dropdown. It says nothing about whether the account holds money, and
+four inactive production accounts carry R137,317.39 between them, including
+R6,550 of cash. It is legitimate in a list a human chooses from, and never
+legitimate in a query that computes a balance, a total or a valuation. That is
+the discriminator: **is this query producing a figure, or populating a picker?**
+
 Before you add any `WHERE` clause to a report, ask what it excludes and whether
 that belongs in `excludedRows` instead. `is_active`, `status`, `due_date IS NOT
 NULL` and `fiscal_period_id = …` have all produced a finding in these books.
+
+### A predicate in a `LEFT JOIN ... ON` clause restricts nothing
+
+The mirror image of the above, and it fails in the opposite direction — too much
+data rather than too little.
+
+`kpiChartsService` carried `is_active = true AND account_subtype = 'bank'` inside
+a `LEFT JOIN ... ON`. Because the join is outer, unmatched `bank_transactions`
+rows survived with NULL account columns and were summed anyway: the cash trend
+chart included every transaction in the company regardless of account, and the
+total still looked plausible.
+
+A predicate that must restrict the result belongs in `WHERE`, not in the `ON`
+clause of an outer join. If a row can legitimately have no match, decide
+explicitly whether it belongs in `rows` or in `excludedRows` — never let it
+through carrying NULLs into an arithmetic expression.
 
 ### `posted_through` is not decoration
 
