@@ -45,6 +45,36 @@
  *
  * Verified against production before shipping: this rule flags ZERO existing
  * lines. It is a guard against future mistakes, not a backlog of old ones.
+ *
+ * ── WHY THERE IS NO auto_vat_submission EXCLUSION HERE (2026-09-03) ──────────
+ *
+ * V-05 taught that every aggregation over the VAT control accounts had to
+ * exclude vatSubmissionService's clearing journal (vatReturnService,
+ * vatControlMovement, and query 1 of vatExceptionsService all carry
+ * `je.source IS DISTINCT FROM 'auto_vat_submission'`). This rule does NOT, and
+ * that is deliberate — do not add it "for consistency".
+ *
+ * It cannot fire on that journal today. All three clearing legs are written
+ * with no vat_type, and this rule requires `vat_type IS NOT NULL`. Two of the
+ * legs are further shielded by subtype (vat_output / vat_input are in the
+ * legitimate list above). The THIRD leg is not: the net leg posts to
+ * `resolveNetVatAccount` — 2130 Accrued Expenses, subtype
+ * `other_current_liability` in production, falling back to 2110 Accounts
+ * Payable — and neither subtype is in that list. So one change (anything that
+ * starts stamping a vat_type on the clearing journal's lines) would turn that
+ * leg into a permanent false exception, one row per filed period.
+ *
+ * The reason to leave it alone anyway is that the OPPOSITE failure is worse and
+ * quieter. This is a per-line coding-legitimacy rule, not a period aggregation:
+ * a source exclusion here would suppress a whole journal source from a rule
+ * whose entire job is catching miscoded lines. If 'auto_vat_submission' is ever
+ * reused for anything hand-editable, genuine exceptions would go dark with no
+ * test failing. And because no real path can produce the triggering data, any
+ * test written for such an exclusion would be unfalsifiable — a predicate whose
+ * removal nothing detects, which is precisely the defect class V-05 was.
+ *
+ * If you are here because that leg IS now being flagged: the fix belongs in
+ * whatever started setting vat_type on the clearing journal, not here.
  */
 
 import { sql } from '@/lib/neon';

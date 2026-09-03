@@ -59,13 +59,24 @@ export async function clientMetricsSnapshot(companyId: string): Promise<ClientMe
   const [cash, ar, ap, revenue, expenses] = await Promise.all([
     // Cash: GL bank-account balances (matches Trial Balance, not raw bank_transactions).
     // Sums all bank accounts into one total.
+    //
+    // Shape copied from dashboard-stats.ts, including its two fixes: the posted
+    // filter lives inside the subquery (in the old LEFT JOIN ON-clause it
+    // restricted nothing and draft lines leaked into cash), and is_active is not
+    // a filter (a picker flag cannot decide whether an account holds money).
     sql`
-      SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS total
+      SELECT COALESCE(SUM(b.balance), 0) AS total
         FROM gl_accounts ga
-        LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-        LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-          AND je.company_id = ${companyId}::UUID AND je.status = 'posted'
-       WHERE ga.account_subtype = 'bank' AND ga.is_active = true AND ga.company_id = ${companyId}::UUID
+        LEFT JOIN (
+          SELECT jl.gl_account_id, SUM(jl.debit - jl.credit) AS balance
+          FROM gl_journal_lines jl
+          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          WHERE jl.company_id = ${companyId}::UUID
+            AND je.company_id = ${companyId}::UUID
+            AND je.status = 'posted'
+          GROUP BY jl.gl_account_id
+        ) b ON b.gl_account_id = ga.id
+       WHERE ga.account_subtype = 'bank' AND ga.company_id = ${companyId}::UUID
     `,
     // AR open (same allowlist as arAgingService)
     sql`

@@ -52,6 +52,12 @@ interface CachedAccount {
 
 interface CompanyCache {
   map: Map<string, CachedAccount>;
+  /**
+   * Every claimant for a subtype that more than one system row claims, winner
+   * included. Populated only when a role is contested; `getSystemAccount` still
+   * hands out `map`'s deterministic winner and is unaffected by this.
+   */
+  contested: Map<string, CachedAccount[]>;
   loadedAt: number;
 }
 
@@ -122,8 +128,32 @@ async function ensureCache(companyId: string): Promise<Map<string, CachedAccount
     }, 'accounting');
   }
 
-  companyCache.set(companyId, { map, loadedAt: Date.now() });
+  companyCache.set(companyId, { map, contested, loadedAt: Date.now() });
   return map;
+}
+
+/**
+ * Every active system account claiming `key`, winner first-class among them.
+ *
+ * Read-only companion to `getSystemAccount` for callers that must refuse rather
+ * than accept a deterministic-but-arbitrary pick — currently only the year-end
+ * close, which posts a whole year's result in one entry. Reads the cache
+ * `getSystemAccount` builds; issues no query of its own and changes no
+ * resolution behaviour.
+ *
+ * @returns 0 accounts when nothing claims the role, 1 when it is cleanly held,
+ *   2+ when the chart is ambiguous and the caller should say so.
+ */
+export async function getSystemAccountCandidates(
+  key: SystemAccountKey,
+  companyId: string
+): Promise<CachedAccount[]> {
+  const map = await ensureCache(companyId);
+  const cached = companyCache.get(companyId);
+  const contested = cached?.contested.get(key);
+  if (contested && contested.length > 0) return [...contested];
+  const winner = map.get(key);
+  return winner ? [winner] : [];
 }
 
 /** Subtypes the resolver actually hands out — the only ones a duplicate matters for. */

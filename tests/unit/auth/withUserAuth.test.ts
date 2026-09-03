@@ -5,6 +5,12 @@ import { SignJWT } from 'jose';
 
 const TEST_SECRET = 'a'.repeat(40);
 
+// withUserAuth now looks the caller's account standing up in public.users.
+// Mock the DB so this suite stays a pure unit test (no DATABASE_URL needed);
+// the standing behaviour itself is covered in suspendedUserDenied.test.ts.
+const sqlMock = vi.fn(async () => [] as unknown[]);
+vi.mock('@/lib/neon', () => ({ sql: (...args: unknown[]) => sqlMock(...(args as [])) }));
+
 async function makeToken(sub: string) {
   return new SignJWT({ sub, email: 'x@y.z', aud: 'authenticated', role: 'authenticated' })
     .setProtectedHeader({ alg: 'HS256' })

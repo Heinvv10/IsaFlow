@@ -118,12 +118,13 @@ function makeRes(): FakeRes {
   return res as unknown as FakeRes;
 }
 
-let membershipRows: Array<{ role: string }>;
+// Rows now carry the account-standing columns joined in from public.users.
+let membershipRows: Array<{ role: string; account_user_id: string | null; is_active: boolean | null; status: string | null; suspended_at: Date | null }>;
 
 beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.SENTRY_ENABLED;
-  membershipRows = [{ role: 'member' }];
+  membershipRows = [{ role: 'member', account_user_id: USER_ID, is_active: true, status: 'active', suspended_at: null }];
   h.clientQuery.mockImplementation(async (text: unknown) => {
     if (typeof text === 'string' && text.includes('company_users')) {
       return { rows: membershipRows };

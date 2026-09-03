@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { ROLE_HIERARCHY, type AuthRole } from './types';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
 
 /**
  * Route categories that get per-company rate limiting applied inside withAuth
@@ -115,15 +116,33 @@ export function withAuth(handler: Handler): NextApiHandler {
       await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
       await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [activeCompanyId]);
 
-      // Belt-and-braces membership check. Runs under app_user (inside the RLS
-      // scope) so this query also validates that the RLS policies don't
-      // regress — if app_user can't see its own company_users row, the policy
-      // is wrong. Wrapped in try/catch because a forged cookie may contain
-      // a non-UUID string, which pg rejects at cast time.
-      let membership: { rows: Array<{ role: string }> };
+      // Belt-and-braces membership + account-standing check. Runs under
+      // app_user (inside the RLS scope) so this query also validates that the
+      // RLS policies don't regress — if app_user can't see its own
+      // company_users row, the policy is wrong. Wrapped in try/catch because a
+      // forged cookie may contain a non-UUID string, which pg rejects at cast
+      // time.
+      //
+      // The LEFT JOIN onto users is what makes suspension real: suspendUser()
+      // flips is_active/suspended_at but cannot revoke a live GoTrue cookie,
+      // so without this the suspended user keeps full access until the token
+      // expires. The join is LEFT so a membership with no profile behind it
+      // (company_users.user_id has no FK to users) is denied by the predicate
+      // rather than silently disappearing into the membership-missing branch.
+      // Neither user_id nor users.id is cast: both are TEXT columns.
+      type MembershipRow = UserAccountRow & { role: string; account_user_id: string | null };
+      let membership: { rows: MembershipRow[] };
       try {
-        membership = await client.query<{ role: string }>(
-          `SELECT role FROM company_users WHERE user_id = $1 AND company_id = $2::uuid LIMIT 1`,
+        membership = await client.query<MembershipRow>(
+          `SELECT cu.role,
+                  u.id AS account_user_id,
+                  u.is_active,
+                  u.status,
+                  u.suspended_at
+             FROM company_users cu
+             LEFT JOIN users u ON u.id = cu.user_id
+            WHERE cu.user_id = $1 AND cu.company_id = $2::uuid
+            LIMIT 1`,
           [claims.sub, activeCompanyId]
         );
       } catch {
@@ -135,6 +154,31 @@ export function withAuth(handler: Handler): NextApiHandler {
         await client.query('ROLLBACK');
         clearAuthCookies(res);
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Not a member of this company' } });
+      }
+
+      // Two distinct refusals. A membership with no profile behind it is a
+      // broken data state, not a suspension — conflating them sends an operator
+      // hunting for a suspension that was never applied.
+      const account = membership.rows[0]!;
+      if (account.account_user_id === null) {
+        await client.query('ROLLBACK');
+        log.warn('withAuth: membership has no users profile', {
+          userId: claims.sub,
+          companyId: activeCompanyId,
+          url: req.url,
+        }, 'Auth');
+        clearAuthCookies(res);
+        return res.status(403).json({ success: false, error: { ...MISSING_PROFILE_ERROR } });
+      }
+      if (!isActiveUserAccount(account)) {
+        await client.query('ROLLBACK');
+        log.warn('withAuth: account not in good standing', {
+          userId: claims.sub,
+          companyId: activeCompanyId,
+          url: req.url,
+        }, 'Auth');
+        clearAuthCookies(res);
+        return res.status(403).json({ success: false, error: { ...SUSPENDED_ACCOUNT_ERROR } });
       }
 
       (req as CompanyAuthedRequest).user = {

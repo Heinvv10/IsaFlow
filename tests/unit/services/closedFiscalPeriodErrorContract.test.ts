@@ -79,6 +79,9 @@ function withEntryInPeriod(periodStatus: string) {
   sqlMock.mockImplementation(((strings: TemplateStringsArray) => {
     const text = Array.isArray(strings) ? strings.join('') : String(strings);
     if (text.includes('FROM fiscal_periods')) return Promise.resolve([{ status: periodStatus }]);
+    // postJournalEntry also refuses a deactivated GL account. No rows = every
+    // account on this entry is active, which is what these period tests assume.
+    if (text.includes('is_active = false')) return Promise.resolve([]);
     return Promise.resolve([{ id: ENTRY, entry_number: 'JE-2026-00001', status: 'posted' }]);
   }) as never);
 }

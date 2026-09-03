@@ -4,10 +4,10 @@ import { log } from '@/lib/logger';
 import { listPayrollEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
 import { getEmployeeComponents } from './payrollComponentService';
 import { calculatePayrollLine } from './payrollCalculator';
-import { validateEmployee, validatePayrollLine } from './validationEngine';
+import { validateEmployee, validateEti, validatePayrollLine } from './validationEngine';
 import { getTaxYear } from './taxTables';
 import { isPayrollRunLocked, PayrollRunLockedError } from './payrollRunLock';
-import type { EmployeeComponent, PayrollComponent, PayrollPeriod } from './payrollTypes';
+import type { EmployeeComponent, PayrollComponent, PayrollPeriod, ValidationResult } from './payrollTypes';
 import {
   buildTerminationComponents,
   getTerminationDetails,
@@ -217,7 +217,9 @@ export async function calculatePayrollRun(
       eti: line.eti.monthlyEti,
       netPay: line.netPay,
       componentBreakdown: JSON.stringify(line.componentBreakdown),
-      validationResults: JSON.stringify([...empValidation, ...lineValidation]),
+      validationResults: JSON.stringify([
+        ...empValidation, ...lineValidation, ...validateEti(employee, line.eti),
+      ]),
     });
 
     totalGross += line.grossPay;
@@ -301,6 +303,32 @@ export interface PayrollRunLine {
   sdl: number;
   eti: number;
   netPay: number;
+  /**
+   * Warnings raised while calculating this line. Written since the run service
+   * was built, but dropped by this mapper until the ETI work — so every warning
+   * the validation engine produced was invisible to every caller.
+   */
+  validationResults: ValidationResult[];
+}
+
+/**
+ * Read `payroll_run_lines.validation_results` defensively.
+ *
+ * pg hands back parsed jsonb, but a text column or a driver change would give a
+ * string. A malformed value must degrade to "no warnings" rather than throw —
+ * a broken warning payload may not take down the run detail page.
+ */
+function parseValidationResults(raw: unknown): ValidationResult[] {
+  const value = typeof raw === 'string' ? safeJsonParse(raw) : raw;
+  return Array.isArray(value) ? (value as ValidationResult[]) : [];
+}
+
+function safeJsonParse(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -457,5 +485,6 @@ export async function getPayrollRunLines(
     sdl: Number(r.sdl),
     eti: Number(r.eti),
     netPay: Number(r.net_pay),
+    validationResults: parseValidationResults(r.validation_results),
   }));
 }

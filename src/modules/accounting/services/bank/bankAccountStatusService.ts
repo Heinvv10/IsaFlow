@@ -14,7 +14,34 @@ import { fmtDate } from '@/lib/fmtDate';
 
 type Row = Record<string, unknown>;
 
-export async function getBankAccountsStatus(companyId: string): Promise<Row[]> {
+/**
+ * `includeInactive` defaults to FALSE, deliberately.
+ *
+ * This one function serves two different questions. Picker screens
+ * (bank-transactions/new, bank/statements/import-pdf) ask "which account do I
+ * code this against?" — a retired account must never be offered. Balance views
+ * (bank-accounts list, BankSummaryWidget, the MCP status tool) ask about money,
+ * and a deactivated account still holds a balance, an unreconciled amount and an
+ * allocation backlog.
+ *
+ * Default-off because the failure modes are not symmetric: wrongly offering a
+ * retired account gets someone posting to it, immediately and irreversibly,
+ * whereas a balance view omitting one is a reporting gap we close at the call
+ * sites that ask about money. Callers wanting money opt in explicitly.
+ *
+ * Every row carries `isActive` in both modes, so a consumer can render an
+ * inactive account distinctly instead of it being silently absent.
+ */
+export interface BankAccountsStatusOptions {
+  includeInactive?: boolean;
+}
+
+export async function getBankAccountsStatus(
+  companyId: string,
+  options: BankAccountsStatusOptions = {},
+): Promise<Row[]> {
+  // Only a literal `true` opts in: a stray truthy value must not widen a picker.
+  const includeInactive = options.includeInactive === true;
   const rows = await sql`
     SELECT
       ga.id,
@@ -86,7 +113,7 @@ export async function getBankAccountsStatus(companyId: string): Promise<Row[]> {
       WHERE bt.bank_account_id = ga.id
     ) s ON TRUE
     WHERE ga.account_subtype = 'bank'
-      AND ga.is_active = TRUE
+      AND (${includeInactive}::boolean = true OR ga.is_active = TRUE)
       AND ga.company_id = ${companyId}
       -- Show only leaf bank accounts. Tenants commonly nest 1110 Bank under
       -- 1100 Current Assets, and some nest per-employee paycards under a

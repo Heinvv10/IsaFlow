@@ -7,6 +7,7 @@ import { als, type RequestContext } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { getAppPool, getPlatformAdminPool } from './withPlatformAdmin.pools';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, type UserAccountRow } from './userAccountStatus';
 
 export interface PlatformAdminRequest extends NextApiRequest {
   user: { id: string; email?: string; claims: Record<string, unknown> };
@@ -60,16 +61,20 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
     // ── Gate: super-admin check via app_user + RLS ────────────────────────────
     const appClient = await getAppPool().connect();
     let role: string | undefined;
+    let standing: UserAccountRow | null = null;
     try {
       await appClient.query('BEGIN');
       await appClient.query('SET LOCAL ROLE app_user');
       await appClient.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
         JSON.stringify(claims),
       ]);
-      const result = await appClient.query<{ role: string }>(
-        `SELECT role FROM users WHERE id = auth.uid()`
+      // Standing is read in the SAME query as the role — the row is already
+      // being fetched, so the gate costs no extra round trip.
+      const result = await appClient.query<{ role: string } & UserAccountRow>(
+        `SELECT role, is_active, status, suspended_at FROM users WHERE id = auth.uid()`
       );
       role = result.rows[0]?.role;
+      standing = result.rows[0] ?? null;
       await appClient.query('COMMIT');
     } catch (err) {
       try { await appClient.query('ROLLBACK'); } catch { /* secondary */ }
@@ -83,6 +88,22 @@ export function withPlatformAdmin(handler: Handler): NextApiHandler {
         success: false,
         error: { code: 'NOT_SUPER_ADMIN', message: 'Platform-admin role required' },
       });
+    }
+
+    // Account standing, checked AFTER the role gate and BEFORE the BYPASSRLS
+    // pool is touched. A suspended super_admin must not reach a connection that
+    // ignores every RLS policy in the database.
+    //
+    // This cannot lock an admin out of the console by way of a missing profile:
+    // no users row means `role` is undefined, which the check above already
+    // refuses as NOT_SUPER_ADMIN. Reaching this line proves the row exists.
+    if (!isActiveUserAccount(standing)) {
+      log.warn('withPlatformAdmin: super_admin account not in good standing', {
+        userId: claims.sub,
+        url: req.url,
+      }, 'Auth');
+      clearAuthCookies(res);
+      return res.status(403).json({ success: false, error: { ...SUSPENDED_ACCOUNT_ERROR } });
     }
 
     // ── Handler tx: platform_admin pool (BYPASSRLS) ──────────────────────────

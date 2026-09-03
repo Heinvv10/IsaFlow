@@ -78,9 +78,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ON bt.bank_account_id = ga.id
         AND bt.transaction_date < ${from}::date
         AND bt.status != 'excluded'
+      -- No is_active filter. It is a chart-of-accounts picker flag, so a
+      -- deactivated bank account would drop off this report while still holding
+      -- a real balance and unreconciled transactions. The zero delta today is
+      -- luck, not safety: no inactive bank account currently carries a
+      -- bank_transactions row, but deactivating 1049686 would silently remove
+      -- R1.9m from this report. Do not reinstate it.
       WHERE ga.company_id = ${companyId}
         AND ga.account_subtype = 'bank'
-        AND ga.is_active = TRUE
       GROUP BY ga.id, ga.account_name, ga.bank_account_number
       ORDER BY ga.account_code
     `;
@@ -103,9 +108,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         AND bt.transaction_date >= ${from}::date
         AND bt.transaction_date <= ${to}::date
         AND bt.status != 'excluded'
+      -- No is_active filter. It is a chart-of-accounts picker flag, so a
+      -- deactivated bank account would drop off this report while still holding
+      -- a real balance and unreconciled transactions. The zero delta today is
+      -- luck, not safety: no inactive bank account currently carries a
+      -- bank_transactions row, but deactivating 1049686 would silently remove
+      -- R1.9m from this report. Do not reinstate it.
       WHERE ga.company_id = ${companyId}
         AND ga.account_subtype = 'bank'
-        AND ga.is_active = TRUE
       GROUP BY ga.id
     `;
 

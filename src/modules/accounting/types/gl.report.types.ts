@@ -13,24 +13,59 @@ export interface TrialBalanceRow {
   accountName: string;
   accountType: string;
   normalBalance: 'debit' | 'credit';
+  /** Closing balance, reported on the account's balance side (net, not gross turnover). */
   debitBalance: number;
   creditBalance: number;
   priorDebitBalance?: number;
   priorCreditBalance?: number;
+  /** Balance at the start of the reporting range. opening + movement = closing. */
+  openingDebit?: number;
+  openingCredit?: number;
+  /** Gross debit / credit turnover within the reporting range. */
+  periodDebit?: number;
+  periodCredit?: number;
+  /**
+   * True for a COMPUTED line with no journal behind it — currently only the
+   * retained-earnings brought-forward row. Anything tying this report to the
+   * ledger must exclude it; anything displaying it must say it is derived.
+   */
+  derived?: boolean;
 }
 
 /**
  * Trial Balance report container.
  * The account lines are exposed under the `rows` key (canonical; never `accounts`).
  * See GET /api/accounting/reports-trial-balance.
+ *
+ * The balanced assertion (`difference` / `balanced`) is computed ONCE, in
+ * `getTrialBalanceReport`. It is part of the report, not something each caller
+ * derives: the UI, the CSV export and the MCP tool each rolling their own is how
+ * a partial trial balance came to be stamped "Difference R0.00 · Balanced".
+ * `accountCount` states the scope that assertion covers.
  */
 export interface TrialBalanceReport {
-  asAtDate: string;
   fiscalPeriodId: string;
+  /** Alias of `periodEnd`, kept for callers that read `asAtDate`. */
+  asAtDate: string;
+  periodStart: string;
+  periodEnd: string;
+  /**
+   * First day of the fiscal year the income-statement rows are measured from
+   * (`companies.financial_year_start`). Balance-sheet rows ignore it — they are
+   * cumulative from inception.
+   */
+  fiscalYearStart: string;
+  costCentreId?: string;
   /** Canonical key for account lines — always `rows`, never `accounts`. */
   rows: TrialBalanceRow[];
+  /** Rows returned. The balanced assertion below describes exactly these. */
+  accountCount: number;
   totalDebit: number;
   totalCredit: number;
+  /** totalDebit − totalCredit, rounded to cents. Zero on a healthy ledger. */
+  difference: number;
+  /** True when |difference| is within half a cent. Never recompute this. */
+  balanced: boolean;
 }
 
 export interface IncomeStatementLineItem {

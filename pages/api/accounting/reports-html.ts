@@ -11,6 +11,12 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import {
+  getFinancialFigures,
+  totalEquity,
+  unclassifiedWarning,
+} from '@/modules/accounting/services/gl/financialFiguresService';
+import { buildDataQualityNotices } from '@/modules/accounting/services/reports/dataQualityNotices';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import {
@@ -52,37 +58,39 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'from and to must be ISO dates (YYYY-MM-DD)');
   }
 
-  const [pnlRow, balancesRow, companyRow] = await Promise.all([
-    getPnLTotals(companyId, from, to),
-    getBalanceSheet(companyId, to),
+  const [figures, companyRow] = await Promise.all([
+    getFinancialFigures(companyId, from, to),
     getCompanyName(companyId),
   ]);
 
-  const revenue = parseFloat(pnlRow?.revenue || '0');
-  const costOfSales = parseFloat(pnlRow?.cost_of_sales || '0');
-  const operatingExpenses = parseFloat(pnlRow?.operating_expenses || '0');
-  const netProfit = revenue - costOfSales - operatingExpenses;
+  const { period, cumulative } = figures;
+  const netProfit = period.netProfit;
 
   const data: ReportPackInput = {
     companyName: companyRow?.name || 'Company',
     period: `${from} to ${to}`,
-    revenue,
-    costOfSales,
-    operatingExpenses,
+    revenue: period.revenue,
+    costOfSales: period.costOfSales,
+    operatingExpenses: period.operatingExpenses,
     netProfit,
-    totalAssets: parseFloat(balancesRow?.total_assets || '0'),
-    totalLiabilities: parseFloat(balancesRow?.total_liabilities || '0'),
-    totalEquity: parseFloat(balancesRow?.total_equity || '0') + netProfit,
-    currentAssets: parseFloat(balancesRow?.current_assets || '0'),
-    currentLiabilities: parseFloat(balancesRow?.current_liabilities || '0'),
-    cash: parseFloat(balancesRow?.cash || '0'),
-    accountsReceivable: parseFloat(balancesRow?.accounts_receivable || '0'),
-    accountsPayable: parseFloat(balancesRow?.accounts_payable || '0'),
-    inventory: parseFloat(balancesRow?.inventory || '0'),
+    totalAssets: cumulative.totalAssets,
+    totalLiabilities: cumulative.totalLiabilities,
+    totalEquity: totalEquity(figures),
+    currentAssets: cumulative.currentAssets,
+    currentLiabilities: cumulative.currentLiabilities,
+    cash: cumulative.cash,
+    accountsReceivable: cumulative.accountsReceivable,
+    accountsPayable: cumulative.accountsPayable,
+    inventory: cumulative.inventory,
   };
 
   const pack = buildReportPack(type as PackType, data, from, to);
-  const html = buildReportHtml(pack, type as PackType, from, to);
+  // This endpoint returns a document, not JSON — the caveat has to be IN the
+  // document or nobody sees it.
+  const notices = buildDataQualityNotices({
+    unclassifiedAccounts: unclassifiedWarning(cumulative),
+  });
+  const html = buildReportHtml(pack, type as PackType, from, to, notices);
 
   log.info('HTML report generated', { companyId, type, from, to }, 'accounting');
 
@@ -92,42 +100,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     `attachment; filename="report-pack-${type}-${from}-to-${to}.html"`,
   );
   res.send(html);
-}
-
-async function getPnLTotals(companyId: string, from: string, to: string): Promise<Row | undefined> {
-  const rows = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as cost_of_sales,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
-  `) as Row[];
-  return rows[0];
-}
-
-async function getBalanceSheet(companyId: string, to: string): Promise<Row | undefined> {
-  const rows = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '1%' THEN jl.debit - jl.credit ELSE 0 END), 0) as total_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '2%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '3%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_equity,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '1100' AND ga.account_code < '1200' THEN jl.debit - jl.credit ELSE 0 END), 0) as current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date <= ${to}::date
-  `) as Row[];
-  return rows[0];
 }
 
 async function getCompanyName(companyId: string): Promise<Row | null> {
@@ -232,9 +204,18 @@ function buildReportHtml(
   type: PackType,
   from: string,
   to: string,
+  notices: string[] = [],
 ): string {
   const packLabel = type === 'board' ? 'Board Pack' : type === 'management' ? 'Management Pack' : 'Monthly Pack';
   const generatedAt = new Date().toLocaleDateString('en-ZA', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  // escapeHtml: notices interpolate account counts and amounts we derived, but
+  // the type labels come from the same path as DB-derived strings elsewhere.
+  const noticesHtml = notices.length === 0 ? '' : `
+    <section class="data-quality">
+      <h2>These figures rest on an assumption</h2>
+      <ul>${notices.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>
+    </section>`;
 
   const sectionsHtml = pack.sections.map(section => `
     <section>
@@ -276,6 +257,9 @@ function buildReportHtml(
       section h2 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     }
+    .data-quality { border: 1px solid #d9a441; background: #fdf6e6; padding: 12px 16px; margin-bottom: 20px; border-radius: 6px; }
+    .data-quality h2 { font-size: 14px; margin: 0 0 6px; }
+    .data-quality ul { margin: 0; padding-left: 18px; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -286,6 +270,7 @@ function buildReportHtml(
   <div class="company-name">${escapeHtml(pack.companyName)}</div>
   <div class="period-info">Period: ${from} to ${to}</div>
   <div class="content">
+    ${noticesHtml}
     ${sectionsHtml}
   </div>
   <div class="footer">

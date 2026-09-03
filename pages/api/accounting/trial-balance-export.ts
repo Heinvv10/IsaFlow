@@ -1,6 +1,11 @@
 /**
  * Trial Balance Export API
  * GET — export trial balance as CSV
+ *
+ * Columns are opening / movement / closing per account. Closing is the balance
+ * (cumulative for balance-sheet accounts, year-to-date for income-statement
+ * ones) — see trialBalanceService.ts. It used to export one period's turnover
+ * under a "Debit"/"Credit" heading.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -9,7 +14,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { sql } from '@/lib/neon';
-import { getTrialBalance } from '@/modules/accounting/services/gl/journalEntryService';
+import { getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 import { csvVal } from '@/lib/csv';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -22,13 +27,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     type CompanyRow = { name: string };
     type PeriodRow = { name: string; start_date: unknown; end_date: unknown };
-    const [[companyRows, periodRows], rows] = await Promise.all([
+    const [[companyRows, periodRows], report] = await Promise.all([
       Promise.all([
         sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<CompanyRow[]>,
         sql`SELECT period_name AS name, start_date, end_date FROM fiscal_periods WHERE id = ${fiscalPeriodId}::UUID AND company_id = ${companyId}::UUID LIMIT 1` as Promise<PeriodRow[]>,
       ]),
-      getTrialBalance(companyId, fiscalPeriodId),
+      getTrialBalanceReport(companyId, fiscalPeriodId),
     ]);
+    const { rows, totalDebit, totalCredit, difference, balanced } = report;
     const companyName = companyRows[0]?.name ?? 'Company';
     const period = periodRows[0];
     const periodLabel = period
@@ -36,8 +42,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       : fiscalPeriodId;
     const today = new Date().toLocaleDateString('en-ZA');
 
-    const totalDebit = rows.reduce((s, r) => s + r.debitBalance, 0);
-    const totalCredit = rows.reduce((s, r) => s + r.creditBalance, 0);
+    // totalDebit / totalCredit / difference / balanced come from the service.
+    const sum = (pick: (r: (typeof rows)[number]) => number) => rows.reduce((acc, r) => acc + pick(r), 0);
+    const totalOpeningDebit = sum(r => r.openingDebit ?? 0);
+    const totalOpeningCredit = sum(r => r.openingCredit ?? 0);
+    const totalMovementDebit = sum(r => r.periodDebit ?? 0);
+    const totalMovementCredit = sum(r => r.periodCredit ?? 0);
 
     const csvLines = [
       `${csvVal(companyName)}`,
@@ -45,13 +55,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `Period: ${csvVal(periodLabel)}`,
       `Generated: ${csvVal(today)}`,
       ``,
-      'Account Code,Account Name,Account Type,Normal Balance,Debit,Credit',
+      'Account Code,Account Name,Account Type,Normal Balance,Opening Debit,Opening Credit,Movement Debit,Movement Credit,Closing Debit,Closing Credit',
       ...rows.map(r =>
-        `${csvVal(r.accountCode)},${csvVal(r.accountName)},${csvVal(r.accountType)},${csvVal(r.normalBalance)},${r.debitBalance.toFixed(2)},${r.creditBalance.toFixed(2)}`
+        [
+          csvVal(r.accountCode), csvVal(r.accountName), csvVal(r.accountType), csvVal(r.normalBalance),
+          (r.openingDebit ?? 0).toFixed(2), (r.openingCredit ?? 0).toFixed(2),
+          (r.periodDebit ?? 0).toFixed(2), (r.periodCredit ?? 0).toFixed(2),
+          r.debitBalance.toFixed(2), r.creditBalance.toFixed(2),
+        ].join(',')
       ),
-      `${csvVal('')},${csvVal('TOTALS')},${csvVal('')},${csvVal('')},${totalDebit.toFixed(2)},${totalCredit.toFixed(2)}`,
+      `${csvVal('')},${csvVal('TOTALS')},${csvVal('')},${csvVal('')},${totalOpeningDebit.toFixed(2)},${totalOpeningCredit.toFixed(2)},${totalMovementDebit.toFixed(2)},${totalMovementCredit.toFixed(2)},${totalDebit.toFixed(2)},${totalCredit.toFixed(2)}`,
       ``,
-      `${csvVal('Check')},${csvVal('')},${csvVal('Difference (should be 0)')},${csvVal('')},${(totalDebit - totalCredit).toFixed(2)},`,
+      `${csvVal('Check')},${csvVal(balanced ? 'Balanced' : 'OUT OF BALANCE')},${csvVal('Difference (should be 0)')},${csvVal('')},${csvVal('')},${csvVal('')},${csvVal('')},${csvVal('')},${difference.toFixed(2)},`,
+      `${csvVal('Accounts')},${csvVal(String(report.accountCount))},${csvVal('Income statement measured from')},${csvVal(report.fiscalYearStart)},,,,,,`,
     ];
 
     const csv = csvLines.join('\n');

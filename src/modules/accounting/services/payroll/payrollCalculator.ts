@@ -1,7 +1,7 @@
 import { calculatePAYE, getAge } from './payeEngine';
 import { calculateUIF } from './uifEngine';
 import { calculateSDL } from './sdlEngine';
-import { calculateEti } from './etiEngine';
+import { resolveEtiForEmployee } from './etiEngine';
 import type {
   PayrollLineInput,
   PayrollLineResult,
@@ -63,15 +63,15 @@ export function calculatePayrollLine(input: PayrollLineInput): PayrollLineResult
 
   const sdl = calculateSDL(sdlLeviable, annualPayrollEstimate, taxYear);
 
-  const etiRaw: EtiResult = employee.dateOfBirth && employee.startDate
-    ? calculateEti({
-        dateOfBirth: employee.dateOfBirth,
-        employmentStartDate: employee.startDate,
-        periodDate,
-        monthlyRemuneration: grossPay,
-        isUifExcluded: employee.uifExcluded,
-      }, taxYear)
-    : { isEligible: false, monthsEmployed: 0, employmentYear: null, monthlyEti: 0 };
+  // Missing dates are reported as indeterminate, never fabricated into a
+  // determination of "not eligible" — see resolveEtiForEmployee.
+  const etiRaw: EtiResult = resolveEtiForEmployee({
+    dateOfBirth: employee.dateOfBirth,
+    employmentStartDate: employee.startDate,
+    periodDate,
+    monthlyRemuneration: grossPay,
+    isUifExcluded: employee.uifExcluded,
+  }, taxYear);
 
   const netPay = Math.round(
     (grossPay - totalDeductions - paye.monthlyPaye - uif.employeeContribution) * 100,
