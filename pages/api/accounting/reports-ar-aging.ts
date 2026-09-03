@@ -78,14 +78,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         ci.total_amount,
         ci.amount_paid,
         (ci.total_amount - ci.amount_paid)           AS balance_due,
-        GREATEST(0, (${asAtStr}::date - ci.due_date)) AS days_overdue
+        GREATEST(0, (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date))) AS days_overdue
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('paid', 'cancelled', 'draft')
         AND (ci.total_amount - ci.amount_paid) > 0
-        AND ci.due_date IS NOT NULL
-      ORDER BY ci.due_date, ci.id
+      ORDER BY COALESCE(ci.due_date, ci.invoice_date), ci.id
       LIMIT ${limit + 1} OFFSET ${offset}
     `) as Row[];
 
@@ -113,10 +112,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const bucketRows = (await sql`
       SELECT
         CASE
-          WHEN GREATEST(0, (${asAtStr}::date - ci.due_date)) <= 0 THEN 'current'
-          WHEN GREATEST(0, (${asAtStr}::date - ci.due_date)) <= 30 THEN '1-30'
-          WHEN GREATEST(0, (${asAtStr}::date - ci.due_date)) <= 60 THEN '31-60'
-          WHEN GREATEST(0, (${asAtStr}::date - ci.due_date)) <= 90 THEN '61-90'
+          WHEN GREATEST(0, (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date))) <= 0 THEN 'current'
+          WHEN GREATEST(0, (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date))) <= 30 THEN '1-30'
+          WHEN GREATEST(0, (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date))) <= 60 THEN '31-60'
+          WHEN GREATEST(0, (${asAtStr}::date - COALESCE(ci.due_date, ci.invoice_date))) <= 90 THEN '61-90'
           ELSE '90+'
         END AS bucket,
         COUNT(*)::int AS count,
@@ -125,7 +124,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('paid', 'cancelled', 'draft')
         AND (ci.total_amount - ci.amount_paid) > 0
-        AND ci.due_date IS NOT NULL
       GROUP BY bucket
     `) as Row[];
 
