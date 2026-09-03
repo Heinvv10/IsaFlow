@@ -25,6 +25,24 @@
  *     credit note) loses the date too, because it is no longer settled. A
  *     stale paid_at on an open invoice is worse than none: it reads as
  *     evidence of a settlement that has been undone.
+ *
+ * `paid_at` MEANS "when the balance reached zero", NOT "when cash arrived".
+ * A credit note that fully offsets an invoice sets it, because the invoice IS
+ * settled — and `status` has always read 'paid' in that case, so dating the
+ * same fact adds no conflation that was not already there. Which INSTRUMENT
+ * settled it is answered by the allocation rows and the credit note itself,
+ * both of which survive; it is not a question this column was ever able to
+ * answer. Blind review raised the conflation and this is the answer to it.
+ *
+ * KNOWN DIVERGENCE, deliberately not fixed here. `receiptAllocationLines`
+ * #applyLineToInvoice writes `paid_at` inline with two different rules: a bare
+ * `NOW()` (so a further write to an already-settled invoice re-dates it) and
+ * `ELSE paid_at` (so an invoice that reopens KEEPS a paid date). This helper
+ * uses COALESCE and ELSE NULL, which is the correct pair. Two writers of one
+ * rule is the exact problem this file was created to end, and the inline copy
+ * should be collapsed into it — but that file belongs to the cash-application
+ * workstream and changing it under them is how the three disagreeing status
+ * rules arose in the first place.
  */
 
 import { sql } from '@/lib/neon';

@@ -133,3 +133,89 @@ describe('skipReasonForInvoice', () => {
     expect(r).toBe(`invoice ${INV_OK} not found`);
   });
 });
+
+/**
+ * TWO LINES, ONE INVOICE — the case the single snapshot cannot see.
+ *
+ * `fetchInvoiceStates` is read ONCE, before any line writes. Two different bank
+ * transactions in the same batch naming the SAME invoice were each measured
+ * against that same stale outstanding, so a pair that fits individually but not
+ * cumulatively was classified postable — and `dry_run` agreed. Live, line 1
+ * posts and reduces the balance, line 2 throws inside `receiptAllocationLines`
+ * mid-write, and that throw unwinds the registry's OUTER savepoint, silently
+ * reverting every already-successful line in the batch.
+ *
+ * That is precisely the outcome this file's own header promises to prevent —
+ * "one line ... must not roll back 199 good ones" — triggered inside one call
+ * instead of five minutes apart. `bulkAllocationPrepare` already refuses a
+ * duplicate transaction_id for the identical reason; this is the invoice-shaped
+ * version of the same hazard.
+ *
+ * The fix is CUMULATIVE: each line is measured against what the batch has
+ * already committed to that invoice, not against the snapshot alone.
+ */
+describe('partitionAllocationLines — two lines naming one invoice', () => {
+  function twoLinesOneInvoice(amount1: number, amount2: number, outstanding: string) {
+    findBankTransactionAllocationStates.mockResolvedValue(new Map([
+      [TX1, { id: TX1, status: 'imported', matchedJournalLineId: null, amount: amount1 }],
+      [TX2, { id: TX2, status: 'imported', matchedJournalLineId: null, amount: amount2 }],
+    ]));
+    sqlMock.mockResolvedValue([
+      { id: INV_OK, invoice_number: 'INV-1', total_amount: outstanding, amount_paid: '0.00', status: 'approved' },
+    ]);
+    return [resolved(0, TX1, INV_OK), resolved(1, TX2, INV_OK)];
+  }
+
+  it('skips the SECOND line when the pair overflows the balance', async () => {
+    // R600 + R600 against a R1,000 invoice. Each fits alone; together they do
+    // not. Before the cumulative check both were postable.
+    const { postable, skipped } = await partitionAllocationLines(
+      COMPANY, twoLinesOneInvoice(600, 600, '1000.00'),
+    );
+    expect(postable).toHaveLength(1);
+    expect(postable[0]!.index).toBe(0);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]!.index).toBe(1);
+    expect(skipped[0]!.reason).toMatch(/exceeds/);
+  });
+
+  it('names the earlier line that consumed the balance', async () => {
+    // An agent cannot act on "exceeds the outstanding" when the invoice looked
+    // wholly open in the same payload it just sent.
+    const { skipped } = await partitionAllocationLines(
+      COMPANY, twoLinesOneInvoice(600, 600, '1000.00'),
+    );
+    expect(skipped[0]!.reason).toMatch(/allocations\[0\]/);
+  });
+
+  it('posts BOTH when the pair fits', async () => {
+    // R400 + R600 against R1,000 is exactly settled — the cumulative check must
+    // not become a one-line-per-invoice rule.
+    const { postable, skipped } = await partitionAllocationLines(
+      COMPANY, twoLinesOneInvoice(400, 600, '1000.00'),
+    );
+    expect(postable).toHaveLength(2);
+    expect(skipped).toHaveLength(0);
+  });
+
+  it('keeps every other line postable when one pair overflows', async () => {
+    // The whole point: the bad pair must not take good lines with it.
+    findBankTransactionAllocationStates.mockResolvedValue(new Map([
+      [TX1, { id: TX1, status: 'imported', matchedJournalLineId: null, amount: 600 }],
+      [TX2, { id: TX2, status: 'imported', matchedJournalLineId: null, amount: 600 }],
+      ['ttttttt3-tttt-tttt-tttt-tttttttttttt',
+        { id: 'ttttttt3-tttt-tttt-tttt-tttttttttttt', status: 'imported', matchedJournalLineId: null, amount: 100 }],
+    ]));
+    sqlMock.mockResolvedValue([
+      { id: INV_OK, invoice_number: 'INV-1', total_amount: '1000.00', amount_paid: '0.00', status: 'approved' },
+      { id: INV_SETTLED, invoice_number: 'INV-3', total_amount: '500.00', amount_paid: '0.00', status: 'approved' },
+    ]);
+    const { postable, skipped } = await partitionAllocationLines(COMPANY, [
+      resolved(0, TX1, INV_OK),
+      resolved(1, TX2, INV_OK),
+      resolved(2, 'ttttttt3-tttt-tttt-tttt-tttttttttttt', INV_SETTLED),
+    ]);
+    expect(postable.map((p) => p.index)).toEqual([0, 2]);
+    expect(skipped.map((s) => s.index)).toEqual([1]);
+  });
+});
