@@ -27,14 +27,23 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
         si.total_amount,
-        COALESCE(paid.amount, 0) AS amount_paid,
-        (si.total_amount - COALESCE(paid.amount, 0)) AS balance
+        (COALESCE(si.amount_paid, 0) - COALESCE(unpaid.amount, 0)) AS amount_paid,
+        (si.total_amount - COALESCE(si.amount_paid, 0) + COALESCE(unpaid.amount, 0)) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
-        -- Payments AND supplier credit notes: creditNoteApproveService raises
-        -- supplier_invoices.amount_paid without writing an allocation row, so
-        -- allocations alone would overstate what is still owed.
+        -- Settlement AFTER the as-at date, to be rewound. Anchored on
+        -- supplier_invoices.amount_paid rather than rebuilt from allocations:
+        -- anything that settles an invoice without leaving a dated trail would
+        -- otherwise make it reappear at full face value. See the AR service
+        -- for the full reasoning and the measurement behind it.
+        --
+        -- applied_amount, not total_amount — creditNoteApproveService applies
+        -- MIN(total, outstanding) and leaves the excess unapplied. The column
+        -- is NOT NULL DEFAULT 0; a note at 0 reduced nothing to rewind.
+        --
+        -- There is no supplier write-off table; customer_write_offs is the
+        -- only one in this schema, so AP has no third branch.
         SELECT SUM(amount) AS amount FROM (
           SELECT pa.amount_allocated AS amount
           FROM payment_allocations pa
@@ -42,23 +51,23 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
           WHERE pa.invoice_id = si.id
             AND sp.company_id = ${companyId}::UUID
             AND sp.status NOT IN ('draft', 'cancelled')
-            AND sp.payment_date <= ${asAtStr}::date
+            AND sp.payment_date > ${asAtStr}::date
 
           UNION ALL
 
-          SELECT cn.total_amount
+          SELECT cn.applied_amount
           FROM credit_notes cn
           WHERE cn.supplier_invoice_id = si.id
             AND cn.company_id = ${companyId}::UUID
             AND cn.type   = 'supplier'
             AND cn.status IN ('approved', 'applied')
-            AND cn.credit_date <= ${asAtStr}::date
-        ) settled
-      ) paid ON TRUE
+            AND cn.credit_date > ${asAtStr}::date
+        ) reversed
+      ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - COALESCE(paid.amount, 0)) > 0
+        AND (si.total_amount - COALESCE(si.amount_paid, 0) + COALESCE(unpaid.amount, 0)) > 0
       -- Same omission as AR, and larger: 357 supplier invoices worth
       -- R37,703,816.94 — a third of all open payables — were absent from the
       -- aging because they carry no due date. Aged from invoice_date instead.
@@ -104,14 +113,23 @@ export async function getAPAgingDetail(companyId: string,
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
         si.invoice_number, si.total_amount,
-        COALESCE(paid.amount, 0) AS amount_paid,
-        (si.total_amount - COALESCE(paid.amount, 0)) AS balance
+        (COALESCE(si.amount_paid, 0) - COALESCE(unpaid.amount, 0)) AS amount_paid,
+        (si.total_amount - COALESCE(si.amount_paid, 0) + COALESCE(unpaid.amount, 0)) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
-        -- Payments AND supplier credit notes: creditNoteApproveService raises
-        -- supplier_invoices.amount_paid without writing an allocation row, so
-        -- allocations alone would overstate what is still owed.
+        -- Settlement AFTER the as-at date, to be rewound. Anchored on
+        -- supplier_invoices.amount_paid rather than rebuilt from allocations:
+        -- anything that settles an invoice without leaving a dated trail would
+        -- otherwise make it reappear at full face value. See the AR service
+        -- for the full reasoning and the measurement behind it.
+        --
+        -- applied_amount, not total_amount — creditNoteApproveService applies
+        -- MIN(total, outstanding) and leaves the excess unapplied. The column
+        -- is NOT NULL DEFAULT 0; a note at 0 reduced nothing to rewind.
+        --
+        -- There is no supplier write-off table; customer_write_offs is the
+        -- only one in this schema, so AP has no third branch.
         SELECT SUM(amount) AS amount FROM (
           SELECT pa.amount_allocated AS amount
           FROM payment_allocations pa
@@ -119,24 +137,24 @@ export async function getAPAgingDetail(companyId: string,
           WHERE pa.invoice_id = si.id
             AND sp.company_id = ${companyId}::UUID
             AND sp.status NOT IN ('draft', 'cancelled')
-            AND sp.payment_date <= ${asAtStr}::date
+            AND sp.payment_date > ${asAtStr}::date
 
           UNION ALL
 
-          SELECT cn.total_amount
+          SELECT cn.applied_amount
           FROM credit_notes cn
           WHERE cn.supplier_invoice_id = si.id
             AND cn.company_id = ${companyId}::UUID
             AND cn.type   = 'supplier'
             AND cn.status IN ('approved', 'applied')
-            AND cn.credit_date <= ${asAtStr}::date
-        ) settled
-      ) paid ON TRUE
+            AND cn.credit_date > ${asAtStr}::date
+        ) reversed
+      ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - COALESCE(paid.amount, 0)) > 0
+        AND (si.total_amount - COALESCE(si.amount_paid, 0) + COALESCE(unpaid.amount, 0)) > 0
       -- Undated invoices belong here for the same reason they belong in the
       -- summary. A drill-down that omits them contradicts the total it drills
       -- into, which is worse than the original omission because it reads as a

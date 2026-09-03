@@ -28,19 +28,28 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
         (ci.due_date IS NULL) AS due_date_missing,
         ci.total_amount,
-        COALESCE(paid.amount, 0) AS amount_paid,
-        (ci.total_amount - COALESCE(paid.amount, 0)) AS balance
+        (COALESCE(ci.amount_paid, 0) - COALESCE(unpaid.amount, 0)) AS amount_paid,
+        (ci.total_amount - COALESCE(ci.amount_paid, 0) + COALESCE(unpaid.amount, 0)) AS balance
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       LEFT JOIN LATERAL (
-        -- Everything that had REDUCED this invoice by the as-at date. Two
-        -- mechanisms write customer_invoices.amount_paid, and both must be
-        -- here or the reconstruction overstates the debt:
-        --   1. payment allocations, dated by the payment
-        --   2. a credit note applied to the invoice, dated by the credit note.
-        --      Approving one raises amount_paid and writes NO allocation row,
-        --      so reading allocations alone would leave a credited invoice
-        --      looking fully outstanding.
+        -- Settlement that happened AFTER the as-at date, to be REWOUND.
+        --
+        -- The balance is anchored on customer_invoices.amount_paid — the
+        -- authoritative figure — and only the events we can date are undone.
+        -- Rebuilding paid-from-zero out of allocations was the wrong shape:
+        -- anything that reduces an invoice WITHOUT leaving a dated trail (a
+        -- receipt captured with no allocation row, a Sage-migrated balance)
+        -- would then be invisible, and the invoice would reappear at full face
+        -- value as delinquent debt the customer had in fact settled. On dev
+        -- that resurrects 105 paid invoices for one client and overstates
+        -- receivables by 159%.
+        --
+        -- Anchoring cannot do that. Undated settlement stays in the baseline
+        -- and is treated as having always been there, which is conservative:
+        -- the report can understate how much was owed on a past date, but it
+        -- can never invent a delinquency. At an as-at of today the rewind set
+        -- is empty and the answer is exactly amount_paid.
         SELECT SUM(amount) AS amount FROM (
           SELECT cpa.amount_allocated AS amount
           FROM customer_payment_allocations cpa
@@ -48,23 +57,42 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
           WHERE cpa.invoice_id = ci.id
             AND cp.company_id = ${companyId}
             AND cp.status NOT IN ('draft', 'cancelled')
-            AND cp.payment_date <= ${asAtStr}::date
+            AND cp.payment_date > ${asAtStr}::date
 
           UNION ALL
 
-          SELECT cn.total_amount
+          -- applied_amount, not total_amount: creditNoteApproveService applies
+          -- MIN(total, outstanding) and deliberately leaves the excess
+          -- unapplied (migration 529). Rewinding the face value would credit
+          -- back more than was ever taken off the invoice.
+          --
+          -- The column is NOT NULL DEFAULT 0, so no COALESCE is needed and a
+          -- fallback to total_amount would be unreachable. A note sitting at 0
+          -- was never applied to this invoice and so reduced nothing to rewind.
+          SELECT cn.applied_amount
           FROM credit_notes cn
           WHERE cn.customer_invoice_id = ci.id
             AND cn.company_id = ${companyId}
             AND cn.type   = 'customer'
             AND cn.status IN ('approved', 'applied')
-            AND cn.credit_date <= ${asAtStr}::date
-        ) settled
-      ) paid ON TRUE
+            AND cn.credit_date > ${asAtStr}::date
+
+          UNION ALL
+
+          -- A bad-debt write-off also raises amount_paid, with no allocation
+          -- row and no credit note.
+          SELECT wo.amount
+          FROM customer_write_offs wo
+          WHERE wo.invoice_id = ci.id
+            AND wo.company_id = ${companyId}
+            AND wo.status = 'approved'
+            AND wo.write_off_date > ${asAtStr}::date
+        ) reversed
+      ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('draft', 'cancelled')
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
-        AND (ci.total_amount - COALESCE(paid.amount, 0)) > 0
+        AND (ci.total_amount - COALESCE(ci.amount_paid, 0) + COALESCE(unpaid.amount, 0)) > 0
       -- POINT IN TIME. amount_paid on the invoice is a CURRENT snapshot, so
       -- reading it made asAtDate decorative: it only re-bucketed today's
       -- balances by age. What was owed on a past date is reconstructed from
@@ -150,19 +178,28 @@ export async function getARAgingDetail(companyId: string,
         COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
         (ci.due_date IS NULL) AS due_date_missing,
         ci.invoice_number, ci.total_amount,
-        COALESCE(paid.amount, 0) AS amount_paid,
-        (ci.total_amount - COALESCE(paid.amount, 0)) AS balance
+        (COALESCE(ci.amount_paid, 0) - COALESCE(unpaid.amount, 0)) AS amount_paid,
+        (ci.total_amount - COALESCE(ci.amount_paid, 0) + COALESCE(unpaid.amount, 0)) AS balance
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       LEFT JOIN LATERAL (
-        -- Everything that had REDUCED this invoice by the as-at date. Two
-        -- mechanisms write customer_invoices.amount_paid, and both must be
-        -- here or the reconstruction overstates the debt:
-        --   1. payment allocations, dated by the payment
-        --   2. a credit note applied to the invoice, dated by the credit note.
-        --      Approving one raises amount_paid and writes NO allocation row,
-        --      so reading allocations alone would leave a credited invoice
-        --      looking fully outstanding.
+        -- Settlement that happened AFTER the as-at date, to be REWOUND.
+        --
+        -- The balance is anchored on customer_invoices.amount_paid — the
+        -- authoritative figure — and only the events we can date are undone.
+        -- Rebuilding paid-from-zero out of allocations was the wrong shape:
+        -- anything that reduces an invoice WITHOUT leaving a dated trail (a
+        -- receipt captured with no allocation row, a Sage-migrated balance)
+        -- would then be invisible, and the invoice would reappear at full face
+        -- value as delinquent debt the customer had in fact settled. On dev
+        -- that resurrects 105 paid invoices for one client and overstates
+        -- receivables by 159%.
+        --
+        -- Anchoring cannot do that. Undated settlement stays in the baseline
+        -- and is treated as having always been there, which is conservative:
+        -- the report can understate how much was owed on a past date, but it
+        -- can never invent a delinquency. At an as-at of today the rewind set
+        -- is empty and the answer is exactly amount_paid.
         SELECT SUM(amount) AS amount FROM (
           SELECT cpa.amount_allocated AS amount
           FROM customer_payment_allocations cpa
@@ -170,24 +207,43 @@ export async function getARAgingDetail(companyId: string,
           WHERE cpa.invoice_id = ci.id
             AND cp.company_id = ${companyId}
             AND cp.status NOT IN ('draft', 'cancelled')
-            AND cp.payment_date <= ${asAtStr}::date
+            AND cp.payment_date > ${asAtStr}::date
 
           UNION ALL
 
-          SELECT cn.total_amount
+          -- applied_amount, not total_amount: creditNoteApproveService applies
+          -- MIN(total, outstanding) and deliberately leaves the excess
+          -- unapplied (migration 529). Rewinding the face value would credit
+          -- back more than was ever taken off the invoice.
+          --
+          -- The column is NOT NULL DEFAULT 0, so no COALESCE is needed and a
+          -- fallback to total_amount would be unreachable. A note sitting at 0
+          -- was never applied to this invoice and so reduced nothing to rewind.
+          SELECT cn.applied_amount
           FROM credit_notes cn
           WHERE cn.customer_invoice_id = ci.id
             AND cn.company_id = ${companyId}
             AND cn.type   = 'customer'
             AND cn.status IN ('approved', 'applied')
-            AND cn.credit_date <= ${asAtStr}::date
-        ) settled
-      ) paid ON TRUE
+            AND cn.credit_date > ${asAtStr}::date
+
+          UNION ALL
+
+          -- A bad-debt write-off also raises amount_paid, with no allocation
+          -- row and no credit note.
+          SELECT wo.amount
+          FROM customer_write_offs wo
+          WHERE wo.invoice_id = ci.id
+            AND wo.company_id = ${companyId}
+            AND wo.status = 'approved'
+            AND wo.write_off_date > ${asAtStr}::date
+        ) reversed
+      ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
         AND ci.status NOT IN ('draft', 'cancelled')
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
-        AND (ci.total_amount - COALESCE(paid.amount, 0)) > 0
+        AND (ci.total_amount - COALESCE(ci.amount_paid, 0) + COALESCE(unpaid.amount, 0)) > 0
       -- An invoice with no due date is still a debt. Filtering
       -- due_date IS NOT NULL here dropped 34 invoices worth R13,908,380.43
       -- from production's AR aging — not shown in a bucket, not in a total,

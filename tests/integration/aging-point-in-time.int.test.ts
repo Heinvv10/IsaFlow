@@ -46,6 +46,26 @@ const AR_FUTURE = 500;    // invoiced Aug — not yet issued at EARLY
 // allocations alone leaves this invoice looking fully outstanding forever.
 const AR_CREDITED = 900;
 const AR_CREDIT_NOTE = 300;
+// Settled with NO dated trail at all — amount_paid set directly, no allocation
+// row, no credit note, no write-off. This is what a Sage-migrated balance and
+// a receipt captured without an allocation look like, and on dev it is the
+// shape of 130 of one client's 131 receipts. Rebuilding paid-from-zero
+// resurrects invoices like this at full face value as delinquent debt.
+const AR_UNTRACEABLY_SETTLED = 1200;
+// Written off as bad debt in July. writeOffService raises amount_paid with no
+// allocation row and no credit note, so the write-off is a third dated
+// settlement mechanism the rewind has to know about.
+const AR_WRITTEN_OFF = 1500;
+// A credit note whose FACE value exceeds what was applied: approving one
+// applies MIN(total, outstanding) and leaves the rest unapplied, so rewinding
+// the face value would credit back more than was ever taken off.
+const AR_PARTIAL_CN_INVOICE = 700;
+const AR_PARTIAL_CN_FACE = 500;
+const AR_PARTIAL_CN_APPLIED = 200;
+// A write-off still in DRAFT. writeOffService only raises amount_paid on
+// approval, so a draft has settled nothing and must never be rewound — doing
+// so would inflate a past balance by a write-off that never happened.
+const AR_DRAFT_WRITE_OFF = 400;
 
 const AP_PARTLY = 2000;
 const AP_PART_PAID = 750;
@@ -85,9 +105,36 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     const arCredited = await insertCustomerInvoice(admin, 'PIT-AR-4', '2026-02-10', '2026-03-10', AR_CREDITED, AR_CREDIT_NOTE, 'partially_paid');
     await admin.query(
       `INSERT INTO credit_notes
-         (company_id, client_id, customer_invoice_id, credit_note_number, credit_date, type, status, total_amount, created_by)
-       VALUES ($1,$2,$3,'PIT-CN1','2026-06-01','customer','applied',$4,$5)`,
+         (company_id, client_id, customer_invoice_id, credit_note_number, credit_date, type, status, total_amount, applied_amount, created_by)
+       VALUES ($1,$2,$3,'PIT-CN1','2026-06-01','customer','applied',$4,$4,$5)`,
       [COMPANY, CUSTOMER, arCredited, AR_CREDIT_NOTE, COMPANY],
+    );
+
+    // No allocation, no credit note, no write-off — just a settled balance.
+    await insertCustomerInvoice(admin, 'PIT-AR-5', '2026-01-05', '2026-02-05', AR_UNTRACEABLY_SETTLED, AR_UNTRACEABLY_SETTLED, 'paid');
+
+    const arWrittenOff = await insertCustomerInvoice(admin, 'PIT-AR-6', '2026-02-01', '2026-03-01', AR_WRITTEN_OFF, AR_WRITTEN_OFF, 'paid');
+    await admin.query(
+      `INSERT INTO customer_write_offs
+         (company_id, client_id, invoice_id, write_off_number, write_off_date, amount, reason, status, created_by)
+       VALUES ($1,$2,$3,'PIT-WO1','2026-07-01',$4,'bad debt','approved',$5)`,
+      [COMPANY, CUSTOMER, arWrittenOff, AR_WRITTEN_OFF, COMPANY],
+    );
+
+    const arPartialCn = await insertCustomerInvoice(admin, 'PIT-AR-7', '2026-02-20', '2026-03-20', AR_PARTIAL_CN_INVOICE, AR_PARTIAL_CN_APPLIED, 'partially_paid');
+    await admin.query(
+      `INSERT INTO credit_notes
+         (company_id, client_id, customer_invoice_id, credit_note_number, credit_date, type, status, total_amount, applied_amount, created_by)
+       VALUES ($1,$2,$3,'PIT-CN2','2026-06-01','customer','applied',$4,$5,$6)`,
+      [COMPANY, CUSTOMER, arPartialCn, AR_PARTIAL_CN_FACE, AR_PARTIAL_CN_APPLIED, COMPANY],
+    );
+
+    const arDraftWo = await insertCustomerInvoice(admin, 'PIT-AR-8', '2026-02-15', '2026-03-15', AR_DRAFT_WRITE_OFF, 0, 'approved');
+    await admin.query(
+      `INSERT INTO customer_write_offs
+         (company_id, client_id, invoice_id, write_off_number, write_off_date, amount, reason, status, created_by)
+       VALUES ($1,$2,$3,'PIT-WO2','2026-07-01',$4,'proposed','draft',$5)`,
+      [COMPANY, CUSTOMER, arDraftWo, AR_DRAFT_WRITE_OFF, COMPANY],
     );
 
     await payCustomer(admin, 'PIT-R1', '2026-05-10', AR_PART_PAID, arPartly);
@@ -113,7 +160,8 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
 
     // On 31 March, neither the May payment nor the July one had happened, so
     // both invoices were open in full. The old behaviour showed 600 + 0.
-    expect(customer.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED, 2);
+    expect(customer.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE
+      + AR_DRAFT_WRITE_OFF, 2);
   });
 
   it('AR: a since-settled invoice still appears on a date when it was open', async () => {
@@ -133,9 +181,11 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     const lateTotal = late.find((b) => b.entityId === CUSTOMER)?.total ?? 0;
 
     // PIT-AR-3 is dated August: in at LATE, out at EARLY.
-    expect(earlyTotal).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED, 2);
+    expect(earlyTotal).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE
+      + AR_DRAFT_WRITE_OFF, 2);
     expect(lateTotal).toBeCloseTo(
-      (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE), 2);
+      (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE)
+      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF, 2);
   });
 
   it('AP: an invoice is fully outstanding before its payment lands', async () => {
@@ -161,9 +211,40 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     // The credit note is dated June. Nothing settles PIT-AR-4 through an
     // allocation row, so reading allocations alone would report the full 900
     // at BOTH dates.
-    expect(early.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED, 2);
+    expect(early.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE
+      + AR_DRAFT_WRITE_OFF, 2);
     expect(late.total).toBeCloseTo(
-      (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE), 2);
+      (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE)
+      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF, 2);
+  });
+
+  it('never resurrects an invoice settled without a dated trail', async () => {
+    // PIT-AR-5 is paid, with nothing dated to explain it. Anchoring on
+    // amount_paid leaves it settled at BOTH dates. Rebuilding from allocations
+    // would report the full 1,200 as 120-day overdue on every report, naming a
+    // customer delinquent on a debt they have paid.
+    for (const asAt of [EARLY, LATE]) {
+      const buckets = await getARAging(COMPANY, asAt);
+      const customer = buckets.find((b) => b.entityId === CUSTOMER)!;
+      expect(customer.total).toBeLessThan(AR_UNTRACEABLY_SETTLED + 10000);
+    }
+
+    const early = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!;
+    // The three invoices genuinely open on 31 March, and not a cent more.
+    expect(early.total).toBeCloseTo(AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE
+      + AR_DRAFT_WRITE_OFF, 2);
+  });
+
+  it('at an as-at of today the answer is exactly the live balance', async () => {
+    // The rewind set is empty, so the reconstruction collapses to amount_paid.
+    // This is what makes the change safe on companies whose sub-ledger cannot
+    // be reconstructed at all.
+    const today = await getARAging(COMPANY);
+    const customer = today.find((b) => b.entityId === CUSTOMER)!;
+
+    expect(customer.total).toBeCloseTo(
+      (AR_PARTLY - AR_PART_PAID) + AR_FUTURE + (AR_CREDITED - AR_CREDIT_NOTE)
+      + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF, 2);
   });
 
   it('the as-at date changes the answer at all', async () => {
@@ -238,6 +319,7 @@ async function paySupplier(
 async function cleanup(admin: Pool): Promise<void> {
   await admin.query(`DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id = $1)`, [COMPANY]);
   await admin.query(`DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id = $1)`, [COMPANY]);
+  await admin.query('DELETE FROM customer_write_offs WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM credit_notes WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM customer_payments WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM supplier_payments WHERE company_id = $1', [COMPANY]);
