@@ -8,7 +8,7 @@ vi.mock('@/modules/accounting/services/gl/auditTrailLedgerService', () => ({
 
 import { queryAuditTrail } from '@/modules/accounting/services/gl/auditTrailLedgerService';
 import { auditTrailTool } from '@/lib/mcp/tools/auditTrail';
-import { assertEnvelopeSound } from '@/lib/mcp/contracts';
+import { assertEnvelopeSound, buildEnvelope } from '@/lib/mcp/contracts';
 
 const ctx = {
   companyId: '11111111-1111-4111-8111-111111111111',
@@ -28,8 +28,7 @@ const PAGE = {
     createdAt: '2026-09-01T10:00:00.000Z', postedAt: null, reversedAt: null,
     reversalOfId: null, sourceRecordId: null,
   }],
-  rowsTotal: 1, universeTotal: 1, excludedRows: [], excludedTotal: 0,
-  excludedTruncated: false, nextCursor: null,
+  rowsTotal: 1, universeTotal: 1, excludedRows: [], excludedTotal: 0, nextCursor: null,
   postedThrough: '2026-09-01T10:00:00.000Z',
   attribution: {
     recorded: 0, derived: 1,
@@ -150,13 +149,26 @@ describe('audit_trail', () => {
     expect(queryAuditTrail).not.toHaveBeenCalled();
   });
 
-  it('reports the excluded total and its truncation, so a capped sample is never silent', async () => {
+  it('hands the envelope the excluded COUNT, not the sample, so a capped list still foots', async () => {
+    const excludedRows = Array.from({ length: 200 }, (_, i) => ({ id: `je-${i}`, reason: 'unattributed_posting' }));
     vi.mocked(queryAuditTrail).mockResolvedValue({
-      ...PAGE, excludedRows: [], excludedTotal: 812, excludedTruncated: true, universeTotal: undefined,
+      ...PAGE, rowsTotal: 10, universeTotal: 822, excludedRows, excludedTotal: 812,
     } as never);
     const env = payload(await auditTrailTool.handler({ from: '2026-09-01', to: '2026-09-30' }, ctx) as never);
-    expect(env.excluded_total).toBe(812);
-    expect(env.excluded_truncated).toBe(true);
+    // 10 + 812 === 822. Passing the 200-row sample instead would have made the
+    // envelope claim 190 rows were unaccounted for — a fault about paging.
+    assertEnvelopeSound(env as never);
+    expect(env.excludedTotal).toBe(812);
+    expect(env.truncatedExcludedRows).toBe(true);
+  });
+
+  it('a capped sample without the count WOULD fault — proving the count is load-bearing', () => {
+    const excludedRows = Array.from({ length: 200 }, (_, i) => ({ id: `je-${i}`, reason: 'unattributed_posting' }));
+    const bad = buildEnvelope({
+      rows: [], rowsTotal: 10, universeTotal: 822, excludedRows,
+      detail: 'standard', as_at: '2026-09-30', posted_through: '2026-09-01T00:00:00.000Z',
+    });
+    expect(bad.completenessFault).toMatch(/unaccounted/);
   });
 
   it('states the segregation-of-duties finding in the description', () => {

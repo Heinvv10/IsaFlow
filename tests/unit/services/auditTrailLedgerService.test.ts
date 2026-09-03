@@ -292,7 +292,7 @@ describe('excludedRows respects the caller\'s filters', () => {
 });
 
 /** Blind-review MEDIUM 2: the 200-row cap undercounted with nothing flagged. */
-describe('a capped excludedRows sample states its own truncation', () => {
+describe('a capped excludedRows sample still counts every excluded row', () => {
   it('counts every unattributed row, not just the sampled ones', async () => {
     vi.mocked(sql).mockReset();
     vi.mocked(sql)
@@ -306,12 +306,11 @@ describe('a capped excludedRows sample states its own truncation', () => {
     const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
     expect(res.excludedRows).toHaveLength(200);
     expect(res.excludedTotal).toBe(812);
-    expect(res.excludedTruncated).toBe(true);
-    // Withheld deliberately: buildEnvelope checks rowsTotal + excludedRows.LENGTH
-    // against it, so a capped sample would raise a fault about paging rather
-    // than about completeness — noise that erodes the signal it exists to give.
-    // excludedTotal is reported instead, so nothing is silent.
-    expect(res.universeTotal).toBeUndefined();
+    // universeTotal is STATED even though the sample is capped. buildEnvelope
+    // now checks rowsTotal + excludedTotal, which is the true identity, so a
+    // capped sample no longer manufactures a fault about paging. The envelope
+    // reports truncatedExcludedRows for the reader.
+    expect(res.universeTotal).toBe(822);
   });
 
   it('an uncapped sample still states its total and is not truncated', async () => {
@@ -325,7 +324,6 @@ describe('a capped excludedRows sample states its own truncation', () => {
 
     const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
     expect(res.excludedTotal).toBe(1);
-    expect(res.excludedTruncated).toBe(false);
     expect(res.universeTotal).toBe(5);
   });
 });

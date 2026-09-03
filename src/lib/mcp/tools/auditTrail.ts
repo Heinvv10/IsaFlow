@@ -29,7 +29,7 @@ export const auditTrailTool: McpTool = {
     'The attribution block totals recorded vs derived across the whole filtered range (not just the page), which is the honest measure of how much of this ledger can be relied on. ' +
     'DOES NOT COVER: non-ledger changes. Editing a customer, changing a bank rule or logging in leaves no journal and does not appear here; the separate audit_log table holds field-level change history and is effectively unused (5 rows across production). Nor does it cover documents that have not posted — an unapproved draft invoice or credit note has no journal yet. ' +
     'entity_id needs an entity_type saying which link to match: "journal" = the entry\'s own id, "source_record" = the bank transaction / invoice / credit note it was raised from, "source_document" = the captured document. ' +
-    'universeTotal is present only when no actor_type or token_jti filter is applied — with one the result is a selection, not a census, and completeness is not a claim being made. Rows whose actor cannot be established at all (neither column set) are never counted in the totals; they appear in excludedRows with reason "unattributed_posting". ' +
+    'universeTotal is present unless an actor_type, token_jti or acting_company_id filter is applied — with one the result is a selection, not a census, and completeness is not a claim being made. Rows whose actor cannot be established at all (neither column set) are never counted in the totals; they appear in excludedRows with reason "unattributed_posting", and excludedTotal counts ALL of them while excludedRows shows at most 200 — truncatedExcludedRows tells you when the list is shorter than the count. ' +
     'Paginate with next_cursor; at most 200 rows per page. Free to call — reviewing what was posted is the control every write depends on.',
   scope: 'read:reports',
   write: false,
@@ -121,6 +121,10 @@ export const auditTrailTool: McpTool = {
         posted_through: page.postedThrough,
         next_cursor: page.nextCursor,
         excludedRows: page.excludedRows,
+        // The COUNT, not the 200-row sample. buildEnvelope checks
+        // rowsTotal + excludedTotal === universeTotal and sets
+        // truncatedExcludedRows when the list is shorter than the count.
+        excludedTotal: page.excludedTotal,
         ...(page.universeTotal === undefined ? {} : { universeTotal: page.universeTotal }),
       });
       // The census rides alongside the envelope: it is the finding, not a row.
@@ -131,11 +135,6 @@ export const auditTrailTool: McpTool = {
         company_id: ctx.companyId,
         from,
         to,
-        // Reported unconditionally: excludedRows is a capped sample, and a
-        // count that only appeared when it happened to fit would be the same
-        // silent undercount the envelope exists to prevent.
-        excluded_total: page.excludedTotal,
-        excluded_truncated: page.excludedTruncated,
         attribution: page.attribution,
       });
     } catch (err) {

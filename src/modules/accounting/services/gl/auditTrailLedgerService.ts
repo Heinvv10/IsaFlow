@@ -126,10 +126,12 @@ export interface AuditTrailPage {
    */
   universeTotal?: number;
   excludedRows: ExcludedRow[];
-  /** Every unattributed row matching the filters, not just the sampled ones. */
+  /**
+   * Every unattributed row matching the filters, not just the sampled ones.
+   * Handed to buildEnvelope, which checks rowsTotal + excludedTotal against
+   * universeTotal and reports truncatedExcludedRows itself.
+   */
   excludedTotal: number;
-  /** True when excludedRows is a capped sample of excludedTotal. */
-  excludedTruncated: boolean;
   nextCursor: string | null;
   /** MAX(created_at) of the rows consumed. Never now(). */
   postedThrough: string;

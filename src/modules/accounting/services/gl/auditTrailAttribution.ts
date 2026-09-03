@@ -148,7 +148,6 @@ export async function summarise(
             OR (${entityType} = 'source_document' AND je.source_document_id::TEXT = ${entityId})))
   `) as DbRow[];
   const excludedTotal = Number(excludedCount?.cnt ?? 0);
-  const excludedTruncated = excludedTotal > unattributed.length;
 
   const byActorType = EMPTY_SPLIT();
   let recorded = 0;
@@ -171,13 +170,15 @@ export async function summarise(
   }));
 
   // Withheld on a SELECTION rather than a census — an actor, token or firm
-  // filter, or a capped excluded sample. buildEnvelope checks
-  // rowsTotal + excludedRows.LENGTH against universeTotal, so a capped sample
-  // would raise a fault about paging rather than about completeness: noise
-  // that erodes the one signal the field exists to give. excludedTotal is
-  // reported unconditionally instead, so nothing is silent either way.
+  // filter narrows to rows chosen by the caller, so completeness is not a
+  // claim being made (CONTRACTS.md §1).
+  //
+  // A TRUNCATED SAMPLE IS NO LONGER A REASON TO WITHHOLD IT. buildEnvelope
+  // now checks rowsTotal + excludedTotal, which is the true identity, so a
+  // capped sample states its universe honestly and the envelope reports
+  // truncatedExcludedRows for the reader.
   const isSelection =
-    actorType !== null || tokenJti !== null || actingCompanyId !== null || crossOnly || excludedTruncated;
+    actorType !== null || tokenJti !== null || actingCompanyId !== null || crossOnly;
   const universe = isSelection
     ? undefined
     : Number((((await sql`
@@ -199,7 +200,6 @@ export async function summarise(
   return {
     rowsTotal: recorded + derived,
     excludedTotal,
-    excludedTruncated,
     ...(universe === undefined ? {} : { universeTotal: universe }),
     excludedRows,
     postedThrough: new Date(latest).toISOString(),
