@@ -21,6 +21,12 @@
 import type { BankTransactionAllocationState } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import type { ResolvedLine } from './bulkAllocationPrepare';
+import {
+  applyRouteFor,
+  fetchInvoiceStates,
+  skipReasonForInvoice,
+  type ApplyKind,
+} from './allocationApplyRoute';
 import { NOT_FOUND } from './toolHelpers';
 
 export interface SkippedLine {
@@ -118,6 +124,9 @@ export async function partitionAllocationLines(
 
   const postable: ResolvedLine[] = [];
   const skipped: SkippedLine[] = [];
+  // Lines that cleared the row-state check, carried with the bank amount so
+  // the invoice check below needs no further reads.
+  const candidates: { line: ResolvedLine; amount: number }[] = [];
   for (const line of resolved) {
     const state = states.get(line.txId);
     // The id resolved but names no row this company has. Reported WITH the id
@@ -128,9 +137,42 @@ export async function partitionAllocationLines(
       continue;
     }
     const reason = skipReasonFor(state);
+    if (reason !== null) {
+      skipped.push({ index: line.index, transaction_id: line.txId, reason });
+      continue;
+    }
+    candidates.push({ line, amount: Math.abs(state.amount) });
+  }
+
+  // Second pass: the invoice a line names may itself be settled, cancelled or
+  // too small for the amount. Those are DATA facts, like every other skip here
+  // — `receiptAllocationLines` would raise them mid-write, which in a batch
+  // means one stale invoice unwinds every good line beside it. Hoisted to a
+  // read so the batch skips around them, and because this runs before the
+  // first write it is also what `dry_run` reports.
+  const refs = candidates
+    .map(({ line }) => {
+      const kind = applyRouteFor(line.line.allocType, line.line.invoiceId);
+      return kind && line.line.invoiceId ? { kind, invoiceId: line.line.invoiceId } : null;
+    })
+    .filter((r): r is { kind: ApplyKind; invoiceId: string } => r !== null);
+  const invoiceStates = refs.length > 0
+    ? await fetchInvoiceStates(companyId, refs)
+    : new Map();
+
+  for (const { line, amount } of candidates) {
+    const kind = applyRouteFor(line.line.allocType, line.line.invoiceId);
+    if (kind === null || !line.line.invoiceId) {
+      postable.push(line);
+      continue;
+    }
+    const reason = skipReasonForInvoice(
+      invoiceStates.get(line.line.invoiceId), line.line.invoiceId, amount,
+    );
     if (reason === null) postable.push(line);
     else skipped.push({ index: line.index, transaction_id: line.txId, reason });
   }
+
   return { postable, skipped };
 }
 

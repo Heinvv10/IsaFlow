@@ -12,6 +12,19 @@
  * balance-derived states. A status that is not balance-derived — 'draft',
  * 'cancelled', 'disputed', 'written_off' — is left exactly as it is, because
  * a payment figure is not evidence about those.
+ *
+ * `paid_at` moves with the status, from the SAME threshold, because every
+ * aging and statement surface reads it to DATE the settlement. Setting status
+ * 'paid' and leaving `paid_at` NULL is half an answer, and it is the half the
+ * reports cannot use. Two rules make it safe:
+ *
+ *   · COALESCE(paid_at, NOW()) — an invoice that is already paid keeps its
+ *     original date. A bare NOW() would re-date a months-old settlement on
+ *     every unrelated recompute.
+ *   · ELSE NULL — an invoice that drops out of 'paid' (a reversal, a cancelled
+ *     credit note) loses the date too, because it is no longer settled. A
+ *     stale paid_at on an open invoice is worse than none: it reads as
+ *     evidence of a settlement that has been undone.
  */
 
 import { sql } from '@/lib/neon';
@@ -42,6 +55,10 @@ export async function recomputeInvoiceStatus(
         WHEN amount_paid > 0.01 THEN 'partially_paid'
         WHEN status IN ('partially_paid', 'paid') THEN 'approved'
         ELSE status
+      END,
+      paid_at = CASE
+        WHEN amount_paid >= total_amount - 0.01 THEN COALESCE(paid_at, NOW())
+        ELSE NULL
       END
       WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         AND status = ANY(${BALANCE_DERIVED})
@@ -54,6 +71,10 @@ export async function recomputeInvoiceStatus(
       WHEN amount_paid > 0.01 THEN 'partially_paid'
       WHEN status IN ('partially_paid', 'paid') THEN 'approved'
       ELSE status
+    END,
+    paid_at = CASE
+      WHEN amount_paid >= total_amount - 0.01 THEN COALESCE(paid_at, NOW())
+      ELSE NULL
     END
     WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
       AND status = ANY(${BALANCE_DERIVED})
