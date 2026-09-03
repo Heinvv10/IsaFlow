@@ -15,7 +15,7 @@ import {
 } from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import { createQuote, LineValidationError } from '@/modules/accounting/services/ar/quoteService';
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 interface LineIn {
@@ -97,7 +97,7 @@ export const createDraftInvoiceTool: McpTool = {
         dueDate: strArg(args, 'due_date'),
         taxRate: typeof args.tax_rate === 'number' ? args.tax_rate : undefined,
         notes: strArg(args, 'notes'),
-      });
+      }, mcpPostingOpts(ctx, 'create_draft_invoice'));
       return ok(result);
     } catch (err) {
       // Pre-write only. InvoiceLineValidationError is raised while validating
@@ -205,7 +205,7 @@ export const finalizeInvoiceTool: McpTool = {
         ctx.companyId,
         invoiceId,
         ctx.userId,
-        { postingAgent: mcpPostingAgent('finalize_invoice') },
+        mcpPostingOpts(ctx, 'finalize_invoice'),
       );
       return ok(result);
     } catch (err) {

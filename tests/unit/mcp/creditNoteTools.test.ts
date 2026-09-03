@@ -175,6 +175,7 @@ describe('create_credit_note — pre-write guards', () => {
       COMPANY,
       expect.objectContaining({ type: 'supplier', supplierId: SUPPLIER }),
       expect.any(String),
+      { postingAgent: 'mcp:create_credit_note:v1', actorType: 'agent', actorTokenJti: 'jti' },
     );
   });
 
@@ -225,7 +226,7 @@ describe('approve_credit_note', () => {
     await approveCreditNoteTool.handler({ credit_note_id: NOTE, ...KEY }, ctx());
     expect(approveCreditNote).toHaveBeenCalledWith(
       COMPANY, NOTE, expect.any(String),
-      { postingAgent: 'mcp:approve_credit_note:v1' },
+      { postingAgent: 'mcp:approve_credit_note:v1', actorType: 'agent', actorTokenJti: 'jti' },
     );
   });
 
@@ -273,7 +274,7 @@ describe('cancel_credit_note', () => {
       expect(out.status).toBe('cancelled');
       expect(cancelCreditNote).toHaveBeenCalledWith(
         COMPANY, NOTE, expect.any(String), 'duplicate',
-        { postingAgent: 'mcp:cancel_credit_note:v1' },
+        { postingAgent: 'mcp:cancel_credit_note:v1', actorType: 'agent', actorTokenJti: 'jti' },
       );
     }
   });

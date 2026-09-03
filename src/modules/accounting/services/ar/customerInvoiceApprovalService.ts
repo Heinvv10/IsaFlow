@@ -12,6 +12,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentService';
 import { snapshotInvoicePdf } from '@/modules/accounting/services/ar/invoicePdfSnapshotService';
+import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
 type Row = DbRow;
 
@@ -58,7 +59,7 @@ export async function approveCustomerInvoice(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: { postingAgent?: string },
+  opts?: PostingActorOpts,
 ): Promise<ApproveCustomerInvoiceResult> {
   // Guard the transition in the UPDATE: only draft/pending_approval invoices
   // may be approved. Re-approving a cancelled invoice would re-add it to AR

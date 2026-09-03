@@ -28,7 +28,7 @@ import {
 import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from '@/lib/mcp/tools/writeBankAllocate';
 
-const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
+const ctx = { companyId: 'company-1', userId: 'user-1', tokenJti: 'jti', oauthAppId: null } as never;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -63,7 +63,7 @@ describe('allocate_bank_transaction', () => {
     const call = vi.mocked(allocateTransaction).mock.calls[0]!;
     expect(call[0]).toBe('company-1');           // tenant from ctx
     expect(call[3]).toBe('user-1');
-    expect(call[12]).toEqual({ postingAgent: 'mcp:allocate_bank_transaction:v1' });
+    expect(call[12]).toEqual({ postingAgent: 'mcp:allocate_bank_transaction:v1', actorType: 'agent', actorTokenJti: 'jti' });
   });
 
   it('rejects a missing transaction_id without touching the ledger', async () => {
@@ -443,6 +443,8 @@ describe('reverse_bank_allocation', () => {
 
     expect(vi.mocked(reverseReconciledTransaction).mock.calls[0]![3]).toEqual({
       postingAgent: 'mcp:reverse_bank_allocation:v1',
+      actorType: 'agent',
+      actorTokenJti: 'jti',
     });
   });
 

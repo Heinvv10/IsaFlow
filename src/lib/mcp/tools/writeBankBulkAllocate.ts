@@ -162,7 +162,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     // that gets there first simply blocks the other.
     const ordered = [...postable].sort((a, b) => (a.txId < b.txId ? -1 : a.txId > b.txId ? 1 : 0));
     const { lines, raced } = await postPreparedLines(
-      ctx.companyId, ctx.userId, ordered, BULK_TOOL,
+      ctx, ordered, BULK_TOOL,
     );
     // Ordered by the agent's own line index: `skipped` is a list a human reads
     // against the batch they sent, and the pre-check and race entries arrive in

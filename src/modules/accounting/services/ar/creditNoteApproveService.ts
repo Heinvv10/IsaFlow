@@ -18,6 +18,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { mapRow } from './creditNoteMapper';
+import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 
 export async function approveCreditNote(
   companyId: string,
@@ -28,7 +29,7 @@ export async function approveCreditNote(
   // defaultHumanMeta(userId) and an MCP-approved credit note posts labelled
   // `human:<userId>` — claiming the token owner did it by hand, and invisible
   // to list_agent_postings, which filters posting_agent LIKE 'mcp:%'.
-  opts?: { postingAgent?: string },
+  opts?: PostingActorOpts,
 ): Promise<CreditNote> {
   try {
     // FOR UPDATE, not a plain SELECT: the status check below and the posting
@@ -98,7 +99,7 @@ export async function approveCreditNote(
       description: `Credit note ${cn.credit_note_number}`,
       source: 'auto_credit_note',
       lines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined);
+    }, userId, actorMeta(opts));
     await postJournalEntry(companyId, je.id, userId);
 
     // N6 (P2.1): approving a LINKED note auto-applies it, so it must land in

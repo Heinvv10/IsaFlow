@@ -10,7 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
-import { defaultHumanMeta } from '../gl/journalEntryMeta';
+import { defaultHumanMeta, actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { assertNoInactiveAccountLines } from '../gl/journalEntryPostingService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
@@ -149,7 +149,7 @@ export async function postCustomerInvoiceToGL(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: { postingAgent?: string; historicalImport?: boolean },
+  opts?: PostingActorOpts & { historicalImport?: boolean },
 ): Promise<string> {
   try {
     const invRows = (await sql`
@@ -220,7 +220,7 @@ export async function postCustomerInvoiceToGL(
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       lines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
+    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
 
     if (opts?.historicalImport) {
       // Historical import diverges from the canonical path (postJournalEntry)

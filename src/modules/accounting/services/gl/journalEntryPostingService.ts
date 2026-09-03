@@ -15,7 +15,7 @@ import {
   resolveUserUuid,
   mapEntryRow,
 } from './journalEntryCrudService';
-import { defaultHumanMeta } from './journalEntryMeta';
+import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
 import { getPeriodStatusForDate } from './periodStatusService';
 
 type Row = DbRow;
@@ -227,7 +227,7 @@ export async function reverseJournalEntry(
   companyId: string,
   id: string,
   userId: string,
-  opts?: { postingAgent?: string; reversalDate?: string },
+  opts?: PostingActorOpts & { reversalDate?: string },
 ): Promise<JournalEntry> {
   try {
     const entry = await getJournalEntryById(companyId, id);
@@ -274,7 +274,7 @@ export async function reverseJournalEntry(
       description: `Reversal of ${entry.entryNumber}`,
       source: entry.source,
       lines: reversalLines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
+    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
 
     try {
       await postJournalEntry(companyId, reversalEntry.id, userId);

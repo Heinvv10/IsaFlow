@@ -61,9 +61,13 @@ vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
 vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
   getSystemAccount: vi.fn(async (role: string) => ({ id: `acct-${role}` })),
 }));
-vi.mock('@/modules/accounting/services/gl/journalEntryMeta', () => ({
-  defaultHumanMeta: (u: string) => ({ postingAgent: `human:${u}` }),
-}));
+// actorMeta stays REAL: it decides what the posting is stamped with, and a
+// stub would make any assertion about the stamp pass whatever it produced.
+vi.mock('@/modules/accounting/services/gl/journalEntryMeta', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/gl/journalEntryMeta')>(
+    '@/modules/accounting/services/gl/journalEntryMeta');
+  return { ...actual, defaultHumanMeta: (u: string) => ({ postingAgent: `human:${u}` }) };
+});
 vi.mock('@/modules/accounting/services/ar/customerPaymentService', () => ({
   getCustomerPaymentById: vi.fn(),
 }));

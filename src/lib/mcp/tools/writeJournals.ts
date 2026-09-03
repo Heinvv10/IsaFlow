@@ -9,7 +9,7 @@ import { createJournalEntry, getJournalEntryById } from '@/modules/accounting/se
 import { postJournalEntry } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, guardUuidList, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 function parseLines(raw: unknown): JournalLineInput[] | null {
@@ -91,7 +91,7 @@ export const createDraftJournalTool: McpTool = {
         ctx.companyId,
         { entryDate, description: strArg(args, 'memo'), lines },
         ctx.userId,
-        { postingAgent: mcpPostingAgent('create_draft_journal') },
+        mcpPostingOpts(ctx, 'create_draft_journal'),
       );
       return ok(entry);
     } catch (err) {

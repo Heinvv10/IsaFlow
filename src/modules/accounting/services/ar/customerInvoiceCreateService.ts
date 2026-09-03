@@ -13,6 +13,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { reserveNextDocumentNumber } from '@/modules/accounting/services/core/companyService';
+import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
 type Row = DbRow;
 
@@ -47,6 +48,7 @@ export async function createDraftCustomerInvoice(
   companyId: string,
   userId: string,
   input: DraftInvoiceInput,
+  actor?: PostingActorOpts,
 ): Promise<{ id: string; invoiceNumber: string }> {
   const {
     clientId, invoiceDate, dueDate, billingPeriodStart, billingPeriodEnd,
@@ -126,13 +128,15 @@ export async function createDraftCustomerInvoice(
             billing_period_start, billing_period_end,
             subtotal, tax_rate, tax_amount, total_amount, invoice_date, due_date,
             notes, status, created_by,
-            currency_code, exchange_rate, functional_total
+            currency_code, exchange_rate, functional_total,
+            actor_type, actor_token_jti
           ) VALUES (
             ${companyId}, ${invoiceNumber}, ${projectId}, ${clientId}::UUID, ${clientId}::UUID,
             ${bpStart}, ${bpEnd},
             ${subtotal}, ${rate}, ${taxAmount}, ${totalAmount}, ${invDate},
             ${dueDate || null}, ${notes || null}, 'draft', ${userId},
-            ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal}
+            ${invCurrencyCode}, ${invExchangeRate}, ${functionalTotal},
+            ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
           ) RETURNING id
         `) as Row[];
         return String(invRows[0]!.id);

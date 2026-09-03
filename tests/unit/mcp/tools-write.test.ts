@@ -152,6 +152,9 @@ describe('create_draft_invoice', () => {
     expect(createDraftCustomerInvoice).toHaveBeenCalledWith(
       COMPANY_ID, USER_ID,
       expect.objectContaining({ clientId: '21d12090-6fd3-44b1-8c7a-5ea3e84254bb', items: [{ description: 'Work', unitPrice: 100, quantity: 2 }] }),
+      // The document itself records the actor: a draft invoice posts no
+      // journal, so until approval this is the only trace of who raised it.
+      { postingAgent: 'mcp:create_draft_invoice:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
     );
     expect(data.invoiceNumber).toBe('INV-0001');
   });
@@ -215,7 +218,7 @@ describe('create_draft_journal', () => {
         ],
       }),
       USER_ID,
-      { postingAgent: 'mcp:create_draft_journal:v1' },
+      { postingAgent: 'mcp:create_draft_journal:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
     );
   });
 
@@ -234,7 +237,7 @@ describe('create_draft_journal', () => {
     }, ctx());
 
     const meta = vi.mocked(createJournalEntry).mock.calls[0]![3];
-    expect(meta).toEqual({ postingAgent: 'mcp:create_draft_journal:v1' });
+    expect(meta).toEqual({ postingAgent: 'mcp:create_draft_journal:v1', actorType: 'agent', actorTokenJti: 'jti-1' });
     expect(meta?.postingAgent).not.toContain('human:');
   });
 
@@ -291,7 +294,8 @@ describe('post_journal / finalize_invoice (post tools)', () => {
     vi.mocked(approveCustomerInvoice).mockResolvedValue({ id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', status: 'approved', glJournalEntryId: 'je-9', evidenceDocumentId: null });
     parseOk(await tool('finalize_invoice').handler({ invoice_id: 'eec03106-2910-4a7a-8e91-0c4f396ec98f', ...KEY }, ctx()));
     expect(approveCustomerInvoice).toHaveBeenCalledWith(
-      COMPANY_ID, 'eec03106-2910-4a7a-8e91-0c4f396ec98f', USER_ID, { postingAgent: 'mcp:finalize_invoice:v1' },
+      COMPANY_ID, 'eec03106-2910-4a7a-8e91-0c4f396ec98f', USER_ID,
+      { postingAgent: 'mcp:finalize_invoice:v1', actorType: 'agent', actorTokenJti: 'jti-1' },
     );
   });
 

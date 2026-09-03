@@ -30,7 +30,7 @@ import {
 } from '@/modules/accounting/services/bank/bankAllocationRangeService';
 import { bankGlAccountBelongsToCompany } from '@/modules/accounting/services/bank/bankStatementImportService';
 import { REVERSAL_DATE_PROPERTY } from './allocationSchema';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const REVERSE_RANGE_TOOL = 'reverse_allocations';
@@ -160,7 +160,7 @@ export const reverseAllocationsTool: McpTool = {
       // correction posts as human:<userId> and drops out of list_agent_postings,
       // which is the surface a human reviews agent work through.
       await reverseReconciledTransaction(ctx.companyId, row.id, ctx.userId, {
-        postingAgent: mcpPostingAgent(REVERSE_RANGE_TOOL),
+        ...mcpPostingOpts(ctx, REVERSE_RANGE_TOOL),
         ...(reversalDate === undefined ? {} : { reversalDate }),
       });
     }

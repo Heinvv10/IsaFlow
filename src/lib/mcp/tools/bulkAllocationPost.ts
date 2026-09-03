@@ -11,6 +11,7 @@ import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
 import { postAllocationLine } from './allocationLine';
+import type { McpToolContext } from '../types';
 
 export interface PostedLine {
   transaction_id: string;
@@ -129,8 +130,9 @@ export function safeLineDetail(err: unknown): string {
  *     unlocatable generic failure.
  */
 export async function postPreparedLines(
-  companyId: string,
-  userId: string,
+  // ctx, not companyId + userId — see postAllocationLine: the token identity
+  // is part of what every posted line must record.
+  ctx: McpToolContext,
   ordered: readonly ResolvedLine[],
   toolName: string,
 ): Promise<PostedBatch> {
@@ -146,7 +148,7 @@ export async function postPreparedLines(
         // ≤31 chars for every index up to 499 — withSavepoint THROWS on a
         // longer name, which would fail the batch before it posted anything.
         `bulk_alloc_line_${index}`,
-        () => postAllocationLine(companyId, userId, txId, line, toolName),
+        () => postAllocationLine(ctx, txId, line, toolName),
       );
       lines.push({
         transaction_id: result.transactionId,

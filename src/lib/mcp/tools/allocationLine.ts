@@ -19,7 +19,8 @@ import {
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { pickTxSelector, resolveTxId, resolveTxSelectors, type TxSelector } from './txSelectorResolve';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
+import type { McpToolContext } from '../types';
 import { NOT_FOUND, guardCastableArgs } from './toolHelpers';
 
 // Selector parsing and reference resolution moved to txSelectorResolve.ts when
@@ -218,17 +219,19 @@ export async function checkLinesOwnership(
  * line: nothing else was written) or propagates to roll the batch back.
  */
 export async function postAllocationLine(
-  companyId: string,
-  userId: string,
+  // The whole ctx, not companyId + userId: the posting must also record the
+  // TOKEN behind it (migration 530), and a helper that only receives the two
+  // ids cannot do that without the caller reassembling the actor by hand.
+  ctx: McpToolContext,
   txId: string,
   line: AllocationLine,
   toolName: string,
 ): Promise<{ journalEntryId: string; transactionId: string }> {
   const result = await allocateTransaction(
-    companyId,                                                // tenant from ctx ONLY
+    ctx.companyId,                                            // tenant from ctx ONLY
     txId,
     line.contraAccountId || null,  // null for supplier/customer — the service ignores it there
-    userId,
+    ctx.userId,
     line.description,
     line.allocType,
     line.entityId || undefined,
@@ -237,7 +240,7 @@ export async function postAllocationLine(
     undefined,
     undefined,
     line.invoiceId,
-    { postingAgent: mcpPostingAgent(toolName) },
+    mcpPostingOpts(ctx, toolName),
   );
   return { journalEntryId: result.journalEntryId, transactionId: result.bankTransaction.id };
 }

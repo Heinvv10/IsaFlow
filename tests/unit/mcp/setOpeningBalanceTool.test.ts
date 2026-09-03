@@ -110,7 +110,7 @@ describe('set_opening_balance', () => {
     await setOpeningBalanceTool.handler(ARGS, ctx());
     expect(postJournalEntry).toHaveBeenCalledWith(COMPANY, JE, ctx().userId);
     expect(vi.mocked(createJournalEntry).mock.calls[0]![3])
-      .toEqual({ postingAgent: 'mcp:set_opening_balance:v1' });
+      .toEqual({ postingAgent: 'mcp:set_opening_balance:v1', actorType: 'agent', actorTokenJti: 'jti' });
     expect(vi.mocked(createJournalEntry).mock.calls[0]![1].source).toBe('auto_migration');
   });
 

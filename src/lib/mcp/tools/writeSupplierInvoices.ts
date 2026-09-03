@@ -21,7 +21,7 @@ import { supplierBelongsToCompany } from '@/modules/accounting/services/core/con
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import type { SupplierInvoiceItemInput } from '@/modules/accounting/types/ap.types';
 import { UUID_RE } from '@/lib/validation';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
 import {
   NOT_FOUND,
   guardCastableArgs,
@@ -193,6 +193,7 @@ export const createSupplierInvoiceTool: McpTool = {
           items: parsed.items,
         },
         ctx.userId,
+        mcpPostingOpts(ctx, 'create_supplier_invoice'),
       );
       return ok({
         id: invoice.id,
@@ -256,7 +257,7 @@ export const approveSupplierInvoiceTool: McpTool = {
     // createJournalEntry falls back to defaultHumanMeta(userId), labelling
     // agent work as the token owner's own.
     const updated = await approveSupplierInvoice(ctx.companyId, invoiceId, ctx.userId, {
-      postingAgent: mcpPostingAgent('approve_supplier_invoice'),
+      ...mcpPostingOpts(ctx, 'approve_supplier_invoice'),
     });
 
     return ok({

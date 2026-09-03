@@ -12,6 +12,7 @@ import { log } from '@/lib/logger';
 import type { CreditNote, CreditNoteCreateInput, CreditNoteStatus } from '../../types/ar.types';
 import { validateCreditNoteLinks } from './creditNoteLinkService';
 import { mapRow } from './creditNoteMapper';
+import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
 export { approveCreditNote } from './creditNoteApproveService';
 export { cancelCreditNote, applyCreditNoteToInvoice } from './creditNoteCancelService';
@@ -84,9 +85,17 @@ export async function getCreditNoteById(companyId: string, id: string): Promise<
   return rows.length > 0 ? mapRow(rows[0]!) : null;
 }
 
+/**
+ * @param actor Who raised it (migration 531). Omitted by the REST route, which
+ *   leaves both columns NULL — resolved from the approval journal's
+ *   posting_agent at read time and reported as DERIVED, never as recorded.
+ *   The MCP tool passes an actor, so an agent-raised note is provable for the
+ *   whole draft period, before any journal exists to carry the stamp.
+ */
 export async function createCreditNote(companyId: string, 
   input: CreditNoteCreateInput,
-  userId: string
+  userId: string,
+  actor?: PostingActorOpts,
 ): Promise<CreditNote> {
   try {
     // The tenant + counterparty fence lives HERE, not in a caller. None of
@@ -116,7 +125,7 @@ export async function createCreditNote(companyId: string,
         company_id,
         type, client_id, customer_invoice_id, supplier_id, supplier_invoice_id,
         credit_date, reason, subtotal, tax_rate, tax_amount, total_amount,
-        project_id, created_by
+        project_id, created_by, actor_type, actor_token_jti
       ) VALUES (
         ${companyId}::UUID,
         ${input.type}, ${input.clientId || null}, ${input.customerInvoiceId || null},
@@ -124,7 +133,8 @@ export async function createCreditNote(companyId: string,
         ${input.supplierInvoiceId || null},
         ${input.creditDate}, ${input.reason || null},
         ${input.subtotal}, ${taxRate}, ${taxAmount}, ${totalAmount},
-        ${input.projectId || null}, ${userId}::UUID
+        ${input.projectId || null}, ${userId}::UUID,
+        ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
       ) RETURNING *
     `) as Record<string, unknown>[];
 

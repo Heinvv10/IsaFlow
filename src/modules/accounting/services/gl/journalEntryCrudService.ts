@@ -248,7 +248,8 @@ export async function createJournalEntry(
         INSERT INTO gl_journal_entries (
           id, company_id, entry_date, fiscal_period_id, description, source,
           source_document_id, source_record_id, reference, created_by,
-          posting_agent, source_document_hash, extraction_confidence
+          posting_agent, source_document_hash, extraction_confidence,
+          actor_type, actor_token_jti
         ) VALUES (
           ${entryId}::UUID, ${companyId}::UUID, ${input.entryDate}, ${fiscalPeriodId || null},
           ${input.description || null}, ${input.source || 'manual'},
@@ -256,7 +257,9 @@ export async function createJournalEntry(
           ${input.reference || null}, ${safeUserId}::UUID,
           ${resolvedMeta.postingAgent},
           ${resolvedMeta.sourceDocumentHash ?? null},
-          ${resolvedMeta.extractionConfidence ?? null}
+          ${resolvedMeta.extractionConfidence ?? null},
+          ${resolvedMeta.actorType ?? null},
+          ${resolvedMeta.actorTokenJti ?? null}
         )
         RETURNING *
       `,

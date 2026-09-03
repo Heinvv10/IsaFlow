@@ -21,6 +21,7 @@ import type { VatType } from '../../types/gl.types';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { resolvePendingAlertForInvoice } from '../capture/alertResolutionService';
 import { mapInvoiceRow } from './supplierInvoiceQueryService';
+import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
 type Row = DbRow;
 
@@ -65,6 +66,8 @@ export async function createSupplierInvoice(
   companyId: string,
   input: SupplierInvoiceCreateInput,
   userId: string,
+  /** Migration 530 actor. Omitted by the REST route; the MCP tool supplies it. */
+  actor?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
     // W1 (P2.1): negative quantities/prices produce negative documents.
@@ -122,7 +125,7 @@ export async function createSupplierInvoice(
           total_amount, payment_terms, reference, project_id,
           cost_center_id, notes, created_by,
           currency_code, exchange_rate, functional_total,
-          duplicate_fingerprint
+          duplicate_fingerprint, actor_type, actor_token_jti
         ) VALUES (
           ${companyId}::UUID, ${input.invoiceNumber}, ${input.supplierId},
           ${input.purchaseOrderId || null}, ${input.grnId || null},
@@ -132,7 +135,8 @@ export async function createSupplierInvoice(
           ${input.projectId || null}, ${input.costCenterId || null},
           ${input.notes || null}, ${userId}::UUID,
           ${currencyCode}, ${exchangeRate}, ${functionalTotal},
-          ${fingerprint}
+          ${fingerprint},
+          ${actor?.actorType ?? null}, ${actor?.actorTokenJti ?? null}
         ) RETURNING *
       `) as Row[];
 
