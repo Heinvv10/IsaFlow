@@ -232,8 +232,13 @@ export async function duplicateControlAccounts(ctx: IntegrityCheckContext): Prom
 
     if (rows.length <= 1) continue;
     count += rows.length;
+    // amount over EVERY contending account; only `results` is sampled. Summing
+    // it inside the sliced loop understated the total whenever more than
+    // ctx.limit accounts contend for one role — and ctx.limit can be 1. A total
+    // that is the total of its own first few rows is the aged-debtors defect
+    // wearing a different hat, which is the invariant types.ts states in bold.
+    for (const r of rows) amount += num(r.amount);
     for (const r of rows.slice(0, ctx.limit)) {
-      amount += num(r.amount);
       results.push({
         id: str(r.id),
         label: `${str(r.account_code)} ${str(r.account_name)}`,

@@ -301,6 +301,12 @@ describe('runIntegrityChecks against a real ledger', () => {
       const control = by(report.checks, 'duplicate_control_accounts');
       expect(control.sample).toHaveLength(1);
       expect(control.count).toBe(2);
+      // The assertion this test was named for, and did not make. `count` was
+      // over every row while `amount` was summed inside the SLICED loop, so
+      // with limit:1 the R8,000 of contending balances under-reported —
+      // the largest row alone, and lower than the truth, which is the
+      // direction that reads as reassuring.
+      expect(control.amount).toBe(8000);
     });
   });
 
