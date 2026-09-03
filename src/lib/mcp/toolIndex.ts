@@ -72,6 +72,7 @@ import {
 } from './tools/practice';
 import { createJobCategoryTool, createWorkItemTool } from './tools/writePracticeSetup';
 import { listEmployeesTool, listPayRunsTool } from './tools/payroll';
+import { emp201StatusTool, irp5DataTool } from './tools/payrollSars';
 import {
   customerStatementTool,
   projectProfitabilityTool,
@@ -88,7 +89,7 @@ import { createPayRunTool, postPayrollJournalTool } from './tools/writePayroll';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (43)
+  // read (45)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -123,6 +124,8 @@ export const MCP_TOOLS = [
   getCreditNoteTool,
   listEmployeesTool,
   listPayRunsTool,
+  emp201StatusTool,
+  irp5DataTool,
   customerStatementTool,
   projectProfitabilityTool,
   wipReportTool,
