@@ -48,7 +48,13 @@ export async function generateCashFlow(
   }
 
   return {
-    dataSnapshot: { opening, closing, netMovement, cashAccountCount },
+    // `closingCash` is published under the name the pre-export blocker reads.
+    // The blocker used to look for closingCash and bankBalance in a snapshot
+    // that held neither, so both read 0 and the check passed unconditionally.
+    dataSnapshot: {
+      opening, closing, netMovement, cashAccountCount,
+      closingCash: closing,
+    },
     content: {
       title: 'Statement of Cash Flows',
       blocks: [

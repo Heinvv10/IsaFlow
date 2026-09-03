@@ -22,6 +22,10 @@ const REVENUE_CODES = new Set([
   'IS124', 'IS131', 'IS132', 'IS133', 'IS135', 'IS139', 'IS143',
   // Below-the-line finance income / dividends
   'IS461', 'IS463', 'IS464', 'IS467',
+  // The running totals. rollUpTotals accumulates them in raw debit-minus-credit
+  // space, where a profit is negative; a profit is credit-positive like the
+  // revenue above it, so it flips with the same rule and reads positive.
+  'IS452', 'IS471', 'IS480', 'IS485',
 ]);
 
 function isRevenueLine(l: SectionLine): boolean {
