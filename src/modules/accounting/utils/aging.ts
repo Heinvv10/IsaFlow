@@ -18,6 +18,14 @@ import type { AgingBucket, AgingBucketName, AgingInvoice } from '../types/ap.typ
  * - 120+ days: 91+ days overdue
  */
 export function getAgingBucket(dueDate: Date, asAtDate: Date): AgingBucketName {
+  // An invoice carrying no usable date at all. It used to reach the oldest
+  // bucket by accident — NaN makes every comparison below false, so control
+  // fell through to the last return. Relying on that is how a later reordering
+  // of the branches silently changes which bucket undated debt lands in, so
+  // the choice is made here instead: unknown age is treated as the oldest,
+  // because an unchased debt of unknown age is the one worth looking at.
+  if (Number.isNaN(dueDate.getTime())) return 'days120Plus';
+
   const diffMs = asAtDate.getTime() - dueDate.getTime();
   const daysOverdue = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 

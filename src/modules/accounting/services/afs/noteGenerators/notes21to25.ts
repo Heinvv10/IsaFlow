@@ -5,8 +5,9 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import type { DbRow } from '@/types/db';
-import { fmt, toNum, fiscalRange } from './noteHelpers';
+import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // ── Note 21 — Finance Costs ───────────────────────────────────────────────────
 
@@ -14,7 +15,7 @@ export async function generateNote21FinanceCosts(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('note21: querying finance costs', { companyId, fiscalYear }, 'noteGenerators');
 
@@ -69,7 +70,7 @@ export async function generateNote22EmployeeBenefits(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('note22: querying employee benefits', { companyId, fiscalYear }, 'noteGenerators');
 
@@ -147,7 +148,7 @@ export async function generateNote24AuditorRemuneration(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('note24: querying audit fees', { companyId, fiscalYear }, 'noteGenerators');
 

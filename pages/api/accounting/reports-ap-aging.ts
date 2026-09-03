@@ -78,14 +78,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         si.total_amount,
         si.amount_paid,
         si.balance                                      AS balance_due,
-        GREATEST(0, (${asAtStr}::date - si.due_date))  AS days_overdue
+        GREATEST(0, (${asAtStr}::date - COALESCE(si.due_date, si.invoice_date)))  AS days_overdue
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('paid', 'cancelled', 'draft')
         AND si.balance > 0
-        AND si.due_date IS NOT NULL
-      ORDER BY si.due_date, si.id
+      ORDER BY COALESCE(si.due_date, si.invoice_date), si.id
       LIMIT ${limit + 1} OFFSET ${offset}
     `) as Row[];
 
@@ -113,10 +112,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const bucketRows = (await sql`
       SELECT
         CASE
-          WHEN GREATEST(0, (${asAtStr}::date - si.due_date)) <= 0 THEN 'current'
-          WHEN GREATEST(0, (${asAtStr}::date - si.due_date)) <= 30 THEN '1-30'
-          WHEN GREATEST(0, (${asAtStr}::date - si.due_date)) <= 60 THEN '31-60'
-          WHEN GREATEST(0, (${asAtStr}::date - si.due_date)) <= 90 THEN '61-90'
+          WHEN GREATEST(0, (${asAtStr}::date - COALESCE(si.due_date, si.invoice_date))) <= 0 THEN 'current'
+          WHEN GREATEST(0, (${asAtStr}::date - COALESCE(si.due_date, si.invoice_date))) <= 30 THEN '1-30'
+          WHEN GREATEST(0, (${asAtStr}::date - COALESCE(si.due_date, si.invoice_date))) <= 60 THEN '31-60'
+          WHEN GREATEST(0, (${asAtStr}::date - COALESCE(si.due_date, si.invoice_date))) <= 90 THEN '61-90'
           ELSE '90+'
         END AS bucket,
         COUNT(*)::int AS count,
@@ -125,7 +124,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('paid', 'cancelled', 'draft')
         AND si.balance > 0
-        AND si.due_date IS NOT NULL
       GROUP BY bucket
     `) as Row[];
 

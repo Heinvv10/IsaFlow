@@ -6,8 +6,9 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import type { DbRow } from '@/types/db';
-import { fmt, toNum, fiscalRange } from './noteHelpers';
+import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // ── Note 26 — Events After Reporting Date ────────────────────────────────────
 
@@ -15,7 +16,7 @@ export async function generateNote26EventsAfterReportingDate(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('note26: querying post-period journal entries', { companyId, fiscalYear });
 
@@ -57,7 +58,7 @@ export async function generateNote27GoingConcern(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('note27: querying going concern indicators', { companyId, fiscalYear });
 
@@ -157,7 +158,7 @@ export async function generateNote29FinancialInstrumentsRisk(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('note29: querying financial instruments risk', { companyId, fiscalYear });
 
@@ -213,10 +214,10 @@ export async function generateNote29FinancialInstrumentsRisk(
 // ── Note 30 — Standards Not Yet Effective ────────────────────────────────────
 
 export async function generateNote30StandardsNotYetEffective(
-  _companyId: string,
+  companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
 
   log.info('note30: querying pending IFRS standards', { fiscalYear });
 

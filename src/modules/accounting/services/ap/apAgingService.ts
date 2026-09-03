@@ -21,14 +21,18 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
 
     const rows = (await sql`
       SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
-        si.due_date, si.total_amount, si.amount_paid, si.balance
+        COALESCE(si.due_date, si.invoice_date) AS due_date,
+        (si.due_date IS NULL) AS due_date_missing,
+        si.total_amount, si.amount_paid, si.balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}::UUID
         AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
         AND si.balance > 0
-        AND si.due_date IS NOT NULL
-      ORDER BY si.due_date
+      -- Same omission as AR, and larger: 357 supplier invoices worth
+      -- R37,703,816.94 — a third of all open payables — were absent from the
+      -- aging because they carry no due date. Aged from invoice_date instead.
+      ORDER BY COALESCE(si.due_date, si.invoice_date)
     `) as Row[];
 
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
@@ -36,6 +40,7 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
       entityId: String(r.entity_id),
       entityName: String(r.entity_name),
       dueDate: String(r.due_date),
+      dueDateMissing: r.due_date_missing === true,
       totalAmount: Number(r.total_amount),
       amountPaid: Number(r.amount_paid),
       balance: Number(r.balance),
@@ -63,15 +68,20 @@ export async function getAPAgingDetail(companyId: string,
 
     const rows = (await sql`
       SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
-        si.due_date, si.invoice_number, si.total_amount, si.amount_paid, si.balance
+        COALESCE(si.due_date, si.invoice_date) AS due_date,
+        (si.due_date IS NULL) AS due_date_missing,
+        si.invoice_number, si.total_amount, si.amount_paid, si.balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
         AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
         AND si.balance > 0
-        AND si.due_date IS NOT NULL
-      ORDER BY si.due_date
+      -- Undated invoices belong here for the same reason they belong in the
+      -- summary. A drill-down that omits them contradicts the total it drills
+      -- into, which is worse than the original omission because it reads as a
+      -- reconciled figure.
+      ORDER BY COALESCE(si.due_date, si.invoice_date)
     `) as Row[];
 
     const invoices: AgingInvoice[] = rows.map((r: Row) => ({
@@ -79,6 +89,7 @@ export async function getAPAgingDetail(companyId: string,
       entityId: String(r.entity_id),
       entityName: String(r.entity_name),
       dueDate: String(r.due_date),
+      dueDateMissing: r.due_date_missing === true,
       totalAmount: Number(r.total_amount),
       amountPaid: Number(r.amount_paid),
       balance: Number(r.balance),

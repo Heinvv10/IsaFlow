@@ -3,6 +3,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
+import { getFiscalRangeWithPrior } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
@@ -17,10 +18,6 @@ export function fmt(n: number | null | undefined): string {
 export function toNum(v: unknown): number {
   const n = Number(v);
   return isNaN(n) ? 0 : n;
-}
-
-export function fiscalRange(year: number): { start: string; end: string } {
-  return { start: `${year}-01-01`, end: `${year}-12-31` };
 }
 
 // ── AFS Mapping Integration ──────────────────────────────────────────────────
@@ -45,9 +42,13 @@ export async function fetchBalancesByNote(
   fiscalYear: number,
   priorYear?: number,
 ): Promise<AfsLineBalance[]> {
-  const { start, end } = fiscalRange(fiscalYear);
-  const priorStart = priorYear ? `${priorYear}-01-01` : null;
-  const priorEnd = priorYear ? `${priorYear}-12-31` : null;
+  // Comparative on the SAME fiscal calendar as the current year; both from one
+  // lookup. Hard-coding January-December here reintroduced the very defect the
+  // current year was fixed for, silently and only in the prior-year column.
+  const { current: { start, end }, prior } =
+    await getFiscalRangeWithPrior(companyId, fiscalYear, priorYear);
+  const priorStart = prior?.start ?? null;
+  const priorEnd = prior?.end ?? null;
 
   const rows = (await sql`
     SELECT
@@ -97,9 +98,13 @@ export async function fetchBalancesByCodes(
 ): Promise<AfsLineBalance[]> {
   if (codes.length === 0) return [];
 
-  const { start, end } = fiscalRange(fiscalYear);
-  const priorStart = priorYear ? `${priorYear}-01-01` : null;
-  const priorEnd = priorYear ? `${priorYear}-12-31` : null;
+  // Comparative on the SAME fiscal calendar as the current year; both from one
+  // lookup. Hard-coding January-December here reintroduced the very defect the
+  // current year was fixed for, silently and only in the prior-year column.
+  const { current: { start, end }, prior } =
+    await getFiscalRangeWithPrior(companyId, fiscalYear, priorYear);
+  const priorStart = prior?.start ?? null;
+  const priorEnd = prior?.end ?? null;
 
   const rows = (await sql`
     SELECT
@@ -176,9 +181,12 @@ export async function fetchSubtypeBalances(
   fiscalYear: number,
   opts?: { priorYear?: number; creditNormal?: boolean },
 ): Promise<{ current: number; prior: number }> {
-  const { start, end } = fiscalRange(fiscalYear);
-  const priorStart = opts?.priorYear ? `${opts.priorYear}-01-01` : null;
-  const priorEnd = opts?.priorYear ? `${opts.priorYear}-12-31` : null;
+  // Same fiscal calendar as the current year — see the note in
+  // fetchBalancesByNote about the prior-year column reintroducing the defect.
+  const { current: { start, end }, prior } =
+    await getFiscalRangeWithPrior(companyId, fiscalYear, opts?.priorYear);
+  const priorStart = prior?.start ?? null;
+  const priorEnd = prior?.end ?? null;
   const sign = opts?.creditNormal ? -1 : 1;
 
   const rows = (await sql`

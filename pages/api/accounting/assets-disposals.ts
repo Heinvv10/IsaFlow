@@ -1,6 +1,16 @@
 /**
- * Asset Disposals API
- * GET: list disposals, POST: create disposal
+ * Asset Disposals API — GET: list disposals.
+ *
+ * There is deliberately NO POST here. This endpoint used to accept one, and it
+ * inserted an asset_disposals row and set the asset to 'disposed' WITHOUT
+ * posting anything to the general ledger — so the asset register and the GL
+ * disagreed by the asset's book value, with nothing on either side saying so.
+ * It also took no row lock and did not refuse an already-disposed asset, so
+ * two concurrent requests could retire the same asset twice.
+ *
+ * Disposals go through POST /api/accounting/assets/:assetId/dispose, which
+ * takes the lock, guards the status, runs the policy and tax calculation, and
+ * posts the journal. Do not reintroduce a second disposal path here.
  */
 
 import type { NextApiResponse } from 'next';
@@ -9,8 +19,6 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
-import { log } from '@/lib/logger';
-import { validateDisposal } from '@/modules/accounting/services/items/assetService';
 import { parsePagination } from '@/lib/pagination';
 
 type Row = Record<string, unknown>;
@@ -34,48 +42,7 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.success(res, disposals, undefined, 200, { limit, offset, hasMore });
   }
 
-  if (req.method === 'POST') {
-    const body = req.body;
-    const validation = validateDisposal(body);
-    if (!validation.success) {
-      return apiResponse.validationError(res,
-        Object.fromEntries((validation.errors || []).map(e => [e.field, e.message]))
-      );
-    }
-
-    const assets = await sql`
-      SELECT id, current_book_value, status FROM assets WHERE id = ${body.assetId} AND company_id = ${companyId}
-    ` as Row[];
-    if (!assets[0]) return apiResponse.notFound(res, 'Asset', body.assetId);
-
-    const bookValue = Number(assets[0].current_book_value);
-    const gainLoss = (body.disposalAmount || 0) - bookValue;
-
-    const disposal = await sql`
-      INSERT INTO asset_disposals (
-        asset_id, disposal_date, disposal_method, disposal_amount,
-        book_value_at_disposal, gain_loss, reason, created_by
-      ) VALUES (
-        ${body.assetId}, ${body.disposalDate}, ${body.disposalMethod},
-        ${body.disposalAmount || 0}, ${bookValue}, ${gainLoss},
-        ${body.reason}, ${String(req.user.id)}
-      ) RETURNING *
-    ` as Row[];
-
-    await sql`
-      UPDATE assets SET
-        status = 'disposed', disposal_date = ${body.disposalDate},
-        disposal_method = ${body.disposalMethod}, disposal_amount = ${body.disposalAmount || 0},
-        disposal_reason = ${body.reason}, disposal_gain_loss = ${gainLoss},
-        updated_at = NOW()
-      WHERE id = ${body.assetId} AND company_id = ${companyId}
-    `;
-
-    log.info('Asset disposed', { assetId: body.assetId, method: body.disposalMethod, gainLoss }, 'accounting');
-    return apiResponse.created(res, disposal[0]);
-  }
-
-  return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);
+  return apiResponse.methodNotAllowed(res, req.method!, ['GET']);
 }
 
 export default withAuth(withErrorHandler(withCsrf(withWriteAccess(handler))));

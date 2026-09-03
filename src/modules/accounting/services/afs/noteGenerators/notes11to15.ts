@@ -4,8 +4,9 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
-import { fmt, toNum, fiscalRange } from './noteHelpers';
+import { fmt, toNum } from './noteHelpers';
 import { getCompanyTerminology } from '../entityTerminology';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 type DbRow = Record<string, unknown>;
 
@@ -15,7 +16,7 @@ export async function generateNote11CashAndCashEquivalents(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote11CashAndCashEquivalents', { companyId, fiscalYear }, 'AfsNote');
 
   const rows = (await sql`
@@ -68,7 +69,7 @@ export async function generateNote12ShareCapital(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote12ShareCapital', { companyId, fiscalYear }, 'AfsNote');
 
   const [rows, terms] = await Promise.all([
@@ -131,7 +132,7 @@ export async function generateNote13Borrowings(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote13Borrowings', { companyId, fiscalYear }, 'AfsNote');
 
   const rows = (await sql`
@@ -209,7 +210,7 @@ export async function generateNote15Provisions(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote15Provisions', { companyId, fiscalYear }, 'AfsNote');
 
   const rows = (await sql`

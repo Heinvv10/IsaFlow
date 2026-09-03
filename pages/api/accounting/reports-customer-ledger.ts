@@ -2,16 +2,20 @@
  * Customer Transaction Ledger API
  * GET /api/accounting/reports-customer-ledger?customerId=&dateFrom=&dateTo=
  *
- * Returns all invoices + receipts for a single customer with a running balance.
+ * Returns a customer's invoices, receipts and credit notes with a running
+ * balance. The composition and arithmetic live in customerLedgerService, where
+ * they can be tested; this route is transport only.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { sql } from '@/lib/neon';
-import { fmtDate } from '@/lib/fmtDate';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
+import {
+  getCustomerLedger,
+  type CustomerLedgerEntry,
+} from '@/modules/accounting/services/ar/customerLedgerService';
 
 interface LedgerRow {
   type: string;
@@ -31,20 +35,18 @@ interface LedgerResult {
   transactions: LedgerRow[];
 }
 
-type DbRow = {
-  type: string;
-  transaction_id: string;
-  reference: string | null;
-  transaction_date: Date | string;
-  debit: string | number;
-  credit: string | number;
-  status: string;
-};
-
-function toDateStr(d: Date | string): string {
-  // P1.4 sweep: toISOString() on a pg DATE (local midnight, UTC+2) rolls the
-  // date back a day — fmtDate uses local getters.
-  return fmtDate(d) || String(d);
+/** The response stays snake_case — existing UI consumers read these names. */
+function toResponseRow(entry: CustomerLedgerEntry): LedgerRow {
+  return {
+    type: entry.type,
+    transaction_id: entry.transactionId,
+    reference: entry.reference,
+    transaction_date: entry.transactionDate,
+    debit: entry.debit,
+    credit: entry.credit,
+    status: entry.status,
+    running_balance: entry.balance,
+  };
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -59,89 +61,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'customerId is required');
   }
 
-  const dateFromVal = typeof dateFrom === 'string' && dateFrom ? dateFrom : null;
-  const dateToVal = typeof dateTo === 'string' && dateTo ? dateTo : null;
-
   try {
-    // Resolve customer name
-    const customerRows = (await sql`
-      SELECT name
-      FROM customers
-      WHERE id = ${customerId}
-        AND company_id = ${companyId}
-        AND deleted_at IS NULL
-      LIMIT 1
-    `) as { name: string }[];
+    const ledger = await getCustomerLedger(companyId, customerId, {
+      dateFrom: typeof dateFrom === 'string' && dateFrom ? dateFrom : null,
+      dateTo: typeof dateTo === 'string' && dateTo ? dateTo : null,
+    });
 
-    if (!customerRows.length) {
+    if (ledger === null) {
       return apiResponse.notFound(res, 'Customer', customerId);
     }
 
-    const customerName = (customerRows[0] as { name: string }).name;
-
-    // Union of invoices + receipts
-    const rows = (await sql`
-      SELECT
-        'invoice'                                   AS type,
-        ci.id                                       AS transaction_id,
-        ci.invoice_number                           AS reference,
-        ci.invoice_date                             AS transaction_date,
-        ci.total_amount                             AS debit,
-        0                                           AS credit,
-        ci.status
-      FROM customer_invoices ci
-      WHERE ci.company_id = ${companyId}
-        AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}
-        AND (${dateFromVal}::date IS NULL OR ci.invoice_date >= ${dateFromVal}::date)
-        AND (${dateToVal}::date IS NULL OR ci.invoice_date <= ${dateToVal}::date)
-        AND (ci.deleted_at IS NULL OR ci.deleted_at > NOW())
-
-      UNION ALL
-
-      SELECT
-        'receipt'                                   AS type,
-        cp.id                                       AS transaction_id,
-        COALESCE(cp.bank_reference, cp.payment_number) AS reference,
-        cp.payment_date                             AS transaction_date,
-        0                                           AS debit,
-        cp.total_amount                             AS credit,
-        'paid'                                      AS status
-      FROM customer_payments cp
-      WHERE cp.company_id = ${companyId}
-        AND cp.client_id = ${customerId}
-        AND cp.status != 'cancelled'
-        AND (${dateFromVal}::date IS NULL OR cp.payment_date >= ${dateFromVal}::date)
-        AND (${dateToVal}::date IS NULL OR cp.payment_date <= ${dateToVal}::date)
-
-      ORDER BY transaction_date ASC, type ASC
-    `) as DbRow[];
-
-    // Compute running balance
-    let balance = 0;
-    const transactions: LedgerRow[] = rows.map((row) => {
-      const debit = Number(row.debit) || 0;
-      const credit = Number(row.credit) || 0;
-      balance = balance + debit - credit;
-      return {
-        type: row.type,
-        transaction_id: row.transaction_id,
-        reference: row.reference,
-        transaction_date: toDateStr(row.transaction_date),
-        debit,
-        credit,
-        status: row.status,
-        running_balance: balance,
-      };
-    });
-
-    const openingBalance = 0;
-    const closingBalance = balance;
-
     const result: LedgerResult = {
-      customer_name: customerName,
-      opening_balance: openingBalance,
-      closing_balance: closingBalance,
-      transactions,
+      customer_name: ledger.customerName,
+      opening_balance: ledger.openingBalance,
+      closing_balance: ledger.closingBalance,
+      transactions: ledger.transactions.map(toResponseRow),
     };
 
     return apiResponse.success(res, result);

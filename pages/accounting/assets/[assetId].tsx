@@ -137,9 +137,14 @@ export default function AssetDetailPage() {
     if (!asset) return;
     setSubmitting(true); setDisposalError('');
     try {
-      const res = await apiFetch('/api/accounting/assets-disposals', {
+      // /assets/:id/dispose, NOT /assets-disposals. The latter recorded the
+      // disposal and retired the asset without posting anything to the general
+      // ledger, so the asset register and the GL disagreed by the asset's book
+      // value. This endpoint takes the row lock, refuses an already-disposed
+      // asset, runs the policy and tax calculation, and posts the journal.
+      const res = await apiFetch(`/api/accounting/assets/${asset.id}/dispose`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assetId: asset.id, disposalDate: form.disposal_date, disposalMethod: form.disposal_method, disposalAmount: Number(form.disposal_amount) || 0, reason: form.reason || undefined }),
+        body: JSON.stringify({ proceeds: Number(form.disposal_amount) || 0, disposalDate: form.disposal_date, disposalType: form.disposal_method, notes: form.reason || undefined }),
       });
       const json = await res.json() as { success?: boolean; error?: string; message?: string };
       if (!res.ok || !json.success) { setDisposalError(json.error ?? json.message ?? 'Disposal failed'); return; }

@@ -10,8 +10,9 @@
 
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
-import { fmt, fiscalRange } from '../noteHelpers';
+import { fmt } from '../noteHelpers';
 import { fetchSectionLines } from './_helpers';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 const EQUITY_CODES = new Set(['BS043', 'BS044', 'BS045', 'BS046', 'BS047', 'BS048']);
 
@@ -21,6 +22,7 @@ export async function generateChangesInEquity(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateChangesInEquity', { companyId, fiscalYear }, 'AfsPrimary');
+  const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
   const lines = await fetchSectionLines(companyId, 'balance_sheet', fiscalYear, fiscalYear - 1);
   const equityLines = lines.filter((l) => EQUITY_CODES.has(l.code));
 
@@ -36,7 +38,7 @@ export async function generateChangesInEquity(
     content: {
       title: 'Statement of Changes in Equity',
       blocks: [
-        { type: 'paragraph', text: `Movements in equity for the year ended ${fiscalRange(fiscalYear).end}.` },
+        { type: 'paragraph', text: `Movements in equity for the year ended ${fyEnd}.` },
         {
           type: 'table',
           headers: ['Component', 'Opening (R)', 'Movement (R)', 'Closing (R)'],

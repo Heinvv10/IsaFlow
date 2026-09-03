@@ -17,7 +17,6 @@ import {
   buildReportPack,
   type PackType,
   type PackSection,
-  type ReportPackInput,
 } from '@/modules/accounting/services/reports/reportPackService';
 import {
   fmtZAR,
@@ -27,7 +26,7 @@ import {
   getCompanyDetailsFromCompany,
   type CompanyDetails,
 } from '@/modules/accounting/services/core/pdfShared';
-import { getIncomeStatement, getBalanceSheet } from '@/modules/accounting/services/reports/financialReportingService';
+import { getReportPackInput } from '@/modules/accounting/services/reports/reportPackDataService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -53,38 +52,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'from and to dates are required');
   }
 
-  const [isReport, bsReport, company] = await Promise.all([
-    getIncomeStatement(companyId, from, to, {}),
-    getBalanceSheet(companyId, to),
+  const [company, data] = await Promise.all([
     getCompanyDetailsFromCompany(companyId),
+    getReportPackInput(companyId, '', from, to),
   ]);
 
-  const revenue = isReport.totalRevenue;
-  const costOfSales = isReport.totalCostOfSales;
-  const operatingExpenses = isReport.totalOperatingExpenses;
-  const netProfit = isReport.netProfit;
-
-  const data: ReportPackInput = {
-    companyName: company.name,
-    period: `${from} to ${to}`,
-    revenue,
-    costOfSales,
-    operatingExpenses,
-    netProfit,
-    totalAssets: bsReport.totalAssets,
-    totalLiabilities: bsReport.totalLiabilities,
-    totalEquity: bsReport.totalEquity,
-    currentAssets: bsReport.assets
-      .filter(a => a.accountCode?.startsWith('1') && Number(a.accountCode) < 1200)
-      .reduce((s, a) => s + a.balance, 0),
-    currentLiabilities: bsReport.liabilities
-      .filter(a => a.accountCode?.startsWith('2') && Number(a.accountCode) < 2200)
-      .reduce((s, a) => s + a.balance, 0),
-    cash: 0,
-    accountsReceivable: 0,
-    accountsPayable: 0,
-    inventory: 0,
-  };
+  // companyName is resolved after the figures, which do not need it.
+  data.companyName = company.name;
 
   const pack = buildReportPack(type as PackType, data, from, to);
 

@@ -31,7 +31,11 @@
  * `deactivatedWithBalance` so the fact is visible, and they are still IN the
  * total, because they are still on the balance sheet.
  *
- * IT SPANS SUBTYPE `bank` AND `cash`. Petty cash is cash. Nine production
+ * IT SPANS SUBTYPE `bank` AND `cash`, through CASH_SUBTYPES rather than those
+ * two literals. The literal pair missed `bank_account`, `cash_on_hand` and
+ * `petty_cash` — real spellings this schema accepts — so the vocabulary is
+ * taken from `accountSubtypes`, which is the one place that defines it.
+ * Petty cash is cash. Nine production
  * accounts carry subtype `cash` — all seeded "Petty Cash" at R0.00 today, so
  * widening this changes no live figure, but a real petty-cash balance would
  * otherwise have been silently absent from "cash".
@@ -47,6 +51,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 export interface CashAccountBalance {
   accountId: string;
@@ -135,7 +140,7 @@ export async function getCashBalance(
                       THEN je.entry_date <  ${asAt}::DATE
                       ELSE je.entry_date <= ${asAt}::DATE END)
      WHERE ga.company_id      = ${companyId}::UUID
-       AND ga.account_subtype IN ('bank', 'cash')
+       AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
      GROUP BY ga.id, ga.account_code, ga.account_name, ga.is_active
      ORDER BY ga.account_code
   `) as DbRow[];

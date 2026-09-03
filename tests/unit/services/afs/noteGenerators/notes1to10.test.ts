@@ -4,6 +4,13 @@ vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
+// The fiscal calendar is resolved from company settings and has its own tests
+// (tests/unit/services/afs/afsFiscalPeriod.test.ts). Mocking it here keeps
+// these generator tests about the note CONTENT, and keeps the sql mock
+// sequences below counting only the generator's own queries.
+vi.mock('@/modules/accounting/services/afs/afsFiscalPeriod', () => ({
+  getFiscalRange: vi.fn(async () => ({ start: '2026-01-01', end: '2026-12-31' })),
+}));
 
 import { sql } from '@/lib/neon';
 import {

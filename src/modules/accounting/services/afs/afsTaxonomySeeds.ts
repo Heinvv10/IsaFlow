@@ -16,7 +16,18 @@ export interface SeedLine {
   combineGroup?: string;
   isHeader?: boolean;
   isTotal?: boolean;
+  /**
+   * How this total is computed. Omitted means 'children' — sum the non-total
+   * lines sharing this line's parentCode, which is right for every subtotal
+   * that sits inside a section. The top-level totals need saying explicitly:
+   * see migration 533.
+   */
+  totalBasis?: TotalBasis;
+  /** Codes summed when `totalBasis` is 'components'. */
+  totalComponents?: string[];
 }
+
+export type TotalBasis = 'children' | 'components' | 'running';
 
 // ── Balance Sheet taxonomy (79 entries) ─────────────────────────────────────
 
@@ -56,7 +67,8 @@ export const BS_LINES: SeedLine[] = [
   { code: 'BS035', section: 'balance_sheet', label: 'Restricted cash - funds held in trust', parentCode: 'BS023' },
   { code: 'BS036', section: 'balance_sheet', label: 'Bank and cash balances', parentCode: 'BS023', noteNumber: 6 },
   { code: 'BS037', section: 'balance_sheet', label: 'Total current assets', parentCode: 'BS023', isTotal: true },
-  { code: 'BS038', section: 'balance_sheet', label: 'Total assets', isTotal: true },
+  { code: 'BS038', section: 'balance_sheet', label: 'Total assets', isTotal: true,
+    totalBasis: 'components', totalComponents: ['BS021', 'BS037'] },
 
   // Equity
   { code: 'BS040', section: 'balance_sheet', label: 'Equity and liabilities', isHeader: true },
@@ -96,7 +108,8 @@ export const BS_LINES: SeedLine[] = [
   { code: 'BS071', section: 'balance_sheet', label: 'Deposits held', parentCode: 'BS060' },
   { code: 'BS072', section: 'balance_sheet', label: 'Client funds payable - held in trust', parentCode: 'BS060' },
   { code: 'BS073', section: 'balance_sheet', label: 'Total current liabilities', parentCode: 'BS060', isTotal: true },
-  { code: 'BS082', section: 'balance_sheet', label: 'Total equity and liabilities', isTotal: true },
+  { code: 'BS082', section: 'balance_sheet', label: 'Total equity and liabilities', isTotal: true,
+    totalBasis: 'components', totalComponents: ['BS048', 'BS057', 'BS073'] },
 ];
 
 // ── Income Statement taxonomy (126 entries) ──────────────────────────────────
@@ -205,7 +218,7 @@ export const IS_LINES: SeedLine[] = [
   { code: 'IS443', section: 'income_statement', label: 'Water and electricity', parentCode: 'IS156' },
 
   // Below the line
-  { code: 'IS452', section: 'income_statement', label: 'Net income before interest and taxation', isTotal: true },
+  { code: 'IS452', section: 'income_statement', label: 'Net income before interest and taxation', isTotal: true, totalBasis: 'running' },
   { code: 'IS454', section: 'income_statement', label: 'Interest paid', noteNumber: 17, combineGroup: 'combine_interest' },
   { code: 'IS455', section: 'income_statement', label: 'Interest paid - senior debt', noteNumber: 17, combineGroup: 'combine_interest' },
   { code: 'IS456', section: 'income_statement', label: 'Interest paid - interest-bearing debt', noteNumber: 17, combineGroup: 'combine_interest' },
@@ -215,14 +228,14 @@ export const IS_LINES: SeedLine[] = [
   { code: 'IS463', section: 'income_statement', label: 'Dividends received', noteNumber: 18, combineGroup: 'combine_investment' },
   { code: 'IS464', section: 'income_statement', label: 'Foreign dividends', noteNumber: 18, combineGroup: 'combine_investment' },
   { code: 'IS467', section: 'income_statement', label: 'Other investment income', noteNumber: 18, combineGroup: 'combine_investment' },
-  { code: 'IS471', section: 'income_statement', label: 'Net income before taxation', isTotal: true },
+  { code: 'IS471', section: 'income_statement', label: 'Net income before taxation', isTotal: true, totalBasis: 'running' },
   { code: 'IS472', section: 'income_statement', label: 'Profit (loss) on sale of assets' },
   { code: 'IS475', section: 'income_statement', label: 'SARS penalties and interest', noteNumber: 19 },
   { code: 'IS476', section: 'income_statement', label: 'Taxation', noteNumber: 19 },
   { code: 'IS477', section: 'income_statement', label: 'Deferred taxation', noteNumber: 19 },
-  { code: 'IS480', section: 'income_statement', label: 'Net income after taxation', isTotal: true },
+  { code: 'IS480', section: 'income_statement', label: 'Net income after taxation', isTotal: true, totalBasis: 'running' },
   { code: 'IS484', section: 'income_statement', label: 'Dividends paid' },
-  { code: 'IS485', section: 'income_statement', label: 'Accumulated income (loss) end of year', isTotal: true },
+  { code: 'IS485', section: 'income_statement', label: 'Accumulated income (loss) end of year', isTotal: true, totalBasis: 'running' },
   { code: 'IS488', section: 'income_statement', label: 'Abnormal items' },
 ];
 

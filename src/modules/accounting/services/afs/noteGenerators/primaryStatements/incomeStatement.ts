@@ -9,8 +9,8 @@
 
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
-import { fiscalRange } from '../noteHelpers';
-import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, type SectionLine } from './_helpers';
+import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, ACCUMULATED_BF_CODE, type SectionLine } from './_helpers';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // Codes whose GL balance is naturally credit-positive (revenue, other
 // income, finance income, dividends, etc.) — render positive on the IS.
@@ -22,6 +22,13 @@ const REVENUE_CODES = new Set([
   'IS124', 'IS131', 'IS132', 'IS133', 'IS135', 'IS139', 'IS143',
   // Below-the-line finance income / dividends
   'IS461', 'IS463', 'IS464', 'IS467',
+  // The running totals. rollUpTotals accumulates them in raw debit-minus-credit
+  // space, where a profit is negative; a profit is credit-positive like the
+  // revenue above it, so it flips with the same rule and reads positive.
+  'IS452', 'IS471', 'IS480', 'IS485',
+  // The derived opening accumulated income is credit-positive for the same
+  // reason, and must flip with them or it prints as a negative.
+  ACCUMULATED_BF_CODE,
 ]);
 
 function isRevenueLine(l: SectionLine): boolean {
@@ -34,6 +41,7 @@ export async function generateIncomeStatement(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateIncomeStatement', { companyId, fiscalYear }, 'AfsPrimary');
+  const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
   const lines = rollUpTotals(await fetchSectionLines(companyId, 'income_statement', fiscalYear, fiscalYear - 1));
   const adjusted = lines.map((l) => (isRevenueLine(l) ? flipSign(l) : l));
   const blocks = renderHierarchicalTable(adjusted, true);
@@ -42,7 +50,7 @@ export async function generateIncomeStatement(
     content: {
       title: 'Statement of Profit or Loss',
       blocks: [
-        { type: 'paragraph', text: `For the year ended ${fiscalRange(fiscalYear).end}.` },
+        { type: 'paragraph', text: `For the year ended ${fyEnd}.` },
         ...blocks,
       ],
     },
