@@ -178,6 +178,58 @@ report and a finding.
 
 ---
 
+## A-payroll. The statutory exposure, re-derived from the production ledger
+
+The specification says "R2.72m salaries understated" and treats payroll as an
+absent module. Both are wrong. The module is real and unused, and the exposure is
+**4.7x larger** than stated.
+
+### R12,807,325.13 of salaries posted with no payroll run behind any of it
+
+| Company | Account | Net posted | Route |
+|---|---|---|---|
+| Velocity Fibre | `49784360 Salaries & Wages - EX4000` | R7,734,785.71 | 217 bank allocations |
+| Velocity Fibre | `49784353 COS - Casual wages - EX2009` | R2,327,887.50 | 116 bank allocations + 143 supplier invoices |
+| Brightsphere | `34024641 Salaries & Wages` | R2,744,651.92 | 211 bank allocations |
+| | **total** | **R12,807,325.13** | **544 bank allocations, 143 supplier invoices** |
+
+A further R106,843.88 sits in DRAFT on Brightsphere and is correctly excluded.
+The 143 supplier invoices are to an unnamed "Casuals".
+
+### And no statutory liability was ever raised. Zero, not "understated"
+
+Every one of these carries **zero journal lines on both companies**:
+`2140 PAYE Payable`, `2150 UIF Payable`, `2160 SDL Payable`,
+`2170 Net Salaries Payable`, `2175 Other Employee Deductions Payable`. Likewise
+Brightsphere's `2102 PAYE Liability` and `5200`/`6001 Salaries & Wages`, and
+Velocity's `49784361 Workmans Compensation`.
+
+Zero `payroll_run_headers` and zero `payroll_employees` on both companies. All 127
+`auto_payroll` journals in the database belong to ISAFlow Demo. There are 87 pay
+runs in the system, not 86 — Dotbiz has one — and every one is demo data.
+
+So net pay was coded straight to an expense account by bank allocation, 544 times,
+and no PAYE, UIF or SDL was ever computed, raised or remitted against R12.8m of
+employment cost.
+
+### R399,735.97 of input VAT claimed on salary payments
+
+R400,388.14 DR less R652.17 CR, across 30 of the 217 Velocity salary journals.
+Those journals touch only three bank accounts, the salary account and VAT Input.
+
+**Salaries are not a VATable supply.** This is not a classification argument — it
+is input tax claimed on something that cannot carry it, and it is a direct
+over-claim against SARS on top of the R5.1m box-15 defect already recorded.
+
+---
+
+## A-reports. What the assurance endpoints found once they could see
+
+Every figure re-derived from the production ledger by the endpoint that reports
+it, not taken from the audit.
+
+### The P&L is reporting on a chart of accounts nobody has classified
+
 ## A-live-3. `reconcile_subledger`, re-derived against production after the W2 fixes, 2026-09-03
 
 Every figure below came from running `reconcileSubledger` read-only against the
@@ -427,6 +479,57 @@ revenue and expense accounts:
 | | unclassified revenue | unclassified expenses |
 |---|---|---|
 | Velocity Fibre | R84,053,370.26 of R84,053,370.26 — **100%**, 4 accounts | R115,984,525.05 of R118,869,595.15 — **97.6%**, 37 accounts |
+| Brightsphere | R12,410,997.90 of R13,508,486.83 — 91.9% | R577,571.05 of R5,113,638.23 |
+
+Velocity's classified cost of sales is R2,885,070.10, so its reported FY2026
+gross profit of **R29,305,100.49 is revenue less 2.4% of its costs.** The figure
+is not a bug — the code did what the chart of accounts told it — and it is not a
+number anyone should act on.
+
+**The audit read this finding's sign backwards.** Its "R562,428 of overstated
+gross profit from two `default_expense` accounts" is R574,253.66 on Brightsphere
+today, and those accounts are NOT counted as cost of sales under the subtype
+rule — so gross profit is **higher**, not lower.
+
+### Neither company has ever posted to an equity account
+
+**R0.00 posted equity on both Brightsphere and Velocity Fibre.** Every rand —
+R8,394,848.60 and −R34,816,224.89 — is derived profit that no year-end close has
+moved out of revenue and expenses. ISAFlow Demo has posted R695,000 against
+R39,198,316.26 derived.
+
+`getBalanceSheet` injects the retained-earnings plug into equity, so `totalEquity`
+equals assets less liabilities **by construction**. Shipped that way first, it
+reported `equityReconciles: true` on all three companies — a tautology that reads
+as clean books. The second equity figure now comes from the equity accounts
+themselves.
+
+### The complete general ledger extracts, and balances
+
+Velocity's whole posted ledger: **21,871 lines, 111 accounts, R519,723,273.19
+debit and R519,723,273.19 credit**, served exactly once across 22 pages. The
+audit's complaint was that no complete general ledger could be extracted at all.
+
+Two defects caught by its tests first: a keyset cursor losing microseconds
+through a JS `Date`, paging 10,603 lines where 10,460 exist; and a
+`runningBalance` omitting the opening balance — invisible over any window
+starting before the first journal, and the `trial_balance` defect in another
+shape.
+
+### Aged creditors was worse than aged debtors
+
+**262 suppliers on Velocity**, returned with no total and no `truncated` flag.
+More rows than the ten-row debtors case the audit leads with, same silence.
+
+### Three endpoints now agree, which is new
+
+Velocity AR: `aged_debtors` R75,864,129.21 = `reconcile_subledger`'s `agedTotal`
+= its `subledgerTotal`. Unapplied receipts 39 / R37,719,269.77 in both, to the
+cent; Brightsphere 37 / R2,691,024.00 likewise. `unexplainedDifference` is 0.00
+on every company, both roles, at every date tested.
+
+---
+
 | Brightsphere | R12,410,997.90 of R13,508,486.83 — 91.9%, 1 account | R577,571.05 of R5,113,638.23, 3 accounts |
 
 Velocity's classified cost of sales is R2,885,070.10, so its FY2026 gross profit
@@ -524,8 +627,6 @@ the chart of accounts. `controlAccountAmbiguous` is `true` on both Velocity
 roles and both Brightsphere roles.
 
 ---
-
-
 ## B. Defects found that the specification never mentions
 
 These are the ones that matter most: nobody was looking for them.
@@ -574,6 +675,10 @@ These are the ones that matter most: nobody was looking for them.
 | B41 | `afs_statement_lines.is_active` filtered in three AFS note generators — an inactive statement-line definition whose mapped accounts still hold money is dropped from the annual financial statements. Same shape as B5, different table | — | REPORTED |
 | B42 | `writePracticeTime.ts:139` uses `toISOString().slice(0,10)` — the UTC calendar day. SAST is UTC+2, so any call between midnight and 02:00 local stamps YESTERDAY. Same class this repo already fixed once via `fmtDate`; the twin in `fiscalPeriods.ts` is fixed | — | **OPEN** |
 | B43 | **The completeness identity now carries TWO self-reported numbers.** `buildEnvelope` accepts `excludedTotal` as well as `universeTotal`, so a service computing `excludedTotal := universeTotal - rowsTotal` passes unconditionally regardless of what it actually excluded. No documented invariant breaks — CONTRACTS §1 already says the envelope proves internal consistency and not completeness — but a call site passing `excludedTotal` must be reviewed on its own terms, because the envelope cannot catch it | — | REPORTED — caveat in CONTRACTS |
+| B48 | **Budget vs Actual returns an all-zero report for Velocity, and not because of budgets.** All 12 FY2027 periods are open, so `status='open' ORDER BY start_date DESC LIMIT 1` resolves to 2027 and the YTD window becomes `2027-01-01 → 2026-09-03` — inverted, silent, zero rows on both sides | — | **OPEN — fiscal-year selection** |
+| B50 | **`isaflow_dev` cannot be rebuilt from migrations.** `db:migrate` aborts on `524_redate_remaining_batch_dated_journals.sql` with `P0001 no fiscal period covers the corrected date for: JE-2022-00004`. Prod has 520–581; dev had 520, 521, 523. Every DB-gated result obtained locally is therefore against a schema that cannot be reproduced | — | **OPEN** |
+| B51 | **The `payment_matched` burst is a burst, not a rate.** 361 of the 397 flagged bills were flagged on 2–3 September, when someone ran bulk allocations; the writer has since stopped. ~R13m over two days, cause unfixed, and it recurs the next time a bulk allocation runs. **Not** accruing at R3.2m/day | R13.1m | REPORTED |
+| B52 | `getFinancialFigures` issues its queries under `Promise.all` on the single pg client the transaction holds — the same node-postgres pattern removed in pg@9, and concurrent work on one connection corrupts the savepoint stack. Pre-existing, shared with AFS | — | REPORTED |
 | B19 | **Cash has two legitimate and disagreeing senses** — the GL ledger sense and the bank-statement-feed sense. `cash-movement` reads the feed, `reports-bank-transactions` reads the GL | — | FIXING (W3) — registering BOTH, gap is `bank_statement_coverage`'s output |
 
 ---
