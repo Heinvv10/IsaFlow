@@ -19,7 +19,6 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 
 import { sql } from '@/lib/neon';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
-import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockSql = sql as unknown as SqlFn;
@@ -106,9 +105,20 @@ describe('getCashBalance', () => {
     // disagreeing about what counts as cash.
     await getCashBalance(COMPANY, '2026-08-31');
     const bound = mockSql.mock.calls[0]?.slice(1) ?? [];
-    const subtypes = bound.find((v): v is string[] => Array.isArray(v));
-    expect(subtypes).toEqual([...CASH_SUBTYPES]);
-    expect(subtypes).toEqual(expect.arrayContaining(['bank', 'bank_account', 'cash', 'cash_on_hand', 'petty_cash']));
+    const arrays = bound.filter((v): v is string[] => Array.isArray(v));
+
+    // The array param is located by TYPE, not by index, so it survives a
+    // reordering of the template. That only identifies it while exactly one
+    // array is bound — so assert that, rather than let a future second array
+    // silently hand the assertions below the wrong parameter.
+    expect(arrays).toHaveLength(1);
+
+    // Compared against a HARDCODED list, not against CASH_SUBTYPES itself.
+    // `toEqual([...CASH_SUBTYPES])` would compare the bound value to the same
+    // imported array and pass whatever that array contained — restating the
+    // import rather than testing it. If accountSubtypes legitimately gains a
+    // cash spelling, this line is meant to go red and be updated deliberately.
+    expect(arrays[0]).toEqual(['bank', 'bank_account', 'cash', 'cash_on_hand', 'petty_cash']);
   });
 
   it('keeps an account whose only lines are drafts, at zero rather than absent', async () => {
