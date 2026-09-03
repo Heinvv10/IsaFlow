@@ -91,6 +91,14 @@ async function loadFixtureIds(): Promise<Fixture> {
   };
 }
 
+// FIXTURE INVARIANTS — three assertions below can only fail if these hold:
+//  · TWO distinct companies, so a row can be planted under `otherCompanyId`
+//    while pointing at THIS company's `expenseAccountId`. A fixture with one
+//    company, or with the planted row on the other company's own account, is
+//    excluded by the gl_accounts join for an unrelated reason and proves nothing.
+//  · An annual amount that does NOT divide by 12 (100000, not 120000), or a
+//    correct even spread is indistinguishable from one that drops the December
+//    remainder entirely.
 /** BEGIN → run → ROLLBACK on an ALS-bound client, exactly as withAuth does. */
 async function inRequestTx(run: (f: Fixture) => Promise<void>): Promise<void> {
   assertNotProductionDb('This test INSERTs into accounting_budgets.');

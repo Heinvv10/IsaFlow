@@ -45,6 +45,11 @@ interface Fixture {
   bankAccountId: string;
 }
 
+// FIXTURE INVARIANT — the fixture MUST keep a revenue account alongside the two
+// expense accounts. Sign normalisation is this service's core claim, and while
+// every test used an expense account, pointing the revenue branch at the expense
+// expression changed no assertion: the mutation survived. Revenue must also be
+// posted on the CREDIT side (postRevenueJournal), or the branch is never taken.
 async function loadFixtureIds(): Promise<Fixture> {
   const rows = (await sql`
     SELECT bank.company_id,
