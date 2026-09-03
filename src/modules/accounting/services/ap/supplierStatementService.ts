@@ -81,6 +81,26 @@ function maxIso(values: Array<unknown>): string | null {
 }
 
 /** Returns null when the supplier is not in this company — never a distinct reply. */
+/**
+ * What a live credit note actually took off what we owe the supplier.
+ *
+ * Approving a note applies MIN(total_amount, outstanding) and records that
+ * capped figure in `applied_amount`; the status only becomes 'applied' when
+ * that figure is above zero. So:
+ *   - 'applied'  → applied_amount is what was consumed, and total_amount may be
+ *     larger. The remainder is stranded: a note at 'applied' cannot be applied
+ *     again, so crediting the face value shows the customer more credit than
+ *     we received and OVERSTATES what we still owe the supplier.
+ *   - 'approved' → applied_amount is 0 by construction, and the note is
+ *     unallocated credit the customer holds at face value.
+ * Same rule the aging already follows (agingRewind, apAgingService).
+ */
+function creditNoteAmount(cn: { status?: unknown; total_amount?: unknown; applied_amount?: unknown }): number {
+  return String(cn.status ?? '') === 'applied'
+    ? Number(cn.applied_amount ?? 0)
+    : Number(cn.total_amount ?? 0);
+}
+
 export async function fetchSupplierStatementData(
   companyId: string,
   supplierId: string,
@@ -117,7 +137,7 @@ export async function fetchSupplierStatementData(
     ` as Promise<Row[]>,
 
     sql`
-      SELECT id, credit_note_number, credit_date, total_amount, status, created_at
+      SELECT id, credit_note_number, credit_date, total_amount, applied_amount, status, created_at
       FROM credit_notes
       WHERE supplier_id = ${supplierId}::UUID
         AND company_id = ${companyId}::UUID
@@ -176,7 +196,7 @@ export async function fetchSupplierStatementData(
       date: fmtDate(cn.credit_date),
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
-      debit: Number(cn.total_amount),
+      debit: creditNoteAmount(cn),
       credit: 0,
       balance: 0,
     });

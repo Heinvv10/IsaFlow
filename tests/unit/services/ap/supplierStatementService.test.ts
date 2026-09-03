@@ -40,8 +40,12 @@ const INVOICES = [
 const PAYMENTS = [
   { id: 'p1', payment_number: 'SP0001', payment_date: '2026-02-05', amount_allocated: 8000, status: 'processed', created_at: '2026-02-05T08:00:00Z' },
 ];
+// applied_amount DIFFERS from total_amount on purpose: approving a note applies
+// MIN(total, outstanding) and strands the excess. A fixture where the two agree
+// cannot tell a statement that reads the applied figure from one that reads the
+// face value — and the face value OVERSTATES what we still owe the supplier.
 const CREDITS = [
-  { id: 'c1', credit_note_number: 'SCN0001', credit_date: '2026-02-20', total_amount: 2000, status: 'applied', created_at: '2026-02-20T08:00:00Z' },
+  { id: 'c1', credit_note_number: 'SCN0001', credit_date: '2026-02-20', total_amount: 2000, applied_amount: 1200, status: 'applied', created_at: '2026-02-20T08:00:00Z' },
 ];
 
 function routeMock(over: Record<string, unknown[]> = {}) {
@@ -67,15 +71,16 @@ describe('fetchSupplierStatementData — a payable runs the other way', () => {
     // 20,000 billed − 8,000 paid − 2,000 credited = 10,000 still owed.
     expect(p.summary.totalInvoiced).toBeCloseTo(20000, 2);
     expect(p.summary.totalPaid).toBeCloseTo(8000, 2);
-    expect(p.summary.totalCredits).toBeCloseTo(2000, 2);
-    expect(p.summary.balance).toBeCloseTo(10000, 2);
+    // The note's face value is 2,000 but only 1,200 was ever applied.
+    expect(p.summary.totalCredits).toBeCloseTo(1200, 2);
+    expect(p.summary.balance).toBeCloseTo(10800, 2);
   });
 
   it('the running balance is positive while we still owe money', async () => {
     routeMock();
     const p = (await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31'))!;
     expect(p.transactions[0]!.balance).toBeCloseTo(20000, 2);
-    expect(p.transactions[p.transactions.length - 1]!.balance).toBeCloseTo(10000, 2);
+    expect(p.transactions[p.transactions.length - 1]!.balance).toBeCloseTo(10800, 2);
   });
 
   it('counts an APPLIED supplier credit note, not only an approved one', async () => {
@@ -102,7 +107,7 @@ describe('fetchSupplierStatementData — what it drops, it names', () => {
     expect(ex.reason).toBe('payment_not_processed');
     expect(ex.amount).toBeCloseTo(5000, 2);
     // A draft payment must not have reduced what we owe.
-    expect(p.summary.balance).toBeCloseTo(10000, 2);
+    expect(p.summary.balance).toBeCloseTo(10800, 2);
   });
 
   it('accounts for every candidate row', async () => {
@@ -142,5 +147,36 @@ describe('fetchSupplierStatementData — what it drops, it names', () => {
       expect(q, table).toBeDefined();
       expect(q!.values, table).toContain(COMPANY);
     }
+  });
+});
+
+describe('supplier statement — a partly-applied credit note debits what was applied', () => {
+  it('debits applied_amount, not the face value, once a note is applied', async () => {
+    routeMock();
+    const p = (await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31'))!;
+    const cn = p.transactions.find(t => t.type === 'credit_note')!;
+    // R1,200 came off what we owe; the other R800 is stranded — a note at
+    // 'applied' cannot be applied again. Debiting 2,000 understates the
+    // liability to the supplier.
+    expect(cn.debit).toBeCloseTo(1200, 2);
+    expect(p.summary.totalCredits).toBeCloseTo(1200, 2);
+  });
+
+  it('debits the face value of an approved note, which has nothing applied yet', async () => {
+    routeMock({
+      credits: [
+        { id: 'c2', credit_note_number: 'SCN0002', credit_date: '2026-02-20', total_amount: 2000, applied_amount: 0, status: 'approved', created_at: '2026-02-20T08:00:00Z' },
+      ],
+    });
+    const p = (await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31'))!;
+    const cn = p.transactions.find(t => t.type === 'credit_note')!;
+    expect(cn.debit).toBeCloseTo(2000, 2);
+  });
+
+  it('asks the database for applied_amount at all', async () => {
+    routeMock();
+    await fetchSupplierStatementData(COMPANY, SUPPLIER, '2026-03-31');
+    const q = sqlCalls.find((c) => c.sql.includes('FROM credit_notes'))!;
+    expect(q.sql).toContain('applied_amount');
   });
 });

@@ -48,8 +48,13 @@ const INVOICES = [
 const PAYMENTS = [
   { id: 'p1', payment_number: 'PMT0001', payment_date: '2026-02-01', amount_allocated: 4000, status: 'confirmed' },
 ];
+// applied_amount DIFFERS from total_amount on purpose. Approving a note applies
+// MIN(total, outstanding) and leaves the excess unapplied, so a note whose two
+// figures are equal cannot tell a statement that credits the applied figure from
+// one that credits the face value — and the face value is more credit than the
+// customer ever received.
 const CREDITS = [
-  { id: 'c1', credit_note_number: 'CN0001', credit_date: '2026-02-20', total_amount: 1500, status: 'applied' },
+  { id: 'c1', credit_note_number: 'CN0001', credit_date: '2026-02-20', total_amount: 1500, applied_amount: 900, status: 'applied' },
 ];
 
 function routeMock(over: Record<string, unknown[]> = {}) {
@@ -83,9 +88,11 @@ describe('fetchStatementData — applied credit notes belong on the statement', 
   it('credits the customer with the applied note, so the balance is not overstated', async () => {
     routeMock();
     const payload = (await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31'))!;
-    // 15,000 invoiced − 4,000 paid − 1,500 credited = 9,500.
-    expect(payload.summary.totalCredits).toBeCloseTo(1500, 2);
-    expect(payload.summary.balance).toBeCloseTo(9500, 2);
+    // 15,000 invoiced − 4,000 paid − 900 credited = 10,100. The note's FACE
+    // value is 1,500 but only 900 was ever applied; see the applied_amount
+    // tests below for why the difference is the customer's money either way.
+    expect(payload.summary.totalCredits).toBeCloseTo(900, 2);
+    expect(payload.summary.balance).toBeCloseTo(10100, 2);
   });
 });
 
@@ -106,7 +113,7 @@ describe('fetchStatementData — what it drops, it names', () => {
     // facts, and only the second tells a reader whether to care.
     expect(excluded!.amount).toBeCloseTo(50000, 2);
     // And it must NOT have reduced the balance.
-    expect(payload.summary.balance).toBeCloseTo(9500, 2);
+    expect(payload.summary.balance).toBeCloseTo(10100, 2);
   });
 
   it('accounts for every candidate row: included plus excluded equals the universe', async () => {
@@ -144,5 +151,45 @@ describe('fetchStatementData — what it drops, it names', () => {
       expect(q, table).toBeDefined();
       expect(q!.values, table).toContain(COMPANY);
     }
+  });
+});
+
+describe('fetchStatementData — a partly-applied credit note credits what was applied', () => {
+  it('credits applied_amount, not the face value, once a note is applied', async () => {
+    routeMock();
+    const data = await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31');
+
+    const cn = data!.transactions.find(t => t.type === 'credit_note')!;
+    // R900 was taken off an invoice; the other R600 is stranded — a note at
+    // 'applied' cannot be applied again. Showing 1500 tells the customer they
+    // hold more credit than they do, and understates what they owe.
+    expect(cn.credit).toBe(900);
+    expect(data!.summary.totalCredits).toBe(900);
+
+    // 10000 + 5000 invoiced, 4000 paid, 900 credited.
+    expect(data!.summary.balance).toBe(10100);
+  });
+
+  it('credits the face value of an approved note, which has nothing applied yet', async () => {
+    routeMock({
+      credits: [
+        { id: 'c2', credit_note_number: 'CN0002', credit_date: '2026-02-20', total_amount: 1500, applied_amount: 0, status: 'approved' },
+      ],
+    });
+    const data = await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31');
+
+    // 'approved' is set only when applied_amount is 0 — unallocated credit the
+    // customer genuinely holds at face value. Reading applied_amount here would
+    // show them nothing.
+    const cn = data!.transactions.find(t => t.type === 'credit_note')!;
+    expect(cn.credit).toBe(1500);
+    expect(data!.summary.totalCredits).toBe(1500);
+  });
+
+  it('asks the database for applied_amount at all', async () => {
+    routeMock();
+    await fetchStatementData(COMPANY, CUSTOMER, '2026-03-31');
+    const q = sqlCalls.find((c) => c.sql.includes('FROM credit_notes'))!;
+    expect(q.sql).toContain('applied_amount');
   });
 });

@@ -80,6 +80,26 @@ const fmtDate = (d: string): string => {
 
 // ─── Statement Fetcher ────────────────────────────────────────────────────────
 
+/**
+ * What a live credit note actually took off the customer's account.
+ *
+ * Approving a note applies MIN(total_amount, outstanding) and records that
+ * capped figure in `applied_amount`; the status only becomes 'applied' when
+ * that figure is above zero. So:
+ *   - 'applied'  → applied_amount is what was consumed, and total_amount may be
+ *     larger. The remainder is stranded: a note at 'applied' cannot be applied
+ *     again, so crediting the face value shows the customer more credit than
+ *     they received and UNDERSTATES what they owe — on a document we email them.
+ *   - 'approved' → applied_amount is 0 by construction, and the note is
+ *     unallocated credit the customer holds at face value.
+ * Same rule the aging already follows (agingRewind, apAgingService).
+ */
+function creditNoteAmount(cn: { status?: unknown; total_amount?: unknown; applied_amount?: unknown }): number {
+  return String(cn.status ?? '') === 'applied'
+    ? Number(cn.applied_amount ?? 0)
+    : Number(cn.total_amount ?? 0);
+}
+
 export async function fetchStatementData(
   companyId: string,
   customerId: string,
@@ -117,7 +137,7 @@ export async function fetchStatementData(
     ` as Promise<Row[]>,
 
     sql`
-      SELECT id, credit_note_number, credit_date, total_amount, status
+      SELECT id, credit_note_number, credit_date, total_amount, applied_amount, status
       FROM credit_notes
       WHERE client_id = ${customerId}::UUID
         AND company_id = ${companyId}::UUID
@@ -188,7 +208,7 @@ export async function fetchStatementData(
       type: 'credit_note',
       reference: String(cn.credit_note_number ?? ''),
       debit: 0,
-      credit: Number(cn.total_amount),
+      credit: creditNoteAmount(cn),
       balance: 0,
     });
   }
