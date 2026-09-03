@@ -11,8 +11,9 @@
  * tenant-scopable only by joining `products`, which is what every query here
  * does — the join is the tenant boundary, so it is an INNER join and the
  * predicate lives in WHERE. A row whose product carries a NULL `company_id`
- * (the column is nullable) belongs to no tenant and is reported as excluded
- * rather than silently attributed to the caller.
+ * (the column is nullable) belongs to no tenant and is DISCLOSED — outside the
+ * completeness identity, since it is not in this company's universe — rather
+ * than silently attributed to the caller.
  *
  * Movements are valued at the cost recorded ON THE MOVEMENT. All 240 production
  * movements are `purchase` with `total_cost` 0.00, so stock has been received
@@ -64,7 +65,7 @@ export interface StockValuationRow {
   unvalued: boolean;
 }
 
-export interface StockValuationExclusion {
+export interface StockValuationDisclosure {
   id: string;
   reason: string;
   detail?: string;
@@ -75,7 +76,14 @@ export interface StockValuation {
   rows: StockValuationRow[];
   rowsTotal: number;
   universeTotal: number;
-  excluded: StockValuationExclusion[];
+  /**
+   * Facts about data this valuation could NOT draw from. NOT exclusions: an
+   * exclusion is a row that belongs to the universe and was withheld from the
+   * totals, whereas an unattributable movement belongs to no tenant and a
+   * stocktake note is a statement about data rather than a row. They are
+   * reported outside the envelope's completeness identity for that reason.
+   */
+  disclosures: StockValuationDisclosure[];
   totalValue: number;
   totalQuantity: number;
   /** Products carrying quantity against which no cost was ever recorded. */
@@ -167,9 +175,9 @@ export async function getStockValuation(
     };
   });
 
-  const excluded: StockValuationExclusion[] = [];
+  const disclosures: StockValuationDisclosure[] = [];
   if (orphan?.has_orphans === true) {
-    excluded.push({
+    disclosures.push({
       id: 'orphan_movements',
       reason: 'product_has_no_company',
       detail:
@@ -182,7 +190,7 @@ export async function getStockValuation(
 
   const nonDeltaCount = rows.reduce((n, r) => n + (Number(r.non_delta_count) || 0), 0);
   if (nonDeltaCount > 0) {
-    excluded.push({
+    disclosures.push({
       id: 'stocktake_counts',
       reason: 'stocktake_count_not_a_delta',
       detail: `${nonDeltaCount} stocktake movements (${NON_DELTA_MOVEMENT_TYPES.join(', ')}) record an absolute quantity observed rather than a change, so they are not summed into quantity on hand.`,
@@ -203,7 +211,7 @@ export async function getStockValuation(
     // tenant, and a stocktake count is not a product — so neither may inflate
     // the count of things this report had to classify.
     universeTotal: mapped.length,
-    excluded,
+    disclosures,
     totalValue: Math.round(mapped.reduce((s, r) => s + r.value, 0) * 100) / 100,
     totalQuantity: mapped.reduce((s, r) => s + r.quantityOnHand, 0),
     unvaluedProductCount: mapped.filter((r) => r.unvalued).length,

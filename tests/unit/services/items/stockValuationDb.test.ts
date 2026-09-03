@@ -121,7 +121,7 @@ describe('getStockValuation against real products and stock_movements', async ()
       const v = await getStockValuation(companyId, AS_OF);
       const row = v.rows.find(r => r.code === 'SV-CNT')!;
       expect(row.quantityOnHand).toBe(50);
-      expect(v.excluded.some(e => e.reason === 'stocktake_count_not_a_delta')).toBe(true);
+      expect(v.disclosures.some(e => e.reason === 'stocktake_count_not_a_delta')).toBe(true);
     });
   });
 
@@ -177,7 +177,7 @@ describe('getStockValuation against real products and stock_movements', async ()
       expect(v.rows.some(r => r.code === 'SV-ORPHAN')).toBe(false);
       expect(v.totalValue).not.toBe(99999);
 
-      const note = v.excluded.find(e => e.reason === 'product_has_no_company');
+      const note = v.disclosures.find(e => e.reason === 'product_has_no_company');
       expect(note).toBeDefined();
       // No count, no value — disclosure must not leak other tenants' data.
       expect(note!.amount).toBeUndefined();

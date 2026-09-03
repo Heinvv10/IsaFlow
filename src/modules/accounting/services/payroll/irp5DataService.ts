@@ -197,6 +197,25 @@ export async function getIrp5EmployeeTotals(
       amount: Number(r.gross) || 0,
     }));
 
+  // The universe, derived INDEPENDENTLY of the two queries above rather than as
+  // their sum. `mapped.length + excludedTotal` is the arithmetic buildEnvelope
+  // then checks, so stating it that way asserts an identity that cannot fail:
+  // it would stay true even for a bug that dropped an employee from BOTH the
+  // certificate query and the exclusion query. Counting everyone with any pay
+  // in the tax year, from one query that cares about neither status nor
+  // declarability, is a claim the envelope can actually falsify.
+  const [universe] = (await sql`
+    SELECT COUNT(DISTINCT prl.employee_id)::INT AS employees
+    FROM payroll_run_lines prl
+    JOIN payroll_run_headers prh ON prh.id = prl.run_id
+    JOIN payroll_employees e ON e.id = prl.employee_id
+    WHERE prh.company_id = ${companyId}::UUID
+      AND e.company_id = ${companyId}::UUID
+      AND make_date(prh.period_year, prh.period_month, 1)
+          BETWEEN ${start}::DATE AND ${end}::DATE
+      AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
+  `) as Row[];
+
   const postedThrough = rows
     .map((r) => (r.posted_through ? new Date(String(r.posted_through)).toISOString() : null))
     .filter((v): v is string => v !== null)
@@ -209,7 +228,7 @@ export async function getIrp5EmployeeTotals(
     periodEnd: end,
     rows: mapped,
     rowsTotal: mapped.length,
-    universeTotal: mapped.length + excludedTotal,
+    universeTotal: Number(universe?.employees ?? 0),
     excludedTotal,
     excluded,
     postedThrough,

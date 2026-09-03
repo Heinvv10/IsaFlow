@@ -149,7 +149,20 @@ export const stockValuationTool: McpTool = {
       detail,
       as_at: asAt,
       posted_through: v.postedThrough ?? NO_LEDGER_ROWS,
-      excludedRows: v.excluded as ExcludedRow[],
+      // DELIBERATELY EMPTY. `excludedRows` means "rows that belong to the
+      // universe but were withheld from the totals", and neither disclosure
+      // below is that: an orphan movement belongs to no tenant and is not in
+      // this company's universe at all, and a stocktake note is a statement
+      // about data rather than a row. Passing them here fails the envelope's
+      // rowsTotal + excludedRows.length === universeTotal identity and emits a
+      // completenessFault whose cause is a DISCLOSURE, not a lost row — the
+      // misleading signal envelope.ts calls worse than none.
+      //
+      // `excludedTotal: 0` would silence the fault while still presenting a
+      // disclosure as an exclusion: true in magnitude, wrong in kind. They are
+      // surfaced OUTSIDE the identity instead, as chart_of_accounts_health
+      // does with accountsTotal/accountsClean.
+      excludedRows: [],
     });
 
     return ok({
@@ -157,6 +170,9 @@ export const stockValuationTool: McpTool = {
       total_quantity: v.totalQuantity,
       total_value: v.totalValue,
       unvalued_product_count: v.unvaluedProductCount,
+      // Facts about data this report could NOT draw from, stated outside the
+      // completeness identity because they are not members of the universe.
+      disclosures: v.disclosures,
     });
   },
 };

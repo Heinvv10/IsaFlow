@@ -54,11 +54,25 @@ const VALUATION = {
     quantityOnHand: 240, value: 0, averageCost: 0, movementCount: 240, unvalued: true,
   }],
   rowsTotal: 1,
-  universeTotal: 2,
-  excluded: [{
-    id: 'orphan_movements', reason: 'product_has_no_company',
-    detail: '12 stock movements belong to products with no company_id.', amount: 4500,
-  }],
+  // universeTotal is THIS COMPANY'S products, so it equals rowsTotal here. The
+  // fixture used to say 2 — satisfying the old `rowsTotal + excluded.length`
+  // formula — and was never updated when the service stopped counting
+  // disclosures as members of the universe.
+  universeTotal: 1,
+  // Disclosures, NOT exclusions: an orphan movement is not in this company's
+  // universe at all, and a stocktake note is a statement about data rather than
+  // a row. Neither carries a count or a value — the orphan query cannot be
+  // scoped by company_id, so any figure would come from other tenants' rows.
+  disclosures: [
+    {
+      id: 'orphan_movements', reason: 'product_has_no_company',
+      detail: 'Stock movements exist against products carrying no company_id.',
+    },
+    {
+      id: 'stocktake_counts', reason: 'stocktake_count_not_a_delta',
+      detail: 'Stocktake movements record an absolute quantity rather than a change.',
+    },
+  ],
   totalValue: 0,
   totalQuantity: 240,
   unvaluedProductCount: 1,
@@ -158,11 +172,15 @@ describe('stock_valuation — zero is not a valuation', () => {
 
   it('reports movements whose product has no tenant, and does not claim them', async () => {
     const env = json(await stockValuationTool.handler({ as_at: '2026-08-31' }, ctx));
-    const ex = env.excludedRows.find(
+    const ex = env.disclosures.find(
       (e: { reason: string }) => e.reason === 'product_has_no_company',
     );
     expect(ex).toBeDefined();
-    expect(ex.amount).toBe(4500);
+    // No amount, and no digit in the detail: that query cannot be scoped by
+    // company_id, so any figure it produced would come from rows that may
+    // belong to other tenants.
+    expect(ex.amount).toBeUndefined();
+    expect(ex.detail).not.toMatch(/\d/);
     // They are outside the total, not inside it.
     expect(env.total_value).toBe(0);
   });
@@ -226,5 +244,38 @@ describe('supplier_statement — the payable runs the other way', () => {
     const res = await supplierStatementTool.handler({ supplier_id: 'abc' }, ctx);
     expect(res.isError).toBe(true);
     expect(fetchSupplierStatementData).not.toHaveBeenCalled();
+  });
+});
+
+describe('stock_valuation — a disclosure must not read as a lost row', () => {
+  it('raises no completenessFault when disclosures are present', async () => {
+    const res = await stockValuationTool.handler({}, ctx);
+    const body = json(res);
+
+    // buildEnvelope checks rowsTotal + excludedRows.length === universeTotal.
+    // Passing disclosures as excludedRows while universeTotal counts only this
+    // company's products fails that identity and emits a fault whose cause is a
+    // DISCLOSURE, not a row that went missing — the misleading signal the
+    // envelope's own docstring calls worse than none.
+    expect(body.completenessFault).toBeUndefined();
+    expect(body.rowsTotal).toBe(1);
+    // universeTotal is an INPUT to buildEnvelope's check, never part of its
+    // output — the envelope reports the fault, not the universe.
+    expect(body.universeTotal).toBeUndefined();
+  });
+
+  it('still surfaces both disclosures somewhere the reader can see them', async () => {
+    const body = json(await stockValuationTool.handler({}, ctx));
+    const text = JSON.stringify(body);
+    expect(text).toContain('product_has_no_company');
+    expect(text).toContain('stocktake_count_not_a_delta');
+  });
+
+  it('reports no unattributable movements as excluded rows', async () => {
+    const body = json(await stockValuationTool.handler({}, ctx));
+    // They are disclosures about data outside the universe, so the envelope's
+    // excludedRows — "rows that belong to the universe but were withheld from
+    // the totals" — is the wrong home for them.
+    expect(body.excludedRows ?? []).toHaveLength(0);
   });
 });

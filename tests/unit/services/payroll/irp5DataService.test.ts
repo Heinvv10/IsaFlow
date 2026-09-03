@@ -41,12 +41,22 @@ const EMPLOYEE = {
   runs_included: 12, posted_through: '2026-02-28T10:00:00Z',
 };
 
-function routeMock(over: { employees?: unknown[]; nonDeclarable?: unknown[] } = {}) {
+function routeMock(
+  over: { employees?: unknown[]; nonDeclarable?: unknown[]; universe?: number } = {},
+) {
   mockImpl = (strings) => {
     const q = strings.join('?');
     // The exclusion query is now per EMPLOYEE, so it returns employee rows.
     if (q.includes('NOT (prh.status = ANY')) {
       return Promise.resolve(over.nonDeclarable ?? []);
+    }
+    // The universe is counted by its OWN query — everyone with pay in the tax
+    // year, whatever the status — so the mock has to answer it separately.
+    // Defaulting it to the sum of the other two would rebuild the tautology
+    // this query exists to break.
+    if (q.includes('COUNT(DISTINCT prl.employee_id)')) {
+      const fallback = (over.employees ?? [EMPLOYEE]).length + (over.nonDeclarable ?? []).length;
+      return Promise.resolve([{ employees: over.universe ?? fallback }]);
     }
     return Promise.resolve(over.employees ?? [EMPLOYEE]);
   };
@@ -168,6 +178,30 @@ describe('getIrp5EmployeeTotals — POPIA and completeness', () => {
     expect(ds.excludedTotal).toBe(250);
     expect(ds.universeTotal).toBe(251);
     expect(ds.rowsTotal + ds.excludedTotal).toBe(ds.universeTotal);
+  });
+
+  // universeTotal used to be `mapped.length + excludedTotal` — the exact
+  // arithmetic buildEnvelope then checks, so the identity could not fail. It
+  // would have stayed true for a bug that dropped an employee from BOTH the
+  // certificate query and the exclusion query, which is the one thing a
+  // completeness claim exists to catch. It now comes from its own query.
+  it('takes the universe from its own count, not from the sum of the other two', async () => {
+    routeMock({
+      employees: [EMPLOYEE],
+      nonDeclarable: [
+        { id: 'e2', employee_number: 'EMP002', first_name: 'Sipho', last_name: 'Dlamini', gross: 1, runs: 1 },
+      ],
+      // Five people had pay in the year; the two queries between them account
+      // for two. A real completeness claim must be able to say so.
+      universe: 5,
+    });
+    const ds = await getIrp5EmployeeTotals(COMPANY, 2026);
+
+    expect(ds.rowsTotal).toBe(1);
+    expect(ds.excludedTotal).toBe(1);
+    expect(ds.universeTotal).toBe(5);
+    // The whole point: this is now a statement that CAN be false.
+    expect(ds.rowsTotal + ds.excludedTotal).not.toBe(ds.universeTotal);
   });
 
   it('pins posted_through to the latest run line consumed, never now()', async () => {
