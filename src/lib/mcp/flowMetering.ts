@@ -98,6 +98,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   balance_sheet: null,
   aged_debtors: null,
   aged_creditors: null,
+  // The reconciliation is the control surface for every AR/AP write an agent
+  // makes. Pricing it would discourage the check, exactly like list_agent_postings.
+  reconcile_subledger: null,
   vat_status: null,
   list_practice_clients: null,
   list_job_categories: null,

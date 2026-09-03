@@ -18,6 +18,7 @@ import { getInvoiceTool, listInvoicesTool, listQuotesTool } from './tools/invoic
 import { listCustomersTool, listSuppliersTool } from './tools/contacts';
 import { bankAccountsStatusTool, listBankTransactionsTool } from './tools/bank';
 import { listImportBatchesTool } from './tools/importBatches';
+import { reconcileSubledgerTool } from './tools/reconcileSubledger';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
@@ -74,7 +75,7 @@ import { createJobCategoryTool, createWorkItemTool } from './tools/writePractice
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (32)
+  // read (33)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -82,6 +83,7 @@ export const MCP_TOOLS = [
   balanceSheetTool,
   agedDebtorsTool,
   agedCreditorsTool,
+  reconcileSubledgerTool,
   searchGlTool,
   listGlAccountsTool,
   listInvoicesTool,
