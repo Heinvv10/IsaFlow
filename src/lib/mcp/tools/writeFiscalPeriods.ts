@@ -200,10 +200,15 @@ export const yearEndCloseTool: McpTool = {
         return toolError(
           `Fiscal year ${year}'s periods run ${result.actual.startDate} to ${result.actual.endDate}, `
           + `but this company's financial year starts in month ${result.startMonth}, so `
-          + `FY${year} is ${result.expected.startDate} to ${result.expected.endDate}. `
+          + `FY${year} is really ${result.expected.startDate} to ${result.expected.endDate}. `
           + 'Closing the periods as they stand would roll the wrong twelve months into retained '
-          + 'earnings and then lock them. Nothing was posted. '
-          + 'Check alignment on list_fiscal_periods.',
+          + 'earnings and then LOCK them, and nothing would look wrong afterwards because the '
+          + 'journal balances either way. Nothing was posted. '
+          + 'THE FIX IS NOT THIS TOOL. The periods themselves are misaligned with the financial '
+          + 'year, and the year-end close is downstream of that: re-dating live fiscal periods is '
+          + 'a data correction that needs a person to decide it, not something a close should do '
+          + 'on the way past. Call list_fiscal_periods and read `alignment` — when `aligned` is '
+          + 'false, that is the thing to fix, and this close will work once it is.',
         );
       }
       if (result.error === 'no_fiscal_period') {

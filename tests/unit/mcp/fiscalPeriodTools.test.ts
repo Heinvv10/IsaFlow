@@ -363,6 +363,30 @@ describe('year_end_close', () => {
     expect(res.content[0]!.text).toMatch(/Nothing was posted/);
   });
 
+  it('says the fix is the period alignment, NOT this tool', async () => {
+    // The brief called year_end_close the remedy for the R8.46m retained-earnings
+    // plug. It is not: the periods are misaligned with the financial year and the
+    // close is downstream of that. A refusal that only says "cannot close" leaves
+    // a reader — or an agent — to guess, and the likely guess is to retry.
+    vi.mocked(closeFiscalYear).mockResolvedValue({
+      error: 'period_range_mismatch',
+      expected: { startDate: '2025-03-01', endDate: '2026-02-28' },
+      actual: { startDate: '2026-01-01', endDate: '2026-12-31' },
+      startMonth: 3,
+    });
+
+    const res = await yearEndCloseTool.handler({ fiscal_year: 2026, ...KEY }, ctx);
+    const text = res.content[0]!.text;
+
+    expect(res.isError).toBe(true);
+    expect(text).toMatch(/2026-01-01/);          // what the periods actually are
+    expect(text).toMatch(/2025-03-01/);          // what the fiscal year actually is
+    expect(text).toMatch(/THE FIX IS NOT THIS TOOL/);
+    expect(text).toMatch(/list_fiscal_periods/); // where to look
+    expect(text).toMatch(/alignment/);
+    expect(text).toMatch(/Nothing was posted/);
+  });
+
   it('names the fix when no retained-earnings account exists', async () => {
     vi.mocked(closeFiscalYear).mockResolvedValue({ error: 'no_retained_earnings', accountCode: '3200' });
     const res = await yearEndCloseTool.handler({ fiscal_year: 2027, ...KEY }, ctx);
