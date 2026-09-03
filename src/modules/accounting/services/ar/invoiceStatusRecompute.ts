@@ -34,15 +34,19 @@
  * both of which survive; it is not a question this column was ever able to
  * answer. Blind review raised the conflation and this is the answer to it.
  *
- * KNOWN DIVERGENCE, deliberately not fixed here. `receiptAllocationLines`
- * #applyLineToInvoice writes `paid_at` inline with two different rules: a bare
- * `NOW()` (so a further write to an already-settled invoice re-dates it) and
- * `ELSE paid_at` (so an invoice that reopens KEEPS a paid date). This helper
- * uses COALESCE and ELSE NULL, which is the correct pair. Two writers of one
- * rule is the exact problem this file was created to end, and the inline copy
- * should be collapsed into it — but that file belongs to the cash-application
- * workstream and changing it under them is how the three disagreeing status
- * rules arose in the first place.
+ * WHO ELSE WRITES THESE TWO COLUMNS. On the AR side, nobody: the inline copy
+ * in `receiptAllocationLines#applyLineToInvoice` — a bare `NOW()` that re-dated
+ * an already-settled invoice, and an `ELSE paid_at` that kept a paid date on a
+ * REOPENED one — was collapsed into this helper. `applyLineToInvoice` now
+ * writes `amount_paid` and delegates here.
+ *
+ * The AP side still carries its own: `supplierAllocationLines#applyLineToBill`
+ * sets `status` inline because it maintains `payment_matched` in the same
+ * statement, and this helper knows nothing about that flag. That is a real
+ * asymmetry, deliberately left — collapsing it needs either a supplier arm here
+ * or the flag kept inline beside a delegated status, which is a design decision
+ * on the AP workstream's file rather than a mechanical edit. Blind review was
+ * asked and judged the split defensible and pre-existing.
  */
 
 import { sql } from '@/lib/neon';
