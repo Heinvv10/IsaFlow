@@ -117,6 +117,24 @@ export interface ReportEnvelope<TRow> {
    * and the shared figure service.
    */
   figureBasis?: string;
+  /**
+   * Set when the report's own numbers do not add up — the count query and the
+   * page query disagree, or the classified rows plus the excluded rows do not
+   * account for the universe the report drew from.
+   *
+   * This is NOT thrown, deliberately. A read tool runs with no savepoint
+   * (`src/lib/mcp/.claude.md`), so a throw after the query has run aborts the
+   * whole request transaction; the registry's own refund and audit writes then
+   * fail with 25P02 and the caller gets a 500 with the Flow debit unrefunded.
+   * The module already eliminated that failure mode once, by validating casts
+   * BEFORE the query — reintroducing it here, after the query, would undo that.
+   *
+   * It is also the better answer on the merits. "This report cannot account for
+   * all of its rows" is an assurance finding and belongs in front of the reader,
+   * not converted into an HTTP error that tells them nothing. Absent means the
+   * arithmetic held.
+   */
+  completenessFault?: string;
 }
 
 export interface BuildEnvelopeInput<TRow> {
@@ -128,39 +146,95 @@ export interface BuildEnvelopeInput<TRow> {
   next_cursor?: string | null;
   excludedRows?: ExcludedRow[];
   figureBasis?: string;
+  /**
+   * How many candidate rows the report drew from BEFORE any classification
+   * filter — the unfiltered universe.
+   *
+   * This is what turns the envelope from a self-report into a checkable claim.
+   * Without it, a report can compute both its COUNT and its page with
+   * `WHERE due_date IS NOT NULL`, forget to collect the excluded rows, and hand
+   * over rowsTotal 10 / excludedRows [] — internally consistent, and the exact
+   * R1,058,000 aged-debtors bug this contract exists to prevent, now wearing a
+   * shape that looks verified.
+   *
+   * With it, `rowsTotal + excludedRows.length === universeTotal` is arithmetic
+   * the envelope can check on the report's behalf. REQUIRED on every assurance
+   * report; omit it only on a listing where completeness is not a claim.
+   */
+  universeTotal?: number;
 }
 
 /**
  * Builds an envelope with `rowsReturned` and `truncated` derived, so that no
- * report can report its own completeness inconsistently.
+ * report can state its own completeness inconsistently.
  *
- * Throws when `rowsTotal` is less than the rows served: that state means the
- * count query and the page query disagree, which is exactly the class of bug
- * this envelope exists to expose. Failing loudly beats serving a report that
- * claims to be complete and is not.
+ * NEVER THROWS. Every inconsistency is recorded in `completenessFault` and the
+ * report is still returned — see the field's own note for why an exception is
+ * the wrong instrument here. Use `assertEnvelopeSound` in tests to turn a fault
+ * into a failure at the only point where failing is free.
  */
 export function buildEnvelope<TRow>(input: BuildEnvelopeInput<TRow>): ReportEnvelope<TRow> {
-  const rowsReturned = input.rows.length;
-  if (input.rowsTotal < rowsReturned) {
-    throw new Error(
-      `rowsTotal (${input.rowsTotal}) is below rowsReturned (${rowsReturned}) — the count and page queries disagree`,
+  const faults: string[] = [];
+  let rows = input.rows;
+  let rowsTotal = input.rowsTotal;
+  const excludedRows = input.excludedRows ?? [];
+
+  // A summary serves totals, not rows. Serving rows anyway is a coding error in
+  // the report; drop them rather than let a caller that asked for a summary
+  // silently receive an unpaginated page.
+  if (input.detail === 'summary' && rows.length > 0) {
+    faults.push(`detail "summary" returned ${rows.length} rows; dropped`);
+    rows = [];
+  }
+
+  // The count query and the page query disagree. Serving rowsTotal as-is would
+  // make `truncated` nonsense, so raise it to what was actually served and say
+  // so — an understated total reads as "this is the whole book" and is the more
+  // dangerous of the two errors.
+  if (rowsTotal < rows.length) {
+    faults.push(
+      `rowsTotal (${rowsTotal}) is below rowsReturned (${rows.length}) — the count and page queries disagree`,
     );
+    rowsTotal = rows.length;
   }
-  if (input.detail === 'summary' && rowsReturned > 0) {
-    throw new Error('detail "summary" must return no rows');
+
+  // The identity that makes completeness checkable rather than merely asserted.
+  if (input.universeTotal !== undefined) {
+    const accounted = rowsTotal + excludedRows.length;
+    if (accounted !== input.universeTotal) {
+      faults.push(
+        `${accounted} rows accounted for (${rowsTotal} included + ${excludedRows.length} excluded) against a universe of ${input.universeTotal} — ${Math.abs(input.universeTotal - accounted)} unaccounted`,
+      );
+    }
   }
+
+  const rowsReturned = rows.length;
   return {
-    rows: input.rows,
+    rows,
     rowsReturned,
-    rowsTotal: input.rowsTotal,
+    rowsTotal,
     // A summary deliberately serves no rows, so it is never "truncated" — the
     // caller asked for totals and got all of them.
-    truncated: input.detail === 'summary' ? false : rowsReturned < input.rowsTotal,
+    truncated: input.detail === 'summary' ? false : rowsReturned < rowsTotal,
     next_cursor: input.next_cursor ?? null,
-    excludedRows: input.excludedRows ?? [],
+    excludedRows,
     detail: input.detail,
     as_at: input.as_at,
     posted_through: input.posted_through,
     ...(input.figureBasis === undefined ? {} : { figureBasis: input.figureBasis }),
+    ...(faults.length === 0 ? {} : { completenessFault: faults.join('; ') }),
   };
+}
+
+/**
+ * Throws when an envelope carries a completeness fault. FOR TESTS.
+ *
+ * The invariant is still worth enforcing — it is simply enforced where a
+ * failure costs nothing, rather than inside a request that has already spent a
+ * Flow debit and holds an open transaction.
+ */
+export function assertEnvelopeSound(envelope: ReportEnvelope<unknown>): void {
+  if (envelope.completenessFault) {
+    throw new Error(`envelope completeness fault: ${envelope.completenessFault}`);
+  }
 }

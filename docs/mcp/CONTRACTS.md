@@ -33,9 +33,56 @@ return ok(buildEnvelope({
 | `posted_through` | `MAX(created_at)` of the ledger rows consumed. **Never `now()`.** |
 | `figureBasis` | The figure definition used, e.g. `ar.outstanding.v1`. |
 
-`buildEnvelope` **throws** when `rowsTotal < rows.length`. That state means the
-count query and the page query disagree, which is precisely the bug the envelope
-exists to expose. Do not catch it.
+### `buildEnvelope` never throws
+
+It records every inconsistency in `completenessFault` and returns the report
+anyway. A read tool runs with **no savepoint** (`src/lib/mcp/.claude.md`), so a
+throw after the query has run aborts the whole request transaction; the
+registry's refund and audit writes then fail with 25P02 and the caller gets a 500
+with the Flow debit unrefunded. The module eliminated that failure mode once, by
+validating casts *before* the query — a post-query throw in every report would
+undo it.
+
+It is also the better answer on the merits. "This report cannot account for all
+of its rows" is an assurance finding and belongs in front of the reader, not
+converted into an HTTP error that tells them nothing.
+
+Call `assertEnvelopeSound(env)` in **tests** to turn a fault into a failure at
+the one point where failing is free.
+
+### The envelope proves internal consistency. It does not prove completeness.
+
+This is the limit of what the shape can do for you, and you must not mistake one
+for the other.
+
+Nothing stops a report computing **both** its `COUNT` and its page with
+`WHERE due_date IS NOT NULL`, forgetting to collect the excluded rows, and
+handing over `rowsTotal: 10`, `excludedRows: []`. That envelope is internally
+consistent, says `truncated: false`, and is the identical R1,058,000 aged-debtors
+bug this contract exists to prevent — now wearing a shape that looks verified.
+
+**So pass `universeTotal`**: the count of candidate rows *before any
+classification filter*. `buildEnvelope` then checks
+`rowsTotal + excludedRows.length === universeTotal` and raises a
+`completenessFault` when rows fall through the gap. That turns completeness from
+something you assert into arithmetic somebody else can check.
+
+`universeTotal` is **required on every assurance report**. Omit it only on a
+listing where completeness is not a claim being made.
+
+Completeness remains **your** obligation. The envelope narrows where you can hide
+a mistake; it does not find one for you.
+
+### A filter that drops rows is the defect, not the fix
+
+`casewareExportService` filtered `ga.is_active = true` and silently dropped a
+dormant account still carrying R130,000, leaving the export out of balance by
+exactly that amount. A deactivated account with a live balance is still on the
+balance sheet.
+
+Before you add any `WHERE` clause to a report, ask what it excludes and whether
+that belongs in `excludedRows` instead. `is_active`, `status`, `due_date IS NOT
+NULL` and `fiscal_period_id = …` have all produced a finding in these books.
 
 ### `posted_through` is not decoration
 
@@ -158,8 +205,11 @@ service function**, what it includes and what it deliberately excludes. Call
 typo'd basis is worse than none: it looks authoritative in a response someone is
 using to decide whether two reports agree.
 
-A test asserts that every named owner actually exists and is exported. A
-definition pointing at a function that isn't there reads as settled and isn't.
+A test asserts that every named owner actually exists and is exported. That is
+**existence checking and nothing more** — nothing ties a report's `figureBasis`
+string to the function it actually called, so a report can still name the wrong
+owner. The registry makes a duplicate implementation visible in review; it cannot
+prevent one. Do not treat a `figureBasis` in a response as proof of provenance.
 
 **Two figures that should be equal are still two figures.** `ar.subledger.v1`
 (the sum of open invoices) and `ar.control.v1` (the GL control account balance)
@@ -235,7 +285,7 @@ Keep IsaFlow's numbering; store the origin beside it.
 ## 8. Actor identity on every write
 
 ```ts
-import { actorForMcp, type ActorIdentity } from '@/lib/mcp/contracts';
+import { actorForMcp, resolveLegacyActorType, type ActorIdentity } from '@/lib/mcp/contracts';
 ```
 
 `actor_type` is `human | agent | system`, recorded with the granting `userId` and
@@ -247,6 +297,16 @@ This is upstream of `audit_trail`. The existing `mcp:<tool>:v1` posting-agent
 stamp stays and is not replaced — the token identity is recorded **alongside** it,
 so two agents on one company can be told apart and a revoked token's postings can
 be listed.
+
+**Legacy rows are inferred, and the inference is asymmetric.** Rows written
+before migrations 530/531 carry no `actor_type`; `resolveLegacyActorType()`
+derives one from `posting_agent` and marks every result `provenance: 'derived'`.
+An `mcp:` stamp does prove an agent. A `human:` stamp proves **nothing** —
+`createJournalEntry` falls back to `defaultHumanMeta(userId)` whenever a caller
+omits the meta, so an unknown number of agent postings sit under it. Report that
+value as "not stamped as an agent", never as "typed by a person". An audit trail
+that presents an inference as a fact is worse than one that admits the gap,
+because a reader cannot tell which rows to go and check by hand.
 
 ---
 
@@ -270,7 +330,21 @@ all are reviewed explicitly:
   exists**. Prove it: mutate the implementation and watch the test go red.
 - **Migrations** use your workstream's reserved prefix block, `IF NOT EXISTS` on
   every `CREATE`. Re-check `master` before opening the PR — a PR that merges
-  first steals your prefix.
+  first steals your prefix. Never edit a migration once applied anywhere: the
+  checksum conflict is not recoverable by editing it back.
+- **Adding a constraint or index to a column that already holds data is a
+  different operation** from adding one alongside the column itself. A plain
+  `ADD CONSTRAINT … CHECK` takes an ACCESS EXCLUSIVE lock for a full validation
+  scan, and on `gl_journal_entries` that blocks every posting. Use
+  `ADD CONSTRAINT … NOT VALID` then a separate `VALIDATE CONSTRAINT`, and
+  `CREATE INDEX CONCURRENTLY` outside a transaction. Migrations 530 and 531 do
+  neither, and are safe only because their columns are NULL on every existing
+  row at the moment they run — read the note at the top of 531 before copying
+  them.
+- **No foreign key on an actor or user column.** `users.id` is
+  `character varying(255)` with a `gen_random_uuid()::text` default, not `uuid`,
+  so a uuid-typed FK to it fails at apply time. Never cast `${param}::UUID`
+  against `users.id` or `company_users.user_id` — cast the uuid side `::TEXT`.
 - **`TOOL_FLOW_OPERATIONS` must name every registered tool.** Reads are free;
   writes cost what the equivalent endpoint costs. A missing entry fails the build.
 

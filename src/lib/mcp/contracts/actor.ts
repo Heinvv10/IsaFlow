@@ -108,3 +108,60 @@ export function actorForSystem(process: string): ActorIdentity {
  * that no person is ever shown as the author of a job the software ran.
  */
 export const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+
+/**
+ * How an actor was established. Returned beside every `actor_type` so a reader
+ * can tell a recorded fact from an inference.
+ */
+export type ActorProvenance = 'recorded' | 'derived';
+
+export interface ResolvedActorType {
+  actorType: ActorType;
+  provenance: ActorProvenance;
+  /** Present on a derived value: why it may be wrong. */
+  caveat?: string;
+}
+
+/**
+ * Resolves the actor of a row written BEFORE migration 530, which has no
+ * `actor_type`, from its `posting_agent` stamp.
+ *
+ * THIS IS AN INFERENCE, AND IT IS KNOWN TO BE IMPERFECT. `createJournalEntry`
+ * falls back to `defaultHumanMeta(userId)` whenever a caller does not pass the
+ * meta, which stamps `human:<userId>` on postings an agent actually made — the
+ * same defect that hides them from `list_agent_postings` today
+ * (`src/lib/mcp/.claude.md`). So an `mcp:` stamp proves an agent, but a
+ * `human:` stamp proves nothing: it means "not stamped as an agent", which is
+ * a weaker claim and includes an unknown number of agent postings.
+ *
+ * Reporting that asymmetry is the whole point. An audit trail that presents an
+ * inference as a fact is worse than one that admits the gap, because a reader
+ * cannot tell which rows to go and check by hand.
+ */
+export function resolveLegacyActorType(postingAgent: string | null): ResolvedActorType {
+  if (postingAgent?.startsWith('mcp:')) {
+    return {
+      actorType: 'agent',
+      provenance: 'derived',
+      caveat: 'Inferred from the mcp: posting-agent stamp; actor_type was not recorded on this row.',
+    };
+  }
+  if (postingAgent?.startsWith('system:')) {
+    return {
+      actorType: 'system',
+      provenance: 'derived',
+      caveat: 'Inferred from the system: posting-agent stamp.',
+    };
+  }
+  return {
+    actorType: 'human',
+    provenance: 'derived',
+    caveat:
+      'NOT PROVEN HUMAN. Rows written before migration 530 carry no actor_type, and createJournalEntry stamps human:<userId> whenever a caller omits the posting meta — so agent postings are known to appear here. Treat as "not stamped as an agent", not as "typed by a person".',
+  };
+}
+
+/** A row written after migration 530 records its actor; nothing is inferred. */
+export function resolveRecordedActorType(actorType: ActorType): ResolvedActorType {
+  return { actorType, provenance: 'recorded' };
+}

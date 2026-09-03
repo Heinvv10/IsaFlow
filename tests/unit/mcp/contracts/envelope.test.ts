@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assertEnvelopeSound,
   buildEnvelope,
   isDetailLevel,
   type ExcludedRow,
@@ -21,16 +22,77 @@ describe('buildEnvelope', () => {
     expect(env.next_cursor).toBeNull();
   });
 
-  it('throws when rowsTotal is below the rows served — the count and page queries disagree', () => {
+  // A read tool runs with NO savepoint: a throw here aborts the request
+  // transaction and the caller gets a 500 with the Flow debit unrefunded.
+  it('never throws when the count and page queries disagree', () => {
     expect(() =>
       buildEnvelope({ ...BASE, rows: [1, 2, 3], rowsTotal: 2, detail: 'standard' }),
-    ).toThrow(/rowsTotal/);
+    ).not.toThrow();
   });
 
-  it('refuses to serve rows at detail "summary"', () => {
-    expect(() =>
-      buildEnvelope({ ...BASE, rows: [1], rowsTotal: 1, detail: 'summary' }),
-    ).toThrow(/summary/);
+  it('records the count/page disagreement as a fault and raises the total to what it served', () => {
+    const env = buildEnvelope({ ...BASE, rows: [1, 2, 3], rowsTotal: 2, detail: 'standard' });
+    expect(env.completenessFault).toMatch(/rowsTotal/);
+    // An understated total reads as "this is the whole book" — the worse error.
+    expect(env.rowsTotal).toBe(3);
+    expect(env.truncated).toBe(false);
+  });
+
+  it('drops rows served at detail "summary" and says so', () => {
+    const env = buildEnvelope({ ...BASE, rows: [1], rowsTotal: 1, detail: 'summary' });
+    expect(env.rows).toEqual([]);
+    expect(env.rowsReturned).toBe(0);
+    expect(env.completenessFault).toMatch(/summary/);
+  });
+
+  // The finding this whole contract exists to prevent: a report filters
+  // `WHERE due_date IS NOT NULL` in BOTH its count and its page, forgets to
+  // collect the excluded rows, and hands over an internally consistent envelope
+  // that is missing R1,058,000.
+  it('catches rows that are neither included nor excluded, against the universe', () => {
+    const env = buildEnvelope({
+      ...BASE,
+      rows: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      rowsTotal: 10,
+      universeTotal: 11,
+      detail: 'standard',
+    });
+    expect(env.completenessFault).toMatch(/1 unaccounted/);
+  });
+
+  it('is silent when the excluded rows account for the difference', () => {
+    const env = buildEnvelope({
+      ...BASE,
+      rows: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      rowsTotal: 10,
+      universeTotal: 11,
+      excludedRows: [{ id: 'inv-133', reason: 'null_due_date', amount: 1058000 }],
+      detail: 'standard',
+    });
+    expect(env.completenessFault).toBeUndefined();
+    expect(() => assertEnvelopeSound(env)).not.toThrow();
+  });
+
+  it('counts excluded rows against the universe even on a paged report', () => {
+    const env = buildEnvelope({
+      ...BASE,
+      rows: [1, 2],
+      rowsTotal: 118,
+      universeTotal: 120,
+      excludedRows: [{ id: 'a', reason: 'no_control_account' }],
+      detail: 'standard',
+    });
+    expect(env.completenessFault).toMatch(/119 rows accounted for/);
+  });
+
+  it('assertEnvelopeSound turns a fault into a test failure', () => {
+    const env = buildEnvelope({ ...BASE, rows: [1, 2, 3], rowsTotal: 2, detail: 'standard' });
+    expect(() => assertEnvelopeSound(env)).toThrow(/completeness fault/);
+  });
+
+  it('omits completenessFault entirely when the arithmetic holds', () => {
+    const env = buildEnvelope({ ...BASE, rows: [1], rowsTotal: 1, universeTotal: 1, detail: 'standard' });
+    expect('completenessFault' in env).toBe(false);
   });
 
   it('reports a summary as complete rather than truncated', () => {

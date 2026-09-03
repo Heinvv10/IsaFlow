@@ -5,6 +5,8 @@ import {
   actorForMcp,
   actorForSystem,
   isActorType,
+  resolveLegacyActorType,
+  resolveRecordedActorType,
 } from '@/lib/mcp/contracts/actor';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -46,5 +48,37 @@ describe('actor identity', () => {
   it('validates actor types', () => {
     expect(isActorType('agent')).toBe(true);
     expect(isActorType('robot')).toBe(false);
+  });
+});
+
+describe('legacy actor resolution', () => {
+  it('marks every legacy resolution as derived, never recorded', () => {
+    for (const stamp of ['mcp:x:v1', 'human:u1', 'system:year_end', null]) {
+      expect(resolveLegacyActorType(stamp).provenance).toBe('derived');
+    }
+  });
+
+  it('reads an mcp: stamp as an agent', () => {
+    expect(resolveLegacyActorType('mcp:apply_receipt:v1').actorType).toBe('agent');
+  });
+
+  // The asymmetry that matters: createJournalEntry stamps human:<userId> when a
+  // caller omits the meta, so agent postings are known to sit under this branch.
+  it('refuses to present a human: stamp as proof of a human', () => {
+    const r = resolveLegacyActorType('human:user-1');
+    expect(r.actorType).toBe('human');
+    expect(r.caveat).toMatch(/NOT PROVEN HUMAN/);
+  });
+
+  it('carries a caveat on every derived value', () => {
+    for (const stamp of ['mcp:x:v1', 'human:u1', 'system:y', null]) {
+      expect(resolveLegacyActorType(stamp).caveat).toBeTruthy();
+    }
+  });
+
+  it('carries no caveat on a recorded value', () => {
+    const r = resolveRecordedActorType('agent');
+    expect(r.provenance).toBe('recorded');
+    expect(r.caveat).toBeUndefined();
   });
 });
