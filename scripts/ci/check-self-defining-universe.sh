@@ -49,6 +49,30 @@ while IFS= read -r line; do
   fail=1
 done <<< "$hits"
 
+# SHAPE TWO: universeTotal and rowsTotal assigned the IDENTICAL expression
+# within a few lines. `universeTotal: sorted.length` beside
+# `rowsTotal: sorted.length` claims a universe that IS the row count, so the
+# identity reduces to `rowsTotal + 0 === rowsTotal` and can only fail if
+# something is excluded — which such a report never does. Compared by
+# expression, not by proximity alone: `integrity.ts` legitimately pairs
+# `rowsTotal: ran.length` with `universeTotal: report.checks.length`, where the
+# universe is every check and the rows are the ones that ran.
+while IFS= read -r pair; do
+  [ -z "$pair" ] && continue
+  file="${pair%%:*}"
+  if [ -f "$BASELINE" ] && grep -qxF "$file" "$BASELINE"; then continue; fi
+  echo "  $pair"
+  fail=1
+done < <(
+  grep -rn --include='*.ts' -A4 -E 'rowsTotal:[[:space:]]*[A-Za-z0-9_.()]+,' src/ 2>/dev/null |
+  awk -F'rowsTotal:[[:space:]]*' '/rowsTotal:/ {loc=$0; sub(/-.*/,"",loc); expr=$2; sub(/,.*/,"",expr); pending=expr; ploc=loc; next}
+       pending != "" && /universeTotal:[[:space:]]*/ {
+         u=$0; sub(/.*universeTotal:[[:space:]]*/,"",u); sub(/,.*/,"",u);
+         if (u == pending) { l=ploc; sub(/-$/,"",l); print l ": universeTotal is the same expression as rowsTotal (" u ")" }
+         pending=""
+       }' | sed 's/^\([^:]*\):\([0-9]*\)[-:]/\1:\2:/'
+)
+
 if [ "$fail" -eq 1 ]; then
   cat <<'MSG'
 
