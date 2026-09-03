@@ -91,16 +91,34 @@ describe('getCashBalance', () => {
 
   it('selects by SUBTYPE, not by accounts named like banks', async () => {
     await getCashBalance(COMPANY, '2026-08-31');
-    expect(sqlText()).toMatch(/account_subtype\s+IN\s*\('bank',\s*'cash'\)/);
+    expect(sqlText()).toMatch(/account_subtype\s*=\s*ANY/);
     expect(sqlText()).not.toMatch(/account_name\s+ILIKE/i);
   });
 
-  it('includes petty cash — subtype cash is cash', async () => {
-    // Nine production accounts carry subtype 'cash', all seeded Petty Cash at
-    // R0.00, so this changes no live figure today. It stops a real petty-cash
-    // balance being silently absent from "cash" tomorrow.
+  it('takes the cash vocabulary from CASH_SUBTYPES, not from two literals', async () => {
+    // Asserted on the BOUND PARAMETER, not on the SQL text. A text assertion
+    // here passed while the query read `IN ('bank', 'cash')` — which is not the
+    // same set: it misses `bank_account`, `cash_on_hand` and `petty_cash`, all
+    // spellings this schema accepts. No production account carries one today
+    // (98 `bank`, 9 `cash`), so this changes no live figure; it stops the
+    // opening-cash and cash-movement queries in cashFlowDirectService from
+    // disagreeing about what counts as cash.
     await getCashBalance(COMPANY, '2026-08-31');
-    expect(sqlText()).toMatch(/'cash'/);
+    const bound = mockSql.mock.calls[0]?.slice(1) ?? [];
+    const arrays = bound.filter((v): v is string[] => Array.isArray(v));
+
+    // The array param is located by TYPE, not by index, so it survives a
+    // reordering of the template. That only identifies it while exactly one
+    // array is bound — so assert that, rather than let a future second array
+    // silently hand the assertions below the wrong parameter.
+    expect(arrays).toHaveLength(1);
+
+    // Compared against a HARDCODED list, not against CASH_SUBTYPES itself.
+    // `toEqual([...CASH_SUBTYPES])` would compare the bound value to the same
+    // imported array and pass whatever that array contained — restating the
+    // import rather than testing it. If accountSubtypes legitimately gains a
+    // cash spelling, this line is meant to go red and be updated deliberately.
+    expect(arrays[0]).toEqual(['bank', 'bank_account', 'cash', 'cash_on_hand', 'petty_cash']);
   });
 
   it('keeps an account whose only lines are drafts, at zero rather than absent', async () => {

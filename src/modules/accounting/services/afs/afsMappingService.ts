@@ -66,18 +66,22 @@ export async function upsertStatementLine(
     isHeader?: boolean;
     isTotal?: boolean;
     isActive?: boolean;
+    totalBasis?: 'children' | 'components' | 'running';
+    totalComponents?: string[] | null;
   },
 ): Promise<void> {
   await sql`
     INSERT INTO afs_statement_lines
       (company_id, code, section, label, parent_code, note_number,
-       sort_order, combine_group, is_header, is_total, is_active)
+       sort_order, combine_group, is_header, is_total, is_active,
+       total_basis, total_components)
     VALUES
       (${companyId}, ${input.code}, ${input.section}, ${input.label},
        ${input.parentCode ?? null}, ${input.noteNumber ?? null},
        ${input.sortOrder}, ${input.combineGroup ?? null},
        ${input.isHeader ?? false}, ${input.isTotal ?? false},
-       ${input.isActive ?? true})
+       ${input.isActive ?? true},
+       ${input.totalBasis ?? 'children'}, ${input.totalComponents ?? null})
     ON CONFLICT (company_id, code)
     DO UPDATE SET
       label         = EXCLUDED.label,
@@ -87,7 +91,9 @@ export async function upsertStatementLine(
       combine_group = EXCLUDED.combine_group,
       is_header     = EXCLUDED.is_header,
       is_total      = EXCLUDED.is_total,
-      is_active     = EXCLUDED.is_active`;
+      is_active     = EXCLUDED.is_active,
+      total_basis      = EXCLUDED.total_basis,
+      total_components = EXCLUDED.total_components`;
 }
 
 export async function toggleStatementLine(
@@ -169,6 +175,13 @@ export async function seedDefaultTaxonomy(companyId: string): Promise<{ created:
       isHeader: line.isHeader ?? false,
       isTotal: line.isTotal ?? false,
       isActive: true,
+      // Without these two, a NEW company is seeded with total_basis='children'
+      // on BS038/BS082/IS452/IS471/IS480/IS485 — all of which are top-level
+      // with no parent_code — and every one of its headline totals renders
+      // 0.00. Migration 533 repaired the companies that already existed; this
+      // is what stops the next tenant being created broken.
+      totalBasis: line.totalBasis ?? 'children',
+      totalComponents: line.totalComponents ?? null,
     });
     created++;
   }

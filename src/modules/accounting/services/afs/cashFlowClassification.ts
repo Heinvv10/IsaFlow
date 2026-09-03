@@ -1,0 +1,176 @@
+/**
+ * Cash-flow classification for the direct-method cash flow statement.
+ *
+ * Kept separate from the query that feeds it so the rule is a pure function
+ * over (account_type, account_subtype) and can be tested without a database.
+ *
+ * WHY THIS EXISTS. The classification used to live in a SQL CASE that matched
+ * `account_subtype IN ('revenue','receivable')`, `('payroll')` and
+ * `('expense','payable','cost_of_sales')`. Those are not the spellings real
+ * charts use: production carries `default_revenue`, `sales`, `other_income`,
+ * `payroll_liability`, `operating_expense`, `admin_expense`, `fixed_assets`.
+ * 4,650 of 6,341 contra lines therefore fell through to the `other_operating`
+ * catch-all and 73% of a "direct" cash flow statement was one undifferentiated
+ * line. Everything here goes through `canonicalSubtype`, which owns the
+ * spelling vocabulary, so a new importer spelling is added in one place.
+ */
+
+import {
+  canonicalSubtype,
+  isCashEquivalent,
+  type AccountType,
+} from '@/modules/accounting/services/gl/accountSubtypes';
+
+export type CashGroup =
+  | 'cash_received_from_customers'
+  | 'cash_paid_to_suppliers'
+  | 'cash_paid_to_employees'
+  | 'other_operating'
+  | 'investing'
+  | 'financing';
+
+export const OPERATING_GROUPS: ReadonlySet<CashGroup> = new Set<CashGroup>([
+  'cash_received_from_customers',
+  'cash_paid_to_suppliers',
+  'cash_paid_to_employees',
+  'other_operating',
+]);
+
+/**
+ * Which cash-flow activity a bank movement belongs to, judged by the account
+ * on the other side of the entry.
+ *
+ * Unrecognised and NULL subtypes resolve to `other_operating` rather than
+ * being dropped: a line that cannot be classified is still cash that moved,
+ * and dropping it would break the tie-out to the bank balance. Operating is
+ * the conservative bucket — misclassifying within operating does not change
+ * the operating/investing/financing split that readers rely on.
+ */
+export function classifyCashGroup(
+  accountType: AccountType,
+  subtype: string | null | undefined,
+): CashGroup {
+  // Equity movements are financing regardless of how the subtype is spelled —
+  // share issues, buybacks and distributions all land here.
+  if (accountType === 'equity') return 'financing';
+
+  const canon = canonicalSubtype(subtype);
+
+  switch (canon) {
+    case 'receivable':
+    case 'revenue':
+    case 'sales':
+    case 'other_income':
+      return 'cash_received_from_customers';
+
+    // Both sides of payroll: the salary expense itself, and the PAYE, UIF and
+    // pension withheld from it. Only the liability was recognised, so every
+    // salary payment was reported as cash paid to suppliers.
+    case 'payroll_liability':
+    case 'payroll_expense':
+      return 'cash_paid_to_employees';
+
+    case 'payable':
+    case 'cost_of_sales':
+    case 'operating_expense':
+    case 'admin_expense':
+    case 'insurance_expense':
+    case 'other_expense':
+    case 'prepaid_expense':
+    case 'inventory':
+      return 'cash_paid_to_suppliers';
+
+    case 'fixed_asset':
+    case 'non_current_asset':
+    case 'intangible_asset':
+    case 'investment':
+    case 'accumulated_depreciation':
+      return 'investing';
+
+    case 'long_term_liability':
+    case 'non_current_liability':
+    case 'credit_card':
+    case 'equity':
+    case 'retained_earnings':
+    case 'opening_balance_equity':
+      return 'financing';
+
+    // Taxation and interest are presented within operating activities, which
+    // IAS 7.33-35 permits and is the norm for SA owner-managed entities.
+    // Everything else — VAT control, current assets and liabilities, and any
+    // subtype `canonicalSubtype` does not recognise — is operating too.
+    default:
+      return 'other_operating';
+  }
+}
+
+/** A journal line on the other side of a bank movement. */
+export interface ContraLine {
+  accountType: AccountType;
+  accountSubtype: string | null;
+  /** Signed `debit - credit` for this line. */
+  amount: number;
+}
+
+export interface CashAllocation {
+  cashGroup: CashGroup;
+  amount: number;
+}
+
+/**
+ * Split one bank leg across the contra lines of its journal entry.
+ *
+ * THE BANK LEG IS DISTRIBUTED EXACTLY ONCE. That is the whole point: the
+ * previous implementation joined the bank leg to every contra line and summed
+ * the BANK amount per contra, so a two-line entry counted the bank movement
+ * twice. On production that reported net cash of -R9,089,506.51 against a true
+ * bank movement of +R381,207.22.
+ *
+ * Cash-equivalent contras are excluded first — a transfer between two bank
+ * accounts is not a cash flow, and both its legs are handled independently.
+ * The remaining contras take a share proportional to their SIGNED amount.
+ *
+ * Signed, not magnitude. Weighting by |amount| is wrong the moment an entry's
+ * contras carry mixed signs, which is the shape of every payroll payment: bank
+ * pays 70,000 net against salaries of 100,000 less 20,000 PAYE and 10,000
+ * pension withheld. Magnitude weighting splits the 70,000 in the ratio
+ * 100:20:10 and reports -53,846.15 of salary — 77% of the run — while showing
+ * the withheld amounts as further outflows rather than the inflows they are.
+ * It crosses section boundaries too: a 120,000 loan repayment net of 20,000
+ * interest received reads as 85,714 financing and 14,286 operating instead of
+ * 120,000 financing against a 20,000 operating inflow.
+ *
+ * That defect hides, which is why it is worth the comment: the pieces sum to
+ * the cash leg under either rule, so closing cash still ties to the ledger and
+ * the pre-export blocker still passes. Only the split is wrong.
+ *
+ * With signed weights, a balanced single-cash-leg entry gives each contra
+ * exactly its own negated amount, and the proportional form keeps the total
+ * exact when an entry carries more than one cash leg.
+ *
+ * When there is no classifiable contra at all (a pure bank-to-bank transfer),
+ * the whole leg goes to `other_operating`. Its opposite leg carries the
+ * opposite sign, so the pair nets to zero and the tie-out still holds.
+ */
+export function apportionBankLeg(
+  bankAmount: number,
+  contras: readonly ContraLine[],
+): CashAllocation[] {
+  const classifiable = contras.filter(
+    (c) => !isCashEquivalent(c.accountType, c.accountSubtype),
+  );
+
+  const totalWeight = classifiable.reduce((s, c) => s + c.amount, 0);
+
+  // A zero signed total means the contras cancel out — a reclassification
+  // between two accounts, say — so there is no proportion to divide by. The
+  // leg still has to be reported or the tie-out to the ledger breaks.
+  if (classifiable.length === 0 || totalWeight === 0) {
+    return [{ cashGroup: 'other_operating', amount: bankAmount }];
+  }
+
+  return classifiable.map((c) => ({
+    cashGroup: classifyCashGroup(c.accountType, c.accountSubtype),
+    amount: bankAmount * (c.amount / totalWeight),
+  }));
+}

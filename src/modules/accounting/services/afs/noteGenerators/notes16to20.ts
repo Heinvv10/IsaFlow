@@ -4,7 +4,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
-import { fmt, toNum, fiscalRange } from './noteHelpers';
+import { fmt, toNum } from './noteHelpers';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 type DbRow = Record<string, unknown>;
 
@@ -14,7 +15,7 @@ export async function generateNote16TradePayables(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote16TradePayables', { companyId, fiscalYear }, 'AfsNote');
 
   const rows = (await sql`
@@ -64,7 +65,7 @@ export async function generateNote17IncomeTax(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote17IncomeTax', { companyId, fiscalYear }, 'AfsNote');
 
   const [taxProvision, deferredBalance] = await Promise.all([
@@ -116,7 +117,7 @@ export async function generateNote18RevenueDisaggregation(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote18RevenueDisaggregation', { companyId, fiscalYear }, 'AfsNote');
 
   const rows = (await sql`
@@ -154,7 +155,7 @@ export async function generateNote19OtherIncome(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote19OtherIncome', { companyId, fiscalYear }, 'AfsNote');
 
   const rows = (await sql`
@@ -195,7 +196,7 @@ export async function generateNote20OperatingExpenses(
   companyId: string,
   fiscalYear: number,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
   log.info('generateNote20OperatingExpenses', { companyId, fiscalYear }, 'AfsNote');
 
   const rows = (await sql`
