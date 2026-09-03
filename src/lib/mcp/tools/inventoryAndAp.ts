@@ -93,7 +93,11 @@ export const listItemsTool: McpTool = {
     return ok(buildEnvelope({
       rows: detail === 'summary' ? [] : rows,
       rowsTotal: rows.length,
-      universeTotal: rows.length,
+      // universeTotal omitted deliberately. These rows ARE the population —
+      // nothing is filtered out of a wider candidate set and excludedRows is
+      // always empty, so `rowsTotal + 0 === rowsTotal` could not fail whatever
+      // the query did. An absent claim is honest; one that cannot fail reads
+      // as a passed verification. CONTRACTS.md §1.
       detail,
       as_at: fmtDate(new Date()),
       // The item master is a catalogue, not a ledger — there is nothing honest

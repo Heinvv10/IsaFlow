@@ -117,7 +117,15 @@ export const listEmployeesTool: McpTool = {
         id_number_masked: e.idNumberMasked,
       })),
       rowsTotal: page.rowsTotal,
-      universeTotal: page.rowsTotal,
+      // universeTotal omitted. It used to be `page.rowsTotal` — the same
+      // quantity buildEnvelope checks it against, so `rowsTotal + 0 ===
+      // rowsTotal` could not fail whatever the query did. Passing the real
+      // wider set (page.universeTotal) instead would be worse: it raises a
+      // completenessFault for a narrowing the CALLER asked for, which is the
+      // crying-wolf problem the comment above filteredOut() describes. So the
+      // wider set is reported OUTSIDE the identity, as company_total_* and
+      // filtered_out below — the same place chart_of_accounts_health puts its
+      // universe. Nothing is lost; the claim that could not fail is.
       detail,
       as_at: fmtDate(new Date()),
       posted_through: postedThroughOr(page.postedThrough),
@@ -196,7 +204,15 @@ export const listPayRunsTool: McpTool = {
         posted_to_gl: r.journalEntryId !== null,
       })),
       rowsTotal: page.rowsTotal,
-      universeTotal: page.rowsTotal,
+      // universeTotal omitted. It used to be `page.rowsTotal` — the same
+      // quantity buildEnvelope checks it against, so `rowsTotal + 0 ===
+      // rowsTotal` could not fail whatever the query did. Passing the real
+      // wider set (page.universeTotal) instead would be worse: it raises a
+      // completenessFault for a narrowing the CALLER asked for, which is the
+      // crying-wolf problem the comment above filteredOut() describes. So the
+      // wider set is reported OUTSIDE the identity, as company_total_* and
+      // filtered_out below — the same place chart_of_accounts_health puts its
+      // universe. Nothing is lost; the claim that could not fail is.
       detail,
       as_at: fmtDate(new Date()),
       posted_through: postedThroughOr(page.postedThrough),

@@ -213,6 +213,11 @@ export async function fetchStatementData(
     });
   }
 
+  // Counted from the SOURCE arrays, before classification: this is the
+  // candidate set the report drew from, independent of how the rows were then
+  // split between `transactions` and `excluded`.
+  const candidateRows = invoices.length + payments.length + creditNotes.length;
+
   const typeOrder: Record<string, number> = { invoice: 0, credit_note: 1, payment: 2 };
   transactions.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -242,7 +247,11 @@ export async function fetchStatementData(
     toDate: asAtDate,
     transactions,
     excluded,
-    universeTotal: transactions.length + excluded.length,
+    // The universe is every candidate row FETCHED, counted from the source
+    // arrays before anything was classified — not `transactions.length +
+    // excluded.length`, which is the arithmetic buildEnvelope then checks and
+    // so could not fail. A row dropped from BOTH buckets changes this number.
+    universeTotal: candidateRows,
     summary: { totalInvoiced, totalPaid, totalCredits, balance: running },
   };
 }

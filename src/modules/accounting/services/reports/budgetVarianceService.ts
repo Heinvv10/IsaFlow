@@ -129,7 +129,11 @@ export async function getBudgetVariance(
     monthKeys: [...monthKeys],
     rows,
     unbudgeted,
-    universeTotal: rows.length + unbudgeted.length,
+    // Every revenue and expense account the actuals query returned, before
+    // the budgeted/unbudgeted split — the candidate set itself, not the sum of
+    // the two halves buildEnvelope checks against. An account lost from BOTH
+    // halves changes this number; it could not change the old one.
+    universeTotal: lines.length,
     totals: {
       budget: round2(rows.reduce((s, l) => s + l.budget_amount, 0)),
       actual: round2(rows.reduce((s, l) => s + l.actual_amount, 0)),

@@ -88,7 +88,9 @@ export const jobCostReportTool: McpTool = {
     const envelope = buildEnvelope({
       rows: detail === 'summary' ? [] : rows,
       rowsTotal: report.rowsTotal,
-      universeTotal: report.universeTotal,
+      // No universeTotal: rows are GROUPS built by grouping entries, and the
+      // ungrouped bucket in excludedRows is one entry standing for many. There
+      // is no count of groups that is independent of the grouping itself.
       detail,
       as_at: strArg(args, 'date_to') ?? fmtDate(new Date()),
       posted_through: report.postedThrough ?? NO_LEDGER_ROWS,

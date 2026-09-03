@@ -8,7 +8,7 @@
  * `project_profitability` is the clearest case. It returns an empty array on
  * every one of these companies, because zero of 39,285 journal lines carries a
  * project_id and there are no project rows at all. `rows: []` reads as "no
- * projects were unprofitable". The exclusion carrying the untagged P&L amount
+ * projects were unprofitable". The disclosure carrying the untagged P&L amount
  * is what turns it into "none of your P&L is tagged to a project".
  */
 import type { McpTool } from '../types';
@@ -99,7 +99,7 @@ export const projectProfitabilityTool: McpTool = {
   name: 'project_profitability',
   description:
     'Per-project profit and loss over a date range, built from posted journal lines that carry a project reference: revenue, direct cost, profit and margin for each project, with the account-level lines behind them. ' +
-    'READ THE COVERAGE BEFORE THE ROWS. Only journal lines tagged with a project_id can appear here, and an untagged ledger produces an EMPTY result that looks identical to a company with no unprofitable projects. project_tag_coverage reports how many P&L lines in the range are tagged and how many are not, and the untagged movement appears in excludedRows as no_project_tag with its total value. On the books this was built against, that total is 100% of P&L. ' +
+    'READ THE COVERAGE BEFORE THE ROWS. Only journal lines tagged with a project_id can appear here, and an untagged ledger produces an EMPTY result that looks identical to a company with no unprofitable projects. project_tag_coverage reports how many P&L lines in the range are tagged, how many are not, and what the untagged movement is worth. It sits OUTSIDE the completeness envelope on purpose: untagged lines are not projects, so they are a disclosure about data this report could not attribute rather than rows excluded from its universe. On the books this was built against, that total is 100% of P&L. ' +
     'It draws only on the general ledger. Time entries, work items and purchase orders that have never been journalised do not appear, so a project can look costless because nobody posted its costs. It is not a job-cost report and it does not accrue work in progress — see wip_report for unbilled time. ' +
     'as_at is the END of the range. Margin is profit as a percentage of revenue, and is zero when there is no revenue rather than infinite.',
   scope: 'read:reports',
@@ -128,16 +128,6 @@ export const projectProfitabilityTool: McpTool = {
       getProjectTaggingCoverage(ctx.companyId, start, end),
     ]);
 
-    const excludedRows: ExcludedRow[] =
-      coverage.untaggedLines > 0
-        ? [{
-            id: 'untagged',
-            reason: 'no_project_tag',
-            detail: `${coverage.untaggedLines} posted P&L journal lines in this range carry no project reference and cannot be attributed to any project.`,
-            amount: coverage.untaggedAmount,
-          }]
-        : [];
-
     const rows = reports.map((r) => ({
       project_id: r.projectId,
       project_name: r.projectName,
@@ -153,14 +143,20 @@ export const projectProfitabilityTool: McpTool = {
     const envelope = buildEnvelope({
       rows: detail === 'summary' ? [] : rows,
       rowsTotal: rows.length,
-      // Projects and untagged movement are different kinds of thing, so the
-      // universe is "one row per project, plus the single untagged bucket" —
-      // stated rather than inferred, so the identity still checks.
-      universeTotal: rows.length + excludedRows.length,
+      // universeTotal omitted: these rows ARE the population of projects with
+      // movement in the range. The previous expression said the universe was
+      // "projects plus the untagged bucket" — the sum of the two quantities
+      // buildEnvelope checks, so it could not fail, and it counted a bucket of
+      // journal LINES as though it were one more project.
+      //
+      // excludedRows is empty for the same reason: untagged movement is a
+      // DISCLOSURE, not an exclusion. Those lines were never members of the
+      // universe of projects. They are reported in full, unaggregated, by
+      // `project_tag_coverage` below — outside the identity, where they belong.
       detail,
       as_at: end,
       posted_through: coverage.postedThrough ?? NO_LEDGER_ROWS,
-      excludedRows,
+      excludedRows: [],
     });
 
     return ok({
@@ -225,7 +221,9 @@ export const wipReportTool: McpTool = {
     const envelope = buildEnvelope({
       rows: detail === 'summary' ? [] : rows,
       rowsTotal: rows.length,
-      universeTotal: rows.length,
+      // universeTotal omitted: WIP rows are produced per client from approved
+      // time, not selected out of a wider candidate set, and excludedRows is
+      // always empty — so the identity reduced to rowsTotal === rowsTotal.
       detail,
       as_at: asAt,
       // Time entries are not ledger rows; the oldest approved date is the only

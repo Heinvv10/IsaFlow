@@ -112,7 +112,13 @@ describe('getJobCostReport — completeness', () => {
     expect(ex.detail).toContain('3');
     // And it is outside the totals, not silently inside them.
     expect(rep.totals.value).toBe(8500);
-    expect(rep.rowsTotal + rep.excluded.length).toBe(rep.universeTotal);
+    // No universeTotal to check it against, and deliberately: `rows` are
+    // GROUPS while this entry is one bucket standing for 3 ungrouped ENTRIES,
+    // so `rowsTotal + excluded.length` counted a bucket of entries as one more
+    // group — and being the same arithmetic buildEnvelope checks, it could not
+    // fail. The assertion it replaced restated the implementation.
+    expect((rep as { universeTotal?: number }).universeTotal).toBeUndefined();
+    expect(rep.rowsTotal).toBe(rep.rows.length);
   });
 
   it('names the exclusion reason after the grouping that was asked for', async () => {

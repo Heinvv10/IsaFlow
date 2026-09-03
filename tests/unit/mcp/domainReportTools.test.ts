@@ -179,22 +179,24 @@ describe('customer_statement', () => {
 });
 
 describe('project_profitability — an empty list is the finding, not the answer', () => {
-  it('reports the untagged P&L as an exclusion carrying its amount', async () => {
+  it('reports the untagged P&L as a disclosure carrying its amount', async () => {
     const env = json(await projectProfitabilityTool.handler(
       { period_start: '2026-01-01', period_end: '2026-12-31' }, ctx,
     ));
 
     expect(env.rows).toEqual([]);
-    const untagged = env.excludedRows.find(
-      (e: { reason: string }) => e.reason === 'no_project_tag',
-    );
-    expect(untagged).toBeDefined();
-    expect(untagged.amount).toBeCloseTo(9554153.53, 2);
-    expect(untagged.detail).toContain('18752');
     // 100% untagged. Without this the response is `rows: []`, which reads as
     // "no projects were unprofitable".
     expect(env.project_tag_coverage.tagged_lines).toBe(0);
     expect(env.project_tag_coverage.untagged_lines).toBe(18752);
+    expect(env.project_tag_coverage.untagged_amount).toBeCloseTo(9554153.53, 2);
+
+    // NOT an exclusion. `rows` are projects; untagged journal lines were never
+    // members of that universe, so they are disclosed outside the envelope
+    // rather than counted inside its completeness identity — where one entry
+    // would have stood for 18,752 lines and been counted as a single project.
+    expect(env.excludedRows).toHaveLength(0);
+    expect(env.universeTotal).toBeUndefined();
   });
 
   it('reports per-project revenue, cost and margin when lines ARE tagged', async () => {

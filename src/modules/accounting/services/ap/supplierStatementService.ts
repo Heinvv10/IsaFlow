@@ -202,6 +202,11 @@ export async function fetchSupplierStatementData(
     });
   }
 
+  // Counted from the SOURCE arrays, before classification: this is the
+  // candidate set the report drew from, independent of how the rows were then
+  // split between `transactions` and `excluded`.
+  const candidateRows = invoices.length + payments.length + creditNotes.length;
+
   // Same ordering rule as the customer statement: by date, then invoice before
   // the credits and payments that settle it, so the running balance reads the
   // way a human would write it out.
@@ -233,7 +238,11 @@ export async function fetchSupplierStatementData(
     toDate: asAtDate,
     transactions,
     excluded,
-    universeTotal: transactions.length + excluded.length,
+    // The universe is every candidate row FETCHED, counted from the source
+    // arrays before anything was classified — not `transactions.length +
+    // excluded.length`, which is the arithmetic buildEnvelope then checks and
+    // so could not fail. A row dropped from BOTH buckets changes this number.
+    universeTotal: candidateRows,
     summary: { totalInvoiced, totalPaid, totalCredits, balance: running },
     postedThrough: maxIso([
       ...invoices.map((r) => r.created_at),

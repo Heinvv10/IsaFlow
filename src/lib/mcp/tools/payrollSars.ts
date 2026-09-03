@@ -77,7 +77,14 @@ export const emp201StatusTool: McpTool = {
     const envelope = buildEnvelope({
       rows: detail === 'summary' ? [] : rows,
       rowsTotal: rows.length,
-      universeTotal: rows.length,
+      // universeTotal omitted, and NOT because the universe is these rows.
+      // emp201Service filters to declarable runs (approved/paid), so a wider
+      // candidate set genuinely exists — every run in the period — but this
+      // tool does not count it and does not report the runs it drops. Claiming
+      // `rows.length` asserted an identity that could not fail AND implied a
+      // completeness this report does not have. Stating nothing is honest;
+      // the asymmetry with irp5_data, which DOES name its non-declarable runs
+      // from the same status list, is recorded as a finding.
       detail,
       as_at: end,
       // The EMP201 is built from run headers, not journal rows; the last period

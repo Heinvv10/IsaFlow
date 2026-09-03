@@ -58,7 +58,7 @@ export interface JobCostExclusion {
 export interface JobCostReport {
   rows: JobCostRow[];
   rowsTotal: number;
-  universeTotal: number;
+
   excluded: JobCostExclusion[];
   totals: {
     hours: number;
@@ -200,7 +200,12 @@ export async function getJobCostReport(
   return {
     rows: out,
     rowsTotal: out.length,
-    universeTotal: out.length + excluded.length,
+    // No universeTotal. `out` are GROUPS produced by grouping the entries;
+    // `excluded` is ONE bucket standing for N ungrouped ENTRIES. Adding them
+    // counted a bucket of entries as though it were one more group, and the
+    // sum was the arithmetic buildEnvelope then checked — so it could not
+    // fail. The ungrouped bucket is a disclosure about entries that could not
+    // be attributed, not a group withheld from a wider set of groups.
     excluded,
     totals: {
       hours: round2(out.reduce((s, r) => s + r.totalHours, 0)),

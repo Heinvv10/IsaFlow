@@ -85,7 +85,13 @@ export const listFixedAssetsTool: McpTool = {
     const envelope = buildEnvelope({
       rows: detail === 'summary' ? [] : rows,
       rowsTotal: page.rowsTotal,
-      universeTotal: page.rowsTotal + excludedRows.length,
+      // getAssetRegister already counts the universe in its own query —
+      // COUNT(*) over every asset acquired on or before as_at, disposed
+      // included — so take that rather than rebuild it from the two halves
+      // being checked. The old expression was wrong twice: it could not fail,
+      // and `disposed` is filtered from the PAGE while rowsTotal is the global
+      // count, so the synthesized universe drifted with the offset.
+      universeTotal: page.universeTotal,
       detail,
       as_at: asAt,
       // The register is not built from journal rows; there is nothing honest to
