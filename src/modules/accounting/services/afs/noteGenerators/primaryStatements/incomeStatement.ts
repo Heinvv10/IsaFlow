@@ -9,7 +9,7 @@
 
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
-import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, type SectionLine } from './_helpers';
+import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, ACCUMULATED_BF_CODE, type SectionLine } from './_helpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // Codes whose GL balance is naturally credit-positive (revenue, other
@@ -26,6 +26,9 @@ const REVENUE_CODES = new Set([
   // space, where a profit is negative; a profit is credit-positive like the
   // revenue above it, so it flips with the same rule and reads positive.
   'IS452', 'IS471', 'IS480', 'IS485',
+  // The derived opening accumulated income is credit-positive for the same
+  // reason, and must flip with them or it prints as a negative.
+  ACCUMULATED_BF_CODE,
 ]);
 
 function isRevenueLine(l: SectionLine): boolean {

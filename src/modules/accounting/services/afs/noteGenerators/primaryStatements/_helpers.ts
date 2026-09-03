@@ -14,6 +14,7 @@
 // and bold totals.
 
 import { sql } from '@/lib/neon';
+import { getRetainedEarningsBroughtForward } from '@/modules/accounting/services/gl/trialBalanceBasis';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from '../noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
@@ -45,6 +46,57 @@ export interface SectionLine {
  *               this one — the income statement's accumulating bottom lines.
  */
 export type TotalBasis = 'children' | 'components' | 'running';
+
+/**
+ * Code for the DERIVED opening-accumulated-income line on the income
+ * statement. Deliberately not a seeded taxonomy code: no GL account maps to
+ * it, it is computed, and giving it a code an accountant could map would
+ * invite exactly that.
+ *
+ * Mirrors what trialBalanceBasis does for its brought-forward row.
+ */
+export const ACCUMULATED_BF_CODE = 'ISACCBF';
+
+/**
+ * The taxonomy's "Accumulated income (loss) end of year" line — the running
+ * total the derived opening balance feeds.
+ */
+const ACCUMULATED_EOY_CODE = 'IS485';
+
+/**
+ * Accumulated income at the start of a period: what has been posted to equity
+ * retained-earnings accounts, plus every prior year's result that was never
+ * closed into them.
+ *
+ * Both halves are needed for the same reason the balance sheet needs both — no
+ * production company carries a posted retained-earnings balance, because the
+ * year-end close cannot run.
+ *
+ * Returned CREDIT-POSITIVE, like retained earnings itself.
+ */
+async function fetchOpeningAccumulatedIncome(
+  companyId: string,
+  beforeDate: string,
+): Promise<number> {
+  const [postedRows, broughtForward] = await Promise.all([
+    sql`
+      SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS balance
+      FROM gl_journal_lines jl
+      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+      JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
+      WHERE je.status     = 'posted'
+        AND je.company_id = ${companyId}::uuid
+        AND jl.company_id = ${companyId}::uuid
+        AND ga.company_id = ${companyId}::uuid
+        AND ga.account_type = 'equity'
+        AND ga.account_subtype = 'retained_earnings'
+        AND je.entry_date < ${beforeDate}::date
+    ` as unknown as Promise<Array<{ balance: string | number }>>,
+    getRetainedEarningsBroughtForward(companyId, beforeDate),
+  ]);
+
+  return Number(postedRows[0]?.balance ?? 0) + broughtForward;
+}
 
 export async function fetchSectionLines(
   companyId: string,
@@ -92,7 +144,7 @@ export async function fetchSectionLines(
     ORDER BY sl.sort_order
   `) as DbRow[];
 
-  return rows.map((r) => ({
+  const lines: SectionLine[] = rows.map((r) => ({
     code: String(r.code),
     label: String(r.label),
     parentCode: r.parent_code != null ? String(r.parent_code) : null,
@@ -105,6 +157,57 @@ export async function fetchSectionLines(
     totalBasis: (r.total_basis as TotalBasis | null) ?? 'children',
     totalComponents: Array.isArray(r.total_components) ? (r.total_components as string[]) : null,
   }));
+
+  if (!isBs) {
+    // IS485 "Accumulated income (loss) end of year" is a RUNNING total, so it
+    // is the previous total plus the lines between. Without an opening
+    // accumulated figure among those lines it reports only THIS year's
+    // retained profit under a label that promises the accumulated balance —
+    // 60,000 for a company whose real accumulated income is 960,000, with the
+    // error growing every year it trades, on the one line a reader is most
+    // likely to tie back to retained earnings on the balance sheet.
+    //
+    // The taxonomy has no line for it, and no GL account maps to one, so it is
+    // derived here and inserted where the running chain will pick it up:
+    // after IS480 (Net income after taxation, 5800) and before IS485 (5850).
+    //
+    // Amounts are raw debit-minus-credit, in which a credit-positive
+    // accumulated income is negative.
+    const [openingCurrent, openingPrior] = await Promise.all([
+      fetchOpeningAccumulatedIncome(companyId, start),
+      priorStart === null
+        ? Promise.resolve(0)
+        : fetchOpeningAccumulatedIncome(companyId, priorStart),
+    ]);
+
+    // Positioned RELATIVE to the accumulated-income total, never on a fixed
+    // sort_order: seedDefaultTaxonomy numbers lines by array index, so IS485
+    // sits at 1770 for a seeded company and 5850 in production. A hard-coded
+    // number lands on the wrong side of it in one of the two.
+    const accumulatedTotal = lines.find((l) => l.code === ACCUMULATED_EOY_CODE);
+
+    if (accumulatedTotal !== undefined) {
+      lines.push({
+        code: ACCUMULATED_BF_CODE,
+        label: 'Accumulated income (loss) beginning of year',
+        parentCode: null,
+        noteNumber: null,
+        // Immediately before the total it feeds, and therefore after every
+        // line the running chain has already consumed.
+        sortOrder: accumulatedTotal.sortOrder - 0.5,
+        isHeader: false,
+        isTotal: false,
+        currentAmount: -openingCurrent,
+        priorAmount: -openingPrior,
+        totalBasis: 'children',
+        totalComponents: null,
+      });
+    }
+  }
+
+  // The derived line is appended, so re-sort: rollUpTotals and the renderer
+  // both take this order as the statement's presentation order.
+  return lines.sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 /**

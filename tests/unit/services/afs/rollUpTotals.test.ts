@@ -168,7 +168,14 @@ describe('rollUpTotals — running totals on the income statement', () => {
     expect(out.get('IS471')?.currentAmount).toBe(-500);
     // plus taxation 140
     expect(out.get('IS480')?.currentAmount).toBe(-360);
-    // plus dividends paid 60
+    // plus dividends paid 60.
+    //
+    // -300 is this fixture's retained profit for the year, NOT an accumulated
+    // balance: the fixture has no opening-accumulated line. In the real
+    // statement fetchSectionLines derives one and inserts it just before
+    // IS485, so the running chain carries every prior year too — proved in
+    // tests/integration/afs-accumulated-income.int.test.ts. rollUpTotals is
+    // the summation rule and is agnostic about which lines it is given.
     expect(out.get('IS485')?.currentAmount).toBe(-300);
   });
 

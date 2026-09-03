@@ -49,7 +49,7 @@ export async function generateStatementOfFinancialPosition(
   const totalAssets = amountOf('BS038');
   const totalEquity = -amountOf('BS048');
   const totalLiabilities = -(amountOf('BS057') + amountOf('BS073'));
-  const cash = -0 + amountOf('BS035') + amountOf('BS036');
+  const cash = amountOf('BS035') + amountOf('BS036');
 
   return {
     dataSnapshot: { lines, totalAssets, totalLiabilities, totalEquity, cash },

@@ -59,13 +59,12 @@ async function checkBalanceSheetBalances(
   }
 
   const snap = (rows[0].data_snapshot as Record<string, unknown>) ?? {};
-  const assets      = readNumber(snap, 'totalAssets');
-  const liabilities = readNumber(snap, 'totalLiabilities');
-  const equity      = readNumber(snap, 'totalEquity');
 
-  const missing = (['totalAssets', 'totalLiabilities', 'totalEquity'] as const)
-    .filter((k) => readNumber(snap, k) === null);
-  if (missing.length > 0 || assets === null || liabilities === null || equity === null) {
+  const figures = (['totalAssets', 'totalLiabilities', 'totalEquity'] as const)
+    .map((key) => [key, readNumber(snap, key)] as const);
+  const missing = figures.filter(([, value]) => value === null).map(([key]) => key);
+
+  if (missing.length > 0) {
     return {
       label,
       passed: false,
@@ -76,7 +75,8 @@ async function checkBalanceSheetBalances(
     };
   }
 
-  const diff = Math.abs(assets - (liabilities + equity));
+  const [assets, liabilities, equity] = figures.map(([, value]) => value as number);
+  const diff = Math.abs(assets! - (liabilities! + equity!));
 
   if (diff > 0.01) {
     return {

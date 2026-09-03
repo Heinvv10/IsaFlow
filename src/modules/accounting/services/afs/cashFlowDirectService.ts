@@ -170,8 +170,9 @@ export async function getCashFlowDirect(
       amount:    amountByGroup.get(group) ?? 0,
     });
 
+    // OPERATING_ORDER is the four members of OPERATING_GROUPS in presentation
+    // order; filtering it against that set would never remove anything.
     const operatingItems = OPERATING_ORDER
-      .filter((g) => OPERATING_GROUPS.has(g))
       .map(toItem)
       .filter((i) => i.amount !== 0);
 

@@ -75,28 +75,47 @@ BEGIN
 END $$;
 
 -- ── Backfill the six ────────────────────────────────────────────────────────
--- Scoped by code within each company's own taxonomy. company_id is not
--- filtered to a single tenant because these codes are the shared canonical
--- taxonomy seeded identically for every company; the WHERE clause is still
--- keyed on the per-company rows, so no company gets another company's values.
+--
+-- These codes are the shared canonical taxonomy, seeded identically into every
+-- company, so there is no subset of tenants to scope to and `company_id IN
+-- (...)` would be vacuous. The risk the company_id rule exists to prevent is
+-- still real, though: a value-only match on `code` would rewrite a row a
+-- tenant had repurposed.
+--
+-- upsertStatementLine lets any company write any code with any label, and
+-- ON CONFLICT (company_id, code) DO UPDATE lets one be redefined in place. So
+-- each UPDATE additionally requires the row to STILL BE the canonical line —
+-- same label, still top-level, still a total. A tenant who turned BS038 into
+-- "Total assets excluding revaluations" under its own parent is left alone
+-- rather than silently switched to summing two subtotals they may not use.
 
 UPDATE afs_statement_lines
 SET total_basis      = 'components',
     total_components = ARRAY['BS021', 'BS037']
-WHERE section = 'balance_sheet'
-  AND code    = 'BS038'
+WHERE section     = 'balance_sheet'
+  AND code        = 'BS038'
+  AND label       = 'Total assets'
+  AND parent_code IS NULL
   AND is_total;
 
 UPDATE afs_statement_lines
 SET total_basis      = 'components',
     total_components = ARRAY['BS048', 'BS057', 'BS073']
-WHERE section = 'balance_sheet'
-  AND code    = 'BS082'
+WHERE section     = 'balance_sheet'
+  AND code        = 'BS082'
+  AND label       = 'Total equity and liabilities'
+  AND parent_code IS NULL
   AND is_total;
 
 UPDATE afs_statement_lines
 SET total_basis      = 'running',
     total_components = NULL
-WHERE section = 'income_statement'
-  AND code    IN ('IS452', 'IS471', 'IS480', 'IS485')
-  AND is_total;
+WHERE section     = 'income_statement'
+  AND parent_code IS NULL
+  AND is_total
+  AND (code, label) IN (
+    ('IS452', 'Net income before interest and taxation'),
+    ('IS471', 'Net income before taxation'),
+    ('IS480', 'Net income after taxation'),
+    ('IS485', 'Accumulated income (loss) end of year')
+  );
