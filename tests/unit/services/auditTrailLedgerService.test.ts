@@ -161,3 +161,57 @@ describe('queryAuditTrail', () => {
     expect(res.nextCursor).not.toBeNull();
   });
 });
+
+/**
+ * The attribution census buckets rows in SQL (a CASE over posting_agent) while
+ * each ROW is classified in TypeScript by resolveLegacyActorType. Two
+ * implementations of one rule is exactly the duplication CONTRACTS.md §5 warns
+ * about; it is unavoidable here because a COUNT cannot call a TS function. This
+ * pins them together so a change to either shows up as a failure.
+ */
+describe('the SQL bucket and resolveLegacyActorType agree', () => {
+  const SQL_RULE = (agent: string | null) =>
+    agent === null ? null
+      : agent.startsWith('mcp:') ? 'agent'
+      : agent.startsWith('system:') ? 'system'
+      : 'human';
+
+  it.each([
+    'mcp:create_draft_journal:v1',
+    'system:bank-allocation:v1',
+    'human:u1',
+    'legacy:human',
+    'import:sage',
+    'ai:expense-claim',
+    'rule:abc',
+  ])('%s', async (agent) => {
+    const { resolveLegacyActorType } = await import('@/lib/mcp/contracts/actor');
+    expect(resolveLegacyActorType(agent).actorType).toBe(SQL_RULE(agent));
+  });
+
+  it('and the CASE the census actually runs is that same rule, not a copy that drifted', async () => {
+    mockFourQueries([], [], [], 0);
+    await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    const census = texts().find((t) => t.includes('AS bucket'))!;
+    expect(census).toMatch(/WHEN je\.posting_agent LIKE 'mcp:%' THEN 'agent'/);
+    expect(census).toMatch(/WHEN je\.posting_agent LIKE 'system:%' THEN 'system'/);
+    expect(census).toMatch(/ELSE 'human'/);
+    // COALESCE over the recorded column: a recorded actor always wins.
+    expect(census).toMatch(/COALESCE\(je\.actor_type,/);
+  });
+
+  // Documented consequence, not an accident: an import, a VLM extraction and a
+  // bank rule all land in the DERIVED HUMAN bucket, because the shared
+  // resolver's rule is "not stamped as an agent". That overstates the human
+  // count by 1,854 legacy: rows on production. Widening it is a change to the
+  // shared contract (contracts/actor.ts), not to this service.
+  it('buckets legacy:, import:, ai: and rule: stamps as DERIVED human', async () => {
+    const { resolveLegacyActorType } = await import('@/lib/mcp/contracts/actor');
+    for (const agent of ['legacy:human', 'import:sage', 'ai:x', 'rule:1']) {
+      const r = resolveLegacyActorType(agent);
+      expect(r.actorType).toBe('human');
+      expect(r.provenance).toBe('derived');
+      expect(r.caveat).toMatch(/NOT PROVEN HUMAN/);
+    }
+  });
+});
