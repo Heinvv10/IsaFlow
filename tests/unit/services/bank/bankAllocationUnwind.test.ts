@@ -162,20 +162,30 @@ describe('unwindBankAllocationApplication — supplier side', () => {
     expect(allText()).not.toContain('supplier_payment_allocations');
   });
 
-  it('DERIVES payment_matched from what is left outstanding', async () => {
-    // Mutation: replace the derived expression with `payment_matched = false`
-    // and this goes red. The flag was historically set against the first named
-    // invoice using the full bank-line amount, so blanket-clearing it repeats
-    // the same class of lie in the opposite direction.
+  it('does NOT write payment_matched itself — the helper owns it', async () => {
+    // This file briefly derived the flag inline and was therefore a THIRD
+    // writer of it, and an unguarded one: it had no
+    // `status = ANY(BALANCE_DERIVED)` filter, so it would re-flag a cancelled
+    // bill that the guarded recompute then refuses to correct. Mutation:
+    // restore the inline arm and this goes red.
     supplierWithOneAllocation();
     await unwindBankAllocationApplication(COMPANY, JOURNAL);
-    expect(allText()).toMatch(/payment_matched\s*=\s*\(\(total_amount - GREATEST/);
+    const invoiceWrites = sqlMock.mock.calls
+      .map((_, i) => textOf(i))
+      .filter((t) => t.includes('UPDATE supplier_invoices'));
+    expect(invoiceWrites).toHaveLength(1);
+    expect(invoiceWrites[0]).not.toMatch(/payment_matched/);
+    expect(invoiceWrites[0]).not.toMatch(/status\s*=/);
+    expect(invoiceWrites[0]).not.toMatch(/paid_at/);
   });
 
-  it('clears payment_matched_at when the flag goes false', async () => {
+  it('delegates the settlement columns to recomputeInvoiceStatus', async () => {
+    // The flag still has to move — it is just not this file's job. Mutation:
+    // drop the recompute call and the flag, status and paid_at all go stale
+    // after a reversal.
     supplierWithOneAllocation();
     await unwindBankAllocationApplication(COMPANY, JOURNAL);
-    expect(allText()).toMatch(/payment_matched_at = CASE[\s\S]*ELSE NULL/);
+    expect(recomputeInvoiceStatus).toHaveBeenCalledWith(COMPANY, 'supplier', INVOICE);
   });
 
   it('cancels the supplier payment document', async () => {

@@ -45,26 +45,19 @@
  * `bank-match-confirm.ts` writes the column absolutely and dated settlement
  * exceeds it on 40 production invoices by R124,960.37.
  *
- * `payment_matched` is DERIVED from what is left outstanding, never blanket
- * cleared, mirroring `supplierAllocationLines#applyLineToBill`. The flag was
- * historically set against the FIRST named invoice using the FULL bank-line
- * amount, so it was never trustworthy per invoice; assigning it from the
- * settlement state is the rule that replaced that, and this is its inverse.
- * `payment_matched_at` is cleared when the flag goes false so a stale timestamp
- * cannot outlive its claim.
- *
- * Status and `paid_at` are NOT set here — `recomputeInvoiceStatus` owns both,
- * from the balance this function just moved. Two writers of a status rule is
- * how the three disagreeing versions of it arose in the first place.
+ * `status`, `paid_at`, `payment_matched` and `payment_matched_at` are NOT set
+ * here. `recomputeInvoiceStatus` owns all four, derived from the balance this
+ * function just moved. This file briefly wrote `payment_matched` inline and was
+ * therefore a third writer of it — and an unguarded one, missing the helper's
+ * `status = ANY(BALANCE_DERIVED)` filter, so it could re-flag a cancelled bill
+ * that the guarded recompute then refuses to correct. Two writers of one rule
+ * is how three disagreeing status rules arose; three is not an improvement.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recomputeInvoiceStatus } from '../ar/invoiceStatusRecompute';
-
-/** Cent tolerance, matching `receiptAllocationLines` and `supplierAllocationLines`. */
-const EPS = 0.01;
 
 export interface BankAllocationUnwindResult {
   /** Invoices whose `amount_paid` was reduced. */
@@ -147,21 +140,20 @@ export async function unwindBankAllocationApplication(
                 updated_at = NOW()
             WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`;
         } else {
+          // Money only, like the customer arm. This used to derive
+          // `payment_matched` inline as well — a THIRD writer of that column,
+          // and an UNGUARDED one: it carried no `status = ANY(BALANCE_DERIVED)`
+          // filter, so it would re-flag a cancelled or written-off bill, and
+          // the guarded recompute below then no-ops on exactly those statuses
+          // and cannot correct it. Blind review found it.
           await sql`
             UPDATE supplier_invoices
             SET amount_paid = GREATEST(COALESCE(amount_paid, 0) - ${amt}, 0),
-                payment_matched =
-                  ((total_amount - GREATEST(COALESCE(amount_paid, 0) - ${amt}, 0)) <= ${EPS}),
-                payment_matched_at = CASE
-                  WHEN (total_amount - GREATEST(COALESCE(amount_paid, 0) - ${amt}, 0)) <= ${EPS}
-                    THEN COALESCE(payment_matched_at, NOW())
-                  ELSE NULL
-                END,
                 updated_at = NOW()
             WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`;
         }
 
-        // Owns status AND paid_at, from the balance just moved.
+        // Owns status, paid_at AND payment_matched, from the balance just moved.
         await recomputeInvoiceStatus(companyId, kind, invoiceId);
         invoicesReopened += 1;
         amountUnapplied = round2(amountUnapplied + amt);
