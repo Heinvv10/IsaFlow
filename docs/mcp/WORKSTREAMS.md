@@ -55,12 +55,28 @@ AP · R2.45m of unapplied receipts.
 
 | Endpoint | Verdict | Owner |
 |---|---|---|
-| `trial_balance` v2 | EXTEND | `gl/trialBalanceService#getTrialBalance` — today fiscal-period-only, drops zero-movement accounts, no opening/closing/totals/comparative |
+| `trial_balance` v2 | **WRAP — WAIT** | `gl/trialBalanceService#getTrialBalance` is being rewritten right now on `fix/reporting-audit-p0` (see below). **Do not start this until that PR merges.** |
 | `reconcile_subledger` | **BUILD** | nothing like it exists. The most valuable endpoint in the programme |
 | `general_ledger` | EXTEND | `gl/generalLedgerReportService#getGeneralLedgerReport` already does all accounts with opening balances; needs filters and a cursor. `search_gl` (1 account, 200 rows) is the narrow MCP view of it |
 | `balance_sheet` additions | EXTEND | `reports/balanceSheetService#getBalanceSheet` already takes `asAtDate` and `compareDate` — they are simply not wired to MCP |
-| `profit_and_loss` additions | EXTEND | `reports/incomeStatementService#getIncomeStatement` already has `comparePeriod`, not wired. Cost of sales must be driven by account **SUBTYPE**, never by name |
+| `profit_and_loss` additions | EXTEND | `reports/incomeStatementService#getIncomeStatement` has `comparePeriod`, not wired — **but see the caveat below.** Cost of sales must be driven by account **SUBTYPE**, never by name |
 | `aged_debtors` / `aged_creditors` | EXTEND | `ar/arAgingService#getARAging`, `ap/apAgingService#getAPAging` — already `as_at` capable; need totals, pagination, drill-down, `unappliedReceipts`, `excludedRows` |
+
+### `profit_and_loss` — treat the existing output as unreliable
+
+`incomeStatementService` is **not** being fixed by the parallel session and has
+three known open defects. Do not build on them:
+
+1. The comparative is a **rolling N-day window**, not a prior period. Do not wire
+   the existing `comparePeriod` through to MCP and call it a comparative.
+2. There is no other-income / finance-cost / tax layer, so the statement does not
+   reach a profit figure anyone can sign.
+3. Cost of sales is selected by account NAME. Two accounts typed
+   `default_expense` overstated gross profit by R562,428 for exactly that reason.
+   Drive it by SUBTYPE.
+
+Fixing 1 and 3 is in scope for W2. Fixing 2 is a bigger change — scope it, then
+raise it with the integrator before starting.
 
 **W2 also settles three figures** left unowned in `contracts/figures.ts`:
 `ar.control.v1`, `ap.control.v1`, `equity.ledger.v1`. Fill in the owner and remove
@@ -73,9 +89,42 @@ the control account but never applied, −R1,058,000 for the null-due-date invoi
 +R51,750 for a future-dated one. If your endpoint returns R1,429,774 and no items,
 it has not done the job.
 
-`trial_balance` returning 7 of 118 accounts is the defect. A trial balance that
-omits every account without movement in the month is a period-movement listing
-wearing a trial balance's name.
+### `trial_balance` — blocked on a parallel session, and the verdict has flipped
+
+A concurrent session is landing a P0 fix to `getTrialBalance` on
+`fix/reporting-audit-p0`. Build the MCP tool on top of it; **do not extend the
+version currently on `master`, and do not start before it merges.** If you build
+against today's code you will ship the bug over MCP.
+
+What that fix does, per the session doing it:
+
+- The old query filtered `je.fiscal_period_id = <one period>` and returned the
+  result in columns named `debit_balance` / `credit_balance`. It was **one
+  month's movement wearing the name of a balance.** Brightsphere's bank account
+  displayed R113,843 against a real balance of R6,003,472.64; Trade Debtors
+  R123,850 against R8,675,798.60.
+- New `gl/trialBalanceBasis.ts` holds the shared basis: fiscal-year start from
+  `companies.financial_year_start` (every production company is March, not
+  calendar), retained-earnings brought forward, no `Date` arithmetic and no
+  `.toISOString()`.
+- Balance-sheet accounts cumulative to period end; P&L year-to-date within the
+  fiscal year; accounts kept on **balance**, not movement.
+- `openingDebit` / `openingCredit` / `periodDebit` / `periodCredit` already exist
+  on the row type (`gl.report.types.ts`). **That is the opening/movement/closing
+  the spec asks for — it is done. Wrap it.**
+- The same basis is applied to `consolidatedTrialBalanceService` and
+  `casewareExportService`, which repeated the defect.
+
+**Breaking semantic:** `debitBalance` / `creditBalance` now carry the **net**
+balance on one side, not gross turnover. Anything that SUMs those columns
+expecting turnover is silently wrong. Check before you consume them.
+
+`trial_balance` returning 7 of 118 accounts is the original defect. A trial
+balance that omits every account without movement in the month is a
+period-movement listing wearing a trial balance's name. Note that
+"zero balance" and "no movement this period" are **different questions** — the
+old `HAVING` clause conflated them, which is half of why dormant accounts
+vanished. Your `include_zero_balances` must distinguish them.
 
 Catches: three answers to "what are we owed" · the R8.46m retained-earnings plug
 (both equity bases in one call) · R562,428 of overstated gross profit · the
@@ -166,7 +215,7 @@ The GL structure exists at 2140/2150/2160/2170/2175, deactivated and empty.
 | Endpoint | Verdict | Owner |
 |---|---|---|
 | `list_employees`, `list_pay_runs`, `create_pay_run`, `post_payroll_journal` | WRAP | `payrollEmployeeService`, `payrollRunService`, `payrollJournalPostingService` |
-| `emp201_status`, `irp5_data` | WRAP | `reports/emp201Service`, `reports/irp5Service` |
+| `emp201_status`, `irp5_data` | WRAP | `reports/emp201Service`, `reports/irp5Service`. **Wrap the version on `fix/reporting-audit-p0`, not master**: the status filter was `'calculated'`, which misses 85 of 86 production pay runs. The fix moves it to `approved`/`paid` and adds ETI |
 | `project_profitability` | WRAP | `reports/projectProfitabilityService#getProjectProfitability` — a direct match |
 | `wip_report` | WRAP | `practice/practiceWipService` — practice-scoped; widen only if the general case is needed |
 | Budgets | WRAP | `core/budgetService`, `reports/budgetVsActualLines` |
