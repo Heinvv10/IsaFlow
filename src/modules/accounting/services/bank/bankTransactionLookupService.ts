@@ -239,6 +239,12 @@ export interface BankTransactionAllocationState {
   status: string;
   /** The journal line the row is allocated against — null when unallocated. */
   matchedJournalLineId: string | null;
+  /**
+   * Signed line amount. Carried so a batch caller can size an allocation
+   * without a second read per line — a 200-line batch would otherwise make
+   * 200 round trips to ask what it already selected.
+   */
+  amount: number;
 }
 
 /**
@@ -265,7 +271,7 @@ export async function findBankTransactionAllocationStates(
   if (ids.length === 0) return byId;
 
   const rows = (await sql`
-    SELECT id, status, matched_journal_line_id
+    SELECT id, status, matched_journal_line_id, amount
     FROM bank_transactions
     WHERE company_id = ${companyId}::UUID AND id = ANY(${ids}::UUID[])
   `) as DbRow[];
@@ -279,6 +285,7 @@ export async function findBankTransactionAllocationStates(
         row.matched_journal_line_id === null || row.matched_journal_line_id === undefined
           ? null
           : String(row.matched_journal_line_id),
+      amount: Number(row.amount ?? 0),
     });
   }
   return byId;

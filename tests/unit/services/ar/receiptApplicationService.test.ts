@@ -272,10 +272,21 @@ describe('applyReceiptPlan', () => {
     const updates = sqlMock.mock.calls
       .map((c) => (c[0] as string[]).join('?'))
       .filter((t) => t.includes('UPDATE customer_invoices'));
-    expect(updates).toHaveLength(1);
+    // TWO now, not one: `applyLineToInvoice` writes the money and delegates
+    // status/paid_at to `recomputeInvoiceStatus`, so one owner holds each rule.
+    // Asserted as exactly two rather than relaxed to "at least one" — a third
+    // would mean a writer crept back in.
+    expect(updates).toHaveLength(2);
+
+    const moneyWrites = updates.filter((t) => /amount_paid\s*=/.test(t));
+    expect(moneyWrites).toHaveLength(1);
     // The relative form is what survives a concurrent allocation.
-    expect(updates[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
-    expect(updates[0]).not.toMatch(/SET\s+amount_paid\s*=\s*\?/);
+    expect(moneyWrites[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
+    // NO statement may write it absolutely, not merely the one we picked.
+    for (const t of updates) expect(t).not.toMatch(/SET\s+amount_paid\s*=\s*\?/);
+    // And the money write no longer carries the status/paid_at rule with it.
+    expect(moneyWrites[0]).not.toMatch(/paid_at\s*=/);
+    expect(moneyWrites[0]).not.toMatch(/status\s*=/);
   });
 
   it('inserts one allocation row per line and scopes every write to the company', async () => {

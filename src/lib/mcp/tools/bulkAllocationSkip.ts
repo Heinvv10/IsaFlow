@@ -21,6 +21,12 @@
 import type { BankTransactionAllocationState } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import { findBankTransactionAllocationStates } from '@/modules/accounting/services/bank/bankTransactionLookupService';
 import type { ResolvedLine } from './bulkAllocationPrepare';
+import {
+  applyRouteFor,
+  fetchInvoiceStates,
+  skipReasonForInvoice,
+  type ApplyKind,
+} from './allocationApplyRoute';
 import { NOT_FOUND } from './toolHelpers';
 
 export interface SkippedLine {
@@ -118,6 +124,9 @@ export async function partitionAllocationLines(
 
   const postable: ResolvedLine[] = [];
   const skipped: SkippedLine[] = [];
+  // Lines that cleared the row-state check, carried with the bank amount so
+  // the invoice check below needs no further reads.
+  const candidates: { line: ResolvedLine; amount: number }[] = [];
   for (const line of resolved) {
     const state = states.get(line.txId);
     // The id resolved but names no row this company has. Reported WITH the id
@@ -128,9 +137,83 @@ export async function partitionAllocationLines(
       continue;
     }
     const reason = skipReasonFor(state);
-    if (reason === null) postable.push(line);
-    else skipped.push({ index: line.index, transaction_id: line.txId, reason });
+    if (reason !== null) {
+      skipped.push({ index: line.index, transaction_id: line.txId, reason });
+      continue;
+    }
+    candidates.push({ line, amount: Math.abs(state.amount) });
   }
+
+  // Second pass: the invoice a line names may itself be settled, cancelled or
+  // too small for the amount. Those are DATA facts, like every other skip here
+  // — `receiptAllocationLines` would raise them mid-write, which in a batch
+  // means one stale invoice unwinds every good line beside it. Hoisted to a
+  // read so the batch skips around them, and because this runs before the
+  // first write it is also what `dry_run` reports.
+  const refs = candidates
+    .map(({ line }) => {
+      const kind = applyRouteFor(line.line.allocType, line.line.invoiceId);
+      return kind && line.line.invoiceId ? { kind, invoiceId: line.line.invoiceId } : null;
+    })
+    .filter((r): r is { kind: ApplyKind; invoiceId: string } => r !== null);
+  const invoiceStates = refs.length > 0
+    ? await fetchInvoiceStates(companyId, refs)
+    : new Map();
+
+  // CUMULATIVE, not per line against one snapshot. `fetchInvoiceStates` is read
+  // once, before anything writes, so two lines naming the SAME invoice were
+  // each measured against the same untouched balance: a pair that fits
+  // individually but not together was classified postable and `dry_run` agreed.
+  // Live, the first posted, the second threw inside `receiptAllocationLines`
+  // mid-write, and that throw unwinds the registry's OUTER savepoint — silently
+  // reverting every already-successful line in the batch. That is the exact
+  // outcome this file exists to prevent, triggered inside one call rather than
+  // five minutes apart. `bulkAllocationPrepare` already refuses a duplicate
+  // transaction_id for the same reason; this is its invoice-shaped twin.
+  //
+  // Lines are walked in the caller's order, so the line that keeps the balance
+  // is the earlier one and the reason can name it.
+  const committed = new Map<string, number>();
+  const claimedBy = new Map<string, number>();
+
+  for (const { line, amount } of candidates) {
+    const kind = applyRouteFor(line.line.allocType, line.line.invoiceId);
+    const invoiceId = line.line.invoiceId;
+    if (kind === null || !invoiceId) {
+      postable.push(line);
+      continue;
+    }
+
+    const state = invoiceStates.get(invoiceId);
+    const already = committed.get(invoiceId) ?? 0;
+    // What this line actually faces: the snapshot less what earlier lines in
+    // THIS batch have already claimed against the same invoice.
+    const remaining = state === undefined
+      ? state
+      : { ...state, outstanding: Math.round((state.outstanding - already) * 100) / 100 };
+
+    const reason = skipReasonForInvoice(remaining, invoiceId, amount);
+    if (reason === null) {
+      postable.push(line);
+      committed.set(invoiceId, Math.round((already + amount) * 100) / 100);
+      if (!claimedBy.has(invoiceId)) claimedBy.set(invoiceId, line.index);
+      continue;
+    }
+
+    // Say WHICH earlier line consumed the balance. Without it the agent reads
+    // "exceeds the outstanding" about an invoice that looked wholly open in the
+    // payload it just sent, and has no way to see why.
+    const priorIndex = already > 0 ? claimedBy.get(invoiceId) : undefined;
+    skipped.push({
+      index: line.index,
+      transaction_id: line.txId,
+      reason: priorIndex === undefined
+        ? reason
+        : `${reason} (allocations[${priorIndex}] in this call already claims `
+          + `R${already.toFixed(2)} of it)`,
+    });
+  }
+
   return { postable, skipped };
 }
 
