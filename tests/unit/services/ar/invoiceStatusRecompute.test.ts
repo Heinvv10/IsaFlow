@@ -77,3 +77,42 @@ describe.each([
     expect(derived).toEqual(['approved', 'sent', 'overdue', 'partially_paid', 'paid']);
   });
 });
+
+/**
+ * `applyLineToInvoice` delegates the status rule instead of carrying a copy.
+ *
+ * It used to set `status` and `paid_at` inline, with the wrong half of each
+ * pair: a bare `NOW()` re-dated a months-old settlement on any further write,
+ * and `ELSE paid_at` left a paid date on an invoice that had reopened. Two
+ * writers of one rule is the defect class this helper was created to end — it
+ * is how three disagreeing status rules arose before it existed.
+ *
+ * Collapsing it is only correct ON TOP OF the paid_at work in this file:
+ * master's `recomputeInvoiceStatus` does not touch `paid_at` at all, so
+ * delegating there would leave nothing writing the column.
+ */
+describe('applyLineToInvoice — one owner of the status rule', () => {
+  it('writes the money and delegates status and paid_at', async () => {
+    vi.resetModules();
+    const recompute = vi.fn();
+    const applySql = vi.fn().mockResolvedValue([]);
+    vi.doMock('@/lib/neon', () => ({ sql: applySql }));
+    vi.doMock('@/modules/accounting/services/ar/invoiceStatusRecompute', () => ({
+      recomputeInvoiceStatus: recompute,
+    }));
+
+    const { applyLineToInvoice } = await import(
+      '@/modules/accounting/services/ar/receiptAllocationLines'
+    );
+    await applyLineToInvoice(COMPANY, {
+      invoiceId: INVOICE, invoiceNumber: 'INV-1', amount: 100,
+    } as never);
+
+    const text = (applySql.mock.calls[0]?.[0] as string[]).join('?');
+    // Mutation: put the status/paid_at CASE arms back and these go red.
+    expect(text).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
+    expect(text).not.toMatch(/status\s*=/);
+    expect(text).not.toMatch(/paid_at/);
+    expect(recompute).toHaveBeenCalledWith(COMPANY, 'customer', INVOICE);
+  });
+});
