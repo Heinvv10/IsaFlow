@@ -28,6 +28,7 @@ run_step "user-id-casts"     bun scripts/ci/audit-user-id-casts.ts
 # Passes today against a baseline of the 13 known files; fails only on a NEW
 # one, so the in-flight sweep is not blocked and no new offender can land.
 run_step "is-active-filters"  bash scripts/ci/check-is-active-in-balances.sh
+run_step "self-defining-universe" bash scripts/ci/check-self-defining-universe.sh
 run_step "unit-tests"        bun run test:unit
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 

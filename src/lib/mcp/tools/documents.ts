@@ -120,7 +120,8 @@ export const listDocumentsTool: McpTool = {
           reference: r.reference,
         })),
         rowsTotal: page.rowsTotal,
-        universeTotal: page.rowsTotal,
+        // No universeTotal: it equalled rowsTotal with nothing excluded, so
+        // the completeness check compared a number with itself.
         detail: 'standard',
         as_at: to,
         posted_through: page.postedThrough,

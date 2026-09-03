@@ -117,7 +117,8 @@ export const listFiscalPeriodsTool: McpTool = {
     const envelope = buildEnvelope({
       rows: page.map(row),
       rowsTotal: sorted.length,
-      universeTotal: sorted.length,
+      // universeTotal omitted: rows ARE the periods this company has; there is no wider pool they were selected from,
+      // so a universe equal to rowsTotal would make the identity unfalsifiable.
       detail,
       as_at: today,
       // Periods are configuration, not ledger rows: the newest one created is

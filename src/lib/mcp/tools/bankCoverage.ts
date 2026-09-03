@@ -128,7 +128,8 @@ export const bankStatementCoverageTool: McpTool = {
       ...buildEnvelope({
         rows,
         rowsTotal: coverage.accounts.length,
-        universeTotal: coverage.accounts.length,
+        // universeTotal omitted: rows ARE the accounts/rows this report builds; nothing is filtered out of a wider candidate set,
+        // so a universe equal to rowsTotal would make the identity unfalsifiable.
         detail,
         as_at: coverage.asAt,
         posted_through: coverage.postedThrough ?? '',
@@ -193,7 +194,8 @@ export const getOpeningBalancesTool: McpTool = {
           entry_numbers: r.entryNumbers,
         })),
         rowsTotal: balances.rows.length,
-        universeTotal: balances.rows.length,
+        // universeTotal omitted: rows ARE the accounts/rows this report builds; nothing is filtered out of a wider candidate set,
+        // so a universe equal to rowsTotal would make the identity unfalsifiable.
         detail,
         as_at: todayIso(),
         posted_through: balances.postedThrough ?? '',
