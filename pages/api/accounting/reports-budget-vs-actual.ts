@@ -67,9 +67,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         FROM fiscal_periods
         WHERE company_id = ${companyId} AND fiscal_year = (SELECT fiscal_year FROM fiscal_periods WHERE company_id = ${companyId} AND status = 'open' ORDER BY start_date DESC LIMIT 1)
       `;
-      startDate = toISODate(fy?.start_date) || `${now.getFullYear()}-01-01`;
+      // This fallback fires ONLY for a company with no fiscal_periods rows at
+      // all (Dotbiz, in production today) — which is precisely the case where
+      // there are no periods to appeal to and `companies.financial_year_start`
+      // is the only signal there is. Every company DECLARES 3, while every
+      // company that HAS periods actually starts them 01-01, so the two
+      // disagree; with no periods, the declaration wins and March stands. Do
+      // not "correct" this to January to match the period data: the branch
+      // cannot be reached by any company that has period data.
+      startDate = toISODate(fy?.start_date) || `${now.getFullYear()}-03-01`;
       endDate = period === 'full_year'
-        ? (toISODate(fy?.end_date) || `${now.getFullYear()}-12-31`)
+        ? (toISODate(fy?.end_date) || `${now.getFullYear() + 1}-02-28`)
         : localISODate(now);
       fiscalYear = Number(fy?.fiscal_year ?? startDate.slice(0, 4));
     }
