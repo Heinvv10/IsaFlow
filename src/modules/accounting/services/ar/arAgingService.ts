@@ -22,7 +22,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
 
     const rows = (await sql`
       SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
-        COALESCE(ci.due_date, ci.invoice_date) AS due_date,
+        COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
         (ci.due_date IS NULL) AS due_date_missing,
         ci.total_amount, ci.amount_paid,
         (ci.total_amount - ci.amount_paid) AS balance
@@ -37,7 +37,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       -- and not reported as excluded. Every such row carries an invoice_date,
       -- so it is aged from that instead, which is conservative: an undated
       -- invoice reads as older than it may be, rather than vanishing.
-      ORDER BY COALESCE(ci.due_date, ci.invoice_date)
+      ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));
@@ -98,7 +98,7 @@ export async function getARAgingDetail(companyId: string,
 
     const rows = (await sql`
       SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
-        COALESCE(ci.due_date, ci.invoice_date) AS due_date,
+        COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
         (ci.due_date IS NULL) AS due_date_missing,
         ci.invoice_number, ci.total_amount, ci.amount_paid,
         (ci.total_amount - ci.amount_paid) AS balance
@@ -114,7 +114,7 @@ export async function getARAgingDetail(companyId: string,
       -- and not reported as excluded. Every such row carries an invoice_date,
       -- so it is aged from that instead, which is conservative: an undated
       -- invoice reads as older than it may be, rather than vanishing.
-      ORDER BY COALESCE(ci.due_date, ci.invoice_date)
+      ORDER BY COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date)
     `) as Row[];
 
     const invoiceIds = rows.map((r: Row) => String(r.id));

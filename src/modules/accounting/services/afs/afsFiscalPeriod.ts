@@ -120,6 +120,46 @@ export async function getFiscalRange(
 }
 
 /**
+ * A year and its comparative, resolved from ONE lookup of the company's
+ * financial year start.
+ *
+ * Every caller that shows a prior-year column needs both ranges, and calling
+ * `getFiscalRange` twice runs the same single-row query twice for an integer
+ * that cannot change between them. `fetchSectionLines` alone is called by the
+ * balance sheet, income statement and equity generators, each with a
+ * comparative — six queries for one immutable value.
+ *
+ * Deliberately not a module-level cache: the value CAN change when someone
+ * corrects the setting, and a process-lifetime memo would serve a stale
+ * financial year until restart. Resolving once per call site is the safe
+ * version of the same saving.
+ */
+export async function getFiscalRangeWithPrior(
+  companyId: string,
+  fiscalYear: number,
+  priorYear?: number,
+  options: { fallback?: number } = {},
+): Promise<{ current: FiscalRange; prior: FiscalRange | null }> {
+  const rows = (await sql`
+    SELECT financial_year_start
+    FROM companies
+    WHERE id = ${companyId}::UUID
+    LIMIT 1
+  `) as DbRow[];
+
+  if (rows.length === 0) {
+    throw new Error(`getFiscalRangeWithPrior: company ${companyId} not found.`);
+  }
+
+  const month = resolveFiscalYearStartMonth(rows[0]!.financial_year_start, companyId, options);
+
+  return {
+    current: fiscalRangeFor(fiscalYear, month),
+    prior: priorYear === undefined ? null : fiscalRangeFor(priorYear, month),
+  };
+}
+
+/**
  * The prior comparative year — the twelve months immediately before
  * `fiscalYear`, on the same calendar.
  */

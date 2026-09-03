@@ -17,7 +17,7 @@ import { sql } from '@/lib/neon';
 import { getRetainedEarningsBroughtForward } from '@/modules/accounting/services/gl/trialBalanceBasis';
 import type { NoteContent } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from '../noteHelpers';
-import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { getFiscalRangeWithPrior } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 type DbRow = Record<string, unknown>;
 
@@ -104,11 +104,12 @@ export async function fetchSectionLines(
   fiscalYear: number,
   priorYear?: number,
 ): Promise<SectionLine[]> {
-  const { start, end } = await getFiscalRange(companyId, fiscalYear);
   // The comparative year is on the SAME fiscal calendar as the current one.
   // Hard-coding January-December here reintroduced the very defect the current
-  // year was fixed for, silently and only in the prior-year column.
-  const prior = priorYear ? await getFiscalRange(companyId, priorYear) : null;
+  // year was fixed for, silently and only in the prior-year column. Both
+  // ranges come from one lookup rather than two.
+  const { current: { start, end }, prior } =
+    await getFiscalRangeWithPrior(companyId, fiscalYear, priorYear);
   const priorStart = prior?.start ?? null;
   const priorEnd = prior?.end ?? null;
   const isBs = section === 'balance_sheet';

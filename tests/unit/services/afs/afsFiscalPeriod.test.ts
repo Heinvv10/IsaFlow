@@ -20,7 +20,7 @@
  * which names a fiscal year by the year it STARTS in. Both are defensible;
  * having two unlabelled conventions is not, so each states its own.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { fiscalRangeFor } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 describe('fiscalRangeFor', () => {
@@ -64,5 +64,42 @@ describe('fiscalRangeFor', () => {
     expect(() => fiscalRangeFor(2026, 0)).toThrow(/1-12/);
     expect(() => fiscalRangeFor(2026, 13)).toThrow(/1-12/);
     expect(() => fiscalRangeFor(2026, Number.NaN)).toThrow(/1-12/);
+  });
+});
+
+describe('getFiscalRangeWithPrior', () => {
+  it('resolves the year and its comparative from one lookup', async () => {
+    vi.resetModules();
+    const sql = vi.fn(async () => [{ financial_year_start: 3 }]);
+    vi.doMock('@/lib/neon', () => ({ sql }));
+
+    const { getFiscalRangeWithPrior } = await import(
+      '@/modules/accounting/services/afs/afsFiscalPeriod'
+    );
+    const { current, prior } = await getFiscalRangeWithPrior('c1', 2026, 2025);
+
+    // One query for both ranges: the financial year start cannot change
+    // between them, and calling twice ran the same single-row query twice.
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(current).toEqual({ start: '2025-03-01', end: '2026-02-28' });
+    expect(prior).toEqual({ start: '2024-03-01', end: '2025-02-28' });
+
+    vi.doUnmock('@/lib/neon');
+  });
+
+  it('returns a null comparative when none is asked for', async () => {
+    vi.resetModules();
+    const sql = vi.fn(async () => [{ financial_year_start: 1 }]);
+    vi.doMock('@/lib/neon', () => ({ sql }));
+
+    const { getFiscalRangeWithPrior } = await import(
+      '@/modules/accounting/services/afs/afsFiscalPeriod'
+    );
+    const { current, prior } = await getFiscalRangeWithPrior('c1', 2026);
+
+    expect(current).toEqual({ start: '2026-01-01', end: '2026-12-31' });
+    expect(prior).toBeNull();
+
+    vi.doUnmock('@/lib/neon');
   });
 });

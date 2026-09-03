@@ -5,7 +5,6 @@ import { log } from '@/lib/logger';
 import { CASH_SUBTYPES, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
 import {
   apportionBankLeg,
-  OPERATING_GROUPS,
   type CashGroup,
   type ContraLine,
 } from './cashFlowClassification';

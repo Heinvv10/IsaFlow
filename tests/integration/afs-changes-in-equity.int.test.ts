@@ -182,11 +182,23 @@ describeIfDb('AFS statement of changes in equity reconciles to the other stateme
     expect(report.totalOpening).toBeCloseTo(EXPECTED_OPENING, 2);
   });
 
-  it('profit for the year equals the income statement result', async () => {
+  it('profit for the year is the period result, computed independently', async () => {
     const report = await getChangesInEquity(COMPANY, PERIOD_START, PERIOD_END);
-    const figures = await getFinancialFigures(COMPANY, PERIOD_START, PERIOD_END);
 
-    expect(report.totalProfitForYear).toBeCloseTo(figures.period.netProfit, 2);
+    // Asserted against the fixture's own arithmetic, NOT against
+    // getFinancialFigures. The service derives profitForYear by calling that
+    // function with these very arguments, so comparing the two compares a
+    // value to itself and any wrong-but-consistent number passes.
+    expect(report.totalProfitForYear).toBeCloseTo(PERIOD_PROFIT, 2);
+  });
+
+  it('profit for the year excludes trading before the period', async () => {
+    // The prior year's 3,000 belongs in the opening column, not in profit.
+    // This is what the removed self-comparison was gesturing at: that the
+    // right PERIOD is used.
+    const report = await getChangesInEquity(COMPANY, PERIOD_START, PERIOD_END);
+
+    expect(report.totalProfitForYear).not.toBeCloseTo(PERIOD_PROFIT + PRIOR_PROFIT, 2);
     expect(report.totalProfitForYear).toBeCloseTo(PERIOD_PROFIT, 2);
   });
 

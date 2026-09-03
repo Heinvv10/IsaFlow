@@ -153,7 +153,10 @@ describeIfDb('aging reports include invoices with no due date', () => {
     for (const buckets of [await getARAging(COMPANY, AS_AT), await getAPAging(COMPANY, AS_AT)]) {
       for (const b of buckets) {
         const summed = b.current + b.days30 + b.days60 + b.days90 + b.days120Plus;
-        expect(summed + (b.disputed ?? 0)).toBeCloseTo(b.total + (b.disputed ?? 0), 2);
+        // `total` is already net of disputed (see AgingBucket), so the buckets
+        // sum to it directly. Adding `disputed` to BOTH sides — as this once
+        // did — cancels out and asserts nothing about disputed handling.
+        expect(summed).toBeCloseTo(b.total, 2);
       }
     }
   });
