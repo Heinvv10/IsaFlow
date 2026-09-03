@@ -188,11 +188,23 @@ function buildLine(
  * Move one bill's `amount_paid` by a RELATIVE amount, recompute its status, and
  * maintain `payment_matched`.
  *
- * `payment_matched` is set here as well as by `recordPaymentMatch`, and that is
- * the point: the bank-allocation path used to set the FLAG and nothing else —
- * it never moved `amount_paid` or `status` — which is how seventeen bills could
- * read as wholly outstanding while the GL showed them paid. Both halves move
- * together or the split comes back.
+ * `payment_matched` is DERIVED from the settlement, not preserved — an
+ * assignment, never a CASE that can only ever set it TRUE. That distinction is
+ * load-bearing rather than stylistic.
+ *
+ * `allocateTransaction` calls `fourWayMatchService#recordPaymentMatch` with the
+ * FULL bank-line amount against the FIRST invoice named, and that function sets
+ * the flag whenever `amount_paid + <whole line> >= total_amount`. So a R1,000
+ * line allocating R300 to a R600 bill flags that bill as payment-matched before
+ * this ever runs, and the bill is half paid. A CASE that preserved the existing
+ * value would keep the lie; deriving the flag from what was actually settled
+ * overwrites it. `payment_matched_at` follows the same rule and is cleared when
+ * the flag goes false, so a stale timestamp cannot outlive the claim it dates.
+ *
+ * The wider point stands: the bank-allocation path used to set the FLAG and
+ * nothing else — it never moved `amount_paid` or `status` — which is how
+ * seventeen bills read as wholly outstanding while the GL showed them paid.
+ * Both halves move together or the split comes back.
  *
  * `balance` is a stored generated column (`total_amount - amount_paid`) and is
  * deliberately not written: Postgres maintains it.
@@ -209,14 +221,11 @@ export async function applyLineToBill(
           WHEN (COALESCE(amount_paid, 0) + ${line.amount}) > 0 THEN 'partially_paid'
           ELSE status
         END,
-        payment_matched = CASE
-          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${line.amount})) <= ${EPS} THEN TRUE
-          ELSE payment_matched
-        END,
+        payment_matched = ((total_amount - (COALESCE(amount_paid, 0) + ${line.amount})) <= ${EPS}),
         payment_matched_at = CASE
           WHEN (total_amount - (COALESCE(amount_paid, 0) + ${line.amount})) <= ${EPS}
             THEN COALESCE(payment_matched_at, NOW())
-          ELSE payment_matched_at
+          ELSE NULL
         END,
         updated_at = NOW()
     WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID

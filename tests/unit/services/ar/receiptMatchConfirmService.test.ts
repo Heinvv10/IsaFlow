@@ -39,6 +39,9 @@ vi.mock('@/modules/accounting/services/bank/bankMatchDbQueries', () => ({
 vi.mock('@/modules/accounting/services/bank/bankTransactionLookupService', () => ({
   getBankTransactionStatus: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
+  getPeriodStatusForDate: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(),
 }));
@@ -50,6 +53,7 @@ vi.mock('@/modules/accounting/services/ar/receiptApplicationService', () => ({
 import { sql } from '@/lib/neon';
 import { fetchBankTransaction } from '@/modules/accounting/services/bank/bankMatchDbQueries';
 import { getBankTransactionStatus } from '@/modules/accounting/services/bank/bankTransactionLookupService';
+import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import {
   planReceiptApplication,
@@ -113,6 +117,7 @@ function goodTx(over: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(getPeriodStatusForDate).mockResolvedValue('open');
 });
 
 describe('validateBankReceiptApplication', () => {
@@ -160,6 +165,28 @@ describe('validateBankReceiptApplication', () => {
     await expect(
       validateBankReceiptApplication(COMPANY, TX, [{ invoiceId: INV_A, amount: 100 }]),
     ).rejects.toThrow(/not found/i);
+  });
+
+  it('REFUSES A CLOSED PERIOD BEFORE THE JOURNAL IS INSERTED', async () => {
+    // postJournalEntry raises ClosedFiscalPeriodError, but only after
+    // createJournalEntry has INSERTed the draft — so the failure lands after
+    // the first write and reaches the agent as a generic failure. Answered
+    // from a read here, it is a refusal with a remedy in it.
+    vi.mocked(fetchBankTransaction).mockResolvedValue(goodTx());
+    vi.mocked(getBankTransactionStatus).mockResolvedValue('imported');
+    vi.mocked(getPeriodStatusForDate).mockResolvedValue('closed');
+    await expect(
+      validateBankReceiptApplication(COMPANY, TX, [{ invoiceId: INV_A, amount: 100 }]),
+    ).rejects.toThrow(/is closed\. Re-open it/i);
+  });
+
+  it('refuses a date no fiscal period covers, naming the OTHER remedy', async () => {
+    vi.mocked(fetchBankTransaction).mockResolvedValue(goodTx());
+    vi.mocked(getBankTransactionStatus).mockResolvedValue('imported');
+    vi.mocked(getPeriodStatusForDate).mockResolvedValue('no_period');
+    await expect(
+      validateBankReceiptApplication(COMPANY, TX, [{ invoiceId: INV_A, amount: 100 }]),
+    ).rejects.toThrow(/Create the fiscal year first/i);
   });
 
   it('refuses invoices belonging to two different customers', async () => {

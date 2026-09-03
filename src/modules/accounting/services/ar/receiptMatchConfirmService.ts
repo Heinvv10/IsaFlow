@@ -28,6 +28,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchBankTransaction } from '../bank/bankMatchDbQueries';
 import { getBankTransactionStatus } from '../bank/bankTransactionLookupService';
+import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import { allocateTransaction } from '../bank/bankAllocationService';
 import {
   EPS,
@@ -85,6 +86,33 @@ export async function validateBankReceiptApplication(
       `Bank transaction ${bankTxId} is "${status ?? 'unknown'}" and cannot be allocated. `
       + 'Only an unallocated (imported) line can be matched to a receipt; reverse the existing '
       + 'allocation first if it is wrong.',
+    );
+  }
+
+  // PERIOD GUARD, pre-write. The journal below is dated to the bank line, and
+  // `postJournalEntry` inside `allocateTransaction` raises
+  // ClosedFiscalPeriodError — but by then the entry has been INSERTed, so the
+  // failure arrives after the first write and reaches the agent as a generic
+  // failure naming nothing. Answering it from a read here makes it a refusal
+  // with a remedy in it.
+  //
+  // `no_period` and `closed` get different messages because the remedies
+  // differ: create the fiscal year, versus re-open the period. A NULL
+  // fiscal_period_id is the worse of the two — createJournalEntry leaves the
+  // column NULL when no period covers the date, and the entry then sits
+  // permanently outside the trial balance, the VAT201 and the AFS.
+  const period = await getPeriodStatusForDate(companyId, tx.transactionDate);
+  if (period === 'no_period') {
+    throw new Error(
+      `No fiscal period covers ${tx.transactionDate}, the date of this bank line. Create the `
+      + 'fiscal year first — posting outside every period would leave the journal invisible to '
+      + 'the trial balance, the VAT201 and the AFS.',
+    );
+  }
+  if (period !== 'open') {
+    throw new Error(
+      `The fiscal period covering ${tx.transactionDate}, the date of this bank line, is `
+      + `${period}. Re-open it before allocating into it.`,
     );
   }
 

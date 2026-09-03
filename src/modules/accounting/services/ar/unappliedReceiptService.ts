@@ -110,6 +110,24 @@ export async function getUnappliedReceipts(
   // cash is the most likely to be the reconciling item somebody is looking for.
   // Unattributed rows are deliberately not in this stream — they are reported
   // in full below, so paging cannot serve half of them.
+  // WHY THE OUTER JOIN'S ON CLAUSE CARRIES PREDICATES HERE, and why that is not
+  // the defect it usually is.
+  //
+  // A predicate that must RESTRICT a result belongs in WHERE: inside an outer
+  // join's ON it restricts nothing, the unmatched row survives with NULL
+  // columns, and those NULLs flow into the arithmetic.  kpiChartsService did
+  // exactly that (is_active = true AND account_subtype = 'bank' in a LEFT JOIN
+  // ON) and charted every transaction regardless of account.
+  //
+  // These predicates are NOT trying to restrict.  They define which customer
+  // row counts as a match — same tenant, not soft-deleted — and a receipt whose
+  // customer fails them is meant to survive as unmatched, because the cash is
+  // real whether or not the customer record still is.  The restriction is done
+  // explicitly in WHERE (`c.id IS NOT NULL` here, `c.id IS NULL` in the orphan
+  // query), so every row lands in exactly one of the two streams and no NULL
+  // ever reaches a SUM.  Moving them to WHERE would turn the outer join into an
+  // inner one and silently DROP the orphaned receipts — the very rows this
+  // report exists to surface.
   const rows = (await sql`
     SELECT cp.id,
            cp.payment_number,

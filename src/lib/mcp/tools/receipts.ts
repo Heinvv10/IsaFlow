@@ -26,6 +26,7 @@ import {
   getUnappliedReceipts,
   type UnappliedReceiptRow,
 } from '@/modules/accounting/services/ar/unappliedReceiptService';
+import { getUnappliedReceiptOrigins } from '@/modules/accounting/services/ar/unappliedReceiptOrigin';
 import { fmtDate } from '@/lib/fmtDate';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -103,7 +104,15 @@ export const listUnappliedReceiptsTool: McpTool = {
     + 'payment record behind it — that is invisible here by construction and is what '
     + 'reconcile_subledger is for. Receipts whose customer row is missing or deleted are '
     + 'reported in excludedRows with their amount, never silently dropped. Paginate with '
-    + 'next_cursor; rows come oldest first.',
+    + 'next_cursor; rows come oldest first. '
+    + 'IMPORTANT — THIS BALANCE IS STILL GROWING. Allocating a bank line to a customer posts the '
+    + 'DR Bank / CR Accounts Receivable journal and creates the receipt, but applies it to no '
+    + 'invoice, so every allocation adds to this total and a bulk run adds hundreds. `origins` '
+    + 'splits the total by who created it: an mcp: posting stamp PROVES an agent made it, and '
+    + 'agentTools names which tool. Everything else with a journal is reported as "not stamped as '
+    + 'an agent" rather than as human, because a human stamp proves nothing — createJournalEntry '
+    + 'applies it whenever a caller omits the posting meta. Receipts with no journal at all are '
+    + 'counted separately again.',
   scope: 'read:invoices',
   write: false,
   inputSchema: {
@@ -153,7 +162,14 @@ export const listUnappliedReceiptsTool: McpTool = {
     }
 
     const limit = detail === 'summary' ? 1 : clampLimit(args, DEFAULT_LIMIT, MAX_LIMIT);
-    const result = await getUnappliedReceipts(ctx.companyId, { asAt, limit, after });
+    // Two reads, both company-scoped from ctx. The origin split is cheap (one
+    // grouped scan of the same population) and is the question that follows
+    // immediately from the total: the bucket is filling, and a reader given
+    // only the total goes looking for a historical cause that is not there.
+    const [result, origins] = await Promise.all([
+      getUnappliedReceipts(ctx.companyId, { asAt, limit, after }),
+      getUnappliedReceiptOrigins(ctx.companyId, asAt),
+    ]);
 
     const rows = detail === 'summary' ? [] : result.rows.map(rowReply);
     const last = detail === 'summary' ? undefined : result.rows[result.rows.length - 1];
@@ -182,6 +198,19 @@ export const listUnappliedReceiptsTool: McpTool = {
       }),
       totalUnapplied: result.totalUnapplied,
       totalUnattributed: result.totalUnattributed,
+      origins: {
+        agent: origins.agent,
+        system: origins.system,
+        not_stamped_as_agent: origins.notStampedAsAgent,
+        no_journal: origins.noJournal,
+        total: origins.total,
+        agent_tools: origins.agentTools.map((t) => ({
+          posting_agent: t.postingAgent,
+          receipts: t.receipts,
+          unapplied: t.unapplied,
+        })),
+        caveat: origins.caveat,
+      },
     });
   },
 };

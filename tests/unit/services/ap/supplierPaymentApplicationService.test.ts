@@ -268,6 +268,22 @@ describe('applySupplierPaymentPlan', () => {
     expect(updates[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
   });
 
+  it('DERIVES payment_matched from the settlement, so a wrongly-set flag is CORRECTED', async () => {
+    // allocateTransaction calls recordPaymentMatch with the FULL bank-line
+    // amount against the FIRST named invoice, so a R1000 line allocating R300
+    // to a R600 bill flags that bill matched before this ever runs. Preserving
+    // the existing flag would keep that lie; deriving it from the settlement
+    // state overwrites it. The flag must be an assignment, not a CASE that only
+    // ever sets TRUE.
+    const plan = await plannedFor(300);
+    await applySupplierPaymentPlan(COMPANY, plan, USER);
+    const update = sqlMock.mock.calls
+      .map((c) => (c[0] as string[]).join('?'))
+      .find((t) => t.includes('UPDATE supplier_invoices'))!;
+    expect(update).toMatch(/payment_matched\s*=\s*\(/);
+    expect(update).not.toMatch(/payment_matched\s*=\s*CASE[\s\S]*ELSE payment_matched/);
+  });
+
   it('SETS payment_matched when the bill is fully settled', async () => {
     // The flag is the only thing the bank-allocation path used to set, and the
     // four-way-match screen reads it. Leaving it behind while amount_paid moves

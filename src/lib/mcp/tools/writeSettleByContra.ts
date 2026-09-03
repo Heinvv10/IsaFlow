@@ -49,11 +49,18 @@ export const settleByContraTool: McpTool = {
     + "account> and reduces that bill's. Either way a payment document is created with "
     + 'payment_method "contra", so the settlement is afterwards distinguishable from a real bank '
     + 'movement. '
-    + 'REFUSES a contra account that is a bank account (that is the phantom payment this exists '
-    + 'to avoid), the subledger\'s own control account (it nets to nothing and settles the '
+    + 'THE CONTRA ACCOUNT MUST BE A BALANCE-SHEET ACCOUNT — a loan, an intercompany or a '
+    + "director's account (type asset, liability or equity). Netting a debt against an EXPENSE or "
+    + 'REVENUE account is a WRITE-OFF, not a contra, and is refused naming write_off '
+    + '(POST /api/accounting/write-offs), which has its own treatment. The side is decided from '
+    + "the account's type and subtype, never from its name or code. "
+    + 'Also REFUSES a contra account that is a bank account (that is the phantom payment this '
+    + "exists to avoid), the subledger's own control account (it nets to nothing and settles the "
     + 'document against itself), a parent header account (the balance sheet excludes headers, so '
-    + 'the posting would be invisible), or a deactivated one. Also refuses an amount above the '
-    + "document's outstanding balance, and a cancelled or draft document. "
+    + 'the posting would be invisible), a deactivated one, or one whose account_type and '
+    + 'account_subtype are not a valid pairing (it cannot be classified, and this will not guess '
+    + '— fix it with update_gl_account). Also refuses an amount above the document\'s outstanding '
+    + 'balance, and a cancelled or draft document. ' 
     + 'Partial settlement is allowed — the remainder stays outstanding. '
     + 'Does NOT cover: a real bank payment (apply_receipt_to_invoice / '
     + 'apply_payment_to_supplier_invoice), a credit note that reduces what is owed for a '
@@ -68,7 +75,12 @@ export const settleByContraTool: McpTool = {
     properties: {
       subledger: { type: 'string', enum: [...SUBLEDGERS], description: '"ar" for a customer invoice, "ap" for a supplier bill.' },
       document_id: { type: 'string', description: 'The customer invoice or supplier invoice UUID.' },
-      contra_account_id: { type: 'string', description: 'The GL account the debt is netted against, from list_gl_accounts.' },
+      contra_account_id: {
+        type: 'string',
+        description:
+          'The BALANCE-SHEET account the debt is netted against (asset, liability or equity) — '
+          + 'from list_gl_accounts. An expense or revenue account is refused: that is a write-off.',
+      },
       amount: { type: 'number', exclusiveMinimum: 0, description: 'Amount settled, to the cent. Never more than the outstanding balance.' },
       reason: { type: 'string', description: 'Why this was netted rather than paid. Recorded on the payment document.' },
       settlement_date: { type: 'string', format: 'date', description: 'YYYY-MM-DD. Defaults to today. Must fall in an OPEN fiscal period.' },

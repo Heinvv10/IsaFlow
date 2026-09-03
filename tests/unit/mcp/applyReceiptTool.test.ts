@@ -46,6 +46,9 @@ vi.mock('@/modules/accounting/services/ar/receiptMatchService', () => ({
 vi.mock('@/modules/accounting/services/ar/unappliedReceiptService', () => ({
   getUnappliedReceipts: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/ar/unappliedReceiptOrigin', () => ({
+  getUnappliedReceiptOrigins: vi.fn(),
+}));
 
 import {
   planReceiptApplication,
@@ -57,6 +60,7 @@ import {
 } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import { getReceiptMatchCandidates } from '@/modules/accounting/services/ar/receiptMatchService';
 import { getUnappliedReceipts } from '@/modules/accounting/services/ar/unappliedReceiptService';
+import { getUnappliedReceiptOrigins } from '@/modules/accounting/services/ar/unappliedReceiptOrigin';
 import { applyReceiptToInvoiceTool } from '@/lib/mcp/tools/writeApplyReceipt';
 import {
   listUnappliedReceiptsTool,
@@ -118,8 +122,21 @@ function plan() {
 
 const ALLOC = { allocations: [{ invoice_id: INV_A, amount: 600 }] };
 
+const ORIGINS = {
+  agent: { receipts: 34, unapplied: 2436024 },
+  system: { receipts: 2, unapplied: 245000 },
+  notStampedAsAgent: { receipts: 1, unapplied: 10000 },
+  noJournal: { receipts: 0, unapplied: 0 },
+  total: { receipts: 37, unapplied: 2691024 },
+  agentTools: [
+    { postingAgent: 'mcp:bulk_allocate_bank_transactions:v1', receipts: 34, unapplied: 2436024 },
+  ],
+  caveat: 'An mcp: stamp proves an agent. Everything else with a journal is reported as "not stamped as an agent".',
+};
+
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(getUnappliedReceiptOrigins).mockResolvedValue(ORIGINS);
 });
 
 describe('apply_receipt_to_invoice — request shape', () => {
@@ -332,6 +349,128 @@ describe('apply_receipt_to_invoice — bank transaction source', () => {
   });
 });
 
+describe('apply_receipt_to_invoice — the two paths must not diverge', () => {
+  const validation = {
+    bankTxId: TX,
+    receiptAmount: 1000,
+    transactionDate: '2026-03-01',
+    customerId: CUSTOMER,
+    lines: [LINE],
+    allocatedTotal: 600,
+    unappliedRemainder: 400,
+  };
+
+  it('BOTH DRY RUNS RETURN THE SAME SHAPE — an agent need not know which service ran', async () => {
+    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
+    const fromPayment = parseOk(await applyReceiptToInvoiceTool.handler(
+      { ...ALLOC, ...KEY, payment_id: PAYMENT, dry_run: true }, ctx(),
+    ));
+
+    vi.mocked(validateBankReceiptApplication).mockResolvedValue(validation);
+    const fromBank = parseOk(await applyReceiptToInvoiceTool.handler(
+      { ...ALLOC, ...KEY, bank_transaction_id: TX, dry_run: true }, ctx(),
+    ));
+
+    expect(Object.keys(fromPayment).sort()).toEqual(Object.keys(fromBank).sort());
+    expect(fromPayment.dryRun).toBe(true);
+    expect(fromBank.dryRun).toBe(true);
+    // The CONTENT differs, and honestly so: one posts a journal, one does not.
+    expect(fromPayment.journals).toEqual([]);
+    expect((fromBank.journals as unknown[]).length).toBe(1);
+  });
+
+  it('BOTH LIVE PATHS RETURN THE SAME REPLY KEYS', async () => {
+    vi.mocked(planReceiptApplication).mockResolvedValue(plan());
+    vi.mocked(applyReceiptPlan).mockResolvedValue(plan());
+    const fromPayment = parseOk(await applyReceiptToInvoiceTool.handler(
+      { ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx(),
+    ));
+
+    vi.mocked(validateBankReceiptApplication).mockResolvedValue(validation);
+    vi.mocked(confirmReceiptMatch).mockResolvedValue({
+      ...validation, journalEntryId: 'je-1', customerPaymentId: PAYMENT, paymentStatus: 'confirmed',
+    });
+    const fromBank = parseOk(await applyReceiptToInvoiceTool.handler(
+      { ...ALLOC, ...KEY, bank_transaction_id: TX }, ctx(),
+    ));
+
+    const shared = ['source', 'posted_journal_entry_id', 'journal_posted', 'payment_id',
+      'customer_id', 'applied_now', 'unapplied_remainder', 'payment_status', 'invoices'];
+    for (const key of shared) {
+      expect(fromPayment).toHaveProperty(key);
+      expect(fromBank).toHaveProperty(key);
+    }
+    // And each invoice row is described identically on both.
+    expect(Object.keys((fromPayment.invoices as Record<string, unknown>[])[0]!).sort())
+      .toEqual(Object.keys((fromBank.invoices as Record<string, unknown>[])[0]!).sort());
+  });
+
+  it('A CROSS-TENANT INVOICE IS REFUSED ON BOTH PATHS, with the same generic wording', async () => {
+    vi.mocked(planReceiptApplication).mockRejectedValue(new Error(`Invoice ${INV_A} not found`));
+    const a = errText(await applyReceiptToInvoiceTool.handler(
+      { ...ALLOC, ...KEY, payment_id: PAYMENT }, ctx(),
+    ));
+    vi.mocked(validateBankReceiptApplication).mockRejectedValue(
+      new Error(`Invoice ${INV_A} not found`),
+    );
+    const b = errText(await applyReceiptToInvoiceTool.handler(
+      { ...ALLOC, ...KEY, bank_transaction_id: TX }, ctx(),
+    ));
+    expect(a).toBe(b);
+    expect(applyReceiptPlan).not.toHaveBeenCalled();
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
+  });
+
+  it('THE ARGUMENT GUARDS FIRE IDENTICALLY WHICHEVER SOURCE IS NAMED', async () => {
+    for (const source of [{ payment_id: PAYMENT }, { bank_transaction_id: TX }]) {
+      expect(errText(await applyReceiptToInvoiceTool.handler(
+        { ...KEY, ...source, allocations: [{ invoice_id: INV_A, amount: -1 }] }, ctx(),
+      ))).toMatch(/allocations\[0\]\.amount must be a positive number/);
+
+      expect(errText(await applyReceiptToInvoiceTool.handler(
+        { ...KEY, ...source, allocations: [] }, ctx(),
+      ))).toMatch(/non-empty array/);
+
+      expect(errText(await applyReceiptToInvoiceTool.handler(
+        {
+          ...KEY, ...source,
+          allocations: [{ invoice_id: INV_A, amount: 1 }, { invoice_id: INV_A, amount: 1 }],
+        }, ctx(),
+      ))).toMatch(/appears more than once/);
+    }
+    expect(planReceiptApplication).not.toHaveBeenCalled();
+    expect(validateBankReceiptApplication).not.toHaveBeenCalled();
+  });
+
+  it('a MULTI-INVOICE bank allocation is supported, not silently truncated', async () => {
+    // One receipt routinely pays several invoices. The whole line posts ONE
+    // journal and every allocation is applied; over-allocating past the line is
+    // refused by validateBankReceiptApplication rather than being clipped.
+    const twoLines = {
+      ...validation,
+      lines: [LINE, { ...LINE, invoiceId: '4b444444-4444-4444-8444-444444444444', invoiceNumber: 'INV0002', amount: 400 }],
+      allocatedTotal: 1000,
+      unappliedRemainder: 0,
+    };
+    vi.mocked(validateBankReceiptApplication).mockResolvedValue(twoLines);
+    vi.mocked(confirmReceiptMatch).mockResolvedValue({
+      ...twoLines, journalEntryId: 'je-1', customerPaymentId: PAYMENT, paymentStatus: 'reconciled',
+    });
+    const out = parseOk(await applyReceiptToInvoiceTool.handler({
+      ...KEY,
+      bank_transaction_id: TX,
+      allocations: [
+        { invoice_id: INV_A, amount: 600 },
+        { invoice_id: '4b444444-4444-4444-8444-444444444444', amount: 400 },
+      ],
+    }, ctx()));
+    expect(out.invoices).toHaveLength(2);
+    expect(out.applied_now).toBe(1000);
+    // ONE journal for the whole line, not one per invoice.
+    expect(vi.mocked(confirmReceiptMatch).mock.calls[0]![1].allocations).toHaveLength(2);
+  });
+});
+
 describe('suggest_receipt_matches', () => {
   it('returns the shortlist and states how many invoices were considered', async () => {
     vi.mocked(getReceiptMatchCandidates).mockResolvedValue({
@@ -418,6 +557,31 @@ describe('list_unapplied_receipts', () => {
     });
     const out = parseOk(await listUnappliedReceiptsTool.handler({}, ctx()));
     expect(out.completenessFault).toMatch(/8 unaccounted/);
+  });
+
+  it('SPLITS THE TOTAL BY WHO CREATED IT, and names the tool that is filling it', async () => {
+    // The bucket is not historical: allocating a bank line to a customer posts
+    // the journal, creates the receipt and applies it to nothing, so every
+    // allocation adds to this total. A reader given only the total goes looking
+    // for a cause that is not there.
+    vi.mocked(getUnappliedReceipts).mockResolvedValue({
+      rows: [row], rowsTotal: 1, universeTotal: 1, unattributed: [],
+      totalUnapplied: 2691024, totalUnattributed: 0,
+      postedThrough: '2026-03-02T10:00:00.000Z',
+    });
+    const out = parseOk(await listUnappliedReceiptsTool.handler({}, ctx())) as {
+      origins: Record<string, unknown>;
+    };
+    expect(out.origins.agent).toEqual({ receipts: 34, unapplied: 2436024 });
+    expect(out.origins.agent_tools).toEqual([
+      { posting_agent: 'mcp:bulk_allocate_bank_transactions:v1', receipts: 34, unapplied: 2436024 },
+    ]);
+    // Never labelled "human": a human stamp proves nothing.
+    expect(out.origins).toHaveProperty('not_stamped_as_agent');
+    expect(out.origins).not.toHaveProperty('human');
+    expect(out.origins.no_journal).toEqual({ receipts: 0, unapplied: 0 });
+    expect(String(out.origins.caveat)).toMatch(/not stamped as an agent/i);
+    expect(vi.mocked(getUnappliedReceiptOrigins).mock.calls[0]![0]).toBe(COMPANY);
   });
 
   it('summary returns totals and no rows', async () => {

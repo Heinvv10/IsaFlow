@@ -38,6 +38,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { getSystemAccount } from '../gl/systemAccountResolver';
+import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
 
 export type Subledger = 'ar' | 'ap';
 
@@ -75,6 +76,8 @@ export async function assertContraAccountUsable(
   const code = String(account.account_code);
   const name = String(account.account_name);
 
+  assertBalanceSheetAccount(account, code, name);
+
   if (String(account.account_subtype ?? '') === 'bank') {
     throw new Error(
       `${code} ${name} is a BANK account. A contra settlement exists precisely because no cash `
@@ -90,6 +93,12 @@ export async function assertContraAccountUsable(
       + 'leaf account.',
     );
   }
+  // `is_active` is a PICKER flag: it says whether an account should be OFFERED
+  // for a new posting, and nothing whatever about whether it holds money. It is
+  // read here — where the question genuinely is "may I post to this?" — and
+  // must never be used to filter a balance or a total. Four deactivated
+  // accounts in these books hold R137,317.39 between them, and a report that
+  // filtered on this flag would simply lose them.
   if (account.is_active === false) {
     throw new Error(
       `${code} ${name} is deactivated. Reactivate it with update_gl_account, or choose another.`,
@@ -115,6 +124,66 @@ export async function assertContraAccountUsable(
     accountName: name,
     accountType: String(account.account_type),
   };
+}
+
+/**
+ * The two sides of the chart, by `account_type`. A contra settles one party's
+ * balance against ANOTHER BALANCE-SHEET POSITION — a loan, an intercompany
+ * account, a director's account.
+ */
+const BALANCE_SHEET_TYPES = new Set(['asset', 'liability', 'equity']);
+const INCOME_STATEMENT_TYPES = new Set(['revenue', 'expense']);
+
+/**
+ * Refuse anything that is not a balance-sheet position.
+ *
+ * SETTLING AGAINST AN EXPENSE OR REVENUE ACCOUNT IS A WRITE-OFF, NOT A CONTRA.
+ * `ar/writeOffService` already does that, with its own approval flow and its
+ * own GL treatment. Letting it through here would put a write-off somewhere
+ * plausible and wrong — R371,470 landing in a cost account that nobody would
+ * think to question, because the document really would come out settled.
+ *
+ * THE CLASSIFICATION IS STRUCTURAL, NEVER BY NAME OR CODE. Two accounts typed
+ * `default_expense` overstated gross profit by R562,428 in these books because
+ * a bucket was chosen by account NAME. An account called "Bad Debts Written
+ * Off" that is typed as a liability IS a balance-sheet position, and the name
+ * is not evidence of anything.
+ *
+ * The subtype is validated against `GL_ACCOUNT_SUBTYPES_BY_TYPE` rather than
+ * merely read, because `account_subtype` is plain TEXT with no CHECK: a typo
+ * writes fine and then behaves exactly like NULL. An account that cannot be
+ * classified is REFUSED rather than classified from its `account_type` alone —
+ * guessing here would be the same failure one level down, and the remedy
+ * (`update_gl_account`) is cheap and leaves a trail.
+ */
+function assertBalanceSheetAccount(account: DbRow, code: string, name: string): void {
+  const type = String(account.account_type ?? '');
+  const subtype = account.account_subtype ? String(account.account_subtype) : null;
+
+  const legalSubtypes = (GL_ACCOUNT_SUBTYPES_BY_TYPE as Record<string, readonly string[]>)[type];
+  if (!legalSubtypes || !subtype || !legalSubtypes.includes(subtype)) {
+    throw new Error(
+      `${code} ${name} carries account_type "${type || '(none)'}" and account_subtype `
+      + `"${subtype ?? '(none)'}", which is not a valid pairing — so it cannot be classified as a `
+      + 'balance-sheet or an income-statement account, and a contra settlement must not guess. '
+      + 'Fix the account with update_gl_account, then retry.',
+    );
+  }
+
+  if (INCOME_STATEMENT_TYPES.has(type)) {
+    throw new Error(
+      `${code} ${name} is an income-statement account (${type} / ${subtype}). A contra settles a `
+      + 'balance against another BALANCE-SHEET position — a loan, an intercompany or a '
+      + "director's account. Netting a debt against income or expense is a WRITE-OFF, not a "
+      + 'contra, and it has its own treatment: use write_off (POST /api/accounting/write-offs).',
+    );
+  }
+
+  if (!BALANCE_SHEET_TYPES.has(type)) {
+    throw new Error(
+      `${code} ${name} has an unrecognised account_type "${type}". Fix it with update_gl_account.`,
+    );
+  }
 }
 
 export interface ContraDocument {
