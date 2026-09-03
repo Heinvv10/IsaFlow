@@ -71,6 +71,23 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         --   makes the rewind set empty by construction for the default report.
         --
         --
+        --
+        -- AND ONE MORE BOUND ON THAT CLAIM. Anchoring inherits whatever
+        -- amount_paid says, including where it has been LOWERED after the
+        -- fact. On the 40 production invoices where dated allocations exceed
+        -- amount_paid, the historical figure carries the same overstatement
+        -- the LIVE report already carries: the live report says R483,266.76
+        -- for those invoices while their allocations say R358,306.39. This
+        -- code does not introduce that gap and does not widen it — it
+        -- reproduces the live ledger at an earlier date, which is the whole
+        -- point of anchoring — but it does not correct it either, so a
+        -- historical balance is not guaranteed to err only downwards.
+        --
+        -- The root cause is bank-match-confirm writing amount_paid absolutely
+        -- and clobbering what the allocation paths accumulated. That is a data
+        -- integrity defect in the settlement path, not in this report, and it
+        -- is worth fixing there. All 40 are the demo company; no real client
+        -- invoice is affected.
         -- ONE CASE THIS DOES NOT COVER, stated rather than glossed. A payment
         -- later CANCELLED keeps its allocation row but is excluded from the
         -- rewind by the status filter, and amount_paid has already been

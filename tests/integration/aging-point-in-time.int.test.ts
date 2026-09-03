@@ -93,6 +93,11 @@ const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
 describeIfDb('aging as at a past date reflects that date, not today', () => {
   let admin: Pool;
+  // Captured so assertions can name ONE invoice. Reasoning about an entity
+  // total is what made four of these tests pass on broken code.
+  let idSettled = '';
+  let idUntraceable = '';
+  let idClobbered = '';
 
   beforeAll(async () => {
     assertNotProductionDb('This test inserts and deletes invoice fixtures.');
@@ -127,7 +132,7 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     );
 
     // No allocation, no credit note, no write-off — just a settled balance.
-    await insertCustomerInvoice(admin, 'PIT-AR-5', '2026-01-05', '2026-02-05', AR_UNTRACEABLY_SETTLED, AR_UNTRACEABLY_SETTLED, 'paid');
+    idUntraceable = await insertCustomerInvoice(admin, 'PIT-AR-5', '2026-01-05', '2026-02-05', AR_UNTRACEABLY_SETTLED, AR_UNTRACEABLY_SETTLED, 'paid');
 
     const arWrittenOff = await insertCustomerInvoice(admin, 'PIT-AR-6', '2026-02-01', '2026-03-01', AR_WRITTEN_OFF, AR_WRITTEN_OFF, 'paid');
     await admin.query(
@@ -159,9 +164,11 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
 
     // Dated allocations deliberately exceeding amount_paid.
     const arClobbered = await insertCustomerInvoice(admin, 'PIT-AR-10', '2026-02-28', '2026-03-28', AR_CLOBBERED_TOTAL, AR_CLOBBERED_PAID, 'partially_paid');
+    idClobbered = arClobbered;
     await payCustomer(admin, 'PIT-R10', '2026-05-20', AR_CLOBBERED_ALLOCS, arClobbered);
 
     await payCustomer(admin, 'PIT-R1', '2026-05-10', AR_PART_PAID, arPartly);
+    idSettled = arSettled;
     await payCustomer(admin, 'PIT-R2', '2026-07-01', AR_SETTLED, arSettled);
 
     // ── AP ────────────────────────────────────────────────────────────────
@@ -193,8 +200,15 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     const customer = early.find((b) => b.entityId === CUSTOMER)!;
 
     // PIT-AR-2 is `paid` today, so filtering on the CURRENT balance dropped it
-    // from the historical report entirely.
-    expect(customer.total).toBeGreaterThanOrEqual(AR_SETTLED);
+    // from the historical report entirely. Asserted on THAT invoice at its
+    // exact face value: `>= 800` against an actual 6,300 passed regardless of
+    // whether PIT-AR-2 was there at all.
+    const detail = await getARAgingDetail(COMPANY, CUSTOMER, EARLY);
+    const settled = detail.invoices.find((i) => i.id === idSettled);
+
+    expect(settled).toBeDefined();
+    expect(settled!.balance).toBeCloseTo(AR_SETTLED, 2);
+    expect(customer.total).toBeGreaterThan(0);
   });
 
   it('AR: an invoice not yet issued is absent', async () => {
@@ -295,8 +309,11 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
       const ar = (await getARAging(COMPANY, asAt)).find((b) => b.entityId === CUSTOMER)!;
       const ap = (await getAPAging(COMPANY, asAt)).find((b) => b.entityId === SUPPLIER)!;
 
-      // PIT-AR-5 (1,200) is settled with no trail and must never appear.
-      expect(ar.total).not.toBeCloseTo(ar.total + AR_UNTRACEABLY_SETTLED, 2);
+      // PIT-AR-5 is settled with no trail and must never appear. Asserted by
+      // looking for the invoice: the previous version compared a total to that
+      // same total plus 1,200, which is true whatever the code does.
+      const detail = await getARAgingDetail(COMPANY, CUSTOMER, asAt);
+      expect(detail.invoices.some((i) => i.id === idUntraceable)).toBe(false);
       expect(ar.total).toBeGreaterThan(0);
       expect(ap.total).toBeGreaterThan(0);
     }
@@ -318,18 +335,25 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     // PIT-AR-10 has 800 of dated allocations against 300 of amount_paid.
     // Unclamped, rewinding at a date before the payment gives
     // 1000 - 300 + 800 = 1500 — a balance larger than the debt.
+    // Asserted on PIT-AR-10 itself. The previous version bounded the ENTITY
+    // total by the sum of all ten face values (8,650) against an actual of
+    // 6,300 — so the unclamped 6,800 sat comfortably inside the bound and the
+    // clamp's own test did not test the clamp. It also ended with
+    // `expect(invoiceCount).toBe(10)` against a local const of 10, which
+    // passes with the production code deleted.
     for (const asAt of [EARLY, LATE]) {
-      const buckets = await getARAging(COMPANY, asAt);
-      const invoiceCount = 10;
-      const customer = buckets.find((b) => b.entityId === CUSTOMER)!;
-      // No single invoice can exceed its total, so the entity total cannot
-      // exceed the sum of every invoice's face value.
-      expect(customer.total).toBeLessThanOrEqual(
-        AR_PARTLY + AR_SETTLED + AR_FUTURE + AR_CREDITED + AR_UNTRACEABLY_SETTLED
-        + AR_WRITTEN_OFF + AR_PARTIAL_CN_INVOICE + AR_DRAFT_WRITE_OFF
-        + AR_POSTDATED + AR_CLOBBERED_TOTAL + 0.005);
-      expect(invoiceCount).toBe(10);
+      const detail = await getARAgingDetail(COMPANY, CUSTOMER, asAt);
+      const clobbered = detail.invoices.find((i) => i.id === idClobbered);
+
+      expect(clobbered).toBeDefined();
+      expect(clobbered!.balance).toBeLessThanOrEqual(clobbered!.totalAmount + 0.005);
     }
+
+    // At EARLY the rewind is live and the clamp is what holds it to face value:
+    // 1000 - 300 + LEAST(800, 300) = 1000, not 1500.
+    const early = await getARAgingDetail(COMPANY, CUSTOMER, EARLY);
+    expect(early.invoices.find((i) => i.id === idClobbered)!.balance)
+      .toBeCloseTo(AR_CLOBBERED_TOTAL, 2);
   });
 
   it('KNOWN LIMITATION: a cancelled payment overstates the period it covered', async () => {
@@ -476,6 +500,21 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     // This one had no guard: the string reached Postgres and came back as a
     // 22007 date-format error instead of a readable refusal.
     await expect(getARAgingDetail(COMPANY, CUSTOMER, 'lol')).rejects.toThrow(/Invalid asAtDate/);
+  });
+
+  it('refuses date words Postgres accepts but JavaScript does not', async () => {
+    // These are the dangerous ones. 'lol' fails everywhere, but Postgres
+    // resolves 'today', 'yesterday' and 'epoch' to real dates while
+    // `new Date('today')` is Invalid Date. Without the guard the SQL runs
+    // correctly and only the BUCKETING breaks: calculateAgingBuckets gets an
+    // Invalid Date, every comparison against NaN is false, and every invoice
+    // lands in 120+ — no error, right total, entirely wrong ageing.
+    for (const word of ['today', 'yesterday', 'epoch', 'infinity']) {
+      await expect(getARAging(COMPANY, word)).rejects.toThrow(/Invalid asAtDate/);
+      await expect(getARAgingDetail(COMPANY, CUSTOMER, word)).rejects.toThrow(/Invalid asAtDate/);
+      await expect(getAPAging(COMPANY, word)).rejects.toThrow(/Invalid asAtDate/);
+      await expect(getAPAgingDetail(COMPANY, SUPPLIER, word)).rejects.toThrow(/Invalid asAtDate/);
+    }
   });
 
   it('the as-at date changes the answer at all', async () => {
