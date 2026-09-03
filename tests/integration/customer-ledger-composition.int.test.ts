@@ -136,6 +136,43 @@ describeIfDb('customer ledger shows what the customer actually owes', () => {
     expect(ledger.closingBalance).toBeCloseTo(running, 2);
   });
 
+  it('carries an opening balance when the statement starts mid-history', async () => {
+    // A statement for March onward must still tell the customer what they owed
+    // on 1 March. Reporting an opening balance of zero drops the earlier
+    // invoice from the total the customer is asked to pay — the same defect as
+    // billing for a draft, in the opposite direction.
+    const full = (await getCustomerLedger(COMPANY, CUSTOMER, {}))!;
+    const fromMarch = (await getCustomerLedger(COMPANY, CUSTOMER, { dateFrom: '2026-03-01' }))!;
+
+    // CL-1 (10,000, dated 2026-02-01) is before the window.
+    expect(fromMarch.openingBalance).toBeCloseTo(APPROVED_INVOICE, 2);
+    // and the closing balance is the same debt either way.
+    expect(fromMarch.closingBalance).toBeCloseTo(full.closingBalance, 2);
+  });
+
+  it('the opening balance nets off prior receipts and credit notes, not just invoices', async () => {
+    // A window starting after everything: the opening balance must equal the
+    // whole debt. If it counted invoices only it would read 10,000 and the
+    // customer would be asked for 3,500 they have already settled or been
+    // credited.
+    const fromApril = (await getCustomerLedger(COMPANY, CUSTOMER, { dateFrom: '2026-04-01' }))!;
+
+    expect(fromApril.transactions).toHaveLength(0);
+    expect(fromApril.openingBalance).toBeCloseTo(TRUE_BALANCE, 2);
+    expect(fromApril.closingBalance).toBeCloseTo(TRUE_BALANCE, 2);
+  });
+
+  it('the running balance continues from the opening balance', async () => {
+    const fromMarch = (await getCustomerLedger(COMPANY, CUSTOMER, { dateFrom: '2026-03-01' }))!;
+
+    let running = fromMarch.openingBalance;
+    for (const t of fromMarch.transactions) {
+      running += t.debit - t.credit;
+      expect(t.balance).toBeCloseTo(running, 2);
+    }
+    expect(fromMarch.closingBalance).toBeCloseTo(running, 2);
+  });
+
   it('excludes a cancelled credit note', async () => {
     await admin.query(
       `INSERT INTO credit_notes

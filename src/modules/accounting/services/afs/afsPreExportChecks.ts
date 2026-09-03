@@ -441,7 +441,26 @@ export async function runPreExportChecks(
     }];
   }
 
-  const { end: periodEnd } = await getFiscalRange(companyId, Number(fiscalYear));
+  // getFiscalRange REFUSES an unusable companies.financial_year_start rather
+  // than assuming March. That refusal is right, but letting it propagate turns
+  // a misconfiguration into a 500 carrying an exception message — while the
+  // same class of misconfiguration four lines above returns a readable blocker.
+  // A pre-export check that crashes tells the accountant nothing about what to
+  // fix.
+  let periodEnd: string;
+  try {
+    ({ end: periodEnd } = await getFiscalRange(companyId, Number(fiscalYear)));
+  } catch (err) {
+    return [{
+      label: 'Reporting period known',
+      passed: false,
+      severity: 'blocker',
+      detail:
+        `The financial year this company reports on is not set, so the period ` +
+        `these statements cover cannot be determined. Set the financial year ` +
+        `start under Settings > General. (${err instanceof Error ? err.message : String(err)})`,
+    }];
+  }
 
   // The mapping tie-out is about the ANNUAL FINANCIAL STATEMENTS, whose every
   // figure flows through afs_account_mappings. A management pack is a different

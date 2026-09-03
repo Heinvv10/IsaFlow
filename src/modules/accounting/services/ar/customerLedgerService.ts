@@ -82,6 +82,58 @@ function toDateStr(d: Date | string): string {
   return fmtDate(d) || String(d);
 }
 
+/**
+ * Net of everything owing before `beforeDate` — the balance the statement
+ * opens with.
+ *
+ * Uses the SAME three sources and the same status rules as the statement
+ * itself, so the opening figure cannot disagree with the rows beneath it.
+ *
+ * Returning 0 here while `dateFrom` filtered the rows understated the debt: a
+ * statement for March onward showed an opening balance of zero and asked the
+ * customer only for March's invoices, silently dropping everything older. That
+ * is the same defect as billing for a draft, in the opposite direction.
+ */
+async function fetchOpeningBalance(
+  companyId: string,
+  customerId: string,
+  beforeDate: string,
+): Promise<number> {
+  const rows = (await sql`
+    SELECT COALESCE(SUM(amount), 0)::numeric AS balance
+    FROM (
+      SELECT ci.total_amount AS amount
+      FROM customer_invoices ci
+      WHERE ci.company_id = ${companyId}
+        AND COALESCE(ci.client_id, ci.customer_id) = ${customerId}
+        AND ci.status = ANY(${Array.from(BILLABLE_INVOICE_STATUSES)}::text[])
+        AND ci.invoice_date < ${beforeDate}::date
+        AND (ci.deleted_at IS NULL OR ci.deleted_at > NOW())
+
+      UNION ALL
+
+      SELECT -cp.total_amount
+      FROM customer_payments cp
+      WHERE cp.company_id = ${companyId}
+        AND cp.client_id = ${customerId}
+        AND cp.status != 'cancelled'
+        AND cp.payment_date < ${beforeDate}::date
+
+      UNION ALL
+
+      SELECT -cn.total_amount
+      FROM credit_notes cn
+      WHERE cn.company_id = ${companyId}
+        AND cn.client_id  = ${customerId}
+        AND cn.type       = 'customer'
+        AND cn.status = ANY(${Array.from(EFFECTIVE_CREDIT_NOTE_STATUSES)}::text[])
+        AND cn.credit_date < ${beforeDate}::date
+    ) prior
+  `) as Array<{ balance: string | number }>;
+
+  return Number(rows[0]?.balance ?? 0);
+}
+
 /** Null when the customer does not exist in this company. */
 export async function getCustomerLedger(
   companyId: string,
@@ -101,6 +153,10 @@ export async function getCustomerLedger(
   `) as { name: string }[];
 
   if (customerRows.length === 0 || customerRows[0] === undefined) return null;
+
+  const openingBalance = dateFrom === null
+    ? 0
+    : await fetchOpeningBalance(companyId, customerId, dateFrom);
 
   const rows = (await sql`
     SELECT
@@ -157,7 +213,7 @@ export async function getCustomerLedger(
     ORDER BY transaction_date ASC, type ASC
   `) as Row[];
 
-  let balance = 0;
+  let balance = openingBalance;
   const transactions: CustomerLedgerEntry[] = rows.map((row) => {
     const debit = Number(row.debit) || 0;
     const credit = Number(row.credit) || 0;
@@ -176,9 +232,7 @@ export async function getCustomerLedger(
 
   return {
     customerName: customerRows[0].name,
-    // The ledger starts at the beginning of the customer's history; a dateFrom
-    // narrows which rows are shown but no opening figure is carried into it.
-    openingBalance: 0,
+    openingBalance,
     closingBalance: balance,
     transactions,
   };

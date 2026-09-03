@@ -112,6 +112,24 @@ describeIfDb('AFS pre-export blockers actually block', () => {
     });
   }
 
+  it('reports an unset financial year as a blocker, not as a crash', async () => {
+    // getFiscalRange refuses an unusable financial_year_start rather than
+    // assuming March, which is right. Letting that refusal escape turns a
+    // misconfiguration into a 500 and tells the accountant nothing about what
+    // to fix.
+    await admin.query('UPDATE companies SET financial_year_start = NULL WHERE id = $1', [COMPANY]);
+    try {
+      const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
+      const period = check(checks, 'Reporting period known');
+
+      expect(period?.passed).toBe(false);
+      expect(period?.severity).toBe('blocker');
+      expect(period?.detail).toMatch(/Settings/);
+    } finally {
+      await admin.query('UPDATE companies SET financial_year_start = 1 WHERE id = $1', [COMPANY]);
+    }
+  });
+
   // ── the tie-out ────────────────────────────────────────────────────────────
 
   it('refuses to export while a ledger account is mapped to no AFS line', async () => {
