@@ -26,9 +26,14 @@ vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
   resolveUserUuid: vi.fn(async (u: string) => u),
   mapEntryRow: vi.fn((r: unknown) => r),
 }));
-vi.mock('@/modules/accounting/services/gl/journalEntryMeta', () => ({
-  defaultHumanMeta: vi.fn(() => ({ postingAgent: 'human' })),
-}));
+// actorMeta is REAL here: the two tests below assert what the contra is
+// stamped with, and mocking the very function that assembles that stamp would
+// make them pass whatever it does.
+vi.mock('@/modules/accounting/services/gl/journalEntryMeta', async () => {
+  const actual = await vi.importActual<typeof import('@/modules/accounting/services/gl/journalEntryMeta')>(
+    '@/modules/accounting/services/gl/journalEntryMeta');
+  return { ...actual, defaultHumanMeta: vi.fn(() => ({ postingAgent: 'human' })) };
+});
 // reverseJournalEntry asks whether the ORIGINAL entry's period is still open,
 // to decide whether the contra can carry the original date. Mocked so this
 // suite keeps asserting reversal SEMANTICS against a fixed `sql` call sequence;

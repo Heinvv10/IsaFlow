@@ -8,7 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
-import type { JournalEntryMeta } from '../gl/journalEntryMeta';
+import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
@@ -84,7 +84,7 @@ export async function allocateTransaction(
   description?: string, allocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
   invoiceId?: string,
-  opts?: { postingAgent?: string },
+  opts?: PostingActorOpts,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
   // FOR UPDATE: hold the row for the rest of the request so a concurrent
   // allocate blocks here rather than passing the same status check and posting
@@ -269,7 +269,11 @@ export async function allocateTransaction(
   }
 
   const allocationMeta: JournalEntryMeta = {
+    // The actor rides with the stamp: an MCP caller supplies both, every other
+    // caller supplies neither and the columns stay NULL (derived at read time).
     postingAgent: opts?.postingAgent ?? 'system:bank-allocation:v1',
+    ...(opts?.actorType === undefined ? {} : { actorType: opts.actorType }),
+    ...(opts?.actorTokenJti === undefined ? {} : { actorTokenJti: opts.actorTokenJti }),
     sourceDocumentId: invoiceSourceDocId,
   };
 
@@ -477,7 +481,7 @@ export async function splitAllocateTransaction(
  */
 export async function reverseReconciledTransaction(
   companyId: string, bankTxId: string, userId: string,
-  opts?: { postingAgent?: string; reversalDate?: string },
+  opts?: PostingActorOpts & { reversalDate?: string },
 ): Promise<void> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');

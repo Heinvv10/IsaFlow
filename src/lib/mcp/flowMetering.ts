@@ -68,6 +68,13 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // Reviewing what the agent did must never cost anything — it is the control
   // surface for every other write.
   list_agent_postings: null,
+  // Same reason, and it is the reason audit_trail exists: pricing the control
+  // surface the safety model depends on discourages using it.
+  audit_trail: null,
+  // Reading what evidence exists — and what has none — is a review surface too.
+  list_documents: null,
+  get_document: null,
+  list_unsupported_transactions: null,
   list_supplier_invoices: null,
   get_supplier_invoice: null,
   // Seeing the rules is the control an agent needs BEFORE it imports anything.

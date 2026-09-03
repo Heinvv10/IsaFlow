@@ -19,6 +19,7 @@ import type { JournalLineInput } from '../../types/gl.types';
 import { lockCreditNoteForUpdate } from './creditNoteLock';
 import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { mapRow } from './creditNoteMapper';
+import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 
 export async function cancelCreditNote(companyId: string, 
   id: string,
@@ -27,7 +28,7 @@ export async function cancelCreditNote(companyId: string,
   // Same reason as approveCreditNote: the REVERSING entry is a ledger write of
   // its own and must carry the agent stamp, or an MCP cancellation reverses a
   // journal under the token owner's name.
-  opts?: { postingAgent?: string },
+  opts?: PostingActorOpts,
 ): Promise<CreditNote> {
   try {
     // Same check-then-act window as approve: two concurrent cancellations would
@@ -51,7 +52,7 @@ export async function cancelCreditNote(companyId: string,
         companyId,
         String(cn.gl_journal_entry_id),
         userId,
-        opts?.postingAgent ? { postingAgent: opts.postingAgent } : undefined,
+        actorMeta(opts),
       );
     }
 
