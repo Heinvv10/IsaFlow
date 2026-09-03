@@ -322,6 +322,67 @@ ran, and separating the two needs the fiscal-year basis
 (`gl/fiscalYearBasis.ts`). That is the figure that would say how many year-ends
 are outstanding and for how much.
 
+### `aged_debtors` / `aged_creditors` v2: the totals, and a 262-supplier report that served 10
+
+The audit's finding was exact — ten rows, no total, no `rowsTotal`, no
+`truncated`, no envelope — and it understated the paging half. Run with the
+totals, as at 2026-09-03:
+
+| | total | entities | bucket sum ties |
+|---|---|---|---|
+| Velocity AR | R75,864,129.21 | 10 | yes |
+| Velocity AP | R106,743,768.45 | **262** | yes |
+| Brightsphere AR | R14,272,647.60 | 8 | yes |
+| Brightsphere AP | R613,641.77 | 5 | yes |
+
+**Velocity's aged creditors has 262 suppliers.** The old tool returned every one
+of them with no total and no `truncated`, so a reader had no way to know whether
+they had the whole book. v2 pages at 200 and says `truncated: true` with
+`rowsTotal: 262`, and the totals are computed over all 262 before the page is
+cut.
+
+The three tools now agree with each other on these books, which is the first
+time that can be said: `aged_debtors`' R75,864,129.21 is exactly
+`reconcile_subledger`'s `agedTotal` AND its `subledgerTotal` for Velocity AR, and
+the `unappliedReceipts` figures it reports — 39 receipts / R37,719,269.77 on
+Velocity, 37 / R2,691,024.00 on Brightsphere — match `reconcile_subledger`'s
+`unapplied_receipt` item to the cent on both companies.
+
+The audit's R63,133,371.78 is the **deployed** aged debtors report, which
+predates #306. Master's is R75,864,129.21, the difference being the null-due-date
+invoices #303 stopped dropping.
+
+`unappliedReceipts` is NAMED and never netted off the aged total: netting it
+would invent a figure no report owns. `agedFromInvoiceDate` reports the invoices
+whose bucket is derived from an invoice date because they carry no due date —
+they ARE in the buckets, and it is deliberately not `excludedRows`, because
+nothing is excluded any more and saying otherwise would misdescribe the fix.
+
+### The income-statement comparative was a rolling window, in the UI
+
+Not in the service, which takes explicit dates.
+`pages/accounting/reports/income-statement.tsx` computed the comparative in
+milliseconds:
+
+```
+const durationMs = end.getTime() - start.getTime();
+const priorEnd   = new Date(start.getTime() - 1);
+const priorStart = new Date(priorEnd.getTime() - durationMs);
+params.set('compare_start', priorStart.toISOString().split('T')[0]);
+```
+
+Two defects in four lines. March is 31 days, so a month-on-month comparative
+compares against **29 January – 28 February** and February never appears as
+itself. And `toISOString()` renders in UTC on a UTC+2 host — the defect class
+this repo has been bitten by repeatedly.
+
+`reports/priorPeriod.ts` replaces it: pure, `'YYYY-MM-DD'` in and out, no `Date`
+constructed anywhere. Whole calendar months map to the same number of whole
+calendar months before them; anything else falls back to the preceding window of
+equal length. `priorYearPeriod` clamps 29 February to the 28th, because
+2025-02-29 makes Postgres throw 22008 and makes a `Date` roll forward to 1 March.
+Mutating it back to the rolling window reproduces `2026-01-29` exactly.
+
 ### Still true, and still unowned
 
 `ar.control.v1` and `ap.control.v1` remain **unowned** (C1). The direction rule

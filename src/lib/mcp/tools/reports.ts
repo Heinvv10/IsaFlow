@@ -7,8 +7,6 @@ import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
-import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
-import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
 import { getChartOfAccounts } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
@@ -63,57 +61,13 @@ export const profitAndLossTool: McpTool = {
  * accident.
  */
 
-export const agedDebtorsTool: McpTool = {
-  name: 'aged_debtors',
-  description:
-    'Accounts-receivable aging buckets per customer as at a date (defaults to today). '
-    + 'A PAST as_at is reconstructed by unwinding settlement dated since it: payment '
-    + 'allocations, credit notes and write-offs. Settlement that left no dated trail — '
-    + 'a receipt captured with no allocation row, a migrated balance, a cancelled '
-    + 'payment — cannot be unwound, so for those invoices an earlier date reproduces '
-    + 'the CURRENT figure rather than what was actually owed then. It will never '
-    + 'report an invoice as outstanding once it has been settled.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      as_at: { type: 'string', format: 'date', description: 'YYYY-MM-DD; defaults to today' },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { date: ['as_at'] });
-    if (bad) return bad;
-    return ok(await getARAging(ctx.companyId, strArg(args, 'as_at')));
-  },
-};
-
-export const agedCreditorsTool: McpTool = {
-  name: 'aged_creditors',
-  description:
-    'Accounts-payable aging buckets per supplier as at a date (defaults to today). '
-    + 'A PAST as_at is reconstructed by unwinding settlement dated since it: payment '
-    + 'allocations, credit notes and write-offs. Settlement that left no dated trail — '
-    + 'a receipt captured with no allocation row, a migrated balance, a cancelled '
-    + 'payment — cannot be unwound, so for those invoices an earlier date reproduces '
-    + 'the CURRENT figure rather than what was actually owed then. It will never '
-    + 'report an invoice as outstanding once it has been settled.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      as_at: { type: 'string', format: 'date', description: 'YYYY-MM-DD; defaults to today' },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { date: ['as_at'] });
-    if (bad) return bad;
-    return ok(await getAPAging(ctx.companyId, strArg(args, 'as_at')));
-  },
-};
+/**
+ * `aged_debtors` and `aged_creditors` moved to `reportsAging.ts` when they grew
+ * the totals. The versions that lived here returned `getARAging` / `getAPAging`
+ * verbatim: ten rows, no total, no rowsTotal, no truncated, no envelope. That
+ * is the audit's finding, and answering "what are we owed" meant summing the
+ * rows by hand. They are not re-exported.
+ */
 
 export const searchGlTool: McpTool = {
   name: 'search_gl',

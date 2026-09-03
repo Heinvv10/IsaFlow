@@ -269,7 +269,10 @@ describe('reports tools', () => {
     parseOk(await tool('aged_debtors').handler({ as_at: '2026-07-01' }, ctx()));
     parseOk(await tool('aged_creditors').handler({}, ctx()));
     expect(getARAging).toHaveBeenCalledWith(COMPANY_ID, '2026-07-01');
-    expect(getAPAging).toHaveBeenCalledWith(COMPANY_ID, undefined);
+    // v2 defaults as_at rather than passing undefined through: the report's own
+    // date has to appear in the envelope, and a service defaulting it silently
+    // means the response cannot say which day it describes.
+    expect(getAPAging).toHaveBeenCalledWith(COMPANY_ID, expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
   });
 
   it('search_gl passes companyId inside the params object and caps the limit at 200', async () => {

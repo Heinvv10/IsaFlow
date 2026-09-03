@@ -6,8 +6,6 @@
 import { McpRegistry } from './registry';
 import { companyProfileTool, listCompaniesTool } from './tools/company';
 import {
-  agedCreditorsTool,
-  agedDebtorsTool,
   listGlAccountsTool,
   profitAndLossTool,
   searchGlTool,
@@ -20,6 +18,7 @@ import { listImportBatchesTool } from './tools/importBatches';
 import { reconcileSubledgerTool } from './tools/reconcileSubledger';
 import { generalLedgerTool } from './tools/generalLedger';
 import { balanceSheetTool } from './tools/reportsBalanceSheet';
+import { agedCreditorsTool, agedDebtorsTool } from './tools/reportsAging';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
