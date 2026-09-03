@@ -12,6 +12,48 @@ import { fmtDate } from '@/lib/fmtDate';
 type Row = DbRow;
 
 
+/**
+ * Settlement AFTER the as-at date, to be rewound. Anchored on
+ * supplier_invoices.amount_paid rather than rebuilt from allocations:
+ * anything that settles an invoice without leaving a dated trail would
+ * otherwise make it reappear at full face value. See the AR service
+ * for the full reasoning and the measurement behind it.
+ * 
+ * applied_amount, not total_amount — creditNoteApproveService applies
+ * MIN(total, outstanding) and leaves the excess unapplied. The column
+ * is NOT NULL DEFAULT 0; a note at 0 reduced nothing to rewind.
+ * 
+ * 
+ * 
+ * AND ONE MORE BOUND ON THAT CLAIM. Anchoring inherits whatever
+ * amount_paid says, including where it has been LOWERED after the
+ * fact. On the 40 production invoices where dated allocations exceed
+ * amount_paid, the historical figure carries the same overstatement
+ * the LIVE report already carries: the live report says R483,266.76
+ * for those invoices while their allocations say R358,306.39. This
+ * code does not introduce that gap and does not widen it — it
+ * reproduces the live ledger at an earlier date, which is the whole
+ * point of anchoring — but it does not correct it either, so a
+ * historical balance is not guaranteed to err only downwards.
+ * 
+ * The root cause is bank-match-confirm writing amount_paid absolutely
+ * and clobbering what the allocation paths accumulated. That is a data
+ * integrity defect in the settlement path, not in this report, and it
+ * is worth fixing there. All 40 are the demo company; no real client
+ * invoice is affected.
+ * ONE CASE THIS DOES NOT COVER, stated rather than glossed. A payment
+ * later CANCELLED keeps its allocation row but is excluded from the
+ * rewind by the status filter, and amount_paid has already been
+ * reduced. So for a date between the payment and its cancellation the
+ * invoice reads as outstanding when it was in fact settled — the one
+ * shape where this report can overstate a historical debt. There is no
+ * cancellation date on customer_payments or supplier_payments to
+ * distinguish it by (only updated_at, which any edit touches), so it
+ * cannot be fixed without a schema change. Production exposure is 5
+ * payments totalling R5,462.50, which does not justify one.
+ * There is no supplier write-off table; customer_write_offs is the
+ * only one in this schema, so AP has no third branch.
+ */
 export async function getAPAging(companyId: string, asAtDate?: string): Promise<AgingBucket[]> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
@@ -34,53 +76,17 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
         si.total_amount,
-        (COALESCE(si.amount_paid, 0)
-         - LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) AS amount_paid,
-        (si.total_amount - COALESCE(si.amount_paid, 0)
-         + LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) AS balance
+        LEAST(GREATEST(COALESCE(si.amount_paid, 0)
+             - COALESCE(unpaid.amount, 0), 0), si.total_amount) AS amount_paid,
+        (si.total_amount - LEAST(GREATEST(COALESCE(si.amount_paid, 0)
+             - COALESCE(unpaid.amount, 0), 0), si.total_amount)) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
-        -- Settlement AFTER the as-at date, to be rewound. Anchored on
-        -- supplier_invoices.amount_paid rather than rebuilt from allocations:
-        -- anything that settles an invoice without leaving a dated trail would
-        -- otherwise make it reappear at full face value. See the AR service
-        -- for the full reasoning and the measurement behind it.
-        --
-        -- applied_amount, not total_amount — creditNoteApproveService applies
-        -- MIN(total, outstanding) and leaves the excess unapplied. The column
-        -- is NOT NULL DEFAULT 0; a note at 0 reduced nothing to rewind.
-        --
-        --
-        --
-        -- AND ONE MORE BOUND ON THAT CLAIM. Anchoring inherits whatever
-        -- amount_paid says, including where it has been LOWERED after the
-        -- fact. On the 40 production invoices where dated allocations exceed
-        -- amount_paid, the historical figure carries the same overstatement
-        -- the LIVE report already carries: the live report says R483,266.76
-        -- for those invoices while their allocations say R358,306.39. This
-        -- code does not introduce that gap and does not widen it — it
-        -- reproduces the live ledger at an earlier date, which is the whole
-        -- point of anchoring — but it does not correct it either, so a
-        -- historical balance is not guaranteed to err only downwards.
-        --
-        -- The root cause is bank-match-confirm writing amount_paid absolutely
-        -- and clobbering what the allocation paths accumulated. That is a data
-        -- integrity defect in the settlement path, not in this report, and it
-        -- is worth fixing there. All 40 are the demo company; no real client
-        -- invoice is affected.
-        -- ONE CASE THIS DOES NOT COVER, stated rather than glossed. A payment
-        -- later CANCELLED keeps its allocation row but is excluded from the
-        -- rewind by the status filter, and amount_paid has already been
-        -- reduced. So for a date between the payment and its cancellation the
-        -- invoice reads as outstanding when it was in fact settled — the one
-        -- shape where this report can overstate a historical debt. There is no
-        -- cancellation date on customer_payments or supplier_payments to
-        -- distinguish it by (only updated_at, which any edit touches), so it
-        -- cannot be fixed without a schema change. Production exposure is 5
-        -- payments totalling R5,462.50, which does not justify one.
-        -- There is no supplier write-off table; customer_write_offs is the
-        -- only one in this schema, so AP has no third branch.
+        -- Settlement to UNWIND (positive) or RESTORE (negative) so the figure
+        -- reflects the as-at date. Full reasoning, the census of every writer
+        -- of amount_paid and the documented limitations live in the block
+        -- comment at the top of ar/arAgingService.ts — this side mirrors it.
         SELECT SUM(amount) AS amount FROM (
           SELECT pa.amount_allocated AS amount
           FROM payment_allocations pa
@@ -101,13 +107,30 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
             AND cn.status IN ('approved', 'applied')
             AND cn.credit_date > ${asAtStr}::date
             AND cn.credit_date <= ${todayStr}::date
+
+          UNION ALL
+
+          -- NEGATIVE: a credit note that WAS applied on the as-at date and
+          -- has since been CANCELLED. amount_paid no longer reflects it, but
+          -- it did then, so it has to be put back or the invoice reads as
+          -- more outstanding than it was. Possible only because
+          -- credit_notes.cancelled_at exists (migration 528) and
+          -- creditNoteCancelService writes it; the payment tables carry no
+          -- equivalent, which is the limitation documented above.
+          SELECT -cn.applied_amount
+          FROM credit_notes cn
+          WHERE cn.supplier_invoice_id = si.id
+            AND cn.company_id = ${companyId}
+            AND cn.status = 'cancelled'
+            AND cn.credit_date  <= ${asAtStr}::date
+            AND cn.cancelled_at >  ${asAtStr}::date
         ) reversed
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - COALESCE(si.amount_paid, 0)
-             + LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) > 0
+        AND (si.total_amount - LEAST(GREATEST(COALESCE(si.amount_paid, 0)
+                 - COALESCE(unpaid.amount, 0), 0), si.total_amount)) > 0
       -- Same omission as AR, and larger: 357 supplier invoices worth
       -- R37,703,816.94 — a third of all open payables — were absent from the
       -- aging because they carry no due date. Aged from invoice_date instead.
@@ -160,25 +183,17 @@ export async function getAPAgingDetail(companyId: string,
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
         si.invoice_number, si.total_amount,
-        (COALESCE(si.amount_paid, 0)
-         - LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) AS amount_paid,
-        (si.total_amount - COALESCE(si.amount_paid, 0)
-         + LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) AS balance
+        LEAST(GREATEST(COALESCE(si.amount_paid, 0)
+             - COALESCE(unpaid.amount, 0), 0), si.total_amount) AS amount_paid,
+        (si.total_amount - LEAST(GREATEST(COALESCE(si.amount_paid, 0)
+             - COALESCE(unpaid.amount, 0), 0), si.total_amount)) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
-        -- Settlement AFTER the as-at date, to be rewound. Anchored on
-        -- supplier_invoices.amount_paid rather than rebuilt from allocations:
-        -- anything that settles an invoice without leaving a dated trail would
-        -- otherwise make it reappear at full face value. See the AR service
-        -- for the full reasoning and the measurement behind it.
-        --
-        -- applied_amount, not total_amount — creditNoteApproveService applies
-        -- MIN(total, outstanding) and leaves the excess unapplied. The column
-        -- is NOT NULL DEFAULT 0; a note at 0 reduced nothing to rewind.
-        --
-        -- There is no supplier write-off table; customer_write_offs is the
-        -- only one in this schema, so AP has no third branch.
+        -- Settlement to UNWIND (positive) or RESTORE (negative) so the figure
+        -- reflects the as-at date. Full reasoning, the census of every writer
+        -- of amount_paid and the documented limitations live in the block
+        -- comment at the top of ar/arAgingService.ts — this side mirrors it.
         SELECT SUM(amount) AS amount FROM (
           SELECT pa.amount_allocated AS amount
           FROM payment_allocations pa
@@ -199,14 +214,31 @@ export async function getAPAgingDetail(companyId: string,
             AND cn.status IN ('approved', 'applied')
             AND cn.credit_date > ${asAtStr}::date
             AND cn.credit_date <= ${todayStr}::date
+
+          UNION ALL
+
+          -- NEGATIVE: a credit note that WAS applied on the as-at date and
+          -- has since been CANCELLED. amount_paid no longer reflects it, but
+          -- it did then, so it has to be put back or the invoice reads as
+          -- more outstanding than it was. Possible only because
+          -- credit_notes.cancelled_at exists (migration 528) and
+          -- creditNoteCancelService writes it; the payment tables carry no
+          -- equivalent, which is the limitation documented above.
+          SELECT -cn.applied_amount
+          FROM credit_notes cn
+          WHERE cn.supplier_invoice_id = si.id
+            AND cn.company_id = ${companyId}
+            AND cn.status = 'cancelled'
+            AND cn.credit_date  <= ${asAtStr}::date
+            AND cn.cancelled_at >  ${asAtStr}::date
         ) reversed
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - COALESCE(si.amount_paid, 0)
-             + LEAST(COALESCE(unpaid.amount, 0), COALESCE(si.amount_paid, 0))) > 0
+        AND (si.total_amount - LEAST(GREATEST(COALESCE(si.amount_paid, 0)
+                 - COALESCE(unpaid.amount, 0), 0), si.total_amount)) > 0
       -- Undated invoices belong here for the same reason they belong in the
       -- summary. A drill-down that omits them contradicts the total it drills
       -- into, which is worse than the original omission because it reads as a

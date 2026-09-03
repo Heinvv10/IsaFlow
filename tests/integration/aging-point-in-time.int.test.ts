@@ -356,6 +356,60 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
       .toBeCloseTo(AR_CLOBBERED_TOTAL, 2);
   });
 
+  it('restores a credit note that was applied then, and cancelled since', async () => {
+    // The mirror of the rewind. A credit note applied in February and
+    // cancelled in August is NOT in amount_paid today, but it was in effect on
+    // 31 March — so the invoice was less outstanding then, and the figure has
+    // to be put back. Unlike a cancelled payment this IS datable, because
+    // credit_notes.cancelled_at exists (migration 528).
+    const invoiceId = await insertCustomerInvoice(
+      admin, 'PIT-AR-13', '2026-01-08', '2026-02-08', 1000, 0, 'approved');
+    await admin.query(
+      `INSERT INTO credit_notes
+         (company_id, client_id, customer_invoice_id, credit_note_number, credit_date,
+          type, status, total_amount, applied_amount, cancelled_at, created_by)
+       VALUES ($1,$2,$3,'PIT-CN3','2026-02-01','customer','cancelled',400,400,'2026-08-01',$4)`,
+      [COMPANY, CUSTOMER, invoiceId, COMPANY]);
+
+    try {
+      const early = await getARAgingDetail(COMPANY, CUSTOMER, EARLY);
+      const today = await getARAgingDetail(COMPANY, CUSTOMER);
+
+      // On 31 March the 400 credit stood: 1000 - 400 = 600.
+      expect(early.invoices.find((i) => i.id === invoiceId)?.balance).toBeCloseTo(600, 2);
+      // Today the note is cancelled, so the full 1000 is owed again.
+      expect(today.invoices.find((i) => i.id === invoiceId)?.balance).toBeCloseTo(1000, 2);
+    } finally {
+      await admin.query(`DELETE FROM credit_notes WHERE credit_note_number = 'PIT-CN3'`);
+      await admin.query('DELETE FROM customer_invoices WHERE id = $1', [invoiceId]);
+    }
+  });
+
+  it('never reports a negative balance, even when a restore exceeds the debt', async () => {
+    // A cancelled credit note larger than the invoice would drive the
+    // effective paid figure above total_amount and the balance below zero.
+    // The clamp is two-sided for this reason.
+    const invoiceId = await insertCustomerInvoice(
+      admin, 'PIT-AR-14', '2026-01-09', '2026-02-09', 500, 0, 'approved');
+    await admin.query(
+      `INSERT INTO credit_notes
+         (company_id, client_id, customer_invoice_id, credit_note_number, credit_date,
+          type, status, total_amount, applied_amount, cancelled_at, created_by)
+       VALUES ($1,$2,$3,'PIT-CN4','2026-02-01','customer','cancelled',900,900,'2026-08-01',$4)`,
+      [COMPANY, CUSTOMER, invoiceId, COMPANY]);
+
+    try {
+      const early = await getARAgingDetail(COMPANY, CUSTOMER, EARLY);
+      // Absent (fully settled at that date), never negative.
+      const row = early.invoices.find((i) => i.id === invoiceId);
+      expect(row?.balance ?? 0).toBeGreaterThanOrEqual(0);
+      for (const i of early.invoices) expect(i.balance).toBeGreaterThan(0);
+    } finally {
+      await admin.query(`DELETE FROM credit_notes WHERE credit_note_number = 'PIT-CN4'`);
+      await admin.query('DELETE FROM customer_invoices WHERE id = $1', [invoiceId]);
+    }
+  });
+
   it('KNOWN LIMITATION: a cancelled payment overstates the period it covered', async () => {
     // Documented, not desired. A payment later cancelled keeps its allocation
     // row but is excluded from the rewind by the status filter, and
