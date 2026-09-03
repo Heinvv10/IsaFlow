@@ -9,6 +9,7 @@
 - **Purchase orders / procurement**: `purchaseOrderService.ts` (DB), `procurementService.ts` (pure validation + totals + 3-way match maths), `purchaseOrderPdfBuilder.ts`.
 - **EFT / bank rails**: `eftService.ts` (Std Bank/FNB/ABSA/Nedbank fixed-width builders, pure), `netcashService.ts` (real Netcash submit, 30 s timeout, mock when no key).
 - **Reporting**: `apAgingService.ts` (0/30/60/90+ buckets per supplier).
+- **Subledger snapshot (point-in-time)**: `apSubledgerService.ts` — every open bill as at a date, on the same population and rewind as `apAgingService`. Consumed by `services/reconciliation/`; see `ar/.claude.md` for why the two must not diverge.
 - **Migration**: `migrationApService.ts` — import from staging tables.
 - `index.ts` — barrel re-export (workflow files excluded due to symbol conflicts).
 

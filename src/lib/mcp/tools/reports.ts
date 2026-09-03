@@ -5,12 +5,7 @@
  */
 import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
-import { getTrialBalance } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
-import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
-import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
-import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
-import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
 import { getChartOfAccounts } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
@@ -22,132 +17,39 @@ import {
   startIndexAfter,
 } from './glAccountCursor';
 
-export const trialBalanceTool: McpTool = {
-  name: 'trial_balance',
-  description:
-    'Trial balance for the connected company for a fiscal period (defaults to the period containing today). Amounts in the company base currency.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      fiscal_period_id: {
-        type: 'string',
-        description: 'Fiscal period UUID; defaults to the period containing today',
-      },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { uuid: ['fiscal_period_id'] });
-    if (bad) return bad;
-    const periodId =
-      strArg(args, 'fiscal_period_id') ??
-      (await getFiscalPeriodIdForDate(ctx.companyId, new Date()));
-    if (!periodId) {
-      return toolError('No fiscal period covers today. Provide fiscal_period_id explicitly.');
-    }
-    const rows = await getTrialBalance(ctx.companyId, periodId);
-    return ok({ fiscal_period_id: periodId, rows });
-  },
-};
+/**
+ * `trial_balance` moved to `reportsTrialBalance.ts` when it became a WRAP of
+ * `getTrialBalanceReport`. The version that lived here called `getTrialBalance`
+ * with a single fiscal_period_id and returned bare rows — a period-MOVEMENT
+ * listing wearing a trial balance's name, which is how 7 of 118 accounts came
+ * to be stamped "Difference R0.00 · Balanced". It is not re-exported: nothing
+ * should be able to reach it by accident.
+ */
 
-export const profitAndLossTool: McpTool = {
-  name: 'profit_and_loss',
-  description:
-    'Income statement (profit & loss) for a date range. Both dates required, YYYY-MM-DD.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      period_start: { type: 'string', format: 'date' },
-      period_end: { type: 'string', format: 'date' },
-    },
-    required: ['period_start', 'period_end'],
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const start = strArg(args, 'period_start');
-    const end = strArg(args, 'period_end');
-    if (!start || !end) return toolError('period_start and period_end are required (YYYY-MM-DD)');
-    const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
-    if (bad) return bad;
-    return ok(await getIncomeStatement(ctx.companyId, start, end));
-  },
-};
+/**
+ * `profit_and_loss` moved to `reportsProfitAndLoss.ts` when it grew the layer
+ * and the coverage exception. The version that lived here returned
+ * `getIncomeStatement` verbatim: other income counted as turnover, finance cost
+ * and tax inside operating expenses, no coverage disclosure, and no
+ * comparative. It is not re-exported.
+ */
 
-export const balanceSheetTool: McpTool = {
-  name: 'balance_sheet',
-  description: 'Balance sheet as at a date (YYYY-MM-DD; defaults to today).',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      as_at: { type: 'string', format: 'date', description: 'YYYY-MM-DD; defaults to today' },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { date: ['as_at'] });
-    if (bad) return bad;
-    const asAt = strArg(args, 'as_at') ?? fmtDate(new Date());
-    return ok(await getBalanceSheet(ctx.companyId, asAt));
-  },
-};
+/**
+ * `balance_sheet` moved to `reportsBalanceSheet.ts` when it grew the second
+ * equity figure. The version that lived here passed only `as_at` — the
+ * service's `compareDate` and `costCentreId` were unreachable, and it reported
+ * `totalEquity` alone, which is the figure that always agrees. It is not
+ * re-exported: nothing should be able to reach a one-equity balance sheet by
+ * accident.
+ */
 
-export const agedDebtorsTool: McpTool = {
-  name: 'aged_debtors',
-  description:
-    'Accounts-receivable aging buckets per customer as at a date (defaults to today). '
-    + 'A PAST as_at is reconstructed by unwinding settlement dated since it: payment '
-    + 'allocations, credit notes and write-offs. Settlement that left no dated trail — '
-    + 'a receipt captured with no allocation row, a migrated balance, a cancelled '
-    + 'payment — cannot be unwound, so for those invoices an earlier date reproduces '
-    + 'the CURRENT figure rather than what was actually owed then. It will never '
-    + 'report an invoice as outstanding once it has been settled.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      as_at: { type: 'string', format: 'date', description: 'YYYY-MM-DD; defaults to today' },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { date: ['as_at'] });
-    if (bad) return bad;
-    return ok(await getARAging(ctx.companyId, strArg(args, 'as_at')));
-  },
-};
-
-export const agedCreditorsTool: McpTool = {
-  name: 'aged_creditors',
-  description:
-    'Accounts-payable aging buckets per supplier as at a date (defaults to today). '
-    + 'A PAST as_at is reconstructed by unwinding settlement dated since it: payment '
-    + 'allocations, credit notes and write-offs. Settlement that left no dated trail — '
-    + 'a receipt captured with no allocation row, a migrated balance, a cancelled '
-    + 'payment — cannot be unwound, so for those invoices an earlier date reproduces '
-    + 'the CURRENT figure rather than what was actually owed then. It will never '
-    + 'report an invoice as outstanding once it has been settled.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      as_at: { type: 'string', format: 'date', description: 'YYYY-MM-DD; defaults to today' },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { date: ['as_at'] });
-    if (bad) return bad;
-    return ok(await getAPAging(ctx.companyId, strArg(args, 'as_at')));
-  },
-};
+/**
+ * `aged_debtors` and `aged_creditors` moved to `reportsAging.ts` when they grew
+ * the totals. The versions that lived here returned `getARAging` / `getAPAging`
+ * verbatim: ten rows, no total, no rowsTotal, no truncated, no envelope. That
+ * is the audit's finding, and answering "what are we owed" meant summing the
+ * rows by hand. They are not re-exported.
+ */
 
 export const searchGlTool: McpTool = {
   name: 'search_gl',
