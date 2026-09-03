@@ -2,6 +2,30 @@
  * Supplier Payment Allocations API
  * GET  — List existing allocations (audit trail)
  * POST — Allocate payments against outstanding supplier invoices
+ *
+ * `payment_allocations` is the LIVE allocation table on the AP side. This route
+ * used to read and write migration 201's `supplier_payment_allocations`, which
+ * holds ZERO rows in dev and in production and is read by nothing:
+ * `processSupplierPayment`, `voidSupplierPayment` and `batchPaymentService` all
+ * use `payment_allocations`. Every allocation this route made was therefore
+ * invisible to the balances that matter.
+ *
+ * The POST body is unchanged. What changed is that the writes, the guards and
+ * the state machine now live in `supplierPaymentApplicationService`, shared
+ * with `apply_payment_to_supplier_invoice` over MCP, and three defects went
+ * with the move:
+ *
+ *   - it validated each invoice INSIDE the write loop and returned
+ *     `badRequest` from within it. `withAuth` COMMITs on anything under 500, so
+ *     a three-line request failing on line three committed lines one and two
+ *     and reported failure. Every refusal now happens in the plan, before the
+ *     first write.
+ *   - it wrote `amount_paid` as an absolute value computed in JS from a figure
+ *     read moments earlier — a lost update against a concurrent allocation.
+ *   - it set a PROCESSED payment's status back to `'approved'` on a partial
+ *     allocation, walking a payment whose journal had already posted backwards
+ *     through its own state machine — and `voidSupplierPayment` accepts only
+ *     `processed`, so that also quietly made it un-voidable.
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -11,6 +35,10 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
+import {
+  applySupplierPaymentPlan,
+  planSupplierPaymentApplication,
+} from '@/modules/accounting/services/ap/supplierPaymentApplicationService';
 
 interface AllocationItem {
   invoiceId: string;
@@ -18,7 +46,7 @@ interface AllocationItem {
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId } = req as CompanyAuthedRequest;
+  const { companyId, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
     try {
@@ -31,7 +59,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
             s.company_name AS supplier_name
-          FROM supplier_payment_allocations spa
+          FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
           JOIN suppliers s ON s.id = sp.supplier_id
@@ -44,7 +72,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
             s.company_name AS supplier_name
-          FROM supplier_payment_allocations spa
+          FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
           JOIN suppliers s ON s.id = sp.supplier_id
@@ -58,7 +86,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           SELECT spa.id, spa.payment_id, spa.invoice_id, spa.amount_allocated AS amount,
             spa.created_at AS allocated_at, sp.payment_number, si.invoice_number,
             s.company_name AS supplier_name
-          FROM supplier_payment_allocations spa
+          FROM payment_allocations spa
           JOIN supplier_payments sp ON sp.id = spa.payment_id
           JOIN supplier_invoices si ON si.id = spa.invoice_id
           JOIN suppliers s ON s.id = sp.supplier_id
@@ -76,105 +104,48 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === 'POST') {
-    try {
-      const { paymentId, allocations } = req.body as {
-        paymentId?: string;
-        allocations?: AllocationItem[];
-      };
+    const { paymentId, allocations } = req.body as {
+      paymentId?: string;
+      allocations?: AllocationItem[];
+    };
 
-      if (!paymentId) return apiResponse.badRequest(res, 'paymentId is required');
-      if (!allocations || !Array.isArray(allocations) || allocations.length === 0) {
-        return apiResponse.badRequest(res, 'allocations array is required');
-      }
-
-      for (const alloc of allocations) {
-        if (!alloc.invoiceId || !alloc.amount || alloc.amount <= 0) {
-          return apiResponse.badRequest(res, 'Each allocation needs invoiceId and positive amount');
-        }
-      }
-
-      const paymentRows = await sql`
-        SELECT sp.id, sp.supplier_id, sp.total_amount, sp.status,
-          COALESCE((SELECT SUM(amount_allocated) FROM supplier_payment_allocations WHERE payment_id = sp.id), 0) AS allocated_amount
-        FROM supplier_payments sp WHERE sp.id = ${paymentId} AND sp.company_id = ${companyId}
-      `;
-      const payment = paymentRows[0];
-      if (!payment) return apiResponse.notFound(res, 'Payment', paymentId);
-      if (payment.status === 'cancelled') {
-        return apiResponse.badRequest(res, 'Cannot allocate a cancelled payment');
-      }
-
-      const currentAllocated = Number(payment.allocated_amount || 0);
-      const totalPayment = Number(payment.total_amount);
-      const allocTotal = allocations.reduce((s, a) => s + a.amount, 0);
-
-      if (currentAllocated + allocTotal > totalPayment + 0.01) {
-        return apiResponse.badRequest(res, `Allocation total (${allocTotal}) exceeds available balance (${(totalPayment - currentAllocated).toFixed(2)})`);
-      }
-
-      const results: { invoiceId: string; amount: number; newStatus: string }[] = [];
-
-      for (const alloc of allocations) {
-        const invoiceRows = await sql`
-          SELECT id, supplier_id, total_amount, amount_paid, status
-          FROM supplier_invoices WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}
-        `;
-        const invoice = invoiceRows[0];
-        if (!invoice) {
-          return apiResponse.badRequest(res, `Invoice ${alloc.invoiceId} not found`);
-        }
-        if (invoice.supplier_id !== payment.supplier_id) {
-          return apiResponse.badRequest(res, `Invoice ${alloc.invoiceId} belongs to a different supplier`);
-        }
-
-        const outstanding = Number(invoice.total_amount) - Number(invoice.amount_paid || 0);
-        if (alloc.amount > outstanding + 0.01) {
-          return apiResponse.badRequest(res, `Allocation ${alloc.amount} exceeds outstanding ${outstanding.toFixed(2)} for invoice ${alloc.invoiceId}`);
-        }
-
-        await sql`
-          INSERT INTO supplier_payment_allocations (payment_id, invoice_id, amount_allocated)
-          VALUES (${paymentId}, ${alloc.invoiceId}, ${alloc.amount})
-        `;
-
-        const newPaid = Number(invoice.amount_paid || 0) + alloc.amount;
-        const invoiceTotal = Number(invoice.total_amount);
-        const newStatus = newPaid >= invoiceTotal - 0.01 ? 'paid' : 'partially_paid';
-
-        await sql`
-          UPDATE supplier_invoices
-          SET amount_paid = ${newPaid}, status = ${newStatus}
-          WHERE id = ${alloc.invoiceId} AND company_id = ${companyId}
-        `;
-
-        results.push({ invoiceId: alloc.invoiceId, amount: alloc.amount, newStatus });
-      }
-
-      const newAllocated = currentAllocated + allocTotal;
-      const paymentStatus = newAllocated >= totalPayment - 0.01 ? 'reconciled' : 'approved';
-
-      await sql`
-        UPDATE supplier_payments
-        SET status = ${paymentStatus}
-        WHERE id = ${paymentId} AND company_id = ${companyId}
-      `;
-
-      log.info('Supplier allocations created', {
-        paymentId,
-        count: results.length,
-        total: allocTotal,
-      });
-
-      return apiResponse.success(res, {
-        paymentId,
-        allocations: results,
-        newAllocatedAmount: newAllocated,
-        paymentStatus,
-      });
-    } catch (err) {
-      log.error('Supplier allocation failed', { err, companyId });
-      return apiResponse.internalError(res, err as Error);
+    if (!paymentId) return apiResponse.badRequest(res, 'paymentId is required');
+    if (!allocations || !Array.isArray(allocations) || allocations.length === 0) {
+      return apiResponse.badRequest(res, 'allocations array is required');
     }
+
+    // PLAN then APPLY. Only the plan may produce a 4xx: it takes the payment's
+    // row lock, runs every guard and writes nothing, so a refusal here cannot
+    // have committed anything.
+    let plan;
+    try {
+      plan = await planSupplierPaymentApplication(companyId, paymentId, allocations);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Allocation failed';
+      log.error('Supplier allocation refused', { paymentId, error: err }, 'accounting');
+      return apiResponse.badRequest(res, message);
+    }
+
+    // Nothing below is caught: a failure must reach withAuth as a 5xx so the
+    // transaction rolls back rather than committing a partial apply.
+    await applySupplierPaymentPlan(companyId, plan, user.id);
+
+    log.info('Supplier allocations created', {
+      paymentId,
+      count: plan.lines.length,
+      total: plan.allocatedAfter - plan.allocatedBefore,
+    }, 'accounting');
+
+    return apiResponse.success(res, {
+      paymentId,
+      allocations: plan.lines.map(l => ({
+        invoiceId: l.invoiceId,
+        amount: l.amount,
+        newStatus: l.statusAfter,
+      })),
+      newAllocatedAmount: plan.allocatedAfter,
+      paymentStatus: plan.paymentStatusAfter,
+    });
   }
 
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
