@@ -22,14 +22,18 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { assertNotProductionDb } from '../helpers/assertNotProductionDb';
-import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
-import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
+import { getARAging, getARAgingDetail } from '@/modules/accounting/services/ar/arAgingService';
+import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
 const COMPANY = '00000000-0000-0000-0000-00000000e1a1';
 const CUSTOMER = '00000000-0000-0000-0000-00000000e1a2';
 const SUPPLIER = '00000000-0000-0000-0000-00000000e1a3';
+// A second tenant, used only to prove the rewind cannot reach across companies.
+const OTHER_COMPANY = '00000000-0000-0000-0000-00000000e1b1';
+const OTHER_CUSTOMER = '00000000-0000-0000-0000-00000000e1b2';
+const OTHER_BANK = '00000000-0000-0000-0000-00000000e1b3';
 const BANK = '00000000-0000-0000-0000-00000000e1a4';
 
 // Before any payment lands.
@@ -368,6 +372,110 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
       await admin.query(`DELETE FROM customer_payments WHERE id = $1`, [rows[0].id]);
       await admin.query(`DELETE FROM customer_invoices WHERE id = $1`, [invoiceId]);
     }
+  });
+
+  it('a payment in another company never rewinds this company\'s invoice', async () => {
+    // payment_allocations and customer_payment_allocations carry NO company_id
+    // of their own — tenant scope on the rewind comes only from the join to
+    // customer_payments.company_id. Removing that predicate would let another
+    // tenant's receipt reduce this one's historical balance.
+    await admin.query(
+      `INSERT INTO companies (id, name, is_active) VALUES ($1,'PIT Other',true)
+       ON CONFLICT (id) DO NOTHING`, [OTHER_COMPANY]);
+    await admin.query(
+      `INSERT INTO customers (id, company_id, name) VALUES ($1,$2,'Other Cust')
+       ON CONFLICT (id) DO NOTHING`, [OTHER_CUSTOMER, OTHER_COMPANY]);
+    await admin.query(
+      `INSERT INTO gl_accounts (id, company_id, account_code, account_name, account_type, account_subtype, normal_balance, is_active)
+       VALUES ($1,$2,'PO1000','Bank','asset','bank','debit',true) ON CONFLICT (id) DO NOTHING`,
+      [OTHER_BANK, OTHER_COMPANY]);
+
+    // A receipt in the OTHER company, allocated against THIS company's
+    // PIT-AR-5 — the invoice settled with no dated trail. It is chosen
+    // deliberately: it has amount_paid but NO legitimate rewind, so a leak
+    // shows up as the invoice being resurrected. Pointing this at an invoice
+    // that already has a rewind of its own would be masked by the
+    // LEAST(rewound, amount_paid) clamp and prove nothing.
+    const { rows: inv } = await admin.query(
+      `SELECT id FROM customer_invoices WHERE company_id = $1 AND invoice_number = 'PIT-AR-5'`,
+      [COMPANY]);
+    const { rows: pay } = await admin.query(
+      `INSERT INTO customer_payments
+         (company_id, client_id, payment_number, payment_date, total_amount, status, bank_account_id, created_by)
+       VALUES ($1,$2,'PIT-XT','2026-08-01',$3,'confirmed',$4,$5) RETURNING id`,
+      [OTHER_COMPANY, OTHER_CUSTOMER, AR_UNTRACEABLY_SETTLED, OTHER_BANK, OTHER_COMPANY]);
+    await admin.query(
+      `INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
+       VALUES ($1,$2,$3)`, [pay[0].id, inv[0].id, AR_UNTRACEABLY_SETTLED]);
+
+    try {
+      const before = AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF
+        + AR_PARTIAL_CN_INVOICE + AR_DRAFT_WRITE_OFF + AR_CLOBBERED_TOTAL;
+      const early = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!;
+
+      // Unchanged by the foreign receipt.
+      expect(early.total).toBeCloseTo(before, 2);
+    } finally {
+      await admin.query('DELETE FROM customer_payment_allocations WHERE payment_id = $1', [pay[0].id]);
+      await admin.query('DELETE FROM customer_payments WHERE id = $1', [pay[0].id]);
+      await admin.query('DELETE FROM gl_accounts WHERE company_id = $1', [OTHER_COMPANY]);
+      await admin.query('DELETE FROM customers WHERE company_id = $1', [OTHER_COMPANY]);
+      await admin.query('DELETE FROM companies WHERE id = $1', [OTHER_COMPANY]);
+    }
+  });
+
+  it('settlement dated exactly ON the as-at date is already reflected, not rewound', async () => {
+    // The window is (as_at, today]: a payment dated exactly on the as-at date
+    // had ALREADY happened by then, so it must stay in the baseline. Flipping
+    // the comparison to >= would rewind it and overstate that day's balance.
+    const invoiceId = await insertCustomerInvoice(
+      admin, 'PIT-AR-12', '2026-01-02', '2026-02-02', 900, 900, 'paid');
+    await payCustomer(admin, 'PIT-RB', EARLY, 900, invoiceId);
+
+    try {
+      const early = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!;
+      const expected = AR_PARTLY + AR_SETTLED + AR_CREDITED + AR_WRITTEN_OFF
+        + AR_PARTIAL_CN_INVOICE + AR_DRAFT_WRITE_OFF + AR_CLOBBERED_TOTAL;
+
+      // Settled ON 31 March, so on 31 March it contributes nothing.
+      expect(early.total).toBeCloseTo(expected, 2);
+    } finally {
+      await admin.query(
+        `DELETE FROM customer_payment_allocations WHERE invoice_id = $1`, [invoiceId]);
+      await admin.query(
+        `DELETE FROM customer_payments WHERE company_id = $1 AND payment_number = 'PIT-RB'`, [COMPANY]);
+      await admin.query('DELETE FROM customer_invoices WHERE id = $1', [invoiceId]);
+    }
+  });
+
+  it('the AP drill-down rewinds the same way the AP summary does', async () => {
+    // getAPAgingDetail has its own copy of the LATERAL. Nothing exercised it,
+    // so it could be deleted outright and the suite stayed green.
+    const early = (await getAPAging(COMPANY, EARLY)).find((b) => b.entityId === SUPPLIER)!;
+    const detail = await getAPAgingDetail(COMPANY, SUPPLIER, EARLY);
+
+    expect(detail.buckets?.total).toBeCloseTo(early.total, 2);
+    // And it must differ from today's, or it is not rewinding at all.
+    const today = await getAPAgingDetail(COMPANY, SUPPLIER);
+    expect(detail.buckets?.total).not.toBeCloseTo(today.buckets?.total ?? 0, 2);
+  });
+
+  it('the AR drill-down rewinds the same way the AR summary does', async () => {
+    const early = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!;
+    const detail = await getARAgingDetail(COMPANY, CUSTOMER, EARLY);
+
+    expect(detail.buckets?.total).toBeCloseTo(early.total, 2);
+    const today = await getARAgingDetail(COMPANY, CUSTOMER);
+    expect(detail.buckets?.total).not.toBeCloseTo(today.buckets?.total ?? 0, 2);
+  });
+
+  it('refuses an unparseable as-at date on every entry point', async () => {
+    await expect(getARAging(COMPANY, 'lol')).rejects.toThrow(/Invalid asAtDate/);
+    await expect(getAPAging(COMPANY, 'lol')).rejects.toThrow(/Invalid asAtDate/);
+    await expect(getAPAgingDetail(COMPANY, SUPPLIER, 'lol')).rejects.toThrow(/Invalid asAtDate/);
+    // This one had no guard: the string reached Postgres and came back as a
+    // 22007 date-format error instead of a readable refusal.
+    await expect(getARAgingDetail(COMPANY, CUSTOMER, 'lol')).rejects.toThrow(/Invalid asAtDate/);
   });
 
   it('the as-at date changes the answer at all', async () => {

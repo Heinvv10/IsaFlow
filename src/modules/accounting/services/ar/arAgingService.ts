@@ -244,6 +244,12 @@ export async function getARAgingDetail(companyId: string,
 ): Promise<{ client: { id: string; name: string }; invoices: AgingInvoice[]; buckets: AgingBucket | null }> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
+    // The other three aging entry points guard this; this one did not, so
+    // ?as_at=lol reached Postgres and came back as a 22007 date-format error
+    // instead of a readable refusal.
+    if (asAtDate && isNaN(asAt.getTime())) {
+      throw new Error(`Invalid asAtDate: "${asAtDate}"`);
+    }
     const asAtStr = asAtDate ?? fmtDate(asAt);
     // The rewind window's upper bound comes from the SAME clock as asAtStr,
     // not from CURRENT_DATE. The database session is UTC and the business runs
