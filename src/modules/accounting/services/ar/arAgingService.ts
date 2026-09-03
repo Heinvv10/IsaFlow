@@ -50,6 +50,38 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         -- the report can understate how much was owed on a past date, but it
         -- can never invent a delinquency. At an as-at of today the rewind set
         -- is empty and the answer is exactly amount_paid.
+        --
+        -- EVERY WRITER OF amount_paid, and whether this rewind can see it.
+        -- Built by grepping src/, pages/ AND scripts/ — a census over the
+        -- service layer alone missed five of them, including the two that
+        -- matter most:
+        --
+        --   DATABLE, rewound here:
+        --     customerPaymentAllocationService, receiptAllocationLines,
+        --     supplierAllocationLines, supplierPaymentWorkflowService,
+        --     batchPaymentService   -> allocation row + payment_date
+        --     creditNoteApprove/CancelService -> credit_notes.credit_date
+        --     writeOffService                 -> write_off_date
+        --
+        --   NOT DATABLE, deliberately left in the baseline:
+        --     pages/api/accounting/bank-match-confirm.ts  — the PRIMARY bank
+        --       reconciliation settlement path. Writes amount_paid with no
+        --       payment row and no allocation row.
+        --     pages/api/webhooks/paystack.ts
+        --     pages/api/portal/payments/paystack/verify.ts
+        --     scripts/import-sage-britech.ts — sets amount_paid on INSERT
+        --
+        -- For an invoice settled by one of those four, the historical balance
+        -- is understated: it reads as settled on dates when it was still open.
+        -- That is the accepted direction of error.
+        --
+        -- customer_invoices.paid_at IS available and covers some of them (46 of
+        -- 46 settled invoices on one production company). It is deliberately
+        -- NOT used: it records when an invoice became FULLY paid, so
+        -- attributing the whole undated remainder to it would claim that
+        -- nothing had been paid before that date. On an invoice with earlier
+        -- part-payments that invents a delinquency, which is the one thing
+        -- this design refuses to do.
         SELECT SUM(amount) AS amount FROM (
           SELECT cpa.amount_allocated AS amount
           FROM customer_payment_allocations cpa
@@ -200,6 +232,38 @@ export async function getARAgingDetail(companyId: string,
         -- the report can understate how much was owed on a past date, but it
         -- can never invent a delinquency. At an as-at of today the rewind set
         -- is empty and the answer is exactly amount_paid.
+        --
+        -- EVERY WRITER OF amount_paid, and whether this rewind can see it.
+        -- Built by grepping src/, pages/ AND scripts/ — a census over the
+        -- service layer alone missed five of them, including the two that
+        -- matter most:
+        --
+        --   DATABLE, rewound here:
+        --     customerPaymentAllocationService, receiptAllocationLines,
+        --     supplierAllocationLines, supplierPaymentWorkflowService,
+        --     batchPaymentService   -> allocation row + payment_date
+        --     creditNoteApprove/CancelService -> credit_notes.credit_date
+        --     writeOffService                 -> write_off_date
+        --
+        --   NOT DATABLE, deliberately left in the baseline:
+        --     pages/api/accounting/bank-match-confirm.ts  — the PRIMARY bank
+        --       reconciliation settlement path. Writes amount_paid with no
+        --       payment row and no allocation row.
+        --     pages/api/webhooks/paystack.ts
+        --     pages/api/portal/payments/paystack/verify.ts
+        --     scripts/import-sage-britech.ts — sets amount_paid on INSERT
+        --
+        -- For an invoice settled by one of those four, the historical balance
+        -- is understated: it reads as settled on dates when it was still open.
+        -- That is the accepted direction of error.
+        --
+        -- customer_invoices.paid_at IS available and covers some of them (46 of
+        -- 46 settled invoices on one production company). It is deliberately
+        -- NOT used: it records when an invoice became FULLY paid, so
+        -- attributing the whole undated remainder to it would claim that
+        -- nothing had been paid before that date. On an invoice with earlier
+        -- part-payments that invents a delinquency, which is the one thing
+        -- this design refuses to do.
         SELECT SUM(amount) AS amount FROM (
           SELECT cpa.amount_allocated AS amount
           FROM customer_payment_allocations cpa

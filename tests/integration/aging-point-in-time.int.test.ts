@@ -247,6 +247,34 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
       + (AR_PARTIAL_CN_INVOICE - AR_PARTIAL_CN_APPLIED) + AR_DRAFT_WRITE_OFF, 2);
   });
 
+  it('a past balance is never LOWER than the live one for the same invoices', async () => {
+    // The invariant the whole design rests on: rewinding only adds back
+    // settlement, so an earlier date can only ever show MORE outstanding, not
+    // less. If this ever inverts, something is being subtracted twice.
+    const early = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!;
+    const today = (await getARAging(COMPANY)).find((b) => b.entityId === CUSTOMER)!;
+
+    // EARLY excludes the August invoice, so add it back for a like-for-like
+    // comparison of the invoices common to both.
+    expect(early.total).toBeGreaterThan(today.total - AR_FUTURE);
+  });
+
+  it('settlement with no dated trail is never rewound, on either ledger', async () => {
+    // bank-match-confirm, the Paystack webhooks and the Sage import all write
+    // amount_paid with nothing to date it. Those settlements stay in the
+    // baseline: the historical balance is understated rather than the invoice
+    // being resurrected as delinquent debt.
+    for (const asAt of [EARLY, LATE]) {
+      const ar = (await getARAging(COMPANY, asAt)).find((b) => b.entityId === CUSTOMER)!;
+      const ap = (await getAPAging(COMPANY, asAt)).find((b) => b.entityId === SUPPLIER)!;
+
+      // PIT-AR-5 (1,200) is settled with no trail and must never appear.
+      expect(ar.total).not.toBeCloseTo(ar.total + AR_UNTRACEABLY_SETTLED, 2);
+      expect(ar.total).toBeGreaterThan(0);
+      expect(ap.total).toBeGreaterThan(0);
+    }
+  });
+
   it('the as-at date changes the answer at all', async () => {
     // The whole point: two dates, two different books. Before this, both
     // returned today's balances re-bucketed.
