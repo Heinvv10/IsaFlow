@@ -11,6 +11,7 @@ import {
   getAccountMappings,
 } from '@/modules/accounting/services/reports/casewareExportService';
 import type { SectionStatus, SectionType, DocumentStatus, ReportingFramework } from './afsTypes';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -97,20 +98,35 @@ async function fetchSectionRows(
   }));
 }
 
-function derivePeriod(doc: AfsDocumentRow): { start: string; end: string } {
-  if (doc.period) {
-    // period stored as YYYY or YYYY-MM-DD — normalise to full-year bounds
-    const year = doc.period.slice(0, 4);
-    return { start: `${year}-01-01`, end: `${year}-12-31` };
+/**
+ * The twelve months this CaseWare package covers.
+ *
+ * A third copy of the January-December assumption lived here — after
+ * noteHelpers.fiscalRange and a private copy in reports/disclosureNoteGenerators
+ * — so the exported trial balance covered the wrong year for every company
+ * whose financial year does not start in January. It now resolves the same
+ * fiscal calendar the statements use.
+ *
+ * Refuses when the document identifies no year at all. The previous fallback
+ * was `new Date().getFullYear()`, which silently exported whichever year the
+ * export happened to be run in.
+ */
+async function derivePeriod(
+  doc: AfsDocumentRow,
+  companyId: string,
+): Promise<{ start: string; end: string }> {
+  // `period` is stored as YYYY or YYYY-MM-DD; the year is what identifies it.
+  const year = doc.period ? Number(doc.period.slice(0, 4)) : doc.fiscal_year;
+
+  if (year == null || !Number.isFinite(Number(year))) {
+    throw new Error(
+      `derivePeriod: AFS document has neither a period nor a fiscal_year, so the ` +
+      `year it covers is unknown. Refusing rather than exporting the current ` +
+      `calendar year, which would put the wrong trading in a CaseWare package.`,
+    );
   }
-  if (doc.fiscal_year != null) {
-    return {
-      start: `${doc.fiscal_year}-01-01`,
-      end: `${doc.fiscal_year}-12-31`,
-    };
-  }
-  const current = new Date().getFullYear();
-  return { start: `${current}-01-01`, end: `${current}-12-31` };
+
+  return getFiscalRange(companyId, Number(year));
 }
 
 function buildManifest(files: CasewarePackageFile[]): string {
@@ -143,7 +159,7 @@ export async function buildFullCasewarePackage(
   const docRow = await fetchDocumentRow(documentId, companyId);
 
   // 2. Trial balance CSV
-  const { start, end } = derivePeriod(docRow);
+  const { start, end } = await derivePeriod(docRow, companyId);
   const trialBalanceCsv = await exportCaseWareTB(companyId, start, end);
 
   // 3. AFS metadata JSON

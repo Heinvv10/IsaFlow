@@ -9,8 +9,8 @@
 
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
-import { fiscalRange } from '../noteHelpers';
 import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, type SectionLine } from './_helpers';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // Asset codes from the canonical catalogue. Anything not in this set
 // (and on the BS) is treated as equity or liability and sign-flipped.
@@ -31,6 +31,7 @@ export async function generateStatementOfFinancialPosition(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateStatementOfFinancialPosition', { companyId, fiscalYear }, 'AfsPrimary');
+  const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
   const lines = rollUpTotals(await fetchSectionLines(companyId, 'balance_sheet', fiscalYear, fiscalYear - 1));
   const adjusted = lines.map((l) => (isAssetLine(l) ? l : flipSign(l)));
   const blocks = renderHierarchicalTable(adjusted, true);
@@ -39,7 +40,7 @@ export async function generateStatementOfFinancialPosition(
     content: {
       title: 'Statement of Financial Position',
       blocks: [
-        { type: 'paragraph', text: `As at ${fiscalRange(fiscalYear).end}.` },
+        { type: 'paragraph', text: `As at ${fyEnd}.` },
         ...blocks,
       ],
     },

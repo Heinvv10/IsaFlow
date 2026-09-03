@@ -11,7 +11,8 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
-import { fmt, toNum, fiscalRange } from '../noteHelpers';
+import { fmt, toNum } from '../noteHelpers';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 type DbRow = Record<string, unknown>;
 
@@ -21,7 +22,7 @@ export async function generateCashFlow(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateCashFlow', { companyId, fiscalYear }, 'AfsPrimary');
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await getFiscalRange(companyId, fiscalYear);
   const cashRows = (await sql`
     SELECT
       COALESCE(SUM(CASE WHEN gje.entry_date < ${start}::date THEN gjl.debit - gjl.credit ELSE 0 END), 0) AS opening,

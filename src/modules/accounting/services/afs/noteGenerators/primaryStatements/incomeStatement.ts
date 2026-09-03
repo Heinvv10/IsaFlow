@@ -9,8 +9,8 @@
 
 import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
-import { fiscalRange } from '../noteHelpers';
 import { fetchSectionLines, rollUpTotals, renderHierarchicalTable, flipSign, type SectionLine } from './_helpers';
+import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
 
 // Codes whose GL balance is naturally credit-positive (revenue, other
 // income, finance income, dividends, etc.) — render positive on the IS.
@@ -34,6 +34,7 @@ export async function generateIncomeStatement(
   _framework: ReportingFramework,
 ): Promise<{ dataSnapshot: Record<string, unknown>; content: NoteContent }> {
   log.info('generateIncomeStatement', { companyId, fiscalYear }, 'AfsPrimary');
+  const { end: fyEnd } = await getFiscalRange(companyId, fiscalYear);
   const lines = rollUpTotals(await fetchSectionLines(companyId, 'income_statement', fiscalYear, fiscalYear - 1));
   const adjusted = lines.map((l) => (isRevenueLine(l) ? flipSign(l) : l));
   const blocks = renderHierarchicalTable(adjusted, true);
@@ -42,7 +43,7 @@ export async function generateIncomeStatement(
     content: {
       title: 'Statement of Profit or Loss',
       blocks: [
-        { type: 'paragraph', text: `For the year ended ${fiscalRange(fiscalYear).end}.` },
+        { type: 'paragraph', text: `For the year ended ${fyEnd}.` },
         ...blocks,
       ],
     },
