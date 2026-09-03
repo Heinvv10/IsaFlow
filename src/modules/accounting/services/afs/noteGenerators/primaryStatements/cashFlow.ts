@@ -13,6 +13,7 @@ import { log } from '@/lib/logger';
 import type { NoteContent, ReportingFramework } from '@/modules/accounting/services/afs/afsTypes';
 import { fmt, toNum } from '../noteHelpers';
 import { getFiscalRange } from '@/modules/accounting/services/afs/afsFiscalPeriod';
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type DbRow = Record<string, unknown>;
 
@@ -32,7 +33,12 @@ export async function generateCashFlow(
     JOIN gl_journal_lines gjl ON gjl.gl_account_id = ga.id AND gjl.company_id = ${companyId}::uuid
     JOIN gl_journal_entries gje ON gje.id = gjl.journal_entry_id AND gje.status = 'posted' AND gje.company_id = ${companyId}::uuid
     WHERE ga.company_id = ${companyId}::uuid
-      AND ga.account_subtype IN ('bank', 'cash', 'petty_cash')
+      -- CASH_SUBTYPES rather than a hardcoded triple: production charts also
+      -- spell these 'bank_account' and 'cash_on_hand', which the literal list
+      -- missed. The pre-export check resolves cash the same way, so the
+      -- statement and the check cannot disagree about what counts as cash.
+      AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
+      AND ga.account_type = 'asset'
   `) as DbRow[];
   const opening = toNum(cashRows[0]?.opening);
   const closing = toNum(cashRows[0]?.closing);

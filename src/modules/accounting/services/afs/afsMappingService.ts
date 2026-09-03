@@ -175,6 +175,13 @@ export async function seedDefaultTaxonomy(companyId: string): Promise<{ created:
       isHeader: line.isHeader ?? false,
       isTotal: line.isTotal ?? false,
       isActive: true,
+      // Without these two, a NEW company is seeded with total_basis='children'
+      // on BS038/BS082/IS452/IS471/IS480/IS485 — all of which are top-level
+      // with no parent_code — and every one of its headline totals renders
+      // 0.00. Migration 533 repaired the companies that already existed; this
+      // is what stops the next tenant being created broken.
+      totalBasis: line.totalBasis ?? 'children',
+      totalComponents: line.totalComponents ?? null,
     });
     created++;
   }

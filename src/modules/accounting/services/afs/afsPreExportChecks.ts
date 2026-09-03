@@ -3,6 +3,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { ReportingFramework, SectionStatus } from './afsTypes';
 import { getFiscalRange } from './afsFiscalPeriod';
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,66 +91,81 @@ async function checkBalanceSheetBalances(
 }
 
 /**
- * Closing cash on the cash flow statement must equal the cash reported on the
- * balance sheet.
+ * Closing cash on the cash flow statement must still equal the cash in the
+ * ledger at period end.
  *
- * This compares the TWO STATEMENTS. The previous version compared two keys of
- * the same cash-flow snapshot, which even had both existed would have been the
- * statement agreeing with itself.
+ * Compared against the LEDGER, not against the balance sheet's cash line. The
+ * two statements use different definitions on purpose: the cash flow covers
+ * cash and cash equivalents by subtype, while the balance sheet reports the
+ * taxonomy lines a company has mapped, and a bank OVERDRAFT belongs in current
+ * liabilities rather than in cash. Comparing them would block a correctly
+ * prepared set of statements — a false blocker is as damaging as an absent one,
+ * because it teaches an operator to reach for skipChecks.
+ *
+ * Against the ledger the check is meaningful at the moment that matters: the
+ * snapshot was written when the section was generated, and any journal posted
+ * since makes the statement stale. This is what catches that.
  */
 async function checkClosingCashEqualsBank(
   documentId: string,
   companyId: string,
+  periodEnd: string,
 ): Promise<ExportCheck> {
-  const label = 'Closing cash equals the balance sheet';
+  const label = 'Closing cash agrees with the ledger';
 
   const rows = (await sql`
-    SELECT section_type, data_snapshot
+    SELECT data_snapshot
     FROM   afs_sections
     WHERE  document_id  = ${documentId}::UUID
       AND  company_id   = ${companyId}::UUID
-      AND  section_type IN ('cash_flow', 'statement_of_fp')
+      AND  section_type = 'cash_flow'
+    LIMIT 1
   `) as Record<string, unknown>[];
 
-  const snapshotFor = (type: string): Record<string, unknown> | null => {
-    const row = rows.find((r) => r.section_type === type);
-    return row ? ((row.data_snapshot as Record<string, unknown>) ?? {}) : null;
-  };
-
-  const cashFlowSnap = snapshotFor('cash_flow');
-  const balanceSnap  = snapshotFor('statement_of_fp');
-
-  if (cashFlowSnap === null) {
+  if (rows.length === 0 || rows[0] === undefined) {
     return { label, passed: false, severity: 'blocker', detail: 'Cash flow section not found' };
   }
-  if (balanceSnap === null) {
-    return { label, passed: false, severity: 'blocker', detail: 'Balance sheet section not found' };
-  }
 
-  const closingCash = readNumber(cashFlowSnap, 'closingCash');
-  const balanceCash = readNumber(balanceSnap, 'cash');
+  const snap = (rows[0].data_snapshot as Record<string, unknown>) ?? {};
+  const closingCash = readNumber(snap, 'closingCash');
 
-  if (closingCash === null || balanceCash === null) {
+  if (closingCash === null) {
     return {
       label,
       passed: false,
       severity: 'blocker',
       detail:
-        `Cash is missing from the ${closingCash === null ? 'cash flow' : 'balance sheet'} ` +
-        `section — regenerate it. The figures cannot be checked, so this check cannot pass.`,
+        'The cash flow section holds no closing cash figure — regenerate it. ' +
+        'The figure cannot be checked, so this check cannot pass.',
     };
   }
 
-  const diff = Math.abs(closingCash - balanceCash);
+  const ledgerRows = (await sql`
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::numeric AS balance
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    JOIN gl_accounts ga        ON ga.id = jl.gl_account_id
+    WHERE ga.account_subtype = ANY(${CASH_SUBTYPES as string[]})
+      AND ga.account_type = 'asset'
+      AND jl.company_id = ${companyId}::UUID
+      AND je.company_id = ${companyId}::UUID
+      AND ga.company_id = ${companyId}::UUID
+      AND je.status     = 'posted'
+      AND je.entry_date <= ${periodEnd}::date
+  `) as Record<string, unknown>[];
+
+  const ledgerCash = Number(ledgerRows[0]?.balance ?? 0);
+  const diff = Math.abs(closingCash - ledgerCash);
+
   if (diff > 0.01) {
     return {
       label,
       passed: false,
       severity: 'blocker',
       detail:
-        `Closing cash ${closingCash.toFixed(2)} does not match the ${balanceCash.toFixed(2)} ` +
-        `reported on the balance sheet (difference ${diff.toFixed(2)}). ` +
-        `A cash account that is not mapped to an AFS line is the usual cause.`,
+        `The cash flow reports closing cash of ${closingCash.toFixed(2)} but the ledger holds ` +
+        `${ledgerCash.toFixed(2)} at period end (difference ${diff.toFixed(2)}). ` +
+        `Regenerate the cash flow section — journals have most likely been posted since it was built.`,
     };
   }
 
@@ -226,8 +242,8 @@ async function checkAllAccountsMapped(
 
   const rows = (await sql`
     SELECT
-      COUNT(*) FILTER (WHERE am.gl_account_id IS NULL AND bal.balance <> 0) AS unmapped_accounts,
-      COALESCE(SUM(ABS(bal.balance)) FILTER (WHERE am.gl_account_id IS NULL), 0) AS unmapped_value,
+      COUNT(*) FILTER (WHERE sl.code IS NULL AND bal.balance <> 0) AS unmapped_accounts,
+      COALESCE(SUM(ABS(bal.balance)) FILTER (WHERE sl.code IS NULL), 0) AS unmapped_value,
       COALESCE(SUM(ABS(bal.balance)), 0)                                        AS total_value
     FROM (
       SELECT jl.gl_account_id AS id,
@@ -243,6 +259,16 @@ async function checkAllAccountsMapped(
     LEFT JOIN afs_account_mappings am
       ON am.gl_account_id = bal.id
      AND am.company_id    = ${companyId}::UUID
+    -- The mapping row is not enough. afs_account_mappings.afs_line_code is a
+    -- bare varchar with NO foreign key to afs_statement_lines, so it can name
+    -- a code that does not exist, or one since deactivated via
+    -- toggleStatementLine. Either way the account reaches no line, no total
+    -- and no statement — which is the whole defect this check exists to catch.
+    -- Resolving the code is what makes this a tie-out rather than a row count.
+    LEFT JOIN afs_statement_lines sl
+      ON sl.company_id = ${companyId}::UUID
+     AND sl.code       = am.afs_line_code
+     AND sl.is_active
   `) as Record<string, unknown>[];
 
   const unmappedAccounts = Number(rows[0]?.unmapped_accounts ?? 0);
@@ -257,7 +283,7 @@ async function checkAllAccountsMapped(
       severity: 'blocker',
       detail:
         `${unmappedAccounts} general ledger account(s) holding ${unmappedValue.toFixed(2)} ` +
-        `(${share.toFixed(1)}% of the ledger) are not mapped to any AFS line, so they appear ` +
+        `(${share.toFixed(1)}% of the ledger) do not resolve to an active AFS line, so they appear ` +
         `nowhere in these statements. Map them under AFS > Account Mapping before exporting.`,
     };
   }
@@ -442,7 +468,7 @@ export async function runPreExportChecks(
           detail: 'Not applicable to a management pack.',
         }),
     checkBalanceSheetBalances(documentId, companyId),
-    checkClosingCashEqualsBank(documentId, companyId),
+    checkClosingCashEqualsBank(documentId, companyId, periodEnd),
     checkMandatoryNotes(documentId, companyId, reportingFramework),
     checkComparativeFigures(documentId, companyId),
     checkAllNotesReviewed(documentId, companyId),

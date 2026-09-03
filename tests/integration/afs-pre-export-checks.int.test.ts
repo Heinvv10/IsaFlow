@@ -69,6 +69,20 @@ describeIfDb('AFS pre-export blockers actually block', () => {
       [DOCUMENT, COMPANY, FISCAL_YEAR],
     );
 
+    // Real taxonomy lines. A mapping is only worth anything if the code it
+    // names actually resolves to a live statement line, so the fixture has to
+    // contain the lines the mappings below point at.
+    await admin.query(
+      `INSERT INTO afs_statement_lines
+         (company_id, code, section, label, parent_code, sort_order, is_header, is_total, is_active)
+       VALUES
+         ($1,'BS036','balance_sheet','Bank and cash balances','BS023',360,false,false,true),
+         ($1,'BS043','balance_sheet','Share capital','BS041',430,false,false,true),
+         ($1,'BS047','balance_sheet','Treasury shares','BS041',470,false,false,false)
+       ON CONFLICT (company_id, code) DO NOTHING`,
+      [COMPANY],
+    );
+
     // A posted entry, so both accounts carry a balance.
     const { rows } = await admin.query(
       `INSERT INTO gl_journal_entries (company_id, entry_number, entry_date, description, status, created_by)
@@ -111,7 +125,25 @@ describeIfDb('AFS pre-export blockers actually block', () => {
     expect(tieOut?.detail).toMatch(/100\.0%/);
   });
 
-  it('passes the tie-out once every account carrying a balance is mapped', async () => {
+  it('passes the tie-out once every account resolves to a live AFS line', async () => {
+    await admin.query(
+      `INSERT INTO afs_account_mappings (company_id, gl_account_id, afs_line_code)
+       VALUES ($1,$2,'BS036'), ($1,$3,'BS043')
+       ON CONFLICT DO NOTHING`,
+      [COMPANY, GL_BANK, GL_EQUITY],
+    );
+    try {
+      const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
+      expect(check(checks, 'Every ledger account')?.passed).toBe(true);
+    } finally {
+      await admin.query('DELETE FROM afs_account_mappings WHERE company_id = $1', [COMPANY]);
+    }
+  });
+
+  it('refuses a mapping that names a statement line which does not exist', async () => {
+    // afs_account_mappings.afs_line_code has no foreign key, so a hand-typed
+    // or stale code inserts happily. The account is then mapped on paper and
+    // absent from every statement — the defect this check exists to catch.
     await admin.query(
       `INSERT INTO afs_account_mappings (company_id, gl_account_id, afs_line_code)
        VALUES ($1,$2,'BS036'), ($1,$3,'BS042')
@@ -120,7 +152,27 @@ describeIfDb('AFS pre-export blockers actually block', () => {
     );
     try {
       const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
-      expect(check(checks, 'Every ledger account')?.passed).toBe(true);
+      const tieOut = check(checks, 'Every ledger account');
+
+      expect(tieOut?.passed).toBe(false);
+      expect(tieOut?.detail).toMatch(/1 general ledger account/);
+    } finally {
+      await admin.query('DELETE FROM afs_account_mappings WHERE company_id = $1', [COMPANY]);
+    }
+  });
+
+  it('refuses a mapping to a statement line that has been deactivated', async () => {
+    // BS047 exists but is_active = false. A deactivated line renders nowhere,
+    // so an account mapped to it is just as absent as an unmapped one.
+    await admin.query(
+      `INSERT INTO afs_account_mappings (company_id, gl_account_id, afs_line_code)
+       VALUES ($1,$2,'BS036'), ($1,$3,'BS047')
+       ON CONFLICT DO NOTHING`,
+      [COMPANY, GL_BANK, GL_EQUITY],
+    );
+    try {
+      const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
+      expect(check(checks, 'Every ledger account')?.passed).toBe(false);
     } finally {
       await admin.query('DELETE FROM afs_account_mappings WHERE company_id = $1', [COMPANY]);
     }
@@ -162,12 +214,16 @@ describeIfDb('AFS pre-export blockers actually block', () => {
   });
 
   // ── the cash blocker ───────────────────────────────────────────────────────
+  //
+  // Tied to the LEDGER, not to the balance sheet. The two statements define
+  // cash differently on purpose — an overdraft belongs in current liabilities,
+  // not in cash — so comparing them would refuse correctly prepared accounts.
+  // The fixture's only cash account holds 1000 at period end.
 
-  it('refuses when closing cash disagrees with the balance sheet', async () => {
-    await insertSection(admin, 'statement_of_fp', {
-      lines: [], totalAssets: 1000, totalLiabilities: 400, totalEquity: 600, cash: 250,
-    });
-    await insertSection(admin, 'cash_flow', { closingCash: 1000 });
+  const LEDGER_CASH = 1000;
+
+  it('refuses when the cash flow disagrees with the ledger', async () => {
+    await insertSection(admin, 'cash_flow', { closingCash: 250 });
 
     const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
     const cash = check(checks, 'Closing cash');
@@ -178,20 +234,27 @@ describeIfDb('AFS pre-export blockers actually block', () => {
 
   it('refuses a cash flow section that carries no closing cash', async () => {
     // The old snapshot shape: opening/closing, neither of which the check read.
-    await insertSection(admin, 'statement_of_fp', {
-      lines: [], totalAssets: 1000, totalLiabilities: 400, totalEquity: 600, cash: 250,
-    });
-    await insertSection(admin, 'cash_flow', { opening: 0, closing: 250 });
+    await insertSection(admin, 'cash_flow', { opening: 0, closing: LEDGER_CASH });
 
     const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
     expect(check(checks, 'Closing cash')?.passed).toBe(false);
   });
 
-  it('passes when the two statements agree on cash', async () => {
+  it('passes when the cash flow matches the ledger', async () => {
+    await insertSection(admin, 'cash_flow', { closingCash: LEDGER_CASH });
+
+    const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
+    expect(check(checks, 'Closing cash')?.passed).toBe(true);
+  });
+
+  it('does not refuse merely because the balance sheet reports cash differently', async () => {
+    // An overdraft mapped to current liabilities leaves the balance sheet's
+    // cash line below the cash flow's closing cash. That is correct
+    // presentation, and must not block the export.
+    await insertSection(admin, 'cash_flow', { closingCash: LEDGER_CASH });
     await insertSection(admin, 'statement_of_fp', {
       lines: [], totalAssets: 1000, totalLiabilities: 400, totalEquity: 600, cash: 250,
     });
-    await insertSection(admin, 'cash_flow', { closingCash: 250 });
 
     const checks = await runPreExportChecks(DOCUMENT, COMPANY, 'ifrs_smes');
     expect(check(checks, 'Closing cash')?.passed).toBe(true);
@@ -213,6 +276,7 @@ async function insertSection(
 async function cleanup(admin: Pool): Promise<void> {
   await admin.query('DELETE FROM afs_sections WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM afs_account_mappings WHERE company_id = $1', [COMPANY]);
+  await admin.query('DELETE FROM afs_statement_lines WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM afs_documents WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM gl_journal_lines WHERE company_id = $1', [COMPANY]);
   await admin.query('DELETE FROM gl_journal_entries WHERE company_id = $1', [COMPANY]);
