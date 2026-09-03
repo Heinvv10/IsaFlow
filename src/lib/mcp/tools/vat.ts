@@ -81,7 +81,6 @@ export const vatStatusTool: McpTool = {
       ...buildEnvelope({
         rows: report.rows,
         rowsTotal: report.rowsTotal,
-        universeTotal: report.universeTotal,
         excludedRows: report.excludedRows,
         detail,
         as_at: report.periodEnd,

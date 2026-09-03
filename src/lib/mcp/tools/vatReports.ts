@@ -63,7 +63,8 @@ export const vatReconciliationTool: McpTool = {
       ...buildEnvelope({
         rows: recon.months,
         rowsTotal: recon.months.length,
-        universeTotal: recon.months.length,
+        // universeTotal omitted: rows ARE the months in the requested range; the report produces them rather than filtering a pool,
+        // so a universe equal to rowsTotal would make the identity unfalsifiable.
         excludedRows: [],
         detail: 'standard',
         as_at: recon.periodEnd,
