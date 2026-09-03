@@ -8,7 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
-import { AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { fmtDate } from '@/lib/fmtDate';
 import { getOpenDisputeTotals } from './disputeService';
 type Row = DbRow;
 
@@ -19,18 +19,43 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
     if (asAtDate && isNaN(asAt.getTime())) {
       throw new Error(`Invalid asAtDate: "${asAtDate}"`);
     }
+    // fmtDate, never toISOString: on this UTC+2 host a Date round-trip reports
+    // the previous day, which would silently shift the as-at boundary.
+    const asAtStr = asAtDate ?? fmtDate(asAt);
 
     const rows = (await sql`
       SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
         COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
         (ci.due_date IS NULL) AS due_date_missing,
-        ci.total_amount, ci.amount_paid,
-        (ci.total_amount - ci.amount_paid) AS balance
+        ci.total_amount,
+        COALESCE(paid.amount, 0) AS amount_paid,
+        (ci.total_amount - COALESCE(paid.amount, 0)) AS balance
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      LEFT JOIN LATERAL (
+        SELECT SUM(cpa.amount_allocated) AS amount
+        FROM customer_payment_allocations cpa
+        JOIN customer_payments cp ON cp.id = cpa.payment_id
+        WHERE cpa.invoice_id = ci.id
+          AND cp.company_id = ${companyId}
+          AND cp.status NOT IN ('draft', 'cancelled')
+          AND cp.payment_date <= ${asAtStr}::date
+      ) paid ON TRUE
       WHERE ci.company_id = ${companyId}
-        AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-        AND (ci.total_amount - ci.amount_paid) > 0
+        AND ci.status NOT IN ('draft', 'cancelled')
+        AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
+        AND (ci.total_amount - COALESCE(paid.amount, 0)) > 0
+      -- POINT IN TIME. amount_paid on the invoice is a CURRENT snapshot, so
+      -- reading it made asAtDate decorative: it only re-bucketed today's
+      -- balances by age. What was owed on a past date is reconstructed from
+      -- the allocation history instead — every customer_payments row carries a
+      -- payment_date, and for real client companies the allocations reconcile
+      -- to amount_paid exactly.
+      --
+      -- Status is NOT filtered to the open set here: an invoice that is paid
+      -- TODAY was still outstanding on an earlier date, and filtering it out
+      -- is what erased settled debt from historical aging. Only never-issued
+      -- and voided invoices are excluded.
       -- An invoice with no due date is still a debt. Filtering
       -- due_date IS NOT NULL here dropped 34 invoices worth R13,908,380.43
       -- from production's AR aging — not shown in a bucket, not in a total,
@@ -65,6 +90,9 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
       WHERE cn.company_id = ${companyId}
         AND cn.type = 'customer' AND cn.status = 'approved'
         AND cn.customer_invoice_id IS NULL
+        -- A credit note granted after the as-at date had not reduced the
+        -- customer's balance on that date.
+        AND cn.credit_date <= ${asAtStr}::date
     `) as Row[];
 
     for (const r of cnRows) {
@@ -92,6 +120,7 @@ export async function getARAgingDetail(companyId: string,
 ): Promise<{ client: { id: string; name: string }; invoices: AgingInvoice[]; buckets: AgingBucket | null }> {
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
+    const asAtStr = asAtDate ?? fmtDate(asAt);
 
     const clientRows = (await sql`SELECT id, name AS name FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}`) as Row[];
     if (clientRows.length === 0) throw new Error(`Client ${clientId} not found`);
@@ -100,14 +129,25 @@ export async function getARAgingDetail(companyId: string,
       SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
         COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
         (ci.due_date IS NULL) AS due_date_missing,
-        ci.invoice_number, ci.total_amount, ci.amount_paid,
-        (ci.total_amount - ci.amount_paid) AS balance
+        ci.invoice_number, ci.total_amount,
+        COALESCE(paid.amount, 0) AS amount_paid,
+        (ci.total_amount - COALESCE(paid.amount, 0)) AS balance
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+      LEFT JOIN LATERAL (
+        SELECT SUM(cpa.amount_allocated) AS amount
+        FROM customer_payment_allocations cpa
+        JOIN customer_payments cp ON cp.id = cpa.payment_id
+        WHERE cpa.invoice_id = ci.id
+          AND cp.company_id = ${companyId}
+          AND cp.status NOT IN ('draft', 'cancelled')
+          AND cp.payment_date <= ${asAtStr}::date
+      ) paid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
-        AND ci.status = ANY(${Array.from(AR_OPEN_STATUSES)}::text[])
-        AND (ci.total_amount - ci.amount_paid) > 0
+        AND ci.status NOT IN ('draft', 'cancelled')
+        AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
+        AND (ci.total_amount - COALESCE(paid.amount, 0)) > 0
       -- An invoice with no due date is still a debt. Filtering
       -- due_date IS NOT NULL here dropped 34 invoices worth R13,908,380.43
       -- from production's AR aging — not shown in a bucket, not in a total,

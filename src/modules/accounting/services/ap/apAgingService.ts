@@ -8,7 +8,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
-import { AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { fmtDate } from '@/lib/fmtDate';
 type Row = DbRow;
 
 
@@ -18,17 +18,32 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
     if (asAtDate && isNaN(asAt.getTime())) {
       throw new Error(`Invalid asAtDate: "${asAtDate}"`);
     }
+    // fmtDate, never toISOString: on this UTC+2 host a Date round-trip reports
+    // the previous day and would shift the as-at boundary.
+    const asAtStr = asAtDate ?? fmtDate(asAt);
 
     const rows = (await sql`
       SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
-        si.total_amount, si.amount_paid, si.balance
+        si.total_amount,
+        COALESCE(paid.amount, 0) AS amount_paid,
+        (si.total_amount - COALESCE(paid.amount, 0)) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
+      LEFT JOIN LATERAL (
+        SELECT SUM(pa.amount_allocated) AS amount
+        FROM payment_allocations pa
+        JOIN supplier_payments sp ON sp.id = pa.payment_id
+        WHERE pa.invoice_id = si.id
+          AND sp.company_id = ${companyId}::UUID
+          AND sp.status NOT IN ('draft', 'cancelled')
+          AND sp.payment_date <= ${asAtStr}::date
+      ) paid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
-        AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-        AND si.balance > 0
+        AND si.status NOT IN ('draft', 'cancelled')
+        AND si.invoice_date <= ${asAtStr}::date
+        AND (si.total_amount - COALESCE(paid.amount, 0)) > 0
       -- Same omission as AR, and larger: 357 supplier invoices worth
       -- R37,703,816.94 — a third of all open payables — were absent from the
       -- aging because they carry no due date. Aged from invoice_date instead.
@@ -62,6 +77,9 @@ export async function getAPAgingDetail(companyId: string,
     if (asAtDate && isNaN(asAt.getTime())) {
       throw new Error(`Invalid asAtDate: "${asAtDate}"`);
     }
+    // fmtDate, never toISOString: on this UTC+2 host a Date round-trip reports
+    // the previous day and would shift the as-at boundary.
+    const asAtStr = asAtDate ?? fmtDate(asAt);
 
     const supplierRows = (await sql`SELECT id, name FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     if (supplierRows.length === 0) throw new Error(`Supplier ${supplierId} not found`);
@@ -70,13 +88,25 @@ export async function getAPAgingDetail(companyId: string,
       SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
-        si.invoice_number, si.total_amount, si.amount_paid, si.balance
+        si.invoice_number, si.total_amount,
+        COALESCE(paid.amount, 0) AS amount_paid,
+        (si.total_amount - COALESCE(paid.amount, 0)) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
+      LEFT JOIN LATERAL (
+        SELECT SUM(pa.amount_allocated) AS amount
+        FROM payment_allocations pa
+        JOIN supplier_payments sp ON sp.id = pa.payment_id
+        WHERE pa.invoice_id = si.id
+          AND sp.company_id = ${companyId}::UUID
+          AND sp.status NOT IN ('draft', 'cancelled')
+          AND sp.payment_date <= ${asAtStr}::date
+      ) paid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
-        AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-        AND si.balance > 0
+        AND si.status NOT IN ('draft', 'cancelled')
+        AND si.invoice_date <= ${asAtStr}::date
+        AND (si.total_amount - COALESCE(paid.amount, 0)) > 0
       -- Undated invoices belong here for the same reason they belong in the
       -- summary. A drill-down that omits them contradicts the total it drills
       -- into, which is worse than the original omission because it reads as a
