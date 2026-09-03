@@ -21,8 +21,12 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import type { TrialBalanceRow, TrialBalanceReport } from '../../types/gl.types';
 import {
-  broughtForwardLine,
+  DEFAULT_FY_START_MONTH,
   fiscalYearStart,
+  resolveFiscalYearStartMonth,
+} from './fiscalYearBasis';
+import {
+  broughtForwardLine,
   getRetainedEarningsBroughtForward,
   round2,
   splitNet,
@@ -61,7 +65,7 @@ interface PeriodBasis {
 async function loadPeriodBasis(companyId: string, fiscalPeriodId: string): Promise<PeriodBasis | null> {
   const rows = (await sql`
     SELECT fp.start_date, fp.end_date,
-           COALESCE(c.financial_year_start, 3) AS fy_start_month
+           c.financial_year_start AS fy_start_month
     FROM fiscal_periods fp
     JOIN companies c ON c.id = fp.company_id
     WHERE fp.company_id = ${companyId}::UUID
@@ -72,7 +76,16 @@ async function loadPeriodBasis(companyId: string, fiscalPeriodId: string): Promi
   if (!row) return null;
   const periodStart = fmtDate(row.start_date);
   const periodEnd = fmtDate(row.end_date);
-  return { periodStart, periodEnd, fyStart: fiscalYearStart(periodStart, Number(row.fy_start_month)) };
+  // READ PATH: the trial balance must still render for a tenant whose
+  // financial_year_start was never set, so the March assumption is made HERE,
+  // explicitly and visibly, rather than by a COALESCE buried in the query.
+  // The close path does NOT get this — see closeReadinessChecks/tbBalancedCheck.ts.
+  const fyStartMonth = resolveFiscalYearStartMonth(
+    row.fy_start_month,
+    companyId,
+    { fallback: DEFAULT_FY_START_MONTH },
+  );
+  return { periodStart, periodEnd, fyStart: fiscalYearStart(periodStart, fyStartMonth) };
 }
 
 /**
@@ -107,9 +120,7 @@ async function rowsForBasis(
 
     const rows = (await sql`
       SELECT ga.account_code, ga.account_name, ga.account_type, ga.normal_balance,
-        COALESCE(SUM(CASE WHEN ga.account_type IN ('asset', 'liability', 'equity')
-                            OR je.entry_date >= ${fyStart}
-                          THEN jl.debit ELSE 0 END), 0) AS closing_debit,
+        COALESCE(SUM(CASE WHEN je.entry_date >= ${fyStart} THEN jl.debit ELSE 0 END), 0) AS closing_debit,
         COALESCE(SUM(CASE WHEN ga.account_type IN ('asset', 'liability', 'equity')
                             OR je.entry_date >= ${fyStart}
                           THEN jl.credit ELSE 0 END), 0) AS closing_credit,

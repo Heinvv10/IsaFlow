@@ -39,7 +39,6 @@ import {
 import {
   BROUGHT_FORWARD_CODE,
   broughtForwardLine,
-  fiscalYearStart,
   splitNet,
   round2,
 } from '@/modules/accounting/services/gl/trialBalanceBasis';
@@ -110,35 +109,9 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe('fiscalYearStart (CS-01 — fiscal year, never calendar year)', () => {
-  it('puts February 2026 in the March 2025 fiscal year', () => {
-    expect(fiscalYearStart('2026-02-28', 3)).toBe('2025-03-01');
-  });
-
-  it('starts a new fiscal year on 1 March', () => {
-    expect(fiscalYearStart('2026-03-01', 3)).toBe('2026-03-01');
-    expect(fiscalYearStart('2026-02-28', 3)).toBe('2025-03-01');
-  });
-
-  it('keeps December in the same fiscal year as the preceding March', () => {
-    expect(fiscalYearStart('2026-12-31', 3)).toBe('2026-03-01');
-  });
-
-  it('honours a January fiscal year start', () => {
-    expect(fiscalYearStart('2026-06-15', 1)).toBe('2026-01-01');
-    expect(fiscalYearStart('2026-01-01', 1)).toBe('2026-01-01');
-  });
-
-  it('honours a July fiscal year start', () => {
-    expect(fiscalYearStart('2026-06-30', 7)).toBe('2025-07-01');
-    expect(fiscalYearStart('2026-07-01', 7)).toBe('2026-07-01');
-  });
-
-  it('falls back to March for an out-of-range or missing month', () => {
-    expect(fiscalYearStart('2026-02-28', 0)).toBe('2025-03-01');
-    expect(fiscalYearStart('2026-02-28', Number.NaN)).toBe('2025-03-01');
-  });
-});
+// fiscalYearStart's own tests live in tests/unit/services/gl/fiscalYearBasis.test.ts —
+// it is general-purpose, not trial-balance-specific. What is asserted here is
+// how THIS service feeds it: see "fiscal year basis (read path)" below.
 
 describe('splitNet / round2', () => {
   it('reports a positive net in the debit column only', () => {
@@ -223,10 +196,59 @@ describe('getTrialBalance (CS-01 — balances, not period movement)', () => {
     expect(sqlTextOf(mockSql, 1)).not.toContain('fiscal_period_id');
   });
 
+  /**
+   * The assertions above pin the MECHANISM the original defect used — a
+   * fiscal_period_id filter. A period-bounded rewrite reproduces the identical
+   * wrong numbers while satisfying every one of them: it keeps fyStart bound,
+   * never mentions fiscal_period_id, and passes the not.toContain checks.
+   * Pin the property that makes the report correct instead: balance-sheet
+   * accounts are EXEMPT from the year cut-off, so they accumulate.
+   * (sqlTextOf strips comments, so prose cannot satisfy this.)
+   */
+  it('exempts balance-sheet accounts from the fiscal-year cut-off in both CASE arms', async () => {
+    const mockSql = primeSql([makeDbRow()]);
+    await getTrialBalance(COMPANY_ID, PERIOD_ID);
+    const text = sqlTextOf(mockSql, 1);
+
+    const exemption = /ga\.account_type IN \('asset', 'liability', 'equity'\)\s+OR je\.entry_date >=/g;
+    // Once for the debit CASE, once for the credit CASE — dropping either one
+    // silently makes half the statement period-bounded.
+    expect(text.match(exemption)?.length).toBe(2);
+  });
+
+  it('never bounds the closing balance below by the period start', async () => {
+    const mockSql = primeSql([makeDbRow()]);
+    await getTrialBalance(COMPANY_ID, PERIOD_ID);
+    const text = sqlTextOf(mockSql, 1);
+
+    // The closing CASE arms may only be cut at the fiscal-year start. The
+    // period start appears exactly twice, in the two MOVEMENT columns.
+    const closingArms = text.match(/THEN jl\.(debit|credit) ELSE 0 END\), 0\) AS closing_/g) ?? [];
+    expect(closingArms).toHaveLength(2);
+    const movementArms = text.match(/THEN jl\.(debit|credit) ELSE 0 END\), 0\) AS period_/g) ?? [];
+    expect(movementArms).toHaveLength(2);
+  });
+
   it('asks for the brought-forward profit as at the fiscal-year start', async () => {
     const mockSql = primeSql([makeDbRow()]);
     await getTrialBalance(COMPANY_ID, PERIOD_ID);
     expect(paramsOf(mockSql, 2)).toContain('2025-03-01');
+  });
+
+  /**
+   * STRICTLY before. `<` → `<=` double-counts every entry dated exactly on the
+   * fiscal-year start — 1 March for every production company, where opening
+   * journals land — and pushes the trial balance out of balance by that amount.
+   * Proved behaviourally against a real ledger in trialBalanceBasisDb.test.ts;
+   * pinned here so it also fails without a database.
+   */
+  it('bounds the brought-forward profit STRICTLY before the fiscal-year start', async () => {
+    const mockSql = primeSql([makeDbRow()]);
+    await getTrialBalance(COMPANY_ID, PERIOD_ID);
+    const text = sqlTextOf(mockSql, 2);
+
+    expect(text).toMatch(/je\.entry_date\s*<\s*\?/);
+    expect(text).not.toMatch(/je\.entry_date\s*<=/);
   });
 
   it('reports the cumulative bank balance, not the month it moved (Brightsphere Feb 2026)', async () => {
@@ -590,5 +612,43 @@ describe('zero balances vs no movement (the old HAVING conflated them)', () => {
     expect(report.totalDebit).toBe(130000);
     expect(report.totalCredit).toBe(0);
     expect(report.balanced).toBe(false);
+  });
+});
+
+describe('fiscal year basis (read path defaults explicitly)', () => {
+  /**
+   * The trial balance is a READ path: it must still render for a tenant whose
+   * financial_year_start was never set, so it passes an explicit March
+   * fallback. The CLOSE path does not — see tbBalancedCheck, which refuses.
+   */
+  it('still renders on a March basis when the company has no year start configured', async () => {
+    const mockSql = sql as SqlMock;
+    mockSql
+      .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: null }])
+      .mockResolvedValueOnce([makeDbRow()])
+      .mockResolvedValueOnce([{ retained: '0' }]);
+
+    const report = await getTrialBalanceReport(COMPANY_ID, PERIOD_ID);
+    expect(report.fiscalYearStart).toBe('2025-03-01');
+    expect(report.rows).toHaveLength(1);
+  });
+
+  it('honours a configured non-March year start', async () => {
+    const mockSql = sql as SqlMock;
+    mockSql
+      .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 12 }])
+      .mockResolvedValueOnce([makeDbRow()])
+      .mockResolvedValueOnce([{ retained: '0' }]);
+
+    const report = await getTrialBalanceReport(COMPANY_ID, PERIOD_ID);
+    // February 2026 falls in the December-2025 fiscal year.
+    expect(report.fiscalYearStart).toBe('2025-12-01');
+  });
+
+  it('reads the raw column — a COALESCE in the query would hide the misconfiguration', async () => {
+    const mockSql = primeSql([makeDbRow()]);
+    await getTrialBalance(COMPANY_ID, PERIOD_ID);
+    expect(sqlTextOf(mockSql, 0)).toContain('financial_year_start');
+    expect(sqlTextOf(mockSql, 0)).not.toContain('COALESCE');
   });
 });

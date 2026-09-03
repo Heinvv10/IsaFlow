@@ -19,6 +19,10 @@
  *
  * Dates are handled as 'YYYY-MM-DD' strings throughout — never via Date
  * arithmetic and never via `.toISOString()`. See src/lib/pgTypes.ts.
+ *
+ * "When does this company's fiscal year start" is NOT here: it is general
+ * purpose and lives in fiscalYearBasis.ts, so a payroll or CIPC caller can
+ * import it without importing something called "trialBalanceBasis".
  */
 
 import { sql } from '@/lib/neon';
@@ -29,44 +33,6 @@ export const BALANCE_SHEET_TYPES = ['asset', 'liability', 'equity'] as const;
 
 /** Account types whose balances reset at the start of each fiscal year. */
 export const INCOME_STATEMENT_TYPES = ['revenue', 'expense'] as const;
-
-/** Default South African fiscal year start (March) when a company has none set. */
-export const DEFAULT_FY_START_MONTH = 3;
-
-/**
- * First day of the fiscal year containing `date`.
- *
- * `fyStartMonth` is `companies.financial_year_start` (1 = January). Every
- * production company is 3, i.e. 1 March – 28/29 February — do NOT assume a
- * calendar year. Note that `fiscal_periods.fiscal_year` is calendar-based and
- * is therefore useless for this: February 2026 is stored as fiscal_year 2026
- * but belongs to the March-2025 fiscal year.
- *
- * @param date  'YYYY-MM-DD'. Parsed by string split, never by `new Date()`.
- */
-export function fiscalYearStart(date: string, fyStartMonth: number): string {
-  const [yearPart, monthPart] = date.slice(0, 10).split('-');
-  const year = Number(yearPart);
-  const month = Number(monthPart);
-  if (!Number.isFinite(year) || !Number.isFinite(month)) {
-    throw new Error(`fiscalYearStart: unparseable date '${date}'`);
-  }
-  const startMonth = Number.isFinite(fyStartMonth) && fyStartMonth >= 1 && fyStartMonth <= 12
-    ? Math.trunc(fyStartMonth)
-    : DEFAULT_FY_START_MONTH;
-  const fyYear = month >= startMonth ? year : year - 1;
-  return `${String(fyYear).padStart(4, '0')}-${String(startMonth).padStart(2, '0')}-01`;
-}
-
-/** `companies.financial_year_start`, defaulting to March. */
-export async function getFiscalYearStartMonth(companyId: string): Promise<number> {
-  const rows = (await sql`
-    SELECT COALESCE(financial_year_start, ${DEFAULT_FY_START_MONTH}) AS fy_start_month
-    FROM companies WHERE id = ${companyId}::UUID LIMIT 1
-  `) as DbRow[];
-  const raw = Number(rows[0]?.fy_start_month);
-  return Number.isFinite(raw) && raw >= 1 && raw <= 12 ? raw : DEFAULT_FY_START_MONTH;
-}
 
 /**
  * Accumulated profit earned strictly BEFORE `fromDate`, expressed as a credit

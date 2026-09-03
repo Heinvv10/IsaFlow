@@ -25,7 +25,7 @@
  * 21. COALESCE(amount_paid) — AR total when amount_paid is NULL.
  */
 
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type MockedFunction } from 'vitest';
 
 vi.mock('@/lib/neon', () => ({
   sql: vi.fn(),
@@ -90,9 +90,10 @@ function makePeriod(overrides: Partial<FiscalPeriod> = {}): FiscalPeriod {
  *  Call 5: ap invoice sum
  *  Call 6: ap GL balance
  *  Call 7: vat        (1 query)
- *  Call 8-11: tb — period postings, then getTrialBalanceReport's period basis,
- *             balances and brought-forward profit (4 queries)
- *  Call 12: opening balance equity (1 query)
+ *  Call 8-12: tb — fiscal-year lookup (close paths refuse to assume March),
+ *             this period's postings, then getTrialBalanceReport's period
+ *             basis, balances and brought-forward profit (5 queries)
+ *  Call 13: opening balance equity (1 query)
  */
 function mockAllChecksPass(): void {
   mockSql
@@ -103,7 +104,8 @@ function mockAllChecksPass(): void {
     .mockResolvedValueOnce([{ ap_total: '500.00' }])       // ap invoice sum
     .mockResolvedValueOnce([{ gl_balance: '500.00' }])     // ap GL balance
     .mockResolvedValueOnce([{ vat_count: '1' }])           // vat
-    // tb — this period's postings, then the trial balance report itself
+    // tb — fiscal year lookup, this period's postings, then the report itself
+    .mockResolvedValueOnce([{ financial_year_start: 3 }])
     .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
     .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 }])
     .mockResolvedValueOnce([
@@ -160,7 +162,12 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ ap_total: '500.00' }])
       .mockResolvedValueOnce([{ gl_balance: '500.00' }])
       .mockResolvedValueOnce([{ vat_count: '0' }])         // VAT: WARN
+      // tb — fiscal year lookup, period postings, then the report itself
+      .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
+      .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ retained: '0' }])
       .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
@@ -198,8 +205,8 @@ describe('getCloseReadiness — orchestrator', () => {
 
     await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
-    // 8 single-query checks + the 4 the trial balance check now issues.
-    expect(mockSql).toHaveBeenCalledTimes(12);
+    // 8 single-query checks + the 5 the trial balance check now issues.
+    expect(mockSql).toHaveBeenCalledTimes(13);
     // Every query must be company-scoped. Asserted on membership rather than
     // position: a query with conditional aggregation interpolates its CASE
     // bounds before it reaches the WHERE clause, and an unscoped query fails
@@ -370,7 +377,8 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ gl_balance: '1000.00' }])      // ar GL balance
       .mockRejectedValueOnce(new Error('AP table unavailable')) // ap invoice sum: THROWS (ap GL never runs)
       .mockResolvedValueOnce([{ vat_count: '1' }])             // vat: pass
-      // tb: pass — period postings, then the trial balance report
+      // tb: pass — fiscal year lookup, period postings, then the report
+      .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([{ total_debit: '1000.00', total_credit: '1000.00' }])
       .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 }])
       .mockResolvedValueOnce([
@@ -685,7 +693,18 @@ describe('unpostedJournalsCheck', () => {
 // ── tbBalancedCheck ───────────────────────────────────────────────────────────
 
 describe('tbBalancedCheck', () => {
-  beforeEach(() => vi.clearAllMocks());
+  /**
+   * `vi.clearAllMocks()` clears recorded calls but NOT queued
+   * `mockResolvedValueOnce` values. This check short-circuits on a bad fiscal
+   * year without consuming its queue, so an undrained queue leaked into the
+   * next test — and out of this describe entirely. Reset the queue on both
+   * edges rather than relying on every test consuming exactly what it primes.
+   */
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSql.mockReset();
+  });
+  afterEach(() => mockSql.mockReset());
 
   const PERIOD = { id: PERIOD_ID };
 
@@ -696,8 +715,10 @@ describe('tbBalancedCheck', () => {
   function prime(
     postings: { debit: string; credit: string },
     tbRows: Array<Record<string, unknown>>,
+    fyStartMonth: unknown = 3,
   ) {
     mockSql
+      .mockResolvedValueOnce([{ financial_year_start: fyStartMonth }])
       .mockResolvedValueOnce([{ total_debit: postings.debit, total_credit: postings.credit }])
       .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 }])
       .mockResolvedValueOnce(tbRows)
@@ -765,7 +786,8 @@ describe('tbBalancedCheck', () => {
     prime({ debit: '0', credit: '0' }, []);
     await tbBalancedCheck(COMPANY_A, PERIOD);
 
-    const template = mockSql.mock.calls[0]![0] as TemplateStringsArray;
+    // call 0 is the fiscal-year lookup; call 1 is this period's postings.
+    const template = mockSql.mock.calls[1]![0] as TemplateStringsArray;
     const q = template.join('?');
     expect(q).toContain('gl_journal_lines');
     expect(q).toContain('gl_journal_entries');
@@ -774,7 +796,32 @@ describe('tbBalancedCheck', () => {
   it('company_id is first interpolated arg', async () => {
     prime({ debit: '0', credit: '0' }, []);
     await tbBalancedCheck(COMPANY_A, PERIOD);
-    expect(mockSql.mock.calls[0]![1]).toBe(COMPANY_A);
+    expect(mockSql.mock.calls[1]![1]).toBe(COMPANY_A);
+  });
+
+  /**
+   * A close path must not assume March. The read path defaults explicitly so
+   * the report still renders; closing a period on an assumed year start would
+   * measure the income statement half from the wrong date and say nothing.
+   */
+  it('fails, rather than assuming March, when financial_year_start is not set', async () => {
+    prime({ debit: '0', credit: '0' }, [], null);
+    const item = await tbBalancedCheck(COMPANY_A, PERIOD);
+    expect(item.status).toBe('fail');
+    expect(item.reason).toContain('financial_year_start');
+    expect(item.fixHref).toBe('/accounting/trial-balance');
+  });
+
+  it('does not compute a trial balance at all once the year start is unusable', async () => {
+    prime({ debit: '0', credit: '0' }, [], null);
+    await tbBalancedCheck(COMPANY_A, PERIOD);
+    // Only the fiscal-year lookup ran.
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a configured non-March year start', async () => {
+    prime({ debit: '10000.00', credit: '10000.00' }, balancedTb, 12);
+    expect((await tbBalancedCheck(COMPANY_A, PERIOD)).status).toBe('pass');
   });
 });
 

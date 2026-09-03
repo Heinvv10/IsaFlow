@@ -13,11 +13,19 @@
  *
  * It used to assert only (2) while carrying (1)'s label and fixHref: a true
  * statement about a report it never looked at.
+ *
+ * This is a CLOSE path, so it refuses an unconfigured `financial_year_start`
+ * rather than defaulting to March. The trial balance READ path defaults
+ * explicitly so the report still renders, which is right for a screen and wrong
+ * for closing a period: the income-statement half of the report would be
+ * measured from an assumed year start, and a December-year-end tenant would be
+ * closed a quarter out with nothing saying so.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { getTrialBalanceReport, BALANCE_TOLERANCE } from '../trialBalanceService';
+import { getFiscalYearStartMonth } from '../fiscalYearBasis';
 import type { ChecklistItem } from '../periodCloseReadinessService';
 
 type Row = DbRow;
@@ -52,6 +60,24 @@ export async function tbBalancedCheck(
   companyId: string,
   period: { id: string },
 ): Promise<ChecklistItem> {
+  // Refuse before computing anything: a trial balance measured from an assumed
+  // fiscal year start is not evidence that a period is safe to close.
+  try {
+    await getFiscalYearStartMonth(companyId);
+  } catch (err) {
+    return {
+      key: KEY,
+      label: LABEL,
+      status: 'fail',
+      reason:
+        `Cannot verify the trial balance: this company has no financial year start configured, ` +
+        `so the income statement half of the report has no year to measure from. ` +
+        `Set companies.financial_year_start (3 = 1 March). ` +
+        `(${err instanceof Error ? err.message : String(err)})`,
+      fixHref: FIX_HREF,
+    };
+  }
+
   const postings = await periodPostings(companyId, period.id);
   const report = await getTrialBalanceReport(companyId, period.id);
 
