@@ -75,6 +75,15 @@ because the cause is paging rather than unaccounted rows. A misleading fault is
 worse than none: it erodes the one signal the field exists to give.
 `truncatedExcludedRows` then tells the reader the list is shorter than the count.
 
+**But note what this costs.** The identity now rests on TWO self-reported
+numbers rather than one. `excludedRows.length` was tied to data actually
+returned; `excludedTotal` is a count the service asserts. A report computing
+`excludedTotal := universeTotal - rowsTotal` will pass the identity
+unconditionally, having proved nothing. The envelope cannot catch that — so a
+call site that passes `excludedTotal` needs reviewing on its own terms, and the
+reviewer's question is: **where does that count come from, and could it have been
+derived from the very numbers it is supposed to check?**
+
 `universeTotal` is **required on every assurance report**. Omit it only on a
 listing where completeness is not a claim being made.
 
