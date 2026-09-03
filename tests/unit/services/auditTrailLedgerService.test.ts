@@ -32,6 +32,7 @@ const PAGE_ROW = {
   id: 'je-1', entry_number: 'JE-1', entry_date: '2026-09-01', description: 'x',
   source: 'manual', status: 'posted', posting_agent: 'mcp:create_draft_journal:v1',
   actor_type: 'agent', actor_token_jti: 'tok-1', created_by: 'u1', created_by_name: 'Hein van Vuuren',
+  posted_by: 'u2', posted_by_name: 'Willem Marneweck',
   created_at: '2026-09-01T10:00:00Z', posted_at: '2026-09-01T10:00:01Z',
   reversed_at: null, reversal_of_id: null, source_record_id: null, source_document_id: null,
   amount: 100,
@@ -151,6 +152,38 @@ describe('queryAuditTrail', () => {
     expect(texts()[0]).toContain('LEFT JOIN users');
     expect(res.rows).toHaveLength(1);
     expect(res.rows[0]!.userName).toBeNull();
+  });
+
+  // "Which human" is TWO people, not one: created_by raised it, posted_by
+  // committed it to the ledger. On production posted_by is set on 14,126 of
+  // 15,647 journals and has five distinct values against created_by's eight —
+  // reporting only the creator loses the person who actually posted.
+  it('reports the poster as well as the creator', async () => {
+    mockFourQueries([PAGE_ROW], [], [], 1);
+    const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    expect(res.rows[0]!.userId).toBe('u1');
+    expect(res.rows[0]!.userName).toBe('Hein van Vuuren');
+    expect(res.rows[0]!.postedByUserId).toBe('u2');
+    expect(res.rows[0]!.postedByUserName).toBe('Willem Marneweck');
+  });
+
+  it('joins the poster with a SECOND left join, cast on the uuid side', async () => {
+    mockFourQueries([], [], [], 0);
+    await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    const t = texts()[0]!;
+    // users.id is character varying(255); casting the param to ::UUID throws.
+    expect(t).toContain('pu.id::TEXT = je.posted_by::TEXT');
+    expect(t.match(/LEFT JOIN users/g)).toHaveLength(2);
+    expect(t).not.toMatch(/(?:u|pu)\.id\s*=\s*\?::UUID/);
+  });
+
+  it('a draft that nobody has posted reports no poster rather than falling back to the creator', async () => {
+    mockFourQueries([{ ...PAGE_ROW, status: 'draft', posted_at: null, posted_by: null, posted_by_name: null }], [], [], 1);
+    const res = await queryAuditTrail(COMPANY, { from: '2026-09-01', to: '2026-09-30', limit: 50 });
+    expect(res.rows[0]!.action).toBe('draft');
+    expect(res.rows[0]!.postedByUserId).toBeNull();
+    expect(res.rows[0]!.postedByUserName).toBeNull();
+    expect(res.rows[0]!.userId).toBe('u1');
   });
 
   it('emits a next_cursor only when a further page exists', async () => {

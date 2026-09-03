@@ -72,8 +72,15 @@ export interface AuditTrailEntry {
   actorCaveat: string | null;
   actorTokenJti: string | null;
   postingAgent: string | null;
+  /** Who RAISED it (created_by). */
   userId: string | null;
   userName: string | null;
+  /**
+   * Who POSTED it (posted_by) — a different question from who raised it, and
+   * the one an auditor asks about segregation of duties. Null on a draft.
+   */
+  postedByUserId: string | null;
+  postedByUserName: string | null;
   createdAt: string;
   postedAt: string | null;
   reversedAt: string | null;
@@ -138,6 +145,8 @@ function mapEntry(r: DbRow): AuditTrailEntry {
     postingAgent,
     userId: r.created_by != null ? String(r.created_by) : null,
     userName: r.created_by_name != null ? String(r.created_by_name) : null,
+    postedByUserId: r.posted_by != null ? String(r.posted_by) : null,
+    postedByUserName: r.posted_by_name != null ? String(r.posted_by_name) : null,
     createdAt: iso(r.created_at),
     postedAt: r.posted_at != null ? iso(r.posted_at) : null,
     reversedAt: r.reversed_at != null ? iso(r.reversed_at) : null,
@@ -168,14 +177,20 @@ export async function queryAuditTrail(
     const rows = (await sql`
       SELECT je.id, je.entry_number, je.entry_date, je.description, je.source, je.status,
              je.posting_agent, je.actor_type, je.actor_token_jti,
-             je.created_by, je.created_at, je.posted_at, je.reversed_at,
+             je.created_by, je.posted_by, je.created_at, je.posted_at, je.reversed_at,
              je.reversal_of_id, je.source_record_id, je.source_document_id,
              CONCAT_WS(' ', u.first_name, u.last_name) AS created_by_name,
+             CONCAT_WS(' ', pu.first_name, pu.last_name) AS posted_by_name,
              COALESCE(SUM(jl.debit), 0) AS amount
       FROM gl_journal_entries je
       LEFT JOIN gl_journal_lines jl
         ON jl.journal_entry_id = je.id AND jl.company_id = ${companyId}::UUID
+      -- users.id is character varying(255) and created_by/posted_by are uuid,
+      -- so the UUID side is cast to TEXT, never the other way (CI guard).
+      -- Both joins are OUTER: a posting whose user row is missing must not
+      -- vanish from the trail, and must not silently become someone else.
       LEFT JOIN users u ON u.id::TEXT = je.created_by::TEXT
+      LEFT JOIN users pu ON pu.id::TEXT = je.posted_by::TEXT
       WHERE je.company_id = ${companyId}::UUID
         AND je.entry_date >= ${f.from}::DATE
         AND je.entry_date <= ${f.to}::DATE
@@ -199,7 +214,7 @@ export async function queryAuditTrail(
               OR (${entityType} = 'source_document' AND je.source_document_id::TEXT = ${entityId})))
         AND (${curDate}::TEXT IS NULL
              OR (je.entry_date, je.id::TEXT) < (${curDate}::DATE, ${curId}::TEXT))
-      GROUP BY je.id, u.first_name, u.last_name
+      GROUP BY je.id, u.first_name, u.last_name, pu.first_name, pu.last_name
       ORDER BY je.entry_date DESC, je.id DESC
       LIMIT ${f.limit + 1}
     `) as DbRow[];

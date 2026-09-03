@@ -22,6 +22,7 @@ const PAGE = {
     actorType: 'human', actorProvenance: 'derived',
     actorCaveat: 'NOT PROVEN HUMAN. …', actorTokenJti: null,
     postingAgent: 'human:u1', userId: 'u1', userName: 'Hein van Vuuren',
+    postedByUserId: 'u2', postedByUserName: 'Willem Marneweck',
     createdAt: '2026-09-01T10:00:00.000Z', postedAt: null, reversedAt: null,
     reversalOfId: null, sourceRecordId: null,
   }],
@@ -70,6 +71,24 @@ describe('audit_trail', () => {
     const row = (env.rows as Record<string, unknown>[])[0]!;
     expect(row.actor_provenance).toBe('derived');
     expect(row.actor_caveat).toMatch(/NOT PROVEN HUMAN/);
+  });
+
+  // The auditor's line is four-part: whose books, which human, agent-or-human
+  // and which token, and which firm. Three are answerable today.
+  it('names the books the entries belong to — the axis the row shape leaves implicit', async () => {
+    vi.mocked(queryAuditTrail).mockResolvedValue(PAGE as never);
+    const env = payload(await auditTrailTool.handler({ from: '2026-09-01', to: '2026-09-30' }, ctx) as never);
+    expect(env.company_id).toBe(ctx.companyId);
+  });
+
+  it('carries both humans on the row: who raised it and who posted it', async () => {
+    vi.mocked(queryAuditTrail).mockResolvedValue(PAGE as never);
+    const env = payload(await auditTrailTool.handler({ from: '2026-09-01', to: '2026-09-30' }, ctx) as never);
+    const row = (env.rows as Record<string, unknown>[])[0]!;
+    expect(row.user_id).toBe('u1');
+    expect(row.user_name).toBe('Hein van Vuuren');
+    expect(row.posted_by_user_id).toBe('u2');
+    expect(row.posted_by_user_name).toBe('Willem Marneweck');
   });
 
   it('reports the recorded-vs-derived split so a reader can size the gap', async () => {

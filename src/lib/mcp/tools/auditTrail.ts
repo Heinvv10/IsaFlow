@@ -21,7 +21,8 @@ export const auditTrailTool: McpTool = {
   name: 'audit_trail',
   description:
     'WHO POSTED TO THE GENERAL LEDGER, and whether that attribution is a recorded fact or an inference. ' +
-    'One row per GL journal entry in an entry-date range, with the actor (human | agent | system), the MCP token behind an agent posting, the posting_agent stamp, the user the entry is booked against, and the entry\'s status and amount. ' +
+    'One row per GL journal entry in an entry-date range, with the actor (human | agent | system), the MCP token behind an agent posting, the posting_agent stamp, and the entry\'s status and amount. ' +
+    'TWO PEOPLE, NOT ONE: user_id/user_name is who RAISED the entry, posted_by_user_id/posted_by_user_name is who COMMITTED it to the ledger. They are the same person on every production journal today, which is itself the segregation-of-duties finding; a draft has no poster at all. company_id, on the response rather than on each row, is whose books these are — the token decides it, so a page is never mixed. ' +
     'READ actor_provenance ON EVERY ROW. "recorded" means the write itself stored the actor. "derived" means it was inferred from the posting_agent stamp because the row predates that column, and the inference is ASYMMETRIC: an "mcp:" stamp does prove an agent, but a "human:" one proves only "not stamped as an agent" — journal creation falls back to a human stamp whenever a caller omits the posting metadata, so an unknown number of agent postings sit under derived human. actor_caveat spells this out per row. Never report a derived human as a person having typed the entry. ' +
     'The attribution block totals recorded vs derived across the whole filtered range (not just the page), which is the honest measure of how much of this ledger can be relied on. ' +
     'DOES NOT COVER: non-ledger changes. Editing a customer, changing a bank rule or logging in leaves no journal and does not appear here; the separate audit_log table holds field-level change history and is effectively unused (5 rows across production). Nor does it cover documents that have not posted — an unapproved draft invoice or credit note has no journal yet. ' +
@@ -111,7 +112,15 @@ export const auditTrailTool: McpTool = {
         ...(page.universeTotal === undefined ? {} : { universeTotal: page.universeTotal }),
       });
       // The census rides alongside the envelope: it is the finding, not a row.
-      return ok({ ...envelope, from, to, attribution: page.attribution });
+      // company_id is stated ONCE rather than repeated on every row: the whole
+      // page is one company's books, because scope comes from the token.
+      return ok({
+        ...envelope,
+        company_id: ctx.companyId,
+        from,
+        to,
+        attribution: page.attribution,
+      });
     } catch (err) {
       return toolError(safeErrorText(err, 'Failed to read the audit trail.'));
     }
@@ -138,6 +147,8 @@ function toWireRow(r: Entry) {
     posting_agent: r.postingAgent,
     user_id: r.userId,
     user_name: r.userName,
+    posted_by_user_id: r.postedByUserId,
+    posted_by_user_name: r.postedByUserName,
     created_at: r.createdAt,
     posted_at: r.postedAt,
     reversed_at: r.reversedAt,
