@@ -284,6 +284,44 @@ Two things that had to be got right and were not, first time round:
 `source: 'manual'` returns **zero lines on Velocity**: nothing in that ledger
 was posted by hand.
 
+### `balance_sheet` v2: two production companies carry R0.00 of posted equity
+
+The second equity figure was never independent of the first, and it took
+running it to see that. `getBalanceSheet` computes retained earnings as revenue
+less expenses to the date and INJECTS it into the equity section, so
+`totalEquity` equals assets less liabilities **by construction**. Reporting the
+two beside each other agreed to the cent on all three production companies and
+read as a clean set of books.
+
+Querying the equity ACCOUNTS directly, as at 2026-09-03:
+
+| | assets − liabilities | POSTED equity | derived retained earnings |
+|---|---|---|---|
+| Brightsphere | R8,394,848.60 | **R0.00** | R8,394,848.60 |
+| Velocity Fibre | −R34,816,224.89 | **R0.00** | −R34,816,224.89 |
+| ISAFlow Demo | R39,893,316.26 | R695,000.00 | R39,198,316.26 |
+
+**Two of the three companies have never posted a cent to an equity account.**
+Every rand of their equity is profit that no year-end close has moved out of the
+revenue and expense accounts. The spec's "R8.46m retained-earnings plug" is
+close to Brightsphere's figure and understates the shape of it: this is not one
+suspect balance, it is the entire equity section on two companies.
+
+`equity.ledger.v1` is now owned by `reports/balanceSheetService#getEquityBases`
+— deliberately NOT `getBalanceSheet`, whose `totalEquity` is the residual
+wearing the ledger's name. The identity a caller can check is
+`assets − liabilities = postedEquity + retainedEarningsDerived`, and a DB-gated
+test asserts it on real books along with the property that `totalEquity` equals
+the residual, so the reason the second figure had to be built cannot quietly
+stop being true.
+
+Not built, and worth a decision: **how much of that derived profit belongs to
+CLOSED prior years.** The plug for the current year is ordinary — it is what a
+year-end close will post. The plug for years already ended is a close that never
+ran, and separating the two needs the fiscal-year basis
+(`gl/fiscalYearBasis.ts`). That is the figure that would say how many year-ends
+are outstanding and for how much.
+
 ### Still true, and still unowned
 
 `ar.control.v1` and `ap.control.v1` remain **unowned** (C1). The direction rule

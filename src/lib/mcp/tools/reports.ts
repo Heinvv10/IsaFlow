@@ -7,7 +7,6 @@ import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
-import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
@@ -55,25 +54,14 @@ export const profitAndLossTool: McpTool = {
   },
 };
 
-export const balanceSheetTool: McpTool = {
-  name: 'balance_sheet',
-  description: 'Balance sheet as at a date (YYYY-MM-DD; defaults to today).',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      as_at: { type: 'string', format: 'date', description: 'YYYY-MM-DD; defaults to today' },
-    },
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const bad = guardCastableArgs(args, { date: ['as_at'] });
-    if (bad) return bad;
-    const asAt = strArg(args, 'as_at') ?? fmtDate(new Date());
-    return ok(await getBalanceSheet(ctx.companyId, asAt));
-  },
-};
+/**
+ * `balance_sheet` moved to `reportsBalanceSheet.ts` when it grew the second
+ * equity figure. The version that lived here passed only `as_at` — the
+ * service's `compareDate` and `costCentreId` were unreachable, and it reported
+ * `totalEquity` alone, which is the figure that always agrees. It is not
+ * re-exported: nothing should be able to reach a one-equity balance sheet by
+ * accident.
+ */
 
 export const agedDebtorsTool: McpTool = {
   name: 'aged_debtors',

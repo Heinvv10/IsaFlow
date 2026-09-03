@@ -61,7 +61,13 @@ vi.mock('@/modules/accounting/services/gl/openingBalanceReadService', () => ({
   }),
 }));
 vi.mock('@/modules/accounting/services/reports/incomeStatementService', () => ({ getIncomeStatement: vi.fn() }));
-vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ getBalanceSheet: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({
+  getBalanceSheet: vi.fn(),
+  // balance_sheet v2 reads the POSTED equity accounts separately: the service's
+  // own totalEquity carries the injected retained-earnings plug and equals the
+  // residual by construction.
+  getEquityBases: vi.fn().mockResolvedValue({ posted: 0, derivedRetainedEarnings: 0 }),
+}));
 vi.mock('@/modules/accounting/services/ar/arAgingService', () => ({ getARAging: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/apAgingService', () => ({ getAPAging: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/accountLedgerService', () => ({ getAccountLedger: vi.fn() }));
@@ -227,21 +233,31 @@ describe('reports tools', () => {
   });
 
   it('balance_sheet defaults as_at to today via fmtDate', async () => {
-    vi.mocked(getBalanceSheet).mockResolvedValue({ totalAssets: 1 } as never);
+    // A COMPLETE report: balance_sheet v2 flattens the three section arrays
+    // into envelope rows, so a mock carrying only a total is not the shape the
+    // service is typed to return and the tool would be being tested against a
+    // fiction.
+    vi.mocked(getBalanceSheet).mockResolvedValue({
+      asAtDate: '2026-07-19',
+      assets: [{ accountCode: '1101', accountName: 'Debtors', balance: 1 }],
+      liabilities: [], equity: [],
+      totalAssets: 1, totalLiabilities: 0, totalEquity: 1,
+    } as never);
     // 22:30 local on the 19th is 20:30 UTC the same day; the 00:30 case below
     // is the one that used to report the previous day.
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date(2026, 6, 19, 22, 30, 0));
       parseOk(await tool('balance_sheet').handler({}, ctx()));
-      expect(getBalanceSheet).toHaveBeenCalledWith(COMPANY_ID, '2026-07-19');
+      // cost_centre_id and compare_date are both absent, so both arrive undefined.
+      expect(getBalanceSheet).toHaveBeenCalledWith(COMPANY_ID, '2026-07-19', undefined, undefined);
 
       // 00:30 SAST on the 19th is 22:30 UTC on the 18th. toISOString() would
       // default the balance sheet to the WRONG day; fmtDate must not.
       vi.mocked(getBalanceSheet).mockClear();
       vi.setSystemTime(new Date(2026, 6, 19, 0, 30, 0));
       parseOk(await tool('balance_sheet').handler({}, ctx()));
-      expect(getBalanceSheet).toHaveBeenCalledWith(COMPANY_ID, '2026-07-19');
+      expect(getBalanceSheet).toHaveBeenCalledWith(COMPANY_ID, '2026-07-19', undefined, undefined);
     } finally {
       vi.useRealTimers();
     }
@@ -627,7 +643,13 @@ describe('suite-wide invariants', () => {
       fiscalYearStart: '2026-03-01', costCentreId: null,
     } as never);
     vi.mocked(getIncomeStatement).mockResolvedValue({} as never);
-    vi.mocked(getBalanceSheet).mockResolvedValue({} as never);
+    // Not {}: the balance sheet's three section arrays are non-optional on
+    // BalanceSheetReport, and a mock thinner than the type it stands in for
+    // tests the tool against a shape the service cannot produce.
+    vi.mocked(getBalanceSheet).mockResolvedValue({
+      asAtDate: '2026-06-30', assets: [], liabilities: [], equity: [],
+      totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
+    } as never);
     vi.mocked(getARAging).mockResolvedValue([] as never);
     vi.mocked(getAPAging).mockResolvedValue([] as never);
     vi.mocked(getAccountLedger).mockResolvedValue({ rows: [] } as never);

@@ -137,15 +137,31 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
       'Any assertion that the ledger agrees. A balance sheet that balances only because equity is the plug proves nothing, which is why equity.ledger.v1 is reported beside it.',
   }),
   'equity.ledger.v1': def({
+    // Settled by W2 with balance_sheet v2, the first report that needs both
+    // equity figures side by side.
+    //
+    // The owner is `getEquityBases`, NOT `getBalanceSheet`. That service's
+    // `totalEquity` computes retained earnings as revenue less expenses and
+    // injects it, so it equals equity.residual.v1 by construction — it is the
+    // residual wearing the ledger's name, and reporting the two beside each
+    // other agreed to the cent on all three production companies. The equity
+    // ACCOUNTS say otherwise: Brightsphere and Velocity Fibre each carry R0.00
+    // posted, so every cent of R8,394,848.60 and −R34,816,224.89 respectively
+    // is a plug no year-end close has ever posted.
+    //
+    // `contested` is now EMPTY, and that is a correction rather than a
+    // clean-up. `gl/openingBalanceEquityService` was listed as a rival basis
+    // for this figure; it is not. It resolves (and creates on first use) ONE
+    // clearing account carrying the reserved `opening_balance_equity` subtype.
+    // It computes no total and answers a different question, so there was never
+    // a duplicate implementation to remove.
     id: 'equity.ledger.v1',
     label: 'Equity per the ledger',
-    owner: null,
-    includes: 'Sum of posted equity account balances, including retained earnings.',
-    excludes: 'Nothing. Any gap to equity.residual.v1 is the finding, not an error to suppress.',
-    // R8.46m of retained earnings on Brightsphere has zero journal lines behind
-    // it and four year-ends were never run. Reporting both numbers exposes that
-    // in one call.
-    contested: ['gl/openingBalanceEquityService — different basis'],
+    owner: 'reports/balanceSheetService#getEquityBases',
+    includes:
+      'Sum of POSTED equity-account balances as at the reporting date. Nothing derived, nothing injected.',
+    excludes:
+      'The retained earnings the balance sheet DERIVES from revenue less expenses. That figure is reported separately as retainedEarningsDerived, and the gap to equity.residual.v1 is exactly it — the finding, not an error to suppress.',
   }),
   'revenue.period.v1': def({
     id: 'revenue.period.v1',
