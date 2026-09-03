@@ -1,10 +1,12 @@
 /**
- * The AP subledger as at a date — every open supplier bill, including the ones
- * that cannot be aged.
+ * The AP subledger AS AT a date — every open supplier bill, including the ones
+ * that cannot be bucketed.
  *
- * Same contract and the same reasoning as `arSubledgerService`: the due-date
- * filter that used to sit in `getAPAging`'s WHERE clause dropped rows silently,
- * and a bill with no due date is still money owed. See `subledgerTypes.ts`.
+ * Same contract, same population and the same reasoning as
+ * `arSubledgerService`: master's aging population exactly, with the settlement
+ * rewind from `services/shared/agingRewind.ts` so the balance is what was owed
+ * on the reporting date rather than what is owed now. Read `subledgerTypes.ts`
+ * and that file before changing anything about `asAtDate` here.
  *
  * AP has no unallocated-credit-note leg in this schema, so `creditNotes` is
  * always empty here. The field exists so both subledgers answer with the same
@@ -14,7 +16,8 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { fmtDate } from '@/lib/fmtDate';
+import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
 import type { SubledgerSnapshot } from '../ar/subledgerTypes';
 import { buildSnapshot, toDocument } from '../ar/subledgerShared';
 
@@ -23,26 +26,36 @@ export async function getAPSubledger(
   asAtDate: string,
 ): Promise<SubledgerSnapshot> {
   try {
+    // Both bounds of the rewind window from ONE clock — see arSubledgerService.
+    const todayStr = fmtDate(new Date());
+    const paid = effectivePaidExpr('ap');
+
     const rows = (await sql`
       SELECT si.id,
              si.invoice_number AS document_number,
              si.supplier_id AS entity_id,
              s.name AS entity_name,
-             si.invoice_date AS document_date,
+             COALESCE(si.invoice_date, si.created_at::date) AS document_date,
              si.due_date,
              si.total_amount,
-             COALESCE(si.amount_paid, 0) AS amount_paid,
-             (si.total_amount - COALESCE(si.amount_paid, 0)) AS balance,
+             ${sql.unsafe(paid)} AS amount_paid,
+             (si.total_amount - ${sql.unsafe(paid)}) AS balance,
              si.created_at
       FROM supplier_invoices si
-      JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
+      -- LEFT, and scoped — see arSubledgerService for why an inner join here
+      -- would hide the data defect this report exists to surface.
+      LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
+      LEFT JOIN LATERAL (
+        ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ap' })}
+      ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
-        AND si.status = ANY(${Array.from(AP_OPEN_STATUSES)}::text[])
-        AND (si.total_amount - COALESCE(si.amount_paid, 0)) > 0
+        AND si.status NOT IN ('draft', 'cancelled')
+        AND COALESCE(si.invoice_date, si.created_at::date) <= ${asAtDate}::DATE
+        AND (si.total_amount - ${sql.unsafe(paid)}) > 0
       ORDER BY si.due_date NULLS LAST, si.id
     `) as DbRow[];
 
-    return buildSnapshot(rows.map(toDocument), [], asAtDate, rows);
+    return buildSnapshot(rows.map(toDocument), [], rows);
   } catch (err) {
     log.error('Failed to read the AP subledger', { error: err }, 'accounting');
     throw err;

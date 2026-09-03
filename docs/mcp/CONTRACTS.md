@@ -269,6 +269,20 @@ implementations in `contested`. The workstream that first needs the figure settl
 it, removes the duplicates, and fills in the owner **in the same PR**. Cash goes to
 W3, the control accounts and equity to W2.
 
+**`ar.control.v1` and `ap.control.v1` are the exception, and stay unowned by
+decision.** W2 built `reconcile_subledger` on them and did not settle them:
+naming an owner means naming ONE control account, and there is no canonical one
+in this schema (C1). Thirteen accounts carry `subtype = 'receivable'` and the
+accounts actually holding money carry NULL, so any owner would encode an
+arbitrary choice as truth and destroy the only thing that can detect the break.
+The endpoint reports **every** candidate with how it was found, sums them, and
+sets `controlAccountAmbiguous` — which is `true` on all four production AR/AP
+roles. W2 did narrow the candidate set: an account the invoice journals move
+AGAINST the control direction is the contra leg and is excluded, which removed
+`SYS-9 VAT Payable` from Velocity's AP control. That is a correction to the
+resolver, not a resolution of the ambiguity. Deciding which account SHOULD be
+canonical remains **Hein's** call about the chart of accounts.
+
 Adding a figure: add it here in the PR that computes it, with a real owner. A
 definition with no owner and no assigned workstream is a promise, not a contract.
 

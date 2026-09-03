@@ -38,7 +38,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
-import { AP_OPEN_STATUSES, AR_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { effectivePaidExpr, rewindAmount } from '../shared/agingRewind';
 import type { SubledgerRole } from '../gl/controlAccountService';
 import { round2 } from './reconciliationMath';
 
@@ -73,11 +73,22 @@ export async function getUnpostedSubledgerDocuments(
   try {
     const ids = [...controlAccountIds];
     const isAr = role === 'ar';
-    // The SAME population the subledger snapshot counts. A settled document
-    // contributes zero to the subledger, so it must contribute zero here too —
-    // its own posting and its payments' postings cancel on the control account
-    // and neither belongs in a reconciling item.
-    const openStatuses = isAr ? Array.from(AR_OPEN_STATUSES) : Array.from(AP_OPEN_STATUSES);
+    // The document's contribution must be the SAME NUMBER the subledger
+    // snapshot counted for it, on the same population and the same
+    // point-in-time basis — the rewind from services/shared/agingRewind.ts,
+    // the status rule, and the as-at cutoff. If the two definitions drift, the
+    // difference between them lands in `unexplained_difference` and reads as a
+    // finding about the books rather than about this code.
+    //
+    // A settled document contributes zero, which is why every status is still
+    // SCANNED: its own posting and its payments' postings cancel on the
+    // control account, and counting one leg without the other drops exactly
+    // that much into the residual.
+    const todayStr = fmtDate(new Date());
+    const paid = effectivePaidExpr(isAr ? 'ar' : 'ap');
+    const inPopulation = isAr
+      ? `ci.status NOT IN ('draft', 'cancelled') AND COALESCE(ci.invoice_date, ci.created_at::date) <= `
+      : `si.status NOT IN ('draft', 'cancelled') AND COALESCE(si.invoice_date, si.created_at::date) <= `;
 
     // AR and AP are SEPARATE queries, not one query branching on a boolean
     // parameter: that form type-checked, ran without error and returned nothing
@@ -86,8 +97,9 @@ export async function getUnpostedSubledgerDocuments(
       ? sql`
         SELECT ci.id, ci.invoice_number AS document_number, c.name AS entity_name,
                ci.invoice_date AS document_date,
-               CASE WHEN ci.status = ANY(${openStatuses}::text[])
-                    THEN (ci.total_amount - COALESCE(ci.amount_paid, 0)) ELSE 0 END AS balance,
+               CASE WHEN ${sql.unsafe(inPopulation)} ${asAtDate}::DATE
+                          AND (ci.total_amount - ${sql.unsafe(paid)}) > 0
+                    THEN (ci.total_amount - ${sql.unsafe(paid)}) ELSE 0 END AS balance,
                (ci.gl_journal_entry_id IS NOT NULL) AS has_journal,
                COALESCE((
                  SELECT SUM(jl.debit - jl.credit)
@@ -128,16 +140,20 @@ export async function getUnpostedSubledgerDocuments(
                    AND cn.customer_invoice_id = ci.id
                ), 0) AS control_amount
         FROM customer_invoices ci
-        JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
-                        AND c.company_id = ${companyId}::UUID
+        LEFT JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
+                             AND c.company_id = ${companyId}::UUID
+        LEFT JOIN LATERAL (
+          ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ar' })}
+        ) unpaid ON TRUE
         WHERE ci.company_id = ${companyId}::UUID
         ORDER BY ci.invoice_date, ci.id
       `
       : sql`
         SELECT si.id, si.invoice_number AS document_number, s.name AS entity_name,
                si.invoice_date AS document_date,
-               CASE WHEN si.status = ANY(${openStatuses}::text[])
-                    THEN (si.total_amount - COALESCE(si.amount_paid, 0)) ELSE 0 END AS balance,
+               CASE WHEN ${sql.unsafe(inPopulation)} ${asAtDate}::DATE
+                          AND (si.total_amount - ${sql.unsafe(paid)}) > 0
+                    THEN (si.total_amount - ${sql.unsafe(paid)}) ELSE 0 END AS balance,
                (si.gl_journal_entry_id IS NOT NULL) AS has_journal,
                COALESCE((
                  SELECT SUM(jl.credit - jl.debit)
@@ -165,7 +181,10 @@ export async function getUnpostedSubledgerDocuments(
                  WHERE a.invoice_id = si.id
                ), 0) AS control_amount
         FROM supplier_invoices si
-        JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
+        LEFT JOIN suppliers s ON s.id = si.supplier_id AND s.company_id = ${companyId}::UUID
+        LEFT JOIN LATERAL (
+          ${rewindAmount({ companyId, asAtStr: asAtDate, todayStr, side: 'ap' })}
+        ) unpaid ON TRUE
         WHERE si.company_id = ${companyId}::UUID
         ORDER BY si.invoice_date, si.id
       `)) as DbRow[];

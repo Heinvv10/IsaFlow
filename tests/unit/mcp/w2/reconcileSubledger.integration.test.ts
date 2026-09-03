@@ -23,6 +23,12 @@ import type { SubledgerRole } from '@/modules/accounting/services/gl/controlAcco
 
 type AlsCtx = Parameters<typeof als.run>[0];
 
+/**
+ * The BUSIEST companies, not an arbitrary five. `ORDER BY company_id LIMIT 5`
+ * picks by uuid, and most companies on isaflow_dev reconcile zero against zero
+ * — a suite that happens to sample those passes without exercising anything,
+ * and nothing in the output says so.
+ */
 async function withCompanies(run: (ids: string[]) => Promise<void>) {
   const client = await getPoolForTests().connect();
   try {
@@ -31,9 +37,14 @@ async function withCompanies(run: (ids: string[]) => Promise<void>) {
       { client, userId: 'test', companyId: 'bootstrap', claims: {} } as unknown as AlsCtx,
       async () => {
         const rows = (await sql`
-          SELECT DISTINCT company_id AS id FROM customer_invoices ORDER BY 1 LIMIT 5
+          SELECT company_id AS id, COUNT(*) AS n
+          FROM customer_invoices
+          WHERE status NOT IN ('draft', 'cancelled')
+          GROUP BY company_id
+          ORDER BY COUNT(*) DESC
+          LIMIT 5
         `) as Array<{ id: string }>;
-        if (rows.length === 0) throw new Error('no company with customer invoices in isaflow_dev');
+        if (rows.length === 0) throw new Error('no company with live customer invoices in isaflow_dev');
         await run(rows.map((r) => r.id));
       },
     );
@@ -48,6 +59,7 @@ describe('reconcile_subledger — real database', async () => {
 
   it.skipIf(!reachable)('closes its own arithmetic on real AR and AP books', async () => {
     await withCompanies(async (companyIds) => {
+      let decomposed = 0;
       for (const companyId of companyIds) {
         for (const role of ['ar', 'ap'] as SubledgerRole[]) {
           const rec = await reconcileSubledger(companyId, role, '2026-09-03');
@@ -84,33 +96,35 @@ describe('reconcile_subledger — real database', async () => {
           if (rec.postedThrough !== null) {
             expect(rec.postedThrough <= new Date().toISOString()).toBe(true);
           }
+          if (rec.difference !== 0) decomposed += 1;
         }
       }
+      // At least one company must have had a real difference to decompose.
+      // Without this the whole case passes on books that agree everywhere,
+      // which is the state of most of isaflow_dev.
+      expect(decomposed).toBeGreaterThan(0);
     });
   }, 30000);
 
   it.skipIf(!reachable)(
-    'closes its arithmetic at a date most documents are AFTER — the double-count case',
+    'closes its arithmetic at a HISTORICAL date, with no document named twice',
     async () => {
-      // isaflow_dev holds nothing dated after today, so the case above cannot
-      // reach the after-as-at path at all; on PRODUCTION it did, and reported
-      // R5,836,396.24 of AR and R1,206,462.27 of AP as `unexplained_difference`
-      // because the same future-dated documents were counted by both the
-      // unposted-document scan and a separate `document_after_as_at` item.
-      //
-      // Rolling the reporting date BACK reproduces it on real dev data without
-      // seeding: at 2024-06-30 most of these books are still in the future.
+      // Rolling the reporting date back is what exercises the point-in-time
+      // path: both the subledger and the control account have to move to the
+      // same date. When only the control account moved, the gap was closed by a
+      // `document_after_as_at` item — R72,867,375.59 of Velocity AR at
+      // 2025-12-31 — and the residual reached zero while the answer was wrong.
+      // That item no longer exists, and its absence is asserted rather than
+      // assumed.
       await withCompanies(async (companyIds) => {
-        let sawAfterAsAt = false;
         for (const companyId of companyIds) {
           for (const role of ['ar', 'ap'] as SubledgerRole[]) {
             const rec = await reconcileSubledger(companyId, role, '2024-06-30');
             if (rec.controlAccountBalance === null) continue;
-            if (rec.reconcilingItems.some((i) => i.type === 'document_after_as_at')) {
-              sawAfterAsAt = true;
-            }
             expect(rec.unexplainedDifference).toBe(0);
-            // No document may be named by two items: that IS the double count.
+            expect(rec.reconcilingItems.some((i) => i.type === 'document_after_as_at')).toBe(false);
+            // No document may be named by two items on the same bridge: that
+            // IS the double count.
             const seen = new Set<string>();
             for (const item of rec.reconcilingItems) {
               if (item.bridge !== 'subledger_to_control') continue;
@@ -121,8 +135,6 @@ describe('reconcile_subledger — real database', async () => {
             }
           }
         }
-        // Guard against the case going vacuous if dev data is ever re-dated.
-        expect(sawAfterAsAt).toBe(true);
       });
     },
     30000,

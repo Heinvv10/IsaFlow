@@ -29,11 +29,19 @@ vi.mock('@/modules/accounting/services/reconciliation/unappliedCashService', () 
 vi.mock('@/modules/accounting/services/reconciliation/unpostedDocumentService', () => ({
   getUnpostedSubledgerDocuments: vi.fn(),
 }));
+// The aged total comes FROM the aged report. Mocked here so the bridge
+// arithmetic can be driven; that it really is the aged report's own figure is
+// asserted against the live books in subledgerTiesToAging.integration.test.ts,
+// which is the only place that claim can honestly be made.
+vi.mock('@/modules/accounting/services/reconciliation/agedReportTotal', () => ({
+  getAgedReportTotal: vi.fn(),
+}));
 
 import { getControlAccountBalances } from '@/modules/accounting/services/gl/controlAccountService';
 import { getARSubledger } from '@/modules/accounting/services/ar/arSubledgerService';
 import { getUnappliedControlCash } from '@/modules/accounting/services/reconciliation/unappliedCashService';
 import { getUnpostedSubledgerDocuments } from '@/modules/accounting/services/reconciliation/unpostedDocumentService';
+import { getAgedReportTotal } from '@/modules/accounting/services/reconciliation/agedReportTotal';
 import { reconcileSubledger } from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -53,7 +61,7 @@ const doc = (over: Record<string, unknown> = {}) => ({
 
 function arSnapshot(over: Record<string, unknown> = {}) {
   return {
-    documents: [doc()], ageable: [doc()], unageable: [], afterAsAt: [], creditNotes: [],
+    documents: [doc()], ageable: [doc()], unageable: [], creditNotes: [],
     subledgerTotal: 1000, postedThrough: '2026-01-01T00:00:00.000Z',
     disputes: new Map<string, number>(), ...over,
   };
@@ -66,12 +74,16 @@ beforeEach(() => {
     appliedRecords: [], withPaymentRecord: [], withoutPaymentRecord: [], total: 0, postedThrough: null,
   });
   vi.mocked(getUnpostedSubledgerDocuments).mockReset().mockResolvedValue([]);
+  // Default: the aged report agrees with the subledger, so the aged bridge is
+  // empty and a test that does not care about it is not paying for one.
+  vi.mocked(getAgedReportTotal).mockReset().mockResolvedValue(1000);
 });
 
 describe('reconcileSubledger — AR', () => {
   it('decomposes the difference into items that SUM to it, with document ids', async () => {
     vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 11581623.6 })]);
     vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 14272647.6 }) as never);
+    vi.mocked(getAgedReportTotal).mockResolvedValue(14272647.6);
     vi.mocked(getUnappliedControlCash).mockResolvedValue({
       withPaymentRecord: [
         { id: 'pay-1', documentNumber: 'CP-1', entityName: 'Velocity', documentDate: '2026-07-24', amount: 2681024 },
@@ -106,6 +118,7 @@ describe('reconcileSubledger — AR', () => {
     // decomposition from one that quietly gave up.
     vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 0 })]);
     vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 5000 }) as never);
+    vi.mocked(getAgedReportTotal).mockResolvedValue(5000);
 
     const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
     expect(rec.difference).toBe(5000);
@@ -114,7 +127,14 @@ describe('reconcileSubledger — AR', () => {
     expect(residual).toMatchObject({ amount: 5000, bridge: 'subledger_to_control', documentIds: [] });
   });
 
-  it('puts the null-due-date invoice on the AGED bridge with its amount and id', async () => {
+  it('does NOT claim the aged report drops a null-due-date invoice — it no longer does', async () => {
+    // This item used to exist as `unageable_document`, worth R12,730,757.43 of
+    // Velocity AR and R1,058,000 of Brightsphere. It asserted that the aged
+    // report omits invoices with no due date. True before #303; since then they
+    // are aged from `invoice_date`. The reconciliation was attributing a real
+    // difference to a mechanism that had been fixed, and nothing went red
+    // because the aged total was recomputed here instead of being read from the
+    // report that owns it.
     const orphan = doc({ id: 'inv-133', documentNumber: 'INV0000133', dueDate: null, balance: 1058000 });
     vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 1059000 })]);
     vi.mocked(getARSubledger).mockResolvedValue(
@@ -123,16 +143,66 @@ describe('reconcileSubledger — AR', () => {
         subledgerTotal: 1059000,
       }) as never,
     );
+    // The aged report carries the row, so it reports the same total.
+    vi.mocked(getAgedReportTotal).mockResolvedValue(1059000);
 
     const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
-    const item = rec.reconcilingItems.find((i) => i.type === 'unageable_document');
-    expect(item).toMatchObject({ bridge: 'aged_to_subledger', amount: 1058000, documentIds: ['inv-133'] });
-    expect(item!.documentNumbers).toEqual(['INV0000133']);
-    // It reconciles the AGED report to the subledger, and does NOT pretend to
-    // explain the GL difference — the invoice's own journal IS in the control
-    // account. Conflating the two is what made the audit's figure unreconcilable.
+    expect(rec.agedTotal).toBe(1059000);
+    expect(rec.reconcilingItems.some((i) => i.type === 'unageable_document')).toBe(false);
+    // Nothing to explain on either bridge: both reports agree, and so do the
+    // subledger and the control account.
+    expect(rec.reconcilingItems).toEqual([]);
     expect(rec.difference).toBe(0);
-    expect(rec.agedTotal).toBe(1000);
+  });
+
+  it('reports the aged report’s OWN total, and names the gap to the subledger', async () => {
+    // Disputes and unallocated credit are the two things the aged report
+    // genuinely does not show: bucket totals are net of disputes, and a row
+    // with a balance of zero or less never reaches a bucket at all.
+    const disputed = doc({ id: 'inv-d', documentNumber: 'INV-D', balance: 4000 });
+    const cn = doc({ id: 'cn-1', documentNumber: 'CN0001', balance: -250 });
+    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 3750 })]);
+    vi.mocked(getARSubledger).mockResolvedValue(
+      arSnapshot({
+        documents: [disputed], ageable: [disputed], creditNotes: [cn],
+        subledgerTotal: 3750,
+        disputes: new Map([['inv-d', 900]]),
+      }) as never,
+    );
+    vi.mocked(getAgedReportTotal).mockResolvedValue(3100); // 4000 − 900 dispute
+
+    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
+    const aged = rec.reconcilingItems.filter((i) => i.bridge === 'aged_to_subledger');
+    expect(aged.map((i) => i.type)).toEqual(['disputed_amount', 'unallocated_credit_note']);
+    expect(aged.find((i) => i.type === 'disputed_amount')).toMatchObject({
+      amount: 900, documentIds: ['inv-d'],
+    });
+    expect(aged.find((i) => i.type === 'unallocated_credit_note')).toMatchObject({
+      amount: -250, documentIds: ['cn-1'],
+    });
+    // The identity this bridge exists to satisfy.
+    expect(aged.reduce((s, i) => s + i.amount, 0)).toBe(3750 - 3100);
+    // And it does NOT touch the GL difference: those documents' own journals
+    // are already on the control account.
+    expect(rec.difference).toBe(0);
+    expect(rec.reconcilingItems.filter((i) => i.bridge === 'subledger_to_control')).toEqual([]);
+  });
+
+  it('EMITS aged_unexplained_difference when the aged gap is not fully named', async () => {
+    // The valve that would have caught `unageable_document` going stale. The
+    // aged report and the subledger disagree by R600 with no dispute and no
+    // credit note to explain it, so the residual is reported rather than
+    // absorbed into a plausible-looking item.
+    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 1000 })]);
+    vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 1000 }) as never);
+    vi.mocked(getAgedReportTotal).mockResolvedValue(400);
+
+    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
+    expect(rec.reconcilingItems.find((i) => i.type === 'aged_unexplained_difference')).toMatchObject({
+      bridge: 'aged_to_subledger', amount: 600, documentIds: [],
+    });
+    // It is an AGED-bridge residual and must not be mistaken for a GL one.
+    expect(rec.unexplainedDifference).toBe(0);
   });
 
   it('names the invoices the GL has never seen instead of lumping them into the residual', async () => {
@@ -142,6 +212,7 @@ describe('reconcileSubledger — AR', () => {
     // every cent of it arrived as `unexplained_difference`.
     vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 0 })]);
     vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 10664575.43 }) as never);
+    vi.mocked(getAgedReportTotal).mockResolvedValue(10664575.43);
     vi.mocked(getUnpostedSubledgerDocuments).mockResolvedValue([
       { id: 'inv-a', documentNumber: 'INV-A', entityName: 'X', documentDate: '2026-01-01',
         amount: 10664000, reason: 'document_not_linked_to_journal' },
@@ -158,47 +229,23 @@ describe('reconcileSubledger — AR', () => {
     expect(rec.unexplainedDifference).toBe(0);
   });
 
-  it('emits NO item for a future-dated document the control account already holds', async () => {
-    // The mirror of the double-count case below. A document dated after the
-    // reporting date whose journal posted BEFORE it is on the control account
-    // already, so the unposted scan returns nothing for it and there is nothing
-    // to reconcile. Emitting an item off the document's date alone would
-    // manufacture a difference out of a set of books that agree.
-    const future = doc({ id: 'inv-f', documentNumber: 'INV-F', documentDate: '2026-10-01', balance: 51750 });
-    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 52750 })]);
-    vi.mocked(getARSubledger).mockResolvedValue(
-      arSnapshot({
-        documents: [doc(), future], ageable: [doc(), future], afterAsAt: [future],
-        subledgerTotal: 52750,
-      }) as never,
-    );
-
-    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
-    expect(rec.difference).toBe(0);
-    expect(rec.reconcilingItems.filter((i) => i.bridge === 'subledger_to_control')).toEqual([]);
-    expect(rec.unexplainedDifference).toBe(0);
-  });
-
-  it('counts a future-dated document ONCE when the unposted scan also returns it', async () => {
-    // The production defect this case exists for. A document dated after the
-    // reporting date has NO control posting as at that date, so
-    // `getUnpostedSubledgerDocuments` returns it with a shortfall equal to its
-    // whole balance — and `afterAsAt` then reported the same balance again.
-    // Two items, one document, and a residual of exactly minus its balance.
+  it('names a document whose JOURNAL is after the reporting date, once, as what it is', async () => {
+    // The `document_after_as_at` item is gone with `afterAsAt`. The readers now
+    // apply the same document-date cutoff the control-account balance applies,
+    // so a document raised after the reporting date is not in the subledger at
+    // that date and there is nothing to reconcile. On production that item was
+    // absorbing R72,867,375.59 of Velocity AR at 2025-12-31 — arithmetic that
+    // closed while answering a question nobody asked.
     //
-    // On isaflow_dev nothing is future-dated, so the DB-gated test could not
-    // see it; on production ISAFlow Demo it was R5,836,396.24 of AR and
-    // R1,206,462.27 of AP reported as `unexplained_difference`.
-    const future = doc({ id: 'inv-f', documentNumber: 'INV-F', documentDate: '2026-10-01', balance: 51750 });
+    // What remains is a document IN the subledger whose journal is dated after
+    // the reporting date. `getUnpostedSubledgerDocuments` returns it with a
+    // shortfall equal to its balance, and the correct name for that is
+    // `document_not_on_control_account`, not a second item off the date.
     vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 1000 })]);
-    vi.mocked(getARSubledger).mockResolvedValue(
-      arSnapshot({
-        documents: [doc(), future], ageable: [doc(), future], afterAsAt: [future],
-        subledgerTotal: 52750,
-      }) as never,
-    );
+    vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 52750 }) as never);
+    vi.mocked(getAgedReportTotal).mockResolvedValue(52750);
     vi.mocked(getUnpostedSubledgerDocuments).mockResolvedValue([
-      { id: 'inv-f', documentNumber: 'INV-F', entityName: 'Blitz', documentDate: '2026-10-01',
+      { id: 'inv-f', documentNumber: 'INV-F', entityName: 'Blitz', documentDate: '2026-08-01',
         amount: 51750, reason: 'document_not_on_control_account' },
     ]);
 
@@ -206,12 +253,11 @@ describe('reconcileSubledger — AR', () => {
 
     expect(rec.difference).toBe(51750);
     const bridge = rec.reconcilingItems.filter((i) => i.bridge === 'subledger_to_control');
-    // The document is named ONCE, and by the reason that actually explains it.
     expect(bridge.filter((i) => i.documentIds.includes('inv-f'))).toHaveLength(1);
-    expect(bridge.find((i) => i.documentIds.includes('inv-f'))!.type).toBe('document_after_as_at');
+    expect(bridge[0]!.type).toBe('document_not_on_control_account');
     expect(bridge.reduce((s, i) => s + i.amount, 0)).toBe(51750);
     expect(rec.unexplainedDifference).toBe(0);
-    expect(rec.reconcilingItems.some((i) => i.type === 'unexplained_difference')).toBe(false);
+    expect(rec.reconcilingItems.some((i) => i.type === 'document_after_as_at')).toBe(false);
   });
 
   it('reports EVERY control account and flags the ambiguity rather than picking one', async () => {
@@ -223,6 +269,7 @@ describe('reconcileSubledger — AR', () => {
              balance: -10000, foundBy: 'posting' }),
     ]);
     vi.mocked(getARSubledger).mockResolvedValue(arSnapshot({ subledgerTotal: 11581623.6 }) as never);
+    vi.mocked(getAgedReportTotal).mockResolvedValue(11581623.6);
 
     const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
     expect(rec.controlAccounts).toHaveLength(2);

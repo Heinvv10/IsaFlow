@@ -39,23 +39,26 @@ export function maxCreatedAt(rows: readonly DbRow[]): string | null {
   return max;
 }
 
+/**
+ * The as-at cutoff is applied in SQL, by the same
+ * `COALESCE(document_date, created_at::date) <= as_at` predicate the aging
+ * reports use, so nothing here needs to filter on the date and nothing may.
+ * Re-filtering in TypeScript on a value already filtered in SQL is how two
+ * definitions of one boundary come to disagree.
+ */
 export function buildSnapshot(
   documents: SubledgerDocument[],
   creditNotes: SubledgerDocument[],
-  asAtDate: string,
   sourceRows: readonly DbRow[],
 ): SubledgerSnapshot {
   const unageable = documents.filter((d) => d.dueDate === null);
   const ageable = documents.filter((d) => d.dueDate !== null);
-  // String comparison, not Date arithmetic: 'YYYY-MM-DD' sorts correctly as text.
-  const afterAsAt = documents.filter((d) => d.documentDate > asAtDate);
   const subledgerTotal =
     documents.reduce((s, d) => s + d.balance, 0) + creditNotes.reduce((s, d) => s + d.balance, 0);
   return {
     documents,
     ageable,
     unageable,
-    afterAsAt,
     creditNotes,
     subledgerTotal: Math.round(subledgerTotal * 100) / 100,
     postedThrough: maxCreatedAt(sourceRows),

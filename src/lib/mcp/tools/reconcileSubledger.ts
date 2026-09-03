@@ -18,6 +18,13 @@
  *    `allocateTransaction` skips its payment INSERT when it cannot resolve a
  *    uuid-shaped user, so that cash is invisible to every tool that reads
  *    payment rows, `list_unapplied_receipts` included.
+ *
+ *  - It answers as at a DATE. Both sides move together: the subledger is
+ *    reconstructed by the same settlement rewind the aging reports use
+ *    (`services/shared/agingRewind.ts`), and `agedTotal` is read from those
+ *    reports rather than recomputed. When only the control account moved, a
+ *    past-date reconciliation closed its arithmetic against today's subledger —
+ *    R81,996,370.82 of Velocity AR at 2025-12-31, absorbed by a single item.
  */
 import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
@@ -78,8 +85,10 @@ export const reconcileSubledgerTool: McpTool = {
     'Reconciles a subledger to its general-ledger control account as at a date, and DECOMPOSES the difference into itemised reconciling items with the ids of the documents behind each one. ' +
     'Use it to answer "why does the AR control account disagree with what customers owe us", not merely "by how much". ' +
     'Returns: subledgerTotal (every open document, including ones that cannot be aged), agedTotal (what aged_debtors/aged_creditors would show), controlAccountBalance, difference, and reconcilingItems. ' +
-    'Each item carries a bridge: "aged_to_subledger" items explain what the AGED REPORT omits (a document with no due date, an amount under dispute) and do NOT explain any GL difference; "subledger_to_control" items explain the GL difference itself (unapplied cash, documents dated after the reporting date). Those two are separate questions and adding them together produces a number that reconciles to nothing. ' +
-    'controlAccountBalance + the sum of the subledger_to_control items equals subledgerTotal. Any residual is returned as an item of type "unexplained_difference", so an incomplete decomposition cannot be mistaken for a complete one. ' +
+    'Each item carries a bridge: "aged_to_subledger" items explain why the AGED REPORT total is not the subledger total (open disputes, which aged buckets are net of; unallocated credit notes, which never reach a bucket) and do NOT explain any GL difference; "subledger_to_control" items explain the GL difference itself (unapplied cash, postings no document claims, documents whose value never reached a control account). Those two are separate questions and adding them together produces a number that reconciles to nothing. Each bridge reports its own residual — "unexplained_difference" and "aged_unexplained_difference" — so an incomplete decomposition on either cannot be mistaken for a complete one. ' +
+    'controlAccountBalance + the sum of the subledger_to_control items equals subledgerTotal, and agedTotal + the sum of the aged_to_subledger items equals subledgerTotal. ' +
+    'POINT IN TIME: as_at moves BOTH sides. The subledger is reconstructed from settlement that can be dated, on the same basis as aged_debtors/aged_creditors — read the limitations on those tools, which apply here unchanged: the reconstruction will not report a settled document as outstanding, but it can UNDERSTATE a past balance where settlement carries no date (bank-match confirmation and the Sage import both write amount_paid with no dated trail). ' +
+    'settlementFlagged lists supplier bills whose payment_matched flag says a matching process considered them settled while their balance says nothing was applied — 397 bills worth R16,151,543.00 on one production company. It is an ATTRIBUTION of part of the difference, NOT an extra reconciling item: that cash is already counted once as posting_with_no_document, so its total is deliberately outside reconcilingItems and must not be added to them. ' +
     'LIMITS. There is no canonical control account in this database, so EVERY candidate is returned in controlAccounts with how it was found ("subtype" = typed for the role, "posting" = subledger documents actually posted to it) and controlAccountAmbiguous is set when more than one exists; the balance is their sum. Deactivated accounts are included — is_active is a picker flag and says nothing about whether an account holds money. ' +
     'Only "ar" and "ap" have a document subledger to compare against; "bank", "vat", "payroll" and "inventory" return the GL control accounts with subledgerTotal null and subledgerUnavailable explaining why, rather than a difference of zero that means nothing. ' +
     'detail: "summary" returns totals only, "standard" (default) returns one row per reconciling item, "full" returns one row per underlying document and is paginated — call again with cursor until next_cursor is null. Follow a documentId with get_invoice, list_invoices or list_journals depending on the item type.',
@@ -183,6 +192,7 @@ export const reconcileSubledgerTool: McpTool = {
       // Named, but deliberately UNOWNED in the figure registry: registering an
       // owner would encode an arbitrary choice of control account as truth and
       // destroy the only thing that can detect the break (FINDINGS C1).
+      settlementFlagged: rec.settlementFlagged,
       controlFigureBasis: subledger === 'ap' ? 'ap.control.v1' : 'ar.control.v1',
     });
   },

@@ -95,6 +95,10 @@ interface PostingProbe {
    * Subtypes to EXCLUDE from the probe: the other leg of the same journal.
    * A receipt journal is DR bank / CR receivable and both legs are assets, so
    * without this the bank account is reported as an AR control account.
+   *
+   * Necessary but not sufficient: it matches on `account_subtype`, and the
+   * accounts this probe exists to find are the ones whose subtype is NULL. See
+   * the direction rule below for what catches those.
    */
   excludeSubtypes: readonly string[];
 }
@@ -120,6 +124,33 @@ function postingProbeForRole(role: SubledgerRole): PostingProbe | null {
 
 function signedBalance(normalBalance: string, debit: number, credit: number): number {
   return normalBalance === 'credit' ? credit - debit : debit - credit;
+}
+
+/**
+ * THE DIRECTION RULE, and why the probe needs one.
+ *
+ * `excludeSubtypes` cannot exclude an account whose subtype is NULL, which is
+ * precisely the population the posting arm exists to find. On production
+ * `SYS-9 VAT Payable` — subtype NULL, type `liability` — is touched by 356
+ * Velocity supplier-invoice journals, so it was adopted as an AP control
+ * account. It brought −R4,917,814.24 into the control balance and the
+ * reconciliation then "explained" exactly +R4,917,814.24 across the same 356
+ * documents. Every number was internally consistent and the account was the
+ * input-VAT leg of a bill.
+ *
+ * The rule, which looks at no account name: a control account is moved IN ITS
+ * OWN DIRECTION by the documents that create the balance. A receivable is
+ * net DEBITED by customer invoices; a payable is net CREDITED by supplier
+ * bills. An account those journals move the OTHER way is the contra leg.
+ *
+ * It is applied only where there IS invoice movement. An account found solely
+ * through a PAYMENT journal — Brightsphere's account 1120, subtype NULL,
+ * carrying one R10,000 receipt while thirty-six others went to 1101 — has no
+ * invoice movement to judge and is kept. That row is the whole reason the
+ * posting arm exists and the rule must not cost it.
+ */
+function directionSign(accountType: string | null): 'asset' | 'liability' | null {
+  return accountType === 'asset' || accountType === 'liability' ? accountType : null;
 }
 
 /**
@@ -162,6 +193,29 @@ export async function getControlAccountBalances(
           WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NOT NULL
             AND 'supplier_payments' = ANY(${probeTables}::text[])
       ),
+      -- Only the INVOICE table for this role: the document that creates the
+      -- control balance, and so the only one whose direction is diagnostic.
+      invoice_journals AS (
+        SELECT gl_journal_entry_id AS je_id FROM customer_invoices
+          WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NOT NULL
+            AND 'customer_invoices' = ANY(${probeTables}::text[])
+        UNION SELECT gl_journal_entry_id FROM supplier_invoices
+          WHERE company_id = ${companyId}::UUID AND gl_journal_entry_id IS NOT NULL
+            AND 'supplier_invoices' = ANY(${probeTables}::text[])
+      ),
+      -- The contra legs: accounts the invoice journals move AGAINST the
+      -- control direction. See the direction rule above this function.
+      contra_accounts AS (
+        SELECT jl.gl_account_id
+        FROM gl_journal_lines jl
+        JOIN invoice_journals ij ON ij.je_id = jl.journal_entry_id
+        WHERE jl.company_id = ${companyId}::UUID
+        GROUP BY jl.gl_account_id
+        HAVING SUM(
+                 CASE WHEN ${directionSign(probeType)}::TEXT = 'asset'
+                      THEN jl.debit - jl.credit ELSE jl.credit - jl.debit END
+               ) < 0
+      ),
       probe_accounts AS (
         SELECT DISTINCT jl.gl_account_id
         FROM gl_journal_lines jl
@@ -171,6 +225,7 @@ export async function getControlAccountBalances(
           AND pa.company_id = ${companyId}::UUID
           AND pa.account_type = ${probeType}::TEXT
           AND NOT (COALESCE(pa.account_subtype, '') = ANY(${probeExclude}::text[]))
+          AND jl.gl_account_id NOT IN (SELECT gl_account_id FROM contra_accounts)
       ),
       candidates AS (
         SELECT ga.id,

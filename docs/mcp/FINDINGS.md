@@ -161,6 +161,117 @@ report and a finding.
 
 ---
 
+## A-live-3. `reconcile_subledger`, re-derived against production after the W2 fixes, 2026-09-03
+
+Every figure below came from running `reconcileSubledger` read-only against the
+production `isaflow` database. **`unexplainedDifference` is 0.00 on every
+company, both roles, at every date tested** — the difference is fully
+decomposed into named items carrying document ids, which is the requirement.
+
+### Four things the endpoint was wrong about, and what changed
+
+**1. `agedTotal` was a second opinion about a figure that already had an owner.**
+It was recomputed from the reconciler's own snapshot. At today's date on
+Velocity it read **R63,133,371.78** against the aging report's
+**R75,864,129.21** — a gap of exactly **R12,730,757.43**, the invoices with no
+due date. The reconciliation named that gap `unageable_document`: a claim that
+the aged report drops them. True before #303; since then it ages them from
+`invoice_date`. **R12.7m of Velocity AR and R1,058,000 of Brightsphere were
+attributed to a mechanism that had been fixed**, and nothing could go red
+because both sides of the comparison came from the same snapshot. `agedTotal`
+now comes from `getARAging` / `getAPAging` and ties to them to the cent on every
+company and date. `unageable_document` is deleted.
+
+> The R63,133,371.78 in section A-live is the **deployed** aged report, which
+> predates #306. It matched the old recomputation and not master. Both numbers
+> were right about different code.
+
+**2. `as_at` moved only one side.** The subledger readers read the current
+`amount_paid` with no document-date cutoff, so `subledgerTotal` was frozen at
+today while `controlAccountBalance` correctly moved. At 2025-12-31 Velocity AR
+reported today's R75,864,129.21 against a control balance of **−R6,132,241.61**
+and closed the R81,996,370.82 gap with a single `document_after_as_at` item of
+**R72,867,375.59**. The arithmetic added up and answered a question nobody
+asked. Both readers now use `shared/agingRewind.ts` — master's rewind, with its
+four documented limitations — and the aging report's population and cutoff.
+`afterAsAt` and `document_after_as_at` are gone with it: a document raised after
+the reporting date is not in the subledger at that date, and one whose JOURNAL
+is later is reported as `document_not_on_control_account`, which is what it is.
+
+**3. `SYS-9 VAT Payable` was being adopted as an AP control account.** Subtype
+NULL, type `liability`, touched by **356** Velocity supplier-invoice journals —
+so `excludeSubtypes`, which matches on `vat_output`, could not exclude it. It
+brought **−R4,917,814.24** into the control balance and the reconciliation then
+"explained" exactly **+R4,917,814.24** with a 356-document
+`document_not_on_control_account` item. Every number was internally consistent
+and the account was the input-tax leg of a bill (this is B36 arriving through a
+second door). The rule that now excludes it uses no account name: **a control
+account is moved in its OWN direction by the documents that create the
+balance** — a receivable is net debited by invoices, a payable net credited by
+bills. It is applied only where there IS invoice movement, so Brightsphere's
+account 1120 — subtype NULL, found solely through one R10,000 receipt — is still
+kept. That row is why the posting arm exists.
+
+**4. 397 bills flagged settled were visible only as an amount.** Confirmed
+current: **397 Velocity bills, R16,151,543.00 outstanding, every one at
+`amount_paid = 0.00`, no `payment_allocations` row, no `supplier_payments`
+row.** `recordPaymentMatch` sets the flag from
+`amount_paid + allocatedAmount`; it never writes `amount_paid`. Their cash IS on
+the control account — **1,090 `auto_supplier_payment` journals move Velocity's
+AP control by −R61,115,350.09 with no `supplier_payments` row behind any of
+them** — so the money is already counted once as `posting_with_no_document`, and
+a second item would double-count it. It is reported as `settlementFlagged`,
+outside `reconcilingItems` where it cannot enter the arithmetic: an
+ATTRIBUTION of part of a difference, not an addition to it.
+
+### The books, decomposed (as at 2026-09-03)
+
+| | control | subledger | aged | difference | residual |
+|---|---|---|---|---|---|
+| Velocity AR | R59,959,914.39 (`1120`+`SYS-7`) | R75,864,129.21 | R75,864,129.21 | R15,904,214.82 | **R0.00** |
+| Velocity AP | R45,628,418.36 (`2110`+`SYS-8`) | R106,743,768.45 | R106,743,768.45 | R61,115,350.09 | **R0.00** |
+| Brightsphere AR | R11,581,623.60 (`1101`+`1120`) | R14,272,647.60 | R14,272,647.60 | R2,691,024.00 | **R0.00** |
+| Brightsphere AP | R613,641.77 (`2001`+`2110`) | R613,641.77 | R613,641.77 | R0.00 | **R0.00** |
+
+Velocity AR decomposes to `unapplied_receipt` R37,719,269.77 (39 payment
+documents), `posting_with_no_document` −R1,841,265.00 (4 journals) and
+`document_not_on_control_account` −R19,973,789.95 (46 invoices). Velocity AP
+decomposes to one item: `posting_with_no_document` R61,115,350.09 over 1,090
+journals, of which R16,151,543.00 is attributed to the 397 flagged bills.
+Brightsphere AR is `unapplied_receipt` R2,691,024.00 over 37 payments, plus an
+offsetting R28,750 pair.
+
+The **`aged_to_subledger` bridge is empty on every production company**: once
+the aged total is read from the aged report rather than recomputed, the aged
+report and the subledger agree exactly. No open disputes and no unallocated
+credit notes exist on these books.
+
+### Figures re-derived, and what moved
+
+| figure | section A-live | now | note |
+|---|---|---|---|
+| Aged debtors total | R63,133,371.78 | R75,864,129.21 | A-live sampled the DEPLOYED aging report; master's includes null-due-date invoices |
+| `1120 Accounts Receivable` | R27,924,289.10 | **R27,255,367.01** | moved R668,922.09 overnight — the bulk-allocating agent |
+| `SYS-7 Trade Receivables` | R32,704,547.38 | R32,704,547.38 | unchanged |
+| `list_unapplied_receipts` | R37,050,347.68 / 36 | **R37,719,269.77 / 39** | same R668,922.09, same 3 receipts |
+| Velocity AP control | R7,925,176.42 + R37,703,241.94 | R45,628,418.36 | `SYS-9`'s −R4,917,814.24 correctly excluded |
+
+`getUnappliedReceipts`' definition and `reconcile_subledger`'s were computed
+over the same rows in one query and agree **to the cent**: 39 receipts,
+R37,719,269.77, with no receipt lacking a journal and none whose control posting
+differs from the receipt total. The two tools reconcile.
+
+### Still true, and still unowned
+
+`ar.control.v1` and `ap.control.v1` remain **unowned** (C1). The direction rule
+removes an account that was never a control account; it does not decide which of
+the remaining candidates is canonical, and that is still a business call about
+the chart of accounts. `controlAccountAmbiguous` is `true` on both Velocity
+roles and both Brightsphere roles.
+
+---
+
+
 ## B. Defects found that the specification never mentions
 
 These are the ones that matter most: nobody was looking for them.

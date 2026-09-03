@@ -1,5 +1,5 @@
 /**
- * Turns the four readers' output into reconciling items.
+ * Turns the readers' output into reconciling items.
  *
  * Split out of `subledgerReconciliationService` for the 300-line limit, and it
  * earns its own file: this is where the decision about WHICH BRIDGE an item
@@ -37,51 +37,61 @@ function item(
   };
 }
 
-const AFTER_AS_AT = 'document_after_as_at';
-
 const UNPOSTED_TEXT: Record<UnpostedDocument['reason'], string> = {
   document_not_linked_to_journal:
     'open document(s) carry no link to a journal entry, so nothing ties their value to the control account. The value may still be on the account — see posting_with_no_document, which counts it from the ledger side.',
   document_not_on_control_account:
-    'open document(s) have a linked journal whose effect on the control accounts differs from the document balance.',
+    'open document(s) have a linked journal whose effect on the control accounts as at the reporting date differs from the document balance. A journal dated AFTER the reporting date lands here, which is what it is: the document is in the subledger and its posting is not yet in the ledger balance.',
 };
 
 export interface ItemInputs {
   snapshot: SubledgerSnapshot & { disputes?: ReadonlyMap<string, number> };
   cash: UnappliedCash;
   unposted: readonly UnpostedDocument[];
-  asAtDate: string;
 }
 
-export function buildReconcilingItems({
+/**
+ * Bridge 1 — the AGED REPORT to the subledger.
+ *
+ * These do NOT explain any GL difference: the documents' own journals are
+ * already in the control account. They explain why the aged report's total is
+ * not the subledger's, which is a different question, and adding the two
+ * bridges together produces a number that reconciles to nothing.
+ *
+ * There are exactly two mechanisms, both of them properties of
+ * `calculateAgingBuckets` rather than of the data:
+ *
+ *   `disputed_amount`        AR bucket totals are net of open disputes.
+ *   `unallocated_credit_note`  a row with a balance <= 0 never reaches a
+ *                            bucket, so unallocated credit never nets off the
+ *                            aged total. The subledger carries it.
+ *
+ * `unageable_document` USED to be a third. It was removed: it claimed the aged
+ * report drops invoices with no due date, which was true before #303 and is
+ * not true now — they are aged from `invoice_date`. It was R12,730,757.43 of
+ * Velocity AR and R1,058,000 of Brightsphere, attributed to a mechanism that
+ * had been fixed. `snapshot.unageable` is still populated, because "this
+ * invoice has no due date" remains worth knowing; it is no longer a difference.
+ */
+export function buildAgedBridgeItems({
   snapshot,
-  cash,
-  unposted,
-  asAtDate,
-}: ItemInputs): ReconcilingItem[] {
+  agedTotal,
+}: {
+  snapshot: SubledgerSnapshot & { disputes?: ReadonlyMap<string, number> };
+  agedTotal: number | null;
+}): ReconcilingItem[] {
   const items: ReconcilingItem[] = [];
-
-  // ── Bridge 1: the aged report to the subledger ────────────────────────────
-  if (snapshot.unageable.length > 0) {
-    items.push(
-      item(
-        'aged_to_subledger',
-        'unageable_document',
-        `${snapshot.unageable.length} document(s) have no due date and cannot be placed in an aging bucket, so the aged report omits them. They are still owed.`,
-        sumBalances(snapshot.unageable),
-        snapshot.unageable,
-      ),
-    );
-  }
 
   const disputes = snapshot.disputes;
   if (disputes && disputes.size > 0) {
     const disputed = snapshot.ageable.filter((d) => (disputes.get(d.id) ?? 0) > 0);
+    // Capped at the document's own balance: a dispute recorded for more than
+    // is outstanding cannot remove more than the bucket ever held.
     const disputedTotal = disputed.reduce(
       (s, d) => s + Math.min(disputes.get(d.id) ?? 0, d.balance),
       0,
     );
-    if (disputedTotal > 0) {
+    if (round2(disputedTotal) !== 0) {
       items.push(
         item(
           'aged_to_subledger',
@@ -94,7 +104,51 @@ export function buildReconcilingItems({
     }
   }
 
-  // ── Bridge 2: the subledger to the control account ────────────────────────
+  const creditTotal = sumBalances(snapshot.creditNotes);
+  if (round2(creditTotal) !== 0) {
+    items.push(
+      item(
+        'aged_to_subledger',
+        'unallocated_credit_note',
+        `${snapshot.creditNotes.length} approved credit note(s) are not applied to any document. The subledger nets them off what is owed; the aged report cannot, because a row with a balance of zero or less never reaches an aging bucket.`,
+        creditTotal,
+        snapshot.creditNotes,
+      ),
+    );
+  }
+
+  // The residual on THIS bridge, emitted as an item for the same reason as on
+  // the other one: an incomplete decomposition must not be mistakable for a
+  // complete one. It is the check that catches the next mechanism nobody has
+  // noticed yet — which is exactly how `unageable_document` came to be wrong
+  // without anything going red.
+  if (agedTotal !== null) {
+    const explained = round2(items.reduce((s, i) => s + i.amount, 0));
+    const residual = round2(snapshot.subledgerTotal - agedTotal - explained);
+    if (residual !== 0) {
+      items.push({
+        bridge: 'aged_to_subledger',
+        type: 'aged_unexplained_difference',
+        description:
+          'The part of the gap between the aged report total and the subledger total that this reconciliation could NOT account for. Reported as an item so an incomplete decomposition cannot be mistaken for a complete one.',
+        amount: residual,
+        documentIds: [],
+        documentNumbers: [],
+      });
+    }
+  }
+
+  return items;
+}
+
+/**
+ * Bridge 2 — the SUBLEDGER to the control account. This is the reconciliation
+ * proper: unapplied cash, postings no document claims, documents whose value
+ * never reached a control account.
+ */
+export function buildControlBridgeItems({ cash, unposted }: ItemInputs): ReconcilingItem[] {
+  const items: ReconcilingItem[] = [];
+
   if (cash.withPaymentRecord.length > 0) {
     items.push(
       item(
@@ -118,38 +172,23 @@ export function buildReconcilingItems({
     );
   }
 
-  // A document dated after the reporting date is RECLASSIFIED, never added.
-  //
-  // It has no control posting as at that date, so `getUnpostedSubledgerDocuments`
-  // already returns it with a shortfall equal to its whole balance. Emitting a
-  // separate `document_after_as_at` item over `snapshot.afterAsAt` counted the
-  // same document twice and left a residual of exactly minus its balance —
-  // R5,836,396.24 of AR and R1,206,462.27 of AP on production ISAFlow Demo,
-  // invisible on isaflow_dev, where nothing is future-dated.
-  //
-  // The two partitions the reconciliation rests on (documents that claim a
-  // journal, journals no document claims) must cover the control account
-  // exactly once each. So the date is a LABEL applied to the unposted row, not
-  // a third source of amounts: the reader still gets the reason that actually
-  // explains the document, and the arithmetic still closes.
-  const afterIds = new Set(snapshot.afterAsAt.map((d) => d.id));
-
   // Grouped by reason, because "never posted" and "posted to the wrong account"
   // need different remedies and a single lump tells a reader neither.
-  const byReason = new Map<string, UnpostedDocument[]>();
+  const byReason = new Map<UnpostedDocument['reason'], UnpostedDocument[]>();
   for (const doc of unposted) {
-    const key = afterIds.has(doc.id) ? AFTER_AS_AT : doc.reason;
-    const list = byReason.get(key);
+    const list = byReason.get(doc.reason);
     if (list) list.push(doc);
-    else byReason.set(key, [doc]);
+    else byReason.set(doc.reason, [doc]);
   }
   for (const [reason, docs] of byReason) {
-    const text =
-      reason === AFTER_AS_AT
-        ? `open document(s) are dated after ${asAtDate}. The subledger counts them; the control-account balance stops at the reporting date and cannot.`
-        : UNPOSTED_TEXT[reason as UnpostedDocument['reason']];
     items.push(
-      item('subledger_to_control', reason, `${docs.length} ${text}`, docs.reduce((s, d) => s + d.amount, 0), docs),
+      item(
+        'subledger_to_control',
+        reason,
+        `${docs.length} ${UNPOSTED_TEXT[reason]}`,
+        docs.reduce((s, d) => s + d.amount, 0),
+        docs,
+      ),
     );
   }
 
@@ -157,8 +196,9 @@ export function buildReconcilingItems({
 }
 
 /**
- * The residual, emitted AS AN ITEM whenever it is non-zero so that an
- * incomplete decomposition cannot be mistaken for a complete one.
+ * The residual on the control bridge, emitted AS AN ITEM whenever it is
+ * non-zero so that an incomplete decomposition cannot be mistaken for a
+ * complete one.
  */
 export function unexplainedItem(amount: number): ReconcilingItem {
   return {

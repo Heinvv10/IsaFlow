@@ -55,9 +55,10 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     id: 'ar.subledger.v1',
     label: 'Accounts receivable per the subledger',
     owner: 'ar/arAgingService#getARAging',
-    includes: 'Open customer invoices, at total_amount less amount_paid, as at the reporting date.',
+    includes:
+      'Customer invoices still outstanding AS AT the reporting date, at total_amount less the settlement that can be dated to on or before it. An invoice with no due date IS included, aged from its invoice date — it is not dropped and it is not an excludedRow.',
     excludes:
-      'Cancelled invoices, and invoices the report could not age — a null due date appears in excludedRows, never in the total.',
+      'Draft and cancelled invoices. Invoices raised AFTER the reporting date. Settlement that carries no date — bank-match confirmation and the Sage import both write amount_paid with no dated trail — stays in the baseline, so a historical figure can UNDERSTATE and will never report a settled invoice as outstanding.',
   }),
   'ar.control.v1': def({
     id: 'ar.control.v1',
@@ -65,22 +66,28 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     // Settled by W2 as part of reconcile_subledger — it is the first report
     // that needs the two AR figures side by side.
     owner: null,
-    includes: 'Balance on the system receivable control account as at the reporting date.',
-    excludes: 'Anything posted to a duplicate control account. Duplicates are reported, not merged.',
+    includes:
+      'Balance on EVERY candidate receivable control account as at the reporting date, deactivated ones included — is_active is a picker flag. Candidates are found by subtype AND by where customer documents actually posted, because the accounts carrying money here have a NULL subtype.',
+    excludes:
+      'Accounts the invoice journals move AGAINST the control direction: those are the contra leg, not the control. Nothing is merged — every candidate is reported with how it was found, and controlAccountAmbiguous says when more than one exists.',
   }),
   'ap.subledger.v1': def({
     id: 'ap.subledger.v1',
     label: 'Accounts payable per the subledger',
     owner: 'ap/apAgingService#getAPAging',
-    includes: 'Open supplier invoices, at total_amount less amount_paid, as at the reporting date.',
-    excludes: 'Cancelled invoices; unageable rows appear in excludedRows.',
+    includes:
+      'Supplier bills still outstanding AS AT the reporting date, at total_amount less the settlement that can be dated to on or before it. A bill with no due date IS included, aged from its invoice date.',
+    excludes:
+      'Draft and cancelled bills, and bills raised AFTER the reporting date. Undated settlement stays in the baseline — see ar.subledger.v1. Note that 397 bills on one production company carry payment_matched = true with amount_paid = 0, so they are counted here as fully owed; reconcile_subledger reports them in settlementFlagged.',
   }),
   'ap.control.v1': def({
     id: 'ap.control.v1',
     label: 'Accounts payable per the GL control account',
     owner: null,
-    includes: 'Balance on the system payable control account as at the reporting date.',
-    excludes: 'Anything posted to a duplicate control account.',
+    includes:
+      'Balance on EVERY candidate payable control account as at the reporting date, deactivated ones included.',
+    excludes:
+      'Accounts the bill journals net-DEBIT, which are the tax or expense leg. SYS-9 VAT Payable — subtype NULL, type liability, touched by 356 Velocity bill journals — was adopted as a control account on that basis and brought -R4,917,814.24 into the balance, which the reconciliation then explained with a 356-document item. Nothing is merged.',
     // 2001 / 2110 / SYS8 are all live on Brightsphere and the cash flow reads
     // the wrong one, which is how AP movement showed as R0.
     contested: ['afs/cashFlowDirectService#getCashFlowDirect resolves a different control account'],

@@ -18,8 +18,42 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sqlFn = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlFn(...a), withTransaction: vi.fn() }));
+const rows: unknown[][] = [];
+/**
+ * The query splices the settlement rewind in as a NESTED `sql` fragment, so
+ * `sql` is called several times and only one call is the statement. Queuing
+ * responses positionally would hand the document rows to a rewind fragment and
+ * leave every assertion green against an empty result. A fragment is
+ * discriminated by having no ORDER BY; the statement orders its rows.
+ */
+const sqlFn = vi.fn((...a: unknown[]) => {
+  const parts = a[0];
+  const text = Array.isArray(parts) ? (parts as string[]).join('?') : '';
+  if (!text.includes('ORDER BY')) return { fragment: text };
+  return Promise.resolve(rows.shift() ?? []);
+});
+
+/** The statement as Postgres would see it: template text plus its values. */
+function render(call: readonly unknown[]): string {
+  const parts = call[0];
+  if (!Array.isArray(parts)) return '';
+  return (parts as string[])
+    .map((part, i) => part + (i < call.length - 1 ? String(call[i + 1] ?? '') : ''))
+    .join('');
+}
+
+/** Queue one statement's result. */
+function nextRows(...results: unknown[][]) {
+  rows.push(...results);
+}
+vi.mock('@/lib/neon', () => ({
+  // `unsafe` is part of the real client: the point-in-time rewind splices a
+  // nested fragment and an interpolated expression through it. A mock without
+  // it fails loudly, which is better than a mock that silently drops the
+  // rewind and leaves every assertion green against today's balances.
+  sql: Object.assign((...a: unknown[]) => sqlFn(...a), { unsafe: (t: string) => t }),
+  withTransaction: vi.fn(),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() } }));
 
 import { getUnpostedSubledgerDocuments } from '@/modules/accounting/services/reconciliation/unpostedDocumentService';
@@ -32,11 +66,14 @@ const row = (over: Record<string, unknown> = {}) => ({
   document_date: '2026-01-01', balance: '1000', has_journal: true, control_amount: '1000', ...over,
 });
 
-beforeEach(() => sqlFn.mockReset());
+beforeEach(() => {
+  rows.length = 0;
+  sqlFn.mockClear();
+});
 
 describe('getUnpostedSubledgerDocuments', () => {
   it('names a document that carries NO link to a journal entry', async () => {
-    sqlFn.mockResolvedValueOnce([
+    nextRows([
       row({ id: 'inv-9', document_number: 'INV9', has_journal: false, control_amount: '0', balance: '10664575.43' }),
     ]);
     const docs = await getUnpostedSubledgerDocuments(COMPANY, 'ar', '2026-09-03', CTRL);
@@ -49,7 +86,7 @@ describe('getUnpostedSubledgerDocuments', () => {
   });
 
   it('distinguishes a document POSTED SOMEWHERE ELSE from one never posted', async () => {
-    sqlFn.mockResolvedValueOnce([
+    nextRows([
       row({ id: 'inv-8', has_journal: true, control_amount: '0', balance: '250' }),
     ]);
     const docs = await getUnpostedSubledgerDocuments(COMPANY, 'ar', '2026-09-03', CTRL);
@@ -57,7 +94,7 @@ describe('getUnpostedSubledgerDocuments', () => {
   });
 
   it('reports only the SHORTFALL when part of a document reached control', async () => {
-    sqlFn.mockResolvedValueOnce([
+    nextRows([
       row({ balance: '1000', control_amount: '400', has_journal: true }),
     ]);
     const docs = await getUnpostedSubledgerDocuments(COMPANY, 'ar', '2026-09-03', CTRL);
@@ -65,14 +102,14 @@ describe('getUnpostedSubledgerDocuments', () => {
   });
 
   it('says nothing about a document exactly represented on the control account', async () => {
-    sqlFn.mockResolvedValueOnce([row()]);
+    nextRows([row()]);
     expect(await getUnpostedSubledgerDocuments(COMPANY, 'ar', '2026-09-03', CTRL)).toEqual([]);
   });
 
   it('reports an OVER-posted document as a negative amount', async () => {
     // Both signs are needed. Dropping the negative ones leaves the difference
     // permanently over-explained, and the residual then never reaches zero.
-    sqlFn.mockResolvedValueOnce([row({ balance: '400', control_amount: '1000' })]);
+    nextRows([row({ balance: '400', control_amount: '1000' })]);
     const docs = await getUnpostedSubledgerDocuments(COMPANY, 'ar', '2026-09-03', CTRL);
     expect(docs[0]!.amount).toBe(-600);
   });
@@ -83,11 +120,30 @@ describe('getUnpostedSubledgerDocuments', () => {
   });
 
   it('scopes by company and passes the date as a string', async () => {
-    sqlFn.mockResolvedValueOnce([]);
+    nextRows([]);
     await getUnpostedSubledgerDocuments(COMPANY, 'ar', '2026-09-03', CTRL);
-    const values = sqlFn.mock.calls[0]!.slice(1);
-    expect(values).toContain(COMPANY);
-    expect(values).toContain('2026-09-03');
-    expect(values.every((v: unknown) => !(v instanceof Date))).toBe(true);
+    const scoped = sqlFn.mock.calls.filter((c) => render(c).includes('company_id'));
+    expect(scoped.length).toBeGreaterThanOrEqual(2);
+    for (const call of scoped) expect(call.slice(1)).toContain(COMPANY);
+    // Dates are 'YYYY-MM-DD' strings the whole way down. A Date here would be
+    // serialised in the session's UTC and land a day early on a UTC+2 host.
+    for (const call of sqlFn.mock.calls) {
+      expect(call.slice(1).every((v: unknown) => !(v instanceof Date))).toBe(true);
+    }
+  });
+
+  it('counts the document at its REWOUND balance, on the aging population', async () => {
+    // The number this contributes must be the same number the subledger
+    // snapshot counted for the document. When it was not — the open-status set
+    // and the current `amount_paid` here, the aging population and the rewind
+    // there — the drift between the two definitions landed in
+    // `unexplained_difference` and read as a finding about the books.
+    nextRows([]);
+    await getUnpostedSubledgerDocuments(COMPANY, 'ar', '2026-09-03', CTRL);
+    const statement = sqlFn.mock.calls.map(render).find((t) => t.includes('ORDER BY'))!;
+    expect(statement).toContain("ci.status NOT IN ('draft', 'cancelled')");
+    expect(statement).toContain('COALESCE(ci.invoice_date, ci.created_at::date) <=');
+    expect(statement).toContain('LEAST(GREATEST(COALESCE(ci.amount_paid, 0)');
+    expect(statement).toContain('unpaid.amount');
   });
 });
