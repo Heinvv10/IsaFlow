@@ -49,7 +49,7 @@ vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({
   getBankTransactions: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/reports/vatReturnService', () => ({ getVATReturn: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/vat201ReportService', () => ({ getVat201Report: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   getSupplierInvoices: vi.fn(),
   getSupplierInvoiceById: vi.fn(),
@@ -90,7 +90,7 @@ import {
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
-import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
+import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
 
 import { mcpRegistry, MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
@@ -125,6 +125,14 @@ function parseOk(r: { content: Array<{ text: string }>; isError?: boolean }): un
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+const emptyVat201 = {
+  periodStart: '2026-05-01', periodEnd: '2026-06-30', detail: 'standard' as const,
+  boxes: [], totals: { outputTax: 0, inputTax: 0, netVat: 0, standardRatedSupplies: 0, standardRatedPurchases: 0 },
+  rateCheck: { rate: 0.15, outputImpliedTax: 0, outputVariance: 0, inputImpliedTax: 0, inputVariance: 0, ties: true, entriesWithoutBase: [], entriesWithoutBaseTotal: 0 },
+  rows: [], rowsTotal: 0, universeTotal: 0, excludedRows: [], excludedLineCount: 0, excludedAmount: 0,
+  nextCursor: null, postedThrough: '2026-06-30T00:00:00.000Z',
+};
 
 describe('company_profile', () => {
   it('returns a trimmed profile from getCompany(ctx.companyId)', async () => {
@@ -257,13 +265,38 @@ describe('contact + bank + vat tools', () => {
   });
 
   it('vat_status requires the period and passes companyId first', async () => {
-    vi.mocked(getVATReturn).mockResolvedValue({ netVAT: 0 } as never);
+    vi.mocked(getVat201Report).mockResolvedValue(emptyVat201 as never);
     parseOk(await tool('vat_status').handler(
       { period_start: '2026-05-01', period_end: '2026-06-30' }, ctx(),
     ));
-    expect(getVATReturn).toHaveBeenCalledWith(COMPANY_ID, '2026-05-01', '2026-06-30');
+    expect(getVat201Report).toHaveBeenCalledWith(
+      COMPANY_ID, '2026-05-01', '2026-06-30',
+      expect.objectContaining({ detail: 'standard' }),
+    );
     const bad = await tool('vat_status').handler({}, ctx());
     expect(bad.isError).toBe(true);
+  });
+
+  it('vat_status refuses a period that runs backwards before touching the service', async () => {
+    vi.mocked(getVat201Report).mockClear();
+    const r = await tool('vat_status').handler(
+      { period_start: '2026-06-30', period_end: '2026-05-01' }, ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(getVat201Report).not.toHaveBeenCalled();
+  });
+
+  it('vat_status accepts the specification spelling "boxes" as the standard level', async () => {
+    // The audit spec names the middle level `boxes`; the shared contract names
+    // it `standard`. They are the same level and both spellings are accepted.
+    vi.mocked(getVat201Report).mockResolvedValue(emptyVat201 as never);
+    parseOk(await tool('vat_status').handler(
+      { period_start: '2026-05-01', period_end: '2026-06-30', detail: 'boxes' }, ctx(),
+    ));
+    expect(getVat201Report).toHaveBeenLastCalledWith(
+      COMPANY_ID, '2026-05-01', '2026-06-30',
+      expect.objectContaining({ detail: 'standard' }),
+    );
   });
 });
 
@@ -507,7 +540,7 @@ describe('suite-wide invariants', () => {
     vi.mocked(listSuppliers).mockResolvedValue({ suppliers: [], total: 0 });
     vi.mocked(getBankAccountsStatus).mockResolvedValue([]);
     vi.mocked(getBankTransactions).mockResolvedValue({ transactions: [], total: 0 } as never);
-    vi.mocked(getVATReturn).mockResolvedValue({} as never);
+    vi.mocked(getVat201Report).mockResolvedValue(emptyVat201 as never);
     vi.mocked(getSupplierInvoices).mockResolvedValue({ invoices: [], total: 0 } as never);
     vi.mocked(getSupplierInvoiceById).mockResolvedValue(
       { id: '2f9a4c1d-0b3e-4f8a-9c21-7d5e6a8b1c30', items: [] } as never,
