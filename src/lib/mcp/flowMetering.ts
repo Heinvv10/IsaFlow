@@ -123,6 +123,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // The reconciliation is the control surface for every AR/AP write an agent
   // makes. Pricing it would discourage the check, exactly like list_agent_postings.
   reconcile_subledger: null,
+  general_ledger: null,
   vat_status: null,
   vat_reconciliation: null,
   vat201_export: null,

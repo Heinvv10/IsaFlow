@@ -261,6 +261,29 @@ over the same rows in one query and agree **to the cent**: 39 receipts,
 R37,719,269.77, with no receipt lacking a journal and none whose control posting
 differs from the receipt total. The two tools reconcile.
 
+### `general_ledger`, run against the live Velocity books
+
+The whole posted ledger, unfiltered, over 2020-01-01 → 2026-12-31:
+**21,871 lines across 111 accounts, R519,723,273.19 debit and R519,723,273.19
+credit, `balanced: true`.** Paged at 1,000 a call it took 22 pages and served
+exactly 21,871 distinct lines — every line once, no envelope fault.
+
+Two things that had to be got right and were not, first time round:
+
+- The keyset carried `created_at` through a JS `Date`, which truncates
+  microseconds to milliseconds. Paging Brightsphere's ledger then returned
+  **10,603 lines where 10,460 exist** — duplicates at page boundaries, which is
+  the one place nobody looks. The cursor now carries the timestamp at
+  microsecond precision as text.
+- `runningBalance` omitted the account's opening balance. Invisible over a
+  window that starts before the first journal, because every opening balance is
+  then zero — the same shape as the `trial_balance` defect, a period-movement
+  listing wearing a ledger's name. The DB-gated case now starts mid-history and
+  requires a non-zero opening.
+
+`source: 'manual'` returns **zero lines on Velocity**: nothing in that ledger
+was posted by hand.
+
 ### Still true, and still unowned
 
 `ar.control.v1` and `ap.control.v1` remain **unowned** (C1). The direction rule
