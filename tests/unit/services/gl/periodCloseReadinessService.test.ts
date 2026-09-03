@@ -49,6 +49,7 @@ import { arSubLedgerCheck } from '@/modules/accounting/services/gl/closeReadines
 import { apSubLedgerCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/apSubLedgerCheck';
 import { unpostedJournalsCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/unpostedJournalsCheck';
 import { tbBalancedCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/tbBalancedCheck';
+import { BALANCE_TOLERANCE } from '@/modules/accounting/services/gl/trialBalanceService';
 import { vatReviewedCheck } from '@/modules/accounting/services/gl/closeReadinessChecks/vatReviewedCheck';
 import type { FiscalPeriod } from '@/modules/accounting/types/gl.types';
 
@@ -89,8 +90,9 @@ function makePeriod(overrides: Partial<FiscalPeriod> = {}): FiscalPeriod {
  *  Call 5: ap invoice sum
  *  Call 6: ap GL balance
  *  Call 7: vat        (1 query)
- *  Call 8: tb         (1 query)
- *  Call 9: opening balance equity (1 query)
+ *  Call 8-11: tb — period postings, then getTrialBalanceReport's period basis,
+ *             balances and brought-forward profit (4 queries)
+ *  Call 12: opening balance equity (1 query)
  */
 function mockAllChecksPass(): void {
   mockSql
@@ -101,7 +103,16 @@ function mockAllChecksPass(): void {
     .mockResolvedValueOnce([{ ap_total: '500.00' }])       // ap invoice sum
     .mockResolvedValueOnce([{ gl_balance: '500.00' }])     // ap GL balance
     .mockResolvedValueOnce([{ vat_count: '1' }])           // vat
-    .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]) // tb
+    // tb — this period's postings, then the trial balance report itself
+    .mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }])
+    .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 }])
+    .mockResolvedValueOnce([
+      { account_code: '1000', account_name: 'Bank', account_type: 'asset', normal_balance: 'debit',
+        closing_debit: '10000.00', closing_credit: '0', period_debit: '10000.00', period_credit: '0' },
+      { account_code: '2001', account_name: 'Creditors', account_type: 'liability', normal_balance: 'credit',
+        closing_debit: '0', closing_credit: '10000.00', period_debit: '0', period_credit: '10000.00' },
+    ])
+    .mockResolvedValueOnce([{ retained: '0' }])
     .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 }
 
@@ -187,10 +198,15 @@ describe('getCloseReadiness — orchestrator', () => {
 
     await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
-    expect(mockSql).toHaveBeenCalledTimes(9);
+    // 8 single-query checks + the 4 the trial balance check now issues.
+    expect(mockSql).toHaveBeenCalledTimes(12);
+    // Every query must be company-scoped. Asserted on membership rather than
+    // position: a query with conditional aggregation interpolates its CASE
+    // bounds before it reaches the WHERE clause, and an unscoped query fails
+    // this exactly as it failed the positional form.
     for (const call of mockSql.mock.calls) {
-      const firstArg = call[1] as string;
-      expect(firstArg).toBe(COMPANY_A);
+      const args = (call as unknown[]).slice(1);
+      expect(args).toContain(COMPANY_A);
     }
   });
 
@@ -354,7 +370,16 @@ describe('getCloseReadiness — orchestrator', () => {
       .mockResolvedValueOnce([{ gl_balance: '1000.00' }])      // ar GL balance
       .mockRejectedValueOnce(new Error('AP table unavailable')) // ap invoice sum: THROWS (ap GL never runs)
       .mockResolvedValueOnce([{ vat_count: '1' }])             // vat: pass
-      .mockResolvedValueOnce([{ total_debit: '1000.00', total_credit: '1000.00' }]) // tb: pass
+      // tb: pass — period postings, then the trial balance report
+      .mockResolvedValueOnce([{ total_debit: '1000.00', total_credit: '1000.00' }])
+      .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 }])
+      .mockResolvedValueOnce([
+        { account_code: '1000', account_name: 'Bank', account_type: 'asset', normal_balance: 'debit',
+          closing_debit: '1000.00', closing_credit: '0', period_debit: '1000.00', period_credit: '0' },
+        { account_code: '2001', account_name: 'Creditors', account_type: 'liability', normal_balance: 'credit',
+          closing_debit: '0', closing_credit: '1000.00', period_debit: '0', period_credit: '1000.00' },
+      ])
+      .mockResolvedValueOnce([{ retained: '0' }])
       .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
 
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
@@ -664,21 +689,80 @@ describe('tbBalancedCheck', () => {
 
   const PERIOD = { id: PERIOD_ID };
 
-  it('passes when debits equal credits', async () => {
-    mockSql.mockResolvedValueOnce([{ total_debit: '10000.00', total_credit: '10000.00' }]);
+  /**
+   * Queries in order: this period's postings, then getTrialBalanceReport's
+   * three (period basis, balances, brought-forward profit).
+   */
+  function prime(
+    postings: { debit: string; credit: string },
+    tbRows: Array<Record<string, unknown>>,
+  ) {
+    mockSql
+      .mockResolvedValueOnce([{ total_debit: postings.debit, total_credit: postings.credit }])
+      .mockResolvedValueOnce([{ start_date: '2026-02-01', end_date: '2026-02-28', fy_start_month: 3 }])
+      .mockResolvedValueOnce(tbRows)
+      .mockResolvedValueOnce([{ retained: '0' }]);
+  }
+
+  const tbRow = (o: Record<string, unknown> = {}) => ({
+    account_code: '1000', account_name: 'Bank', account_type: 'asset', normal_balance: 'debit',
+    closing_debit: '10000.00', closing_credit: '0', period_debit: '10000.00', period_credit: '0', ...o,
+  });
+
+  const balancedTb = [
+    tbRow(),
+    tbRow({
+      account_code: '2001', account_type: 'liability', normal_balance: 'credit',
+      closing_debit: '0', closing_credit: '10000.00', period_debit: '0', period_credit: '10000.00',
+    }),
+  ];
+
+  it('passes when the trial balance and the period postings both balance', async () => {
+    prime({ debit: '10000.00', credit: '10000.00' }, balancedTb);
     const item = await tbBalancedCheck(COMPANY_A, PERIOD);
     expect(item.status).toBe('pass');
   });
 
-  it('fails when debits != credits', async () => {
-    mockSql.mockResolvedValueOnce([{ total_debit: '10200.00', total_credit: '10000.00' }]);
+  /**
+   * The label says "Trial balance balanced" and links to the trial balance, so
+   * the check must actually read it. Asserting only on this period's postings
+   * was a true statement about a report it never looked at.
+   */
+  it('fails on an out-of-balance TRIAL BALANCE even when this period posted evenly', async () => {
+    prime({ debit: '10000.00', credit: '10000.00' }, [tbRow({ closing_debit: '10200.00' })]);
     const item = await tbBalancedCheck(COMPANY_A, PERIOD);
     expect(item.status).toBe('fail');
+    expect(item.reason).toContain('Trial balance');
     expect(item.fixHref).toBe('/accounting/trial-balance');
   });
 
+  /**
+   * Offsetting errors across two periods leave the cumulative trial balance
+   * balanced while this period is broken — the cumulative check alone misses it.
+   */
+  it('fails on unbalanced period postings even when the trial balance balances', async () => {
+    prime({ debit: '10200.00', credit: '10000.00' }, balancedTb);
+    const item = await tbBalancedCheck(COMPANY_A, PERIOD);
+    expect(item.status).toBe('fail');
+    expect(item.reason).toContain("period's own postings");
+    expect(item.reason).toContain('200.00');
+  });
+
+  it('reports the account count the balanced assertion covers', async () => {
+    prime({ debit: '10000.00', credit: '10000.00' }, balancedTb);
+    const item = await tbBalancedCheck(COMPANY_A, PERIOD);
+    expect(item.reason).toContain('2 accounts');
+  });
+
+  it('shares one tolerance with the trial balance service', async () => {
+    // Half a cent, not the 0.01 this check used to carry independently.
+    expect(BALANCE_TOLERANCE).toBe(0.005);
+    prime({ debit: '10000.001', credit: '10000.00' }, balancedTb);
+    expect((await tbBalancedCheck(COMPANY_A, PERIOD)).status).toBe('pass');
+  });
+
   it('SQL references gl_journal_lines and gl_journal_entries', async () => {
-    mockSql.mockResolvedValueOnce([{ total_debit: '0', total_credit: '0' }]);
+    prime({ debit: '0', credit: '0' }, []);
     await tbBalancedCheck(COMPANY_A, PERIOD);
 
     const template = mockSql.mock.calls[0]![0] as TemplateStringsArray;
@@ -688,7 +772,7 @@ describe('tbBalancedCheck', () => {
   });
 
   it('company_id is first interpolated arg', async () => {
-    mockSql.mockResolvedValueOnce([{ total_debit: '0', total_credit: '0' }]);
+    prime({ debit: '0', credit: '0' }, []);
     await tbBalancedCheck(COMPANY_A, PERIOD);
     expect(mockSql.mock.calls[0]![1]).toBe(COMPANY_A);
   });

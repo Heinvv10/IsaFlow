@@ -1,4 +1,4 @@
-import type { PayrollEmployee, ValidationResult } from './payrollTypes';
+import type { EtiMissingInput, EtiResult, PayrollEmployee, ValidationResult } from './payrollTypes';
 
 const MONTHLY_THRESHOLD = 95_750 / 12;
 
@@ -78,4 +78,44 @@ export function validatePayrollLine(line: {
   }
 
   return results;
+}
+
+
+/** Human wording for each input the ETI engine could not find. */
+const ETI_MISSING_LABEL: Record<EtiMissingInput, string> = {
+  date_of_birth: 'date of birth',
+  employment_start_date: 'start date',
+};
+
+/**
+ * Warn when ETI eligibility could not be DETERMINED for an employee.
+ *
+ * Severity is 'warning', never 'error': a missing date of birth must not stop
+ * anyone being paid. Getting payroll out matters more than the incentive claim,
+ * and blocking the run would be a worse regression than the bug this closes.
+ *
+ * Silent on a genuine determination, eligible or not — that is a finding, not a
+ * gap, and warning about it would train people to ignore the warning.
+ */
+export function validateEti(
+  employee: Pick<PayrollEmployee, 'id' | 'firstName' | 'lastName'>,
+  eti: Pick<EtiResult, 'isDeterminable' | 'missingInputs'>,
+): ValidationResult[] {
+  if (eti.isDeterminable || eti.missingInputs.length === 0) return [];
+
+  const fields = eti.missingInputs.map((m) => ETI_MISSING_LABEL[m]);
+  const missing = fields.length === 1
+    ? `${fields[0]} is missing`
+    : `${fields.slice(0, -1).join(', ')} and ${fields[fields.length - 1]} are missing`;
+
+  return [{
+    code: 'ETI_INDETERMINATE',
+    severity: 'warning',
+    message:
+      `ETI eligibility could not be determined for ${employee.firstName} ${employee.lastName}`
+      + ` — ${missing}. No Employment Tax Incentive has been claimed for this employee.`,
+    // Point at the first gap; the message names them all.
+    field: eti.missingInputs[0] === 'date_of_birth' ? 'dateOfBirth' : 'startDate',
+    deepLink: `/payroll/employees/${employee.id}#${eti.missingInputs[0]!.replace(/_/g, '-')}`,
+  }];
 }

@@ -26,10 +26,19 @@ export interface TBRowData {
   accountCode: string;
   accountName: string;
   accountType: string;
+  /** Closing balance for the period — cumulative for balance-sheet accounts. */
   debitBalance: number;
   creditBalance: number;
   priorDebitBalance?: number;
   priorCreditBalance?: number;
+  /** Balance carried into the period. */
+  openingDebit?: number;
+  openingCredit?: number;
+  /** Debit / credit turnover within the period. */
+  periodDebit?: number;
+  periodCredit?: number;
+  /** Computed line with no journal behind it — retained earnings brought forward. */
+  derived?: boolean;
 }
 
 interface Props {
@@ -38,6 +47,7 @@ interface Props {
   onToggle: (code: string) => void;
   onEvidence: (accountId: string, accountName: string) => void;
   showComparative: boolean;
+  showMovement: boolean;
   drillDownStart: string;
   drillDownEnd: string;
   colSpan: number;
@@ -45,7 +55,7 @@ interface Props {
 
 export function TrialBalanceRow({
   row: r, isExpanded, onToggle, onEvidence,
-  showComparative, drillDownStart, drillDownEnd, colSpan,
+  showComparative, showMovement, drillDownStart, drillDownEnd, colSpan,
 }: Props) {
   const { rowClass } = useTableDensity();
 
@@ -53,34 +63,68 @@ export function TrialBalanceRow({
     `/accounting/reports/account-detail/${encodeURIComponent(r.accountCode)}` +
     `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=tb`;
 
+  // A derived row has no journals behind it: expanding it or drilling into it
+  // would show an empty ledger and imply the figure was posted. Neither is offered.
+  const derived = r.derived === true;
+
   return (
     <React.Fragment>
       <tr
-        onClick={() => onToggle(r.accountCode)}
-        className="border-b border-[var(--ff-border-light)] hover:bg-[var(--ff-bg-primary)]/50 cursor-pointer"
+        onClick={derived ? undefined : () => onToggle(r.accountCode)}
+        className={`border-b border-[var(--ff-border-light)] ${derived
+          ? 'bg-[var(--ff-bg-tertiary)]/40'
+          : 'hover:bg-[var(--ff-bg-primary)]/50 cursor-pointer'}`}
       >
         <td className={`${rowClass} font-mono text-[var(--ff-text-tertiary)]`}>
           <span className="flex items-center gap-1">
-            {isExpanded
+            {derived ? <span className="w-3" aria-hidden="true" /> : isExpanded
               ? <ChevronDown className="h-3 w-3" />
               : <ChevronRight className="h-3 w-3" />}
             {r.accountCode}
           </span>
         </td>
         <td className={`${rowClass} text-[var(--ff-text-primary)]`}>
-          <Link
-            href={detailHref}
-            onClick={e => e.stopPropagation()}
-            className="hover:underline hover:text-indigo-400 transition-colors"
-          >
-            {r.accountName}
-          </Link>
+          {derived ? (
+            <span className="flex items-center gap-2">
+              <span
+                className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                title="Computed from the ledger, not posted to any account"
+              >
+                Derived
+              </span>
+              <span className="text-[var(--ff-text-secondary)]">{r.accountName}</span>
+            </span>
+          ) : (
+            <Link
+              href={detailHref}
+              onClick={e => e.stopPropagation()}
+              className="hover:underline hover:text-indigo-400 transition-colors"
+            >
+              {r.accountName}
+            </Link>
+          )}
         </td>
         <td className={rowClass}>
           <span className={`px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide ${TYPE_PILL[r.accountType.toLowerCase()] ?? NEUTRAL_PILL}`}>
             {r.accountType}
           </span>
         </td>
+        {showMovement && (
+          <>
+            <td className={`${rowClass} text-right text-[var(--ff-text-secondary)] text-xs`}>
+              {(r.openingDebit ?? 0) > 0 ? fmt(r.openingDebit ?? 0) : '—'}
+            </td>
+            <td className={`${rowClass} text-right text-[var(--ff-text-secondary)] text-xs`}>
+              {(r.openingCredit ?? 0) > 0 ? fmt(r.openingCredit ?? 0) : '—'}
+            </td>
+            <td className={`${rowClass} text-right text-[var(--ff-text-secondary)] text-xs`}>
+              {(r.periodDebit ?? 0) > 0 ? fmt(r.periodDebit ?? 0) : '—'}
+            </td>
+            <td className={`${rowClass} text-right text-[var(--ff-text-secondary)] text-xs`}>
+              {(r.periodCredit ?? 0) > 0 ? fmt(r.periodCredit ?? 0) : '—'}
+            </td>
+          </>
+        )}
         <td className={`${rowClass} text-right text-[var(--ff-text-primary)]`}>
           {r.debitBalance > 0 ? fmt(r.debitBalance) : '—'}
         </td>
@@ -98,15 +142,19 @@ export function TrialBalanceRow({
           </>
         )}
         <td className={`${rowClass} text-center`} onClick={e => e.stopPropagation()}>
-          <button
-            onClick={() => onEvidence(r.accountCode, r.accountName)}
-            className="px-2 py-1 rounded text-xs bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 whitespace-nowrap"
-          >
-            Evidence
-          </button>
+          {derived ? (
+            <span className="text-xs text-[var(--ff-text-tertiary)]">—</span>
+          ) : (
+            <button
+              onClick={() => onEvidence(r.accountCode, r.accountName)}
+              className="px-2 py-1 rounded text-xs bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 whitespace-nowrap"
+            >
+              Evidence
+            </button>
+          )}
         </td>
       </tr>
-      {isExpanded && (
+      {isExpanded && !derived && (
         <AccountDrillDown
           accountCode={r.accountCode}
           periodStart={drillDownStart}

@@ -105,26 +105,41 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // filter previously returned an empty list. Accounts with no budget AND no
     // actual movement are dropped from the response (see filter below) so that
     // header rows don't pollute the report with empty entries.
+    // The period filter MUST live inside this subquery. It used to sit in the
+    // ON-clause of a LEFT JOIN onto gl_journal_entries while the SUM read
+    // gl_journal_lines, so neither the date range nor the posted check
+    // restricted anything: a line whose entry fell outside the period simply
+    // got NULL entry columns and was still summed. Every period therefore
+    // reported all-time totals -- Brightsphere September 2026 showed
+    // R18,728,651.55 of actuals against a true R0.00.
+    //
+    // is_active is deliberately absent: it is a picker flag, and an account
+    // deactivated mid-year still earned or spent what it earned or spent.
     const actuals = await sql`
       SELECT
         ga.id, ga.account_code, ga.account_name, ga.account_type,
-        COALESCE(SUM(
+        COALESCE(
           CASE
-            WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit
-            WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit
-            ELSE jl.debit - jl.credit
+            WHEN ga.account_type = 'revenue' THEN b.credit_less_debit
+            ELSE b.debit_less_credit
           END
-        ), 0)::numeric as actual_amount
+        , 0)::numeric as actual_amount
       FROM gl_accounts ga
-      LEFT JOIN gl_journal_lines jl ON jl.gl_account_id = ga.id AND jl.company_id = ${companyId}::UUID
-      LEFT JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-        AND je.status = 'posted' AND je.company_id = ${companyId}::UUID
-        AND je.entry_date >= ${startDate}
-        AND je.entry_date <= ${endDate}
-      WHERE ga.is_active = true
-        AND ga.company_id = ${companyId}
+      LEFT JOIN (
+        SELECT jl.gl_account_id,
+               SUM(jl.debit - jl.credit) AS debit_less_credit,
+               SUM(jl.credit - jl.debit) AS credit_less_debit
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+        WHERE jl.company_id = ${companyId}::UUID
+          AND je.company_id = ${companyId}::UUID
+          AND je.status = 'posted'
+          AND je.entry_date >= ${startDate}
+          AND je.entry_date <= ${endDate}
+        GROUP BY jl.gl_account_id
+      ) b ON b.gl_account_id = ga.id
+      WHERE ga.company_id = ${companyId}
         AND ga.account_type IN ('expense', 'revenue')
-      GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_type
       ORDER BY ga.account_code
     `;
 

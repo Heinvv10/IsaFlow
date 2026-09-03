@@ -12,6 +12,11 @@ import {
   AlertTriangle, AlertCircle, CheckCircle, Loader2,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import {
+  DataQualityNotice,
+  type UnclassifiedWarning,
+  type InventoryWarning,
+} from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 
 const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false });
@@ -72,6 +77,8 @@ export default function ExecutiveDashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [scorecard, setScorecard] = useState<Array<{ ratioKey: string; name: string; value: number; target: number; status: 'green' | 'amber' | 'red' }>>([]);
   const [loading, setLoading] = useState(true);
+  const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
+  const [inventory, setInventory] = useState<InventoryWarning | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
 
@@ -83,7 +90,9 @@ export default function ExecutiveDashboardPage() {
         apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`).then(r => r.json()),
       ]);
       if (sumRes.data?.summary) setSummary(sumRes.data.summary);
+      if (sumRes.data) setUnclassified(sumRes.data.unclassifiedAccounts ?? null);
       if (scRes.data?.scorecard) setScorecard(scRes.data.scorecard);
+      if (scRes.data) setInventory(scRes.data.inventory ?? null);
     } catch (err) { log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) }); }
     finally { setLoading(false); }
   }, [from, to]);
@@ -121,6 +130,7 @@ export default function ExecutiveDashboardPage() {
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">
+          <DataQualityNotice unclassifiedAccounts={unclassified} inventory={inventory} />
           {loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : summary ? (

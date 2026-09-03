@@ -37,6 +37,15 @@ export { withVatVendor, isCompanyVatVendor } from './withVatVendor';
 // Module-permission gate
 export { withModulePermission } from './withModulePermission';
 
+// Account-standing predicate — the single definition of "in good standing"
+// shared by withAuth, bearerPipeline and withUserAuth.
+export {
+  isActiveUserAccount,
+  ACTIVE_USER_STATUS,
+  SUSPENDED_ACCOUNT_ERROR,
+  type UserAccountRow,
+} from './userAccountStatus';
+
 // Bank-feed extension token gate
 export { withExtensionToken, type ExtensionAuthedRequest } from './withExtensionToken';
 export { signExtensionToken, verifyExtensionToken, type ExtensionTokenPayload } from './extensionJwt';

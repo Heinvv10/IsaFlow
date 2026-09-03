@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
-import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare } from 'lucide-react';
+import { CalendarDays, ArrowLeft, Loader2, AlertCircle, Calculator, CheckCircle2, Lock, Unlock, GitCompare, AlertTriangle } from 'lucide-react';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -25,6 +25,15 @@ interface Line {
   sdl: number;
   eti: number;
   netPay: number;
+  validationResults?: LineWarning[];
+}
+
+interface LineWarning {
+  code: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  field?: string;
+  deepLink?: string;
 }
 
 interface RunDetail {
@@ -159,6 +168,16 @@ export default function PayrollRunDetailPage() {
   }
   if (!run) return null;
 
+  // Every line's warnings, de-duplicated by message so a company-wide gap (all
+  // employees missing a date of birth) does not print eleven identical rows.
+  const warnings: LineWarning[] = Array.from(
+    new Map(
+      run.lines
+        .flatMap((l) => l.validationResults ?? [])
+        .map((w) => [w.message, w] as const),
+    ).values(),
+  );
+
   const period = `${MONTHS[run.periodMonth - 1]} ${run.periodYear}`;
   const locked = isLocked(run.status);
   const canCalculate = !locked && (run.status === 'draft' || run.status === 'calculated');
@@ -237,6 +256,29 @@ export default function PayrollRunDetailPage() {
               </div>
             ))}
           </div>
+
+          {warnings.length > 0 && (
+            <section className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="h-4 w-4 text-amber-400" />
+                <h2 className="text-sm font-semibold text-amber-300">
+                  {warnings.length} warning{warnings.length === 1 ? '' : 's'} on this run
+                </h2>
+              </div>
+              <ul className="space-y-1">
+                {warnings.map((w, i) => (
+                  <li key={`${w.code}-${i}`} className="text-xs text-[var(--ff-text-secondary)]">
+                    {w.deepLink
+                      ? <Link href={w.deepLink} className="hover:text-amber-300 underline decoration-dotted">{w.message}</Link>
+                      : w.message}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
+                These do not block the run — payroll can still be approved and paid.
+              </p>
+            </section>
+          )}
 
           <section className="rounded-lg border border-[var(--ff-border-primary)] bg-[var(--ff-surface-primary)] overflow-hidden">
             <div className="px-4 py-3 border-b border-[var(--ff-border-primary)] flex items-center justify-between">

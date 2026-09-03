@@ -8,6 +8,8 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { sql } from '@/lib/neon';
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountClassification';
+import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
 import { buildProfitWaterfall, buildCashFlowWaterfall } from '@/modules/accounting/services/reports/waterfallDataService';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -22,29 +24,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const to: string = (req.query.to as string) || new Date().toISOString().split('T')[0]!;
 
   if (type === 'profit') {
-    const [totals] = (await sql`
-      SELECT
-        COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
-        COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as cost_of_sales,
-        COALESCE(SUM(CASE WHEN ga.account_code >= '5200' AND ga.account_code < '5800' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses,
-        COALESCE(SUM(CASE WHEN ga.account_code = '4300' THEN jl.credit - jl.debit ELSE 0 END), 0) as other_income
-      FROM gl_journal_lines jl
-      JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-      JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-      WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-        AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
-    `) as Row[];
-
-    const revenue = parseFloat(totals?.revenue || '0');
-    const cos = parseFloat(totals?.cost_of_sales || '0');
-    const opex = parseFloat(totals?.operating_expenses || '0');
-    const otherIncome = parseFloat(totals?.other_income || '0');
-    const grossProfit = revenue - cos;
-    const netProfit = grossProfit - opex + otherIncome;
+    const { period } = await getFinancialFigures(companyId, from, to);
 
     const steps = buildProfitWaterfall({
-      revenue, costOfSales: cos, grossProfit,
-      operatingExpenses: opex, otherIncome, otherExpenses: 0, netProfit,
+      revenue: period.revenue,
+      costOfSales: period.costOfSales,
+      grossProfit: period.grossProfit,
+      operatingExpenses: period.operatingExpenses,
+      otherIncome: period.otherIncome,
+      otherExpenses: period.otherExpenses,
+      netProfit: period.netProfit,
     });
 
     return apiResponse.success(res, { type: 'profit', period: { from, to }, steps });
@@ -53,13 +42,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (type === 'cashflow') {
     const [cf] = (await sql`
       SELECT
-        COALESCE(SUM(CASE WHEN ga.account_code = '1110' AND je.entry_date < ${from}::date THEN jl.debit - jl.credit ELSE 0 END), 0) as opening,
-        COALESCE(SUM(CASE WHEN ga.account_code = '1110' AND je.entry_date >= ${from}::date AND jl.debit > 0 THEN jl.debit ELSE 0 END), 0) as inflows,
-        COALESCE(SUM(CASE WHEN ga.account_code = '1110' AND je.entry_date >= ${from}::date AND jl.credit > 0 THEN -jl.credit ELSE 0 END), 0) as outflows
+        COALESCE(SUM(CASE WHEN je.entry_date < ${from}::date THEN jl.debit - jl.credit ELSE 0 END), 0) as opening,
+        COALESCE(SUM(CASE WHEN je.entry_date >= ${from}::date AND jl.debit > 0 THEN jl.debit ELSE 0 END), 0) as inflows,
+        COALESCE(SUM(CASE WHEN je.entry_date >= ${from}::date AND jl.credit > 0 THEN -jl.credit ELSE 0 END), 0) as outflows
       FROM gl_journal_lines jl
       JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
+        AND ga.account_type = 'asset'
+        AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[])
         AND je.entry_date <= ${to}::date
     `) as Row[];
 

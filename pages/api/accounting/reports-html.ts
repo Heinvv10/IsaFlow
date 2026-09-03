@@ -11,6 +11,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { sql } from '@/lib/neon';
+import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import {
@@ -52,33 +53,30 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'from and to must be ISO dates (YYYY-MM-DD)');
   }
 
-  const [pnlRow, balancesRow, companyRow] = await Promise.all([
-    getPnLTotals(companyId, from, to),
-    getBalanceSheet(companyId, to),
+  const [{ period, cumulative }, companyRow] = await Promise.all([
+    getFinancialFigures(companyId, from, to),
     getCompanyName(companyId),
   ]);
 
-  const revenue = parseFloat(pnlRow?.revenue || '0');
-  const costOfSales = parseFloat(pnlRow?.cost_of_sales || '0');
-  const operatingExpenses = parseFloat(pnlRow?.operating_expenses || '0');
-  const netProfit = revenue - costOfSales - operatingExpenses;
+  const netProfit = period.netProfit;
 
   const data: ReportPackInput = {
     companyName: companyRow?.name || 'Company',
     period: `${from} to ${to}`,
-    revenue,
-    costOfSales,
-    operatingExpenses,
+    revenue: period.revenue,
+    costOfSales: period.costOfSales,
+    operatingExpenses: period.operatingExpenses,
     netProfit,
-    totalAssets: parseFloat(balancesRow?.total_assets || '0'),
-    totalLiabilities: parseFloat(balancesRow?.total_liabilities || '0'),
-    totalEquity: parseFloat(balancesRow?.total_equity || '0') + netProfit,
-    currentAssets: parseFloat(balancesRow?.current_assets || '0'),
-    currentLiabilities: parseFloat(balancesRow?.current_liabilities || '0'),
-    cash: parseFloat(balancesRow?.cash || '0'),
-    accountsReceivable: parseFloat(balancesRow?.accounts_receivable || '0'),
-    accountsPayable: parseFloat(balancesRow?.accounts_payable || '0'),
-    inventory: parseFloat(balancesRow?.inventory || '0'),
+    totalAssets: cumulative.totalAssets,
+    totalLiabilities: cumulative.totalLiabilities,
+    // Current-year profit is not closed into retained earnings until year end.
+    totalEquity: cumulative.totalEquity + netProfit,
+    currentAssets: cumulative.currentAssets,
+    currentLiabilities: cumulative.currentLiabilities,
+    cash: cumulative.cash,
+    accountsReceivable: cumulative.accountsReceivable,
+    accountsPayable: cumulative.accountsPayable,
+    inventory: cumulative.inventory,
   };
 
   const pack = buildReportPack(type as PackType, data, from, to);
@@ -92,42 +90,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     `attachment; filename="report-pack-${type}-${from}-to-${to}.html"`,
   );
   res.send(html);
-}
-
-async function getPnLTotals(companyId: string, from: string, to: string): Promise<Row | undefined> {
-  const rows = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0) as revenue,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '5%' AND ga.account_code < '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as cost_of_sales,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '5200' THEN jl.debit - jl.credit ELSE 0 END), 0) as operating_expenses
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date >= ${from}::date AND je.entry_date <= ${to}::date
-  `) as Row[];
-  return rows[0];
-}
-
-async function getBalanceSheet(companyId: string, to: string): Promise<Row | undefined> {
-  const rows = (await sql`
-    SELECT
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '1%' THEN jl.debit - jl.credit ELSE 0 END), 0) as total_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '2%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code LIKE '3%' THEN jl.credit - jl.debit ELSE 0 END), 0) as total_equity,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '1100' AND ga.account_code < '1200' THEN jl.debit - jl.credit ELSE 0 END), 0) as current_assets,
-      COALESCE(SUM(CASE WHEN ga.account_code >= '2100' AND ga.account_code < '2200' THEN jl.credit - jl.debit ELSE 0 END), 0) as current_liabilities,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1110' THEN jl.debit - jl.credit ELSE 0 END), 0) as cash,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1120' THEN jl.debit - jl.credit ELSE 0 END), 0) as accounts_receivable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '2110' THEN jl.credit - jl.debit ELSE 0 END), 0) as accounts_payable,
-      COALESCE(SUM(CASE WHEN ga.account_code = '1130' THEN jl.debit - jl.credit ELSE 0 END), 0) as inventory
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-    WHERE je.company_id = ${companyId} AND jl.company_id = ${companyId}::UUID AND je.status = 'posted'
-      AND je.entry_date <= ${to}::date
-  `) as Row[];
-  return rows[0];
 }
 
 async function getCompanyName(companyId: string): Promise<Row | null> {

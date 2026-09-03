@@ -38,9 +38,21 @@ interface EntityGroup { id: string; name: string }
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
+/**
+ * Local calendar date as YYYY-MM-DD. Never `.toISOString()`: this host runs in
+ * SAST (UTC+2), so before 02:00 that reports the PREVIOUS day — see
+ * src/lib/pgTypes.ts.
+ */
+const localIso = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** South African fiscal year start (1 March), which is what every company here uses. */
+const FY_START_MONTH = 3;
+
 const today = new Date();
-const defaultPeriodStart = `${today.getFullYear()}-01-01`;
-const defaultPeriodEnd = today.toISOString().substring(0, 10);
+const fyYear = today.getMonth() + 1 >= FY_START_MONTH ? today.getFullYear() : today.getFullYear() - 1;
+const defaultPeriodStart = `${fyYear}-${String(FY_START_MONTH).padStart(2, '0')}-01`;
+const defaultPeriodEnd = localIso(today);
 const cls = 'px-3 py-2 rounded-lg bg-[var(--ff-bg-tertiary)] border border-[var(--ff-border-light)] text-[var(--ff-text-primary)] text-sm';
 
 export default function ConsolidatedTrialBalancePage() {
@@ -125,7 +137,7 @@ export default function ConsolidatedTrialBalancePage() {
               <div className="p-2 rounded-lg bg-indigo-500/10"><Building2 className="h-6 w-6 text-indigo-500" /></div>
               <div>
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Consolidated Trial Balance</h1>
-                <p className="text-sm text-[var(--ff-text-secondary)]">Multi-entity trial balance with elimination entries</p>
+                <p className="text-sm text-[var(--ff-text-secondary)]">Multi-entity balances with elimination entries — balance-sheet accounts cumulative to the end date, income-statement accounts over the range</p>
               </div>
             </div>
             <div className="flex items-center gap-3 flex-wrap">

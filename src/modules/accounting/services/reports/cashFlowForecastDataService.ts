@@ -59,8 +59,9 @@ export async function getCurrentCashBalance(companyId: string): Promise<number> 
     FROM gl_accounts ga
     WHERE ga.company_id = ${companyId}
       AND ga.account_type = 'asset'
+      -- No is_active filter: it is a picker flag, and a deactivated bank or
+      -- cash account still holds real money that opening cash must include.
       AND ga.account_subtype IN ('bank', 'cash')
-      AND ga.is_active = true
   `) as Record<string, unknown>[];
   return Number(rows[0]?.total_cash ?? 0);
 }

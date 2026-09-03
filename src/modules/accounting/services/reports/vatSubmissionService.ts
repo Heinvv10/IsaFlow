@@ -14,6 +14,15 @@
  *          IsaFlow chart of accounts.
  *   3. Writing a vat_returns row for idempotency and audit.
  *
+ * Clearing-journal DATE (V-05):
+ *   The clearing entry is dated the FIRST DAY OF THE FOLLOWING PERIOD, never
+ *   periodEnd. `getVATReturn` derives the period's output/input tax from the
+ *   MOVEMENT on the vat_output / vat_input control accounts between periodStart
+ *   and periodEnd; an entry dated periodEnd falls inside that window and reverses
+ *   the very movement it settles. Dating it to periodEnd + 1 day puts the
+ *   settlement outside the period being reported, which is also when the
+ *   liability to SARS crystallises.
+ *
  * Balance formula (payable case):
  *   DR 2120 VAT Output  totalOutputTax
  *   CR 1140 VAT Input   totalInputTax
@@ -59,6 +68,37 @@ async function resolveNetVatAccount(companyId: string): Promise<{ id: string }> 
 }
 
 type Row = DbRow;
+
+/**
+ * The day after `isoDate`, as 'YYYY-MM-DD'.
+ *
+ * Built from explicit UTC parts (never `new Date(str)` + local getters) so it
+ * cannot roll back a day for a caller east of UTC, and so month ends, leap-year
+ * February and year ends all roll correctly. Accepts a bare date or a timestamp
+ * and always returns a bare date. Throws on unparseable input rather than
+ * posting a journal with a garbage date.
+ */
+export function nextDayISO(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoDate);
+  if (!m) throw new Error(`Invalid periodEnd '${isoDate}' — expected YYYY-MM-DD`);
+
+  const [, y, mo, d] = m;
+  const utc = Date.UTC(Number(y), Number(mo) - 1, Number(d));
+  if (Number.isNaN(utc)) throw new Error(`Invalid periodEnd '${isoDate}' — not a real date`);
+
+  const next = new Date(utc + 86_400_000);
+  // Reject 2026-02-30 and friends: Date.UTC rolls them over silently.
+  const round = new Date(utc);
+  if (round.getUTCMonth() !== Number(mo) - 1 || round.getUTCDate() !== Number(d)) {
+    throw new Error(`Invalid periodEnd '${isoDate}' — not a real calendar date`);
+  }
+
+  return [
+    next.getUTCFullYear(),
+    String(next.getUTCMonth() + 1).padStart(2, '0'),
+    String(next.getUTCDate()).padStart(2, '0'),
+  ].join('-');
+}
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -122,6 +162,10 @@ export async function submitVATReturn(
   userId: string,
 ): Promise<VATReturnRecord> {
   const { periodStart, periodEnd, sarsReference } = input;
+
+  // Resolved up front: an unparseable periodEnd must refuse BEFORE any write,
+  // not after the journal is posted.
+  const clearingDate = nextDayISO(periodEnd);
 
   // 1. Idempotency guard
   const existing = (await sql`
@@ -209,7 +253,8 @@ export async function submitVATReturn(
   let journalEntryId: string | null = null;
   if (lines.length > 0) {
     const je = await createJournalEntry(companyId, {
-      entryDate:   periodEnd,
+      // First day of the FOLLOWING period — see the V-05 note in the file header.
+      entryDate:   clearingDate,
       description: `VAT201 submission ${periodStart} to ${periodEnd}`,
       source:      'auto_vat_submission',
       lines,

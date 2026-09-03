@@ -9,6 +9,11 @@ import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { ArrowLeft, BarChart3, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import {
+  DataQualityNotice,
+  type UnclassifiedWarning,
+  type InventoryWarning,
+} from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 
 const LineChart = dynamic(() => import('recharts').then(m => m.LineChart), { ssr: false });
@@ -54,6 +59,8 @@ export default function FinancialAnalysisPage() {
   const [trends, setTrends] = useState<TrendItem[]>([]);
   const [summary, setSummary] = useState<{ green: number; amber: number; red: number; total: number } | null>(null);
   const [ratios, setRatios] = useState<Record<string, number>>({});
+  const [inventoryWarning, setInventoryWarning] = useState<InventoryWarning | null>(null);
+  const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [loading, setLoading] = useState(true);
   const [months, setMonths] = useState(6);
 
@@ -71,12 +78,16 @@ export default function FinancialAnalysisPage() {
       if (scRes.data) {
         setScorecard(scRes.data.scorecard || []);
         setSummary(scRes.data.summary || null);
+        // The quick ratio on this page does not exclude inventory unless the
+        // chart classifies one — say so rather than showing quick == current.
+        setInventoryWarning(scRes.data.inventory ?? null);
       }
       if (trRes.data) {
         setTrends(trRes.data.trends || []);
       }
       const ratioRes = await apiFetch(`/api/accounting/reports-extended-ratios?from=${from}&to=${to}`).then(r => r.json());
       if (ratioRes.data?.ratios) setRatios(ratioRes.data.ratios);
+      if (ratioRes.data) setUnclassified(ratioRes.data.unclassifiedAccounts ?? null);
     } catch (err) { log.error('Failed to load financial analysis data', { error: err }, 'FinancialAnalysisPage'); }
     finally { setLoading(false); }
   }, [months]);
@@ -104,6 +115,11 @@ export default function FinancialAnalysisPage() {
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : (
             <>
+              <DataQualityNotice
+                unclassifiedAccounts={unclassified}
+                inventory={inventoryWarning}
+              />
+
               {/* KPI Scorecard Summary */}
               {summary && (
                 <div className="grid grid-cols-4 gap-4">
