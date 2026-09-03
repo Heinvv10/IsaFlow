@@ -50,6 +50,20 @@ function def(d: FigureDefinition): FigureDefinition {
   return d;
 }
 
+/**
+ * Appended to every figure derived from `account_subtype`.
+ *
+ * A figure driven by subtype is exactly as good as the subtypes, and on these
+ * books they barely exist. Stating it once and reusing it is better than four
+ * paraphrases that drift.
+ */
+const COVERAGE_CAVEAT =
+  ' This figure is only as good as account_subtype, and on these books most accounts have none:'
+  + ' 100% of Velocity Fibre\'s revenue (R84,053,370.26) and 97.6% of its expenses (R115,984,525.05)'
+  + ' sit on accounts whose subtype is NULL or a default_* placeholder, and its classified cost of'
+  + ' sales is R2,885,070.10. profit_and_loss reports that coverage as a mandatory exception at every'
+  + ' detail level; read it before acting on any band.';
+
 export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
   'ar.subledger.v1': def({
     id: 'ar.subledger.v1',
@@ -168,7 +182,25 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     label: 'Revenue for a period',
     owner: 'reports/incomeStatementService#getIncomeStatement',
     includes: 'Posted income account movement over the period.',
-    excludes: 'Cancelled invoices, and draft journals.',
+    excludes:
+      'Cancelled invoices, and draft journals. Under THIS owner it does NOT exclude other income — accounts typed other_income are revenue-typed and are counted here. ' + COVERAGE_CAVEAT,
+    // PRESENTATIONAL divergence, deliberate and temporary. `profit_and_loss`
+    // over MCP reports the LAYERED figures from
+    // gl/accountClassification#aggregateFigures, which separates other income
+    // from turnover and finance cost and tax from operating expenses. The two
+    // implementations agree on the BOTTOM LINE to the cent on both production
+    // companies — the only difference is which band a figure sits in, so this
+    // is one answer presented two ways rather than two answers.
+    //
+    // The owner stays here because the income-statement page,
+    // reports-management-accounts and AFS all still consume this shape. Moving
+    // it would make the registry lie about what the UI does. Successor: the
+    // income-statement convergence PR, which is where getIncomeStatement is
+    // rebuilt on aggregateFigures with its own blind review and the AFS owner
+    // in the loop.
+    contested: [
+      'gl/accountClassification#aggregateFigures — PRESENTATIONAL only: it reports turnover separately from other_income. Bottom lines tie to the cent; the two disagree about which band a figure sits in, never about its value.',
+    ],
   }),
   'costofsales.period.v1': def({
     id: 'costofsales.period.v1',
@@ -177,7 +209,37 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Posted movement on accounts whose SUBTYPE is cost of sales. Driven by subtype, never by the account NAME.',
     excludes:
-      'Operating expenses. Two accounts typed default_expense overstated gross profit by R562,428 precisely because the bucket was chosen by name.',
+      'Operating expenses. The audit reported that two accounts typed default_expense overstated gross profit by R562,428 because the bucket was chosen by NAME — and read the sign backwards: under the SUBTYPE rule those accounts are NOT cost of sales, so gross profit is HIGHER, not lower. Brightsphere carries R574,253.66 of them today. Which treatment is right is a chart-of-accounts question. ' + COVERAGE_CAVEAT,
+    contested: [
+      'gl/accountClassification#aggregateFigures — PRESENTATIONAL only, and it agrees with this owner on cost of sales specifically; see revenue.period.v1 for the divergence.',
+    ],
+  }),
+  'otherincome.period.v1': def({
+    id: 'otherincome.period.v1',
+    label: 'Other income for a period',
+    owner: 'gl/accountClassification#aggregateFigures',
+    includes:
+      'Posted movement on revenue-typed accounts whose SUBTYPE canonicalises to other_income — interest received, forex gains, recoveries.',
+    excludes:
+      'Turnover. This is a separate question from revenue.period.v1, not a slice of it: other income is not trading revenue and must not reach gross profit. Under revenue.period.v1 it currently DOES, which is the presentational divergence recorded there. ' + COVERAGE_CAVEAT,
+  }),
+  'financecost.period.v1': def({
+    id: 'financecost.period.v1',
+    label: 'Finance cost for a period',
+    owner: 'gl/accountClassification#aggregateFigures',
+    includes:
+      'Posted movement on expense accounts whose SUBTYPE canonicalises to finance_cost — interest paid, bank charges of a financing nature.',
+    excludes:
+      'Operating expenses. Reported below the operating line so operating profit means what it says; getIncomeStatement puts it inside operating expenses. ' + COVERAGE_CAVEAT,
+  }),
+  'tax.period.v1': def({
+    id: 'tax.period.v1',
+    label: 'Tax expense for a period',
+    owner: 'gl/accountClassification#aggregateFigures',
+    includes:
+      'Posted movement on expense accounts whose SUBTYPE canonicalises to tax_expense. Brightsphere carries R158,412.82 for FY2026 and R365,035.42 all-time.',
+    excludes:
+      'VAT, which is not an expense and is never in an income statement — see vat.output.v1 / vat.input.v1. Also excludes operating expenses; getIncomeStatement puts tax inside them, so its operating profit is understated by exactly this. ' + COVERAGE_CAVEAT,
   }),
   'vat.output.v1': def({
     id: 'vat.output.v1',

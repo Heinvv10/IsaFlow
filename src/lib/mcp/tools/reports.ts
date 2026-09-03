@@ -6,7 +6,6 @@
 import type { McpTool } from '../types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
-import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { getAccountLedger } from '@/modules/accounting/services/reports/accountLedgerService';
 import { getChartOfAccounts } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { GL_ACCOUNT_TYPES } from '@/modules/accounting/types/gl.types';
@@ -27,30 +26,13 @@ import {
  * should be able to reach it by accident.
  */
 
-export const profitAndLossTool: McpTool = {
-  name: 'profit_and_loss',
-  description:
-    'Income statement (profit & loss) for a date range. Both dates required, YYYY-MM-DD.',
-  scope: 'read:reports',
-  write: false,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      period_start: { type: 'string', format: 'date' },
-      period_end: { type: 'string', format: 'date' },
-    },
-    required: ['period_start', 'period_end'],
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const start = strArg(args, 'period_start');
-    const end = strArg(args, 'period_end');
-    if (!start || !end) return toolError('period_start and period_end are required (YYYY-MM-DD)');
-    const bad = guardCastableArgs(args, { date: ['period_start', 'period_end'] });
-    if (bad) return bad;
-    return ok(await getIncomeStatement(ctx.companyId, start, end));
-  },
-};
+/**
+ * `profit_and_loss` moved to `reportsProfitAndLoss.ts` when it grew the layer
+ * and the coverage exception. The version that lived here returned
+ * `getIncomeStatement` verbatim: other income counted as turnover, finance cost
+ * and tax inside operating expenses, no coverage disclosure, and no
+ * comparative. It is not re-exported.
+ */
 
 /**
  * `balance_sheet` moved to `reportsBalanceSheet.ts` when it grew the second

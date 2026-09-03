@@ -47,7 +47,7 @@ const line = (over: Record<string, unknown> = {}) => ({
 const PAGE = {
   lines: [line(), line({ lineId: 'aaaaaaaa-0000-4000-8000-000000000002', debit: 0, credit: 400, runningBalance: 600 })],
   next: null,
-  lineCount: 2, totalDebit: 1000, totalCredit: 400, accountCount: 1,
+  lineCount: 2, universeLineCount: 2, totalDebit: 1000, totalCredit: 400, accountCount: 1,
   balanced: null, runningBalanceSuppressed: false,
   openingBalances: { '1101': 0 },
   postedThrough: '2026-02-10T08:00:00.000Z',
@@ -76,6 +76,36 @@ describe('general_ledger', () => {
     // not what the service was asked about.
     expect(body.balanced).toBeNull();
     expect(body.posted_through).toBe('2026-02-10T08:00:00.000Z');
+  });
+
+  it('certifies completeness against the UNFILTERED universe, not the filtered count', async () => {
+    // The general ledger is the base document of an audit file. If
+    // universeTotal were the count after the filters, the envelope would say
+    // rowsTotal === universeTotal with nothing excluded — certifying a filtered
+    // extract as COMPLETE, which is the one claim it must never make.
+    vi.mocked(getGeneralLedgerLines).mockResolvedValue({
+      ...PAGE, lineCount: 2, universeLineCount: 500,
+    } as never);
+    const body = payload(await generalLedgerTool.handler(
+      { period_start: '2026-02-01', period_end: '2026-02-28', sources: ['auto_invoice'] }, CTX,
+    ));
+    assertEnvelopeSound(body as never);
+    expect(body.rowsTotal).toBe(2);
+    expect(body.universeTotal).toBe(500);
+    // 498 lines are in the period and not in this extract, and the envelope
+    // says so rather than staying silent.
+    expect(body.excludedTotal).toBe(498);
+    expect(body.truncatedExcludedRows).toBe(true);
+  });
+
+  it('says nothing was excluded when nothing was filtered', async () => {
+    const body = payload(await generalLedgerTool.handler(
+      { period_start: '2026-02-01', period_end: '2026-02-28' }, CTX,
+    ));
+    assertEnvelopeSound(body as never);
+    expect(body.universeTotal).toBe(2);
+    expect(body.excludedTotal).toBe(0);
+    expect(body.excludedRows).toEqual([]);
   });
 
   it('passes balanced THROUGH rather than deriving it from the page', async () => {

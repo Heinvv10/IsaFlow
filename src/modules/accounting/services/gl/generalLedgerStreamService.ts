@@ -107,6 +107,18 @@ export interface GeneralLedgerPage {
   next: GeneralLedgerCursor | null;
   /** Over the WHOLE filtered set, never just this page. */
   lineCount: number;
+  /**
+   * Posted lines in the period BEFORE any filter — the universe the extract was
+   * drawn from.
+   *
+   * The general ledger is the base document of an audit file, so this matters
+   * more here than anywhere. Reporting the filtered count as the universe would
+   * let the envelope certify a filtered extract as COMPLETE — rowsTotal equal
+   * to universeTotal, nothing excluded, `truncated: false` — which is the
+   * strongest claim the contract can make and the one claim a filtered extract
+   * must never make.
+   */
+  universeLineCount: number;
   totalDebit: number;
   totalCredit: number;
   accountCount: number;
@@ -197,6 +209,20 @@ export async function getGeneralLedgerLines(
                OR je.entry_number ILIKE ${term}::TEXT
                OR COALESCE(je.description, '') ILIKE ${term}::TEXT)
       ),
+      -- The period BEFORE any filter. Deliberately a separate scan rather than
+      -- a count over the matched set: that set is where the filters live, so
+      -- any count taken from it is a filtered count by construction.
+      -- (No backticks in here: they close the template literal.)
+      universe AS (
+        SELECT COUNT(*) AS universe_count
+        FROM gl_journal_lines jl
+        JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+                                  AND je.company_id = ${companyId}::UUID
+                                  AND je.status = 'posted'
+        WHERE jl.company_id = ${companyId}::UUID
+          AND je.entry_date >= ${periodStart}::DATE
+          AND je.entry_date <= ${periodEnd}::DATE
+      ),
       totals AS (
         SELECT COUNT(*) AS line_count,
                COALESCE(SUM(debit), 0)  AS total_debit,
@@ -233,7 +259,7 @@ export async function getGeneralLedgerLines(
         LEFT JOIN opening_raw o ON o.account_code = c.account_code
       )
       SELECT m.*, t.line_count, t.total_debit, t.total_credit, t.account_count,
-             t.posted_through,
+             t.posted_through, u.universe_count,
              COALESCE(o.balance, 0) AS opening_balance,
              -- The whole opening set, so accounts absent from THIS page still
              -- carry theirs: a page cut inside account B must not report B's
@@ -242,6 +268,7 @@ export async function getGeneralLedgerLines(
               FROM opening) AS opening_all
       FROM matched m
       CROSS JOIN totals t
+      CROSS JOIN universe u
       LEFT JOIN opening o ON o.account_code = m.account_code
       WHERE (${after === null}::BOOLEAN
              OR (m.account_code, m.entry_date, m.created_key, m.line_id)
@@ -269,6 +296,7 @@ export async function getGeneralLedgerLines(
           : await readTotalsOnly(query)
         : {
             lineCount: Number(agg.line_count ?? 0),
+            universeLineCount: Number(agg.universe_count ?? 0),
             totalDebit: round2(Number(agg.total_debit ?? 0)),
             totalCredit: round2(Number(agg.total_credit ?? 0)),
             accountCount: Number(agg.account_count ?? 0),
@@ -310,6 +338,7 @@ export async function getGeneralLedgerLines(
       lines,
       next,
       lineCount: totals.lineCount,
+      universeLineCount: totals.universeLineCount,
       totalDebit: totals.totalDebit,
       totalCredit: totals.totalCredit,
       accountCount: totals.accountCount,
@@ -328,6 +357,7 @@ export async function getGeneralLedgerLines(
 
 interface StreamTotals {
   lineCount: number;
+  universeLineCount: number;
   totalDebit: number;
   totalCredit: number;
   accountCount: number;
@@ -337,6 +367,7 @@ interface StreamTotals {
 
 const EMPTY_TOTALS: StreamTotals = {
   lineCount: 0,
+  universeLineCount: 0,
   totalDebit: 0,
   totalCredit: 0,
   accountCount: 0,
@@ -366,6 +397,7 @@ async function readTotalsOnly(query: GeneralLedgerQuery): Promise<StreamTotals> 
   const page = await getGeneralLedgerLines({ ...query, after: null, limit: 1 });
   return {
     lineCount: page.lineCount,
+    universeLineCount: page.universeLineCount,
     totalDebit: page.totalDebit,
     totalCredit: page.totalCredit,
     accountCount: page.accountCount,

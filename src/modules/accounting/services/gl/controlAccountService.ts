@@ -148,6 +148,13 @@ function signedBalance(normalBalance: string, debit: number, credit: number): nu
  * carrying one R10,000 receipt while thirty-six others went to 1101 — has no
  * invoice movement to judge and is kept. That row is the whole reason the
  * posting arm exists and the rule must not cost it.
+ *
+ * IN ONE LINE: SYS-7 and SYS-9 both carry a NULL subtype and both appear on
+ * subledger journals, and what separates them is DIRECTION — supplier invoices
+ * net-CREDIT SYS-8/2110 because that is where the payable lands, and net-DEBIT
+ * SYS-9 because that is the input tax. So the discriminator is the sign of a
+ * candidate's movement on the INVOICE journals, never its subtype (both are
+ * NULL), never its name, and never its code.
  */
 function directionSign(accountType: string | null): 'asset' | 'liability' | null {
   return accountType === 'asset' || accountType === 'liability' ? accountType : null;

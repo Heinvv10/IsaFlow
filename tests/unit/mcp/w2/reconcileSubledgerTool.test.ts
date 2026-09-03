@@ -187,4 +187,26 @@ describe('reconcile_subledger', () => {
     expect(data.figureBasis).toBe('ar.subledger.v1');
     expect(data.controlFigureBasis).toBe('ar.control.v1');
   });
+
+  it('warns IN THE DESCRIPTION that a zero residual is necessary, not sufficient', () => {
+    // Not a style check. This endpoint reported unexplainedDifference 0.00 on
+    // every production company while wrongly counting a VAT account as an AP
+    // control account, because an item of the same amount across the same 356
+    // documents cancelled it out. An identity that always closes cannot detect
+    // its own defects, and a reader who never sees the source has only the
+    // description to learn that from.
+    const d = reconcileSubledgerTool.description;
+    expect(d).toContain('NECESSARY AND NOT SUFFICIENT');
+    expect(d).toContain('cancel');
+    expect(d).toContain('INSPECT THE ITEMS');
+  });
+
+  it('says settlementFlagged attributes a difference rather than adding to one', () => {
+    // R16,151,543.00 is not a number to make somebody hunt for, and a reader
+    // scanning reconcilingItems for those 397 bills will not find them there.
+    const d = reconcileSubledgerTool.description;
+    expect(d).toContain('settlementFlagged');
+    expect(d).toContain('ATTRIBUTION');
+    expect(d).toContain('must not be added to them');
+  });
 });

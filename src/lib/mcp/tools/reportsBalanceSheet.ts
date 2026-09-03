@@ -81,6 +81,7 @@ const DESCRIPTION = [
   'equityDifference is equityResidual − equityFromLedger, and retainedEarningsDerived is the same number named for what it is: profit that no year-end close has posted to an equity account. equityReconciles says whether it is within a cent. On two production companies the equity accounts carry R0.00 and the ENTIRE equity figure is that plug — R8,394,848.60 on one, −R34,816,224.89 on the other.',
   'compare_date adds a prior-date column with per-account priorBalance and variance, and BOTH equity figures for the prior date as well.',
   'cost_centre_id restricts every figure to one cost centre.',
+  'equityReconciles is only informative BECAUSE equityFromLedger is now queried from the equity accounts rather than injected. An earlier version compared totalEquity against the residual and returned true on all three production companies — a tautology, since totalEquity equals the residual by construction. Like every self-checking identity here, a true is necessary and not sufficient: two errors that cancel satisfy it, so treat it as a precondition for inspecting the numbers rather than as a conclusion about the books.',
   'rows are the account lines of all three sections flattened, each labelled with its section. detail "summary" returns the totals and no rows.',
 ].join(' ');
 

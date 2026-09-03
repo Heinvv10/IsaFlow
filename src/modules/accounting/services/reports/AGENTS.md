@@ -61,3 +61,34 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/reports/*`,
 - 2026-04-21: 5 schema-drift 400s fixed from UI walkthrough.
 - 2026-04-21: disclosure-notes 400 — schema drift + tx cascade.
 - 2026-04-21: three schema-mismatch 500s from PR #31.
+
+## Two P&L implementations, deliberately, until the convergence PR
+
+`incomeStatementService#getIncomeStatement` splits two ways: everything
+revenue-typed is turnover, and every expense that is not cost of sales is an
+operating expense — so other income reaches gross profit, and finance cost and
+tax sit inside operating expenses. The income-statement page,
+`reports-management-accounts` and AFS consume this shape.
+
+`gl/accountClassification#aggregateFigures` (via `gl/financialFiguresService`)
+does the full layer and also counts the accounts whose subtype is unknown. The
+`profit_and_loss` MCP tool consumes THAT one.
+
+The divergence is **presentational** — the two agree on the bottom line to the
+cent on both production companies, and differ only in which band a figure sits
+in. It is recorded in `src/lib/mcp/contracts/figures.ts` on `revenue.period.v1`
+with a named successor, not left to be discovered. Do not "fix" it by pointing
+one at the other inside another workstream: converging them changes
+`totalRevenue`, `grossProfit` and `totalOperatingExpenses` for the page and for
+AFS, and belongs in its own PR with the AFS owner in the loop.
+
+`classificationCoverageService` is what makes either safe to read. Every band is
+chosen from `account_subtype`, and on these books the subtypes barely exist —
+100% of Velocity Fibre's revenue and 97.6% of its expenses are on unclassified
+accounts. `profit_and_loss` reports it at every detail level and it is not
+suppressible.
+
+`priorPeriod.ts` owns the comparative window. Pure, `'YYYY-MM-DD'` in and out,
+constructs no `Date`. The income-statement PAGE still computes its own in
+milliseconds and compares March against 29 January – 28 February; that fix
+belongs with the convergence PR.

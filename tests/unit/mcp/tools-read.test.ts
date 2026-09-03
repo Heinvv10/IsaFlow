@@ -61,6 +61,20 @@ vi.mock('@/modules/accounting/services/gl/openingBalanceReadService', () => ({
   }),
 }));
 vi.mock('@/modules/accounting/services/reports/incomeStatementService', () => ({ getIncomeStatement: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/financialFiguresService', () => ({
+  getFinancialFigures: vi.fn().mockResolvedValue({
+    period: {
+      revenue: 0, otherIncome: 0, costOfSales: 0, grossProfit: 0,
+      operatingExpenses: 0, otherExpenses: 0, depreciation: 0, netProfit: 0,
+    },
+  }),
+}));
+vi.mock('@/modules/accounting/services/reports/classificationCoverageService', () => ({
+  getClassificationCoverage: vi.fn().mockResolvedValue({
+    revenue: { totalAmount: 0, classifiedAmount: 0, unclassifiedAmount: 0, unclassifiedAccountCount: 0, accounts: [], truncated: false },
+    expense: { totalAmount: 0, classifiedAmount: 0, unclassifiedAmount: 0, unclassifiedAccountCount: 0, accounts: [], truncated: false },
+  }),
+}));
 vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({
   getBalanceSheet: vi.fn(),
   // balance_sheet v2 reads the POSTED equity accounts separately: the service's
@@ -111,6 +125,7 @@ import { getCompany } from '@/modules/accounting/services/core/companyService';
 import { getTrialBalanceReport } from '@/modules/accounting/services/gl/trialBalanceService';
 import { getFiscalPeriodIdForDate } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
+import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
 import { getARAging } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging } from '@/modules/accounting/services/ap/apAgingService';
@@ -223,11 +238,14 @@ describe('reports tools', () => {
   });
 
   it('profit_and_loss requires both dates and passes companyId first', async () => {
-    vi.mocked(getIncomeStatement).mockResolvedValue({ netProfit: 100 } as never);
+    // v2 wraps the OWNED classifier (financialFiguresService -> aggregateFigures)
+    // rather than getIncomeStatement, which is a recorded, deliberate
+    // divergence: the two agree on the bottom line and differ only in which
+    // band a figure sits in. See contracts/figures.ts revenue.period.v1.
     parseOk(await tool('profit_and_loss').handler(
       { period_start: '2026-06-01', period_end: '2026-06-30' }, ctx(),
     ));
-    expect(getIncomeStatement).toHaveBeenCalledWith(COMPANY_ID, '2026-06-01', '2026-06-30');
+    expect(getFinancialFigures).toHaveBeenCalledWith(COMPANY_ID, '2026-06-01', '2026-06-30');
     const bad = await tool('profit_and_loss').handler({}, ctx());
     expect(bad.isError).toBe(true);
   });
@@ -645,7 +663,6 @@ describe('suite-wide invariants', () => {
       difference: 0, balanced: true, periodStart: '2026-03-01', periodEnd: '2026-03-31',
       fiscalYearStart: '2026-03-01', costCentreId: null,
     } as never);
-    vi.mocked(getIncomeStatement).mockResolvedValue({} as never);
     // Not {}: the balance sheet's three section arrays are non-optional on
     // BalanceSheetReport, and a mock thinner than the type it stands in for
     // tests the tool against a shape the service cannot produce.

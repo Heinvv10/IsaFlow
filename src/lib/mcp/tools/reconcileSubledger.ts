@@ -8,6 +8,19 @@
  * Two things it does that a naive version would not, both learned from these
  * books (docs/mcp/FINDINGS.md):
  *
+ * A RESIDUAL OF ZERO IS NECESSARY AND NOT SUFFICIENT, and this endpoint has
+ * already proved it. Before the control-account direction rule existed,
+ * `unexplainedDifference` was 0.00 on every production company AND the AP
+ * control balance wrongly included `SYS-9 VAT Payable`: the account contributed
+ * -R4,917,814.24 and a `document_not_on_control_account` item of exactly
+ * +R4,917,814.24 across the same 356 documents cancelled it. Every number was
+ * internally consistent, the identity closed, and the answer was wrong.
+ *
+ * An identity that always closes cannot detect its own defects, and the more
+ * reliably it closes the more it invites being trusted without inspection. The
+ * tool description says so in the response's own words, because a reader never
+ * sees this file.
+ *
  *  - It reports EVERY candidate control account, never one. There is no
  *    canonical AR/AP control account in this schema; thirteen accounts carry
  *    subtype 'receivable' and one carries NULL, and on Brightsphere a R10,000
@@ -89,6 +102,7 @@ export const reconcileSubledgerTool: McpTool = {
     'controlAccountBalance + the sum of the subledger_to_control items equals subledgerTotal, and agedTotal + the sum of the aged_to_subledger items equals subledgerTotal. ' +
     'POINT IN TIME: as_at moves BOTH sides. The subledger is reconstructed from settlement that can be dated, on the same basis as aged_debtors/aged_creditors — read the limitations on those tools, which apply here unchanged: the reconstruction will not report a settled document as outstanding, but it can UNDERSTATE a past balance where settlement carries no date (bank-match confirmation and the Sage import both write amount_paid with no dated trail). ' +
     'settlementFlagged lists supplier bills whose payment_matched flag says a matching process considered them settled while their balance says nothing was applied — 397 bills worth R16,151,543.00 on one production company. It is an ATTRIBUTION of part of the difference, NOT an extra reconciling item: that cash is already counted once as posting_with_no_document, so its total is deliberately outside reconcilingItems and must not be added to them. ' +
+    'WHAT A RESIDUAL OF ZERO DOES AND DOES NOT MEAN. READ THIS BEFORE RELYING ON IT. unexplainedDifference of 0.00 is NECESSARY AND NOT SUFFICIENT: it says the items sum to the difference, NOT that they are the right items. Two errors that cancel satisfy it exactly. That is not hypothetical — this endpoint reported 0.00 on every production company while wrongly counting a VAT account as an AP control account, because a reconciling item of the same amount across the same 356 documents removed it again. A phantom control account paired with a phantom offset closes the arithmetic and reads as clean books. Treat zero as a precondition for trusting the decomposition and then INSPECT THE ITEMS: check that controlAccounts holds only accounts you accept as control accounts, and that each item names documents you can follow. A non-zero residual is a mechanism this endpoint does not know about; a zero one is an invitation to look, not a conclusion. ' +
     'LIMITS. There is no canonical control account in this database, so EVERY candidate is returned in controlAccounts with how it was found ("subtype" = typed for the role, "posting" = subledger documents actually posted to it) and controlAccountAmbiguous is set when more than one exists; the balance is their sum. Deactivated accounts are included — is_active is a picker flag and says nothing about whether an account holds money. ' +
     'Only "ar" and "ap" have a document subledger to compare against; "bank", "vat", "payroll" and "inventory" return the GL control accounts with subledgerTotal null and subledgerUnavailable explaining why, rather than a difference of zero that means nothing. ' +
     'detail: "summary" returns totals only, "standard" (default) returns one row per reconciling item, "full" returns one row per underlying document and is paginated — call again with cursor until next_cursor is null. Follow a documentId with get_invoice, list_invoices or list_journals depending on the item type.',

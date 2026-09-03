@@ -205,4 +205,15 @@ describe('balance_sheet', () => {
     const body = payload(await balanceSheetTool.handler({ as_at: '2026-08-31' }, CTX));
     expect(body.posted_through).toBe('2026-08-31T22:15:00.000Z');
   });
+
+  it('warns IN THE DESCRIPTION that equityReconciles is necessary, not sufficient', () => {
+    // The first version of this tool compared the residual against itself and
+    // returned true on all three production companies. A reader who never sees
+    // the source has only the description to learn why the check means
+    // something now and did not before.
+    const d = balanceSheetTool.description;
+    expect(d).toContain('necessary and not sufficient');
+    expect(d).toContain('tautology');
+    expect(d).toContain('queried from the equity accounts rather than injected');
+  });
 });

@@ -249,6 +249,33 @@ describe('general-ledger line stream — real database', async () => {
     });
   }, 60000);
 
+  it.skipIf(!reachable)('reports the UNFILTERED line count as the universe', async () => {
+    // The general ledger is the base document of an audit file, so
+    // completeness matters more here than anywhere. If `universeTotal` were the
+    // count AFTER the filters, the envelope would certify a filtered extract as
+    // complete — `rowsTotal === universeTotal`, `truncated: false`, no
+    // exclusions — which is the strongest claim this contract can make and the
+    // one thing a filtered extract must never make.
+    await withBusiestCompany(async (companyId) => {
+      const all = await getGeneralLedgerLines({
+        companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END, limit: 1, after: null,
+      });
+      expect(all.universeLineCount).toBe(all.lineCount);
+
+      const source = (await getGeneralLedgerLines({
+        companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END, limit: 1, after: null,
+      })).lines[0]!.source;
+
+      const filtered = await getGeneralLedgerLines({
+        companyId, periodStart: PERIOD_START, periodEnd: PERIOD_END,
+        sources: [source], limit: 1, after: null,
+      });
+      // The universe does NOT move with the filter; the matched count does.
+      expect(filtered.universeLineCount).toBe(all.lineCount);
+      expect(filtered.lineCount).toBeLessThan(filtered.universeLineCount);
+    });
+  }, 60000);
+
   it.skipIf(!reachable)('refuses to leak another company’s lines through any filter', async () => {
     await withBusiestCompany(async (companyId) => {
       const others = (await sql`

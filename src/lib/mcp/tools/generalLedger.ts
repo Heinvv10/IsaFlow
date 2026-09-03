@@ -54,6 +54,7 @@ export const generalLedgerTool: McpTool = {
     'balanced is true only when the period is read UNFILTERED and its debits equal its credits; under any filter it is null, because debits matching credits over a subset is a coincidence and not a check. ' +
     'totalDebit, totalCredit, lineCount and accountCount are over the WHOLE filtered set, never just the page. openingBalances carries an entry for every account in the set, zero included. ' +
     'Paging: call again with cursor set and every other argument unchanged until next_cursor is null. Every line is served exactly once. ' +
+    'COMPLETENESS: universeTotal is the UNFILTERED posted line count for the period, so rowsTotal below it means you are holding an extract and excludedTotal says how many lines your filters removed. An unfiltered call has excludedTotal 0 and rowsTotal equal to universeTotal. ' +
     'detail: "summary" returns totals only; "standard" (default) and "full" return lines.',
   scope: 'read:reports',
   write: false,
@@ -164,6 +165,15 @@ export const generalLedgerTool: McpTool = {
             parts: [page.next.accountCode, page.next.date, page.next.createdKey, page.next.lineId],
           });
 
+    // The universe is the UNFILTERED period. Using the matched count would let
+    // the envelope certify a filtered extract as complete — rowsTotal equal to
+    // universeTotal, nothing excluded — and the general ledger is the base
+    // document of an audit file, where that is the one claim it must never
+    // make. The excluded rows are not enumerated (they can be hundreds of
+    // thousands and the caller chose to exclude them), so `excludedTotal`
+    // carries the count and `truncatedExcludedRows` says the list is shorter.
+    const excludedTotal = Math.max(page.universeLineCount - page.lineCount, 0);
+
     const envelope = buildEnvelope({
       rows: isSummary ? [] : page.lines,
       rowsTotal: page.lineCount,
@@ -171,9 +181,11 @@ export const generalLedgerTool: McpTool = {
       as_at: periodEnd,
       posted_through: page.postedThrough ?? NO_LEDGER_READ,
       next_cursor: nextCursor,
-      // Nothing is classified out of a wider set here: the filters ARE the
-      // question, so the universe is exactly what matched them.
-      universeTotal: page.lineCount,
+      universeTotal: page.universeLineCount,
+      // Always present, zero included. An absent count and a count of zero are
+      // indistinguishable to a reader checking whether they hold the whole
+      // ledger, and on an audit document that question must have an answer.
+      excludedTotal,
     });
 
     return ok({

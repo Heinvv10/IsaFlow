@@ -73,20 +73,34 @@ one question a trial balance exists to answer. That is W2's remaining scope.
 total, no `rowsTotal`, no `truncated`, no envelope. Total (summed by hand):
 **R63,133,371.78** — matching the audit's R63.1m.
 
+> **CORRECTION (W2, same day).** That R63,133,371.78 was read from the
+> **DEPLOYED** connector, which predates #306. Master's aged debtors total for
+> the same date is **R75,864,129.21**; the difference of R12,730,757.43 is
+> exactly the null-due-date invoices #303 stopped dropping. Both numbers are
+> right about different code. **Every figure in the section below that compares
+> against the aged total is therefore computed from a superseded number** — the
+> FINDING stands (the control accounts do disagree, and there is no canonical
+> one), but do not quote the gaps. See A-live-3 for the re-derived set.
+
 ### "What are we owed?" has three defensible answers, R35.2m apart
 
-| | |
-|---|---|
-| Aged debtors total | R63,133,371.78 |
-| `1120 Accounts Receivable` | R27,924,289.10 |
-| `SYS-7 Trade Receivables` | R32,704,547.38 |
-| both control accounts combined | R60,628,836.48 |
+| | | re-derived 2026-09-03 (W2) |
+|---|---|---|
+| Aged debtors total | R63,133,371.78 | **R75,864,129.21** — the deployed tool was pre-#306 |
+| `1120 Accounts Receivable` | R27,924,289.10 | **R27,255,367.01** — moved R668,922.09 overnight |
+| `SYS-7 Trade Receivables` | R32,704,547.38 | R32,704,547.38 — unchanged |
+| both control accounts combined | R60,628,836.48 | **R59,959,914.39** |
 
-| reconciling question | gap |
-|---|---|
-| aged vs `1120` alone | **R35,209,082.68** |
-| aged vs `SYS-7` alone | **R30,428,824.40** |
-| aged vs both combined | **R2,504,535.30** |
+| reconciling question | gap as published | **stale — do not quote** |
+|---|---|---|
+| aged vs `1120` alone | R35,209,082.68 | computed from the superseded aged total |
+| aged vs `SYS-7` alone | R30,428,824.40 | same |
+| aged vs both combined | R2,504,535.30 | same |
+
+Re-derived, the AR difference is **R15,904,214.82** against both control
+accounts combined, and `reconcile_subledger` now decomposes it into four named
+items with no residual. The three-answer problem is unchanged: there is still no
+canonical control account and `controlAccountAmbiguous` is `true`.
 
 All three are defensible, all three are different, and nothing in the schema says
 which is right. This is B3 demonstrated on live production data, and it is why
@@ -97,7 +111,10 @@ which is right. This is B3 demonstrated on live production data, and it is why
 
 - **`SYS-9 VAT Payable` is a liability carrying a DEBIT of R4,917,814.24** — B36,
   the input tax on a NULL-subtype account that drops out of the VAT201 entirely.
-  It is in plain sight and no report was reading it.
+  It is in plain sight and no report was reading it. **It reappeared through a
+  second door**: `reconcile_subledger`'s posting probe adopted it as an AP
+  control account, because its subtype is NULL and 356 supplier-invoice journals
+  touch it. See A-live-3, defect 3.
 - **Sixteen accounts carry a balance on the wrong side for their type.** Thirteen
   are paycards — asset accounts in credit. `49844679 Loan - B Oosthuizen` is a
   liability in debit. And `RE-BF` shows retained earnings as a **debit of
@@ -382,6 +399,97 @@ calendar months before them; anything else falls back to the preceding window of
 equal length. `priorYearPeriod` clamps 29 February to the 28th, because
 2025-02-29 makes Postgres throw 22008 and makes a `Date` roll forward to 1 March.
 Mutating it back to the rolling window reproduces `2026-01-29` exactly.
+
+### `profit_and_loss` v2: Velocity's gross profit is revenue less 2.4% of its costs
+
+The layer the spec called missing was **not missing**.
+`gl/accountClassification#aggregateFigures` already separates turnover from
+other income and cost of sales from operating expenses from finance cost / tax,
+and already counts the accounts whose subtype is unknown; `financialFiguresService`
+wraps it and AFS consumes it. `reports/incomeStatementService#getIncomeStatement`
+rolls its own two-way split instead. Two P&L implementations, and the registry
+recorded neither.
+
+They agree on the **bottom line to the cent** on both production companies. The
+only difference is which band a figure sits in — Brightsphere's R158,412.82 of
+tax is inside operating expenses on one and below the operating line on the
+other. So this is one answer presented two ways, not two answers, which is why
+it is survivable as a recorded divergence. `profit_and_loss` now wraps the owned
+classifier; `revenue.period.v1` and `costofsales.period.v1` keep
+`getIncomeStatement` as owner (the page still consumes that shape) and carry a
+`contested` entry saying the disagreement is presentational and the bottom lines
+tie. Three new ids — `otherincome.period.v1`, `financecost.period.v1`,
+`tax.period.v1` — are owned by the classifier.
+
+**But the classification the whole layer rests on barely exists.** All-time, over
+revenue and expense accounts:
+
+| | unclassified revenue | unclassified expenses |
+|---|---|---|
+| Velocity Fibre | R84,053,370.26 of R84,053,370.26 — **100%**, 4 accounts | R115,984,525.05 of R118,869,595.15 — **97.6%**, 37 accounts |
+| Brightsphere | R12,410,997.90 of R13,508,486.83 — 91.9%, 1 account | R577,571.05 of R5,113,638.23, 3 accounts |
+
+Velocity's classified cost of sales is R2,885,070.10, so its FY2026 gross profit
+of R29,305,100.49 is **revenue less 2.4% of what it spent**. That figure is not a
+bug — the code did exactly what the chart of accounts told it — and it is not a
+number any human should act on. `classificationCoverage` is therefore MANDATORY
+on the tool, present at every detail level including `summary`, not suppressible,
+and it names the accounts. Nothing is excluded from any total: an unclassified
+expense is still an expense, and the classification is the finding.
+
+`reliable` is `false` on both production companies.
+
+Run over FY2026 with a `prior_year` comparative, the layer earns itself:
+Brightsphere's operating profit is R3,919,212.00 against a net profit of
+R3,760,799.18, the difference being tax now reported below the operating line
+where `getIncomeStatement` had it inside operating costs.
+
+### Two identities that read clean because they could not do otherwise
+
+Recorded together because it is the same failure twice in one day, in the two
+endpoints built to catch exactly this, and it is now a standing rule in
+`CONTRACTS.md`.
+
+**`reconcile_subledger` reported `unexplainedDifference: 0.00` on every
+production company and both roles while wrongly counting `SYS-9 VAT Payable` as
+an AP control account.** The account brought −R4,917,814.24 into the control
+balance and a `document_not_on_control_account` item of exactly +R4,917,814.24
+across the same 356 documents took it back out.
+
+**`balance_sheet` reported `equityReconciles: true` on all three production
+companies while comparing the residual against itself**, because
+`getBalanceSheet` injects a computed retained-earnings plug into the equity
+section.
+
+Neither looked broken. Both looked unusually clean. **An identity that always
+closes cannot detect its own defects, and the more reliably it closes the more
+it invites being trusted without inspection.** Both tool descriptions now say so
+in the response's own words.
+
+### Corrections to this register
+
+- **The R63,133,371.78 in A-live was the DEPLOYED aged debtors report**, which
+  predates #306. Master's is R75,864,129.21. Every gap in the "three defensible
+  answers" table was computed from the superseded number and is marked stale in
+  place. The finding — no canonical control account — is unaffected.
+- **The audit read the `default_expense` sign backwards.** It reported that two
+  accounts typed `default_expense` overstated gross profit by R562,428 because
+  cost of sales was selected by NAME. Cost of sales is now selected by SUBTYPE,
+  under which those accounts are NOT cost of sales — so gross profit is
+  **higher**, not lower. Brightsphere's figure today is R574,253.66. Which
+  treatment is right is a chart-of-accounts question, not a code one.
+- **`gl/financialFiguresService#getFinancialFigures` issues its queries under
+  `Promise.all` on the single pg client the request transaction holds.** It
+  prints a node-postgres DeprecationWarning (removed in pg@9) and, in this
+  codebase, concurrent work on one connection also corrupts the savepoint stack.
+  Pre-existing and shared with AFS; deliberately NOT changed here, because
+  sequencing it belongs with the income-statement convergence PR and its owner.
+  The same defect in `subledgerReconciliationService` IS fixed.
+- **The income-statement page still carries the rolling-window comparative.**
+  `reports/priorPeriod.ts` replaces the arithmetic and is wired into MCP, but
+  `pages/accounting/reports/income-statement.tsx` is untouched: it is UI, it
+  belongs with the convergence PR, and until then its comparative column
+  compares March against 29 January – 28 February.
 
 ### Still true, and still unowned
 

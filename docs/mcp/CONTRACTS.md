@@ -87,8 +87,57 @@ derived from the very numbers it is supposed to check?**
 `universeTotal` is **required on every assurance report**. Omit it only on a
 listing where completeness is not a claim being made.
 
+`universeTotal` is now **echoed back** on the envelope, not merely consumed. It
+used to be an input this module checked and nobody else could see, so a reader
+looking at `truncated: false` and an empty `excludedRows` had no way to ask "out
+of how many?" — which is the first question a filtered extract has to be able to
+answer before anyone signs it.
+
 Completeness remains **your** obligation. The envelope narrows where you can hide
 a mistake; it does not find one for you.
+
+### Every self-checking identity we ship is NECESSARY AND NOT SUFFICIENT. Say so next to it.
+
+This generalises past the envelope and it is the most important sentence in this
+document.
+
+An identity that always closes cannot detect its own defects, and **the more
+reliably it closes the more it invites being trusted without inspection.** Two
+errors that cancel satisfy any identity exactly, and the result is not a report
+that looks broken — it is a report that looks unusually clean.
+
+This is not a hypothetical. It has now happened twice in one day, in the two
+endpoints specifically built to catch it:
+
+- **`reconcile_subledger` reported `unexplainedDifference: 0.00` on every
+  production company, both roles, while wrongly counting `SYS-9 VAT Payable` as
+  an AP control account.** The account contributed −R4,917,814.24 to the control
+  balance and a `document_not_on_control_account` item of exactly +R4,917,814.24
+  across the same 356 documents removed it again. Every number was internally
+  consistent. The identity closed. The answer was wrong.
+- **`balance_sheet` reported `equityReconciles: true` on all three production
+  companies** while comparing the residual against itself, because
+  `getBalanceSheet` injects a computed retained-earnings plug into equity, so
+  `totalEquity` equals assets less liabilities by construction. Querying the
+  equity ACCOUNTS instead showed two companies carrying R0.00 of posted equity.
+
+So, three obligations on anything shipping an identity:
+
+1. **The two sides must be independently derived.** If one is computed from the
+   other, the check is a tautology wearing a check's name. Ask: could this side
+   have been derived from the very numbers it is supposed to check? That is the
+   same question §"But note what this costs" asks about `excludedTotal`, and it
+   is the same question — the envelope's completeness arithmetic is a
+   self-checking identity too, and widening it with `excludedTotal` made it
+   *easier* to satisfy vacuously, not harder.
+2. **The tool description must carry the caveat in the response's own words.** A
+   reader never sees this file or the service. `reconcile_subledger` states that
+   zero means the items sum to the difference, not that they are the right
+   items, and that a phantom control account paired with a phantom offset
+   satisfies it. Copy that pattern.
+3. **State what a reader should do with a zero.** Not "the books tie" —
+   "inspect the items". A residual of zero is an invitation to look, not a
+   conclusion.
 
 ### A filter that drops rows is the defect, not the fix
 
