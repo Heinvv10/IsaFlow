@@ -97,6 +97,33 @@ code; add new ones to this list in the same PR.
 
 ---
 
+## 4a. Pagination: which of the four mechanisms to use
+
+The repo already has three, and the contracts module adds a fourth. That is not
+an oversight — they are for different things — but six teams choosing freely is
+how a fifth appears. The choice is made here:
+
+| Mechanism | Use it for |
+|---|---|
+| `@/lib/mcp/contracts` `encodeCursor` | **Every new or rewritten assurance report.** This is the default. |
+| `services/bank/bankTxCursor.ts` | `list_bank_transactions` only — already on the wire. |
+| `tools/glAccountCursor.ts` | `list_gl_accounts` only — already on the wire. |
+| `@/lib/pagination.ts` (`limit`/`offset`) | Admin and CRUD list endpoints. **Never an assurance report.** |
+
+**Offset pagination is wrong for a report that has to be complete.** `OFFSET 200`
+re-runs the query and skips two hundred rows of *whatever the table now holds*.
+An agent posting journals while a six-page general ledger is being extracted
+shifts every subsequent page, and the extract silently loses a journal or serves
+one twice — with no error, and no way for the reader to tell. That is the same
+class of defect as the ten-row aged debtors report: a figure that cannot
+establish its own completeness.
+
+The two existing cursors are already correct and are **not** to be migrated onto
+the new one. Their encodings are on the wire, and a changed cursor format breaks
+every agent mid-pagination for no gain.
+
+---
+
 ## 5. One figure, one query
 
 Cash has four answers across the dashboard, the balance sheet, the cash flow and
@@ -105,6 +132,20 @@ regress the moment two workstreams compute the same figure separately.
 
 - A figure the UI already computes is computed by **the service the UI calls**.
   MCP tools never re-derive it and never write SQL (`src/lib/mcp/.claude.md`).
+
+**WRAP BEFORE YOU BUILD.** The service inventory (see the workstream brief) found
+that most of what this programme was specified to add already exists as a
+UI-proven service and is simply not reachable over MCP — cash application,
+payroll, year-end close, the close checklist, VAT reconciliation, project
+profitability, bank reconciliation. Your brief tells you, per endpoint, whether
+the verdict is **WRAP** (expose the existing service), **EXTEND** (widen it) or
+**BUILD** (genuinely new).
+
+If your brief says WRAP and you find yourself writing an aggregate, stop. You are
+about to create the fifth answer to a question that already has four. Re-deriving
+a figure the UI already computes is the single failure this programme exists to
+prevent, and a PR that does it will be sent back regardless of whether the
+arithmetic is right.
 - If you need a figure no service owns yet, **add it to the service layer** and
   make the UI call it too, in the same PR.
 - Return the definition you used in `figureBasis`.
