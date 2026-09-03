@@ -328,6 +328,48 @@ describeIfDb('aging as at a past date reflects that date, not today', () => {
     }
   });
 
+  it('KNOWN LIMITATION: a cancelled payment overstates the period it covered', async () => {
+    // Documented, not desired. A payment later cancelled keeps its allocation
+    // row but is excluded from the rewind by the status filter, and
+    // amount_paid has already been reduced — so for a date between the payment
+    // and its cancellation the invoice reads as outstanding when it was
+    // settled. There is no cancellation date to distinguish it by.
+    //
+    // This test exists so the boundary is VISIBLE and so that anyone who later
+    // adds a cancellation date sees exactly which assertion to change.
+    // Production exposure is 5 payments totalling R5,462.50.
+    const earlyBefore = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!.total;
+    const todayBefore = (await getARAging(COMPANY)).find((b) => b.entityId === CUSTOMER)!.total;
+
+    const invoiceId = await insertCustomerInvoice(
+      admin, 'PIT-AR-11', '2026-01-10', '2026-02-10', 550, 0, 'approved');
+    const { rows } = await admin.query(
+      `INSERT INTO customer_payments
+         (company_id, client_id, payment_number, payment_date, total_amount, status, bank_account_id, created_by)
+       VALUES ($1,$2,'PIT-RC','2026-02-01',550,'cancelled',$3,$4) RETURNING id`,
+      [COMPANY, CUSTOMER, BANK, COMPANY]);
+    await admin.query(
+      `INSERT INTO customer_payment_allocations (payment_id, invoice_id, amount_allocated)
+       VALUES ($1,$2,550)`, [rows[0].id, invoiceId]);
+
+    try {
+      const earlyAfter = (await getARAging(COMPANY, EARLY)).find((b) => b.entityId === CUSTOMER)!.total;
+      const todayAfter = (await getARAging(COMPANY)).find((b) => b.entityId === CUSTOMER)!.total;
+
+      // Today it IS outstanding, correctly — the payment was cancelled.
+      expect(todayAfter - todayBefore).toBeCloseTo(550, 2);
+      // On 31 March it reads as outstanding TOO, and that is the limitation:
+      // the payment of 1 February had not yet been cancelled on that date, so
+      // the true figure is 0. A cancellation date would let us tell.
+      expect(earlyAfter - earlyBefore).toBeCloseTo(550, 2);
+    } finally {
+      await admin.query(
+        `DELETE FROM customer_payment_allocations WHERE payment_id = $1`, [rows[0].id]);
+      await admin.query(`DELETE FROM customer_payments WHERE id = $1`, [rows[0].id]);
+      await admin.query(`DELETE FROM customer_invoices WHERE id = $1`, [invoiceId]);
+    }
+  });
+
   it('the as-at date changes the answer at all', async () => {
     // The whole point: two dates, two different books. Before this, both
     // returned today's balances re-bucketed.

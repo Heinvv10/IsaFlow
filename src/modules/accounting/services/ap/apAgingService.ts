@@ -44,6 +44,17 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         -- MIN(total, outstanding) and leaves the excess unapplied. The column
         -- is NOT NULL DEFAULT 0; a note at 0 reduced nothing to rewind.
         --
+        --
+        -- ONE CASE THIS DOES NOT COVER, stated rather than glossed. A payment
+        -- later CANCELLED keeps its allocation row but is excluded from the
+        -- rewind by the status filter, and amount_paid has already been
+        -- reduced. So for a date between the payment and its cancellation the
+        -- invoice reads as outstanding when it was in fact settled — the one
+        -- shape where this report can overstate a historical debt. There is no
+        -- cancellation date on customer_payments or supplier_payments to
+        -- distinguish it by (only updated_at, which any edit touches), so it
+        -- cannot be fixed without a schema change. Production exposure is 5
+        -- payments totalling R5,462.50, which does not justify one.
         -- There is no supplier write-off table; customer_write_offs is the
         -- only one in this schema, so AP has no third branch.
         SELECT SUM(amount) AS amount FROM (

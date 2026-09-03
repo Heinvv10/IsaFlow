@@ -50,7 +50,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         -- Anchoring cannot do that. Undated settlement stays in the baseline
         -- and is treated as having always been there, which is conservative:
         -- the report can understate how much was owed on a past date, but it
-        -- can never invent a delinquency.
+        -- will not resurrect a settled invoice.
         --
         -- TWO GUARDS make that claim actually true; without them it was not.
         --
@@ -63,6 +63,17 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         --   as_at parameter supplied at all. Bounding the window at today
         --   makes the rewind set empty by construction for the default report.
         --
+        --
+        -- ONE CASE THIS DOES NOT COVER, stated rather than glossed. A payment
+        -- later CANCELLED keeps its allocation row but is excluded from the
+        -- rewind by the status filter, and amount_paid has already been
+        -- reduced. So for a date between the payment and its cancellation the
+        -- invoice reads as outstanding when it was in fact settled — the one
+        -- shape where this report can overstate a historical debt. There is no
+        -- cancellation date on customer_payments or supplier_payments to
+        -- distinguish it by (only updated_at, which any edit touches), so it
+        -- cannot be fixed without a schema change. Production exposure is 5
+        -- payments totalling R5,462.50, which does not justify one.
         --   LEAST(rewound, amount_paid). Rewinding is only sound if every
         --   event rewound is INSIDE the anchor, and it is not:
         --   bank-match-confirm.ts writes amount_paid absolutely, clobbering
@@ -258,7 +269,7 @@ export async function getARAgingDetail(companyId: string,
         -- Anchoring cannot do that. Undated settlement stays in the baseline
         -- and is treated as having always been there, which is conservative:
         -- the report can understate how much was owed on a past date, but it
-        -- can never invent a delinquency.
+        -- will not resurrect a settled invoice.
         --
         -- TWO GUARDS make that claim actually true; without them it was not.
         --
