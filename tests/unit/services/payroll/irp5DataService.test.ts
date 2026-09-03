@@ -44,8 +44,9 @@ const EMPLOYEE = {
 function routeMock(over: { employees?: unknown[]; nonDeclarable?: unknown[] } = {}) {
   mockImpl = (strings) => {
     const q = strings.join('?');
-    if (q.includes('NOT (status = ANY')) {
-      return Promise.resolve(over.nonDeclarable ?? [{ runs: 0, gross: 0 }]);
+    // The exclusion query is now per EMPLOYEE, so it returns employee rows.
+    if (q.includes('NOT (prh.status = ANY')) {
+      return Promise.resolve(over.nonDeclarable ?? []);
     }
     return Promise.resolve(over.employees ?? [EMPLOYEE]);
   };
@@ -127,17 +128,46 @@ describe('getIrp5EmployeeTotals — POPIA and completeness', () => {
     expect(ds.rows[0]!.identityNumbersMasked).toBe(false);
   });
 
-  it('names non-declarable runs in the year, with the remuneration they carry', async () => {
-    routeMock({ nonDeclarable: [{ runs: 3, gross: 335800 }] });
+  it('names each employee whose runs were never declarable, with what they carry', async () => {
+    routeMock({
+      nonDeclarable: [
+        { id: 'e2', employee_number: 'EMP002', first_name: 'Sipho', last_name: 'Dlamini', gross: 200000, runs: 3 },
+        { id: 'e3', employee_number: 'EMP003', first_name: 'Naledi', last_name: 'Khumalo', gross: 135800, runs: 3 },
+      ],
+    });
     const ds = await getIrp5EmployeeTotals(COMPANY, 2026);
-    const ex = ds.excluded[0]!;
 
     // "This employee earned nothing" and "this employee's runs were never
     // approved" are different facts.
-    expect(ex.reason).toBe('run_not_declarable');
-    expect(ex.amount).toBe(335800);
-    expect(ex.detail).toContain('3');
-    expect(ds.rowsTotal + ds.excluded.length).toBe(ds.universeTotal);
+    expect(ds.excluded).toHaveLength(2);
+    expect(ds.excluded.every(e => e.reason === 'run_not_declarable')).toBe(true);
+    expect(ds.excluded.map(e => e.id)).toEqual(['e2', 'e3']);
+    expect(ds.excluded.map(e => e.amount)).toEqual([200000, 135800]);
+    expect(ds.excluded[0]!.detail).toContain('Sipho Dlamini');
+    expect(ds.excluded[0]!.detail).toContain('3');
+
+    // Both sides count EMPLOYEES. An aggregate row standing for N of them made
+    // this arithmetic pass while under-reporting the universe.
+    expect(ds.excludedTotal).toBe(2);
+    expect(ds.rowsTotal + ds.excludedTotal).toBe(ds.universeTotal);
+    expect(ds.universeTotal).toBe(3);
+  });
+
+  // Above the sample cap, `excluded.length` and `excludedTotal` diverge, and
+  // universeTotal must follow the COUNT rather than the list — otherwise the
+  // universe silently shrinks to the cap.
+  it('reports the full excluded count when the list is capped at 200', async () => {
+    const many = Array.from({ length: 250 }, (_, i) => ({
+      id: `x${i}`, employee_number: `E${i}`, first_name: 'A', last_name: `B${i}`,
+      gross: 1000, runs: 1,
+    }));
+    routeMock({ nonDeclarable: many });
+    const ds = await getIrp5EmployeeTotals(COMPANY, 2026);
+
+    expect(ds.excluded).toHaveLength(200);
+    expect(ds.excludedTotal).toBe(250);
+    expect(ds.universeTotal).toBe(251);
+    expect(ds.rowsTotal + ds.excludedTotal).toBe(ds.universeTotal);
   });
 
   it('pins posted_through to the latest run line consumed, never now()', async () => {

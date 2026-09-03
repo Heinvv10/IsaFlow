@@ -174,6 +174,10 @@ export const irp5DataTool: McpTool = {
       as_at: ds.periodEnd,
       posted_through: ds.postedThrough ?? NO_LEDGER_ROWS,
       excludedRows: ds.excluded as ExcludedRow[],
+      // Excluded employees are listed individually up to a cap; excludedTotal
+      // is the real count, so `truncatedExcludedRows` tells the reader when the
+      // list they can see is shorter than the count they are given.
+      excludedTotal: ds.excludedTotal,
     });
 
     return ok({

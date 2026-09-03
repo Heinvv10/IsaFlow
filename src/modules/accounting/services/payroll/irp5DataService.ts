@@ -63,9 +63,15 @@ export interface Irp5Dataset {
   rows: Irp5EmployeeTotals[];
   rowsTotal: number;
   universeTotal: number;
+  /** Employees excluded IN TOTAL; `excluded` may carry only a capped sample. */
+  excludedTotal: number;
   excluded: Irp5Exclusion[];
   postedThrough: string | null;
 }
+
+/** Excluded employees are listed individually up to this many; beyond it the
+ *  envelope reports `excludedTotal` with `truncatedExcludedRows` set. */
+const EXCLUDED_SAMPLE_CAP = 200;
 
 /** 1 March of the prior calendar year to the last day of February in taxYear. */
 export function saTaxYearBounds(taxYear: number): { start: string; end: string } {
@@ -120,15 +126,45 @@ export async function getIrp5EmployeeTotals(
     ORDER BY e.last_name, e.first_name, e.id
   `) as Row[];
 
-  // Runs inside the tax year that are NOT declarable. Their remuneration is
-  // real and does not belong on a certificate, so it is named rather than
-  // silently absent.
-  const [nonDeclarable] = (await sql`
-    SELECT COUNT(*)::INT AS runs, COALESCE(SUM(total_gross), 0) AS gross
-    FROM payroll_run_headers
-    WHERE company_id = ${companyId}::UUID
-      AND NOT (status = ANY(${declarable}::TEXT[]))
-      AND make_date(period_year, period_month, 1) BETWEEN ${start}::DATE AND ${end}::DATE
+  // Employees whose remuneration in this tax year sits ONLY on non-declarable
+  // runs. Their pay is real and does not belong on a certificate, so each is
+  // named rather than silently absent.
+  //
+  // Per EMPLOYEE, not per run: `rows` are employees, and the completeness
+  // identity only means something if both sides count the same kind of thing.
+  // This was one aggregate row standing for every non-declarable run, which
+  // satisfied the arithmetic while reporting a universe of 1 for a run carrying
+  // ten people.
+  const excludedRowsRaw = (await sql`
+    SELECT e.id,
+           e.employee_number,
+           e.first_name,
+           e.last_name,
+           COALESCE(SUM(prl.gross_pay), 0)::NUMERIC AS gross,
+           COUNT(DISTINCT prh.id)::INT             AS runs
+    FROM payroll_run_lines prl
+    JOIN payroll_run_headers prh ON prh.id = prl.run_id
+    JOIN payroll_employees e ON e.id = prl.employee_id
+    WHERE prh.company_id = ${companyId}::UUID
+      AND e.company_id = ${companyId}::UUID
+      AND NOT (prh.status = ANY(${declarable}::TEXT[]))
+      AND make_date(prh.period_year, prh.period_month, 1)
+          BETWEEN ${start}::DATE AND ${end}::DATE
+      AND (${employeeId}::UUID IS NULL OR e.id = ${employeeId}::UUID)
+      -- Anyone who ALSO has a declarable run is already a certificate row, and
+      -- counting them on both sides would overstate the universe.
+      AND NOT EXISTS (
+        SELECT 1
+        FROM payroll_run_lines d
+        JOIN payroll_run_headers dh ON dh.id = d.run_id
+        WHERE d.employee_id = e.id
+          AND dh.company_id = ${companyId}::UUID
+          AND dh.status = ANY(${declarable}::TEXT[])
+          AND make_date(dh.period_year, dh.period_month, 1)
+              BETWEEN ${start}::DATE AND ${end}::DATE
+      )
+    GROUP BY e.id, e.employee_number, e.first_name, e.last_name
+    ORDER BY e.last_name, e.first_name, e.id
   `) as Row[];
 
   const mapped: Irp5EmployeeTotals[] = rows.map((r) => ({
@@ -150,16 +186,16 @@ export async function getIrp5EmployeeTotals(
     runsIncluded: Number(r.runs_included) || 0,
   }));
 
-  const excluded: Irp5Exclusion[] = [];
-  const nonDeclarableRuns = Number(nonDeclarable?.runs ?? 0);
-  if (nonDeclarableRuns > 0) {
-    excluded.push({
-      id: 'non_declarable_runs',
+  const excludedTotal = excludedRowsRaw.length;
+  const excluded: Irp5Exclusion[] = excludedRowsRaw
+    .slice(0, EXCLUDED_SAMPLE_CAP)
+    .map((r) => ({
+      id: String(r.id),
       reason: 'run_not_declarable',
-      detail: `${nonDeclarableRuns} payroll runs fall in this tax year but are not in a declarable status (${declarable.join(', ')}), so their remuneration is not on any certificate.`,
-      amount: Number(nonDeclarable?.gross ?? 0),
-    });
-  }
+      detail: `${String(r.first_name ?? '')} ${String(r.last_name ?? '')}`.trim() +
+        ` (${String(r.employee_number ?? '')}) has pay on ${Number(r.runs) || 0} run(s) in this tax year, none in a declarable status (${declarable.join(', ')}), so none of it is on a certificate.`,
+      amount: Number(r.gross) || 0,
+    }));
 
   const postedThrough = rows
     .map((r) => (r.posted_through ? new Date(String(r.posted_through)).toISOString() : null))
@@ -173,7 +209,8 @@ export async function getIrp5EmployeeTotals(
     periodEnd: end,
     rows: mapped,
     rowsTotal: mapped.length,
-    universeTotal: mapped.length + excluded.length,
+    universeTotal: mapped.length + excludedTotal,
+    excludedTotal,
     excluded,
     postedThrough,
   };
