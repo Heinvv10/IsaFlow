@@ -22,8 +22,27 @@ import { reconcileSubledgerTool } from './tools/reconcileSubledger';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
+import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/receipts';
+import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
+import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
+import { reverseJournalEntryTool } from './tools/writeJournalReverse';
+import { settleByContraTool } from './tools/writeSettleByContra';
+import {
+  createCustomerTool,
+  updateCustomerTool,
+  createSupplierTool,
+  updateSupplierTool,
+} from './tools/writeContacts';
 import { vatStatusTool } from './tools/vat';
+import { chartOfAccountsHealthTool, dataIntegrityChecksTool } from './tools/integrity';
+import { lockVatPeriodTool, vat201ExportTool, vatReconciliationTool } from './tools/vatReports';
 import { listAgentPostingsTool } from './tools/agentActivity';
+import { auditTrailTool } from './tools/auditTrail';
+import {
+  listDocumentsTool,
+  getDocumentTool,
+  listUnsupportedTransactionsTool,
+} from './tools/documents';
 import {
   createDraftInvoiceTool,
   createDraftQuoteTool,
@@ -72,10 +91,22 @@ import {
   listTimeEntriesTool,
 } from './tools/practice';
 import { createJobCategoryTool, createWorkItemTool } from './tools/writePracticeSetup';
+import {
+  listFiscalPeriodsTool,
+  getFiscalPeriodTool,
+  periodCloseChecklistTool,
+} from './tools/fiscalPeriods';
+import { bankStatementCoverageTool, getOpeningBalancesTool } from './tools/bankCoverage';
+import {
+  closeFiscalPeriodTool,
+  reopenFiscalPeriodTool,
+  yearEndCloseTool,
+} from './tools/writeFiscalPeriods';
+import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (33)
+  // read (48)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -95,7 +126,17 @@ export const MCP_TOOLS = [
   listBankTransactionsTool,
   getMatchCandidatesTool,
   vatStatusTool,
+  vatReconciliationTool,
+  vat201ExportTool,
+  dataIntegrityChecksTool,
+  chartOfAccountsHealthTool,
   listAgentPostingsTool,
+  // Governance (W5). audit_trail supersedes list_agent_postings, which stays
+  // registered: it is on the wire and agents are mid-flight against it.
+  auditTrailTool,
+  listDocumentsTool,
+  getDocumentTool,
+  listUnsupportedTransactionsTool,
   listSupplierInvoicesTool,
   getSupplierInvoiceTool,
   listBankRulesTool,
@@ -109,7 +150,16 @@ export const MCP_TOOLS = [
   listTimeEntriesTool,
   listCreditNotesTool,
   getCreditNoteTool,
-  // write (31) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  suggestReceiptMatchesTool,
+  listUnappliedReceiptsTool,
+  // Period control and bank completeness (W3). The five reads that let a caller
+  // see the posting lock and prove a bank account's history.
+  listFiscalPeriodsTool,
+  getFiscalPeriodTool,
+  periodCloseChecklistTool,
+  bankStatementCoverageTool,
+  getOpeningBalancesTool,
+  // write (44) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -145,6 +195,27 @@ export const MCP_TOOLS = [
   createCreditNoteTool,
   approveCreditNoteTool,
   cancelCreditNoteTool,
+  // Cash application: moves a customer's outstanding balance, and on the
+  // bank-line branch posts DR Bank / CR Accounts Receivable. requiresPost.
+  applyReceiptToInvoiceTool,
+  applyPaymentToSupplierInvoiceTool,
+  reverseJournalEntryTool,
+  settleByContraTool,
+  // Contacts: post nothing, and sit on their own write:contacts scope because
+  // a supplier's bank account number is editable here.
+  createCustomerTool,
+  updateCustomerTool,
+  createSupplierTool,
+  updateSupplierTool,
+  // Period control: close/reopen a period and close a year. All three require
+  // write:post — each one changes what may post, or posts to equity.
+  closeFiscalPeriodTool,
+  reopenFiscalPeriodTool,
+  yearEndCloseTool,
+  performBankReconciliationTool,
+  // Records that a VAT period has been filed. requiresPost because it freezes
+  // a filed return: a control an agent can set without write:post is not one.
+  lockVatPeriodTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

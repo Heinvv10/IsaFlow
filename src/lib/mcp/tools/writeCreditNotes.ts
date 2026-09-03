@@ -28,7 +28,7 @@ import {
   findOpenDuplicateDraft,
 } from '@/modules/accounting/services/ar/creditNoteLinkService';
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const TYPES = ['customer', 'supplier'] as const;
@@ -166,6 +166,9 @@ export const createCreditNoteTool: McpTool = {
         taxRate,
       },
       ctx.userId,
+      // A draft note posts no journal, so the document row is the only place
+      // the actor can be recorded until approval (migration 531).
+      mcpPostingOpts(ctx, 'create_credit_note'),
     );
 
     return ok({
@@ -237,7 +240,7 @@ export const approveCreditNoteTool: McpTool = {
     // the registry's savepoint rather than being flattened into a tool error
     // that keeps a partially posted journal.
     const updated = await approveCreditNote(ctx.companyId, id, ctx.userId, {
-      postingAgent: mcpPostingAgent('approve_credit_note'),
+      ...mcpPostingOpts(ctx, 'approve_credit_note'),
     });
 
     return ok({
@@ -295,7 +298,7 @@ export const cancelCreditNoteTool: McpTool = {
       id,
       ctx.userId,
       strArg(args, 'reason'),
-      { postingAgent: mcpPostingAgent('cancel_credit_note') },
+      mcpPostingOpts(ctx, 'cancel_credit_note'),
     );
 
     return ok({

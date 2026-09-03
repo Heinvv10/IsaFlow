@@ -13,7 +13,7 @@ export const MCP_PROD_ENDPOINT = `${MCP_PROD_ORIGIN}${MCP_PATH}`;
 export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-server';
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
-/** All MCP tool names (32 read + 31 write). Drift-guarded against toolIndex. */
+/** All MCP tool names (37 read + 35 write). Drift-guarded against toolIndex. */
 export const CLIENT_MCP_TOOL_NAMES = [
   // read
   'company_profile',
@@ -35,7 +35,16 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'list_bank_transactions',
   'get_match_candidates',
   'vat_status',
+  'vat_reconciliation',
+  'vat201_export',
+  'data_integrity_checks',
+  'chart_of_accounts_health',
+  'lock_vat_period',
   'list_agent_postings',
+  'audit_trail',
+  'list_documents',
+  'get_document',
+  'list_unsupported_transactions',
   'list_supplier_invoices',
   'get_supplier_invoice',
   'list_bank_rules',
@@ -49,6 +58,13 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'list_time_entries',
   'list_credit_notes',
   'get_credit_note',
+  'suggest_receipt_matches',
+  'list_unapplied_receipts',
+  'list_fiscal_periods',
+  'get_fiscal_period',
+  'period_close_checklist',
+  'bank_statement_coverage',
+  'get_opening_balances',
   // write
   'create_draft_invoice',
   'create_draft_quote',
@@ -81,4 +97,16 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'create_credit_note',
   'approve_credit_note',
   'cancel_credit_note',
+  'apply_receipt_to_invoice',
+  'apply_payment_to_supplier_invoice',
+  'reverse_journal_entry',
+  'settle_by_contra',
+  'create_customer',
+  'update_customer',
+  'create_supplier',
+  'update_supplier',
+  'close_fiscal_period',
+  'reopen_fiscal_period',
+  'year_end_close',
+  'perform_bank_reconciliation',
 ] as const;

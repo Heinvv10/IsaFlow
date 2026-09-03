@@ -28,14 +28,38 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/core/companyService', () => ({ getCompany: vi.fn() }));
 // Spread the real module rather than enumerating its exports. This stub broke
 // the moment trial_balance became a WRAP of getTrialBalanceReport, and it also
-// has to carry the exported BALANCE_TOLERANCE the tool reports back. Enumerating
-// makes every new export a test failure in a file that does not care about it.
+// has to carry the exported BALANCE_TOLERANCE the tool reports back.
 vi.mock('@/modules/accounting/services/gl/trialBalanceService', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/accounting/services/gl/trialBalanceService')>()),
   getTrialBalance: vi.fn(),
   getTrialBalanceReport: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({ getFiscalPeriodIdForDate: vi.fn() }));
+vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
+  getFiscalPeriodIdForDate: vi.fn(),
+  getFiscalPeriods: vi.fn().mockResolvedValue([]),
+  getFiscalPeriodById: vi.fn().mockResolvedValue(null),
+  getJournalCountsByYear: vi.fn().mockResolvedValue({}),
+  resolveCompanyPeriodAlignment: vi.fn().mockResolvedValue({
+    declaredStartMonth: 3, observedStartMonth: null, startMonth: 3, aligned: true,
+  }),
+}));
+vi.mock('@/modules/accounting/services/gl/periodCloseReadinessService', () => ({
+  getCloseReadiness: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('@/modules/accounting/services/bank/bankStatementCoverageService', () => ({
+  DEFAULT_MIN_GAP_DAYS: 7,
+  getBankStatementCoverage: vi.fn().mockResolvedValue({
+    asAt: '2026-09-03', accounts: [],
+    totals: { glBalance: 0, statementBalance: 0, computedBalance: 0, difference: 0, transactionCount: 0 },
+    postedThrough: null,
+  }),
+}));
+vi.mock('@/modules/accounting/services/gl/openingBalanceReadService', () => ({
+  getOpeningBalances: vi.fn().mockResolvedValue({
+    rows: [], disagreements: [], accountsWithoutOpeningBalance: [],
+    totals: { posted: 0, metadata: 0 }, postedThrough: null,
+  }),
+}));
 vi.mock('@/modules/accounting/services/reports/incomeStatementService', () => ({ getIncomeStatement: vi.fn() }));
 vi.mock('@/modules/accounting/services/reports/balanceSheetService', () => ({ getBalanceSheet: vi.fn() }));
 vi.mock('@/modules/accounting/services/ar/arAgingService', () => ({ getARAging: vi.fn() }));
@@ -57,7 +81,7 @@ vi.mock('@/modules/accounting/services/bank/bankAccountStatusService', () => ({
 vi.mock('@/modules/accounting/services/bank/bankTransactionQueryService', () => ({
   getBankTransactions: vi.fn(),
 }));
-vi.mock('@/modules/accounting/services/reports/vatReturnService', () => ({ getVATReturn: vi.fn() }));
+vi.mock('@/modules/accounting/services/reports/vat201ReportService', () => ({ getVat201Report: vi.fn() }));
 vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   getSupplierInvoices: vi.fn(),
   getSupplierInvoiceById: vi.fn(),
@@ -98,7 +122,7 @@ import {
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getBankTransactions } from '@/modules/accounting/services/bank/bankTransactionQueryService';
 import { InvalidCursorError } from '@/modules/accounting/services/bank/bankTxCursor';
-import { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
+import { getVat201Report } from '@/modules/accounting/services/reports/vat201ReportService';
 
 import { mcpRegistry, MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
@@ -133,6 +157,14 @@ function parseOk(r: { content: Array<{ text: string }>; isError?: boolean }): un
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+const emptyVat201 = {
+  periodStart: '2026-05-01', periodEnd: '2026-06-30', detail: 'standard' as const,
+  boxes: [], totals: { outputTax: 0, inputTax: 0, netVat: 0, standardRatedSupplies: 0, standardRatedPurchases: 0 },
+  rateCheck: { rate: 0.15, outputImpliedTax: 0, outputVariance: 0, inputImpliedTax: 0, inputVariance: 0, ties: true, entriesWithoutBase: [], entriesWithoutBaseTotal: 0 },
+  rows: [], rowsTotal: 0, universeTotal: 0, excludedRows: [], excludedLineCount: 0, excludedAmount: 0,
+  nextCursor: null, postedThrough: '2026-06-30T00:00:00.000Z',
+};
 
 describe('company_profile', () => {
   it('returns a trimmed profile from getCompany(ctx.companyId)', async () => {
@@ -278,13 +310,38 @@ describe('contact + bank + vat tools', () => {
   });
 
   it('vat_status requires the period and passes companyId first', async () => {
-    vi.mocked(getVATReturn).mockResolvedValue({ netVAT: 0 } as never);
+    vi.mocked(getVat201Report).mockResolvedValue(emptyVat201 as never);
     parseOk(await tool('vat_status').handler(
       { period_start: '2026-05-01', period_end: '2026-06-30' }, ctx(),
     ));
-    expect(getVATReturn).toHaveBeenCalledWith(COMPANY_ID, '2026-05-01', '2026-06-30');
+    expect(getVat201Report).toHaveBeenCalledWith(
+      COMPANY_ID, '2026-05-01', '2026-06-30',
+      expect.objectContaining({ detail: 'standard' }),
+    );
     const bad = await tool('vat_status').handler({}, ctx());
     expect(bad.isError).toBe(true);
+  });
+
+  it('vat_status refuses a period that runs backwards before touching the service', async () => {
+    vi.mocked(getVat201Report).mockClear();
+    const r = await tool('vat_status').handler(
+      { period_start: '2026-06-30', period_end: '2026-05-01' }, ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(getVat201Report).not.toHaveBeenCalled();
+  });
+
+  it('vat_status accepts the specification spelling "boxes" as the standard level', async () => {
+    // The audit spec names the middle level `boxes`; the shared contract names
+    // it `standard`. They are the same level and both spellings are accepted.
+    vi.mocked(getVat201Report).mockResolvedValue(emptyVat201 as never);
+    parseOk(await tool('vat_status').handler(
+      { period_start: '2026-05-01', period_end: '2026-06-30', detail: 'boxes' }, ctx(),
+    ));
+    expect(getVat201Report).toHaveBeenLastCalledWith(
+      COMPANY_ID, '2026-05-01', '2026-06-30',
+      expect.objectContaining({ detail: 'standard' }),
+    );
   });
 });
 
@@ -461,8 +518,8 @@ describe('list_bank_transactions — paging and compact rows', () => {
 describe('suite-wide invariants', () => {
   const READ_TOOLS = MCP_TOOLS.filter((t) => !t.write);
 
-  it('exactly 33 read tools, all write:false, additionalProperties:false everywhere', () => {
-    expect(READ_TOOLS).toHaveLength(33);
+  it('exactly 48 read tools, all write:false, additionalProperties:false everywhere', () => {
+    expect(READ_TOOLS).toHaveLength(48);
     // Every registered tool is drift-guarded against CLIENT_MCP_TOOL_NAMES.
     expect(MCP_TOOLS).toHaveLength(CLIENT_MCP_TOOL_NAMES.length);
     for (const t of READ_TOOLS) {
@@ -479,13 +536,54 @@ describe('suite-wide invariants', () => {
   // from an argument — is pinned in three parts below, plus behaviourally in
   // companyAssert.test.ts. A blanket name ban would now pass by forbidding the
   // guard while saying nothing about where scope comes from.
-  it('no tool DECLARES a company identifier of its own', () => {
+  // Narrowed once more, for the same reason it was narrowed before. The rule
+  // is that no tool takes its SCOPE from an argument — NOT that the word
+  // "company" may not appear. audit_trail's `acting_company_id` filters a DATA
+  // COLUMN (which firm the actor was acting for, migration 581); it is the same
+  // kind of argument as `user_id` or `source`, and it cannot widen scope
+  // because every query underneath still carries `company_id = ctx.companyId`
+  // — pinned by the scope test below and by the service's own suite.
+  //
+  // Ban the SELECTOR names exactly, and allow a data column to be named after
+  // a company. A blanket /company/i ban would forbid an honest filter while
+  // saying nothing about where scope comes from, which is the failure this
+  // assertion has already had once.
+  const SCOPE_SELECTOR_NAMES = ['company_id', 'companyid', 'company', 'tenant_id', 'tenantid'];
+  const SCOPE_SAFE_COMPANY_PROPS = new Set([
+    'acting_company_id',                  // which firm the actor acted for
+    'posted_from_outside_this_company',   // boolean filter; selects nothing
+  ]);
+
+  it('no tool DECLARES a company identifier that could select the tenant', () => {
     for (const t of MCP_TOOLS) {
       const props = Object.keys(
         ((t.inputSchema as { properties?: Record<string, unknown> }).properties ?? {}),
       );
-      for (const p of props) expect(p).not.toMatch(/company/i);
+      for (const p of props) {
+        expect(SCOPE_SELECTOR_NAMES).not.toContain(p.toLowerCase());
+        // Anything else mentioning a company must be on the reviewed list, so
+        // a new one cannot arrive without someone justifying it here.
+        if (/company/i.test(p)) expect(SCOPE_SAFE_COMPANY_PROPS.has(p)).toBe(true);
+      }
     }
+  });
+
+  it('a scope-safe company property still cannot widen the tenant scope', async () => {
+    // audit_trail is the only tool with one. Its handler must pass ctx's
+    // company through unchanged no matter what the argument says.
+    const { queryAuditTrail } = await import(
+      '@/modules/accounting/services/gl/auditTrailLedgerService');
+    const spy = vi.spyOn(
+      await import('@/modules/accounting/services/gl/auditTrailLedgerService'),
+      'queryAuditTrail',
+    );
+    expect(typeof queryAuditTrail).toBe('function');
+    spy.mockRestore();
+
+    const t = MCP_TOOLS.find((x) => x.name === 'audit_trail')!;
+    const props = (t.inputSchema as { properties: Record<string, unknown> }).properties;
+    expect(props).toHaveProperty('acting_company_id');
+    expect(props).not.toHaveProperty('company_id');
   });
 
   it('the manifest offers the company_id ASSERTION on every write tool, and no read tool', () => {
@@ -532,7 +630,7 @@ describe('suite-wide invariants', () => {
     vi.mocked(listSuppliers).mockResolvedValue({ suppliers: [], total: 0 });
     vi.mocked(getBankAccountsStatus).mockResolvedValue([]);
     vi.mocked(getBankTransactions).mockResolvedValue({ transactions: [], total: 0 } as never);
-    vi.mocked(getVATReturn).mockResolvedValue({} as never);
+    vi.mocked(getVat201Report).mockResolvedValue(emptyVat201 as never);
     vi.mocked(getSupplierInvoices).mockResolvedValue({ invoices: [], total: 0 } as never);
     vi.mocked(getSupplierInvoiceById).mockResolvedValue(
       { id: '2f9a4c1d-0b3e-4f8a-9c21-7d5e6a8b1c30', items: [] } as never,
