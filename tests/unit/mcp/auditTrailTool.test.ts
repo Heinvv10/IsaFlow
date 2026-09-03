@@ -41,6 +41,15 @@ function payload(res: { content: { text: string }[] }) {
 beforeEach(() => vi.clearAllMocks());
 
 describe('audit_trail', () => {
+  // The house rule, stated to the agent in its own language: nothing writes
+  // actor_type 'human' by default, so a recorded human means a caller asserted
+  // one — and the absence of an agent stamp is not proof of a person.
+  it('tells the caller what a RECORDED human does and does not prove', () => {
+    const d = auditTrailTool.description;
+    expect(d).toMatch(/recorded[\s\S]*human[\s\S]*asserted/i);
+    expect(d).toMatch(/absence of an agent stamp is not proof/i);
+  });
+
   it('is a read tool on read:reports — reviewing the ledger must never need write scope', () => {
     expect(auditTrailTool.write).toBe(false);
     expect(auditTrailTool.requiresPost).toBeUndefined();
