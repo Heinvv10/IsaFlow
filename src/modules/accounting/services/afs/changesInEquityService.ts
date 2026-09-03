@@ -1,6 +1,9 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { canonicalSubtype } from '@/modules/accounting/services/gl/accountSubtypes';
+import { getRetainedEarningsBroughtForward } from '@/modules/accounting/services/gl/trialBalanceBasis';
+import { getFinancialFigures } from '@/modules/accounting/services/gl/financialFiguresService';
 
 type Row = DbRow;
 
@@ -12,6 +15,17 @@ export interface EquityColumn {
   dividends: number;
   shareIssue: number;
   revaluation: number;
+  /**
+   * Equity movements that are none of the above — most often a year-end close
+   * transferring the prior result into retained earnings, or a reclassification
+   * between reserves.
+   *
+   * This column exists so the movement rows PARTITION the period's equity
+   * postings rather than sampling them. Without it an unrecognised movement is
+   * silently dropped and the closing balance stops tying to the balance sheet —
+   * the same failure mode as an unmapped account vanishing from a statement.
+   */
+  otherMovements: number;
   closing: number;
 }
 
@@ -24,8 +38,12 @@ export interface ChangesInEquityReport {
   totalDividends: number;
   totalShareIssue: number;
   totalRevaluation: number;
+  totalOtherMovements: number;
   totalClosing: number;
 }
+
+/** Column the accumulated result is reported in. */
+const RETAINED_EARNINGS = 'retained_earnings';
 
 const EQUITY_SUBTYPE_LABELS: Record<string, string> = {
   share_capital:     'Share Capital',
@@ -34,16 +52,44 @@ const EQUITY_SUBTYPE_LABELS: Record<string, string> = {
   revaluation:       'Revaluation Reserve',
 };
 
-const SUBTYPE_ORDER = ['share_capital', 'share_premium', 'retained_earnings', 'revaluation'];
+const SUBTYPE_ORDER = ['share_capital', 'share_premium', RETAINED_EARNINGS, 'revaluation'];
 
 function subtypeLabel(subtype: string): string {
   return EQUITY_SUBTYPE_LABELS[subtype] ?? subtype;
 }
 
+/**
+ * Which movement row an equity posting belongs to, decided by the ACCOUNT it
+ * was posted to.
+ *
+ * Never by the sign of the posting. The previous implementation read a credit
+ * to retained earnings as "profit" and a debit as "dividend", so a reversed
+ * dividend was reported as income the company never earned, and the gross
+ * dividend was reported instead of the net distribution.
+ */
+type MovementRow = 'dividends' | 'shareIssue' | 'revaluation' | 'otherMovements';
+
+function movementRowFor(rawSubtype: string): MovementRow {
+  // `revaluation` is not a canonical subtype — it is a reserve name — so it is
+  // matched on the raw value before canonicalisation.
+  if (rawSubtype === 'revaluation') return 'revaluation';
+
+  if (rawSubtype === 'share_capital' || rawSubtype === 'share_premium') return 'shareIssue';
+
+  const canon = canonicalSubtype(rawSubtype);
+  if (canon === 'equity') return 'shareIssue';
+
+  // Movements ON retained earnings during the period are distributions to
+  // owners. Profit is NOT one of them: it comes from the income statement.
+  if (canon === 'retained_earnings' || rawSubtype === RETAINED_EARNINGS) return 'dividends';
+
+  return 'otherMovements';
+}
+
 async function fetchOpeningBalances(companyId: string, beforeDate: string): Promise<Map<string, number>> {
   const rows = (await sql`
     SELECT
-      COALESCE(ga.account_subtype, 'retained_earnings') AS account_subtype,
+      COALESCE(ga.account_subtype, ${RETAINED_EARNINGS}) AS account_subtype,
       COALESCE(SUM(jl.credit - jl.debit), 0)::numeric  AS balance
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -54,7 +100,7 @@ async function fetchOpeningBalances(companyId: string, beforeDate: string): Prom
       AND ga.company_id = ${companyId}::UUID
       AND ga.account_type = 'equity'
       AND je.entry_date < ${beforeDate}
-    GROUP BY COALESCE(ga.account_subtype, 'retained_earnings')
+    GROUP BY 1
   `) as Row[];
 
   const map = new Map<string, number>();
@@ -64,23 +110,20 @@ async function fetchOpeningBalances(companyId: string, beforeDate: string): Prom
   return map;
 }
 
+/**
+ * Equity postings inside the period, by account subtype.
+ *
+ * One signed net amount per subtype — deliberately NOT split by the sign of
+ * individual lines, which is what manufactured the phantom profit column.
+ */
 async function fetchMovements(
   companyId: string,
   periodStart: string,
   periodEnd: string,
-): Promise<Array<{ subtype: string; movementType: string; amount: number }>> {
+): Promise<Array<{ subtype: string; amount: number }>> {
   const rows = (await sql`
     SELECT
-      COALESCE(ga.account_subtype, 'retained_earnings') AS account_subtype,
-      CASE
-        WHEN COALESCE(ga.account_subtype, 'retained_earnings') = 'retained_earnings'
-             AND (jl.credit - jl.debit) > 0  THEN 'profit'
-        WHEN COALESCE(ga.account_subtype, 'retained_earnings') = 'retained_earnings'
-             AND (jl.credit - jl.debit) <= 0 THEN 'dividend'
-        WHEN ga.account_subtype IN ('share_capital', 'share_premium') THEN 'share_issue'
-        WHEN ga.account_subtype = 'revaluation'                       THEN 'revaluation'
-        ELSE 'other'
-      END AS movement_type,
+      COALESCE(ga.account_subtype, ${RETAINED_EARNINGS}) AS account_subtype,
       COALESCE(SUM(jl.credit - jl.debit), 0)::numeric AS amount
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
@@ -92,24 +135,27 @@ async function fetchMovements(
       AND ga.account_type = 'equity'
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
-    GROUP BY
-      COALESCE(ga.account_subtype, 'retained_earnings'),
-      CASE
-        WHEN COALESCE(ga.account_subtype, 'retained_earnings') = 'retained_earnings'
-             AND (jl.credit - jl.debit) > 0  THEN 'profit'
-        WHEN COALESCE(ga.account_subtype, 'retained_earnings') = 'retained_earnings'
-             AND (jl.credit - jl.debit) <= 0 THEN 'dividend'
-        WHEN ga.account_subtype IN ('share_capital', 'share_premium') THEN 'share_issue'
-        WHEN ga.account_subtype = 'revaluation'                       THEN 'revaluation'
-        ELSE 'other'
-      END
+    GROUP BY 1
   `) as Row[];
 
   return rows.map(r => ({
-    subtype:      String(r.account_subtype),
-    movementType: String(r.movement_type),
-    amount:       Number(r.amount),
+    subtype: String(r.account_subtype),
+    amount:  Number(r.amount),
   }));
+}
+
+function emptyColumn(subtype: string): EquityColumn {
+  return {
+    subtype,
+    label:          subtypeLabel(subtype),
+    opening:        0,
+    profitForYear:  0,
+    dividends:      0,
+    shareIssue:     0,
+    revaluation:    0,
+    otherMovements: 0,
+    closing:        0,
+  };
 }
 
 export async function getChangesInEquity(
@@ -118,41 +164,49 @@ export async function getChangesInEquity(
   periodEnd: string,
 ): Promise<ChangesInEquityReport> {
   try {
-    const [openingMap, movements] = await Promise.all([
+    const [openingMap, movements, broughtForward, figures] = await Promise.all([
       fetchOpeningBalances(companyId, periodStart),
       fetchMovements(companyId, periodStart, periodEnd),
-    ]);
-
-    const subtypes = new Set<string>([
-      ...openingMap.keys(),
-      ...movements.map(m => m.subtype),
+      // Accumulated result earned before the period. No production company
+      // carries a posted retained-earnings balance, so without this the
+      // opening column omits every prior year the business traded.
+      getRetainedEarningsBroughtForward(companyId, periodStart),
+      // Profit for the year is the income statement, full stop.
+      getFinancialFigures(companyId, periodStart, periodEnd),
     ]);
 
     const columnMap = new Map<string, EquityColumn>();
-    for (const subtype of subtypes) {
-      columnMap.set(subtype, {
-        subtype,
-        label:        subtypeLabel(subtype),
-        opening:      openingMap.get(subtype) ?? 0,
-        profitForYear: 0,
-        dividends:    0,
-        shareIssue:   0,
-        revaluation:  0,
-        closing:      0,
-      });
+    const columnFor = (subtype: string): EquityColumn => {
+      let col = columnMap.get(subtype);
+      if (!col) {
+        col = emptyColumn(subtype);
+        columnMap.set(subtype, col);
+      }
+      return col;
+    };
+
+    for (const [subtype, opening] of openingMap) {
+      columnFor(subtype).opening = opening;
     }
 
+    // The accumulated result and this period's profit are both reported in the
+    // retained earnings column, which is created if the company has never
+    // posted to it.
+    columnFor(RETAINED_EARNINGS).opening += broughtForward;
+    columnFor(RETAINED_EARNINGS).profitForYear += figures.period.netProfit;
+
     for (const mv of movements) {
-      const col = columnMap.get(mv.subtype);
-      if (!col) continue;
-      if (mv.movementType === 'profit')       col.profitForYear += mv.amount;
-      else if (mv.movementType === 'dividend')    col.dividends    += mv.amount;
-      else if (mv.movementType === 'share_issue') col.shareIssue   += mv.amount;
-      else if (mv.movementType === 'revaluation') col.revaluation  += mv.amount;
+      columnFor(mv.subtype)[movementRowFor(mv.subtype)] += mv.amount;
     }
 
     for (const col of columnMap.values()) {
-      col.closing = col.opening + col.profitForYear + col.dividends + col.shareIssue + col.revaluation;
+      col.closing =
+        col.opening +
+        col.profitForYear +
+        col.dividends +
+        col.shareIssue +
+        col.revaluation +
+        col.otherMovements;
     }
 
     const columns = [...columnMap.values()].sort((a, b) => {
@@ -171,12 +225,13 @@ export async function getChangesInEquity(
       periodStart,
       periodEnd,
       columns,
-      totalOpening:      sum('opening'),
-      totalProfitForYear: sum('profitForYear'),
-      totalDividends:    sum('dividends'),
-      totalShareIssue:   sum('shareIssue'),
-      totalRevaluation:  sum('revaluation'),
-      totalClosing:      sum('closing'),
+      totalOpening:        sum('opening'),
+      totalProfitForYear:  sum('profitForYear'),
+      totalDividends:      sum('dividends'),
+      totalShareIssue:     sum('shareIssue'),
+      totalRevaluation:    sum('revaluation'),
+      totalOtherMovements: sum('otherMovements'),
+      totalClosing:        sum('closing'),
     };
   } catch (err) {
     log.error('Failed to generate changes in equity', { error: err }, 'accounting');
