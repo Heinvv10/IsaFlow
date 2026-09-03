@@ -229,9 +229,19 @@ Catches: R7,500 of depreciation against assets not on the balance sheet · no
 contract-level P&L for a fibre contractor.
 
 **The "R2.72m of understated employment cost" does not survive re-derivation.**
-All 86 pay runs and all 11 `payroll_employees` rows are ISAFlow Demo; Velocity
-and Brightsphere have zero of each, so nothing of theirs can be understated *by
-a pay run*. Re-derived, the exposure is **R12,807,325.13** posted straight to
-salary and wage accounts with no payroll behind it and no PAYE, UIF or SDL ever
-raised — see FINDINGS **B42**, and **B43** for the R399,735.97 of input VAT
-claimed on top of it. Reported, not fixed: this programme does not correct data.
+86 of the 87 pay runs and all 11 `payroll_employees` rows are ISAFlow Demo (the
+87th is Dotbiz); Velocity and Brightsphere have zero of each, so nothing of
+theirs can be understated *by a pay run*. Re-derived twice, from the production
+ledger, the exposure is **R12,807,325.13** posted straight to salary and wage
+accounts with no payroll behind it and no PAYE, UIF or SDL ever raised — see
+FINDINGS **B42**, and **B43** for the R399,735.97 of input VAT claimed on top of
+it. Reported, not fixed: this programme does not correct data.
+
+**Budgets are finished and verified.** Migration 590 is applied and recorded on
+`isaflow_dev`; all three of the original write-path defects were reproduced
+against the live schema before replacement (42703 on `jan`, 23502 on
+`budget_name`, 42P10 on the `ON CONFLICT` — the last still failing *with* 590's
+index present, because the arbiter omitted `company_id` and the partial
+predicate). `budget_variance` is registered in all three manifests; the read
+counts are now 61 read / 46 write / 107 total. Two further defects found and
+one reported: FINDINGS **B48**, **B49**, **B50**.

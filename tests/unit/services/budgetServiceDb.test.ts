@@ -226,6 +226,43 @@ describe('budgetService against the real accounting_budgets table', async () => 
     });
   });
 
+  // A row whose company_id is another tenant's but whose gl_account_id is MINE.
+  // The gl_accounts join alone cannot exclude this — only the b.company_id
+  // predicate can. Without it the previous test still passed, so it proved
+  // nothing about tenant scope on accounting_budgets itself.
+  it.skipIf(!reachable)('never returns a row planted against my account under another tenant', async () => {
+    await inRequestTx(async (f) => {
+      await sql`
+        INSERT INTO accounting_budgets (company_id, budget_name, fiscal_year, gl_account_id, annual_amount, total_amount)
+        VALUES (${f.otherCompanyId}::uuid, ${'planted'}, ${FY}, ${f.expenseAccountId}::uuid, 777777, 777777)
+      `;
+
+      const mine = await getBudgets(f.companyId, FY);
+      expect(mine.some(b => b.annualAmount === 777777)).toBe(false);
+      expect(mine).toHaveLength(0);
+    });
+  });
+
+  // 100000 / 12 does not divide, so the twelve months only sum back to the
+  // annual if December carries the remainder. An annual of 120000 cannot tell
+  // a correct spread from one that drops the adjustment entirely.
+  it.skipIf(!reachable)('spreads an indivisible annual so the twelve months still sum to it', async () => {
+    await inRequestTx(async (f) => {
+      const entry = await upsertBudget(
+        f.companyId, { glAccountId: f.expenseAccountId, fiscalYear: FY, annualAmount: 100000 }, f.userId,
+      );
+
+      expect(entry.months.slice(0, 11)).toEqual(Array<number>(11).fill(8333.33));
+      expect(entry.months[11]).toBe(8333.37);
+      expect(entry.months.reduce((s, m) => s + m, 0)).toBeCloseTo(100000, 2);
+
+      const row = await storedRow(entry.id);
+      const stored = Object.values(row.period_amounts).reduce((s, v) => s + Number(v), 0);
+      expect(stored).toBeCloseTo(100000, 2);
+      expect(row.total_amount).toBe('100000.00');
+    });
+  });
+
   it.skipIf(!reachable)('copies a year forward without duplicating on a re-run, and deletes', async () => {
     await inRequestTx(async (f) => {
       await upsertBudget(

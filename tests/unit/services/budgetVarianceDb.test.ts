@@ -40,6 +40,8 @@ interface Fixture {
   expenseCode: string;
   otherExpenseId: string;
   otherExpenseCode: string;
+  revenueAccountId: string;
+  revenueCode: string;
   bankAccountId: string;
 }
 
@@ -48,17 +50,19 @@ async function loadFixtureIds(): Promise<Fixture> {
     SELECT bank.company_id,
            bank.id AS bank_account_id,
            e1.id AS e1_id, e1.account_code AS e1_code,
-           e2.id AS e2_id, e2.account_code AS e2_code
+           e2.id AS e2_id, e2.account_code AS e2_code,
+           r.id AS r_id, r.account_code AS r_code
     FROM gl_accounts bank
     JOIN gl_accounts e1 ON e1.company_id = bank.company_id AND e1.account_type = 'expense'
     JOIN gl_accounts e2 ON e2.company_id = bank.company_id AND e2.account_type = 'expense'
                         AND e2.id <> e1.id
+    JOIN gl_accounts r ON r.company_id = bank.company_id AND r.account_type = 'revenue'
     WHERE bank.account_subtype = 'bank'
-    ORDER BY bank.company_id, bank.account_code, e1.account_code, e2.account_code
+    ORDER BY bank.company_id, bank.account_code, e1.account_code, e2.account_code, r.account_code
     LIMIT 1
   `) as Array<Record<string, string>>;
   const row = rows[0];
-  if (!row) throw new Error('no company in isaflow_dev has a bank account and two expense accounts');
+  if (!row) throw new Error('no company in isaflow_dev has a bank account, two expense accounts and a revenue account');
 
   const users = (await sql`
     SELECT created_by FROM gl_journal_entries
@@ -74,6 +78,8 @@ async function loadFixtureIds(): Promise<Fixture> {
     expenseCode: String(row.e1_code),
     otherExpenseId: String(row.e2_id),
     otherExpenseCode: String(row.e2_code),
+    revenueAccountId: String(row.r_id),
+    revenueCode: String(row.r_code),
     bankAccountId: String(row.bank_account_id),
   };
 }
@@ -98,6 +104,26 @@ async function postJournal(
     INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
     VALUES (${f.companyId}::uuid, ${id}::uuid, ${debitAccountId}::uuid, ${amount}, 0),
            (${f.companyId}::uuid, ${id}::uuid, ${f.bankAccountId}::uuid, 0, ${amount})
+  `;
+}
+
+/** Revenue is earned on the CREDIT side: DR bank, CR the revenue account. */
+async function postRevenueJournal(
+  f: Fixture,
+  entryDate: string,
+  revenueAccountId: string,
+  amount: number,
+): Promise<void> {
+  const je = (await sql`
+    INSERT INTO gl_journal_entries (company_id, entry_date, description, source, status, created_by)
+    VALUES (${f.companyId}::uuid, ${entryDate}::date, ${'budget variance revenue fixture'}, ${'manual'}, ${'posted'}, ${f.userId})
+    RETURNING id
+  `) as Array<{ id: string }>;
+  const id = String(je[0]!.id);
+  await sql`
+    INSERT INTO gl_journal_lines (company_id, journal_entry_id, gl_account_id, debit, credit)
+    VALUES (${f.companyId}::uuid, ${id}::uuid, ${f.bankAccountId}::uuid, ${amount}, 0),
+           (${f.companyId}::uuid, ${id}::uuid, ${revenueAccountId}::uuid, 0, ${amount})
   `;
 }
 
@@ -146,6 +172,41 @@ describe('getBudgetVariance against a real ledger', async () => {
       expect(line!.variance).toBeCloseTo(90000, 2);
       expect(line!.account_id).toBe(f.expenseAccountId);
       expect(result.postedThrough).toBe('2032-01-10');
+    });
+  });
+
+  // The whole point of the sign normalisation is that "more is more" on both
+  // sides: revenue is credit-less-debit, expenses debit-less-credit. Every
+  // other test here uses an expense account, so swapping revenue to the expense
+  // expression changed nothing and the mutation survived.
+  it.skipIf(!reachable)('reports credited revenue as a positive actual, not a negative one', async () => {
+    await inRequestTx(async (f) => {
+      await upsertBudget(
+        f.companyId, { glAccountId: f.revenueAccountId, fiscalYear: FY, annualAmount: 120000 }, f.userId,
+      );
+      await postRevenueJournal(f, '2031-04-15', f.revenueAccountId, 30000);
+
+      const result = await getBudgetVariance(f.companyId, START, END);
+      const line = result.rows.find(r => r.account_code === f.revenueCode);
+      expect(line).toBeDefined();
+      expect(line!.actual_amount).toBeCloseTo(30000, 2);
+      expect(line!.actual_amount).toBeGreaterThan(0);
+    });
+  });
+
+  // A debit to a revenue account is a reversal, and must reduce the actual —
+  // proving the revenue branch really is credit-less-debit and not an absolute.
+  it.skipIf(!reachable)('nets a debit against credited revenue', async () => {
+    await inRequestTx(async (f) => {
+      await upsertBudget(
+        f.companyId, { glAccountId: f.revenueAccountId, fiscalYear: FY, annualAmount: 120000 }, f.userId,
+      );
+      await postRevenueJournal(f, '2031-04-15', f.revenueAccountId, 30000);
+      await postJournal(f, '2031-05-20', f.revenueAccountId, 5000); // DR revenue = a reversal
+
+      const result = await getBudgetVariance(f.companyId, START, END);
+      const line = result.rows.find(r => r.account_code === f.revenueCode);
+      expect(line!.actual_amount).toBeCloseTo(25000, 2);
     });
   });
 

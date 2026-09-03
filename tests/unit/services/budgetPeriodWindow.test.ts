@@ -2,11 +2,12 @@
  * The month window a Budget vs Actual run should sum.
  *
  * The report used `for (let m = startMonth; m <= endMonth; m++)` over
- * `Date.getMonth()`, which is a calendar-year assumption. Every company in this
- * system runs a March–February fiscal year, so the moment the year-to-date
- * window crosses into January the loop bound goes backwards, runs zero times,
- * and the report shows R0.00 of budget against real actuals — the failure mode
- * looks exactly like "nobody set a budget".
+ * `Date.getMonth()`, which only holds while a fiscal year starts in January.
+ * Every company in production does start in January, so that loop happened to
+ * work — but it breaks the moment a fiscal year starts anywhere else: the bound
+ * goes backwards, the loop runs zero times, and the report shows R0.00 of
+ * budget against real actuals, which looks exactly like "nobody set a budget".
+ * Month-ordinal arithmetic holds for either convention.
  *
  * Month keys are derived from the 'YYYY-MM-DD' strings directly. No Date
  * arithmetic: a UTC rollback on a month boundary would silently shift the
@@ -15,6 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   budgetMonthKeysInWindow,
+  currentMonthWindow,
   sumBudgetForWindow,
 } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 
@@ -76,5 +78,35 @@ describe('sumBudgetForWindow', () => {
 
   it('reports no budget when there is neither a split nor an annual amount', () => {
     expect(sumBudgetForWindow({}, 0, ['mar','apr','may'])).toBe(0);
+  });
+});
+
+// `new Date(y, m, 1).toISOString()` is local midnight rendered as UTC. In SAST
+// (UTC+2) that is 22:00 on the LAST DAY OF THE PREVIOUS MONTH, so the window
+// the report called "this month" opened a day early and pulled in a day of the
+// previous month's actuals. The same slice on `now` moves the end date back a
+// day for any run between midnight and 02:00 local.
+describe('currentMonthWindow', () => {
+  it('opens on the first of the local month, not the last day of the previous one', () => {
+    // 2026-09-01 00:30 SAST — 2026-08-31T22:30Z.
+    const now = new Date('2026-08-31T22:30:00.000Z');
+    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-01' });
+  });
+
+  it('ends on the local day, not the UTC one, just after local midnight', () => {
+    // 2026-09-15 01:00 SAST — 2026-09-14T23:00Z.
+    const now = new Date('2026-09-14T23:00:00.000Z');
+    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-15' });
+  });
+
+  it('crosses a year boundary on the local calendar', () => {
+    // 2027-01-01 00:30 SAST — 2026-12-31T22:30Z.
+    const now = new Date('2026-12-31T22:30:00.000Z');
+    expect(currentMonthWindow(now)).toEqual({ startDate: '2027-01-01', endDate: '2027-01-01' });
+  });
+
+  it('is stable mid-day, where UTC and local agree on the date', () => {
+    const now = new Date('2026-09-15T10:00:00.000Z');
+    expect(currentMonthWindow(now)).toEqual({ startDate: '2026-09-01', endDate: '2026-09-15' });
   });
 });

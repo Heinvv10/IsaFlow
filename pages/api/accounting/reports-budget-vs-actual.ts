@@ -1,5 +1,5 @@
 import { sql } from '@/lib/neon';
-import { toISODate } from '@/lib/dateUtils';
+import { localISODate, toISODate } from '@/lib/dateUtils';
 /**
  * Budget vs Actual Report API
  * GET /api/accounting/reports-budget-vs-actual?period=current|ytd|full_year
@@ -17,6 +17,7 @@ import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth'
 import { log } from '@/lib/logger';
 import {
   budgetMonthKeysInWindow,
+  currentMonthWindow,
   sumBudgetForWindow,
 } from '@/modules/accounting/services/reports/budgetPeriodWindow';
 import {
@@ -35,37 +36,54 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     const { period = 'ytd' } = req.query;
 
-    // Determine date range
+    // Determine date range. Windows are 'YYYY-MM-DD' strings read off the LOCAL
+    // calendar: `new Date(y, m, 1).toISOString()` is local midnight rendered as
+    // UTC, which in SAST is 22:00 on the last day of the PREVIOUS month, so the
+    // "current month" window used to open a day early and sweep in a day of the
+    // previous month's actuals.
     let startDate: string;
     let endDate: string;
+    // The fiscal year the budget rows are filed under. Read from fiscal_periods
+    // rather than sliced off the start date: the two agree only while a fiscal
+    // year starts in January (which every company here currently does), and
+    // slicing would silently look up the wrong year for anyone who doesn't.
+    let fiscalYear: number;
     const now = new Date();
 
     if (period === 'current') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0] ?? '';
-      endDate = now.toISOString().split('T')[0] ?? '';
+      ({ startDate, endDate } = currentMonthWindow(now));
+      const [fp] = await sql`
+        SELECT fiscal_year FROM fiscal_periods
+        WHERE company_id = ${companyId}::UUID
+          AND start_date <= ${endDate} AND end_date >= ${startDate}
+        ORDER BY start_date DESC LIMIT 1
+      `;
+      fiscalYear = Number(fp?.fiscal_year ?? startDate.slice(0, 4));
     } else {
       // YTD or full_year — use fiscal year start
       const [fy] = await sql`
-        SELECT MIN(start_date) as start_date, MAX(end_date) as end_date
+        SELECT MIN(start_date) as start_date, MAX(end_date) as end_date,
+               MIN(fiscal_year) as fiscal_year
         FROM fiscal_periods
         WHERE company_id = ${companyId} AND fiscal_year = (SELECT fiscal_year FROM fiscal_periods WHERE company_id = ${companyId} AND status = 'open' ORDER BY start_date DESC LIMIT 1)
       `;
-      startDate = toISODate(fy?.start_date) || `${now.getFullYear()}-03-01`;
+      startDate = toISODate(fy?.start_date) || `${now.getFullYear()}-01-01`;
       endDate = period === 'full_year'
-        ? (toISODate(fy?.end_date) || `${now.getFullYear() + 1}-02-28`)
-        : (now.toISOString().split('T')[0] ?? '');
+        ? (toISODate(fy?.end_date) || `${now.getFullYear()}-12-31`)
+        : localISODate(now);
+      fiscalYear = Number(fy?.fiscal_year ?? startDate.slice(0, 4));
     }
 
     // Load budgets from accounting_budgets table. Months live in period_amounts
     // JSONB, keyed by calendar month name ('jan'..'dec') — see budgetService.
     //
     // The window used to be derived by comparing Date.getMonth() bounds, which
-    // is a calendar-year assumption. Every company here runs March–February, so
-    // once the year-to-date window crossed into January the loop ran zero times
-    // and the report showed R0.00 of budget against real actuals — visually
-    // indistinguishable from nobody having set a budget.
+    // holds only while a fiscal year starts in January. Every company here does,
+    // so that loop happened to work — but for a fiscal year starting in any
+    // other month the bound goes backwards, the loop runs zero times, and the
+    // report shows R0.00 of budget against real actuals, indistinguishable from
+    // nobody having set a budget.
     let budgets: Record<string, number> = {};
-    const fiscalYear = Number(startDate.slice(0, 4));
     const monthKeys = budgetMonthKeysInWindow(startDate, endDate);
 
     const budgetRows = await sql`
