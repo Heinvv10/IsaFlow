@@ -107,6 +107,60 @@ which is right. This is B3 demonstrated on live production data, and it is why
 
 ---
 
+## A-live-2. The shipped endpoints, run against the live books, 2026-09-03
+
+Definition-of-done item 3 for W1 and W5, satisfied after the deploy of
+`a2bb7ff7`. Every figure below is the endpoint's own output from the production
+MCP connection.
+
+### `list_unapplied_receipts` reproduces its own finding
+
+```
+totalUnapplied  R37,050,347.68   36 receipts
+origins.agent   R37,050,347.68   36 receipts   100%
+agent_tools     mcp:bulk_allocate_bank_transactions:v1
+```
+
+The endpoint built to find B28 returns B28's figure exactly, attributes all of it
+to one tool, and says in its own description that the balance is still growing
+and why. `not_stamped_as_agent` and `no_journal` are both zero here, and are
+reported separately rather than folded into a human bucket.
+
+### `audit_trail` admits the gap rather than papering over it
+
+```
+rowsTotal 9   attribution: recorded 0, derived 9   (all agent)
+```
+
+Correct: nothing has posted through the new code path since the deploy, so
+nothing is yet a recorded fact. An endpoint reporting `recorded: 0` on its first
+run is the design working — the alternative is an attribution that looks
+authoritative and is inferred.
+
+**Note the selection semantics.** It selects by ENTRY date, not by when the tool
+ran, so the 842 `bulk_allocate` journals written today do not appear in a
+1–3 September window — they carry their bank transactions' dates. Correct, and
+documented, but it reads as a bug if unexpected.
+
+### The R10,000 audit test has an answer, and it is zero
+
+```
+transactions_in_scope        1,217
+transactions_with_a_document     0
+```
+
+**Not "few". Zero.** Over the whole of 2026 to date on Velocity Fibre, every one
+of 1,217 transactions above R10,000 has nothing attached. The largest are two
+**R6,000,000** Fibertime credits and a **R4,500,000** transfer, none carrying so
+much as a reference.
+
+The specification called this test "currently unanswerable". It is answerable
+now, and `transactions_in_scope` / `transactions_with_a_document` size the
+exposure rather than merely listing rows — which is the difference between a
+report and a finding.
+
+---
+
 ## B. Defects found that the specification never mentions
 
 These are the ones that matter most: nobody was looking for them.
