@@ -89,6 +89,45 @@ describe('reconcile_subledger — real database', async () => {
     });
   }, 30000);
 
+  it.skipIf(!reachable)(
+    'closes its arithmetic at a date most documents are AFTER — the double-count case',
+    async () => {
+      // isaflow_dev holds nothing dated after today, so the case above cannot
+      // reach the after-as-at path at all; on PRODUCTION it did, and reported
+      // R5,836,396.24 of AR and R1,206,462.27 of AP as `unexplained_difference`
+      // because the same future-dated documents were counted by both the
+      // unposted-document scan and a separate `document_after_as_at` item.
+      //
+      // Rolling the reporting date BACK reproduces it on real dev data without
+      // seeding: at 2024-06-30 most of these books are still in the future.
+      await withCompanies(async (companyIds) => {
+        let sawAfterAsAt = false;
+        for (const companyId of companyIds) {
+          for (const role of ['ar', 'ap'] as SubledgerRole[]) {
+            const rec = await reconcileSubledger(companyId, role, '2024-06-30');
+            if (rec.controlAccountBalance === null) continue;
+            if (rec.reconcilingItems.some((i) => i.type === 'document_after_as_at')) {
+              sawAfterAsAt = true;
+            }
+            expect(rec.unexplainedDifference).toBe(0);
+            // No document may be named by two items: that IS the double count.
+            const seen = new Set<string>();
+            for (const item of rec.reconcilingItems) {
+              if (item.bridge !== 'subledger_to_control') continue;
+              for (const id of item.documentIds) {
+                expect(seen.has(id)).toBe(false);
+                seen.add(id);
+              }
+            }
+          }
+        }
+        // Guard against the case going vacuous if dev data is ever re-dated.
+        expect(sawAfterAsAt).toBe(true);
+      });
+    },
+    30000,
+  );
+
   it.skipIf(!reachable)('reports the GL side and a stated reason for a subledger it cannot compare', async () => {
     await withCompanies(async ([companyId]) => {
       for (const role of ['bank', 'vat', 'payroll', 'inventory'] as SubledgerRole[]) {

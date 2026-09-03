@@ -158,9 +158,14 @@ describe('reconcileSubledger — AR', () => {
     expect(rec.unexplainedDifference).toBe(0);
   });
 
-  it('reports a future-dated document as a subledger-to-control item', async () => {
+  it('emits NO item for a future-dated document the control account already holds', async () => {
+    // The mirror of the double-count case below. A document dated after the
+    // reporting date whose journal posted BEFORE it is on the control account
+    // already, so the unposted scan returns nothing for it and there is nothing
+    // to reconcile. Emitting an item off the document's date alone would
+    // manufacture a difference out of a set of books that agree.
     const future = doc({ id: 'inv-f', documentNumber: 'INV-F', documentDate: '2026-10-01', balance: 51750 });
-    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 1000 })]);
+    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 52750 })]);
     vi.mocked(getARSubledger).mockResolvedValue(
       arSnapshot({
         documents: [doc(), future], ageable: [doc(), future], afterAsAt: [future],
@@ -169,9 +174,44 @@ describe('reconcileSubledger — AR', () => {
     );
 
     const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
-    const item = rec.reconcilingItems.find((i) => i.type === 'document_after_as_at');
-    expect(item).toMatchObject({ bridge: 'subledger_to_control', amount: 51750, documentIds: ['inv-f'] });
+    expect(rec.difference).toBe(0);
+    expect(rec.reconcilingItems.filter((i) => i.bridge === 'subledger_to_control')).toEqual([]);
     expect(rec.unexplainedDifference).toBe(0);
+  });
+
+  it('counts a future-dated document ONCE when the unposted scan also returns it', async () => {
+    // The production defect this case exists for. A document dated after the
+    // reporting date has NO control posting as at that date, so
+    // `getUnpostedSubledgerDocuments` returns it with a shortfall equal to its
+    // whole balance — and `afterAsAt` then reported the same balance again.
+    // Two items, one document, and a residual of exactly minus its balance.
+    //
+    // On isaflow_dev nothing is future-dated, so the DB-gated test could not
+    // see it; on production ISAFlow Demo it was R5,836,396.24 of AR and
+    // R1,206,462.27 of AP reported as `unexplained_difference`.
+    const future = doc({ id: 'inv-f', documentNumber: 'INV-F', documentDate: '2026-10-01', balance: 51750 });
+    vi.mocked(getControlAccountBalances).mockResolvedValue([ctrl({ balance: 1000 })]);
+    vi.mocked(getARSubledger).mockResolvedValue(
+      arSnapshot({
+        documents: [doc(), future], ageable: [doc(), future], afterAsAt: [future],
+        subledgerTotal: 52750,
+      }) as never,
+    );
+    vi.mocked(getUnpostedSubledgerDocuments).mockResolvedValue([
+      { id: 'inv-f', documentNumber: 'INV-F', entityName: 'Blitz', documentDate: '2026-10-01',
+        amount: 51750, reason: 'document_not_on_control_account' },
+    ]);
+
+    const rec = await reconcileSubledger(COMPANY, 'ar', AS_AT);
+
+    expect(rec.difference).toBe(51750);
+    const bridge = rec.reconcilingItems.filter((i) => i.bridge === 'subledger_to_control');
+    // The document is named ONCE, and by the reason that actually explains it.
+    expect(bridge.filter((i) => i.documentIds.includes('inv-f'))).toHaveLength(1);
+    expect(bridge.find((i) => i.documentIds.includes('inv-f'))!.type).toBe('document_after_as_at');
+    expect(bridge.reduce((s, i) => s + i.amount, 0)).toBe(51750);
+    expect(rec.unexplainedDifference).toBe(0);
+    expect(rec.reconcilingItems.some((i) => i.type === 'unexplained_difference')).toBe(false);
   });
 
   it('reports EVERY control account and flags the ambiguity rather than picking one', async () => {

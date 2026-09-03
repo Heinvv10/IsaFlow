@@ -37,6 +37,8 @@ function item(
   };
 }
 
+const AFTER_AS_AT = 'document_after_as_at';
+
 const UNPOSTED_TEXT: Record<UnpostedDocument['reason'], string> = {
   document_not_linked_to_journal:
     'open document(s) carry no link to a journal entry, so nothing ties their value to the control account. The value may still be on the account — see posting_with_no_document, which counts it from the ledger side.',
@@ -116,35 +118,38 @@ export function buildReconcilingItems({
     );
   }
 
+  // A document dated after the reporting date is RECLASSIFIED, never added.
+  //
+  // It has no control posting as at that date, so `getUnpostedSubledgerDocuments`
+  // already returns it with a shortfall equal to its whole balance. Emitting a
+  // separate `document_after_as_at` item over `snapshot.afterAsAt` counted the
+  // same document twice and left a residual of exactly minus its balance —
+  // R5,836,396.24 of AR and R1,206,462.27 of AP on production ISAFlow Demo,
+  // invisible on isaflow_dev, where nothing is future-dated.
+  //
+  // The two partitions the reconciliation rests on (documents that claim a
+  // journal, journals no document claims) must cover the control account
+  // exactly once each. So the date is a LABEL applied to the unposted row, not
+  // a third source of amounts: the reader still gets the reason that actually
+  // explains the document, and the arithmetic still closes.
+  const afterIds = new Set(snapshot.afterAsAt.map((d) => d.id));
+
   // Grouped by reason, because "never posted" and "posted to the wrong account"
   // need different remedies and a single lump tells a reader neither.
-  const byReason = new Map<UnpostedDocument['reason'], UnpostedDocument[]>();
+  const byReason = new Map<string, UnpostedDocument[]>();
   for (const doc of unposted) {
-    const list = byReason.get(doc.reason);
+    const key = afterIds.has(doc.id) ? AFTER_AS_AT : doc.reason;
+    const list = byReason.get(key);
     if (list) list.push(doc);
-    else byReason.set(doc.reason, [doc]);
+    else byReason.set(key, [doc]);
   }
   for (const [reason, docs] of byReason) {
+    const text =
+      reason === AFTER_AS_AT
+        ? `open document(s) are dated after ${asAtDate}. The subledger counts them; the control-account balance stops at the reporting date and cannot.`
+        : UNPOSTED_TEXT[reason as UnpostedDocument['reason']];
     items.push(
-      item(
-        'subledger_to_control',
-        reason,
-        `${docs.length} ${UNPOSTED_TEXT[reason]}`,
-        docs.reduce((s, d) => s + d.amount, 0),
-        docs,
-      ),
-    );
-  }
-
-  if (snapshot.afterAsAt.length > 0) {
-    items.push(
-      item(
-        'subledger_to_control',
-        'document_after_as_at',
-        `${snapshot.afterAsAt.length} open document(s) are dated after ${asAtDate}. The subledger counts them; the control-account balance stops at the reporting date and cannot.`,
-        sumBalances(snapshot.afterAsAt),
-        snapshot.afterAsAt,
-      ),
+      item('subledger_to_control', reason, `${docs.length} ${text}`, docs.reduce((s, d) => s + d.amount, 0), docs),
     );
   }
 
