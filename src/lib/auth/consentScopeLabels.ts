@@ -25,6 +25,12 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   'write:accounts': 'Create and edit your chart of accounts',
   'read:reports': 'Read your financial reports',
   'read:contacts': 'Read your customers and suppliers',
+  // Named separately from write:invoices because it is a different kind of
+  // trust: this grant lets an integration change a supplier's BANKING DETAILS,
+  // and nobody granting "create and edit invoices" would expect that. Keep in
+  // step with PAT_SCOPE_META['write:contacts'] — consentScopeCopy.test.ts
+  // asserts it.
+  'write:contacts': 'Create and edit your customers and suppliers, including supplier banking details',
   'read:vat': 'Read your VAT status',
   'read:practice': 'Read your practice clients, job categories and logged time',
   'write:practice': 'Create job categories and work items, and log and submit time entries',

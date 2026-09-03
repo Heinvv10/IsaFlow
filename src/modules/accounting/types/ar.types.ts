@@ -15,7 +15,8 @@ export interface CustomerPayment {
   clientId: string;
   paymentDate: string;
   totalAmount: number;
-  paymentMethod: 'eft' | 'cheque' | 'cash' | 'card';
+  /** `'contra'` (migration 540) = settled by netting, no cash moved. */
+  paymentMethod: 'eft' | 'cheque' | 'cash' | 'card' | 'contra';
   bankReference?: string;
   bankAccountId?: string;
   description?: string;
@@ -47,7 +48,8 @@ export interface CustomerPaymentCreateInput {
   clientId: string;
   paymentDate: string;
   totalAmount: number;
-  paymentMethod?: 'eft' | 'cheque' | 'cash' | 'card';
+  /** `'contra'` (migration 540) = settled by netting, no cash moved. */
+  paymentMethod?: 'eft' | 'cheque' | 'cash' | 'card' | 'contra';
   bankReference?: string;
   bankAccountId?: string;
   description?: string;

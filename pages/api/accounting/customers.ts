@@ -7,6 +7,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
+import {
+  createCustomer,
+  ContactValidationError,
+} from '@/modules/accounting/services/core/customerWriteService';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -104,70 +108,42 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
     try {
       const b = req.body as Record<string, unknown>;
-      const name = b.name as string | undefined;
+      const s = (k: string) => (typeof b[k] === 'string' ? (b[k] as string) : undefined);
+      const n = (k: string) => {
+        const v = b[k];
+        return v !== undefined && v !== null && v !== '' ? Number(v) : undefined;
+      };
+      const bool = (k: string) => (typeof b[k] === 'boolean' ? (b[k] as boolean) : undefined);
 
-      if (!name?.trim()) {
-        return apiResponse.badRequest(res, 'Customer name is required');
-      }
-      if (name.trim().length > 255) {
-        return apiResponse.badRequest(res, 'Customer name must not exceed 255 characters');
-      }
-
-      // `name` is rejected over 255 chars (it's identifying — silent truncation would corrupt
-      // the customer record). All other free-text fields are truncated to fit varchar(255).
-      const s = (k: string) => { const v = b[k]; return typeof v === 'string' && v.trim() ? v.trim().slice(0, 255) : null; };
-      const n = (k: string) => { const v = b[k]; return v !== undefined && v !== null && v !== '' ? Number(v) : null; };
-      const bool = (k: string, def = false) => { const v = b[k]; return typeof v === 'boolean' ? v : def; };
-
-      const rows = (await sql`
-        INSERT INTO customers (
-          company_id, name, email, phone, mobile, fax, web_address,
-          vat_number, registration_number,
-          billing_address, shipping_address, contact_person,
-          payment_terms, payment_terms_type, credit_limit, is_active, notes,
-          category_id, cash_sale, opening_balance, opening_balance_date,
-          accepts_electronic_invoices, auto_allocate_receipts,
-          statement_distribution, default_discount, default_vat_type,
-          subject_to_drc_vat, invoices_viewable_online,
-          default_price_list
-        ) VALUES (
-          ${companyId},
-          ${name.trim()},
-          ${s('email')},
-          ${s('phone')},
-          ${s('mobile')},
-          ${s('fax')},
-          ${s('web_address')},
-          ${s('vat_number')},
-          ${s('registration_number')},
-          ${s('billing_address')},
-          ${s('shipping_address')},
-          ${s('contact_person')},
-          ${n('payment_terms') ?? 30},
-          ${s('payment_terms_type') ?? 'days'},
-          ${n('credit_limit')},
-          ${bool('is_active', true)},
-          ${s('notes')},
-          ${s('category_id') ? s('category_id') : null}::uuid,
-          ${bool('cash_sale')},
-          ${n('opening_balance') ?? 0},
-          ${s('opening_balance_date')}::date,
-          ${bool('accepts_electronic_invoices')},
-          ${bool('auto_allocate_receipts')},
-          ${s('statement_distribution') ?? 'email'},
-          ${n('default_discount') ?? 0},
-          ${s('default_vat_type')},
-          ${bool('subject_to_drc_vat')},
-          ${bool('invoices_viewable_online', true)},
-          ${s('default_price_list')}
-        )
-        RETURNING *
-      `) as Row[];
+      // Field validation and the INSERT itself live in customerWriteService, so
+      // this route and create_customer over MCP cannot drift apart.
+      const rows = [await createCustomer(companyId, {
+        name: s('name'),
+        email: s('email'), phone: s('phone'), mobile: s('mobile'), fax: s('fax'),
+        webAddress: s('web_address'),
+        vatNumber: s('vat_number'), registrationNumber: s('registration_number'),
+        billingAddress: s('billing_address'), shippingAddress: s('shipping_address'),
+        contactPerson: s('contact_person'),
+        paymentTerms: n('payment_terms'), paymentTermsType: s('payment_terms_type'),
+        creditLimit: n('credit_limit'), isActive: bool('is_active'), notes: s('notes'),
+        categoryId: s('category_id'), cashSale: bool('cash_sale'),
+        openingBalance: n('opening_balance'), openingBalanceDate: s('opening_balance_date'),
+        acceptsElectronicInvoices: bool('accepts_electronic_invoices'),
+        autoAllocateReceipts: bool('auto_allocate_receipts'),
+        statementDistribution: s('statement_distribution'),
+        defaultDiscount: n('default_discount'), defaultVatType: s('default_vat_type'),
+        subjectToDrcVat: bool('subject_to_drc_vat'),
+        invoicesViewableOnline: bool('invoices_viewable_online'),
+        defaultPriceList: s('default_price_list'),
+      })];
 
       cache.invalidate(CACHE_KEYS.customers(companyId));
       log.info('Customer created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
     } catch (err: unknown) {
+      if (err instanceof ContactValidationError) {
+        return apiResponse.badRequest(res, err.message);
+      }
       const message = err instanceof Error ? err.message : String(err);
       log.error('customers POST failed', { error: message, module: 'accounting' });
       return apiResponse.internalError(res, err, 'Failed to create customer');

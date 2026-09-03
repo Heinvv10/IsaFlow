@@ -21,5 +21,6 @@ export {
 export {
   postJournalEntry,
   reverseJournalEntry,
+  resolveReversalDate,
   ClosedFiscalPeriodError,
 } from './journalEntryPostingService';

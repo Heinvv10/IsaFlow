@@ -89,6 +89,11 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_bank_reconciliations: null,
   list_credit_notes: null,
   get_credit_note: null,
+  // Proposing a receipt match posts nothing and is how an agent avoids
+  // applying cash to the wrong invoice; listing unapplied cash is a review
+  // surface like list_agent_postings. Both free, like every other read.
+  suggest_receipt_matches: null,
+  list_unapplied_receipts: null,
 
   // ── Reports: free over MCP, unlike the UI ────────────────────────────────
   // The app charges 10 for each of these. Carrying that across was the initial
@@ -185,6 +190,43 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   create_credit_note: null,
   approve_credit_note: null,
   cancel_credit_note: null,
+
+  // ── Cash application: free ───────────────────────────────────────────────
+  // The rule is that a write costs what the equivalent app endpoint costs, and
+  // BOTH equivalents are unmetered: POST /api/accounting/customer-allocations
+  // (applying an existing receipt) and the bank allocation path
+  // (allocate_bank_transaction, free above). It is also a correction — the
+  // ledger is wrong until the receipts are applied, and R2.45m of unapplied
+  // cash is not a state to put a toll on clearing. Deliberately NOT priced at
+  // payment.record: that meters RECORDING a payment (POST customer-payments),
+  // which this tool does not do — the cash is already in the ledger on one
+  // branch and posted by the free allocation path on the other.
+  apply_receipt_to_invoice: null,
+  // Same reasoning on the AP side: POST /api/accounting/supplier-allocations is
+  // unmetered and the bank allocation path is free.
+  apply_payment_to_supplier_invoice: null,
+
+  // A reversal is a correction, and every other reversal here is free for the
+  // same reason: pricing the control the agent-safety model depends on is the
+  // wrong incentive. post_journal is free too, so its undo cannot cost more
+  // than the thing it undoes.
+  reverse_journal_entry: null,
+
+  // A contra settlement is a payment document plus its journal. The equivalent
+  // app route (POST /api/accounting/customer-payments, supplier-payments) IS
+  // metered at payment.record, so unlike the two apply tools this one has a
+  // priced equivalent and is charged the same.
+  settle_by_contra: 'payment.record',
+
+  // ── Contacts: free ───────────────────────────────────────────────────────
+  // The app meters neither contact route, and none of these posts anything.
+  // Pricing them would also toll the remedy for the state that blocks raising
+  // an invoice at all — no customer to raise it against — which is the same
+  // reasoning that keeps the chart-of-accounts tools free.
+  create_customer: null,
+  update_customer: null,
+  create_supplier: null,
+  update_supplier: null,
 
   // One journal, priced like any other journal creation.
   set_opening_balance: 'journal.create',

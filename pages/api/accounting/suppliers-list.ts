@@ -9,6 +9,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
+import { createSupplier } from '@/modules/accounting/services/core/supplierWriteService';
+import { ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -80,100 +82,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ─── POST: Create supplier ──────────────────────────────────────────────────
   if (req.method === 'POST') {
     try {
-      const {
-        name,
-        company_name,
-        email,
-        phone,
-        vat_number,
-        registration_number,
-        address,
-        contact_person,
-        payment_terms,
-        bank_name,
-        bank_account_number,
-        bank_branch_code,
-        bank_account_type,
-        is_active,
-        notes,
-        category,
-        opening_balance,
-        opening_balance_date,
-        auto_allocate_payments,
-      } = req.body as {
-        name?: string;
-        company_name?: string;
-        email?: string;
-        phone?: string;
-        vat_number?: string;
-        registration_number?: string;
-        address?: string;
-        contact_person?: string;
-        payment_terms?: number;
-        bank_name?: string | null;
-        bank_account_number?: string | null;
-        bank_branch_code?: string | null;
-        bank_account_type?: string | null;
-        is_active?: boolean;
-        notes?: string;
-        category?: string;
-        opening_balance?: number | string | null;
-        opening_balance_date?: string | null;
-        auto_allocate_payments?: boolean;
+      const b = req.body as Record<string, unknown>;
+      const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string) : undefined);
+      const num = (k: string) => {
+        const v = b[k];
+        return v !== undefined && v !== null && v !== '' ? Number(v) : undefined;
       };
+      const bool = (k: string) => (typeof b[k] === 'boolean' ? (b[k] as boolean) : undefined);
 
-      if (!name?.trim()) {
-        return apiResponse.badRequest(res, 'Supplier name is required');
-      }
-
-      const obDate = typeof opening_balance_date === 'string' && opening_balance_date.trim()
-        ? opening_balance_date.trim()
-        : null;
-
-      const rows = (await sql`
-        INSERT INTO suppliers (
-          company_id, name, company_name, email, phone,
-          vat_number, registration_number, address, contact_person,
-          payment_terms,
-          bank_name, bank_account_number, bank_branch_code, bank_account_type,
-          is_active, notes, category,
-          opening_balance, opening_balance_date, auto_allocate_payments
-        ) VALUES (
-          ${companyId},
-          ${name.trim()},
-          ${company_name?.trim() || null},
-          ${email?.trim() || null},
-          ${phone?.trim() || null},
-          ${vat_number?.trim() || null},
-          ${registration_number?.trim() || null},
-          ${address?.trim() || null},
-          ${contact_person?.trim() || null},
-          ${payment_terms ?? 30},
-          ${bank_name ?? null},
-          ${bank_account_number ?? null},
-          ${bank_branch_code ?? null},
-          ${bank_account_type ?? null},
-          ${is_active ?? true},
-          ${notes?.trim() || null},
-          ${category?.trim() || null},
-          ${opening_balance !== undefined && opening_balance !== null && opening_balance !== '' ? Number(opening_balance) : 0},
-          ${obDate}::date,
-          ${auto_allocate_payments ?? false}
-        )
-        RETURNING
-          id, name, company_name, email, phone,
-          vat_number, registration_number, address, contact_person,
-          payment_terms,
-          bank_name, bank_account_number, bank_branch_code, bank_account_type,
-          is_active, notes, category,
-          opening_balance, opening_balance_date, auto_allocate_payments,
-          created_at
-      `) as Row[];
+      // Field validation and the INSERT live in supplierWriteService, so this
+      // route and create_supplier over MCP cannot drift apart.
+      const rows = [await createSupplier(companyId, {
+        name: str('name'),
+        companyName: str('company_name'),
+        email: str('email'), phone: str('phone'),
+        vatNumber: str('vat_number'), registrationNumber: str('registration_number'),
+        address: str('address'), contactPerson: str('contact_person'),
+        paymentTerms: num('payment_terms'),
+        bankName: str('bank_name'), bankAccountNumber: str('bank_account_number'),
+        bankBranchCode: str('bank_branch_code'), bankAccountType: str('bank_account_type'),
+        isActive: bool('is_active'), notes: str('notes'), category: str('category'),
+        openingBalance: num('opening_balance'), openingBalanceDate: str('opening_balance_date'),
+        autoAllocatePayments: bool('auto_allocate_payments'),
+      })];
 
       cache.invalidate(CACHE_KEYS.suppliers(companyId));
       log.info('Supplier created', { id: rows[0]?.id, name: rows[0]?.name, module: 'accounting' });
       return apiResponse.success(res, rows[0]);
     } catch (err: unknown) {
+      if (err instanceof ContactValidationError) {
+        return apiResponse.badRequest(res, err.message);
+      }
       const message = err instanceof Error ? err.message : String(err);
       log.error('suppliers POST failed', { error: message, module: 'accounting' });
       return apiResponse.internalError(res, err, 'Failed to create supplier');

@@ -13,6 +13,7 @@ import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllocationLineError';
+import { insufficientScopeMessage } from './scopeRemediation';
 
 /**
  * The SAVEPOINT name a write tool runs under.
@@ -85,7 +86,10 @@ export class McpRegistry {
     if (!tool) return reject(`Unknown tool: ${name}`, null);
 
     if (tool.scope && !ctx.scopes.includes(tool.scope)) {
-      return reject(`Insufficient scope: this tool requires ${tool.scope}`, null);
+      // A scope added after tokens were minted is missing from every existing
+      // connection, so this reply is the whole user experience of that change:
+      // it has to say what to do, not merely what failed. See scopeRemediation.
+      return reject(insufficientScopeMessage(tool.scope), null);
     }
 
     if (tool.requiresPost && !ctx.scopes.includes('write:post')) {

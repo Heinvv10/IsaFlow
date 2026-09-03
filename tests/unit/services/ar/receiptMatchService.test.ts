@@ -10,9 +10,10 @@
  *  6. top-5 cap + descending score ordering
  *  7. description scoring still runs as a tiebreaker
  *  8. entity-name narrowing filters candidates when extracted name matches
- *  9. confirmReceiptMatch rejects amount > outstanding balance
- * 10. confirmReceiptMatch rejects invoice with no customer link
- * 11. confirmReceiptMatch posts journal + inserts allocation + updates invoice
+ *  9. the shortlist reports how many invoices it considered, so five-of-five and
+ *     five-of-fifty can be told apart
+
+ * confirmReceiptMatch lives in receiptMatchConfirmService.ts and is tested there.
  */
 
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
@@ -27,19 +28,10 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
-vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
-  allocateTransaction: vi.fn(),
-}));
-
 import { sql } from '@/lib/neon';
-import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
-import {
-  getReceiptMatchCandidates,
-  confirmReceiptMatch,
-} from '@/modules/accounting/services/ar/receiptMatchService';
+import { getReceiptMatchCandidates } from '@/modules/accounting/services/ar/receiptMatchService';
 
 const mockSql = sql as unknown as MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
-const mockAllocate = allocateTransaction as unknown as MockedFunction<typeof allocateTransaction>;
 
 const COMPANY_ID = '11111111-1111-1111-1111-111111111111';
 const BANK_TX_ID = '22222222-2222-2222-2222-222222222222';
@@ -47,7 +39,6 @@ const INVOICE_ID = '33333333-3333-3333-3333-333333333333';
 const INVOICE_ID_2 = '44444444-4444-4444-4444-444444444444';
 const CUSTOMER_ID = '55555555-5555-5555-5555-555555555555';
 const USER_ID = '66666666-6666-6666-6666-666666666666';
-const JE_ID = '77777777-7777-7777-7777-777777777777';
 const PAYMENT_ID = '88888888-8888-8888-8888-888888888888';
 
 function bankTxRow(overrides: Record<string, unknown> = {}) {
@@ -227,119 +218,6 @@ describe('getReceiptMatchCandidates — scoring', () => {
   });
 });
 
-describe('confirmReceiptMatch', () => {
-  it('rejects non-positive amount', async () => {
-    await expect(
-      confirmReceiptMatch(COMPANY_ID, {
-        bankTxId: BANK_TX_ID,
-        customerInvoiceId: INVOICE_ID,
-        amount: 0,
-        userId: USER_ID,
-      }),
-    ).rejects.toThrow(/positive/i);
-  });
-
-  it('rejects unknown invoice', async () => {
-    mockSql.mockResolvedValueOnce([]);
-    await expect(
-      confirmReceiptMatch(COMPANY_ID, {
-        bankTxId: BANK_TX_ID,
-        customerInvoiceId: INVOICE_ID,
-        amount: 100,
-        userId: USER_ID,
-      }),
-    ).rejects.toThrow(/not found/i);
-  });
-
-  it('rejects invoice with no customer link', async () => {
-    mockSql.mockResolvedValueOnce([
-      {
-        id: INVOICE_ID,
-        invoice_number: 'INV-001',
-        total_amount: '1000',
-        amount_paid: '0',
-        status: 'sent',
-        customer_id: null,
-      },
-    ]);
-    await expect(
-      confirmReceiptMatch(COMPANY_ID, {
-        bankTxId: BANK_TX_ID,
-        customerInvoiceId: INVOICE_ID,
-        amount: 100,
-        userId: USER_ID,
-      }),
-    ).rejects.toThrow(/customer link/i);
-  });
-
-  it('rejects amount greater than outstanding balance', async () => {
-    mockSql.mockResolvedValueOnce([
-      {
-        id: INVOICE_ID,
-        invoice_number: 'INV-001',
-        total_amount: '1000',
-        amount_paid: '800',
-        status: 'partially_paid',
-        customer_id: CUSTOMER_ID,
-      },
-    ]);
-    await expect(
-      confirmReceiptMatch(COMPANY_ID, {
-        bankTxId: BANK_TX_ID,
-        customerInvoiceId: INVOICE_ID,
-        amount: 500,
-        userId: USER_ID,
-      }),
-    ).rejects.toThrow(/exceeds outstanding/i);
-  });
-
-  it('allocates + inserts payment-allocation + updates invoice', async () => {
-    mockSql
-      // 1. invoice lookup (outer)
-      .mockResolvedValueOnce([
-        {
-          id: INVOICE_ID,
-          invoice_number: 'INV-001',
-          total_amount: '1000',
-          amount_paid: '0',
-          status: 'sent',
-          customer_id: CUSTOMER_ID,
-        },
-      ])
-      // 2. customer_payments lookup by JE (outer)
-      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
-      // 3. INSERT customer_payment_allocations (inside tx)
-      .mockResolvedValueOnce([])
-      // 4. UPDATE customer_invoices (inside tx)
-      .mockResolvedValueOnce([])
-      // 5. SELECT after update (inside tx)
-      .mockResolvedValueOnce([
-        { status: 'paid', total_amount: '1000', amount_paid: '1000' },
-      ]);
-
-    mockAllocate.mockResolvedValue({ journalEntryId: JE_ID } as never);
-
-    const result = await confirmReceiptMatch(COMPANY_ID, {
-      bankTxId: BANK_TX_ID,
-      customerInvoiceId: INVOICE_ID,
-      amount: 1000,
-      userId: USER_ID,
-    });
-
-    expect(mockAllocate).toHaveBeenCalledTimes(1);
-    const call = mockAllocate.mock.calls[0]!;
-    expect(call[0]).toBe(COMPANY_ID);
-    expect(call[1]).toBe(BANK_TX_ID);
-    expect(call[2]).toBe(null);
-    expect(call[3]).toBe(USER_ID);
-    expect(call[5]).toBe('customer');
-    expect(call[6]).toBe(CUSTOMER_ID);
-    expect(call[11]).toBe(INVOICE_ID);
-
-    expect(result.journalEntryId).toBe(JE_ID);
-    expect(result.customerPaymentId).toBe(PAYMENT_ID);
-    expect(result.invoiceStatus).toBe('paid');
-    expect(result.amountApplied).toBe(1000);
-    expect(result.newBalance).toBe(0);
-  });
-});
+// confirmReceiptMatch moved to receiptMatchConfirmService.ts when it was widened
+// from one invoice to many; its tests moved with it, to
+// tests/unit/services/ar/receiptMatchConfirmService.test.ts.

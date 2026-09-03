@@ -13,6 +13,7 @@ export const PAT_SCOPES = [
   'write:accounts',
   'read:reports',
   'read:contacts',
+  'write:contacts',
   'read:vat',
   'read:practice',
   'write:practice',
