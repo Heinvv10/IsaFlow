@@ -21,6 +21,13 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
     // fmtDate, never toISOString: on this UTC+2 host a Date round-trip reports
     // the previous day and would shift the as-at boundary.
     const asAtStr = asAtDate ?? fmtDate(asAt);
+    // The rewind window's upper bound comes from the SAME clock as asAtStr,
+    // not from CURRENT_DATE. The database session is UTC and the business runs
+    // UTC+2, so between 22:00 and midnight SAST CURRENT_DATE is the PREVIOUS
+    // day — settlement dated today would silently drop out of the window for
+    // two hours every night, and the "window is empty when as-at is today"
+    // invariant would hold only by two clocks happening to agree.
+    const todayStr = fmtDate(new Date());
 
     const rows = (await sql`
       SELECT si.id, si.supplier_id AS entity_id, s.name AS entity_name,
@@ -65,7 +72,7 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
             AND sp.company_id = ${companyId}::UUID
             AND sp.status NOT IN ('draft', 'cancelled')
             AND sp.payment_date > ${asAtStr}::date
-            AND sp.payment_date <= CURRENT_DATE
+            AND sp.payment_date <= ${todayStr}::date
 
           UNION ALL
 
@@ -76,7 +83,7 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
             AND cn.type   = 'supplier'
             AND cn.status IN ('approved', 'applied')
             AND cn.credit_date > ${asAtStr}::date
-            AND cn.credit_date <= CURRENT_DATE
+            AND cn.credit_date <= ${todayStr}::date
         ) reversed
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
@@ -120,6 +127,13 @@ export async function getAPAgingDetail(companyId: string,
     // fmtDate, never toISOString: on this UTC+2 host a Date round-trip reports
     // the previous day and would shift the as-at boundary.
     const asAtStr = asAtDate ?? fmtDate(asAt);
+    // The rewind window's upper bound comes from the SAME clock as asAtStr,
+    // not from CURRENT_DATE. The database session is UTC and the business runs
+    // UTC+2, so between 22:00 and midnight SAST CURRENT_DATE is the PREVIOUS
+    // day — settlement dated today would silently drop out of the window for
+    // two hours every night, and the "window is empty when as-at is today"
+    // invariant would hold only by two clocks happening to agree.
+    const todayStr = fmtDate(new Date());
 
     const supplierRows = (await sql`SELECT id, name FROM suppliers WHERE id = ${supplierId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     if (supplierRows.length === 0) throw new Error(`Supplier ${supplierId} not found`);
@@ -156,7 +170,7 @@ export async function getAPAgingDetail(companyId: string,
             AND sp.company_id = ${companyId}::UUID
             AND sp.status NOT IN ('draft', 'cancelled')
             AND sp.payment_date > ${asAtStr}::date
-            AND sp.payment_date <= CURRENT_DATE
+            AND sp.payment_date <= ${todayStr}::date
 
           UNION ALL
 
@@ -167,7 +181,7 @@ export async function getAPAgingDetail(companyId: string,
             AND cn.type   = 'supplier'
             AND cn.status IN ('approved', 'applied')
             AND cn.credit_date > ${asAtStr}::date
-            AND cn.credit_date <= CURRENT_DATE
+            AND cn.credit_date <= ${todayStr}::date
         ) reversed
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID

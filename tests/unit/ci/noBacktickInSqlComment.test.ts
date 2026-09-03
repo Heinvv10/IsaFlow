@@ -44,8 +44,15 @@ function filesUsingSqlTemplate(): string[] {
 }
 
 /**
- * Line numbers of `--` comments containing a backtick, restricted to lines
- * between a sql template opening and its closing backtick.
+ * Line numbers of `--` comments containing a backtick OR a `${...}`
+ * interpolation, restricted to lines between a sql template opening and its
+ * closing backtick.
+ *
+ * The interpolation case is the same family and just as invisible: a `${x}`
+ * inside a SQL comment still becomes a bind parameter, but it sits in
+ * commented-out text where Postgres can never see it used. The query then
+ * fails at RUNTIME with 42P18 "could not determine data type of parameter $1",
+ * naming a parameter that looks nothing like the comment that caused it.
  */
 function offendingLines(source: string): number[] {
   const lines = source.split('\n');
@@ -63,7 +70,7 @@ function offendingLines(source: string): number[] {
       continue;
     }
 
-    if (line.trimStart().startsWith('--') && line.includes('`')) {
+    if (line.trimStart().startsWith('--') && (line.includes('`') || line.includes('${'))) {
       bad.push(i + 1);
       continue;
     }
@@ -72,7 +79,7 @@ function offendingLines(source: string): number[] {
   return bad;
 }
 
-describe('no backtick inside a SQL comment in a tagged template', () => {
+describe('no backtick or interpolation inside a SQL comment in a tagged template', () => {
   it('every sql template is free of them', () => {
     const files = filesUsingSqlTemplate();
 
@@ -103,10 +110,20 @@ describe('no backtick inside a SQL comment in a tagged template', () => {
     ].join('\n');
     expect(offendingLines(bad)).toEqual([3]);
 
+    // An interpolation in a comment becomes a bind parameter nothing uses,
+    // and the query dies at runtime with 42P18 rather than at build time.
+    const interpolated = [
+      'const x = await sql`',
+      '  SELECT 1',
+      '  -- bounded by ${todayStr}::date',
+      '`;',
+    ].join('\n');
+    expect(offendingLines(interpolated)).toEqual([3]);
+
     const good = [
       'const x = await sql`',
       '  SELECT 1',
-      '  -- amount_paid is a snapshot',
+      '  -- amount_paid is a snapshot, bounded by the today value',
       '`;',
     ].join('\n');
     expect(offendingLines(good)).toEqual([]);

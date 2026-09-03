@@ -22,6 +22,13 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
     // fmtDate, never toISOString: on this UTC+2 host a Date round-trip reports
     // the previous day, which would silently shift the as-at boundary.
     const asAtStr = asAtDate ?? fmtDate(asAt);
+    // The rewind window's upper bound comes from the SAME clock as asAtStr,
+    // not from CURRENT_DATE. The database session is UTC and the business runs
+    // UTC+2, so between 22:00 and midnight SAST CURRENT_DATE is the PREVIOUS
+    // day — settlement dated today would silently drop out of the window for
+    // two hours every night, and the "window is empty when as-at is today"
+    // invariant would hold only by two clocks happening to agree.
+    const todayStr = fmtDate(new Date());
 
     const rows = (await sql`
       SELECT ci.id, COALESCE(ci.client_id, ci.customer_id) AS entity_id, c.name AS entity_name,
@@ -54,7 +61,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         --
         -- TWO GUARDS make that claim actually true; without them it was not.
         --
-        --   <= CURRENT_DATE. Post-dated payments are ordinary practice — 37
+        --   <= the today bound. Post-dated payments are ordinary practice — 37
         --   supplier payments, 25 customer payments and 14 credit notes carry
         --   a future date in production. They are already inside amount_paid,
         --   so rewinding them at an as-at of TODAY re-opened invoices the live
@@ -123,7 +130,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
             AND cp.company_id = ${companyId}
             AND cp.status NOT IN ('draft', 'cancelled')
             AND cp.payment_date > ${asAtStr}::date
-            AND cp.payment_date <= CURRENT_DATE
+            AND cp.payment_date <= ${todayStr}::date
 
           UNION ALL
 
@@ -142,7 +149,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
             AND cn.type   = 'customer'
             AND cn.status IN ('approved', 'applied')
             AND cn.credit_date > ${asAtStr}::date
-            AND cn.credit_date <= CURRENT_DATE
+            AND cn.credit_date <= ${todayStr}::date
 
           UNION ALL
 
@@ -154,7 +161,7 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
             AND wo.company_id = ${companyId}
             AND wo.status = 'approved'
             AND wo.write_off_date > ${asAtStr}::date
-            AND wo.write_off_date <= CURRENT_DATE
+            AND wo.write_off_date <= ${todayStr}::date
         ) reversed
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
@@ -238,6 +245,13 @@ export async function getARAgingDetail(companyId: string,
   try {
     const asAt = asAtDate ? new Date(asAtDate) : new Date();
     const asAtStr = asAtDate ?? fmtDate(asAt);
+    // The rewind window's upper bound comes from the SAME clock as asAtStr,
+    // not from CURRENT_DATE. The database session is UTC and the business runs
+    // UTC+2, so between 22:00 and midnight SAST CURRENT_DATE is the PREVIOUS
+    // day — settlement dated today would silently drop out of the window for
+    // two hours every night, and the "window is empty when as-at is today"
+    // invariant would hold only by two clocks happening to agree.
+    const todayStr = fmtDate(new Date());
 
     const clientRows = (await sql`SELECT id, name AS name FROM customers WHERE id = ${clientId}::UUID AND company_id = ${companyId}`) as Row[];
     if (clientRows.length === 0) throw new Error(`Client ${clientId} not found`);
@@ -273,7 +287,7 @@ export async function getARAgingDetail(companyId: string,
         --
         -- TWO GUARDS make that claim actually true; without them it was not.
         --
-        --   <= CURRENT_DATE. Post-dated payments are ordinary practice — 37
+        --   <= the today bound. Post-dated payments are ordinary practice — 37
         --   supplier payments, 25 customer payments and 14 credit notes carry
         --   a future date in production. They are already inside amount_paid,
         --   so rewinding them at an as-at of TODAY re-opened invoices the live
@@ -331,7 +345,7 @@ export async function getARAgingDetail(companyId: string,
             AND cp.company_id = ${companyId}
             AND cp.status NOT IN ('draft', 'cancelled')
             AND cp.payment_date > ${asAtStr}::date
-            AND cp.payment_date <= CURRENT_DATE
+            AND cp.payment_date <= ${todayStr}::date
 
           UNION ALL
 
@@ -350,7 +364,7 @@ export async function getARAgingDetail(companyId: string,
             AND cn.type   = 'customer'
             AND cn.status IN ('approved', 'applied')
             AND cn.credit_date > ${asAtStr}::date
-            AND cn.credit_date <= CURRENT_DATE
+            AND cn.credit_date <= ${todayStr}::date
 
           UNION ALL
 
@@ -362,7 +376,7 @@ export async function getARAgingDetail(companyId: string,
             AND wo.company_id = ${companyId}
             AND wo.status = 'approved'
             AND wo.write_off_date > ${asAtStr}::date
-            AND wo.write_off_date <= CURRENT_DATE
+            AND wo.write_off_date <= ${todayStr}::date
         ) reversed
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
