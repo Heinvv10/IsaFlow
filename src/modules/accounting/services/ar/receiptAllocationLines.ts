@@ -15,6 +15,7 @@
  * invoice populated on `customer_id` and refused them outright.
  */
 
+import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 
@@ -207,19 +208,25 @@ export async function applyLineToInvoice(
   companyId: string,
   line: ReceiptApplicationLine,
 ): Promise<void> {
+  // MONEY ONLY. `status` and `paid_at` are derived by `recomputeInvoiceStatus`
+  // from the balance this write leaves behind, so one function owns that rule.
+  //
+  // This statement used to set both inline, and had the WRONG half of each
+  // pair: a bare `NOW()` re-dated a months-old settlement on any further write
+  // to an already-paid invoice, and `ELSE paid_at` left a paid date on an
+  // invoice that had REOPENED — which reads as evidence of a settlement that
+  // has since been undone. The helper uses `COALESCE(paid_at, NOW())` and
+  // `ELSE NULL`, which is the correct pair on both halves.
+  //
+  // BEHAVIOUR CHANGE, deliberate: delegating also picks up the helper's
+  // `status = ANY(BALANCE_DERIVED)` guard, which this statement never had. A
+  // payment figure can no longer move a `disputed`, `cancelled` or
+  // `written_off` invoice to 'paid' — it is not evidence about any of them.
   await sql`
     UPDATE customer_invoices
     SET amount_paid = COALESCE(amount_paid, 0) + ${line.amount},
-        status = CASE
-          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${line.amount})) <= ${EPS} THEN 'paid'
-          WHEN (COALESCE(amount_paid, 0) + ${line.amount}) > 0 THEN 'partially_paid'
-          ELSE status
-        END,
-        paid_at = CASE
-          WHEN (total_amount - (COALESCE(amount_paid, 0) + ${line.amount})) <= ${EPS} THEN NOW()
-          ELSE paid_at
-        END,
         updated_at = NOW()
     WHERE id = ${line.invoiceId}::UUID AND company_id = ${companyId}::UUID
   `;
+  await recomputeInvoiceStatus(companyId, 'customer', line.invoiceId);
 }

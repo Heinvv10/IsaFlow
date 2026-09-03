@@ -74,20 +74,34 @@ one question a trial balance exists to answer. That is W2's remaining scope.
 total, no `rowsTotal`, no `truncated`, no envelope. Total (summed by hand):
 **R63,133,371.78** — matching the audit's R63.1m.
 
+> **CORRECTION (W2, same day).** That R63,133,371.78 was read from the
+> **DEPLOYED** connector, which predates #306. Master's aged debtors total for
+> the same date is **R75,864,129.21**; the difference of R12,730,757.43 is
+> exactly the null-due-date invoices #303 stopped dropping. Both numbers are
+> right about different code. **Every figure in the section below that compares
+> against the aged total is therefore computed from a superseded number** — the
+> FINDING stands (the control accounts do disagree, and there is no canonical
+> one), but do not quote the gaps. See A-live-3 for the re-derived set.
+
 ### "What are we owed?" has three defensible answers, R35.2m apart
 
-| | |
-|---|---|
-| Aged debtors total | R63,133,371.78 |
-| `1120 Accounts Receivable` | R27,924,289.10 |
-| `SYS-7 Trade Receivables` | R32,704,547.38 |
-| both control accounts combined | R60,628,836.48 |
+| | | re-derived 2026-09-03 (W2) |
+|---|---|---|
+| Aged debtors total | R63,133,371.78 | **R75,864,129.21** — the deployed tool was pre-#306 |
+| `1120 Accounts Receivable` | R27,924,289.10 | **R27,255,367.01** — moved R668,922.09 overnight |
+| `SYS-7 Trade Receivables` | R32,704,547.38 | R32,704,547.38 — unchanged |
+| both control accounts combined | R60,628,836.48 | **R59,959,914.39** |
 
-| reconciling question | gap |
-|---|---|
-| aged vs `1120` alone | **R35,209,082.68** |
-| aged vs `SYS-7` alone | **R30,428,824.40** |
-| aged vs both combined | **R2,504,535.30** |
+| reconciling question | gap as published | **stale — do not quote** |
+|---|---|---|
+| aged vs `1120` alone | R35,209,082.68 | computed from the superseded aged total |
+| aged vs `SYS-7` alone | R30,428,824.40 | same |
+| aged vs both combined | R2,504,535.30 | same |
+
+Re-derived, the AR difference is **R15,904,214.82** against both control
+accounts combined, and `reconcile_subledger` now decomposes it into four named
+items with no residual. The three-answer problem is unchanged: there is still no
+canonical control account and `controlAccountAmbiguous` is `true`.
 
 All three are defensible, all three are different, and nothing in the schema says
 which is right. This is B3 demonstrated on live production data, and it is why
@@ -98,7 +112,10 @@ which is right. This is B3 demonstrated on live production data, and it is why
 
 - **`SYS-9 VAT Payable` is a liability carrying a DEBIT of R4,917,814.24** — B36,
   the input tax on a NULL-subtype account that drops out of the VAT201 entirely.
-  It is in plain sight and no report was reading it.
+  It is in plain sight and no report was reading it. **It reappeared through a
+  second door**: `reconcile_subledger`'s posting probe adopted it as an AP
+  control account, because its subtype is NULL and 356 supplier-invoice journals
+  touch it. See A-live-3, defect 3.
 - **Sixteen accounts carry a balance on the wrong side for their type.** Thirteen
   are paycards — asset accounts in credit. `49844679 Loan - B Oosthuizen` is a
   liability in debit. And `RE-BF` shows retained earnings as a **debit of
@@ -207,6 +224,410 @@ over-claim against SARS on top of the R5.1m box-15 defect already recorded.
 
 ---
 
+## A-reports. What the assurance endpoints found once they could see
+
+Every figure re-derived from the production ledger by the endpoint that reports
+it, not taken from the audit.
+
+### The P&L is reporting on a chart of accounts nobody has classified
+
+## A-live-3. `reconcile_subledger`, re-derived against production after the W2 fixes, 2026-09-03
+
+Every figure below came from running `reconcileSubledger` read-only against the
+production `isaflow` database. **`unexplainedDifference` is 0.00 on every
+company, both roles, at every date tested** — the difference is fully
+decomposed into named items carrying document ids, which is the requirement.
+
+### Four things the endpoint was wrong about, and what changed
+
+**1. `agedTotal` was a second opinion about a figure that already had an owner.**
+It was recomputed from the reconciler's own snapshot. At today's date on
+Velocity it read **R63,133,371.78** against the aging report's
+**R75,864,129.21** — a gap of exactly **R12,730,757.43**, the invoices with no
+due date. The reconciliation named that gap `unageable_document`: a claim that
+the aged report drops them. True before #303; since then it ages them from
+`invoice_date`. **R12.7m of Velocity AR and R1,058,000 of Brightsphere were
+attributed to a mechanism that had been fixed**, and nothing could go red
+because both sides of the comparison came from the same snapshot. `agedTotal`
+now comes from `getARAging` / `getAPAging` and ties to them to the cent on every
+company and date. `unageable_document` is deleted.
+
+> The R63,133,371.78 in section A-live is the **deployed** aged report, which
+> predates #306. It matched the old recomputation and not master. Both numbers
+> were right about different code.
+
+**2. `as_at` moved only one side.** The subledger readers read the current
+`amount_paid` with no document-date cutoff, so `subledgerTotal` was frozen at
+today while `controlAccountBalance` correctly moved. At 2025-12-31 Velocity AR
+reported today's R75,864,129.21 against a control balance of **−R6,132,241.61**
+and closed the R81,996,370.82 gap with a single `document_after_as_at` item of
+**R72,867,375.59**. The arithmetic added up and answered a question nobody
+asked. Both readers now use `shared/agingRewind.ts` — master's rewind, with its
+four documented limitations — and the aging report's population and cutoff.
+`afterAsAt` and `document_after_as_at` are gone with it: a document raised after
+the reporting date is not in the subledger at that date, and one whose JOURNAL
+is later is reported as `document_not_on_control_account`, which is what it is.
+
+**3. `SYS-9 VAT Payable` was being adopted as an AP control account.** Subtype
+NULL, type `liability`, touched by **356** Velocity supplier-invoice journals —
+so `excludeSubtypes`, which matches on `vat_output`, could not exclude it. It
+brought **−R4,917,814.24** into the control balance and the reconciliation then
+"explained" exactly **+R4,917,814.24** with a 356-document
+`document_not_on_control_account` item. Every number was internally consistent
+and the account was the input-tax leg of a bill (this is B36 arriving through a
+second door). The rule that now excludes it uses no account name: **a control
+account is moved in its OWN direction by the documents that create the
+balance** — a receivable is net debited by invoices, a payable net credited by
+bills. It is applied only where there IS invoice movement, so Brightsphere's
+account 1120 — subtype NULL, found solely through one R10,000 receipt — is still
+kept. That row is why the posting arm exists.
+
+**4. 397 bills flagged settled were visible only as an amount.** Confirmed
+current: **397 Velocity bills, R16,151,543.00 outstanding, every one at
+`amount_paid = 0.00`, no `payment_allocations` row, no `supplier_payments`
+row.** `recordPaymentMatch` sets the flag from
+`amount_paid + allocatedAmount`; it never writes `amount_paid`. Their cash IS on
+the control account — **1,090 `auto_supplier_payment` journals move Velocity's
+AP control by −R61,115,350.09 with no `supplier_payments` row behind any of
+them** — so the money is already counted once as `posting_with_no_document`, and
+a second item would double-count it. It is reported as `settlementFlagged`,
+outside `reconcilingItems` where it cannot enter the arithmetic: an
+ATTRIBUTION of part of a difference, not an addition to it.
+
+### The books, decomposed (as at 2026-09-03)
+
+| | control | subledger | aged | difference | residual |
+|---|---|---|---|---|---|
+| Velocity AR | R59,959,914.39 (`1120`+`SYS-7`) | R75,864,129.21 | R75,864,129.21 | R15,904,214.82 | **R0.00** |
+| Velocity AP | R45,628,418.36 (`2110`+`SYS-8`) | R106,743,768.45 | R106,743,768.45 | R61,115,350.09 | **R0.00** |
+| Brightsphere AR | R11,581,623.60 (`1101`+`1120`) | R14,272,647.60 | R14,272,647.60 | R2,691,024.00 | **R0.00** |
+| Brightsphere AP | R613,641.77 (`2001`+`2110`) | R613,641.77 | R613,641.77 | R0.00 | **R0.00** |
+
+Velocity AR decomposes to `unapplied_receipt` R37,719,269.77 (39 payment
+documents), `posting_with_no_document` −R1,841,265.00 (4 journals) and
+`document_not_on_control_account` −R19,973,789.95 (46 invoices). Velocity AP
+decomposes to one item: `posting_with_no_document` R61,115,350.09 over 1,090
+journals, of which R16,151,543.00 is attributed to the 397 flagged bills.
+Brightsphere AR is `unapplied_receipt` R2,691,024.00 over 37 payments, plus an
+offsetting R28,750 pair.
+
+The **`aged_to_subledger` bridge is empty on every production company**: once
+the aged total is read from the aged report rather than recomputed, the aged
+report and the subledger agree exactly. No open disputes and no unallocated
+credit notes exist on these books.
+
+### Figures re-derived, and what moved
+
+| figure | section A-live | now | note |
+|---|---|---|---|
+| Aged debtors total | R63,133,371.78 | R75,864,129.21 | A-live sampled the DEPLOYED aging report; master's includes null-due-date invoices |
+| `1120 Accounts Receivable` | R27,924,289.10 | **R27,255,367.01** | moved R668,922.09 overnight — the bulk-allocating agent |
+| `SYS-7 Trade Receivables` | R32,704,547.38 | R32,704,547.38 | unchanged |
+| `list_unapplied_receipts` | R37,050,347.68 / 36 | **R37,719,269.77 / 39** | same R668,922.09, same 3 receipts |
+| Velocity AP control | R7,925,176.42 + R37,703,241.94 | R45,628,418.36 | `SYS-9`'s −R4,917,814.24 correctly excluded |
+
+`getUnappliedReceipts`' definition and `reconcile_subledger`'s were computed
+over the same rows in one query and agree **to the cent**: 39 receipts,
+R37,719,269.77, with no receipt lacking a journal and none whose control posting
+differs from the receipt total. The two tools reconcile.
+
+### `general_ledger`, run against the live Velocity books
+
+The whole posted ledger, unfiltered, over 2020-01-01 → 2026-12-31:
+**21,871 lines across 111 accounts, R519,723,273.19 debit and R519,723,273.19
+credit, `balanced: true`.** Paged at 1,000 a call it took 22 pages and served
+exactly 21,871 distinct lines — every line once, no envelope fault.
+
+Two things that had to be got right and were not, first time round:
+
+- The keyset carried `created_at` through a JS `Date`, which truncates
+  microseconds to milliseconds. Paging Brightsphere's ledger then returned
+  **10,603 lines where 10,460 exist** — duplicates at page boundaries, which is
+  the one place nobody looks. The cursor now carries the timestamp at
+  microsecond precision as text.
+- `runningBalance` omitted the account's opening balance. Invisible over a
+  window that starts before the first journal, because every opening balance is
+  then zero — the same shape as the `trial_balance` defect, a period-movement
+  listing wearing a ledger's name. The DB-gated case now starts mid-history and
+  requires a non-zero opening.
+
+`source: 'manual'` returns **zero lines on Velocity**: nothing in that ledger
+was posted by hand.
+
+### `balance_sheet` v2: two production companies carry R0.00 of posted equity
+
+The second equity figure was never independent of the first, and it took
+running it to see that. `getBalanceSheet` computes retained earnings as revenue
+less expenses to the date and INJECTS it into the equity section, so
+`totalEquity` equals assets less liabilities **by construction**. Reporting the
+two beside each other agreed to the cent on all three production companies and
+read as a clean set of books.
+
+Querying the equity ACCOUNTS directly, as at 2026-09-03:
+
+| | assets − liabilities | POSTED equity | derived retained earnings |
+|---|---|---|---|
+| Brightsphere | R8,394,848.60 | **R0.00** | R8,394,848.60 |
+| Velocity Fibre | −R34,816,224.89 | **R0.00** | −R34,816,224.89 |
+| ISAFlow Demo | R39,893,316.26 | R695,000.00 | R39,198,316.26 |
+
+**Two of the three companies have never posted a cent to an equity account.**
+Every rand of their equity is profit that no year-end close has moved out of the
+revenue and expense accounts. The spec's "R8.46m retained-earnings plug" is
+close to Brightsphere's figure and understates the shape of it: this is not one
+suspect balance, it is the entire equity section on two companies.
+
+`equity.ledger.v1` is now owned by `reports/balanceSheetService#getEquityBases`
+— deliberately NOT `getBalanceSheet`, whose `totalEquity` is the residual
+wearing the ledger's name. The identity a caller can check is
+`assets − liabilities = postedEquity + retainedEarningsDerived`, and a DB-gated
+test asserts it on real books along with the property that `totalEquity` equals
+the residual, so the reason the second figure had to be built cannot quietly
+stop being true.
+
+Not built, and worth a decision: **how much of that derived profit belongs to
+CLOSED prior years.** The plug for the current year is ordinary — it is what a
+year-end close will post. The plug for years already ended is a close that never
+ran, and separating the two needs the fiscal-year basis
+(`gl/fiscalYearBasis.ts`). That is the figure that would say how many year-ends
+are outstanding and for how much.
+
+### `aged_debtors` / `aged_creditors` v2: the totals, and a 262-supplier report that served 10
+
+The audit's finding was exact — ten rows, no total, no `rowsTotal`, no
+`truncated`, no envelope — and it understated the paging half. Run with the
+totals, as at 2026-09-03:
+
+| | total | entities | bucket sum ties |
+|---|---|---|---|
+| Velocity AR | R75,864,129.21 | 10 | yes |
+| Velocity AP | R106,743,768.45 | **262** | yes |
+| Brightsphere AR | R14,272,647.60 | 8 | yes |
+| Brightsphere AP | R613,641.77 | 5 | yes |
+
+**Velocity's aged creditors has 262 suppliers.** The old tool returned every one
+of them with no total and no `truncated`, so a reader had no way to know whether
+they had the whole book. v2 pages at 200 and says `truncated: true` with
+`rowsTotal: 262`, and the totals are computed over all 262 before the page is
+cut.
+
+The three tools now agree with each other on these books, which is the first
+time that can be said: `aged_debtors`' R75,864,129.21 is exactly
+`reconcile_subledger`'s `agedTotal` AND its `subledgerTotal` for Velocity AR, and
+the `unappliedReceipts` figures it reports — 39 receipts / R37,719,269.77 on
+Velocity, 37 / R2,691,024.00 on Brightsphere — match `reconcile_subledger`'s
+`unapplied_receipt` item to the cent on both companies.
+
+The audit's R63,133,371.78 is the **deployed** aged debtors report, which
+predates #306. Master's is R75,864,129.21, the difference being the null-due-date
+invoices #303 stopped dropping.
+
+`unappliedReceipts` is NAMED and never netted off the aged total: netting it
+would invent a figure no report owns. `agedFromInvoiceDate` reports the invoices
+whose bucket is derived from an invoice date because they carry no due date —
+they ARE in the buckets, and it is deliberately not `excludedRows`, because
+nothing is excluded any more and saying otherwise would misdescribe the fix.
+
+### The income-statement comparative was a rolling window, in the UI
+
+Not in the service, which takes explicit dates.
+`pages/accounting/reports/income-statement.tsx` computed the comparative in
+milliseconds:
+
+```
+const durationMs = end.getTime() - start.getTime();
+const priorEnd   = new Date(start.getTime() - 1);
+const priorStart = new Date(priorEnd.getTime() - durationMs);
+params.set('compare_start', priorStart.toISOString().split('T')[0]);
+```
+
+Two defects in four lines. March is 31 days, so a month-on-month comparative
+compares against **29 January – 28 February** and February never appears as
+itself. And `toISOString()` renders in UTC on a UTC+2 host — the defect class
+this repo has been bitten by repeatedly.
+
+`reports/priorPeriod.ts` replaces it: pure, `'YYYY-MM-DD'` in and out, no `Date`
+constructed anywhere. Whole calendar months map to the same number of whole
+calendar months before them; anything else falls back to the preceding window of
+equal length. `priorYearPeriod` clamps 29 February to the 28th, because
+2025-02-29 makes Postgres throw 22008 and makes a `Date` roll forward to 1 March.
+Mutating it back to the rolling window reproduces `2026-01-29` exactly.
+
+### `profit_and_loss` v2: Velocity's gross profit is revenue less 2.4% of its costs
+
+The layer the spec called missing was **not missing**.
+`gl/accountClassification#aggregateFigures` already separates turnover from
+other income and cost of sales from operating expenses from finance cost / tax,
+and already counts the accounts whose subtype is unknown; `financialFiguresService`
+wraps it and AFS consumes it. `reports/incomeStatementService#getIncomeStatement`
+rolls its own two-way split instead. Two P&L implementations, and the registry
+recorded neither.
+
+They agree on the **bottom line to the cent** on both production companies. The
+only difference is which band a figure sits in — Brightsphere's R158,412.82 of
+tax is inside operating expenses on one and below the operating line on the
+other. So this is one answer presented two ways, not two answers, which is why
+it is survivable as a recorded divergence. `profit_and_loss` now wraps the owned
+classifier; `revenue.period.v1` and `costofsales.period.v1` keep
+`getIncomeStatement` as owner (the page still consumes that shape) and carry a
+`contested` entry saying the disagreement is presentational and the bottom lines
+tie. Three new ids — `otherincome.period.v1`, `financecost.period.v1`,
+`tax.period.v1` — are owned by the classifier.
+
+**But the classification the whole layer rests on barely exists.** All-time, over
+revenue and expense accounts:
+
+| | unclassified revenue | unclassified expenses |
+|---|---|---|
+| Velocity Fibre | R84,053,370.26 of R84,053,370.26 — **100%**, 4 accounts | R115,984,525.05 of R118,869,595.15 — **97.6%**, 37 accounts |
+| Brightsphere | R12,410,997.90 of R13,508,486.83 — 91.9% | R577,571.05 of R5,113,638.23 |
+
+Velocity's classified cost of sales is R2,885,070.10, so its reported FY2026
+gross profit of **R29,305,100.49 is revenue less 2.4% of its costs.** The figure
+is not a bug — the code did what the chart of accounts told it — and it is not a
+number anyone should act on.
+
+**The audit read this finding's sign backwards.** Its "R562,428 of overstated
+gross profit from two `default_expense` accounts" is R574,253.66 on Brightsphere
+today, and those accounts are NOT counted as cost of sales under the subtype
+rule — so gross profit is **higher**, not lower.
+
+### Neither company has ever posted to an equity account
+
+**R0.00 posted equity on both Brightsphere and Velocity Fibre.** Every rand —
+R8,394,848.60 and −R34,816,224.89 — is derived profit that no year-end close has
+moved out of revenue and expenses. ISAFlow Demo has posted R695,000 against
+R39,198,316.26 derived.
+
+`getBalanceSheet` injects the retained-earnings plug into equity, so `totalEquity`
+equals assets less liabilities **by construction**. Shipped that way first, it
+reported `equityReconciles: true` on all three companies — a tautology that reads
+as clean books. The second equity figure now comes from the equity accounts
+themselves.
+
+### The complete general ledger extracts, and balances
+
+Velocity's whole posted ledger: **21,871 lines, 111 accounts, R519,723,273.19
+debit and R519,723,273.19 credit**, served exactly once across 22 pages. The
+audit's complaint was that no complete general ledger could be extracted at all.
+
+Two defects caught by its tests first: a keyset cursor losing microseconds
+through a JS `Date`, paging 10,603 lines where 10,460 exist; and a
+`runningBalance` omitting the opening balance — invisible over any window
+starting before the first journal, and the `trial_balance` defect in another
+shape.
+
+### Aged creditors was worse than aged debtors
+
+**262 suppliers on Velocity**, returned with no total and no `truncated` flag.
+More rows than the ten-row debtors case the audit leads with, same silence.
+
+### Three endpoints now agree, which is new
+
+Velocity AR: `aged_debtors` R75,864,129.21 = `reconcile_subledger`'s `agedTotal`
+= its `subledgerTotal`. Unapplied receipts 39 / R37,719,269.77 in both, to the
+cent; Brightsphere 37 / R2,691,024.00 likewise. `unexplainedDifference` is 0.00
+on every company, both roles, at every date tested.
+
+---
+
+| Brightsphere | R12,410,997.90 of R13,508,486.83 — 91.9%, 1 account | R577,571.05 of R5,113,638.23, 3 accounts |
+
+Velocity's classified cost of sales is R2,885,070.10, so its FY2026 gross profit
+of R29,305,100.49 is **revenue less 2.4% of what it spent**. That figure is not a
+bug — the code did exactly what the chart of accounts told it — and it is not a
+number any human should act on. `classificationCoverage` is therefore MANDATORY
+on the tool, present at every detail level including `summary`, not suppressible,
+and it names the accounts. Nothing is excluded from any total: an unclassified
+expense is still an expense, and the classification is the finding.
+
+`reliable` is `false` on both production companies.
+
+Run over FY2026 with a `prior_year` comparative, the layer earns itself:
+Brightsphere's operating profit is R3,919,212.00 against a net profit of
+R3,760,799.18, the difference being tax now reported below the operating line
+where `getIncomeStatement` had it inside operating costs.
+
+### Every W2 tool, re-run live after the envelope change
+
+Seven tools, both production companies, read-only, **no completeness fault on
+any response**:
+
+| | Brightsphere | Velocity Fibre |
+|---|---|---|
+| `reconcile_subledger` AR / AP residual | R0.00 / R0.00 | R0.00 / R0.00 |
+| `general_ledger` balanced | **true** — R76,213,877.10 each side, 11,741 lines | **true** — R519,723,273.19 each side, 21,871 lines |
+| `balance_sheet` posted equity vs residual | R0.00 vs R8,394,848.60 | R0.00 vs −R34,816,224.89 |
+| `aged_debtors` total vs `reconcile_subledger` agedTotal | R14,272,647.60 = R14,272,647.60 | R75,864,129.21 = R75,864,129.21 |
+| `aged_creditors` total vs agedTotal | R613,641.77 = R613,641.77 | R106,743,768.45 = R106,743,768.45 |
+| `profit_and_loss` coverage reliable | false | false |
+
+**Brightsphere's ledger balances too** — R76,213,877.10 on each side across
+11,741 lines. Both production ledgers can now be extracted whole and shown to
+balance, which is the thing the audit said could not be done.
+
+The `universeTotal` fix is visible on the filtered call: Velocity's
+`general_ledger` restricted to `auto_supplier_payment` returns
+`rowsTotal: 2,180`, `universeTotal: 21,871`, `excludedTotal: 19,691`. Before the
+fix it reported a universe of 2,180 — certifying a filtered extract as the
+complete ledger.
+
+### Two identities that read clean because they could not do otherwise
+
+Recorded together because it is the same failure twice in one day, in the two
+endpoints built to catch exactly this, and it is now a standing rule in
+`CONTRACTS.md`.
+
+**`reconcile_subledger` reported `unexplainedDifference: 0.00` on every
+production company and both roles while wrongly counting `SYS-9 VAT Payable` as
+an AP control account.** The account brought −R4,917,814.24 into the control
+balance and a `document_not_on_control_account` item of exactly +R4,917,814.24
+across the same 356 documents took it back out.
+
+**`balance_sheet` reported `equityReconciles: true` on all three production
+companies while comparing the residual against itself**, because
+`getBalanceSheet` injects a computed retained-earnings plug into the equity
+section.
+
+Neither looked broken. Both looked unusually clean. **An identity that always
+closes cannot detect its own defects, and the more reliably it closes the more
+it invites being trusted without inspection.** Both tool descriptions now say so
+in the response's own words.
+
+### Corrections to this register
+
+- **The R63,133,371.78 in A-live was the DEPLOYED aged debtors report**, which
+  predates #306. Master's is R75,864,129.21. Every gap in the "three defensible
+  answers" table was computed from the superseded number and is marked stale in
+  place. The finding — no canonical control account — is unaffected.
+- **The audit read the `default_expense` sign backwards.** It reported that two
+  accounts typed `default_expense` overstated gross profit by R562,428 because
+  cost of sales was selected by NAME. Cost of sales is now selected by SUBTYPE,
+  under which those accounts are NOT cost of sales — so gross profit is
+  **higher**, not lower. Brightsphere's figure today is R574,253.66. Which
+  treatment is right is a chart-of-accounts question, not a code one.
+- **`gl/financialFiguresService#getFinancialFigures` issues its queries under
+  `Promise.all` on the single pg client the request transaction holds.** It
+  prints a node-postgres DeprecationWarning (removed in pg@9) and, in this
+  codebase, concurrent work on one connection also corrupts the savepoint stack.
+  Pre-existing and shared with AFS; deliberately NOT changed here, because
+  sequencing it belongs with the income-statement convergence PR and its owner.
+  The same defect in `subledgerReconciliationService` IS fixed.
+- **The income-statement page still carries the rolling-window comparative.**
+  `reports/priorPeriod.ts` replaces the arithmetic and is wired into MCP, but
+  `pages/accounting/reports/income-statement.tsx` is untouched: it is UI, it
+  belongs with the convergence PR, and until then its comparative column
+  compares March against 29 January – 28 February.
+
+### Still true, and still unowned
+
+`ar.control.v1` and `ap.control.v1` remain **unowned** (C1). The direction rule
+removes an account that was never a control account; it does not decide which of
+the remaining candidates is canonical, and that is still a business call about
+the chart of accounts. `controlAccountAmbiguous` is `true` on both Velocity
+roles and both Brightsphere roles.
+
+---
 ## B. Defects found that the specification never mentions
 
 These are the ones that matter most: nobody was looking for them.
@@ -253,6 +674,13 @@ These are the ones that matter most: nobody was looking for them.
 | B39 | **A completed bank reconciliation is trivially balanced before anything happens** — `startReconciliation` sets `reconciled_balance = gl_balance`, so an empty session reconciles at R0.00 with nothing matched. That is how the one "completed" production reconciliation got there | — | FIXING (W3) |
 | B40 | **Platform-wide fiscal-period cliff.** Every company's periods end 2027-12-31 and the depreciation hook dates `CURRENT_DATE`, so all ten start writing NULL-period journals on **2028-01-01**. Separately the demo company has a **1,096-day hole (2028-01-01 → 2030-12-31)** that is reachable *today* — the only such gap in the database, and worse than an end date because nothing counts down to it. Zero NULL-period journals exist today | — | Detection FIXING (W3); prevention **OPEN — C5** |
 | B41 | `afs_statement_lines.is_active` filtered in three AFS note generators — an inactive statement-line definition whose mapped accounts still hold money is dropped from the annual financial statements. Same shape as B5, different table | — | REPORTED |
+| B42 | `writePracticeTime.ts:139` uses `toISOString().slice(0,10)` — the UTC calendar day. SAST is UTC+2, so any call between midnight and 02:00 local stamps YESTERDAY. Same class this repo already fixed once via `fmtDate`; the twin in `fiscalPeriods.ts` is fixed | — | **OPEN** |
+| B43 | **The completeness identity now carries TWO self-reported numbers.** `buildEnvelope` accepts `excludedTotal` as well as `universeTotal`, so a service computing `excludedTotal := universeTotal - rowsTotal` passes unconditionally regardless of what it actually excluded. No documented invariant breaks — CONTRACTS §1 already says the envelope proves internal consistency and not completeness — but a call site passing `excludedTotal` must be reviewed on its own terms, because the envelope cannot catch it | — | REPORTED — caveat in CONTRACTS |
+| B48 | **Budget vs Actual returns an all-zero report for Velocity, and not because of budgets.** All 12 FY2027 periods are open, so `status='open' ORDER BY start_date DESC LIMIT 1` resolves to 2027 and the YTD window becomes `2027-01-01 → 2026-09-03` — inverted, silent, zero rows on both sides | — | **OPEN — fiscal-year selection** |
+| B50 | **`isaflow_dev` cannot be rebuilt from migrations.** `db:migrate` aborts on `524_redate_remaining_batch_dated_journals.sql` with `P0001 no fiscal period covers the corrected date for: JE-2022-00004`. Prod has 520–581; dev had 520, 521, 523. Every DB-gated result obtained locally is therefore against a schema that cannot be reproduced | — | **OPEN** |
+| B51 | **The `payment_matched` burst is a burst, not a rate.** 361 of the 397 flagged bills were flagged on 2–3 September, when someone ran bulk allocations; the writer has since stopped. ~R13m over two days, cause unfixed, and it recurs the next time a bulk allocation runs. **Not** accruing at R3.2m/day | R13.1m | REPORTED |
+| B52 | `getFinancialFigures` issues its queries under `Promise.all` on the single pg client the transaction holds — the same node-postgres pattern removed in pg@9, and concurrent work on one connection corrupts the savepoint stack. Pre-existing, shared with AFS | — | REPORTED |
+
 | B46 | `writePracticeTime.ts:139` uses `toISOString().slice(0,10)` — the UTC calendar day. SAST is UTC+2, so any call between midnight and 02:00 local stamps YESTERDAY. Same class this repo already fixed once via `fmtDate`; the twin in `fiscalPeriods.ts` is fixed | — | **OPEN** |
 | B47 | **The completeness identity now carries TWO self-reported numbers.** `buildEnvelope` accepts `excludedTotal` as well as `universeTotal`, so a service computing `excludedTotal := universeTotal - rowsTotal` passes unconditionally regardless of what it actually excluded. No documented invariant breaks — CONTRACTS §1 already says the envelope proves internal consistency and not completeness — but a call site passing `excludedTotal` must be reviewed on its own terms, because the envelope cannot catch it | — | REPORTED — caveat in CONTRACTS |
 | B19 | **Cash has two legitimate and disagreeing senses** — the GL ledger sense and the bank-statement-feed sense. `cash-movement` reads the feed, `reports-bank-transactions` reads the GL | — | FIXING (W3) — registering BOTH, gap is `bank_statement_coverage`'s output |

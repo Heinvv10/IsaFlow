@@ -259,9 +259,14 @@ describe('stock_valuation — a disclosure must not read as a lost row', () => {
     // envelope's own docstring calls worse than none.
     expect(body.completenessFault).toBeUndefined();
     expect(body.rowsTotal).toBe(1);
-    // universeTotal is an INPUT to buildEnvelope's check, never part of its
-    // output — the envelope reports the fault, not the universe.
-    expect(body.universeTotal).toBeUndefined();
+    // universeTotal is now ECHOED by buildEnvelope (W2), so it appears in the
+    // output and equals rowsTotal here: one product, and the two disclosures
+    // are NOT in the universe — that is the whole point of moving them out of
+    // excludedRows. It was an invisible input when this test was written; a
+    // reader seeing `truncated: false` could not ask "out of how many?".
+    expect(body.universeTotal).toBe(1);
+    // And the disclosures are not counted as exclusions.
+    expect(body.excludedRows).toHaveLength(0);
   });
 
   it('still surfaces both disclosures somewhere the reader can see them', async () => {

@@ -20,6 +20,7 @@ import {
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { pickTxSelector, resolveTxId, resolveTxSelectors, type TxSelector } from './txSelectorResolve';
 import { mcpPostingOpts } from '../mcpActor';
+import { applyRouteFor, postAndApplyLine } from './allocationApplyRoute';
 import type { McpToolContext } from '../types';
 import { NOT_FOUND, guardCastableArgs } from './toolHelpers';
 
@@ -227,6 +228,21 @@ export async function postAllocationLine(
   line: AllocationLine,
   toolName: string,
 ): Promise<{ journalEntryId: string; transactionId: string }> {
+  // A line that names an invoice goes to the service that posts the journal
+  // AND applies it. `allocateTransaction` is left alone deliberately:
+  // `applyBankLineToSupplierInvoices` already calls it with an invoiceId, so
+  // teaching it to apply would double-apply. See allocationApplyRoute.ts.
+  //
+  // Deliberately NOT wrapped: once that service starts writing, a caught error
+  // would release the tool's savepoint and COMMIT a partial write under a
+  // success-shaped reply. Refusals belong to `invoiceSkipReason`, pre-write.
+  const applyKind = applyRouteFor(line.allocType, line.invoiceId);
+  if (applyKind !== null) {
+    return postAndApplyLine({
+      ctx, txId, kind: applyKind, invoiceId: line.invoiceId!, toolName,
+    });
+  }
+
   const result = await allocateTransaction(
     ctx.companyId,                                            // tenant from ctx ONLY
     txId,

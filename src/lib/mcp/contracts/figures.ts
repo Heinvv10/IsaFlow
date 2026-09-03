@@ -50,14 +50,29 @@ function def(d: FigureDefinition): FigureDefinition {
   return d;
 }
 
+/**
+ * Appended to every figure derived from `account_subtype`.
+ *
+ * A figure driven by subtype is exactly as good as the subtypes, and on these
+ * books they barely exist. Stating it once and reusing it is better than four
+ * paraphrases that drift.
+ */
+const COVERAGE_CAVEAT =
+  ' This figure is only as good as account_subtype, and on these books most accounts have none:'
+  + ' 100% of Velocity Fibre\'s revenue (R84,053,370.26) and 97.6% of its expenses (R115,984,525.05)'
+  + ' sit on accounts whose subtype is NULL or a default_* placeholder, and its classified cost of'
+  + ' sales is R2,885,070.10. profit_and_loss reports that coverage as a mandatory exception at every'
+  + ' detail level; read it before acting on any band.';
+
 export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
   'ar.subledger.v1': def({
     id: 'ar.subledger.v1',
     label: 'Accounts receivable per the subledger',
     owner: 'ar/arAgingService#getARAging',
-    includes: 'Open customer invoices, at total_amount less amount_paid, as at the reporting date.',
+    includes:
+      'Customer invoices still outstanding AS AT the reporting date, at total_amount less the settlement that can be dated to on or before it. An invoice with no due date IS included, aged from its invoice date — it is not dropped and it is not an excludedRow.',
     excludes:
-      'Cancelled invoices, and invoices the report could not age — a null due date appears in excludedRows, never in the total.',
+      'Draft and cancelled invoices. Invoices raised AFTER the reporting date. Settlement that carries no date — bank-match confirmation and the Sage import both write amount_paid with no dated trail — stays in the baseline, so a historical figure can UNDERSTATE and will never report a settled invoice as outstanding.',
   }),
   'ar.control.v1': def({
     id: 'ar.control.v1',
@@ -65,22 +80,28 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     // Settled by W2 as part of reconcile_subledger — it is the first report
     // that needs the two AR figures side by side.
     owner: null,
-    includes: 'Balance on the system receivable control account as at the reporting date.',
-    excludes: 'Anything posted to a duplicate control account. Duplicates are reported, not merged.',
+    includes:
+      'Balance on EVERY candidate receivable control account as at the reporting date, deactivated ones included — is_active is a picker flag. Candidates are found by subtype AND by where customer documents actually posted, because the accounts carrying money here have a NULL subtype.',
+    excludes:
+      'Accounts the invoice journals move AGAINST the control direction: those are the contra leg, not the control. Nothing is merged — every candidate is reported with how it was found, and controlAccountAmbiguous says when more than one exists.',
   }),
   'ap.subledger.v1': def({
     id: 'ap.subledger.v1',
     label: 'Accounts payable per the subledger',
     owner: 'ap/apAgingService#getAPAging',
-    includes: 'Open supplier invoices, at total_amount less amount_paid, as at the reporting date.',
-    excludes: 'Cancelled invoices; unageable rows appear in excludedRows.',
+    includes:
+      'Supplier bills still outstanding AS AT the reporting date, at total_amount less the settlement that can be dated to on or before it. A bill with no due date IS included, aged from its invoice date.',
+    excludes:
+      'Draft and cancelled bills, and bills raised AFTER the reporting date. Undated settlement stays in the baseline — see ar.subledger.v1. Note that 397 bills on one production company carry payment_matched = true with amount_paid = 0, so they are counted here as fully owed; reconcile_subledger reports them in settlementFlagged.',
   }),
   'ap.control.v1': def({
     id: 'ap.control.v1',
     label: 'Accounts payable per the GL control account',
     owner: null,
-    includes: 'Balance on the system payable control account as at the reporting date.',
-    excludes: 'Anything posted to a duplicate control account.',
+    includes:
+      'Balance on EVERY candidate payable control account as at the reporting date, deactivated ones included.',
+    excludes:
+      'Accounts the bill journals net-DEBIT, which are the tax or expense leg. SYS-9 VAT Payable — subtype NULL, type liability, touched by 356 Velocity bill journals — was adopted as a control account on that basis and brought -R4,917,814.24 into the balance, which the reconciliation then explained with a 356-document item. Nothing is merged.',
     // 2001 / 2110 / SYS8 are all live on Brightsphere and the cash flow reads
     // the wrong one, which is how AP movement showed as R0.
     contested: ['afs/cashFlowDirectService#getCashFlowDirect resolves a different control account'],
@@ -130,22 +151,56 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
       'Any assertion that the ledger agrees. A balance sheet that balances only because equity is the plug proves nothing, which is why equity.ledger.v1 is reported beside it.',
   }),
   'equity.ledger.v1': def({
+    // Settled by W2 with balance_sheet v2, the first report that needs both
+    // equity figures side by side.
+    //
+    // The owner is `getEquityBases`, NOT `getBalanceSheet`. That service's
+    // `totalEquity` computes retained earnings as revenue less expenses and
+    // injects it, so it equals equity.residual.v1 by construction — it is the
+    // residual wearing the ledger's name, and reporting the two beside each
+    // other agreed to the cent on all three production companies. The equity
+    // ACCOUNTS say otherwise: Brightsphere and Velocity Fibre each carry R0.00
+    // posted, so every cent of R8,394,848.60 and −R34,816,224.89 respectively
+    // is a plug no year-end close has ever posted.
+    //
+    // `contested` is now EMPTY, and that is a correction rather than a
+    // clean-up. `gl/openingBalanceEquityService` was listed as a rival basis
+    // for this figure; it is not. It resolves (and creates on first use) ONE
+    // clearing account carrying the reserved `opening_balance_equity` subtype.
+    // It computes no total and answers a different question, so there was never
+    // a duplicate implementation to remove.
     id: 'equity.ledger.v1',
     label: 'Equity per the ledger',
-    owner: null,
-    includes: 'Sum of posted equity account balances, including retained earnings.',
-    excludes: 'Nothing. Any gap to equity.residual.v1 is the finding, not an error to suppress.',
-    // R8.46m of retained earnings on Brightsphere has zero journal lines behind
-    // it and four year-ends were never run. Reporting both numbers exposes that
-    // in one call.
-    contested: ['gl/openingBalanceEquityService — different basis'],
+    owner: 'reports/balanceSheetService#getEquityBases',
+    includes:
+      'Sum of POSTED equity-account balances as at the reporting date. Nothing derived, nothing injected.',
+    excludes:
+      'The retained earnings the balance sheet DERIVES from revenue less expenses. That figure is reported separately as retainedEarningsDerived, and the gap to equity.residual.v1 is exactly it — the finding, not an error to suppress.',
   }),
   'revenue.period.v1': def({
     id: 'revenue.period.v1',
     label: 'Revenue for a period',
     owner: 'reports/incomeStatementService#getIncomeStatement',
     includes: 'Posted income account movement over the period.',
-    excludes: 'Cancelled invoices, and draft journals.',
+    excludes:
+      'Cancelled invoices, and draft journals. Under THIS owner it does NOT exclude other income — accounts typed other_income are revenue-typed and are counted here. ' + COVERAGE_CAVEAT,
+    // PRESENTATIONAL divergence, deliberate and temporary. `profit_and_loss`
+    // over MCP reports the LAYERED figures from
+    // gl/accountClassification#aggregateFigures, which separates other income
+    // from turnover and finance cost and tax from operating expenses. The two
+    // implementations agree on the BOTTOM LINE to the cent on both production
+    // companies — the only difference is which band a figure sits in, so this
+    // is one answer presented two ways rather than two answers.
+    //
+    // The owner stays here because the income-statement page,
+    // reports-management-accounts and AFS all still consume this shape. Moving
+    // it would make the registry lie about what the UI does. Successor: the
+    // income-statement convergence PR, which is where getIncomeStatement is
+    // rebuilt on aggregateFigures with its own blind review and the AFS owner
+    // in the loop.
+    contested: [
+      'gl/accountClassification#aggregateFigures — PRESENTATIONAL only: it reports turnover separately from other_income. Bottom lines tie to the cent; the two disagree about which band a figure sits in, never about its value.',
+    ],
   }),
   'costofsales.period.v1': def({
     id: 'costofsales.period.v1',
@@ -154,7 +209,37 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Posted movement on accounts whose SUBTYPE is cost of sales. Driven by subtype, never by the account NAME.',
     excludes:
-      'Operating expenses. Two accounts typed default_expense overstated gross profit by R562,428 precisely because the bucket was chosen by name.',
+      'Operating expenses. The audit reported that two accounts typed default_expense overstated gross profit by R562,428 because the bucket was chosen by NAME — and read the sign backwards: under the SUBTYPE rule those accounts are NOT cost of sales, so gross profit is HIGHER, not lower. Brightsphere carries R574,253.66 of them today. Which treatment is right is a chart-of-accounts question. ' + COVERAGE_CAVEAT,
+    contested: [
+      'gl/accountClassification#aggregateFigures — PRESENTATIONAL only, and it agrees with this owner on cost of sales specifically; see revenue.period.v1 for the divergence.',
+    ],
+  }),
+  'otherincome.period.v1': def({
+    id: 'otherincome.period.v1',
+    label: 'Other income for a period',
+    owner: 'gl/accountClassification#aggregateFigures',
+    includes:
+      'Posted movement on revenue-typed accounts whose SUBTYPE canonicalises to other_income — interest received, forex gains, recoveries.',
+    excludes:
+      'Turnover. This is a separate question from revenue.period.v1, not a slice of it: other income is not trading revenue and must not reach gross profit. Under revenue.period.v1 it currently DOES, which is the presentational divergence recorded there. ' + COVERAGE_CAVEAT,
+  }),
+  'financecost.period.v1': def({
+    id: 'financecost.period.v1',
+    label: 'Finance cost for a period',
+    owner: 'gl/accountClassification#aggregateFigures',
+    includes:
+      'Posted movement on expense accounts whose SUBTYPE canonicalises to finance_cost — interest paid, bank charges of a financing nature.',
+    excludes:
+      'Operating expenses. Reported below the operating line so operating profit means what it says; getIncomeStatement puts it inside operating expenses. ' + COVERAGE_CAVEAT,
+  }),
+  'tax.period.v1': def({
+    id: 'tax.period.v1',
+    label: 'Tax expense for a period',
+    owner: 'gl/accountClassification#aggregateFigures',
+    includes:
+      'Posted movement on expense accounts whose SUBTYPE canonicalises to tax_expense. Brightsphere carries R158,412.82 for FY2026 and R365,035.42 all-time.',
+    excludes:
+      'VAT, which is not an expense and is never in an income statement — see vat.output.v1 / vat.input.v1. Also excludes operating expenses; getIncomeStatement puts tax inside them, so its operating profit is understated by exactly this. ' + COVERAGE_CAVEAT,
   }),
   'vat.output.v1': def({
     id: 'vat.output.v1',

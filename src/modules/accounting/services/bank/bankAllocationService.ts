@@ -14,6 +14,7 @@ import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
+import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 
@@ -495,6 +496,12 @@ export async function reverseReconciledTransaction(
       WHERE jl.id = ${tx.matched_journal_line_id}::UUID AND jl.company_id = ${companyId}::UUID`) as Row[];
     if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
       journalEntryId = String(jlRows[0]!.journal_entry_id);
+      // BEFORE the contra is posted, not after. A line that named an invoice
+      // moved the subledger; reversing the journal while that stands returns
+      // the credit to the control account with the invoice still reading as
+      // settled, which widens the subledger-to-control gap behind an
+      // ordinary-looking reversal. If this throws, nothing has been posted.
+      await unwindBankAllocationApplication(companyId, journalEntryId);
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
         await reverseJournalEntry(companyId, journalEntryId, userId, opts);
