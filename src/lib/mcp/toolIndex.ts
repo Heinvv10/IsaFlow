@@ -78,11 +78,16 @@ import {
   wipReportTool,
 } from './tools/domainReports';
 import { listFixedAssetsTool, assetRegisterTool } from './tools/assets';
+import {
+  listItemsTool,
+  stockValuationTool,
+  supplierStatementTool,
+} from './tools/inventoryAndAp';
 import { createPayRunTool, postPayrollJournalTool } from './tools/writePayroll';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (39)
+  // read (42)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -122,6 +127,9 @@ export const MCP_TOOLS = [
   wipReportTool,
   listFixedAssetsTool,
   assetRegisterTool,
+  listItemsTool,
+  stockValuationTool,
+  supplierStatementTool,
   // write (33) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
