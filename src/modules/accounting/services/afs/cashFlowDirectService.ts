@@ -2,6 +2,13 @@ import { sql } from '@/lib/neon';
 import { getCashBalance } from '../bank/cashBalanceService';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { CASH_SUBTYPES, type AccountType } from '@/modules/accounting/services/gl/accountSubtypes';
+import {
+  apportionBankLeg,
+  OPERATING_GROUPS,
+  type CashGroup,
+  type ContraLine,
+} from './cashFlowClassification';
 
 type Row = DbRow;
 
@@ -25,7 +32,7 @@ export interface CashFlowDirectReport {
   closingCash: number;
 }
 
-const CASH_GROUP_LABELS: Record<string, string> = {
+const CASH_GROUP_LABELS: Record<CashGroup, string> = {
   cash_received_from_customers: 'Cash received from customers',
   cash_paid_to_suppliers:       'Cash paid to suppliers',
   cash_paid_to_employees:       'Cash paid to employees',
@@ -34,12 +41,12 @@ const CASH_GROUP_LABELS: Record<string, string> = {
   financing:                    'Net financing cash flows',
 };
 
-const OPERATING_GROUPS = new Set([
+const OPERATING_ORDER: CashGroup[] = [
   'cash_received_from_customers',
   'cash_paid_to_suppliers',
   'cash_paid_to_employees',
   'other_operating',
-]);
+];
 
 /**
  * Opening cash — `cash.balance.v1`, from its owning service.
@@ -55,87 +62,93 @@ async function fetchOpeningCash(companyId: string, beforeDate: string): Promise<
   return cash.total;
 }
 
-async function fetchGroupedAllocations(
+interface BankLegRow {
+  bank_line_id: string;
+  bank_amount: string | number;
+  contra_account_type: string | null;
+  contra_account_subtype: string | null;
+  contra_amount: string | number | null;
+}
+
+/**
+ * Every cash movement in the period, with the contra lines that explain it.
+ *
+ * Returns one row per (cash leg x contra line). The cash leg's amount repeats
+ * across those rows and MUST be counted once — `groupAllocations` does that by
+ * keying on `bank_line_id`. The previous implementation summed the cash leg
+ * per contra row inside SQL, which is where the double-count came from.
+ *
+ * This covers every posted cash journal line in the period, whether or not a
+ * bank feed matched it. The old version ran one query for lines matched to
+ * `bank_transactions` and a second for unmatched ones, dumping the entire
+ * unmatched population into `other_operating` — so whether a movement was
+ * classified at all depended on bank-feed reconciliation state rather than on
+ * the accounting.
+ */
+async function fetchCashLegsWithContras(
   companyId: string,
   periodStart: string,
   periodEnd: string,
-): Promise<Array<{ cashGroup: string; amount: number }>> {
-  // Primary source: bank transactions that have been matched to a journal line.
-  // The contra-account (the non-bank leg) determines the cash-flow category.
-  const matchedRows = (await sql`
+): Promise<BankLegRow[]> {
+  return (await sql`
     SELECT
-      CASE
-        WHEN ga.account_subtype IN ('revenue', 'receivable')          THEN 'cash_received_from_customers'
-        WHEN ga.account_subtype IN ('payroll')                        THEN 'cash_paid_to_employees'
-        WHEN ga.account_subtype IN ('expense', 'payable', 'cost_of_sales') THEN 'cash_paid_to_suppliers'
-        WHEN ga.account_subtype IN ('fixed_asset', 'other_asset')    THEN 'investing'
-        WHEN ga.account_type IN ('equity') OR ga.account_subtype IN ('loan') THEN 'financing'
-        ELSE 'other_operating'
-      END AS cash_group,
-      COALESCE(SUM(
-        CASE WHEN ga_bank.normal_balance = 'debit'
-          THEN jl_bank.debit - jl_bank.credit
-          ELSE jl_bank.credit - jl_bank.debit END
-      ), 0)::numeric AS amount
-    FROM bank_transactions bt
-    JOIN gl_journal_lines jl_bank ON jl_bank.id = bt.matched_journal_line_id
-    JOIN gl_accounts ga_bank      ON ga_bank.id = jl_bank.gl_account_id
-      AND ga_bank.account_subtype = 'bank'
-    JOIN gl_journal_lines jl ON jl.journal_entry_id = jl_bank.journal_entry_id
-      AND jl.id != jl_bank.id
-    JOIN gl_accounts ga       ON ga.id = jl.gl_account_id
-    JOIN gl_journal_entries je ON je.id = jl_bank.journal_entry_id
-    WHERE je.status     = 'posted'
-      AND bt.company_id = ${companyId}::UUID
-      AND je.company_id = ${companyId}::UUID
-      AND jl.company_id = ${companyId}::UUID
-      AND jl_bank.company_id = ${companyId}::UUID
-      AND ga_bank.company_id = ${companyId}::UUID
-      AND je.entry_date >= ${periodStart}
-      AND je.entry_date <= ${periodEnd}
-    GROUP BY cash_group
-  `) as Row[];
-
-  // Secondary source: posted bank-account journal lines with NO matching bank_transaction
-  // (e.g. manual journals, opening-balance entries, year-end postings).  These are
-  // classified as 'other_operating' since there is no contra-account metadata to
-  // determine a more specific category.  Without this, direct closing cash diverges
-  // from the GL bank balance by the sum of all unmatched bank-line movements.
-  const unmatchedRows = (await sql`
-    SELECT
-      'other_operating' AS cash_group,
-      COALESCE(SUM(
-        CASE WHEN ga.normal_balance = 'debit'
-          THEN jl.debit - jl.credit
-          ELSE jl.credit - jl.debit END
-      ), 0)::numeric AS amount
-    FROM gl_journal_lines jl
-    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga         ON ga.id = jl.gl_account_id
-    WHERE ga.account_subtype = 'bank'
+      jl_cash.id                          AS bank_line_id,
+      (jl_cash.debit - jl_cash.credit)    AS bank_amount,
+      ga_contra.account_type              AS contra_account_type,
+      ga_contra.account_subtype           AS contra_account_subtype,
+      (jl_contra.debit - jl_contra.credit) AS contra_amount
+    FROM gl_journal_lines jl_cash
+    JOIN gl_journal_entries je ON je.id = jl_cash.journal_entry_id
+    JOIN gl_accounts ga_cash   ON ga_cash.id = jl_cash.gl_account_id
+    LEFT JOIN gl_journal_lines jl_contra
+      ON jl_contra.journal_entry_id = jl_cash.journal_entry_id
+     AND jl_contra.id <> jl_cash.id
+     AND jl_contra.company_id = ${companyId}::UUID
+    LEFT JOIN gl_accounts ga_contra
+      ON ga_contra.id = jl_contra.gl_account_id
+     AND ga_contra.company_id = ${companyId}::UUID
+    WHERE ga_cash.account_subtype = ANY(${CASH_SUBTYPES as string[]})
+      AND ga_cash.account_type = 'asset'
       AND je.status     = 'posted'
-      AND jl.company_id = ${companyId}::UUID
-      AND je.company_id = ${companyId}::UUID
-      AND ga.company_id = ${companyId}::UUID
+      AND jl_cash.company_id = ${companyId}::UUID
+      AND je.company_id      = ${companyId}::UUID
+      AND ga_cash.company_id = ${companyId}::UUID
       AND je.entry_date >= ${periodStart}
       AND je.entry_date <= ${periodEnd}
-      AND NOT EXISTS (
-        SELECT 1 FROM bank_transactions bt
-        WHERE bt.matched_journal_line_id = jl.id
-          AND bt.company_id = ${companyId}::UUID
-      )
-    GROUP BY cash_group
-  `) as Row[];
+  `) as unknown as BankLegRow[];
+}
 
-  // Merge: add the unmatched amount into the 'other_operating' bucket.
-  const combined = [...matchedRows, ...unmatchedRows];
-  const merged = new Map<string, number>();
-  for (const r of combined) {
-    const group = String(r.cash_group);
-    merged.set(group, (merged.get(group) ?? 0) + Number(r.amount));
+/**
+ * Collapse the (cash leg x contra) rows into one signed amount per cash group,
+ * distributing each cash leg exactly once.
+ */
+function groupAllocations(rows: BankLegRow[]): Map<CashGroup, number> {
+  const legs = new Map<string, { amount: number; contras: ContraLine[] }>();
+
+  for (const r of rows) {
+    const id = String(r.bank_line_id);
+    let leg = legs.get(id);
+    if (!leg) {
+      leg = { amount: Number(r.bank_amount), contras: [] };
+      legs.set(id, leg);
+    }
+    // A cash leg with no contra line at all yields a single row of NULLs.
+    if (r.contra_account_type != null) {
+      leg.contras.push({
+        accountType: r.contra_account_type as AccountType,
+        accountSubtype: r.contra_account_subtype,
+        amount: Number(r.contra_amount ?? 0),
+      });
+    }
   }
 
-  return Array.from(merged.entries()).map(([cashGroup, amount]) => ({ cashGroup, amount }));
+  const totals = new Map<CashGroup, number>();
+  for (const leg of legs.values()) {
+    for (const alloc of apportionBankLeg(leg.amount, leg.contras)) {
+      totals.set(alloc.cashGroup, (totals.get(alloc.cashGroup) ?? 0) + alloc.amount);
+    }
+  }
+  return totals;
 }
 
 export async function getCashFlowDirect(
@@ -144,36 +157,26 @@ export async function getCashFlowDirect(
   periodEnd: string,
 ): Promise<CashFlowDirectReport> {
   try {
-    const [openingCash, groupedRows] = await Promise.all([
+    const [openingCash, legRows] = await Promise.all([
       fetchOpeningCash(companyId, periodStart),
-      fetchGroupedAllocations(companyId, periodStart, periodEnd),
+      fetchCashLegsWithContras(companyId, periodStart, periodEnd),
     ]);
 
-    const amountByGroup = new Map<string, number>(groupedRows.map(r => [r.cashGroup, r.amount]));
+    const amountByGroup = groupAllocations(legRows);
 
-    const toItem = (group: string): DirectCashFlowItem => ({
+    const toItem = (group: CashGroup): DirectCashFlowItem => ({
       cashGroup: group,
-      label:     CASH_GROUP_LABELS[group] ?? group,
+      label:     CASH_GROUP_LABELS[group],
       amount:    amountByGroup.get(group) ?? 0,
     });
 
-    const operatingGroups = [
-      'cash_received_from_customers',
-      'cash_paid_to_suppliers',
-      'cash_paid_to_employees',
-      'other_operating',
-    ];
-
-    const extraOperating = groupedRows
-      .filter(r => OPERATING_GROUPS.has(r.cashGroup) && !operatingGroups.includes(r.cashGroup))
-      .map(r => r.cashGroup);
-
-    const operatingItems = [...operatingGroups, ...extraOperating]
+    const operatingItems = OPERATING_ORDER
+      .filter((g) => OPERATING_GROUPS.has(g))
       .map(toItem)
-      .filter(i => i.amount !== 0);
+      .filter((i) => i.amount !== 0);
 
-    const investingItems = groupedRows.filter(r => r.cashGroup === 'investing').map(r => toItem(r.cashGroup));
-    const financingItems = groupedRows.filter(r => r.cashGroup === 'financing').map(r => toItem(r.cashGroup));
+    const investingItems = [toItem('investing')].filter((i) => i.amount !== 0);
+    const financingItems = [toItem('financing')].filter((i) => i.amount !== 0);
 
     const operatingTotal = operatingItems.reduce((s, i) => s + i.amount, 0);
     const investingTotal = investingItems.reduce((s, i) => s + i.amount, 0);
