@@ -100,7 +100,13 @@ export const balanceSheetTool: McpTool = {
 export const agedDebtorsTool: McpTool = {
   name: 'aged_debtors',
   description:
-    'Accounts-receivable aging buckets per customer as at a date (defaults to today).',
+    'Accounts-receivable aging buckets per customer as at a date (defaults to today). '
+    + 'A PAST as_at is reconstructed by unwinding settlement dated since it: payment '
+    + 'allocations, credit notes and write-offs. Settlement that left no dated trail — '
+    + 'a receipt captured with no allocation row, a migrated balance, a cancelled '
+    + 'payment — cannot be unwound, so for those invoices an earlier date reproduces '
+    + 'the CURRENT figure rather than what was actually owed then. It will never '
+    + 'report an invoice as outstanding once it has been settled.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -120,7 +126,13 @@ export const agedDebtorsTool: McpTool = {
 export const agedCreditorsTool: McpTool = {
   name: 'aged_creditors',
   description:
-    'Accounts-payable aging buckets per supplier as at a date (defaults to today).',
+    'Accounts-payable aging buckets per supplier as at a date (defaults to today). '
+    + 'A PAST as_at is reconstructed by unwinding settlement dated since it: payment '
+    + 'allocations, credit notes and write-offs. Settlement that left no dated trail — '
+    + 'a receipt captured with no allocation row, a migrated balance, a cancelled '
+    + 'payment — cannot be unwound, so for those invoices an earlier date reproduces '
+    + 'the CURRENT figure rather than what was actually owed then. It will never '
+    + 'report an invoice as outstanding once it has been settled.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
