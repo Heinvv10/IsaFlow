@@ -26,6 +26,9 @@ vi.mock('@/modules/accounting/services/reports/projectProfitabilityService', () 
 vi.mock('@/modules/accounting/services/practice/practiceWipService', () => ({
   getWipByClient: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/practice/jobCostService', () => ({
+  getJobCostReport: vi.fn(),
+}));
 
 import { fetchStatementData } from '@/modules/accounting/services/ar/statementEmailService';
 import {
@@ -33,12 +36,14 @@ import {
   getProjectTaggingCoverage,
 } from '@/modules/accounting/services/reports/projectProfitabilityService';
 import { getWipByClient } from '@/modules/accounting/services/practice/practiceWipService';
+import { getJobCostReport } from '@/modules/accounting/services/practice/jobCostService';
 
 import {
   customerStatementTool,
   projectProfitabilityTool,
   wipReportTool,
 } from '@/lib/mcp/tools/domainReports';
+import { jobCostReportTool } from '@/lib/mcp/tools/jobCost';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import type { McpToolContext } from '@/lib/mcp/types';
@@ -73,6 +78,23 @@ const STATEMENT = {
   summary: { totalInvoiced: 10000, totalPaid: 4000, totalCredits: 0, balance: 6000 },
 };
 
+/** WIP sees 1,700 of this; the submitted 85,000 is invisible to it. */
+const JOB_COST = {
+  rows: [{
+    groupId: 'pc1', groupName: 'Weszak Beleggings',
+    byStatus: {
+      approved: { hours: 2, value: 1700, entries: 1 },
+      submitted: { hours: 100, value: 85000, entries: 50 },
+    },
+    totalHours: 102, totalValue: 86700, unbilledValue: 86700, unbilledHours: 102,
+  }],
+  rowsTotal: 1,
+  universeTotal: 2,
+  excluded: [{ id: 'ungrouped', reason: 'no_client', detail: '3 time entries carry no client', amount: 1200 }],
+  totals: { hours: 102, value: 86700, unbilledValue: 86700 },
+  postedThrough: '2026-08-01T10:00:00.000Z',
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(fetchStatementData).mockResolvedValue(STATEMENT);
@@ -82,6 +104,7 @@ beforeEach(() => {
     postedThrough: '2026-09-01T10:00:00.000Z',
   });
   vi.mocked(getWipByClient).mockResolvedValue([]);
+  vi.mocked(getJobCostReport).mockResolvedValue(JOB_COST);
 });
 
 describe('registration', () => {
@@ -255,5 +278,52 @@ describe('wip_report', () => {
     const full = json(await wipReportTool.handler({ detail: 'full' }, ctx));
     // Every aggregate must offer a route to the documents behind it.
     expect(full.rows[0].entries).toHaveLength(1);
+  });
+});
+
+describe('job_cost_report — the statuses wip_report cannot show', () => {
+  it('returns every status bucket, so submitted work is visible', async () => {
+    const env = json(await jobCostReportTool.handler({}, ctx));
+    const row = env.rows[0];
+    expect(row.by_status.approved.value).toBe(1700);
+    expect(row.by_status.submitted.value).toBe(85000);
+    // wip_report would report 1,700 here and stop.
+    expect(row.unbilled_value).toBe(86700);
+  });
+
+  it('is registered, mirrored and read-only', () => {
+    expect(MCP_TOOLS.map((t) => t.name)).toContain('job_cost_report');
+    expect(CLIENT_MCP_TOOL_NAMES).toContain('job_cost_report');
+    expect(jobCostReportTool.write).toBe(false);
+  });
+
+  it('defaults to grouping by client and drops an out-of-range grouping', async () => {
+    // The enum is advisory — nothing validates against it — and this value
+    // chooses a SQL grouping branch.
+    await jobCostReportTool.handler({ group_by: 'nonsense' }, ctx);
+    expect(vi.mocked(getJobCostReport).mock.calls[0]![1].groupBy).toBe('client');
+  });
+
+  it('passes a valid grouping through', async () => {
+    await jobCostReportTool.handler({ group_by: 'work_item' }, ctx);
+    expect(vi.mocked(getJobCostReport).mock.calls[0]![1].groupBy).toBe('work_item');
+  });
+
+  it('carries the ungrouped exclusion and its value', async () => {
+    const env = json(await jobCostReportTool.handler({}, ctx));
+    expect(env.excludedRows[0].reason).toBe('no_client');
+    expect(env.excludedRows[0].amount).toBe(1200);
+    expect(env.completenessFault).toBeUndefined();
+  });
+
+  it('takes the company from the context, never from args', async () => {
+    await jobCostReportTool.handler({ company_id: OTHER }, ctx);
+    expect(vi.mocked(getJobCostReport).mock.calls[0]![0]).toBe(COMPANY);
+  });
+
+  it('refuses a malformed practice_client_id before a cast', async () => {
+    const res = await jobCostReportTool.handler({ practice_client_id: 'abc' }, ctx);
+    expect(res.isError).toBe(true);
+    expect(getJobCostReport).not.toHaveBeenCalled();
   });
 });
