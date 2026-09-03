@@ -46,6 +46,11 @@ const GL_OPEX = '00000000-0000-0000-0000-00000000cfc1';
 const GL_PAYROLL = '00000000-0000-0000-0000-00000000cfa2';
 const GL_VEHICLE = '00000000-0000-0000-0000-00000000cfa1';
 const GL_PETTY = '00000000-0000-0000-0000-00000000cfb2';
+// A LIABILITY carrying a cash subtype spelling. Cash is resolved by subtype,
+// so without the account_type filter this would be summed as cash and closing
+// cash would quietly stop tying to the ledger. Mis-spelled subtypes on the
+// wrong account type are exactly what canonicalSubtype exists to survive.
+const GL_CARD_LIABILITY = '00000000-0000-0000-0000-00000000cfe2';
 
 const PERIOD_START = '2026-01-01';
 const PERIOD_END = '2026-12-31';
@@ -122,15 +127,24 @@ describeIfDb('AFS direct cash flow ties to the general ledger bank balance', () 
          ($6, $1, 'CF5000', 'Operating Expenses',  'expense',   'operating_expense', 'debit',  true),
          ($7, $1, 'CF2100', 'Payroll Liability',   'liability', 'payroll_liability', 'credit', true),
          ($8, $1, 'CF1500', 'Motor Vehicles',      'asset',     'fixed_assets',      'debit',  true),
-         ($9, $1, 'CF1010', 'Petty Cash',          'asset',     'petty_cash',        'debit',  true)
+         ($9, $1, 'CF1010', 'Petty Cash',          'asset',     'petty_cash',        'debit',  true),
+         ($10,$1, 'CF2200', 'Credit Card',         'liability', 'bank_account',      'credit', true)
        ON CONFLICT (id) DO NOTHING`,
-      [COMPANY, GL_BANK, GL_EQUITY, GL_SALES, GL_OTHER_INCOME, GL_OPEX, GL_PAYROLL, GL_VEHICLE, GL_PETTY],
+      [COMPANY, GL_BANK, GL_EQUITY, GL_SALES, GL_OTHER_INCOME, GL_OPEX, GL_PAYROLL, GL_VEHICLE, GL_PETTY, GL_CARD_LIABILITY],
     );
 
     // Opening balance, dated before the period so it lands in opening cash.
     await postEntry(admin, 'cf-open', '2025-12-31', [
       { account: GL_BANK, debit: OPENING, credit: 0 },
       { account: GL_EQUITY, debit: 0, credit: OPENING },
+    ], { matchBankLeg: false });
+
+    // An expense on the credit-card liability BEFORE the period, so the
+    // opening-cash query's account_type filter is exercised too. Without it
+    // the liability balance would be folded into opening cash.
+    await postEntry(admin, 'cf-open-liab', '2025-11-01', [
+      { account: GL_OPEX, debit: 700, credit: 0 },
+      { account: GL_CARD_LIABILITY, debit: 0, credit: 700 },
     ], { matchBankLeg: false });
 
     // JE0b: dated on the period's first day — movement, not opening cash.
@@ -164,6 +178,13 @@ describeIfDb('AFS direct cash flow ties to the general ledger bank balance', () 
       { account: GL_BANK, debit: 0, credit: 900 },
       { account: GL_VEHICLE, debit: 900, credit: 0 },
     ]);
+
+    // JE6: an expense settled on the credit-card LIABILITY. No cash moves, so
+    // nothing here may reach the cash flow statement at all.
+    await postEntry(admin, 'cf-je6', '2026-08-01', [
+      { account: GL_OPEX, debit: 300, credit: 0 },
+      { account: GL_CARD_LIABILITY, debit: 0, credit: 300 },
+    ], { matchBankLeg: false });
 
     // JE5: one entry carrying BOTH a classifiable contra and a cash contra.
     await postEntry(admin, 'cf-je5', '2026-07-20', [
@@ -237,6 +258,17 @@ describeIfDb('AFS direct cash flow ties to the general ledger bank balance', () 
     // JE3's 500 must split 200/300, not land as 500 against each group.
     expect(suppliers?.amount).toBeCloseTo(EXPECTED_SUPPLIERS, 2);
     expect(employees?.amount).toBeCloseTo(EXPECTED_EMPLOYEES, 2);
+  });
+
+  it('does not treat a liability carrying a cash subtype as cash', async () => {
+    const report = await getCashFlowDirect(COMPANY, PERIOD_START, PERIOD_END);
+
+    // The credit-card liability is spelled 'bank_account'. Cash is selected by
+    // subtype, so only the account_type filter keeps it out. If it leaks in,
+    // its movement joins the statement and closing cash stops matching the
+    // ledger's cash accounts.
+    expect(report.netChange).toBeCloseTo(NET_MOVEMENT, 2);
+    expect(report.closingCash).toBeCloseTo(CLOSING, 2);
   });
 
   it('classifies real chart-of-accounts subtype spellings, not just the canonical tokens', async () => {
