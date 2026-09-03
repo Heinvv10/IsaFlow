@@ -19,6 +19,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.
 
 import { sql } from '@/lib/neon';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
+import { CASH_SUBTYPES } from '@/modules/accounting/services/gl/accountSubtypes';
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
 const mockSql = sql as unknown as SqlFn;
@@ -91,16 +92,23 @@ describe('getCashBalance', () => {
 
   it('selects by SUBTYPE, not by accounts named like banks', async () => {
     await getCashBalance(COMPANY, '2026-08-31');
-    expect(sqlText()).toMatch(/account_subtype\s+IN\s*\('bank',\s*'cash'\)/);
+    expect(sqlText()).toMatch(/account_subtype\s*=\s*ANY/);
     expect(sqlText()).not.toMatch(/account_name\s+ILIKE/i);
   });
 
-  it('includes petty cash — subtype cash is cash', async () => {
-    // Nine production accounts carry subtype 'cash', all seeded Petty Cash at
-    // R0.00, so this changes no live figure today. It stops a real petty-cash
-    // balance being silently absent from "cash" tomorrow.
+  it('takes the cash vocabulary from CASH_SUBTYPES, not from two literals', async () => {
+    // Asserted on the BOUND PARAMETER, not on the SQL text. A text assertion
+    // here passed while the query read `IN ('bank', 'cash')` — which is not the
+    // same set: it misses `bank_account`, `cash_on_hand` and `petty_cash`, all
+    // spellings this schema accepts. No production account carries one today
+    // (98 `bank`, 9 `cash`), so this changes no live figure; it stops the
+    // opening-cash and cash-movement queries in cashFlowDirectService from
+    // disagreeing about what counts as cash.
     await getCashBalance(COMPANY, '2026-08-31');
-    expect(sqlText()).toMatch(/'cash'/);
+    const bound = mockSql.mock.calls[0]?.slice(1) ?? [];
+    const subtypes = bound.find((v): v is string[] => Array.isArray(v));
+    expect(subtypes).toEqual([...CASH_SUBTYPES]);
+    expect(subtypes).toEqual(expect.arrayContaining(['bank', 'bank_account', 'cash', 'cash_on_hand', 'petty_cash']));
   });
 
   it('keeps an account whose only lines are drafts, at zero rather than absent', async () => {
