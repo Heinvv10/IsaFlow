@@ -139,18 +139,24 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
   'vat.output.v1': def({
     id: 'vat.output.v1',
     label: 'Output tax for a VAT period',
-    owner: 'reports/vat201Service#generateVAT201',
+    // Settled by W4. NOT vat201Service#generateVAT201, which the specification
+    // named: that is the invoice-based generator the VAT-return PAGE uses, and
+    // it was never what vat_status called. The MCP tool called
+    // vatReturnService#getVATReturn, whose tax came from the VAT control
+    // accounts while its box 1 and box 15 values came from the invoice tables —
+    // two populations, one question, and box 15 out by R5.1m on Velocity.
+    owner: 'reports/vat201ReportService#getVat201Report',
     includes: 'Output tax posted to the VAT control account over the period.',
     excludes:
-      'Cancelled invoices. Box 1 must be derived from THESE journals, so that box 1 at 15% ties to this figure — it currently fails SARS’s own check by R5.1m on Velocity.',
+      'Cancelled invoices — their tax leaves the boxes and is named in excludedRows, because the journal is still posted and the GL still has it. Box 1 is derived from THESE journals, so box 1 at 15% ties to this figure: R0.00 of variance on Velocity 2026-07/08, against R5.1m before.',
   }),
   'vat.input.v1': def({
     id: 'vat.input.v1',
     label: 'Input tax for a VAT period',
-    owner: 'reports/vat201Service#generateVAT201',
+    owner: 'reports/vat201ReportService#getVat201Report',
     includes: 'Input tax posted to the VAT control account over the period.',
     excludes:
-      'Denied input tax (entertainment). Box 15 must be derived from these same journals so the 15% check ties.',
+      'Denied input tax (entertainment), and tax on an account with no VAT posting treatment — R4,917,814.24 on Velocity SYS-9, which appears in excludedRows rather than in a box. Box 15 is derived from these same journals, so the 15% check ties to R4,407.45 on Velocity 2026-07/08 rather than R5.1m.',
   }),
   'gl.trialbalance.v2': def({
     id: 'gl.trialbalance.v2',
