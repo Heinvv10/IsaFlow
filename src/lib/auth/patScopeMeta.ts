@@ -21,6 +21,14 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     label: 'Write practice management',
     desc: 'Create job categories and work items, and log and submit time entries. Time entries carry a rate and feed WIP and client invoicing, but post nothing to the ledger.',
   },
+  'read:payroll': {
+    label: 'Read payroll',
+    desc: 'Employees, pay runs, and the PAYE/UIF/SDL totals on them. SA identity and tax numbers are masked to the last four digits unless explicitly requested.',
+  },
+  'write:payroll': {
+    label: 'Write payroll',
+    desc: 'Open a payroll run for a month, and post an approved run\'s journal to the general ledger. Posting also needs write:post.',
+  },
   'read:reports': {
     label: 'Read reports',
     desc: 'Trial balance, income statement, balance sheet, etc.',

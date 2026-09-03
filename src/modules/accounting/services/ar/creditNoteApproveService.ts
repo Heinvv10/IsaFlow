@@ -172,8 +172,10 @@ export async function approveCreditNote(
     const autoApplied = appliedAmount > 0;
 
     // applied_amount records what was ACTUALLY added above, so cancel reverses
-    // the recorded figure instead of re-deriving one. The auto-apply adds the
-    // full total with no cap, so that is the amount here.
+    // the recorded figure instead of re-deriving one. It is MIN(total,
+    // outstanding), NOT the face value — the cap a few lines up is the whole
+    // reason this column exists separately from total_amount, and anything
+    // reporting the credit a customer received must read this one.
     const finalStatus = autoApplied ? 'applied' : 'approved';
     const updatedRows = (await sql`
       UPDATE credit_notes SET status = ${finalStatus}, approved_by = ${userId}::UUID,

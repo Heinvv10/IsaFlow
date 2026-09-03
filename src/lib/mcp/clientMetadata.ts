@@ -14,6 +14,7 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /** All MCP tool names (37 read + 35 write). Drift-guarded against toolIndex. */
+/** All MCP tool names (45 read + 33 write). Drift-guarded against toolIndex. */
 export const CLIENT_MCP_TOOL_NAMES = [
   // read
   'company_profile',
@@ -66,6 +67,20 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'period_close_checklist',
   'bank_statement_coverage',
   'get_opening_balances',
+  'list_employees',
+  'list_pay_runs',
+  'emp201_status',
+  'irp5_data',
+  'customer_statement',
+  'project_profitability',
+  'wip_report',
+  'list_fixed_assets',
+  'asset_register',
+  'list_items',
+  'stock_valuation',
+  'supplier_statement',
+  'job_cost_report',
+  'budget_variance',
   // write
   'create_draft_invoice',
   'create_draft_quote',
@@ -110,4 +125,6 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'reopen_fiscal_period',
   'year_end_close',
   'perform_bank_reconciliation',
+  'create_pay_run',
+  'post_payroll_journal',
 ] as const;

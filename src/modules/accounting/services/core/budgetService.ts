@@ -1,6 +1,12 @@
 /**
- * Budget Management Service
- * Phase 5: Create and manage budgets per GL account per fiscal year
+ * Budget Management Service — one budget per GL account per fiscal year.
+ *
+ * Storage shape is dictated by the READ path
+ * (pages/api/accounting/reports-budget-vs-actual.ts): the twelve months live in
+ * `period_amounts` JSONB keyed 'jan'..'dec', not in twelve columns. The earlier
+ * version of this file wrote jan..dec columns that do not exist, omitted both
+ * NOT NULL columns, and named a constraint that was never created — which is
+ * why `accounting_budgets` holds zero rows in production.
  */
 
 import { sql } from '@/lib/neon';
@@ -9,7 +15,8 @@ import { log } from '@/lib/logger';
 
 type Row = DbRow;
 
-const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'] as const;
+/** Month keys as the budget-vs-actual reader looks them up. Order is Jan..Dec. */
+const MONTH_KEYS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'] as const;
 
 export interface BudgetEntry {
   id: string;
@@ -34,108 +41,136 @@ export interface BudgetInput {
 
 export async function getBudgets(companyId: string, fiscalYear: number): Promise<BudgetEntry[]> {
   const rows = (await sql`
-    SELECT b.*, ga.account_code, ga.account_name, ga.account_type
+    SELECT b.id, b.gl_account_id, b.fiscal_year, b.annual_amount, b.period_amounts,
+           b.notes, b.created_at,
+           ga.account_code, ga.account_name, ga.account_type
     FROM accounting_budgets b
     JOIN gl_accounts ga ON ga.id = b.gl_account_id AND ga.company_id = ${companyId}::UUID
-    WHERE b.fiscal_year = ${fiscalYear}
+    WHERE b.company_id = ${companyId}::UUID AND b.fiscal_year = ${fiscalYear}
     ORDER BY ga.account_code
   `) as Row[];
   return rows.map(mapRow);
 }
 
-export async function upsertBudget(companyId: string, input: BudgetInput, userId: string): Promise<BudgetEntry> {
-  const months = input.months || distributeEvenly(input.annualAmount);
+export async function upsertBudget(
+  companyId: string,
+  input: BudgetInput,
+  userId: string,
+): Promise<BudgetEntry> {
+  const months = normaliseMonths(input.months, input.annualAmount);
+  const periodAmounts = toPeriodAmounts(months);
+  const total = round2(months.reduce((s, m) => s + m, 0));
 
+  // The arbiter index is partial (WHERE gl_account_id IS NOT NULL), so the
+  // predicate has to be repeated here or Postgres cannot pick it.
   const rows = (await sql`
     INSERT INTO accounting_budgets (
-      gl_account_id, fiscal_year, annual_amount,
-      jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, "dec",
-      notes, created_by
+      company_id, budget_name, fiscal_year, gl_account_id,
+      period_amounts, annual_amount, total_amount, notes, created_by
     ) VALUES (
-      ${input.glAccountId}::UUID, ${input.fiscalYear}, ${input.annualAmount},
-      ${months[0]}, ${months[1]}, ${months[2]}, ${months[3]},
-      ${months[4]}, ${months[5]}, ${months[6]}, ${months[7]},
-      ${months[8]}, ${months[9]}, ${months[10]}, ${months[11]},
-      ${input.notes || null}, ${userId}::UUID
+      ${companyId}::UUID, ${budgetName(input.fiscalYear)}, ${input.fiscalYear},
+      ${input.glAccountId}::UUID,
+      ${JSON.stringify(periodAmounts)}::JSONB, ${input.annualAmount}, ${total},
+      ${input.notes ?? null}, ${userId}
     )
-    ON CONFLICT (gl_account_id, fiscal_year)
+    ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL
     DO UPDATE SET
-      annual_amount = EXCLUDED.annual_amount,
-      jan = EXCLUDED.jan, feb = EXCLUDED.feb, mar = EXCLUDED.mar,
-      apr = EXCLUDED.apr, may = EXCLUDED.may, jun = EXCLUDED.jun,
-      jul = EXCLUDED.jul, aug = EXCLUDED.aug, sep = EXCLUDED.sep,
-      oct = EXCLUDED.oct, nov = EXCLUDED.nov, "dec" = EXCLUDED."dec",
-      notes = EXCLUDED.notes
-    RETURNING *
+      period_amounts = EXCLUDED.period_amounts,
+      annual_amount  = EXCLUDED.annual_amount,
+      total_amount   = EXCLUDED.total_amount,
+      notes          = EXCLUDED.notes,
+      updated_at     = now()
+    RETURNING id
   `) as Row[];
 
-  // Re-query with join — scoped to company
+  const id = String(rows[0]!.id);
   const result = (await sql`
-    SELECT b.*, ga.account_code, ga.account_name, ga.account_type
+    SELECT b.id, b.gl_account_id, b.fiscal_year, b.annual_amount, b.period_amounts,
+           b.notes, b.created_at,
+           ga.account_code, ga.account_name, ga.account_type
     FROM accounting_budgets b
     JOIN gl_accounts ga ON ga.id = b.gl_account_id AND ga.company_id = ${companyId}::UUID
-    WHERE b.id = ${rows[0]!.id}::UUID
+    WHERE b.id = ${id}::UUID AND b.company_id = ${companyId}::UUID
   `) as Row[];
+  const row = result[0];
+  if (!row) {
+    // Only reachable if gl_account_id belongs to another tenant: the insert
+    // succeeded but the account join excludes it. Refuse rather than return a
+    // half-built entry.
+    throw new Error('Budget account does not belong to this company');
+  }
 
   log.info('Upserted budget', {
     glAccountId: input.glAccountId, fiscalYear: input.fiscalYear,
     annualAmount: input.annualAmount,
   }, 'accounting');
-  return mapRow(result[0]!);
+  return mapRow(row);
 }
 
 export async function deleteBudget(companyId: string, id: string): Promise<void> {
   await sql`DELETE FROM accounting_budgets WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
 }
 
-export async function copyBudgets(companyId: string, fromYear: number, toYear: number, userId: string): Promise<number> {
-  const existing = (await sql`
-    SELECT gl_account_id, annual_amount,
-           jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, "dec", notes
-    FROM accounting_budgets WHERE fiscal_year = ${fromYear} AND company_id = ${companyId}::UUID
+export async function copyBudgets(
+  companyId: string,
+  fromYear: number,
+  toYear: number,
+  userId: string,
+): Promise<number> {
+  const rows = (await sql`
+    INSERT INTO accounting_budgets (
+      company_id, budget_name, fiscal_year, gl_account_id,
+      period_amounts, annual_amount, total_amount, notes, created_by
+    )
+    SELECT b.company_id, ${budgetName(toYear)}, ${toYear}, b.gl_account_id,
+           b.period_amounts, b.annual_amount, b.total_amount, b.notes, ${userId}
+    FROM accounting_budgets b
+    WHERE b.company_id = ${companyId}::UUID
+      AND b.fiscal_year = ${fromYear}
+      AND b.gl_account_id IS NOT NULL
+    ON CONFLICT (company_id, gl_account_id, fiscal_year) WHERE gl_account_id IS NOT NULL
+    DO NOTHING
+    RETURNING id
   `) as Row[];
 
-  let count = 0;
-  for (const row of existing) {
-    await sql`
-      INSERT INTO accounting_budgets (
-        company_id, gl_account_id, fiscal_year, annual_amount,
-        jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, "dec",
-        notes, created_by
-      ) VALUES (
-        ${companyId}::UUID, ${row.gl_account_id}::UUID, ${toYear}, ${row.annual_amount},
-        ${row.jan}, ${row.feb}, ${row.mar}, ${row.apr},
-        ${row.may}, ${row.jun}, ${row.jul}, ${row.aug},
-        ${row.sep}, ${row.oct}, ${row.nov}, ${row.dec},
-        ${row.notes || null}, ${userId}::UUID
-      )
-      ON CONFLICT (gl_account_id, fiscal_year) DO NOTHING
-    `;
-    count++;
-  }
-  log.info('Copied budgets', { fromYear, toYear, count }, 'accounting');
-  return count;
+  log.info('Copied budgets', { fromYear, toYear, count: rows.length }, 'accounting');
+  return rows.length;
 }
 
-function distributeEvenly(annual: number): number[] {
-  const monthly = Math.round((annual / 12) * 100) / 100;
-  const arr = Array(12).fill(monthly) as number[];
-  // Adjust last month for rounding
-  const sum = arr.slice(0, 11).reduce((s, v) => s + v, 0);
-  arr[11] = Math.round((annual - sum) * 100) / 100;
+/** An explicit split wins; otherwise spread the annual evenly, cents on December. */
+function normaliseMonths(months: number[] | undefined, annual: number): number[] {
+  if (months && months.length === 12) return months.map(m => round2(Number(m) || 0));
+  const monthly = round2(annual / 12);
+  const arr = Array<number>(12).fill(monthly);
+  arr[11] = round2(annual - monthly * 11);
   return arr;
 }
 
+function toPeriodAmounts(months: number[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  MONTH_KEYS.forEach((key, i) => { out[key] = months[i] ?? 0; });
+  return out;
+}
+
+function budgetName(fiscalYear: number): string {
+  return `FY${fiscalYear} Budget`;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function mapRow(row: Row): BudgetEntry {
+  const periodAmounts = (row.period_amounts ?? {}) as Record<string, unknown>;
   return {
     id: String(row.id),
     glAccountId: String(row.gl_account_id),
-    accountCode: String(row.account_code || ''),
-    accountName: String(row.account_name || ''),
-    accountType: String(row.account_type || ''),
+    accountCode: String(row.account_code ?? ''),
+    accountName: String(row.account_name ?? ''),
+    accountType: String(row.account_type ?? ''),
     fiscalYear: Number(row.fiscal_year),
     annualAmount: Number(row.annual_amount),
-    months: MONTHS.map(m => Number(row[m] || 0)),
+    months: MONTH_KEYS.map(k => Number(periodAmounts[k] ?? 0)),
     notes: row.notes ? String(row.notes) : undefined,
     createdAt: String(row.created_at),
   };

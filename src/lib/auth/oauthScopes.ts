@@ -17,6 +17,8 @@ export const OAUTH_SCOPES = [
   'read:vat',
   'read:practice',
   'write:practice',
+  'read:payroll',
+  'write:payroll',
   'write:post',
   'offline_access',
 ] as const;
