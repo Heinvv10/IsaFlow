@@ -18,13 +18,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   createFiscalYear: vi.fn(),
   getFiscalPeriodIdForDate: vi.fn(),
-  resolveFiscalYearStartMonth: vi.fn(),
+  resolveCompanyPeriodAlignment: vi.fn(),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import {
   createFiscalYear,
-  resolveFiscalYearStartMonth,
+  resolveCompanyPeriodAlignment,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { ensureFiscalPeriodForDate } from '@/modules/accounting/services/gl/fiscalPeriodAutoCreate';
 
@@ -42,7 +42,7 @@ function alignment(startMonth: number) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(resolveFiscalYearStartMonth).mockResolvedValue(alignment(3));
+  vi.mocked(resolveCompanyPeriodAlignment).mockResolvedValue(alignment(3));
   vi.mocked(createFiscalYear).mockResolvedValue([] as never);
 });
 
@@ -65,7 +65,7 @@ describe('ensureFiscalPeriodForDate — fiscal year derivation', () => {
   });
 
   it('is the calendar year for a company whose periods start in January', async () => {
-    vi.mocked(resolveFiscalYearStartMonth).mockResolvedValue(alignment(1));
+    vi.mocked(resolveCompanyPeriodAlignment).mockResolvedValue(alignment(1));
     const lookup = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce('p');
     await ensureFiscalPeriodForDate(COMPANY, '2026-06-15', { lookup, today: TODAY });
     expect(createFiscalYear).toHaveBeenCalledWith(COMPANY, 2026);
@@ -75,7 +75,7 @@ describe('ensureFiscalPeriodForDate — fiscal year derivation', () => {
     const lookup = vi.fn().mockResolvedValue('already-there');
     const id = await ensureFiscalPeriodForDate(COMPANY, '2026-06-15', { lookup, today: TODAY });
     expect(id).toBe('already-there');
-    expect(resolveFiscalYearStartMonth).not.toHaveBeenCalled();
+    expect(resolveCompanyPeriodAlignment).not.toHaveBeenCalled();
     expect(createFiscalYear).not.toHaveBeenCalled();
   });
 

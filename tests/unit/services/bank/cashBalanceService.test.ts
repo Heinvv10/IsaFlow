@@ -89,10 +89,18 @@ describe('getCashBalance', () => {
     expect(sqlText()).toMatch(/status\s*=\s*'posted'/);
   });
 
-  it('selects bank-subtype accounts, not accounts named like banks', async () => {
+  it('selects by SUBTYPE, not by accounts named like banks', async () => {
     await getCashBalance(COMPANY, '2026-08-31');
-    expect(sqlText()).toMatch(/account_subtype\s*=\s*'bank'/);
+    expect(sqlText()).toMatch(/account_subtype\s+IN\s*\('bank',\s*'cash'\)/);
     expect(sqlText()).not.toMatch(/account_name\s+ILIKE/i);
+  });
+
+  it('includes petty cash — subtype cash is cash', async () => {
+    // Nine production accounts carry subtype 'cash', all seeded Petty Cash at
+    // R0.00, so this changes no live figure today. It stops a real petty-cash
+    // balance being silently absent from "cash" tomorrow.
+    await getCashBalance(COMPANY, '2026-08-31');
+    expect(sqlText()).toMatch(/'cash'/);
   });
 
   it('keeps an account whose only lines are drafts, at zero rather than absent', async () => {

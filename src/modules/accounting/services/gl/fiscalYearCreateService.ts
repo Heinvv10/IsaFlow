@@ -35,11 +35,8 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import type { FiscalPeriod, FiscalPeriodStatus } from '../../types/gl.types';
-import {
-  buildFiscalYearPeriods,
-  fiscalYearRange,
-  normaliseStartMonth,
-} from './fiscalYearCalendar';
+import { buildFiscalYearPeriods, fiscalYearRange } from './fiscalYearCalendar';
+import { resolveFiscalYearStartMonth } from './fiscalYearBasis';
 
 /**
  * Raised when the requested fiscal year's date range collides with periods the
@@ -91,7 +88,7 @@ export class FiscalPeriodOverlapError extends Error {
  * financial year from the first period onward. That is the case this fixes for
  * good.
  */
-export async function resolveFiscalYearStartMonth(companyId: string): Promise<FiscalYearAlignment> {
+export async function resolveCompanyPeriodAlignment(companyId: string): Promise<FiscalYearAlignment> {
   const rows = (await sql`
     SELECT c.financial_year_start,
            (SELECT EXTRACT(MONTH FROM fp.start_date)::int
@@ -104,7 +101,13 @@ export async function resolveFiscalYearStartMonth(companyId: string): Promise<Fi
      LIMIT 1
   `) as DbRow[];
 
-  const declared = normaliseStartMonth(rows[0]?.financial_year_start);
+  if (rows.length === 0) throw new Error(`Company ${companyId} not found`);
+  // The shared basis, and NO fallback. createFiscalYear is a write path:
+  // building a year on a guessed March start is silent and unrecoverable once
+  // journals are posted into the periods. Zero production companies have a NULL
+  // financial_year_start today, so the refusal is a guard against future
+  // misconfiguration rather than a behaviour change.
+  const declared = resolveFiscalYearStartMonth(rows[0]!.financial_year_start, companyId);
   const raw = rows[0]?.existing_start_month;
   const existing = raw === null || raw === undefined ? null : Number(raw);
   const observed = existing !== null && existing >= 1 && existing <= 12 ? existing : null;
@@ -164,7 +167,7 @@ export async function createFiscalYear(
     throw new Error(`Fiscal year ${year} already exists`);
   }
 
-  const startMonth = startMonthOverride ?? (await resolveFiscalYearStartMonth(companyId)).startMonth;
+  const startMonth = startMonthOverride ?? (await resolveCompanyPeriodAlignment(companyId)).startMonth;
   const range = fiscalYearRange(year, startMonth);
 
   const conflicts = await findOverlapping(companyId, range.startDate, range.endDate);

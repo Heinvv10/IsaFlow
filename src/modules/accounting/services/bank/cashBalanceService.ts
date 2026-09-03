@@ -31,6 +31,11 @@
  * `deactivatedWithBalance` so the fact is visible, and they are still IN the
  * total, because they are still on the balance sheet.
  *
+ * IT SPANS SUBTYPE `bank` AND `cash`. Petty cash is cash. Nine production
+ * accounts carry subtype `cash` — all seeded "Petty Cash" at R0.00 today, so
+ * widening this changes no live figure, but a real petty-cash balance would
+ * otherwise have been silently absent from "cash".
+ *
  * It does not exclude clearing or suspense accounts by NAME. No clearing or
  * suspense SUBTYPE exists in this schema, so the only available discriminator is
  * the account's name — which is the exact mechanism that let two accounts typed
@@ -130,7 +135,7 @@ export async function getCashBalance(
                       THEN je.entry_date <  ${asAt}::DATE
                       ELSE je.entry_date <= ${asAt}::DATE END)
      WHERE ga.company_id      = ${companyId}::UUID
-       AND ga.account_subtype = 'bank'
+       AND ga.account_subtype IN ('bank', 'cash')
      GROUP BY ga.id, ga.account_code, ga.account_name, ga.is_active
      ORDER BY ga.account_code
   `) as DbRow[];

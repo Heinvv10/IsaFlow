@@ -30,8 +30,13 @@
  */
 
 import { sql, withTransaction } from '@/lib/neon';
+import type { AccountBalanceRow } from './yearEndJournalBuilder';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
+import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
+import { getFiscalYearStartMonth } from './fiscalYearBasis';
+import { buildPreview, resolveRetainedEarnings } from './yearEndJournalBuilder';
+import { fiscalYearRange } from './fiscalYearCalendar';
 
 export interface YearEndJournalLine {
   accountId: string;
@@ -67,18 +72,18 @@ export type CloseYearError =
   | { error: 'open_periods'; count: number; openPeriods: Array<{ id: string; periodName: string; periodNumber: number }> }
   | { error: 'year_not_found' }
   | { error: 'no_retained_earnings'; accountCode: string }
-  | { error: 'ambiguous_retained_earnings'; accountCodes: string[] };
+  | { error: 'ambiguous_retained_earnings'; accountCodes: string[] }
+  | { error: 'no_fiscal_period'; entryDate: string }
+  | {
+      error: 'period_range_mismatch';
+      expected: { startDate: string; endDate: string };
+      actual: { startDate: string; endDate: string };
+      startMonth: number;
+    };
 
 export interface CloseYearOptions {
   /** Run every guard and return the journal, writing nothing. */
   dryRun?: boolean;
-}
-
-interface AccountBalanceRow {
-  id: string;
-  account_code: string;
-  account_name: string;
-  balance: string;
 }
 
 export async function closeFiscalYear(
@@ -115,6 +120,25 @@ export async function closeFiscalYear(
   `;
   const yearRange = rangeRows[0];
   if (!yearRange || yearRange.start_date === null) return { error: 'year_not_found' };
+
+  // 2a. The periods must actually BE this company's fiscal year.
+  //
+  // Brightsphere's "fiscal year 2026" runs 1 Jan – 31 Dec 2026 while its
+  // declared financial year starts in March, so the real FY2026 is
+  // 1 Mar 2025 – 28 Feb 2026. Closing the calendar span rolls the WRONG twelve
+  // months into retained earnings and then LOCKS every period behind it —
+  // and nothing about the arithmetic looks wrong afterwards, because the
+  // journal balances either way.
+  //
+  // No fallback on the start month. This is a write path; assuming March for a
+  // company genuinely on a December year end produces a close a quarter out,
+  // silently.
+  const startMonth = await getFiscalYearStartMonth(companyId);
+  const expected = fiscalYearRange(Number(yearLabel), startMonth);
+  const actual = { startDate: fmtDate(yearRange.start_date), endDate: fmtDate(yearRange.end_date) };
+  if (actual.startDate !== expected.startDate || actual.endDate !== expected.endDate) {
+    return { error: 'period_range_mismatch', expected, actual, startMonth };
+  }
 
   const revenueAccounts = (await sql`
     SELECT ga.id, ga.account_code, ga.account_name,
@@ -159,7 +183,18 @@ export async function closeFiscalYear(
 
   if (dryRun) return { dryRun: true, netIncome, preview };
 
-  const closingEntry = await postClosingJournal(companyId, userId, yearLabel, preview);
+  // Resolved BEFORE the transaction opens. A journal with a NULL
+  // fiscal_period_id is outside the trial balance, the VAT201 and the AFS
+  // permanently, and this one is followed immediately by LOCKING every period
+  // in the year — so an unstamped year-end journal could never be corrected in
+  // place afterwards. The raw INSERT bypasses createJournalEntry, which is what
+  // resolves the period everywhere else.
+  const fiscalPeriodId = await getFiscalPeriodIdForDate(companyId, preview.entryDate);
+  if (!fiscalPeriodId) return { error: 'no_fiscal_period', entryDate: preview.entryDate };
+
+  const closingEntry = await postClosingJournal(
+    companyId, userId, yearLabel, preview, fiscalPeriodId,
+  );
 
   log.info('Year-end processed', {
     year: yearLabel, entryId: closingEntry.id, netIncome, module: 'accounting',
@@ -172,95 +207,32 @@ export async function closeFiscalYear(
   };
 }
 
-interface RetainedEarningsAccount { id: string; accountCode: string; accountName: string }
-
-async function resolveRetainedEarnings(
-  companyId: string,
-): Promise<RetainedEarningsAccount | { error: 'no_retained_earnings'; accountCode: string }> {
-  let code = '3200';
-  try {
-    // company_id, on a view that has one. Without it a single configured row
-    // anywhere in the platform decides every tenant's equity account.
-    const settingRows = await sql`
-      SELECT value FROM app_settings
-       WHERE key = 'retained_earnings_account' AND company_id = ${companyId}::UUID
-       LIMIT 1
-    `;
-    if (settingRows[0]?.value) code = String(settingRows[0].value);
-  } catch (err) {
-    log.warn('Could not load retained_earnings_account setting, using default 3200', { error: String(err) }, 'yearEnd');
-  }
-
-  // The code match is preferred EXPLICITLY. `LIMIT 1` over an OR with no
-  // ORDER BY is decided by physical row order, and a company with both a 3200
-  // and a differently-coded "Retained Earnings (old)" would get either.
-  const rows = await sql`
-    SELECT id, account_code, account_name FROM gl_accounts
-    WHERE company_id = ${companyId}
-      AND (account_code = ${code} OR account_name ILIKE '%retained earnings%')
-    ORDER BY (account_code = ${code}) DESC, account_code
-    LIMIT 1
-  `;
-  const row = rows[0];
-  if (!row) return { error: 'no_retained_earnings', accountCode: code };
-  return {
-    id: String(row.id),
-    accountCode: String(row.account_code),
-    accountName: String(row.account_name),
-  };
-}
-
-function buildPreview(
-  yearLabel: string,
-  entryDate: string,
-  revenueAccounts: AccountBalanceRow[],
-  expenseAccounts: AccountBalanceRow[],
-  retained: RetainedEarningsAccount,
-  netIncome: number,
-): YearEndJournalPreview {
-  const lines: YearEndJournalLine[] = [
-    ...revenueAccounts.map((a) => ({
-      accountId: String(a.id), accountCode: String(a.account_code), accountName: String(a.account_name),
-      debit: Number(a.balance), credit: 0,
-    })),
-    ...expenseAccounts.map((a) => ({
-      accountId: String(a.id), accountCode: String(a.account_code), accountName: String(a.account_name),
-      debit: 0, credit: Number(a.balance),
-    })),
-    {
-      accountId: retained.id, accountCode: retained.accountCode, accountName: retained.accountName,
-      debit: netIncome < 0 ? Math.abs(netIncome) : 0,
-      credit: netIncome >= 0 ? netIncome : 0,
-    },
-  ];
-
-  return {
-    entryDate,
-    entryNumber: `YE-${yearLabel}`,
-    description: `Year-End Closing: ${yearLabel}`,
-    lines,
-    totalDebit: lines.reduce((s, l) => s + l.debit, 0),
-    totalCredit: lines.reduce((s, l) => s + l.credit, 0),
-  };
-}
-
 async function postClosingJournal(
   companyId: string,
   userId: string,
   yearLabel: string,
   preview: YearEndJournalPreview,
+  fiscalPeriodId: string | null,
 ): Promise<Record<string, unknown>> {
   // Atomic: a partial year-end close is unrecoverable — half the P&L zeroed and
   // the periods left open.
   return withTransaction(async (tx) => {
+    // NO total_debit / total_credit. Those columns do not exist on
+    // gl_journal_entries — not in isaflow_dev, not in production — so this
+    // INSERT raised 42703 and EVERY live year-end close failed before writing a
+    // line, over MCP and through the UI route alike. Brightsphere's four
+    // unclosed years are that, not an oversight by whoever runs the close. The
+    // totals live on the lines and every reader derives them (see
+    // transactionLedgerService, sageMigrationCompareService); the preview still
+    // reports them to the caller, which is where they were actually wanted.
     const closingRows = await tx`
       INSERT INTO gl_journal_entries (
-        id, company_id, entry_number, entry_date, description,
-        source, status, total_debit, total_credit, created_by, created_at, posting_agent
+        id, company_id, entry_number, entry_date, fiscal_period_id, description,
+        source, status, created_by, created_at, posted_by, posted_at, posting_agent
       ) VALUES (
         gen_random_uuid(), ${companyId}, ${preview.entryNumber}, ${preview.entryDate},
-        ${preview.description}, 'year_end', 'posted',
-        ${preview.totalDebit}, ${preview.totalCredit}, ${userId}, NOW(), 'system:year-end-close'
+        ${fiscalPeriodId}, ${preview.description}, 'year_end', 'posted',
+        ${userId}, NOW(), ${userId}, NOW(), 'system:year-end-close'
       ) RETURNING *
     `;
     const entry = (closingRows as Record<string, unknown>[])[0];

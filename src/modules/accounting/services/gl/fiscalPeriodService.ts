@@ -134,7 +134,7 @@ export async function getFiscalPeriodIdForDate(
 // financial_year_start, and this file was already on the 300-line cap.
 export {
   createFiscalYear,
-  resolveFiscalYearStartMonth,
+  resolveCompanyPeriodAlignment,
   FiscalPeriodOverlapError,
 } from './fiscalYearCreateService';
 

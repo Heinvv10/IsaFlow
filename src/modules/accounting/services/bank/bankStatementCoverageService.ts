@@ -44,6 +44,7 @@ import {
   type CoverageMonthRow,
   type DuplicateReferenceRow,
 } from './bankCoverageQueries';
+import { fetchCoverageDirections } from './bankCoverageDirections';
 
 export const DEFAULT_MIN_GAP_DAYS = 7;
 
@@ -72,6 +73,35 @@ export interface BankAccountCoverage {
   computedBalance: number;
   /** glBalance − computedBalance. Stated, never netted away. */
   glVsComputedDifference: number;
+  /**
+   * Posted GL movement on this account that NO statement line accounts for.
+   * Velocity's twelve 1610xxx paycards are entirely this.
+   */
+  glOnlyMovement: number;
+  /**
+   * Imported statement lines that reached no journal. Velocity's 1544xxx
+   * paycards are entirely this. The mirror image, and invisible from the other
+   * side.
+   */
+  statementOnlyMovement: number;
+  /**
+   * What the two directions FAIL to explain:
+   * `(glBalance − computedBalance) − (glOnlyMovement − statementOnlyMovement)`.
+   *
+   * Zero when the books hang together, and it is an exact identity rather than
+   * an approximation — a matched transaction's amount equals its journal leg to
+   * the cent on all 9,097 matched rows in production, so the matched halves
+   * cancel. Verified against both audited companies at residual 0.00.
+   *
+   * It is non-zero in exactly one ordinary case, and that case is a finding: a
+   * recorded `bank_opening_balance` with no journal behind it sits in
+   * `computedBalance` and in nothing else, so the residual is minus that
+   * amount. The bank-account editor can create that state, which is why
+   * `get_opening_balances` reports the same defect from the other direction.
+   * Anything else means the sign convention or the matching has broken and the
+   * gap should not be trusted.
+   */
+  unexplainedResidual: number;
 }
 
 export interface BankStatementCoverage {
@@ -83,6 +113,9 @@ export interface BankStatementCoverage {
     computedBalance: number;
     difference: number;
     transactionCount: number;
+    glOnlyMovement: number;
+    statementOnlyMovement: number;
+    unexplainedResidual: number;
   };
   /**
    * The latest ledger write consumed, ISO-8601. Falls back to the newest bank
@@ -132,11 +165,12 @@ export async function getBankStatementCoverage(
   const { asAt, bankAccountId } = options;
   const minGapDays = options.minGapDays ?? DEFAULT_MIN_GAP_DAYS;
 
-  const [accountRows, monthRows, gapRows, duplicateRows, cash] = await Promise.all([
+  const [accountRows, monthRows, gapRows, duplicateRows, directionRows, cash] = await Promise.all([
     fetchCoverageAccounts(companyId, asAt, bankAccountId),
     fetchCoverageMonths(companyId, asAt, bankAccountId),
     fetchCoverageGaps(companyId, asAt, minGapDays, bankAccountId),
     fetchDuplicateReferences(companyId, asAt, bankAccountId),
+    fetchCoverageDirections(companyId, asAt, bankAccountId),
     // cash.balance.v1 comes from its owning service. Re-deriving the GL side
     // here would create a fifth answer to a question that already had four.
     getCashBalance(companyId, asAt),
@@ -146,6 +180,7 @@ export async function getBankStatementCoverage(
   const gapsBy = groupBy(gapRows);
   const dupesBy = groupBy(duplicateRows);
   const glBy = new Map(cash.accounts.map((a) => [a.accountId, a.glBalance]));
+  const directionBy = new Map(directionRows.map((d) => [d.bankAccountId, d]));
 
   const accounts: BankAccountCoverage[] = accountRows.map((row) => {
     const opening = row.openingBalanceAmount;
@@ -155,6 +190,9 @@ export async function getBankStatementCoverage(
     // at all; zero is the honest reading, and the difference then states the
     // whole statement balance as unexplained rather than hiding the row.
     const glBalance = glBy.get(row.bankAccountId) ?? 0;
+    const direction = directionBy.get(row.bankAccountId);
+    const glOnlyMovement = direction?.glOnlyMovement ?? 0;
+    const statementOnlyMovement = direction?.statementOnlyMovement ?? 0;
 
     return {
       bankAccountId: row.bankAccountId,
@@ -177,6 +215,10 @@ export async function getBankStatementCoverage(
       statementBalance,
       computedBalance,
       glVsComputedDifference: glBalance - computedBalance,
+      glOnlyMovement,
+      statementOnlyMovement,
+      unexplainedResidual:
+        (glBalance - computedBalance) - (glOnlyMovement - statementOnlyMovement),
     };
   });
 
@@ -187,8 +229,14 @@ export async function getBankStatementCoverage(
       computedBalance: acc.computedBalance + a.computedBalance,
       difference: acc.difference + a.glVsComputedDifference,
       transactionCount: acc.transactionCount + a.transactionCount,
+      glOnlyMovement: acc.glOnlyMovement + a.glOnlyMovement,
+      statementOnlyMovement: acc.statementOnlyMovement + a.statementOnlyMovement,
+      unexplainedResidual: acc.unexplainedResidual + a.unexplainedResidual,
     }),
-    { glBalance: 0, statementBalance: 0, computedBalance: 0, difference: 0, transactionCount: 0 },
+    {
+      glBalance: 0, statementBalance: 0, computedBalance: 0, difference: 0, transactionCount: 0,
+      glOnlyMovement: 0, statementOnlyMovement: 0, unexplainedResidual: 0,
+    },
   );
 
   const newestImport = accountRows.reduce<string | null>(

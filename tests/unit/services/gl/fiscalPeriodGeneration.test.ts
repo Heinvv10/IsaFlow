@@ -58,6 +58,10 @@ function sqlText(callIndex: number): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // mockReset, not just clearAllMocks: the latter leaves the
+  // mockResolvedValueOnce QUEUE intact, so a test that refuses early leaks its
+  // unconsumed values into the next one.
+  mockSql.mockReset();
   inserted.length = 0;
 });
 
@@ -104,12 +108,27 @@ describe('createFiscalYear — fiscal alignment', () => {
     expect(periods[11]).toMatchObject({ endDate: '2026-12-31' });
   });
 
-  it('falls back to March when financial_year_start is NULL', async () => {
+  it('REFUSES when financial_year_start is unusable rather than assuming March', async () => {
+    // The shared basis (gl/fiscalYearBasis) is called with NO fallback here.
+    // createFiscalYear is a write path: building a year on a guessed March
+    // start is silent, and once journals post into those periods it is not
+    // recoverable. Zero production companies have a NULL today, so this is a
+    // guard against future misconfiguration, not a behaviour change on live
+    // data. Read paths that must survive a misconfigured tenant opt in to a
+    // fallback at the call site, where the assumption is visible.
     mockPreChecks(null);
 
-    const periods = await createFiscalYear(COMPANY, 2027);
+    await expect(createFiscalYear(COMPANY, 2027))
+      .rejects.toThrow(/no usable financial_year_start/);
+    expect(inserted).toHaveLength(0);
+  });
 
-    expect(periods[0]!.startDate).toBe('2026-03-01');
+  it('still refuses when the existing layout is usable but the declared value is not', async () => {
+    // The observed layout would have been enough to BUILD the year, but the
+    // declared month is what `alignment` reports against — reporting "aligned"
+    // against a guessed March is the silent assumption this refuses to make.
+    mockPreChecks(null, [], 1);
+    await expect(createFiscalYear(COMPANY, 2027)).rejects.toThrow(/financial_year_start/);
   });
 
   it('FOLLOWS the layout the company already has, even when it contradicts the declared year', async () => {

@@ -21,6 +21,9 @@ vi.mock('@/modules/accounting/services/bank/bankCoverageQueries', () => ({
   fetchCoverageGaps: vi.fn(),
   fetchDuplicateReferences: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/bank/bankCoverageDirections', () => ({
+  fetchCoverageDirections: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/bank/cashBalanceService', () => ({
   getCashBalance: vi.fn(),
 }));
@@ -31,6 +34,7 @@ import {
   fetchCoverageMonths,
   fetchDuplicateReferences,
 } from '@/modules/accounting/services/bank/bankCoverageQueries';
+import { fetchCoverageDirections } from '@/modules/accounting/services/bank/bankCoverageDirections';
 import { getCashBalance } from '@/modules/accounting/services/bank/cashBalanceService';
 import { getBankStatementCoverage } from '@/modules/accounting/services/bank/bankStatementCoverageService';
 
@@ -66,6 +70,10 @@ beforeEach(() => {
   ]);
   vi.mocked(fetchDuplicateReferences).mockResolvedValue([
     { bankAccountId: A1, reference: 'FNB-8842', count: 3, totalAmount: -300, transactionIds: ['t1', 't2', 't3'] },
+  ]);
+  vi.mocked(fetchCoverageDirections).mockResolvedValue([
+    { bankAccountId: A1, glOnlyMovement: 3225755.70, statementOnlyMovement: 0 },
+    { bankAccountId: A2, glOnlyMovement: 0, statementOnlyMovement: 0 },
   ]);
   vi.mocked(getCashBalance).mockResolvedValue({
     asAt: AS_AT,
@@ -156,7 +164,11 @@ describe('getBankStatementCoverage', () => {
   });
 
   it('falls back to the newest import when nothing is posted to the ledger', async () => {
-    vi.mocked(getCashBalance).mockResolvedValue({
+    vi.mocked(fetchCoverageDirections).mockResolvedValue([
+    { bankAccountId: A1, glOnlyMovement: 3225755.70, statementOnlyMovement: 0 },
+    { bankAccountId: A2, glOnlyMovement: 0, statementOnlyMovement: 0 },
+  ]);
+  vi.mocked(getCashBalance).mockResolvedValue({
       asAt: AS_AT, total: 0, accounts: [], deactivatedWithBalance: [], postedThrough: null,
     });
     const result = await getBankStatementCoverage(COMPANY, { asAt: AS_AT });
@@ -164,7 +176,11 @@ describe('getBankStatementCoverage', () => {
   });
 
   it('reports a GL balance for an account the cash figure does not list, as zero', async () => {
-    vi.mocked(getCashBalance).mockResolvedValue({
+    vi.mocked(fetchCoverageDirections).mockResolvedValue([
+    { bankAccountId: A1, glOnlyMovement: 3225755.70, statementOnlyMovement: 0 },
+    { bankAccountId: A2, glOnlyMovement: 0, statementOnlyMovement: 0 },
+  ]);
+  vi.mocked(getCashBalance).mockResolvedValue({
       asAt: AS_AT, total: 0, accounts: [], deactivatedWithBalance: [], postedThrough: null,
     });
     const result = await getBankStatementCoverage(COMPANY, { asAt: AS_AT });
@@ -174,6 +190,61 @@ describe('getBankStatementCoverage', () => {
   it('narrows to one account when asked, and still returns the same shape', async () => {
     await getBankStatementCoverage(COMPANY, { asAt: AS_AT, bankAccountId: A1 });
     expect(vi.mocked(fetchCoverageAccounts).mock.calls[0]?.[2]).toBe(A1);
+  });
+
+  it('reports the hole in BOTH directions, not only the one the spec anticipated', async () => {
+    // Velocity has twelve 1610xxx paycard accounts carrying ~R99k of GL balance
+    // with ZERO bank transactions, and 1544xxx accounts carrying transactions
+    // with no GL. Reporting only "statement rows missing from the GL" misses
+    // half of it, and neither direction is visible from the other side alone.
+    const result = await getBankStatementCoverage(COMPANY, { asAt: AS_AT });
+    const a1 = result.accounts.find((a) => a.bankAccountId === A1)!;
+    expect(a1.glOnlyMovement).toBeCloseTo(3225755.70, 2);
+    expect(a1.statementOnlyMovement).toBe(0);
+    expect(result.totals.glOnlyMovement).toBeCloseTo(3225755.70, 2);
+    expect(result.totals.statementOnlyMovement).toBe(0);
+  });
+
+  it('decomposes the gap EXACTLY when the opening balance has a journal behind it', async () => {
+    // Proven against production on both audited companies: a matched
+    // transaction's amount equals its journal leg to the cent on all 9,097
+    // matched rows, so the matched halves cancel and
+    //   gl - computed == glOnly - statementOnly
+    // holds with a residual of 0.00. A1 has no recorded opening balance and
+    // nets exactly.
+    const result = await getBankStatementCoverage(COMPANY, { asAt: AS_AT });
+    const a1 = result.accounts.find((a) => a.bankAccountId === A1)!;
+    expect(a1.unexplainedResidual).toBeCloseTo(0, 2);
+  });
+
+  it('leaves an opening balance with NO journal behind it in the residual', async () => {
+    // A2 carries R5,000 of bank_opening_balance metadata and no journals. That
+    // metadata is in computedBalance and in nothing else, so the residual is
+    // exactly −5,000 — which is the same defect get_opening_balances reports as
+    // a disagreement, arriving here from the other direction. Netting it away
+    // would hide a figure the banking screen displays and the ledger has never
+    // seen.
+    const result = await getBankStatementCoverage(COMPANY, { asAt: AS_AT });
+    const a2 = result.accounts.find((a) => a.bankAccountId === A2)!;
+    expect(a2.unexplainedResidual).toBeCloseTo(-5000, 2);
+    expect(result.totals.unexplainedResidual).toBeCloseTo(-5000, 2);
+  });
+
+  it('raises the residual when the two directions do not account for the gap', async () => {
+    vi.mocked(fetchCoverageDirections).mockResolvedValue([
+      { bankAccountId: A1, glOnlyMovement: 0, statementOnlyMovement: 0 },
+      { bankAccountId: A2, glOnlyMovement: 0, statementOnlyMovement: 0 },
+    ]);
+    const result = await getBankStatementCoverage(COMPANY, { asAt: AS_AT });
+    const a1 = result.accounts.find((a) => a.bankAccountId === A1)!;
+    // gl 3,353,164.26 - computed 127,408.56 = 3,225,755.70 unexplained.
+    expect(a1.unexplainedResidual).toBeCloseTo(3225755.70, 2);
+  });
+
+  it('treats an account the directions query does not mention as having none', async () => {
+    vi.mocked(fetchCoverageDirections).mockResolvedValue([]);
+    const result = await getBankStatementCoverage(COMPANY, { asAt: AS_AT });
+    expect(result.accounts.every((a) => a.glOnlyMovement === 0)).toBe(true);
   });
 
   it('passes the minimum gap length through rather than hard-coding it', async () => {

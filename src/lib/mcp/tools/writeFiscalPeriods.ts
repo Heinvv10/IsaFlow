@@ -194,6 +194,32 @@ export const yearEndCloseTool: McpTool = {
           + 'Close each of them with close_fiscal_period first. Nothing was posted.',
         );
       }
+      if (result.error === 'period_range_mismatch') {
+        return toolError(
+          `Fiscal year ${year}'s periods run ${result.actual.startDate} to ${result.actual.endDate}, `
+          + `but this company's financial year starts in month ${result.startMonth}, so `
+          + `FY${year} is ${result.expected.startDate} to ${result.expected.endDate}. `
+          + 'Closing the periods as they stand would roll the wrong twelve months into retained '
+          + 'earnings and then lock them. Nothing was posted. '
+          + 'Check alignment on list_fiscal_periods.',
+        );
+      }
+      if (result.error === 'no_fiscal_period') {
+        return toolError(
+          `No fiscal period covers ${result.entryDate}, where the closing journal would be dated. `
+          + 'Posting it without one would leave it outside the trial balance, the VAT201 and the '
+          + 'AFS permanently. Nothing was posted.',
+        );
+      }
+      if (result.error === 'ambiguous_retained_earnings') {
+        return toolError(
+          `More than one account could be retained earnings (${result.accountCodes.join(', ')}) `
+          + 'and none of them carries the configured code, so the close refuses rather than '
+          + 'choosing. Posting a year of trading into the wrong equity account and then locking '
+          + 'every period behind it is not recoverable in place. Set the '
+          + 'retained_earnings_account app setting, or rename the accounts. Nothing was posted.',
+        );
+      }
       if (result.error === 'no_retained_earnings') {
         return toolError(
           `No retained-earnings account found (looked for code ${result.accountCode} or an account `

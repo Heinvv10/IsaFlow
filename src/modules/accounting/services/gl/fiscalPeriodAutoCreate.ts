@@ -39,7 +39,7 @@ import { log } from '@/lib/logger';
 import {
   createFiscalYear,
   getFiscalPeriodIdForDate,
-  resolveFiscalYearStartMonth,
+  resolveCompanyPeriodAlignment,
 } from './fiscalPeriodService';
 import { fiscalYearOfDate } from './fiscalYearCalendar';
 
@@ -92,12 +92,12 @@ export async function ensureFiscalPeriodForDate(
   // a March-start company is wrong for ten months out of twelve: a June 2026
   // date belongs to FY2027, and creating FY2026 builds Mar 2025 – Feb 2026 and
   // leaves the date uncovered exactly as before. The start month comes from
-  // resolveFiscalYearStartMonth, which follows the layout the company's existing
+  // resolveCompanyPeriodAlignment, which follows the layout the company's existing
   // periods already use — so a tenant on calendar periods keeps getting calendar
   // years and nothing here half-migrates it.
   let year: number;
   try {
-    const alignment = await resolveFiscalYearStartMonth(companyId);
+    const alignment = await resolveCompanyPeriodAlignment(companyId);
     year = fiscalYearOfDate(entryDate, alignment.startMonth);
   } catch (err) {
     // An unparseable date, or a company row that has gone. Null is the

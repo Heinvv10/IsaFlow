@@ -12,7 +12,7 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriods: vi.fn(),
   getFiscalPeriodById: vi.fn(),
   getJournalCountsByYear: vi.fn(),
-  resolveFiscalYearStartMonth: vi.fn(),
+  resolveCompanyPeriodAlignment: vi.fn(),
   reopenPeriod: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/gl/periodCloseReadinessService', () => ({
@@ -36,7 +36,7 @@ import {
   getFiscalPeriods,
   getFiscalPeriodById,
   getJournalCountsByYear,
-  resolveFiscalYearStartMonth,
+  resolveCompanyPeriodAlignment,
   reopenPeriod,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { getCloseReadiness } from '@/modules/accounting/services/gl/periodCloseReadinessService';
@@ -83,7 +83,7 @@ function period(o: Partial<FiscalPeriod> = {}): FiscalPeriod {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(resolveFiscalYearStartMonth).mockResolvedValue({
+  vi.mocked(resolveCompanyPeriodAlignment).mockResolvedValue({
     declaredStartMonth: 3, observedStartMonth: 1, startMonth: 1, aligned: false,
   });
   vi.mocked(getFiscalPeriods).mockResolvedValue([period()]);

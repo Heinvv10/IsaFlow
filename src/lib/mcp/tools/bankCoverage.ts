@@ -134,7 +134,7 @@ export const bankStatementCoverageTool: McpTool = {
         posted_through: coverage.postedThrough ?? '',
         next_cursor: null,
         excludedRows: [],
-        figureBasis: figureBasis('cash.balance.v1'),
+        figureBasis: figureBasis('cash.ledger.v1'),
       }),
       totals: coverage.totals,
     });

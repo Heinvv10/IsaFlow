@@ -104,10 +104,10 @@ describe('registration', () => {
 });
 
 describe('bank_statement_coverage', () => {
-  it('returns a sound envelope naming cash.balance.v1 as its basis', async () => {
+  it('returns a sound envelope naming cash.ledger.v1 as its basis', async () => {
     const env = body(await bankStatementCoverageTool.handler({}, ctx));
     assertEnvelopeSound(env as never);
-    expect(env.figureBasis).toBe('cash.balance.v1');
+    expect(env.figureBasis).toBe('cash.ledger.v1');
     expect(env.posted_through).toBe('2026-09-03T03:10:16.064Z');
   });
 
@@ -278,6 +278,38 @@ describe('perform_bank_reconciliation', () => {
     expect(String(b.note)).toMatch(/still in progress/);
     // It WROTE, so the key must be consumed: a retry must not open a second session.
     expect((res as { wroteNothing?: boolean }).wroteNothing).toBeUndefined();
+  });
+
+  it('will NOT complete a reconciliation that matched nothing', async () => {
+    // Production holds a COMPLETED reconciliation with a R0.00 difference and
+    // zero matched transactions. It balances because reconciled_balance starts
+    // AT gl_balance, so an empty session is trivially "balanced" — and a
+    // reconciliation that matched nothing proves nothing while looking, in
+    // every list and report, exactly like one that proved everything.
+    vi.mocked(getReconciliationById).mockResolvedValue({
+      ...started, difference: 0, matchedCount: 0, unmatchedCount: 0,
+    });
+    vi.mocked(autoMatchTransactions).mockResolvedValue({
+      matched: 0, unmatched: 0, candidates: [], skippedRaced: 0,
+    });
+
+    const res = await performBankReconciliationTool.handler({ ...base, complete: true }, ctx);
+
+    expect(res.isError).toBeFalsy();
+    expect(completeReconciliation).not.toHaveBeenCalled();
+    const b = body(res);
+    expect(b.completed).toBe(false);
+    expect(b.matched_count).toBe(0);
+    expect(String(b.note)).toMatch(/matched no transactions/i);
+  });
+
+  it('completes when it balances AND actually matched something', async () => {
+    vi.mocked(getReconciliationById).mockResolvedValue({
+      ...started, difference: 0, reconciledBalance: 1000, matchedCount: 12,
+    });
+    const b = body(await performBankReconciliationTool.handler({ ...base, complete: true }, ctx));
+    expect(completeReconciliation).toHaveBeenCalled();
+    expect(b.completed).toBe(true);
   });
 
   it('skips auto-matching when asked to', async () => {

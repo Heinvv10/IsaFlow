@@ -32,7 +32,7 @@ vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   getFiscalPeriods: vi.fn().mockResolvedValue([]),
   getFiscalPeriodById: vi.fn().mockResolvedValue(null),
   getJournalCountsByYear: vi.fn().mockResolvedValue({}),
-  resolveFiscalYearStartMonth: vi.fn().mockResolvedValue({
+  resolveCompanyPeriodAlignment: vi.fn().mockResolvedValue({
     declaredStartMonth: 3, observedStartMonth: null, startMonth: 3, aligned: true,
   }),
 }));

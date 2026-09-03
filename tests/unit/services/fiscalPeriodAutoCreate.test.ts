@@ -36,13 +36,13 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
   createFiscalYear: vi.fn(),
   getFiscalPeriodIdForDate: vi.fn(),
-  resolveFiscalYearStartMonth: vi.fn(),
+  resolveCompanyPeriodAlignment: vi.fn(),
 }));
 
 import {
   createFiscalYear,
   getFiscalPeriodIdForDate,
-  resolveFiscalYearStartMonth,
+  resolveCompanyPeriodAlignment,
 } from '@/modules/accounting/services/gl/fiscalPeriodService';
 import {
   AUTO_CREATE_YEARS_BACK,
@@ -90,7 +90,7 @@ describe('ensureFiscalPeriodForDate', () => {
     // These cases predate fiscal alignment and assert the CALENDAR behaviour,
     // so they pin the company to a January start where the two coincide. The
     // March-start boundary is covered in ensureFiscalPeriodAlignment.test.ts.
-    vi.mocked(resolveFiscalYearStartMonth).mockResolvedValue({
+    vi.mocked(resolveCompanyPeriodAlignment).mockResolvedValue({
       declaredStartMonth: 1, observedStartMonth: 1, startMonth: 1, aligned: true,
     });
   });

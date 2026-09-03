@@ -54,7 +54,10 @@ export const performBankReconciliationTool: McpTool = {
     + 'It does NOT create journals: a transaction with nothing in the GL to match stays '
     + 'unmatched — allocate it with allocate_bank_transaction and reconcile again. '
     + 'complete defaults to false. With complete: true the session is completed ONLY when the '
-    + 'difference is exactly zero; when it is not, the call still SUCCEEDS, reports '
+    + 'difference is exactly zero AND at least one transaction was matched — an empty session '
+    + 'balances trivially, because a reconciliation starts at the GL balance, and completing one '
+    + 'proves nothing (production holds exactly such a reconciliation). When either condition '
+    + 'fails the call still SUCCEEDS, reports '
     + 'completed: false with the difference, and leaves the session in progress so the matches are '
     + 'not thrown away — cancel_bank_reconciliation releases it if you want to start over. '
     + 'Refuses if a reconciliation is already in progress on the account. '
@@ -176,8 +179,16 @@ export const performBankReconciliationTool: McpTool = {
     const current = await getReconciliationById(ctx.companyId, started.id);
     const difference = current?.difference ?? started.difference;
     const balanced = Math.abs(difference) < BALANCED_TOLERANCE;
+    const matchedCount = current?.matchedCount ?? matchResult?.matched ?? 0;
 
-    const completed = complete && balanced
+    // A session that matched NOTHING is trivially "balanced": startReconciliation
+    // sets reconciled_balance to gl_balance, so an empty session shows a R0.00
+    // difference before anything happens. Production holds exactly one such
+    // completed reconciliation — R0.00 difference, zero matched transactions —
+    // and in every list and report it is indistinguishable from one that
+    // proved the whole account. Completing that is signing off on nothing.
+    const provedSomething = matchedCount > 0;
+    const completed = complete && balanced && provedSomething
       ? await completeReconciliation(ctx.companyId, started.id, ctx.userId)
       : null;
 
@@ -194,6 +205,7 @@ export const performBankReconciliationTool: McpTool = {
       status: completed?.status ?? current?.status ?? started.status,
       completed: completed !== null,
       auto_matched: matchResult?.matched ?? 0,
+      matched_count: matchedCount,
       still_unmatched: matchResult?.unmatched ?? current?.unmatchedCount ?? 0,
       low_confidence_candidates: matchResult?.candidates.length ?? 0,
       skipped_raced: matchResult?.skippedRaced ?? 0,
@@ -204,7 +216,15 @@ export const performBankReconciliationTool: McpTool = {
             + 'exactly zero. The session is still in progress with its matches intact — allocate '
             + 'the outstanding transactions, or cancel_bank_reconciliation to release them.',
         }
-        : {}),
+        : complete && !provedSomething
+          ? {
+            note:
+              'Not completed: the session matched no transactions. It shows a zero difference '
+              + 'only because a reconciliation starts at the GL balance, so an empty session '
+              + 'balances trivially and would prove nothing. Allocate or import the '
+              + 'transactions first, or cancel_bank_reconciliation to release the session.',
+          }
+          : {}),
     });
   },
 };
