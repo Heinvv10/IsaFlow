@@ -10,125 +10,16 @@ import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
 import { getOpenDisputeTotals } from './disputeService';
+import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 type Row = DbRow;
 
 
 /**
- * Settlement that happened AFTER the as-at date, to be REWOUND.
- * 
- * The balance is anchored on customer_invoices.amount_paid — the
- * authoritative figure — and only the events we can date are undone.
- * Rebuilding paid-from-zero out of allocations was the wrong shape:
- * anything that reduces an invoice WITHOUT leaving a dated trail (a
- * receipt captured with no allocation row, a Sage-migrated balance)
- * would then be invisible, and the invoice would reappear at full face
- * value as delinquent debt the customer had in fact settled. On dev
- * that resurrects 105 paid invoices for one client and overstates
- * receivables by 159%.
- * 
- * Anchoring cannot do that. Undated settlement stays in the baseline
- * and is treated as having always been there, which is conservative:
- * the report can understate how much was owed on a past date, but it
- * will not resurrect a settled invoice.
- * 
- * TWO GUARDS make that claim actually true; without them it was not.
- * 
- *   <= the today bound. NOTE this also means post-dated settlement is
- *   never rewound at ANY as-at date, not only the default one: a
- *   historical report understates by every future-dated payment and
- *   credit note. That is a compatibility choice, not a correctness
- *   one — rewinding them would change the DEFAULT report, which this
- *   change guarantees not to do. Post-dated payments are ordinary
- *   practice — 37
- *   supplier payments, 25 customer payments and 14 credit notes carry
- *   a future date in production. They are already inside amount_paid,
- *   so rewinding them at an as-at of TODAY re-opened invoices the live
- *   report shows as settled: the demo company's default AP aging moved
- *   from R7,241,000.56 to R7,623,216.94 across 37 invoices, with no
- *   as_at parameter supplied at all. Bounding the window at today
- *   makes the rewind set empty by construction for the default report.
- * 
- * 
- * 
- * AND ONE MORE BOUND ON THAT CLAIM. Anchoring inherits whatever
- * amount_paid says, including where it has been LOWERED after the
- * fact. On the 40 production invoices where dated allocations exceed
- * amount_paid, the historical figure carries the same overstatement
- * the LIVE report already carries: the live report says R483,266.76
- * for those invoices while their allocations say R358,306.39. This
- * code does not introduce that gap and does not widen it — it
- * reproduces the live ledger at an earlier date, which is the whole
- * point of anchoring — but it does not correct it either, so a
- * historical balance is not guaranteed to err only downwards.
- * 
- * The root cause is bank-match-confirm writing amount_paid absolutely
- * and clobbering what the allocation paths accumulated. That is a data
- * integrity defect in the settlement path, not in this report, and it
- * is worth fixing there. All 40 are the demo company; no real client
- * invoice is affected.
- * ONE CASE THIS DOES NOT COVER, stated rather than glossed. A payment
- * later CANCELLED keeps its allocation row but is excluded from the
- * rewind by the status filter, and amount_paid has already been
- * reduced. So for a date between the payment and its cancellation the
- * invoice reads as outstanding when it was in fact settled — the one
- * shape where this report can overstate a historical debt. There is no
- * cancellation date on customer_payments or supplier_payments to
- * distinguish it by (only updated_at, which any edit touches), so it
- * cannot be fixed without a schema change. Production exposure is 5
- * payments totalling R5,462.50, which does not justify one.
- *   LEAST(rewound, amount_paid). Rewinding is only sound if every
- *   event rewound is INSIDE the anchor, and it is not:
- *   bank-match-confirm.ts writes amount_paid absolutely, clobbering
- *   what the allocation paths had accumulated while their allocation
- *   rows survive. Dated settlement therefore exceeds amount_paid on 40
- *   production invoices by R124,960.37, and without the clamp a
- *   supplier was aged R50,275.55 on a R38,614.57 invoice — a balance
- *   larger than the debt itself. The clamp bounds the result to the
- *   invoice's own face value.
- * 
- * EVERY WRITER OF amount_paid, and whether this rewind can see it.
- * This census has been wrong FIVE times. It first covered only the
- * service layer; the claim that it then covered src/, pages/ and
- * scripts/ was itself untrue — four importer writers under
- * services/core and services/ap were still missing. Re-derive it, do
- * not trust it.
- * 
- *   DATABLE, rewound here:
- *     customerPaymentAllocationService, receiptAllocationLines,
- *     supplierAllocationLines, supplierPaymentWorkflowService,
- *     batchPaymentService   -> allocation row + payment_date
- *     creditNoteApprove/CancelService -> credit_notes.credit_date
- *     writeOffService                 -> write_off_date
- * 
- *   NOT DATABLE, deliberately left in the baseline:
- *     pages/api/accounting/bank-match-confirm.ts  — the PRIMARY bank
- *       reconciliation settlement path. Writes amount_paid with no
- *       payment row and no allocation row.
- *     pages/api/webhooks/paystack.ts
- *     pages/api/portal/payments/paystack/verify.ts
- *     scripts/import-sage-britech.ts — sets amount_paid on INSERT
- *     core/sageImportService.ts, core/sageCustomerImportService.ts,
- *     core/migrationImportService.ts, ap/migrationApService.ts —
- *       all set a non-zero amount_paid on INSERT, so a migrated
- *       balance has no dated trail at all
- * 
- * total_amount IS ALSO A CURRENT SNAPSHOT. Everything above concerns
- * amount_paid, but the other half of the formula is read at today's
- * value too. An invoice raised at 1,000 and later amended to 500
- * reports 500 for a date on which 1,000 was owed. Nothing in this
- * schema dates an amendment, so it is stated rather than handled.
- * 
- * For an invoice settled by one of those four, the historical balance
- * is understated: it reads as settled on dates when it was still open.
- * That is the accepted direction of error.
- * 
- * customer_invoices.paid_at IS available and covers some of them (46 of
- * 46 settled invoices on one production company). It is deliberately
- * NOT used: it records when an invoice became FULLY paid, so
- * attributing the whole undated remainder to it would claim that
- * nothing had been paid before that date. On an invoice with earlier
- * part-payments that invents a delinquency, which is the one thing
- * this design refuses to do.
+ * AR aging. The point-in-time reconstruction — how a past balance is derived,
+ * every writer of amount_paid and whether it can be dated, and the four
+ * documented limitations — lives in services/shared/agingRewind.ts, which both
+ * this and the AP service build their rewind from. Read it before changing
+ * anything about how `asAtDate` is handled here.
  */
 export async function getARAging(companyId: string, asAtDate?: string): Promise<AgingBucket[]> {
   try {
@@ -152,81 +43,17 @@ export async function getARAging(companyId: string, asAtDate?: string): Promise<
         COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
         (ci.due_date IS NULL) AS due_date_missing,
         ci.total_amount,
-        LEAST(GREATEST(COALESCE(ci.amount_paid, 0)
-             - COALESCE(unpaid.amount, 0), 0), ci.total_amount) AS amount_paid,
-        (ci.total_amount - LEAST(GREATEST(COALESCE(ci.amount_paid, 0)
-             - COALESCE(unpaid.amount, 0), 0), ci.total_amount)) AS balance
+        ${sql.unsafe(effectivePaidExpr('ar'))} AS amount_paid,
+        (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) AS balance
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       LEFT JOIN LATERAL (
-        -- Settlement to UNWIND (positive) or RESTORE (negative) so the figure
-        -- reflects the as-at date. The reasoning, the census of every writer
-        -- of amount_paid, and the three documented limitations are in the
-        -- block comment at the top of this file. Read it before editing this.
-        SELECT SUM(amount) AS amount FROM (
-          SELECT cpa.amount_allocated AS amount
-          FROM customer_payment_allocations cpa
-          JOIN customer_payments cp ON cp.id = cpa.payment_id
-          WHERE cpa.invoice_id = ci.id
-            AND cp.company_id = ${companyId}
-            AND cp.status NOT IN ('draft', 'cancelled')
-            AND cp.payment_date > ${asAtStr}::date
-            AND cp.payment_date <= ${todayStr}::date
-
-          UNION ALL
-
-          -- applied_amount, not total_amount: creditNoteApproveService applies
-          -- MIN(total, outstanding) and deliberately leaves the excess
-          -- unapplied (migration 529). Rewinding the face value would credit
-          -- back more than was ever taken off the invoice.
-          --
-          -- The column is NOT NULL DEFAULT 0, so no COALESCE is needed and a
-          -- fallback to total_amount would be unreachable. A note sitting at 0
-          -- was never applied to this invoice and so reduced nothing to rewind.
-          SELECT cn.applied_amount
-          FROM credit_notes cn
-          WHERE cn.customer_invoice_id = ci.id
-            AND cn.company_id = ${companyId}
-            AND cn.type   = 'customer'
-            AND cn.status IN ('approved', 'applied')
-            AND cn.credit_date > ${asAtStr}::date
-            AND cn.credit_date <= ${todayStr}::date
-
-          UNION ALL
-
-          -- A bad-debt write-off also raises amount_paid, with no allocation
-          -- row and no credit note.
-          SELECT wo.amount
-          FROM customer_write_offs wo
-          WHERE wo.invoice_id = ci.id
-            AND wo.company_id = ${companyId}
-            AND wo.status = 'approved'
-            AND wo.write_off_date > ${asAtStr}::date
-            AND wo.write_off_date <= ${todayStr}::date
-
-          UNION ALL
-
-          -- NEGATIVE: a credit note that WAS applied on the as-at date and
-          -- has since been CANCELLED. amount_paid no longer reflects it, but
-          -- it did then, so it has to be put back or the invoice reads as
-          -- more outstanding than it was. Possible only because
-          -- credit_notes.cancelled_at exists (migration 528) and
-          -- creditNoteCancelService writes it; the payment tables carry no
-          -- equivalent, which is the limitation documented above.
-          SELECT -cn.applied_amount
-          FROM credit_notes cn
-          WHERE cn.customer_invoice_id = ci.id
-            AND cn.company_id = ${companyId}
-            AND cn.status = 'cancelled'
-            AND cn.credit_date  <= ${asAtStr}::date
-            AND cn.cancelled_at >  ${asAtStr}::date
-        ) reversed
+        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND ci.status NOT IN ('draft', 'cancelled')
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
-        AND (ci.total_amount - LEAST(GREATEST(COALESCE(ci.amount_paid, 0)
-                 - COALESCE(unpaid.amount, 0), 0), ci.total_amount)) > 0
+        AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
       -- POINT IN TIME. amount_paid on the invoice is a CURRENT snapshot, so
       -- reading it made asAtDate decorative: it only re-bucketed today's
       -- balances by age. What was owed on a past date is reconstructed from
@@ -335,82 +162,18 @@ export async function getARAgingDetail(companyId: string,
         COALESCE(ci.due_date, ci.invoice_date, ci.created_at::date) AS due_date,
         (ci.due_date IS NULL) AS due_date_missing,
         ci.invoice_number, ci.total_amount,
-        LEAST(GREATEST(COALESCE(ci.amount_paid, 0)
-             - COALESCE(unpaid.amount, 0), 0), ci.total_amount) AS amount_paid,
-        (ci.total_amount - LEAST(GREATEST(COALESCE(ci.amount_paid, 0)
-             - COALESCE(unpaid.amount, 0), 0), ci.total_amount)) AS balance
+        ${sql.unsafe(effectivePaidExpr('ar'))} AS amount_paid,
+        (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) AS balance
       FROM customer_invoices ci
       JOIN customers c ON c.id = COALESCE(ci.client_id, ci.customer_id)
       LEFT JOIN LATERAL (
-        -- Settlement to UNWIND (positive) or RESTORE (negative) so the figure
-        -- reflects the as-at date. The reasoning, the census of every writer
-        -- of amount_paid, and the three documented limitations are in the
-        -- block comment at the top of this file. Read it before editing this.
-        SELECT SUM(amount) AS amount FROM (
-          SELECT cpa.amount_allocated AS amount
-          FROM customer_payment_allocations cpa
-          JOIN customer_payments cp ON cp.id = cpa.payment_id
-          WHERE cpa.invoice_id = ci.id
-            AND cp.company_id = ${companyId}
-            AND cp.status NOT IN ('draft', 'cancelled')
-            AND cp.payment_date > ${asAtStr}::date
-            AND cp.payment_date <= ${todayStr}::date
-
-          UNION ALL
-
-          -- applied_amount, not total_amount: creditNoteApproveService applies
-          -- MIN(total, outstanding) and deliberately leaves the excess
-          -- unapplied (migration 529). Rewinding the face value would credit
-          -- back more than was ever taken off the invoice.
-          --
-          -- The column is NOT NULL DEFAULT 0, so no COALESCE is needed and a
-          -- fallback to total_amount would be unreachable. A note sitting at 0
-          -- was never applied to this invoice and so reduced nothing to rewind.
-          SELECT cn.applied_amount
-          FROM credit_notes cn
-          WHERE cn.customer_invoice_id = ci.id
-            AND cn.company_id = ${companyId}
-            AND cn.type   = 'customer'
-            AND cn.status IN ('approved', 'applied')
-            AND cn.credit_date > ${asAtStr}::date
-            AND cn.credit_date <= ${todayStr}::date
-
-          UNION ALL
-
-          -- A bad-debt write-off also raises amount_paid, with no allocation
-          -- row and no credit note.
-          SELECT wo.amount
-          FROM customer_write_offs wo
-          WHERE wo.invoice_id = ci.id
-            AND wo.company_id = ${companyId}
-            AND wo.status = 'approved'
-            AND wo.write_off_date > ${asAtStr}::date
-            AND wo.write_off_date <= ${todayStr}::date
-
-          UNION ALL
-
-          -- NEGATIVE: a credit note that WAS applied on the as-at date and
-          -- has since been CANCELLED. amount_paid no longer reflects it, but
-          -- it did then, so it has to be put back or the invoice reads as
-          -- more outstanding than it was. Possible only because
-          -- credit_notes.cancelled_at exists (migration 528) and
-          -- creditNoteCancelService writes it; the payment tables carry no
-          -- equivalent, which is the limitation documented above.
-          SELECT -cn.applied_amount
-          FROM credit_notes cn
-          WHERE cn.customer_invoice_id = ci.id
-            AND cn.company_id = ${companyId}
-            AND cn.status = 'cancelled'
-            AND cn.credit_date  <= ${asAtStr}::date
-            AND cn.cancelled_at >  ${asAtStr}::date
-        ) reversed
+        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ar' })}
       ) unpaid ON TRUE
       WHERE ci.company_id = ${companyId}
         AND COALESCE(ci.client_id, ci.customer_id) = ${clientId}::UUID
         AND ci.status NOT IN ('draft', 'cancelled')
         AND COALESCE(ci.invoice_date, ci.created_at::date) <= ${asAtStr}::date
-        AND (ci.total_amount - LEAST(GREATEST(COALESCE(ci.amount_paid, 0)
-                 - COALESCE(unpaid.amount, 0), 0), ci.total_amount)) > 0
+        AND (ci.total_amount - ${sql.unsafe(effectivePaidExpr('ar'))}) > 0
       -- An invoice with no due date is still a debt. Filtering
       -- due_date IS NOT NULL here dropped 34 invoices worth R13,908,380.43
       -- from production's AR aging — not shown in a bucket, not in a total,

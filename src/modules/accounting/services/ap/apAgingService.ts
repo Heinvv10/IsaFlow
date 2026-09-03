@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import { calculateAgingBuckets } from '../../utils/aging';
 import type { AgingBucket, AgingInvoice } from '../../types/ap.types';
 import { fmtDate } from '@/lib/fmtDate';
+import { rewindAmount, effectivePaidExpr } from '@/modules/accounting/services/shared/agingRewind';
 type Row = DbRow;
 
 
@@ -76,61 +77,17 @@ export async function getAPAging(companyId: string, asAtDate?: string): Promise<
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
         si.total_amount,
-        LEAST(GREATEST(COALESCE(si.amount_paid, 0)
-             - COALESCE(unpaid.amount, 0), 0), si.total_amount) AS amount_paid,
-        (si.total_amount - LEAST(GREATEST(COALESCE(si.amount_paid, 0)
-             - COALESCE(unpaid.amount, 0), 0), si.total_amount)) AS balance
+        ${sql.unsafe(effectivePaidExpr('ap'))} AS amount_paid,
+        (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
-        -- Settlement to UNWIND (positive) or RESTORE (negative) so the figure
-        -- reflects the as-at date. Full reasoning, the census of every writer
-        -- of amount_paid and the documented limitations live in the block
-        -- comment at the top of ar/arAgingService.ts — this side mirrors it.
-        SELECT SUM(amount) AS amount FROM (
-          SELECT pa.amount_allocated AS amount
-          FROM payment_allocations pa
-          JOIN supplier_payments sp ON sp.id = pa.payment_id
-          WHERE pa.invoice_id = si.id
-            AND sp.company_id = ${companyId}::UUID
-            AND sp.status NOT IN ('draft', 'cancelled')
-            AND sp.payment_date > ${asAtStr}::date
-            AND sp.payment_date <= ${todayStr}::date
-
-          UNION ALL
-
-          SELECT cn.applied_amount
-          FROM credit_notes cn
-          WHERE cn.supplier_invoice_id = si.id
-            AND cn.company_id = ${companyId}::UUID
-            AND cn.type   = 'supplier'
-            AND cn.status IN ('approved', 'applied')
-            AND cn.credit_date > ${asAtStr}::date
-            AND cn.credit_date <= ${todayStr}::date
-
-          UNION ALL
-
-          -- NEGATIVE: a credit note that WAS applied on the as-at date and
-          -- has since been CANCELLED. amount_paid no longer reflects it, but
-          -- it did then, so it has to be put back or the invoice reads as
-          -- more outstanding than it was. Possible only because
-          -- credit_notes.cancelled_at exists (migration 528) and
-          -- creditNoteCancelService writes it; the payment tables carry no
-          -- equivalent, which is the limitation documented above.
-          SELECT -cn.applied_amount
-          FROM credit_notes cn
-          WHERE cn.supplier_invoice_id = si.id
-            AND cn.company_id = ${companyId}
-            AND cn.status = 'cancelled'
-            AND cn.credit_date  <= ${asAtStr}::date
-            AND cn.cancelled_at >  ${asAtStr}::date
-        ) reversed
+        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - LEAST(GREATEST(COALESCE(si.amount_paid, 0)
-                 - COALESCE(unpaid.amount, 0), 0), si.total_amount)) > 0
+        AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
       -- Same omission as AR, and larger: 357 supplier invoices worth
       -- R37,703,816.94 — a third of all open payables — were absent from the
       -- aging because they carry no due date. Aged from invoice_date instead.
@@ -183,62 +140,18 @@ export async function getAPAgingDetail(companyId: string,
         COALESCE(si.due_date, si.invoice_date) AS due_date,
         (si.due_date IS NULL) AS due_date_missing,
         si.invoice_number, si.total_amount,
-        LEAST(GREATEST(COALESCE(si.amount_paid, 0)
-             - COALESCE(unpaid.amount, 0), 0), si.total_amount) AS amount_paid,
-        (si.total_amount - LEAST(GREATEST(COALESCE(si.amount_paid, 0)
-             - COALESCE(unpaid.amount, 0), 0), si.total_amount)) AS balance
+        ${sql.unsafe(effectivePaidExpr('ap'))} AS amount_paid,
+        (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) AS balance
       FROM supplier_invoices si
       JOIN suppliers s ON s.id = si.supplier_id
       LEFT JOIN LATERAL (
-        -- Settlement to UNWIND (positive) or RESTORE (negative) so the figure
-        -- reflects the as-at date. Full reasoning, the census of every writer
-        -- of amount_paid and the documented limitations live in the block
-        -- comment at the top of ar/arAgingService.ts — this side mirrors it.
-        SELECT SUM(amount) AS amount FROM (
-          SELECT pa.amount_allocated AS amount
-          FROM payment_allocations pa
-          JOIN supplier_payments sp ON sp.id = pa.payment_id
-          WHERE pa.invoice_id = si.id
-            AND sp.company_id = ${companyId}::UUID
-            AND sp.status NOT IN ('draft', 'cancelled')
-            AND sp.payment_date > ${asAtStr}::date
-            AND sp.payment_date <= ${todayStr}::date
-
-          UNION ALL
-
-          SELECT cn.applied_amount
-          FROM credit_notes cn
-          WHERE cn.supplier_invoice_id = si.id
-            AND cn.company_id = ${companyId}::UUID
-            AND cn.type   = 'supplier'
-            AND cn.status IN ('approved', 'applied')
-            AND cn.credit_date > ${asAtStr}::date
-            AND cn.credit_date <= ${todayStr}::date
-
-          UNION ALL
-
-          -- NEGATIVE: a credit note that WAS applied on the as-at date and
-          -- has since been CANCELLED. amount_paid no longer reflects it, but
-          -- it did then, so it has to be put back or the invoice reads as
-          -- more outstanding than it was. Possible only because
-          -- credit_notes.cancelled_at exists (migration 528) and
-          -- creditNoteCancelService writes it; the payment tables carry no
-          -- equivalent, which is the limitation documented above.
-          SELECT -cn.applied_amount
-          FROM credit_notes cn
-          WHERE cn.supplier_invoice_id = si.id
-            AND cn.company_id = ${companyId}
-            AND cn.status = 'cancelled'
-            AND cn.credit_date  <= ${asAtStr}::date
-            AND cn.cancelled_at >  ${asAtStr}::date
-        ) reversed
+        ${rewindAmount({ companyId, asAtStr, todayStr, side: 'ap' })}
       ) unpaid ON TRUE
       WHERE si.company_id = ${companyId}::UUID
         AND si.supplier_id = ${supplierId}::UUID
         AND si.status NOT IN ('draft', 'cancelled')
         AND si.invoice_date <= ${asAtStr}::date
-        AND (si.total_amount - LEAST(GREATEST(COALESCE(si.amount_paid, 0)
-                 - COALESCE(unpaid.amount, 0), 0), si.total_amount)) > 0
+        AND (si.total_amount - ${sql.unsafe(effectivePaidExpr('ap'))}) > 0
       -- Undated invoices belong here for the same reason they belong in the
       -- summary. A drill-down that omits them contradicts the total it drills
       -- into, which is worse than the original omission because it reads as a
