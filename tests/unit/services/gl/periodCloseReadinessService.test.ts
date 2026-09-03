@@ -116,6 +116,7 @@ function mockAllChecksPass(): void {
     ])
     .mockResolvedValueOnce([{ retained: '0' }])
     .mockResolvedValueOnce([{ accounts: '0', balance: '0' }]) // opening balance equity
+    .mockResolvedValueOnce([{ orphan_count: '0', earliest: null, latest: null, total: '0' }])
 }
 
 describe('getCloseReadiness — orchestrator', () => {
@@ -144,7 +145,7 @@ describe('getCloseReadiness — orchestrator', () => {
 
     expect(result).not.toBeNull();
     expect(result!.overallStatus).toBe('pass');
-    expect(result!.items).toHaveLength(7);
+    expect(result!.items).toHaveLength(8);
     for (const item of result!.items) {
       expect(item.status).toBe('pass');
     }
@@ -206,7 +207,7 @@ describe('getCloseReadiness — orchestrator', () => {
     await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
     // 8 single-query checks + the 5 the trial balance check now issues.
-    expect(mockSql).toHaveBeenCalledTimes(13);
+    expect(mockSql).toHaveBeenCalledTimes(14);
     // Every query must be company-scoped. Asserted on membership rather than
     // position: a query with conditional aggregation interpolates its CASE
     // bounds before it reaches the WHERE clause, and an unscoped query fails
@@ -285,7 +286,7 @@ describe('getCloseReadiness — orchestrator', () => {
       (name: string, fn: () => Promise<unknown>) => Promise<unknown>
     >;
     // one savepoint per check — six checks
-    expect(mockWithSavepoint).toHaveBeenCalledTimes(7);
+    expect(mockWithSavepoint).toHaveBeenCalledTimes(8);
     // every savepoint name is a valid identifier (withSavepoint rejects bad names at runtime)
     for (const call of mockWithSavepoint.mock.calls) {
       expect(String(call[0])).toMatch(/^[a-zA-Z_][a-zA-Z0-9_]{0,30}$/);
@@ -348,7 +349,7 @@ describe('getCloseReadiness — orchestrator', () => {
     const result = await getCloseReadiness(COMPANY_A, PERIOD_ID);
 
     expect(result).not.toBeNull();
-    expect(result!.items).toHaveLength(7);
+    expect(result!.items).toHaveLength(8);
 
     const bankItem = result!.items.find(i => i.key === 'bank_reconciled');
     expect(bankItem!.status).toBe('warn');

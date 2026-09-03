@@ -90,10 +90,22 @@ import {
   listTimeEntriesTool,
 } from './tools/practice';
 import { createJobCategoryTool, createWorkItemTool } from './tools/writePracticeSetup';
+import {
+  listFiscalPeriodsTool,
+  getFiscalPeriodTool,
+  periodCloseChecklistTool,
+} from './tools/fiscalPeriods';
+import { bankStatementCoverageTool, getOpeningBalancesTool } from './tools/bankCoverage';
+import {
+  closeFiscalPeriodTool,
+  reopenFiscalPeriodTool,
+  yearEndCloseTool,
+} from './tools/writeFiscalPeriods';
+import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (42)
+  // read (47)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -138,7 +150,14 @@ export const MCP_TOOLS = [
   getCreditNoteTool,
   suggestReceiptMatchesTool,
   listUnappliedReceiptsTool,
-  // write (40) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // Period control and bank completeness (W3). The five reads that let a caller
+  // see the posting lock and prove a bank account's history.
+  listFiscalPeriodsTool,
+  getFiscalPeriodTool,
+  periodCloseChecklistTool,
+  bankStatementCoverageTool,
+  getOpeningBalancesTool,
+  // write (44) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -186,6 +205,12 @@ export const MCP_TOOLS = [
   updateCustomerTool,
   createSupplierTool,
   updateSupplierTool,
+  // Period control: close/reopen a period and close a year. All three require
+  // write:post — each one changes what may post, or posts to equity.
+  closeFiscalPeriodTool,
+  reopenFiscalPeriodTool,
+  yearEndCloseTool,
+  performBankReconciliationTool,
   // Records that a VAT period has been filed. requiresPost because it freezes
   // a filed return: a control an agent can set without write:post is not one.
   lockVatPeriodTool,

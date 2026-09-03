@@ -15,7 +15,14 @@ const COMPANY_ID = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
 const PERIOD_START = '2026-01-01';
 const PERIOD_END   = '2026-12-31';
 
-const OPENING_ROWS = [{ balance: 15000 }];
+// Opening cash now comes from cash.balance.v1's owning service
+// (bank/cashBalanceService), which returns one row PER bank account with a
+// `gl_balance` column. fetchOpeningCash no longer carries its own copy of the
+// query — that private copy is why cash had four answers.
+const OPENING_ROWS = [
+  { id: 'bank-1', account_code: '1110', account_name: 'Bank', is_active: true,
+    gl_balance: 15000, posted_through: null },
+];
 
 const ALLOCATION_ROWS = [
   { cash_group: 'cash_received_from_customers', amount:  80000 },
@@ -68,7 +75,10 @@ describe('cashFlowDirectService', () => {
 
   it('returns zero cash when no bank transactions exist', async () => {
     mockSql
-      .mockResolvedValueOnce([{ balance: 0 }])
+      .mockResolvedValueOnce([
+        { id: 'bank-1', account_code: '1110', account_name: 'Bank', is_active: true,
+          gl_balance: 0, posted_through: null },
+      ])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
