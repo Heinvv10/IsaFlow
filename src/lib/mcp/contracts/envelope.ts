@@ -135,6 +135,13 @@ export interface ReportEnvelope<TRow> {
    * arithmetic held.
    */
   completenessFault?: string;
+  /**
+   * Total number of excluded rows, when `excludedRows` is a capped sample.
+   * Absent means `excludedRows` is complete.
+   */
+  excludedTotal?: number;
+  /** True when `excludedRows` shows fewer rows than `excludedTotal` counts. */
+  truncatedExcludedRows?: boolean;
 }
 
 export interface BuildEnvelopeInput<TRow> {
@@ -162,6 +169,24 @@ export interface BuildEnvelopeInput<TRow> {
    * report; omit it only on a listing where completeness is not a claim.
    */
   universeTotal?: number;
+  /**
+   * How many rows were excluded IN TOTAL, when `excludedRows` carries only a
+   * capped sample of them.
+   *
+   * Without this the completeness identity uses `excludedRows.length`, so a
+   * report that caps its exclusion sample at 200 raises a `completenessFault`
+   * the moment it exceeds the cap — a fault that is arithmetically true and
+   * tells the reader the wrong thing, because the cause is paging rather than
+   * unaccounted rows. A misleading fault is worse than none: it erodes the one
+   * signal this field exists to give, and a reader who learns to ignore it
+   * stops seeing the real ones.
+   *
+   * Supply it whenever the sample is capped. The identity then reads
+   * `rowsTotal + excludedTotal === universeTotal`, which is the true statement,
+   * and `truncatedExcludedRows` on the envelope tells the reader the list they
+   * can see is shorter than the count they are being given.
+   */
+  excludedTotal?: number;
 }
 
 /**
@@ -199,11 +224,19 @@ export function buildEnvelope<TRow>(input: BuildEnvelopeInput<TRow>): ReportEnve
   }
 
   // The identity that makes completeness checkable rather than merely asserted.
+  // Count against the TOTAL excluded, not the sample served — a capped sample
+  // would otherwise raise a fault whose cause is paging, not unaccounted rows.
+  const excludedCount = input.excludedTotal ?? excludedRows.length;
+  if (input.excludedTotal !== undefined && input.excludedTotal < excludedRows.length) {
+    faults.push(
+      `excludedTotal (${input.excludedTotal}) is below the ${excludedRows.length} excluded rows served`,
+    );
+  }
   if (input.universeTotal !== undefined) {
-    const accounted = rowsTotal + excludedRows.length;
+    const accounted = rowsTotal + excludedCount;
     if (accounted !== input.universeTotal) {
       faults.push(
-        `${accounted} rows accounted for (${rowsTotal} included + ${excludedRows.length} excluded) against a universe of ${input.universeTotal} — ${Math.abs(input.universeTotal - accounted)} unaccounted`,
+        `${accounted} rows accounted for (${rowsTotal} included + ${excludedCount} excluded) against a universe of ${input.universeTotal} — ${Math.abs(input.universeTotal - accounted)} unaccounted`,
       );
     }
   }
@@ -222,6 +255,12 @@ export function buildEnvelope<TRow>(input: BuildEnvelopeInput<TRow>): ReportEnve
     as_at: input.as_at,
     posted_through: input.posted_through,
     ...(input.figureBasis === undefined ? {} : { figureBasis: input.figureBasis }),
+    ...(input.excludedTotal === undefined
+      ? {}
+      : {
+          excludedTotal: input.excludedTotal,
+          truncatedExcludedRows: excludedRows.length < input.excludedTotal,
+        }),
     ...(faults.length === 0 ? {} : { completenessFault: faults.join('; ') }),
   };
 }

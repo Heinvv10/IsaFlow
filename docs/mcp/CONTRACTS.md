@@ -67,6 +67,14 @@ classification filter*. `buildEnvelope` then checks
 `completenessFault` when rows fall through the gap. That turns completeness from
 something you assert into arithmetic somebody else can check.
 
+**If you cap your exclusion list, pass `excludedTotal` too.** The identity then
+counts the true number excluded rather than the sample served. Without it, a
+report that caps `excludedRows` at 200 raises a `completenessFault` the moment it
+exceeds the cap — arithmetically true, and telling the reader the wrong thing,
+because the cause is paging rather than unaccounted rows. A misleading fault is
+worse than none: it erodes the one signal the field exists to give.
+`truncatedExcludedRows` then tells the reader the list is shorter than the count.
+
 `universeTotal` is **required on every assurance report**. Omit it only on a
 listing where completeness is not a claim being made.
 
