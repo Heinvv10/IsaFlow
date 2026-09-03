@@ -259,6 +259,26 @@ describe('close_fiscal_period', () => {
     expect(res.content[0]!.text).toMatch(/Nothing was closed/);
   });
 
+  it('refuses on an INVISIBLE journal — one belonging to no period at all', async () => {
+    // The reason orphan_period_journals exists. Two paths INSERT into
+    // gl_journal_entries directly (the live depreciation hook and the year-end
+    // close) and cannot invent a period that does not exist; every production
+    // company's periods stop at 2027-12-31. A close that stepped over this
+    // would assert a completeness the books do not have.
+    const err = new PeriodCloseBlockedError(
+      'March 2026 cannot be closed — 1 check did not pass: orphan_period_journals: '
+      + '3 posted journal entries carrying R12500.00 belong to no fiscal period '
+      + '(2028-01-31 to 2028-03-31).',
+    );
+    vi.mocked(closePeriodWithReadiness).mockRejectedValue(err);
+
+    const res = await closeFiscalPeriodTool.handler({ fiscal_period_id: PERIOD, ...KEY }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(res.content[0]!.text).toMatch(/belong to no fiscal period/);
+    expect(res.content[0]!.text).toMatch(/Nothing was closed/);
+  });
+
   it('RETHROWS anything that is not a pre-write refusal', async () => {
     vi.mocked(closePeriodWithReadiness)
       .mockRejectedValue(Object.assign(new Error('deadlock'), { code: '40P01' }));

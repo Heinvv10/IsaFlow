@@ -7,8 +7,8 @@
  * close is orchestration.
  */
 
-import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { getSystemAccountCandidates } from './systemAccountResolver';
 import type {
   CloseYearError,
   YearEndJournalLine,
@@ -27,49 +27,35 @@ export interface RetainedEarningsAccount { id: string; accountCode: string; acco
 export async function resolveRetainedEarnings(
   companyId: string,
 ): Promise<RetainedEarningsAccount | Extract<CloseYearError, { error: 'no_retained_earnings' | 'ambiguous_retained_earnings' }>> {
-  let code = '3200';
-  try {
-    // company_id, on a view that has one. Without it a single configured row
-    // anywhere in the platform decides every tenant's equity account.
-    const settingRows = await sql`
-      SELECT value FROM app_settings
-       WHERE key = 'retained_earnings_account' AND company_id = ${companyId}::UUID
-       LIMIT 1
-    `;
-    if (settingRows[0]?.value) code = String(settingRows[0].value);
-  } catch (err) {
-    log.warn('Could not load retained_earnings_account setting, using default 3200', { error: String(err) }, 'yearEnd');
+  // The system-account RESOLVER, and its CANDIDATES rather than its winner.
+  //
+  // This used to read a code out of `app_settings` — unscoped by company, on a
+  // view that HAS a company_id column — and then `LIMIT 1` over
+  // `account_code = X OR account_name ILIKE '%retained earnings%'` with no
+  // ORDER BY. A heap-order winner over a name match: the shape migration 525
+  // exists for.
+  //
+  // `getSystemAccount` would break a tie deterministically and only log it.
+  // That is right for callers that must keep working and wrong here, where one
+  // entry moves a whole year's profit into equity and then locks every period
+  // behind it. So the close asks for every CANDIDATE and refuses on more than
+  // one. Both refusals happen before the write transaction opens.
+  const candidates = await getSystemAccountCandidates('retained_earnings', companyId);
+
+  if (candidates.length === 0) {
+    log.error('Year-end close refused: no retained earnings system account',
+      { companyId }, 'yearEnd');
+    return { error: 'no_retained_earnings' };
+  }
+  if (candidates.length > 1) {
+    const accountCodes = candidates.map((a) => a.accountCode);
+    log.error('Year-end close refused: retained earnings role is contested',
+      { companyId, accountCodes }, 'yearEnd');
+    return { error: 'ambiguous_retained_earnings', accountCodes };
   }
 
-  // The code match is preferred EXPLICITLY. `LIMIT 1` over an OR with no
-  // ORDER BY is decided by physical row order, and a company with both a 3200
-  // and a differently-coded "Retained Earnings (old)" would get either — the
-  // same shape as the system-account collision migration 525 was written for.
-  //
-  // And where the code match does NOT single one out, the close REFUSES rather
-  // than picking. Posting a year of trading into whichever equity account came
-  // back first, then locking every period behind it, is not a mistake anyone
-  // finds later: the journal balances and the statements look ordinary.
-  const rows = await sql`
-    SELECT id, account_code, account_name FROM gl_accounts
-    WHERE company_id = ${companyId}
-      AND (account_code = ${code} OR account_name ILIKE '%retained earnings%')
-    ORDER BY (account_code = ${code}) DESC, account_code
-    LIMIT 5
-  `;
-  const row = rows[0];
-  if (!row) return { error: 'no_retained_earnings', accountCode: code };
-  if (rows.length > 1 && String(row.account_code) !== code) {
-    return {
-      error: 'ambiguous_retained_earnings',
-      accountCodes: rows.map((r) => String(r.account_code)),
-    };
-  }
-  return {
-    id: String(row.id),
-    accountCode: String(row.account_code),
-    accountName: String(row.account_name),
-  };
+  const account = candidates[0]!;
+  return { id: account.id, accountCode: account.accountCode, accountName: account.accountName };
 }
 
 export function buildPreview(

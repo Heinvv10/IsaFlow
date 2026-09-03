@@ -29,7 +29,9 @@ export const closeFiscalPeriodTool: McpTool = {
     'Close a fiscal period so nothing further can post into it. '
     + 'REFUSES on any failing readiness check and names every one of them with its reason — '
     + 'unreconciled banks, unposted draft journals, an AR or AP subledger that does not tie to its '
-    + 'control account, or an unbalanced trial balance. This is stricter than the app: the '
+    + 'control account, an unbalanced trial balance, or a POSTED journal that belongs to no fiscal '
+    + 'period at all — that last one is invisible to every period report while sitting in the '
+    + 'ledger, so no close can honestly assert completeness over it. This is stricter than the app: the '
     + 'Month-End Workbench shows the same checks to a person who may close over them. '
     + 'A check that could not be COMPUTED also blocks — "the AP tie could not be checked" is '
     + 'exactly the state in which closing unattended is unsafe. Warnings (a period with no VAT '
@@ -214,16 +216,17 @@ export const yearEndCloseTool: McpTool = {
       if (result.error === 'ambiguous_retained_earnings') {
         return toolError(
           `More than one account could be retained earnings (${result.accountCodes.join(', ')}) `
-          + 'and none of them carries the configured code, so the close refuses rather than '
-          + 'choosing. Posting a year of trading into the wrong equity account and then locking '
-          + 'every period behind it is not recoverable in place. Set the '
-          + 'retained_earnings_account app setting, or rename the accounts. Nothing was posted.',
+          + 'so the close refuses rather than breaking the tie. Posting a year of trading into '
+          + 'the wrong equity account and then locking every period behind it is not recoverable '
+          + 'in place. Leave the role on exactly one account with update_gl_account. '
+          + 'Nothing was posted.',
         );
       }
       if (result.error === 'no_retained_earnings') {
         return toolError(
-          `No retained-earnings account found (looked for code ${result.accountCode} or an account `
-          + 'named "Retained Earnings"). Create one with create_gl_account. Nothing was posted.',
+          'No account carries the retained_earnings system role for this company. Create one with '
+          + 'create_gl_account, or set the subtype on the existing equity account with '
+          + 'update_gl_account. Nothing was posted.',
         );
       }
       return toolError(`Fiscal year ${year} has no periods. Nothing was posted.`);

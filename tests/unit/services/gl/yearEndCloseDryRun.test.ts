@@ -24,8 +24,12 @@ vi.mock('@/lib/neon', () => ({
   withTransaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txSpy)),
 }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
+  getSystemAccountCandidates: vi.fn(),
+}));
 
 import { sql } from '@/lib/neon';
+import { getSystemAccountCandidates } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 
 type SqlFn = MockedFunction<(...args: unknown[]) => Promise<unknown[]>>;
@@ -45,11 +49,17 @@ function sqlText(i: number): string {
   return (parts ?? ([] as unknown as TemplateStringsArray)).join(' ? ');
 }
 
+function retainedEarnings(accounts: Array<{ code: string }>): void {
+  vi.mocked(getSystemAccountCandidates).mockResolvedValue(accounts.map((a, i) => ({
+    id: `re-${i + 1}`, accountCode: a.code, accountName: 'Retained Earnings',
+    accountType: 'equity', accountSubtype: 'retained_earnings', createdAt: 0,
+  })) as never);
+}
+
 /**
  * open-period probe → year range → financial_year_start → revenue → expenses →
- * app_settings → RE account → (live path only) the fiscal period covering the
- * closing date. A dry run returns before that last one, so the extra queued
- * value is unused.
+ * (live path only) the fiscal period covering the closing date. Retained
+ * earnings comes from the system-account RESOLVER and costs no sql call.
  */
 function mockReads(openPeriods: unknown[] = [], startMonth: unknown = 3,
                    range = { start_date: '2026-03-01', end_date: '2027-02-28' }): void {
@@ -63,9 +73,8 @@ function mockReads(openPeriods: unknown[] = [], startMonth: unknown = 3,
     .mockResolvedValueOnce([
       { id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '400000.00' },
     ])
-    .mockResolvedValueOnce([])
-    .mockResolvedValueOnce([{ id: 're-1', account_code: '3200', account_name: 'Retained Earnings' }])
     .mockResolvedValueOnce([{ id: 'fp-12' }]);
+  retainedEarnings([{ code: '3200' }]);
 }
 
 beforeEach(() => {
@@ -112,9 +121,8 @@ describe('closeFiscalYear — dry run', () => {
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
       .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([{ id: 'rev-1', account_code: '4000', account_name: 'Sales', balance: '100.00' }])
-      .mockResolvedValueOnce([{ id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '500.00' }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: 're-1', account_code: '3200', account_name: 'Retained Earnings' }]);
+      .mockResolvedValueOnce([{ id: 'exp-1', account_code: '5000', account_name: 'Wages', balance: '500.00' }]);
+    retainedEarnings([{ code: '3200' }]);
 
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
     if (!('preview' in result)) throw new Error('expected a preview');
@@ -144,22 +152,17 @@ describe('closeFiscalYear — dry run', () => {
     expect(writes).toHaveLength(0);
   });
 
-  it('REFUSES rather than choosing between two candidate equity accounts', async () => {
-    // Neither carries the configured code, so nothing singles one out. Picking
-    // by row order would post a year of trading into whichever came back first
-    // and then lock every period behind it — a journal that balances, against
-    // an account nobody chose.
+  it('REFUSES when the retained-earnings role is CONTESTED, rather than breaking the tie', async () => {
+    // getSystemAccount would pick a winner deterministically and only log it.
+    // Right for a caller that must keep working, wrong here: one entry moves a
+    // whole year's profit into equity and then locks every period behind it.
     mockSql
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
       .mockResolvedValueOnce([{ financial_year_start: 3 }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        { id: 'a', account_code: '3210', account_name: 'Retained Earnings (prior)' },
-        { id: 'b', account_code: '3220', account_name: 'Retained Earnings brought forward' },
-      ]);
+      .mockResolvedValueOnce([]);
+    retainedEarnings([{ code: '3210' }, { code: '3220' }]);
 
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
 
@@ -168,35 +171,17 @@ describe('closeFiscalYear — dry run', () => {
     expect(result.accountCodes).toEqual(['3210', '3220']);
   });
 
-  it('is NOT ambiguous when one candidate carries the configured code', async () => {
+  it('reports a missing retained-earnings ROLE on the dry run', async () => {
     mockSql
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
       .mockResolvedValueOnce([{ financial_year_start: 3 }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        { id: 'a', account_code: '3200', account_name: 'Retained Earnings' },
-        { id: 'b', account_code: '3210', account_name: 'Retained Earnings (old)' },
-      ]);
-
-    const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
-    expect(result).not.toHaveProperty('error');
-  });
-
-  it('reports a missing retained-earnings account on the dry run', async () => {
-    mockSql
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ start_date: '2026-03-01', end_date: '2027-02-28' }])
-      .mockResolvedValueOnce([{ financial_year_start: 3 }])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
+    retainedEarnings([]);
 
     const result = await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
-    expect(result).toMatchObject({ error: 'no_retained_earnings', accountCode: '3200' });
+    expect(result).toMatchObject({ error: 'no_retained_earnings' });
   });
 });
 
@@ -243,21 +228,16 @@ describe('closeFiscalYear — the periods must actually BE the fiscal year', () 
 });
 
 describe('closeFiscalYear — tenant scoping and determinism', () => {
-  it('scopes the app_settings lookup by company_id', async () => {
+  it('resolves retained earnings by ROLE, never by account code or name', async () => {
     mockReads();
     await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
-    // app_settings is a VIEW carrying company_id. Unscoped, one tenant's
-    // setting picks another tenant's equity account.
-    expect(sqlText(5)).toMatch(/app_settings/);
-    expect(sqlText(5)).toMatch(/company_id/);
-    expect(mockSql.mock.calls[5]?.slice(1)).toContain(COMPANY);
-  });
-
-  it('orders the retained-earnings lookup so it cannot be decided by heap order', async () => {
-    mockReads();
-    await closeFiscalYear(COMPANY, '2027', USER, { dryRun: true });
-    expect(sqlText(6)).toMatch(/ORDER BY/);
-    expect(sqlText(6)).toMatch(/company_id/);
+    expect(getSystemAccountCandidates).toHaveBeenCalledWith('retained_earnings', COMPANY);
+    // The old lookup read an app_settings code (unscoped by company, on a view
+    // that HAS company_id) and then matched `account_name ILIKE '%retained
+    // earnings%'` with no ORDER BY. Neither query is issued any more.
+    const allSql = mockSql.mock.calls.map((c) => (c[0] as TemplateStringsArray).join(' ')).join('\n');
+    expect(allSql).not.toMatch(/app_settings/);
+    expect(allSql).not.toMatch(/retained earnings/i);
   });
 
   it('still writes the journal on a live call', async () => {
