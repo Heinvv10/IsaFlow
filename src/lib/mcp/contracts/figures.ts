@@ -152,6 +152,23 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     excludes:
       'Denied input tax (entertainment). Box 15 must be derived from these same journals so the 15% check ties.',
   }),
+  'payroll.employmentcost.v1': def({
+    id: 'payroll.employmentcost.v1',
+    label: 'Employment cost for a pay run',
+    owner: 'payroll/payrollJournalBuilder#buildPayrollJournalPlan',
+    includes:
+      'Gross pay plus the EMPLOYER share of UIF plus SDL — the full cost of employing the staff in the period, as it would be debited to labour.',
+    excludes:
+      'The employee halves of PAYE and UIF, which are deductions from gross rather than an additional cost, and ETI, which is an offset against PAYE remitted rather than a reduction in cost. The poster currently subtracts ETI from the labour debit and credits it nowhere, which leaves the journal unbalanced by exactly the ETI — reported as a blocker, not corrected here.',
+  }),
+  'payroll.netpay.v1': def({
+    id: 'payroll.netpay.v1',
+    label: 'Net pay for a pay run',
+    owner: 'payroll/payrollJournalBuilder#buildPayrollJournalPlan',
+    includes: 'What the employees are actually paid, per the run header total.',
+    excludes:
+      'Every employer contribution. Reported separately from payroll.employmentcost.v1 on purpose: net pay is all these books have ever carried, and the gap between the two figures IS the understatement of employment cost. Collapsing them would destroy the only thing that measures it.',
+  }),
   'gl.trialbalance.v2': def({
     id: 'gl.trialbalance.v2',
     label: 'Trial balance',

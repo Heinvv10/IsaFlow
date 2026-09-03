@@ -71,10 +71,12 @@ import {
   listTimeEntriesTool,
 } from './tools/practice';
 import { createJobCategoryTool, createWorkItemTool } from './tools/writePracticeSetup';
+import { listEmployeesTool, listPayRunsTool } from './tools/payroll';
+import { createPayRunTool, postPayrollJournalTool } from './tools/writePayroll';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (32)
+  // read (34)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -107,7 +109,9 @@ export const MCP_TOOLS = [
   listTimeEntriesTool,
   listCreditNotesTool,
   getCreditNoteTool,
-  // write (31) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  listEmployeesTool,
+  listPayRunsTool,
+  // write (33) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -143,6 +147,10 @@ export const MCP_TOOLS = [
   createCreditNoteTool,
   approveCreditNoteTool,
   cancelCreditNoteTool,
+  // Payroll: create_pay_run opens an empty period and posts nothing, so it is
+  // not requiresPost. post_payroll_journal writes to gl_journal_entries and is.
+  createPayRunTool,
+  postPayrollJournalTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

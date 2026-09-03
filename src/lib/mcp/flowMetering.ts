@@ -103,6 +103,10 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   list_job_categories: null,
   list_work_items: null,
   list_time_entries: null,
+  // Payroll reads: free, like every other read. Seeing that no PAYE liability
+  // has ever been raised is the control, and pricing it discourages the check.
+  list_employees: null,
+  list_pay_runs: null,
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',
@@ -178,6 +182,15 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   create_credit_note: null,
   approve_credit_note: null,
   cancel_credit_note: null,
+
+  // ── Payroll: free ────────────────────────────────────────────────────────
+  // The app meters neither payroll route. create_pay_run opens an empty period
+  // and writes no ledger row at all. post_payroll_journal posts one journal,
+  // and the equivalent app path (approve a run) is unmetered — carrying a
+  // price across only here would tax the one action that closes the statutory
+  // gap these tools exist to close.
+  create_pay_run: null,
+  post_payroll_journal: null,
 
   // One journal, priced like any other journal creation.
   set_opening_balance: 'journal.create',

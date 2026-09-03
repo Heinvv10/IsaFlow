@@ -445,7 +445,8 @@ describe('write-tool manifest invariants', () => {
       'allocate_bank_transaction', 'approve_credit_note',
       'approve_supplier_invoice',
       'bulk_allocate_bank_transactions', 'cancel_credit_note', 'finalize_invoice',
-      'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
+      'post_journal', 'post_payroll_journal',
+      'reverse_allocations', 'reverse_bank_allocation',
       'reverse_bank_allocation_batch', 'set_opening_balance',
     ]);
   });
@@ -547,6 +548,10 @@ describe('write-tool manifest invariants', () => {
       create_credit_note: { ...KEY },
       approve_credit_note: { ...KEY },
       cancel_credit_note: { ...KEY },
+      // Payroll writes refuse on a missing/invalid required argument before
+      // touching a service; behaviour in payrollTools.test.ts.
+      create_pay_run: { ...KEY },
+      post_payroll_journal: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

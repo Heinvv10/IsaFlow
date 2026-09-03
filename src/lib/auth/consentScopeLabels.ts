@@ -28,6 +28,10 @@ export const SCOPE_LABELS: Record<OAuthScope, string> = {
   'read:vat': 'Read your VAT status',
   'read:practice': 'Read your practice clients, job categories and logged time',
   'write:practice': 'Create job categories and work items, and log and submit time entries',
+  // Named explicitly because payroll data is personal information under POPIA
+  // and staff pay is not what anyone expects "read your reports" to cover.
+  'read:payroll': 'Read your payroll — employees, pay runs, and PAYE, UIF and SDL totals',
+  'write:payroll': 'Open payroll runs and post the payroll journal to your ledger',
   // Copy tracks what the grant actually permits: it now also unlocks automated
   // bank allocation, which posts AP/AR journals, records customer payments as
   // confirmed, and marks supplier invoices paid. Keep in step with

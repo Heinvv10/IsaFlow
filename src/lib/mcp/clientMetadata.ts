@@ -13,7 +13,7 @@ export const MCP_PROD_ENDPOINT = `${MCP_PROD_ORIGIN}${MCP_PATH}`;
 export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-server';
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
-/** All MCP tool names (32 read + 31 write). Drift-guarded against toolIndex. */
+/** All MCP tool names (34 read + 33 write). Drift-guarded against toolIndex. */
 export const CLIENT_MCP_TOOL_NAMES = [
   // read
   'company_profile',
@@ -48,6 +48,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'list_time_entries',
   'list_credit_notes',
   'get_credit_note',
+  'list_employees',
+  'list_pay_runs',
   // write
   'create_draft_invoice',
   'create_draft_quote',
@@ -80,4 +82,6 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'create_credit_note',
   'approve_credit_note',
   'cancel_credit_note',
+  'create_pay_run',
+  'post_payroll_journal',
 ] as const;
