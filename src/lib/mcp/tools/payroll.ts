@@ -34,6 +34,22 @@ function detailOf(args: Record<string, unknown>): DetailLevel {
   return raw && isDetailLevel(raw) ? raw : 'standard';
 }
 
+/**
+ * `universeTotal` is the candidate set for the CALLER'S filter, not the whole
+ * company.
+ *
+ * The envelope's completeness identity exists to catch rows the REPORT dropped
+ * on its own — a null due date silently removed from an aging. A status the
+ * caller explicitly asked for is not a gap in the report; counting the whole
+ * company as the universe made `status: "approved"` raise a completenessFault
+ * saying "1 unaccounted" on every call, which trains a reader to ignore the
+ * field that matters. The narrowing is reported as `filtered_out` instead, so
+ * it is still visible without crying wolf.
+ */
+function filteredOut(universeTotal: number, rowsTotal: number): number {
+  return Math.max(0, universeTotal - rowsTotal);
+}
+
 /** `posted_through` is MAX(created_at) of the rows consumed — never now(). */
 function postedThroughOr(value: string | null): string {
   return value ?? '1970-01-01T00:00:00.000Z';
@@ -84,7 +100,7 @@ export const listEmployeesTool: McpTool = {
     });
 
     const last = page.rows[page.rows.length - 1];
-    return ok(buildEnvelope({
+    const envelope = buildEnvelope({
       rows: page.rows.map((e) => ({
         id: e.id,
         employee_number: e.employeeNumber,
@@ -101,13 +117,19 @@ export const listEmployeesTool: McpTool = {
         id_number_masked: e.idNumberMasked,
       })),
       rowsTotal: page.rowsTotal,
-      universeTotal: page.universeTotal,
+      universeTotal: page.rowsTotal,
       detail,
       as_at: fmtDate(new Date()),
       posted_through: postedThroughOr(page.postedThrough),
       next_cursor: page.hasMore && last ? encodeCursor({ parts: payrollEmployeeCursorParts(last) }) : null,
       excludedRows: [],
-    }));
+    });
+
+    return ok({
+      ...envelope,
+      company_total_employees: page.universeTotal,
+      filtered_out: filteredOut(page.universeTotal, page.rowsTotal),
+    });
   },
 };
 
@@ -157,7 +179,7 @@ export const listPayRunsTool: McpTool = {
     });
 
     const last = page.rows[page.rows.length - 1];
-    return ok(buildEnvelope({
+    const envelope = buildEnvelope({
       rows: page.rows.map((r) => ({
         id: r.id,
         period_year: r.periodYear,
@@ -174,12 +196,19 @@ export const listPayRunsTool: McpTool = {
         posted_to_gl: r.journalEntryId !== null,
       })),
       rowsTotal: page.rowsTotal,
-      universeTotal: page.universeTotal,
+      universeTotal: page.rowsTotal,
       detail,
       as_at: fmtDate(new Date()),
       posted_through: postedThroughOr(page.postedThrough),
       next_cursor: page.hasMore && last ? encodeCursor({ parts: payRunCursorParts(last) }) : null,
       excludedRows: [],
-    }));
+    });
+
+    return ok({
+      ...envelope,
+      company_total_runs: page.universeTotal,
+      filtered_out: filteredOut(page.universeTotal, page.rowsTotal),
+      posted_to_gl_on_this_page: page.rows.filter((r) => r.journalEntryId !== null).length,
+    });
   },
 };

@@ -112,6 +112,8 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   customer_statement: null,
   project_profitability: null,
   wip_report: null,
+  list_fixed_assets: null,
+  asset_register: null,
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',

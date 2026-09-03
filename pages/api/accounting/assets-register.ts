@@ -1,17 +1,48 @@
 /**
  * Asset Register Report API
  * GET: full asset register with depreciation details
+ *
+ * The register and its totals come from
+ * `items/assetRegisterService#getAssetRegister`, which the MCP `asset_register`
+ * tool also calls. One figure, one query: a second implementation here would be
+ * free to disagree with the one an agent reads.
+ *
+ * BEHAVIOUR CHANGE ON EXTRACTION: an asset disposed on or before `asOf` is no
+ * longer counted as carrying amount. This route previously filtered on
+ * purchase date alone, so a computer sold in April still reported its full book
+ * value in August. Disposed assets are returned in their own field rather than
+ * dropped.
  */
 
 import type { NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
-import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
-import { sql } from '@/lib/neon';
+import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess } from '@/lib/auth';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 import { parsePagination } from '@/lib/pagination';
+import { fmtDate } from '@/lib/fmtDate';
+import {
+  getAssetRegister,
+  type AssetRegisterRow,
+} from '@/modules/accounting/services/items/assetRegisterService';
 
-type Row = Record<string, unknown>;
+/** The wire shape this route has always returned. Kept so the page keeps working. */
+function toLegacyRow(a: AssetRegisterRow) {
+  return {
+    id: a.id,
+    asset_number: a.assetNumber,
+    name: a.name,
+    category: a.category,
+    category_name: a.categoryName,
+    status: a.status,
+    purchase_date: a.purchaseDate,
+    purchase_price: a.purchasePrice,
+    total_depreciation: a.accumulatedDepreciation,
+    net_book_value: a.netBookValue,
+    disposal_date: a.disposalDate,
+    disposal_amount: a.disposalAmount,
+  };
+}
 
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -20,44 +51,33 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
 
   const companyId = (req as CompanyAuthedRequest).companyId;
   const { asOf } = req.query;
-  const asOfDate = asOf ? String(asOf) : new Date().toISOString().split('T')[0];
-  // P3.4: the register listed every asset unbounded. Summary totals now come
-  // from a SQL aggregate over the FULL population (correct regardless of the
-  // page), while the row list itself is capped.
+  const asOfDate = asOf ? String(asOf) : fmtDate(new Date());
+  // P3.4: the register listed every asset unbounded. Summary totals come from a
+  // SQL aggregate over the FULL population (correct regardless of the page),
+  // while the row list itself is capped.
   const { limit, offset } = parsePagination(req.query, 1000, 2000);
 
-  const rows = await sql`
-    SELECT a.*, ac.name as category_name, ac.sars_rate, ac.sars_years,
-      COALESCE(a.accumulated_depreciation, 0) as total_depreciation,
-      COALESCE(a.current_book_value, a.purchase_price) as net_book_value
-    FROM assets a
-    LEFT JOIN asset_categories ac ON a.category_id = ac.id
-    WHERE a.purchase_date <= ${asOfDate} AND a.company_id = ${companyId}::UUID
-    ORDER BY a.category, a.asset_number, a.id
-    LIMIT ${limit + 1} OFFSET ${offset}
-  ` as Row[];
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-
-  const [totals] = await sql`
-    SELECT COUNT(*)::int as total_assets,
-      COALESCE(SUM(a.purchase_price::numeric), 0) as total_cost,
-      COALESCE(SUM(COALESCE(a.accumulated_depreciation, 0)::numeric), 0) as total_depreciation,
-      COALESCE(SUM(COALESCE(a.current_book_value, a.purchase_price)::numeric), 0) as total_book_value
-    FROM assets a
-    WHERE a.purchase_date <= ${asOfDate} AND a.company_id = ${companyId}::UUID
-  ` as Row[];
+  const page = await getAssetRegister(companyId, asOfDate, { limit, offset });
 
   const summary = {
-    totalAssets: Number(totals?.total_assets ?? 0),
-    totalCost: Number(totals?.total_cost ?? 0),
-    totalAccumulatedDepreciation: Number(totals?.total_depreciation ?? 0),
-    totalBookValue: Number(totals?.total_book_value ?? 0),
+    totalAssets: page.rowsTotal,
+    totalCost: page.totals.cost,
+    totalAccumulatedDepreciation: page.totals.accumulatedDepreciation,
+    totalBookValue: page.totals.netBookValue,
     asOfDate,
   };
 
-  return apiResponse.success(res, { assets: page, summary }, undefined, 200, { limit, offset, hasMore });
+  return apiResponse.success(
+    res,
+    {
+      assets: page.rows.map(toLegacyRow),
+      disposed: page.disposed.map(toLegacyRow),
+      summary,
+    },
+    undefined,
+    200,
+    { limit, offset, hasMore: page.hasMore },
+  );
 }
 
 export default withAuth(withErrorHandler(withWriteAccess(handler)));

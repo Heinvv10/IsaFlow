@@ -222,15 +222,20 @@ describe('list_pay_runs', () => {
     expect(row.posted_to_gl).toBe(false);
   });
 
-  it('counts the whole company as the universe even when a status filter is applied', async () => {
+  it('reports a caller-requested narrowing as filtered_out, NOT as a completeness fault', async () => {
     vi.mocked(listPayRunsPage).mockResolvedValue({
       rows: [RUN_ROW], rowsTotal: 1, universeTotal: 86,
       postedThrough: '2026-09-01T10:00:00.000Z', hasMore: false,
     });
     const env = json(await listPayRunsTool.handler({ status: 'approved' }, ctx));
-    // 1 included + 0 excluded against a universe of 86 — the envelope must SAY
-    // it cannot account for the other 85 rather than look complete.
-    expect(env.completenessFault).toContain('85 unaccounted');
+
+    // The completeness identity exists to catch rows the REPORT dropped on its
+    // own. A status the caller asked for is not a gap in the report, and
+    // raising a fault on every filtered call trains a reader to ignore the one
+    // field that matters. The narrowing stays visible instead.
+    expect(env.completenessFault).toBeUndefined();
+    expect(env.company_total_runs).toBe(86);
+    expect(env.filtered_out).toBe(85);
   });
 
   it('takes the company from the context, never from args', async () => {
