@@ -15,7 +15,14 @@ export type SupplierInvoiceStatus =
   | 'cancelled';
 
 export type InvoiceMatchStatus = 'unmatched' | 'po_matched' | 'grn_matched' | 'fully_matched';
-export type PaymentMethod = 'eft' | 'cheque' | 'cash' | 'card';
+/**
+ * `'contra'` (migration 540) records a settlement where NO CASH MOVED — the
+ * debt was netted against a loan, intercompany or director's account. Without
+ * it such a settlement is indistinguishable from an EFT that never happened,
+ * which is the finding behind R371,470 of AP that could not be cleared
+ * correctly. The other four all imply a real bank movement.
+ */
+export type PaymentMethod = 'eft' | 'cheque' | 'cash' | 'card' | 'contra';
 export type PaymentStatus = 'draft' | 'approved' | 'processed' | 'reconciled' | 'cancelled';
 
 // ── Supplier Invoices ────────────────────────────────────────────────────────

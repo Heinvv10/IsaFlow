@@ -48,6 +48,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'list_time_entries',
   'list_credit_notes',
   'get_credit_note',
+  'suggest_receipt_matches',
+  'list_unapplied_receipts',
   // write
   'create_draft_invoice',
   'create_draft_quote',
@@ -80,4 +82,12 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'create_credit_note',
   'approve_credit_note',
   'cancel_credit_note',
+  'apply_receipt_to_invoice',
+  'apply_payment_to_supplier_invoice',
+  'reverse_journal_entry',
+  'settle_by_contra',
+  'create_customer',
+  'update_customer',
+  'create_supplier',
+  'update_supplier',
 ] as const;

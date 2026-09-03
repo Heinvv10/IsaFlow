@@ -141,6 +141,7 @@ code; add new ones to this list in the same PR.
 | `unmapped_vat_treatment` | VAT code has no posting treatment. |
 | `deactivated_account` | Account is inactive but carries a balance. |
 | `ambiguous_control_account` | More than one live control account for the role. |
+| `unknown_counterparty` | The customer or supplier the document names no longer exists or has been deleted. Added by W1 for `list_unapplied_receipts`: a receipt whose customer row is gone is still real cash, and dropping it would understate the unapplied total by exactly its amount. |
 
 ---
 

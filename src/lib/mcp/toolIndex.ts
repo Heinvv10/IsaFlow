@@ -21,6 +21,17 @@ import { listImportBatchesTool } from './tools/importBatches';
 import { listJournalsTool } from './tools/journals';
 import { attachDocumentTool } from './tools/writeAttachDocument';
 import { getMatchCandidatesTool } from './tools/bankMatch';
+import { listUnappliedReceiptsTool, suggestReceiptMatchesTool } from './tools/receipts';
+import { applyReceiptToInvoiceTool } from './tools/writeApplyReceipt';
+import { applyPaymentToSupplierInvoiceTool } from './tools/writeApplySupplierPayment';
+import { reverseJournalEntryTool } from './tools/writeJournalReverse';
+import { settleByContraTool } from './tools/writeSettleByContra';
+import {
+  createCustomerTool,
+  updateCustomerTool,
+  createSupplierTool,
+  updateSupplierTool,
+} from './tools/writeContacts';
 import { vatStatusTool } from './tools/vat';
 import { listAgentPostingsTool } from './tools/agentActivity';
 import {
@@ -74,7 +85,7 @@ import { createJobCategoryTool, createWorkItemTool } from './tools/writePractice
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (32)
+  // read (34)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -107,7 +118,9 @@ export const MCP_TOOLS = [
   listTimeEntriesTool,
   listCreditNotesTool,
   getCreditNoteTool,
-  // write (31) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  suggestReceiptMatchesTool,
+  listUnappliedReceiptsTool,
+  // write (39) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -143,6 +156,18 @@ export const MCP_TOOLS = [
   createCreditNoteTool,
   approveCreditNoteTool,
   cancelCreditNoteTool,
+  // Cash application: moves a customer's outstanding balance, and on the
+  // bank-line branch posts DR Bank / CR Accounts Receivable. requiresPost.
+  applyReceiptToInvoiceTool,
+  applyPaymentToSupplierInvoiceTool,
+  reverseJournalEntryTool,
+  settleByContraTool,
+  // Contacts: post nothing, and sit on their own write:contacts scope because
+  // a supplier's bank account number is editable here.
+  createCustomerTool,
+  updateCustomerTool,
+  createSupplierTool,
+  updateSupplierTool,
 ] as const;
 
 export const mcpRegistry = new McpRegistry();

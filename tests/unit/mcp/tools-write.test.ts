@@ -442,11 +442,14 @@ describe('write-tool manifest invariants', () => {
   it('exactly the posting tools require write:post — the batch pair included', () => {
     const requiresPost = MCP_TOOLS.filter((t) => t.requiresPost).map((t) => t.name).sort();
     expect(requiresPost).toEqual([
-      'allocate_bank_transaction', 'approve_credit_note',
+      'allocate_bank_transaction', 'apply_payment_to_supplier_invoice',
+      'apply_receipt_to_invoice',
+      'approve_credit_note',
       'approve_supplier_invoice',
       'bulk_allocate_bank_transactions', 'cancel_credit_note', 'finalize_invoice',
       'post_journal', 'reverse_allocations', 'reverse_bank_allocation',
-      'reverse_bank_allocation_batch', 'set_opening_balance',
+      'reverse_bank_allocation_batch', 'reverse_journal_entry',
+      'set_opening_balance', 'settle_by_contra',
     ]);
   });
 
@@ -547,6 +550,19 @@ describe('write-tool manifest invariants', () => {
       create_credit_note: { ...KEY },
       approve_credit_note: { ...KEY },
       cancel_credit_note: { ...KEY },
+      // Refuses on neither-source-named before any lookup; behaviour in
+      // applyReceiptTool.test.ts.
+      apply_receipt_to_invoice: { ...KEY },
+      apply_payment_to_supplier_invoice: { ...KEY },
+      // Refuses on the missing journal_entry_id before any lookup.
+      reverse_journal_entry: { ...KEY },
+      // Refuses on the missing subledger before any lookup.
+      settle_by_contra: { ...KEY },
+      // Each refuses on its missing required argument before any lookup.
+      create_customer: { ...KEY },
+      update_customer: { ...KEY },
+      create_supplier: { ...KEY },
+      update_supplier: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

@@ -129,7 +129,15 @@ function isCalendarDate(value: string): boolean {
  * `no_period` from `closed`, and the two get different messages because the
  * remedies differ: create the fiscal year, versus re-open the period.
  */
-async function resolveReversalDate(
+/**
+ * Exported so a caller that must distinguish a REFUSAL from a FAILURE can run
+ * these guards first. It is read-only, so calling it twice costs two period
+ * lookups and nothing else. `apply`-style MCP tools need this: only pre-write
+ * validation may return a `toolError`, and once `reverseJournalEntry` has been
+ * entered a caller cannot tell a bad date from a failure after the contra
+ * posted.
+ */
+export async function resolveReversalDate(
   companyId: string,
   originalDate: string,
   requested: string | undefined,

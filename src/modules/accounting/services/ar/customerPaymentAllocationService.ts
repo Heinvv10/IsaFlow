@@ -18,10 +18,20 @@ import type { JournalLineInput } from '../../types/gl.types';
 
 type Row = DbRow;
 
+/**
+ * @param opts.postingAgent Stamp for the DR Bank / CR AR journal this posts.
+ *   Optional and last-positional so every existing caller keeps its current
+ *   `human:<userId>` attribution; only callers that are NOT a human clicking
+ *   Confirm (the MCP settle_by_contra tool) pass it. Without it
+ *   `createJournalEntry` falls back to `defaultHumanMeta(userId)`, which
+ *   affirmatively claims the token owner made the entry by hand and hides it
+ *   from `list_agent_postings`. Mirrors postCustomerInvoiceToGL.
+ */
 export async function confirmCustomerPayment(
   companyId: string,
   id: string,
   userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<CustomerPayment> {
   try {
     const payment = await getCustomerPaymentById(companyId, id);
@@ -47,7 +57,7 @@ export async function confirmCustomerPayment(
       description: `Customer payment ${payment.paymentNumber}`,
       source: 'auto_payment',
       lines,
-    }, userId);
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
     await postJournalEntry(companyId, je.id, userId);
 
     // Update invoice balances and mark payment confirmed — runs on the ALS-bound
