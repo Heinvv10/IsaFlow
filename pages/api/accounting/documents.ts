@@ -15,12 +15,12 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import type { AccountingEntityType } from '@/types/procurement/document.types';
+import { listEntityDocuments } from '@/modules/accounting/services/core/documentQueryService';
 import {
   VALID_ENTITY_TYPES,
   VALID_DOCUMENT_TYPES,
   ALLOWED_MIME_TYPES,
   MAX_FILE_SIZE,
-  mapRow,
   verifyEntityOwnership,
   uploadDocument,
 } from '@/modules/accounting/services/core/documentStorageService';
@@ -68,45 +68,24 @@ async function handleGet(req: NextApiRequest, res: NextApiResponse, companyId: s
   if (!entityType || !entityId) {
     return apiResponse.badRequest(res, 'Missing required query params: entity_type, entity_id');
   }
-  if (!VALID_ENTITY_TYPES.includes(entityType as AccountingEntityType)) {
-    return apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${VALID_ENTITY_TYPES.join(', ')}`);
-  }
-
-  const owned = await verifyEntityOwnership(entityId, companyId);
-  if (!owned) return apiResponse.forbidden(res, 'Entity does not belong to your company');
 
   // P3.4: entity-scoped, so normally small — the cap is insurance against a
   // single entity accumulating unbounded attachments. Applied per query; the
-  // merged response is at most 2×limit.
+  // merged response is at most 2xlimit.
   const { limit, offset } = parsePagination(req.query, 200, 500);
 
-  const directRows = await sql`
-    SELECT * FROM procurement_documents
-    WHERE entity_type = ${entityType}
-      AND entity_id = ${entityId}::uuid
-      AND is_active = true
-    ORDER BY uploaded_at DESC, id DESC
-    LIMIT ${limit + 1} OFFSET ${offset}
-  `;
+  // The query itself lives in documentQueryService so audit_trail's companion
+  // MCP tools read the same rows through the same ownership fence.
+  const result = await listEntityDocuments(companyId, entityType, entityId, limit, offset);
+  if (!result.ok) {
+    return result.reason === 'invalid_entity_type'
+      ? apiResponse.badRequest(res, `Invalid entity_type. Allowed: ${VALID_ENTITY_TYPES.join(', ')}`)
+      : apiResponse.forbidden(res, 'Entity does not belong to your company');
+  }
 
-  const linkedRows = await sql`
-    SELECT pd.*, dl.link_reason
-    FROM document_links dl
-    JOIN procurement_documents pd ON pd.id = dl.document_id
-    WHERE dl.linked_entity_type = ${entityType}
-      AND dl.linked_entity_id = ${entityId}::uuid
-      AND pd.is_active = true
-    ORDER BY pd.uploaded_at DESC, pd.id DESC
-    LIMIT ${limit + 1} OFFSET ${offset}
-  `;
-
-  const hasMore = directRows.length > limit || linkedRows.length > limit;
-  const results = [
-    ...directRows.slice(0, limit).map(r => mapRow(r as Record<string, unknown>, 'direct')),
-    ...linkedRows.slice(0, limit).map(r => mapRow(r as Record<string, unknown>, 'linked', (r as Record<string, unknown>).link_reason as string)),
-  ];
-
-  return apiResponse.success(res, results, undefined, 200, { limit, offset, hasMore });
+  return apiResponse.success(res, result.documents, undefined, 200, {
+    limit, offset, hasMore: result.hasMore,
+  });
 }
 
 /** POST — Upload a document to an accounting entity */

@@ -58,6 +58,13 @@ export const PAT_SCOPE_META: Record<PatScope, PatScopeMeta> = {
     label: 'Read contacts',
     desc: 'List customers and suppliers, including balances',
   },
+  'write:contacts': {
+    label: 'Write contacts',
+    // Banking details are called out explicitly because this is consent text
+    // and they are the field whose misuse costs real money: a supplier's bank
+    // account number is what a payment run pays into.
+    desc: 'Create and edit customers and suppliers, including a supplier\'s bank name, account number and branch code. Posts nothing to the ledger and cannot delete a contact.',
+  },
   'read:vat': {
     label: 'Read VAT status',
     desc: 'Current VAT201 period summary and VAT return status',

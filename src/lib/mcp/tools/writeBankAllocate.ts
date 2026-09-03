@@ -23,7 +23,7 @@ import {
   postAllocationLine,
   resolveTxId,
 } from './allocationLine';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, ok, strArg, toolError } from './toolHelpers';
 
 export const allocateBankTransactionTool: McpTool = {
@@ -77,8 +77,7 @@ export const allocateBankTransactionTool: McpTool = {
     // must reach the registry's savepoint, which rolls the partial write back
     // and makes the retry safe.
     const result = await postAllocationLine(
-      ctx.companyId,                                            // tenant from ctx ONLY
-      ctx.userId,
+      ctx,                                                      // tenant + actor from ctx ONLY
       resolved.id,
       line,
       'allocate_bank_transaction',
@@ -157,7 +156,7 @@ export const reverseBankAllocationTool: McpTool = {
       txId,
       ctx.userId,
       {
-        postingAgent: mcpPostingAgent('reverse_bank_allocation'),
+        ...mcpPostingOpts(ctx, 'reverse_bank_allocation'),
         // Shape and ordering are validated inside reverseJournalEntry, which is
         // the one place that knows the entry being reversed. Passing it through
         // unchecked here keeps a single answer rather than two that can drift.

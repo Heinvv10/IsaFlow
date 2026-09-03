@@ -10,7 +10,7 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl/journalEntryService';
 import { resolveUserUuid } from '../gl/journalEntryCrudService';
-import { defaultHumanMeta } from '../gl/journalEntryMeta';
+import { defaultHumanMeta, actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { assertNoInactiveAccountLines } from '../gl/journalEntryPostingService';
 import { getPeriodStatusForDate } from '../gl/periodStatusService';
@@ -20,10 +20,20 @@ import type { JournalLineInput } from '../../types/gl.types';
 
 type Row = DbRow;
 
+/**
+ * @param opts.postingAgent Stamp for the DR Bank / CR AR journal this posts.
+ *   Optional and last-positional so every existing caller keeps its current
+ *   `human:<userId>` attribution; only callers that are NOT a human clicking
+ *   Confirm (the MCP settle_by_contra tool) pass it. Without it
+ *   `createJournalEntry` falls back to `defaultHumanMeta(userId)`, which
+ *   affirmatively claims the token owner made the entry by hand and hides it
+ *   from `list_agent_postings`. Mirrors postCustomerInvoiceToGL.
+ */
 export async function confirmCustomerPayment(
   companyId: string,
   id: string,
   userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<CustomerPayment> {
   try {
     const payment = await getCustomerPaymentById(companyId, id);
@@ -49,7 +59,7 @@ export async function confirmCustomerPayment(
       description: `Customer payment ${payment.paymentNumber}`,
       source: 'auto_payment',
       lines,
-    }, userId);
+    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
     await postJournalEntry(companyId, je.id, userId);
 
     // Update invoice balances and mark payment confirmed — runs on the ALS-bound
@@ -149,7 +159,7 @@ export async function postCustomerInvoiceToGL(
   companyId: string,
   invoiceId: string,
   userId: string,
-  opts?: { postingAgent?: string; historicalImport?: boolean },
+  opts?: PostingActorOpts & { historicalImport?: boolean },
 ): Promise<string> {
   try {
     const invRows = (await sql`
@@ -220,7 +230,7 @@ export async function postCustomerInvoiceToGL(
       description: `Customer invoice ${inv.invoice_number}`,
       source: 'auto_invoice',
       lines,
-    }, userId, opts?.postingAgent ? { postingAgent: opts.postingAgent } : defaultHumanMeta(userId));
+    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
 
     if (opts?.historicalImport) {
       // Historical import diverges from the canonical path (postJournalEntry)

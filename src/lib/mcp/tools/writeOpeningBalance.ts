@@ -30,7 +30,7 @@ import { accountsBelongToCompany, getAccountById } from '@/modules/accounting/se
 import { setBankOpeningBalanceMeta } from '@/modules/accounting/services/bank/bankOpeningBalanceService';
 import { ensureOpeningBalanceEquityAccount } from '@/modules/accounting/services/gl/openingBalanceEquityService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
-import { mcpPostingAgent } from '../postingAgent';
+import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'set_opening_balance';
@@ -166,7 +166,7 @@ export const setOpeningBalanceTool: McpTool = {
         lines,
       },
       ctx.userId,
-      { postingAgent: mcpPostingAgent(TOOL) },
+      mcpPostingOpts(ctx, TOOL),
     );
     await postJournalEntry(ctx.companyId, entry.id, ctx.userId);
 
