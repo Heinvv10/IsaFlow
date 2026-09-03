@@ -12,6 +12,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const {
+  sqlMock, confirmReceiptMatch, applyBankLineToSupplierInvoices, fetchBankTransaction,
+} = vi.hoisted(() => ({
+  sqlMock: vi.fn(),
+  confirmReceiptMatch: vi.fn(),
+  applyBankLineToSupplierInvoices: vi.fn(),
+  fetchBankTransaction: vi.fn(),
+}));
+
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
@@ -38,6 +47,23 @@ vi.mock('@/modules/accounting/services/bank/bankAllocationBatchService', () => (
 }));
 vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
   accountsBelongToCompany: vi.fn(),
+}));
+// Partial: `withSavepoint` and the rest of the module must stay real — this
+// suite asserts the savepoint/rollback behaviour.
+vi.mock('@/lib/neon', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/neon')>()),
+  sql: sqlMock,
+}));
+vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
+  confirmReceiptMatch,
+  validateBankReceiptApplication: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/ap/supplierBankPaymentService', () => ({
+  applyBankLineToSupplierInvoices,
+  validateBankSupplierPayment: vi.fn(),
+}));
+vi.mock('@/modules/accounting/services/bank/bankMatchDbQueries', () => ({
+  fetchBankTransaction,
 }));
 vi.mock('@/modules/accounting/services/core/contactDirectoryService', () => ({
   customersBelongToCompany: vi.fn(),
@@ -92,6 +118,10 @@ beforeEach(() => {
   vi.mocked(suppliersBelongToCompany).mockResolvedValue(true);
   vi.mocked(createAllocationBatch).mockResolvedValue(BATCH);
   vi.mocked(recordAllocationBatchLines).mockResolvedValue(undefined);
+  sqlMock.mockResolvedValue([]);
+  fetchBankTransaction.mockResolvedValue({ amount: 100, transactionDate: '2026-01-01' });
+  confirmReceiptMatch.mockResolvedValue({ journalEntryId: 'je-applied' });
+  applyBankLineToSupplierInvoices.mockResolvedValue({ journalEntryId: 'je-applied' });
   vi.mocked(findBankTransactionAllocationStates).mockImplementation(
     async (_c: string, ids: readonly string[]) => new Map(
       ids.map((id) => [id, { id, status: 'imported', matchedJournalLineId: null }]),
@@ -151,14 +181,14 @@ describe('bulk_allocate_bank_transactions — posting', () => {
     ]);
   });
 
-  it('passes alloc_type, entity, invoice, vat and description straight through', async () => {
+  it('passes alloc_type, entity, vat and description straight through', async () => {
+    // No invoice_id: this is still the plain journal-posting path.
     await bulkAllocateBankTransactionsTool.handler(
       {
         allocations: [{
           transaction_id: TX(1),
           alloc_type: 'supplier',
           entity_id: SUPPLIER,
-          invoice_id: INVOICE,
           vat_code: 'standard',
           description: 'Rent',
         }],
@@ -172,7 +202,38 @@ describe('bulk_allocate_bank_transactions — posting', () => {
     expect(call[5]).toBe('supplier');
     expect(call[6]).toBe(SUPPLIER);
     expect(call[7]).toBe('standard');
-    expect(call[11]).toBe(INVOICE);
+  });
+
+  it('a line naming an invoice APPLIES it instead of only posting a journal', async () => {
+    // Contract change. This used to assert `invoice_id` reached
+    // `allocateTransaction` as argument 11 — which it did, and which
+    // `allocateTransaction` then used only to set a `payment_matched` boolean,
+    // leaving amount_paid, status and paid_at untouched. Passing the id through
+    // was never the behaviour worth pinning; applying it is.
+    vi.mocked(sqlMock).mockResolvedValue([{
+      id: INVOICE, invoice_number: 'BILL-1', total_amount: '1000.00',
+      amount_paid: '0.00', status: 'approved',
+    }]);
+    await bulkAllocateBankTransactionsTool.handler(
+      {
+        allocations: [{
+          transaction_id: TX(1),
+          alloc_type: 'supplier',
+          entity_id: SUPPLIER,
+          invoice_id: INVOICE,
+          description: 'Rent',
+        }],
+        idempotency_key: 'k1',
+      },
+      ctx,
+    );
+    expect(applyBankLineToSupplierInvoices).toHaveBeenCalledTimes(1);
+    const [companyId, params] = vi.mocked(applyBankLineToSupplierInvoices).mock.calls[0]!;
+    expect(companyId).toBe('company-1');
+    expect(params.allocations).toEqual([{ invoiceId: INVOICE, amount: 100 }]);
+    // allocateTransaction is still called EXACTLY once — from inside the apply
+    // service, not from here as well. Two calls would double-post.
+    expect(allocateTransaction).not.toHaveBeenCalled();
   });
 });
 

@@ -24,6 +24,7 @@
  */
 
 import { sql } from '@/lib/neon';
+import type { PostingActorOpts } from '../gl/journalEntryMeta';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { fetchBankTransaction } from '../bank/bankMatchDbQueries';
@@ -162,6 +163,15 @@ export async function confirmReceiptMatch(
     userId: string;
     allocations: readonly ReceiptAllocationInput[];
     postingAgent?: string;
+    /**
+     * The FULL actor identity. `postingAgent` alone loses `actorType` and
+     * `actorTokenJti` (migrations 530/531), and a posting without the token
+     * jti drops out of the token-scoped view of `list_agent_postings` — the
+     * control surface every other agent write is audited through. Kept
+     * alongside `postingAgent` rather than replacing it so existing callers
+     * are untouched; this wins when both are given.
+     */
+    postingOpts?: PostingActorOpts;
   },
 ): Promise<ConfirmReceiptMatchResult> {
   const { bankTxId, userId, allocations } = params;
@@ -184,7 +194,7 @@ export async function confirmReceiptMatch(
     undefined,
     undefined,
     validation.lines[0]!.invoiceId,
-    params.postingAgent ? { postingAgent: params.postingAgent } : undefined,
+    params.postingOpts ?? (params.postingAgent ? { postingAgent: params.postingAgent } : undefined),
   );
 
   const paymentRows = (await sql`

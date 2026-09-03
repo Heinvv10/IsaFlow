@@ -264,8 +264,19 @@ describe('applySupplierPaymentPlan', () => {
     const updates = sqlMock.mock.calls
       .map((c) => (c[0] as string[]).join('?'))
       .filter((t) => t.includes('UPDATE supplier_invoices'));
-    expect(updates).toHaveLength(1);
-    expect(updates[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
+    // TWO now: the money write, then recomputeInvoiceStatus deriving status,
+    // paid_at and payment_matched from the balance it left. Asserted as exactly
+    // two — a third would mean a writer crept back in.
+    expect(updates).toHaveLength(2);
+
+    const moneyWrites = updates.filter((t) => /amount_paid\s*=/.test(t));
+    expect(moneyWrites).toHaveLength(1);
+    expect(moneyWrites[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
+    // NO statement may write it absolutely, not merely the one we picked.
+    for (const t of updates) expect(t).not.toMatch(/SET\s+amount_paid\s*=\s*\?/);
+    // The money write no longer carries the settlement rule with it.
+    expect(moneyWrites[0]).not.toMatch(/payment_matched/);
+    expect(moneyWrites[0]).not.toMatch(/status\s*=/);
   });
 
   it('DERIVES payment_matched from the settlement, so a wrongly-set flag is CORRECTED', async () => {
@@ -277,11 +288,17 @@ describe('applySupplierPaymentPlan', () => {
     // ever sets TRUE.
     const plan = await plannedFor(300);
     await applySupplierPaymentPlan(COMPANY, plan, USER);
+    // Now written by recomputeInvoiceStatus, so look for the statement that
+    // carries the flag rather than assuming it is the first one.
     const update = sqlMock.mock.calls
       .map((c) => (c[0] as string[]).join('?'))
-      .find((t) => t.includes('UPDATE supplier_invoices'))!;
+      .find((t) => t.includes('UPDATE supplier_invoices') && t.includes('payment_matched'))!;
+    expect(update).toBeDefined();
     expect(update).toMatch(/payment_matched\s*=\s*\(/);
     expect(update).not.toMatch(/payment_matched\s*=\s*CASE[\s\S]*ELSE payment_matched/);
+    // And it clears the timestamp when the flag goes false, so a stale stamp
+    // cannot outlive its claim.
+    expect(update).toMatch(/payment_matched_at = CASE[\s\S]*ELSE NULL/);
   });
 
   it('SETS payment_matched when the bill is fully settled', async () => {
@@ -293,7 +310,9 @@ describe('applySupplierPaymentPlan', () => {
     const updates = sqlMock.mock.calls
       .map((c) => (c[0] as string[]).join('?'))
       .filter((t) => t.includes('UPDATE supplier_invoices'));
-    expect(updates[0]).toContain('payment_matched');
+    // Exactly one of the two statements owns the flag — not zero (the bug this
+    // guards) and not both (two writers again).
+    expect(updates.filter((t) => t.includes('payment_matched'))).toHaveLength(1);
   });
 
   it('WRITES payment_allocations, never supplier_payment_allocations', async () => {
