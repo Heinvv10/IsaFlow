@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import Link from 'next/link';
 import {
   ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight,
@@ -42,7 +43,9 @@ interface ManagementReport {
   periodEnd: string;
   generatedAt: string;
   kpis: Kpis;
-  incomeStatement: Record<string, unknown>;
+  incomeStatement: Record<string, unknown> & {
+    subtypeDisclosure?: { notices: string[] } | null;
+  };
   balanceSheet: Record<string, unknown>;
   cashFlow: CashFlow;
 }
@@ -293,6 +296,14 @@ export default function ManagementAccountsPage() {
                 <KpiCard label="Net Profit" value={formatCurrency(k?.netProfit ?? 0)} sub={fmtPct(k?.netProfitPct ?? 0)} icon={BarChart3} color="purple" />
                 <KpiCard label="Cash Position" value={formatCurrency(k?.cashPosition ?? 0)} icon={Banknote} color="amber" />
               </div>
+
+              {/* The Gross Profit KPI above comes from the same getIncomeStatement
+                  call as the income statement page, and carries the same
+                  unclassified-subtype defect. This pack is a document people
+                  send onward, so the caveat has to travel with the number. */}
+              {report.incomeStatement?.subtypeDisclosure && (
+                <DataQualityNotice notices={report.incomeStatement.subtypeDisclosure.notices} />
+              )}
 
               {/* P&L Section */}
               <Section title="Income Statement (P&L)" icon={TrendingUp} color="teal" defaultOpen>

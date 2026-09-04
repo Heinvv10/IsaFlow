@@ -9,6 +9,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { reasonLabel } from '@/modules/accounting/services/reports/incomeStatementDisclosure';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -80,6 +81,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Margin summaries
     csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Gross Margin %')},${report.totalRevenue > 0 ? ((report.grossProfit / report.totalRevenue) * 100).toFixed(1) + '%' : '—'}`);
     csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Net Margin %')},${report.totalRevenue > 0 ? ((report.netProfit / report.totalRevenue) * 100).toFixed(1) + '%' : '—'}`);
+
+    // An exported file leaves the app and carries the margins with no screen to
+    // qualify them, so the caveat travels WITH the figures — immediately after
+    // the margin rows it applies to, not interleaved into the statement body.
+    if (report.subtypeDisclosure) {
+      csvLines.push(
+        `${csvVal('Warning')},${csvVal('')},${csvVal('Gross Profit overstated by at least')},${Number(report.subtypeDisclosure.grossProfitOverstatedByAtLeast).toFixed(2)}`
+      );
+      csvLines.push(
+        `${csvVal('Warning')},${csvVal('')},${csvVal('Expense that could be cost of sales (at most)')},${Number(report.subtypeDisclosure.costOfSalesExposureAtMost).toFixed(2)}`
+      );
+      csvLines.push(
+        `${csvVal('Warning')},${csvVal('')},${csvVal('Revenue that could be other income (at most)')},${Number(report.subtypeDisclosure.otherIncomeExposureAtMost).toFixed(2)}`
+      );
+      for (const line of report.subtypeDisclosure.notices) {
+        csvLines.push(`${csvVal('Warning')},${csvVal('')},${csvVal(line)},${csvVal('')}`);
+      }
+      for (const a of report.subtypeDisclosure.accounts) {
+        csvLines.push(
+          `${csvVal('Warning')},${csvVal(a.accountCode)},${csvVal(`${a.accountName} — ${reasonLabel(a.reason)}`)},${Number(a.amount).toFixed(2)}`
+        );
+      }
+      if (report.subtypeDisclosure.unnamedAccounts > 0) {
+        csvLines.push(
+          `${csvVal('Warning')},${csvVal('')},${csvVal(`and ${report.subtypeDisclosure.unnamedAccounts} further affected account(s)`)},${csvVal('')}`
+        );
+      }
+      csvLines.push(
+        `${csvVal('Warning')},${csvVal('')},${csvVal('The amounts above are repeated elsewhere in this file — do not add them again.')},${csvVal('')}`
+      );
+    }
 
     const csv = csvLines.join('\n');
     const filename = `income-statement-${periodStart}-to-${periodEnd}.csv`;
