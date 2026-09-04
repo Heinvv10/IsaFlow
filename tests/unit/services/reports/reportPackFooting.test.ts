@@ -119,3 +119,25 @@ describe('getReportPackInput carries the bands the pack needs', () => {
     expect(Math.abs((d.operatingProfit - d.otherExpenses) - d.netProfit)).toBeCloseTo(341712.00, 2);
   });
 });
+
+describe('the pack RATIOS use the converged operating line', () => {
+  // Dropping BOTH operatingProfit and otherIncome from buildReportPack's
+  // FinancialData reverts the pack to the pre-B75 operating line and left the
+  // whole suite green — each field alone is an equivalent mutant, so only the
+  // pair pins it.
+  it('reports an operating margin that includes other income', () => {
+    const r = section('ratios') as unknown as Record<string, number>;
+    const turnover = INPUT.revenue;
+    const withOther = (INPUT.operatingProfit! / turnover) * 100;
+    const withoutOther =
+      ((INPUT.revenue - INPUT.costOfSales - INPUT.operatingExpenses) / turnover) * 100;
+    expect(r.operatingProfitMargin).toBeCloseTo(withOther, 2);
+    expect(r.operatingProfitMargin).not.toBeCloseTo(withoutOther, 2);
+  });
+
+  it('computes EBITDA on the same line', () => {
+    const r = section('ratios') as unknown as Record<string, number>;
+    // depreciation is 0 on this fixture, so EBITDA is the operating line itself.
+    expect(r.ebitda).toBeCloseTo(INPUT.operatingProfit!, 2);
+  });
+});

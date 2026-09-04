@@ -76,9 +76,11 @@ export async function getReportPackInput(
     // Other Income and Other Expenses were ALWAYS suppressed and its Net Profit
     // subtotal hung off the running total by their net — R341,712.00 on
     // Brightsphere, on a customer-facing PDF.
-    otherIncome: data.otherIncome ?? 0,
+    otherIncome: data.otherIncome,
     otherExpenses: figures.period.otherExpenses,
-    operatingProfit: data.operatingProfit ?? 0,
+    // NOT `?? 0`: an explicit zero would pin a zero operating line and defeat
+    // `operatingProfitOf`'s fallback, which derives the correct one.
+    operatingProfit: data.operatingProfit,
     netProfit: data.netProfit,
     totalAssets: data.totalAssets,
     totalLiabilities: data.totalLiabilities,

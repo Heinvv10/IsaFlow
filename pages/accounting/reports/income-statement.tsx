@@ -7,13 +7,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
-import type { IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.types';
-import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
+import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
-import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 
-import { formatCurrency } from '@/utils/formatters';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';

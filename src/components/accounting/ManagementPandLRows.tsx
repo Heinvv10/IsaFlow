@@ -19,15 +19,7 @@ export function KVRow({ label, value, bold }: { label: string; value: string; bo
   );
 }
 
-// ─── Email modal ─────────────────────────────────────────────────────────────
 
-/**
- * The pack's P&L rows — every band, so it FOOTS. Turnover less cost of sales
- * less operating expenses misses Net Profit by exactly other income minus other
- * expenses; this pack is "a document people send onward". Its own component so
- * the bands are testable: deleting the Operating Profit or Other Income row
- * left the whole suite green.
- */
 export function ManagementPandLRows({ is }: { is: Record<string, number> | undefined }) {
   return (
     <>

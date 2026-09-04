@@ -7,6 +7,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { incomeStatementPackRows } from '@/modules/accounting/services/reports/incomeStatementPackRows';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
@@ -135,20 +136,9 @@ function renderSection(
         doc,
         autoTable,
         [['Item', 'Amount', 'Margin']],
-        // Every band, in reconciling order, so the pack FOOTS. Turnover less
-        // cost of sales less operating expenses misses Net Profit by exactly
-        // other income minus other expenses — R341,712.00 on Brightsphere, on a
-        // PDF sent to a client.
-        [
-          ['Turnover', fmtZAR(n(d.revenue)), ''],
-          ['Cost of Sales', fmtZAR(n(d.costOfSales)), ''],
-          ['Gross Profit', fmtZAR(n(d.grossProfit)), pct(d.grossMargin)],
-          ...(n(d.otherIncome) !== 0 ? [['Other Income', fmtZAR(n(d.otherIncome)), '']] : []),
-          ['Operating Expenses', fmtZAR(n(d.operatingExpenses)), ''],
-          ['Operating Profit', fmtZAR(n(d.operatingProfit)), ''],
-          ...(n(d.otherExpenses) !== 0 ? [['Other Expenses', fmtZAR(n(d.otherExpenses)), '']] : []),
-          ['Net Profit', fmtZAR(n(d.netProfit)), pct(d.netMargin)],
-        ],
+        // One row list, shared with the HTML pack — see incomeStatementPackRows.
+        incomeStatementPackRows(d as Record<string, unknown>).map(r =>
+          [r.label, fmtZAR(n(r.amount)), r.margin ? pct(r.margin) : '']),
         y,
         margin,
       );

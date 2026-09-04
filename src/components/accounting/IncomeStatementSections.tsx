@@ -36,23 +36,20 @@ export function IncomeStatementSections({
   showComparative: boolean;
   onEvidence: (accountId: string, accountName: string) => void;
 }) {
-  const setEvidenceTarget = ({ accountId, accountName }: { accountId: string; accountName: string }) =>
-    onEvidence(accountId, accountName);
-  const toggleAccount = onToggleAccount;
   return (
                 <div className="divide-y divide-[var(--ff-border-light)]">
                   {/* Revenue */}
                   <Section label="Turnover" items={report.revenue} total={report.totalRevenue} color="teal"
                     periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                    onToggleAccount={toggleAccount} showComparative={showComparative}
-                    onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+                    onToggleAccount={onToggleAccount} showComparative={showComparative}
+                    onEvidence={onEvidence} />
 
                   {/* Cost of Sales */}
                   {report.costOfSales.length > 0 && (
                     <Section label="Cost of Sales" items={report.costOfSales} total={report.totalCostOfSales} color="orange"
                       periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                      onToggleAccount={toggleAccount} showComparative={showComparative}
-                      onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+                      onToggleAccount={onToggleAccount} showComparative={showComparative}
+                      onEvidence={onEvidence} />
                   )}
 
                   {/* Gross Profit */}
@@ -76,15 +73,15 @@ export function IncomeStatementSections({
                   {report.otherIncome.length > 0 && (
                     <Section label="Other Income" items={report.otherIncome} total={report.totalOtherIncome} color="teal"
                       periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                      onToggleAccount={toggleAccount} showComparative={showComparative}
-                      onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+                      onToggleAccount={onToggleAccount} showComparative={showComparative}
+                      onEvidence={onEvidence} />
                   )}
 
                   {/* Operating Expenses */}
                   <Section label="Operating Expenses" items={report.operatingExpenses} total={report.totalOperatingExpenses} color="red"
                     periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                    onToggleAccount={toggleAccount} showComparative={showComparative}
-                    onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+                    onToggleAccount={onToggleAccount} showComparative={showComparative}
+                    onEvidence={onEvidence} />
 
                   {/* Operating Profit — gross profit PLUS other income, less
                       operating expenses. Other income is above this line; only
@@ -105,8 +102,8 @@ export function IncomeStatementSections({
                   {report.otherExpenses.length > 0 && (
                     <Section label="Other Expenses" items={report.otherExpenses} total={report.totalOtherExpenses} color="orange"
                       periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                      onToggleAccount={toggleAccount} showComparative={showComparative}
-                      onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+                      onToggleAccount={onToggleAccount} showComparative={showComparative}
+                      onEvidence={onEvidence} />
                   )}
 
                   {/* Net Profit */}
