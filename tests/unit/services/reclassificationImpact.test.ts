@@ -84,14 +84,44 @@ async function makeAccount(
   return rows[0]!.id;
 }
 
+/**
+ * A COMPANY OF ITS OWN, created inside this test's transaction.
+ *
+ * `uq_gl_je_company_entry_number` is unique on (company_id, entry_number) and
+ * `createJournalEntry` derives the number from that company's existing maximum.
+ * Every DB-gated test that borrowed "the first company with an open period" was
+ * therefore racing every other one for the next number, and under parallel file
+ * execution that surfaces as a 23505 in whichever test lost — a documented flake
+ * in this repo which these tests were making MORE likely by posting more
+ * journals into the shared company. A private company takes this file out of
+ * that contention entirely.
+ *
+ * Rolled back with everything else, so nothing is left behind.
+ */
+async function makeCompany(client: PoolClient): Promise<{ companyId: string; today: string }> {
+  const { rows: co } = await client.query<{ id: string }>(
+    "INSERT INTO companies (name) VALUES ('Reclass fixture co') RETURNING id",
+  );
+  const companyId = co[0]!.id;
+  // One open period covering today, so every journal this file posts resolves a
+  // fiscal_period_id and postJournalEntry's open-period check passes.
+  await client.query(
+    `INSERT INTO fiscal_periods
+       (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+     VALUES ($1, 'Fixture period', 1, EXTRACT(YEAR FROM CURRENT_DATE)::int,
+             date_trunc('year', CURRENT_DATE)::date,
+             (date_trunc('year', CURRENT_DATE) + interval '1 year - 1 day')::date,
+             'open')`,
+    [companyId],
+  );
+  const { rows: today } = await client.query<{ d: string }>(
+    "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS d",
+  );
+  return { companyId, today: today[0]!.d };
+}
+
 async function buildFixture(client: PoolClient): Promise<Fixture | null> {
-  const { rows: periods } = await client.query<{ company_id: string }>(`
-    SELECT company_id FROM fiscal_periods
-     WHERE status = 'open' AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE
-     ORDER BY company_id LIMIT 1
-  `);
-  const companyId = periods[0]?.company_id;
-  if (!companyId) return null;
+  const { companyId } = await makeCompany(client);
 
   const n = Math.floor(Math.random() * 1e9);
   const sourceId = await makeAccount(client, companyId, `SRC${n}`, 'expense', 'debit', null);

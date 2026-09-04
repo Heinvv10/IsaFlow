@@ -61,8 +61,8 @@ findReclassCandidates(companyId, q): Promise<CandidateRow[]>   // LIMIT limit + 
 countReclassCandidates(companyId, q): Promise<number>          // the universe, own COUNT
 // partition.ts — the decision, PURE (re-exported from candidates.ts)
 partitionCandidates(rows, opts): { movable, skipped }
-// sourceLock.ts
-lockReclassSource(companyId, sourceAccountId, lockTimeout?): Promise<void>
+// lineLock.ts
+lockReclassLinesForUpdate(companyId, lineIds): Promise<string[]>  // ids actually locked
 // journals.ts
 buildReclassJournals(lines, sourceId, targetId, names, postingDate): ReclassJournalDraft[]  // PURE
 // impact.ts
@@ -77,7 +77,8 @@ createReclassBatch / recordReclassBatchLines / getReclassBatch
 
 - **Skip reasons**, machine-stable, in the order they are reported:
   `entry_reversed`, `entry_is_reversal`, `reclassification_contra`,
-  `already_reclassified`, `zero_amount`, `unreproducible_analysis_coding`,
+  `appeared_after_lock`, `already_reclassified`, `zero_amount`,
+  `unreproducible_analysis_coding`,
   `unknown_vat_type`, `vat_period_locked`, `source_period_missing`,
   `source_period_closed`.
 - **A REVERSAL IS A PAIR, AND BOTH HALVES ARE SKIPPED.** `reversed_at` marks the
@@ -94,13 +95,32 @@ createReclassBatch / recordReclassBatchLines / getReclassBatch
   contributes nothing to any balance — moving it posts two more journals to
   relocate a nil, and reclassifying a reversed charge is a different intent from
   reclassifying a live one.
-- **The source account is LOCKED before the candidates are read**, on the write
-  path only (`sourceLock.ts`). Nothing else serialises two DIFFERENT requests
-  over the same rows: the registry's idempotency lock keys on the key, and all
-  three duplicate-move guards are read-committed reads of rows the peer has not
-  committed. Two batches under different keys would otherwise both post the same
-  R11.3m. A preview takes no lock — holding one for the length of a read would
-  be a denial of service dressed as safety.
+- **READ → LOCK → RE-READ, on the write path only** (`lineLock.ts`). Nothing
+  else serialises two DIFFERENT requests over the same lines: the registry's
+  idempotency lock keys on the key, all three duplicate-move guards are
+  read-committed reads of rows the peer has not committed, and the
+  `(batch_id, source_line_id)` unique index is per BATCH so two batch ids cannot
+  collide. Two batches under different keys would otherwise both post the same
+  R11.3m.
+  **The lock alone fixes nothing.** Held only across the INSERT, both batches
+  would still have DECIDED on stale reads. So: read to learn the ids, `FOR
+  UPDATE` them, then read AGAIN and evaluate every row-state guard on that
+  second read — by which time the peer's batch rows are committed and its lines
+  report as `already_reclassified`.
+  `FOR UPDATE`, not an advisory lock, and on the LINES, not the account: this is
+  `bankTxLock.ts`'s pattern, which the repo added after a double-post got
+  through the same way, and the contended resource genuinely is the set of lines
+  — two batches can only double-move a line they BOTH selected. Two batches over
+  non-overlapping windows do not conflict and are not made to wait.
+  `ORDER BY jl.id … FOR UPDATE` acquires in ascending id order (Postgres puts
+  `LockRows` above `Sort`; verified across index, bitmap and seq plans), so
+  overlapping batches queue rather than deadlock — the same total-order argument
+  `writeBankBulkAllocate` makes, in one round trip instead of 500.
+  A line that appears between the lock and the re-read is NOT locked, so it is
+  skipped as `appeared_after_lock` rather than moved — and skipped rather than
+  dropped, so it stays inside `rowsTotal + excluded === universeTotal`.
+  A preview takes no lock: holding locks on hundreds of posted lines for the
+  length of a read would block every real batch on them for no benefit.
 - **A VAT control account is refused as source or target.** `vatReturnService`
   decides VAT201 membership by `account_subtype IN ('vat_input','vat_output',
   'tax')`, and a line landing on one with a NULL `vat_type` is swept into box 15
@@ -182,7 +202,10 @@ source account's name lost.
 - 2026-09-04 (review round): two HIGH defects closed. **HIGH-1**, the reversal
   pair split above — the first cut moved the reversing half of every pair whose
   other half it skipped. **HIGH-2**, no lock: two concurrent batches under
-  different idempotency keys both posted. Plus `vat_type` and `bu_id` now carried
+  different idempotency keys both posted. Closed with `FOR UPDATE` on the
+  candidate lines following `bankTxLock.ts` — an advisory lock on the account
+  was tried first and replaced, because the repo already owns this pattern and a
+  second lock idiom in one module is how a third appears. Plus `vat_type` and `bu_id` now carried
   onto both legs, VAT control accounts refused, the dry run giving the identical
   refusal to the live call, `renderPeriods` echoing the caller's own
   `posting_date` rather than inferring one, `lock_timeout` on migration 600, and

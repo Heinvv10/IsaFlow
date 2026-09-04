@@ -55,20 +55,50 @@ interface Fixture {
   lineId: string;
 }
 
-/** A company with an OPEN fiscal period covering today and two expense accounts. */
-async function buildFixture(client: PoolClient): Promise<Fixture | null> {
-  const { rows: periods } = await client.query<{ company_id: string; start_date: string }>(`
-    SELECT company_id, start_date FROM fiscal_periods
-     WHERE status = 'open' AND start_date <= CURRENT_DATE AND end_date >= CURRENT_DATE
-     ORDER BY company_id LIMIT 1
-  `);
-  const period = periods[0];
-  if (!period) return null;
+/**
+ * A COMPANY OF ITS OWN, created inside this test's transaction.
+ *
+ * `uq_gl_je_company_entry_number` is unique on (company_id, entry_number) and
+ * `createJournalEntry` derives the number from that company's existing maximum.
+ * Every DB-gated test that borrowed "the first company with an open period" was
+ * therefore racing every other one for the next number, and under parallel file
+ * execution that surfaces as a 23505 in whichever test lost — a documented flake
+ * in this repo which these tests were making MORE likely by posting more
+ * journals into the shared company. A private company takes this file out of
+ * that contention entirely.
+ *
+ * Rolled back with everything else, so nothing is left behind.
+ */
+async function makeCompany(client: PoolClient): Promise<{ companyId: string; today: string }> {
+  const { rows: co } = await client.query<{ id: string }>(
+    "INSERT INTO companies (name) VALUES ('Reclass fixture co') RETURNING id",
+  );
+  const companyId = co[0]!.id;
+  // One open period covering today, so every journal this file posts resolves a
+  // fiscal_period_id and postJournalEntry's open-period check passes.
+  await client.query(
+    `INSERT INTO fiscal_periods
+       (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+     VALUES ($1, 'Fixture period', 1, EXTRACT(YEAR FROM CURRENT_DATE)::int,
+             date_trunc('year', CURRENT_DATE)::date,
+             (date_trunc('year', CURRENT_DATE) + interval '1 year - 1 day')::date,
+             'open')`,
+    [companyId],
+  );
+  const { rows: today } = await client.query<{ d: string }>(
+    "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS d",
+  );
+  return { companyId, today: today[0]!.d };
+}
 
-  // Two accounts CREATED for this test rather than borrowed. A borrowed
-  // account carries whatever the seed put on it — on `isaflow_dev` account 5200
-  // already holds more than the 500-line cap — and the batch would then be
-  // measuring the fixture rather than the code.
+/** A private company, an open period covering today, and its own accounts. */
+async function buildFixture(client: PoolClient): Promise<Fixture | null> {
+  const period = { company_id: (await makeCompany(client)).companyId };
+
+  // Accounts CREATED for this test rather than borrowed. A borrowed account
+  // carries whatever the seed put on it — on `isaflow_dev` account 5200 already
+  // holds more than the 500-line cap — and the batch would then be measuring
+  // the fixture rather than the code.
   const suffix = Math.floor(Math.random() * 1e9).toString().padStart(9, '0');
   const accounts: { id: string }[] = [];
   for (const side of ['SRC', 'TGT']) {
@@ -99,9 +129,9 @@ async function buildFixture(client: PoolClient): Promise<Fixture | null> {
   );
   // The balancing leg, on neither account under test.
   const { rows: contra } = await client.query<{ id: string }>(
-    `SELECT id FROM gl_accounts WHERE company_id = $1 AND account_type = 'liability' AND is_active
-      ORDER BY account_code LIMIT 1`,
-    [period.company_id],
+    `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, is_active)
+     VALUES ($1, $2, 'Reclass fixture contra', 'liability', 'credit', true) RETURNING id`,
+    [period.company_id, `RCLLIA${suffix}`],
   );
   if (!contra[0]) return null;
   await client.query(
@@ -135,7 +165,7 @@ async function accountMovement(
 const today = new Date().toISOString().slice(0, 10);
 
 async function planFor(
-  client: PoolClient, f: Fixture, lockSourceAccount = false,
+  client: PoolClient, f: Fixture, lockCandidateLines = false,
 ): Promise<ReclassPlan> {
   const plan = await als.run(ctxFor(client, f.companyId), () =>
     planReclassification({
@@ -144,7 +174,7 @@ async function planFor(
       targetAccountId: f.targetAccountId,
       // Bounded to the fixture's own day: an unbounded window over a borrowed
       // company would sweep in whatever else the seed posted.
-      from: today, to: today, postingDate: null, lockSourceAccount,
+      from: today, to: today, postingDate: null, lockCandidateLines,
     }));
   if (isRefusal(plan)) throw new Error(`unexpected refusal: ${plan.refused}`);
   return plan;
@@ -310,11 +340,11 @@ describe('reclassification (real DB)', async () => {
     }
   }, 60_000);
 
-  it.skipIf(!reachable)('takes the source-account lock on the WRITE path, and not on a preview', async (ctx) => {
-    // The lock service has its own contention tests. This one tests the WIRING:
-    // deleting the `lockReclassSource` call from plan.ts leaves every one of
-    // those green, because they call the service directly. Observed through
-    // pg_locks, which is the only thing that can tell "the lock was taken" from
+  it.skipIf(!reachable)('row-locks the candidate lines on the WRITE path, and not on a preview', async (ctx) => {
+    // The lock helper has its own contention tests. This one tests the WIRING:
+    // deleting the `lockReclassLinesForUpdate` call from plan.ts leaves every
+    // one of those green, because they call the helper directly. Observed on
+    // the ROW, which is the only thing that can tell "the lock was taken" from
     // "the code says it takes a lock".
     assertNotProductionDb('This test inserts journal entries and lines.');
     const client = await getPoolForTests().connect();
@@ -323,15 +353,17 @@ describe('reclassification (real DB)', async () => {
       const f = await buildFixture(client);
       if (!f) { ctx.skip('no company with an open period and two expense accounts'); return; }
 
-      const { rows: key } = await client.query<{ c: number; o: number }>(
-        'SELECT hashtext($1) AS c, hashtext($2) AS o', [f.companyId, f.sourceAccountId],
-      );
+      // Row locks are recorded against the TUPLE, and a granted FOR UPDATE
+      // shows as the transaction holding an exclusive lock on its own xid plus
+      // the row carrying that xmax. `pg_locks` alone cannot name which rows, so
+      // ask the row itself: FOR UPDATE stamps xmax, and `pg_xact_status` says
+      // whether the stamping transaction is ours and still in progress.
       const held = async (): Promise<number> => {
         const { rows } = await client.query<{ n: string }>(
-          `SELECT COUNT(*)::TEXT AS n FROM pg_locks
-            WHERE locktype = 'advisory' AND classid = $1 AND objid = $2
-              AND pid = pg_backend_pid() AND granted`,
-          [key[0]!.c, key[0]!.o],
+          `SELECT COUNT(*)::TEXT AS n FROM gl_journal_lines
+            WHERE id = $1 AND xmax::TEXT::BIGINT <> 0
+              AND xmax::TEXT::BIGINT = pg_current_xact_id()::TEXT::BIGINT`,
+          [f.lineId],
         );
         return Number(rows[0]!.n);
       };

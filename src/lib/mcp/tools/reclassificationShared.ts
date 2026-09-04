@@ -70,7 +70,7 @@ export async function planFromArgs(
    * TRUE only on the path that is about to write. A preview must not hold a
    * lock that blocks every real batch on the account for its duration.
    */
-  lockSourceAccount = false,
+  lockCandidateLines = false,
 ): Promise<ReclassPlan | McpToolResult> {
   const sourceAccountId = strArg(args, 'source_account_id');
   const targetAccountId = strArg(args, 'target_account_id');
@@ -89,18 +89,17 @@ export async function planFromArgs(
       from: strArg(args, 'from') ?? null,
       to: strArg(args, 'to') ?? null,
       postingDate: strArg(args, 'posting_date') ?? null,
-      lockSourceAccount,
+      lockCandidateLines,
     });
   } catch (err) {
-    // The source-account lock timed out: another batch is mid-flight on this
-    // account. Write-free by construction — the lock is taken before anything
-    // is read, let alone posted — so this is a PRE-write refusal and a
-    // toolError is the correct shape. The registry audits it with a NULL
-    // idempotency key, leaving the key usable for the retry the message asks
-    // for. Anything else rethrows: only this one condition is known to be
-    // write-free.
+    // The candidate-line lock timed out: another batch is mid-flight on lines
+    // this one wants. Write-free by construction — the lock is taken before
+    // anything is posted — so this is a PRE-write refusal and a toolError is
+    // the correct shape. The registry audits it with a NULL idempotency key,
+    // leaving the key usable for the retry the message asks for. Anything else
+    // rethrows: only this one condition is known to be write-free.
     if (typeof err === 'object' && err !== null
-        && (err as { code?: unknown }).code === 'RECLASS_SOURCE_LOCKED') {
+        && (err as { code?: unknown }).code === 'RECLASS_LINE_LOCKED') {
       return toolError((err as Error).message);
     }
     throw err;

@@ -157,6 +157,40 @@ describe('partitionCandidates', () => {
     ).toMatchObject({ reason: 'vat_period_locked' });
   });
 
+  it('will not move a line it does not hold a lock on', () => {
+    // A line that appeared on the source account BETWEEN the lock and the
+    // re-read is real and belongs in the universe, but it is not locked —
+    // moving it would reintroduce the race the lock closes. Skipped rather
+    // than dropped, so `rowsTotal + excluded` still accounts for it and no
+    // completeness fault fires with the wrong stated cause.
+    const rows = [row({ line_id: 'locked' }), row({ line_id: 'newcomer' })];
+    const { movable, skipped } = partitionCandidates(rows, {
+      postingDate: null,
+      lockedLineIds: new Set(['locked']),
+    });
+    expect(movable.map((m) => m.lineId)).toEqual(['locked']);
+    expect(skipped).toEqual([
+      expect.objectContaining({ lineId: 'newcomer', reason: 'appeared_after_lock' }),
+    ]);
+  });
+
+  it('reports appeared_after_lock BEFORE any other verdict about that row', () => {
+    // The rest of an unlocked row's state was read outside the lock, so no
+    // verdict about it is trustworthy enough to report as the reason.
+    const { skipped } = partitionCandidates(
+      [row({ line_id: 'x', reversed: true })],
+      { postingDate: null, lockedLineIds: new Set<string>() },
+    );
+    expect(skipped[0]!.reason).toBe('appeared_after_lock');
+  });
+
+  it('locks nothing on a read-only path, and then moves everything movable', () => {
+    // `lockedLineIds: undefined` is the preview path — no lock was taken, so
+    // the absence of one must not read as "every line is unlocked".
+    const { movable } = partitionCandidates([row()], { postingDate: null });
+    expect(movable).toHaveLength(1);
+  });
+
   it('reports the FIRST applicable reason per line and never both moves and skips it', () => {
     const { movable, skipped } = partitionCandidates(
       [row({ reversed: true, period_status: 'closed' })],

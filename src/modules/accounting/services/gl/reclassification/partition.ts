@@ -94,6 +94,7 @@ export interface ReclassSkip {
 export type ReclassSkipReason =
   | 'entry_reversed'
   | 'entry_is_reversal'
+  | 'appeared_after_lock'
   | 'unreproducible_analysis_coding'
   | 'unknown_vat_type'
   | 'already_reclassified'
@@ -104,6 +105,18 @@ export type ReclassSkipReason =
   | 'source_period_missing';
 
 export interface PartitionOptions {
+  /**
+   * The lines this batch actually holds a row lock on, or `undefined` on a
+   * read-only path that took none.
+   *
+   * A line that appeared on the source account BETWEEN the lock and the re-read
+   * is not in this set. It is real and it is a candidate, so it stays in the
+   * universe and is reported — but it is not locked, so moving it would
+   * reintroduce the very race the lock closes. It is skipped, not dropped:
+   * dropping it would leave `rowsTotal + excluded` short of `universeTotal` and
+   * raise a completeness fault whose stated cause would be wrong.
+   */
+  lockedLineIds?: ReadonlySet<string>;
   /**
    * When set, every reclassification journal is dated HERE instead of at its
    * source line's own date — so the source line's period being closed no longer
@@ -125,6 +138,11 @@ const num = (v: string | number | null | undefined): number => {
  * movable.
  */
 function skipReasonFor(row: CandidateRow, opts: PartitionOptions): ReclassSkipReason | null {
+  // Checked FIRST: an unlocked row's other state was read outside the lock, so
+  // no verdict about it is trustworthy enough to report as the reason.
+  if (opts.lockedLineIds !== undefined && !opts.lockedLineIds.has(row.line_id)) {
+    return 'appeared_after_lock';
+  }
   if (row.reversed) return 'entry_reversed';
   // A REVERSAL IS A PAIR, AND THIS TOOL MUST SEE BOTH HALVES OF IT.
   //

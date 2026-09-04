@@ -13,12 +13,18 @@
  * other 418.
  */
 
-import { getAccountById } from '../chartOfAccountsService';
-import { getPeriodStatusForDate } from '../periodStatusService';
-import { isVatPeriodLocked } from '../../reports/vatPeriodLockService';
-import { lockReclassSource } from './sourceLock';
+import { lockReclassLinesForUpdate } from './lineLock';
 import { getLedgerPostedThrough } from '../../reports/postedThroughService';
-import type { AccountType } from '../accountClassification';
+import {
+  admitReclassification,
+  isRefusal,
+  type ReclassAccount,
+  type ReclassRefusal,
+} from './planGuards';
+
+// Re-exported so a caller keeps ONE import for the plan and its refusal shape.
+export { isRefusal } from './planGuards';
+export type { ReclassAccount, ReclassRefusal } from './planGuards';
 import {
   countReclassCandidates,
   findReclassCandidates,
@@ -33,15 +39,6 @@ import { reclassWarnings, targetPriorSources, type ReclassWarning } from './warn
 /** Above this, the caller narrows the window rather than the tool truncating. */
 export const MAX_RECLASS_LINES = 500;
 
-export interface ReclassAccount {
-  id: string;
-  code: string;
-  name: string;
-  type: AccountType;
-  subtype: string | null;
-  isActive: boolean;
-}
-
 export interface ReclassPlanInput {
   companyId: string;
   sourceAccountId: string;
@@ -52,16 +49,15 @@ export interface ReclassPlanInput {
   /** One date for every journal, or null to date each at its source line. */
   postingDate: string | null;
   /**
-   * Take an advisory lock on the source account before reading candidates.
+   * Row-lock the candidate lines and re-evaluate them under the lock.
    *
    * TRUE only on the path that is about to WRITE. A dry run and
-   * `propose_reclassification` write nothing, so holding a lock that blocks
-   * every real batch on the account for the length of a preview would be a
-   * denial of service dressed as safety. The consequence is honest and small:
-   * a preview can be overtaken by a batch that commits before it, exactly as a
-   * report can.
+   * `propose_reclassification` write nothing, so holding locks on hundreds of
+   * posted lines for the length of a preview would block every real batch on
+   * them for no benefit. The consequence is honest and small: a preview can be
+   * overtaken by a batch that commits before it, exactly as a report can.
    */
-  lockSourceAccount: boolean;
+  lockCandidateLines: boolean;
 }
 
 export interface ReclassPlan {
@@ -79,157 +75,31 @@ export interface ReclassPlan {
   postedThrough: string;
 }
 
-/** A fault in the REQUEST. The caller returns it as a pre-write toolError. */
-export interface ReclassRefusal {
-  refused: string;
-}
-
-export function isRefusal(x: ReclassPlan | ReclassRefusal): x is ReclassRefusal {
-  return 'refused' in x;
-}
-
-/**
- * The subtypes `vatReturnService` uses to decide VAT201 membership.
- *
- * A line on one of these accounts is ON the return, and a line on one of them
- * with a NULL `vat_type` is swept into **box 15 at full value**. This tool can
- * move arbitrary posted lines, so a move onto such an account rewrites a
- * statutory return as a side effect of a housekeeping operation. That is
- * refused outright rather than warned about: a warning an agent can ignore is
- * not a control on a SARS submission.
- *
- * `'tax'` is in the set even though FINDINGS B37 records that it is NOT VAT —
- * Brightsphere's PAYE account carries it — precisely because `vatReturnService`
- * treats it as VAT today. The set mirrors what the return actually reads, not
- * what it ought to read; narrowing it here would silently re-open the hole
- * while that defect stands.
- */
-const VAT_RETURN_SUBTYPES = new Set(['vat_input', 'vat_output', 'tax']);
-
-async function loadAccount(
-  companyId: string,
-  id: string,
-): Promise<ReclassAccount | null> {
-  const account = await getAccountById(companyId, id);
-  if (!account) return null;
-  return {
-    id: account.id,
-    code: account.accountCode,
-    name: account.accountName,
-    type: account.accountType as AccountType,
-    subtype: account.accountSubtype ?? null,
-    isActive: account.isActive,
-  };
+export interface ReclassPlan {
+  /** Echoed from the input so the response reports what was ASKED for. */
+  postingDate: string | null;
+  source: ReclassAccount;
+  target: ReclassAccount;
+  movable: ReclassCandidate[];
+  skipped: ReclassSkip[];
+  /** Candidate lines before any guard, from its own COUNT. */
+  universeTotal: number;
+  drafts: ReclassJournalDraft[];
+  impact: ReclassImpact;
+  warnings: ReclassWarning[];
+  postedThrough: string;
 }
 
 export async function planReclassification(
   input: ReclassPlanInput,
 ): Promise<ReclassPlan | ReclassRefusal> {
   const { companyId } = input;
-  if (input.sourceAccountId === input.targetAccountId) {
-    return { refused: 'source_account_id and target_account_id must differ.' };
-  }
-  if (input.from !== null && input.to !== null && input.to < input.from) {
-    return { refused: 'to must not precede from.' };
-  }
-
-  // Ownership, from a READ, with the shared NOT_FOUND text supplied by the
-  // caller: a cross-tenant id must read identically to a typo'd one.
-  const source = await loadAccount(companyId, input.sourceAccountId);
-  if (!source) return { refused: 'NOT_FOUND' };
-  const target = await loadAccount(companyId, input.targetAccountId);
-  if (!target) return { refused: 'NOT_FOUND' };
-
-  // A deactivated account refuses every posting (`assertNoInactiveAccountLines`),
-  // so EVERY journal in the batch would fail. That is a fault in the request —
-  // refused here, before anything is written, rather than discovered on line 1
-  // of 419 with a generic failure.
-  if (!source.isActive) {
-    return {
-      refused:
-        `Source account ${source.code} is deactivated, so the contra leg cannot post. ` +
-        'Reactivate it for the duration of the reclassification.',
-    };
-  }
-  if (!target.isActive) {
-    return {
-      refused:
-        `Target account ${target.code} is deactivated and cannot receive a posting. ` +
-        'Reactivate it, or choose another target.',
-    };
-  }
-
-  // The posting date's OWN period, validated before any candidate is read. Both
-  // states get their own message because the remedies differ: create the fiscal
-  // year, versus re-open the period.
-  if (input.postingDate !== null) {
-    const status = await getPeriodStatusForDate(companyId, input.postingDate);
-    if (status === 'no_period') {
-      return {
-        refused:
-          `No fiscal period covers posting_date ${input.postingDate}. Create the fiscal ` +
-          'year first — a journal outside every period is invisible to the trial ' +
-          'balance, the VAT201 and the AFS.',
-      };
-    }
-    if (status !== 'open') {
-      return { refused: `The fiscal period covering posting_date ${input.postingDate} is closed.` };
-    }
-  }
-
-  for (const account of [source, target]) {
-    if (account.subtype !== null && VAT_RETURN_SUBTYPES.has(account.subtype)) {
-      return {
-        refused:
-          `${account.code} ${account.name} is a VAT control account (subtype ` +
-          `${account.subtype}), and the VAT201 is built from the lines sitting on ` +
-          'those accounts. Moving lines on or off one rewrites a statutory return, ' +
-          'and a line landing there with no vat_type is swept into box 15 at full ' +
-          'value. Reclassify VAT control accounts through the VAT tools, not this one.',
-      };
-    }
-  }
-
-  // A line that CARRIES VAT coding and sits in a filed period is anchored to a
-  // return already sent to SARS. Per line, so one such line never costs the
-  // rest of the batch; refused up front only for a posting_date, where the
-  // whole batch would land in the locked period.
-  if (input.postingDate !== null && (await isVatPeriodLocked(companyId, input.postingDate))) {
-    return {
-      refused:
-        `posting_date ${input.postingDate} falls inside a filed VAT period. Choose a ` +
-        'date outside it, or omit posting_date so each journal is dated at its own ' +
-        'source line.',
-    };
-  }
-
-  // ── THE LOCK, and it must be here: BEFORE the candidates are read. ────────
-  //
-  // Nothing else serialises two DIFFERENT requests over the same rows. The
-  // registry's idempotency lock keys on (company, tool, idempotency_key), so
-  // two batches carrying different keys — two agent sessions, or one agent
-  // retrying under a fresh key after a timeout — never meet. All three
-  // duplicate-move guards (`already_reclassified`, `is_reclass_contra`, the
-  // (batch_id, source_line_id) unique index) are read-committed reads of rows
-  // the other transaction has not committed yet, and the unique index is
-  // per-batch, so two batch ids never collide. Both runs would post the same
-  // R11.3m: the source account overdrawn by the full amount, the target
-  // overstated by it, and two live batches to unwind.
-  //
-  // Held to the end of the request transaction, so the second caller waits,
-  // then RE-READS the candidates below and finds them `already_reclassified` —
-  // which is why the lock is taken before the read and not around the write.
-  //
-  // Only the SOURCE account is locked. Locking the target too would let
-  // A→B and B→A deadlock on each other, and target contention is not a
-  // correctness problem: two batches with different sources cannot move the
-  // same line.
-  if (input.lockSourceAccount) {
-    await lockReclassSource(companyId, input.sourceAccountId);
-  }
+  const admitted = await admitReclassification(input);
+  if (isRefusal(admitted)) return admitted;
+  const { source, target } = admitted;
 
   const query = { sourceAccountId: input.sourceAccountId, from: input.from, to: input.to };
-  const rows = await findReclassCandidates(companyId, { ...query, limit: MAX_RECLASS_LINES });
+  let rows = await findReclassCandidates(companyId, { ...query, limit: MAX_RECLASS_LINES });
   if (rows.length > MAX_RECLASS_LINES) {
     return {
       refused:
@@ -239,7 +109,46 @@ export async function planReclassification(
     };
   }
 
-  const { movable, skipped } = partitionCandidates(rows, { postingDate: input.postingDate });
+  // ── THE LOCK, and what makes it worth taking is the RE-READ below. ─────────
+  //
+  // Nothing else serialises two DIFFERENT requests over the same lines. The
+  // registry's idempotency lock keys on (company, tool, idempotency_key), so two
+  // batches carrying different keys — two agent sessions, or one agent retrying
+  // under a fresh key after a timeout — never meet. All three duplicate-move
+  // guards are read-committed reads of rows the peer has not committed yet, and
+  // the (batch_id, source_line_id) unique index is per BATCH, so two batch ids
+  // cannot collide. Both runs would otherwise post the same R11.3m.
+  //
+  // The lock alone fixes nothing. Held across the INSERT only, both batches
+  // would still have DECIDED on stale reads. So the sequence is: read to learn
+  // the ids, LOCK them, then read AGAIN and evaluate every guard on that second
+  // read. The peer's batch rows are committed by the time we are unblocked, so
+  // the second read reports its lines as `already_reclassified` and the batch
+  // correctly does nothing.
+  //
+  // Write path only: `propose_reclassification` and a dry run take no lock, so
+  // a preview never blocks a real batch on 414 posted lines.
+  let lockedLineIds: ReadonlySet<string> | undefined;
+  if (input.lockCandidateLines) {
+    const locked = await lockReclassLinesForUpdate(companyId, rows.map((r) => r.line_id));
+    lockedLineIds = new Set(locked);
+    // The re-read. Same query, under the lock, so every row-state guard runs
+    // against state no peer can now be holding uncommitted.
+    rows = await findReclassCandidates(companyId, { ...query, limit: MAX_RECLASS_LINES });
+    if (rows.length > MAX_RECLASS_LINES) {
+      return {
+        refused:
+          `More than ${MAX_RECLASS_LINES} posted lines sit on ${source.code} in this window ` +
+          'after waiting for a concurrent batch. Narrow it with from/to and run the move ' +
+          'in several batches.',
+      };
+    }
+  }
+
+  const { movable, skipped } = partitionCandidates(rows, {
+    postingDate: input.postingDate,
+    ...(lockedLineIds === undefined ? {} : { lockedLineIds }),
+  });
   // Its own COUNT over the unfiltered candidate predicate. NOT
   // `movable.length + skipped.length`, which would make the envelope's
   // completeness identity unable to fail whatever this function did.
