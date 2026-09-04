@@ -13,6 +13,10 @@ import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllocationLineError';
+import {
+  MissingSystemAccountError,
+  missingSystemAccountText,
+} from '@/modules/accounting/services/gl/systemAccountKeys';
 import { insufficientScopeMessage } from './scopeRemediation';
 
 /**
@@ -258,6 +262,22 @@ export class McpRegistry {
       // a NULL key so the retry is not burned.
       if (err instanceof BulkAllocationLineError) {
         return errorResult(bulkAllocationLineErrorText(name, err));
+      }
+      // A chart that does not hold a required system account role is the other
+      // case GENERIC_FAILURE answers badly. "The operation failed. Please try
+      // again" invites a retry that cannot possibly succeed — the chart is the
+      // same on the second call — and names nothing to fix. Production on
+      // 2026-09-04 was missing `disposal_profit_loss` on all 13 companies, so
+      // every asset disposal on every tenant returned exactly that.
+      //
+      // Handled HERE rather than in each tool because ~40 services resolve
+      // system accounts and any of their tools can raise it; a per-tool catch
+      // would cover whichever ones someone remembered. Nothing leaks: the role
+      // name and the account codes are the company's own chart, and the message
+      // carries no SQL and no stack. Still a throw, so the savepoint has
+      // already unwound and the call is refunded and audited like any failure.
+      if (err instanceof MissingSystemAccountError) {
+        return errorResult(missingSystemAccountText(name, err));
       }
       return errorResult(GENERIC_FAILURE);
     }

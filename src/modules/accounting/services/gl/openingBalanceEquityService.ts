@@ -14,6 +14,23 @@
  * reserved subtype `opening_balance_equity` — `subtypeErrorFor` refuses that
  * subtype on any user-created account, so the resolver's by-subtype lookup can
  * never be displaced by a second row.
+ *
+ * WHY THIS LAZY PATH SURVIVED THE EAGER SEED (migrations 605/606). Since
+ * 2026-09-04 the default chart seeds `3300 Opening Balance Equity` for every new
+ * tenant and 606 backfilled the existing ones, so on any company created after
+ * that the account is already there and `createOpeningBalanceEquityAccount`
+ * returns it without creating anything. That is not an accident of timing — the
+ * two paths agree by construction. `findExisting` selects on `account_subtype =
+ * 'opening_balance_equity' AND is_system_account = true AND is_active = true`,
+ * which is exactly the state the seed writes, and `PREFERRED_CODES[0]` is 3300,
+ * the same code the seed uses. So the creation branch cannot produce a duplicate
+ * or a contested role no matter which runs first.
+ *
+ * It is kept, and is not dead code, because it is the fallback for a company
+ * that loses the role afterwards — an account deactivated, its system flag
+ * cleared, its subtype edited — and for any tenant created in a window the seed
+ * does not cover. `chart_of_accounts_health` reports an empty
+ * `opening_balance_equity` role either way.
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
