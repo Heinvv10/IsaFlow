@@ -28,29 +28,40 @@
  * still holds does not work either, because a lock_timeout abort releases the
  * row locks the transaction had already taken — verified against this Postgres.)
  * The ordering is correct by construction instead: one statement per id, in
- * sorted order, so no plan choice and no argument order can reorder it.
+ * sorted order, so no argument order can reorder it. (A single
+ * `ORDER BY id ... FOR UPDATE` would be equally correct — `LockRows` is the
+ * topmost node whether or not the scan supplies the order — and is what a
+ * caller locking hundreds of rows should use. See the helper's docblock.)
  *
- * Nothing commits: the first case only takes row locks on existing accounts,
- * the second runs a real merge inside a transaction that is rolled back.
+ * Nothing commits: this only takes row locks on two existing chart rows, and
+ * both transactions are rolled back. That `mergeAccounts` actually CALLS this
+ * helper is proven separately, in accountMergeCallsLockDb.test.ts.
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { PoolClient } from 'pg';
 import { als } from '@/lib/als';
 import { isDbReachable } from '../helpers/dbReachable';
-import {
-  assertMergeTestDb, createMergeFixture, MERGE_COMPANY_ID,
-} from '../helpers/accountMergeFixture';
+import { assertMergeTestDb } from '../helpers/accountMergeFixture';
 
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
 import { getPoolForTests } from '@/lib/neon';
-import { mergeAccounts } from '@/modules/accounting/services/gl/accountMergeService';
 import {
   lockGlAccountsForUpdate,
   GlAccountLockTimeoutError,
 } from '@/modules/accounting/services/gl/glAccountLock';
+
+/**
+ * The one place these tests touch a shared tenant, and it is unavoidable: a lock
+ * only exists between two CONNECTIONS, so the rows have to be committed, and a
+ * company created inside the test transaction is invisible to the second
+ * connection. The exposure is bounded — two chart rows, read-only, `FOR UPDATE`
+ * for at most the 5s timeout, both transactions rolled back, nothing written.
+ * Everything else in the merge suites now builds its own tenant.
+ */
+const SHARED_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 
 type Ctx = Parameters<typeof als.run>[0];
 const ctxFor = (client: PoolClient, companyId: string): Ctx =>
@@ -67,7 +78,7 @@ describe('lockGlAccountsForUpdate', async () => {
     try {
       const { rows } = await holder.query<{ id: string }>(
         'SELECT id FROM gl_accounts WHERE company_id = $1 ORDER BY id LIMIT 2',
-        [MERGE_COMPANY_ID],
+        [SHARED_COMPANY_ID],
       );
       expect(rows).toHaveLength(2);
       const [a, b] = [rows[0]!.id, rows[1]!.id];
@@ -76,10 +87,10 @@ describe('lockGlAccountsForUpdate', async () => {
       await holder.query('SELECT id FROM gl_accounts WHERE id = $1 FOR UPDATE', [b]);
 
       await waiter.query('BEGIN');
-      await als.run(ctxFor(waiter, MERGE_COMPANY_ID), async () => {
+      await als.run(ctxFor(waiter, SHARED_COMPANY_ID), async () => {
         // The helper sets its own 5s lock_timeout, so this waits ~5s and then
         // surfaces as the named error rather than hanging.
-        await expect(lockGlAccountsForUpdate(MERGE_COMPANY_ID, [a, b]))
+        await expect(lockGlAccountsForUpdate(SHARED_COMPANY_ID, [a, b]))
           .rejects.toBeInstanceOf(GlAccountLockTimeoutError);
       });
     } finally {
@@ -90,46 +101,4 @@ describe('lockGlAccountsForUpdate', async () => {
     }
   }, 60_000);
 
-  it.skipIf(!reachable)('is actually taken by a merge, on the target as well as the source', async () => {
-    // The merge UPDATEs the source row itself (is_active = false), so the source
-    // would be locked with or without the helper. The target row is never
-    // written — but repointing journal lines onto it takes a FOR KEY SHARE lock
-    // through the foreign key, so probing with FOR UPDATE cannot tell the
-    // helper's lock from the FK's and passes either way (checked: it does).
-    // FOR KEY SHARE is the discriminator: it conflicts with the helper's
-    // FOR UPDATE and not with the FK's own KEY SHARE.
-    //
-    // The target has to be a COMMITTED account — the fixture's own rows are
-    // invisible to a second connection.
-    assertMergeTestDb();
-    const pool = getPoolForTests();
-    const runner = await pool.connect();
-    const prober = await pool.connect();
-    try {
-      const { rows } = await runner.query<{ id: string }>(
-        `SELECT id FROM gl_accounts
-          WHERE company_id = $1 AND account_type = 'asset' AND is_active
-            AND (account_subtype IS NULL OR account_subtype IN ('receivable', 'payable'))
-          ORDER BY account_code LIMIT 1`,
-        [MERGE_COMPANY_ID],
-      );
-      const committedTarget = rows[0]!.id;
-
-      await runner.query('BEGIN');
-      const fixture = await createMergeFixture(runner);
-      await als.run(ctxFor(runner, MERGE_COMPANY_ID), () =>
-        mergeAccounts(MERGE_COMPANY_ID, fixture.cleanSourceId, committedTarget));
-
-      await prober.query('BEGIN');
-      await prober.query("SET LOCAL lock_timeout = '400ms'");
-      await expect(
-        prober.query('SELECT id FROM gl_accounts WHERE id = $1 FOR KEY SHARE', [committedTarget]),
-      ).rejects.toMatchObject({ code: '55P03' });
-    } finally {
-      await prober.query('ROLLBACK').catch(() => undefined);
-      await runner.query('ROLLBACK').catch(() => undefined);
-      prober.release();
-      runner.release();
-    }
-  }, 60_000);
 });

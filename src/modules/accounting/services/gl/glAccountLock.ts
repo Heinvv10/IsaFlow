@@ -56,13 +56,22 @@ function isLockTimeout(err: unknown): boolean {
  * does not appear, so callers keep their own NOT_FOUND wording.
  *
  * The ordering is what turns two opposite merges into a clean wait instead of a
- * 40P01 deadlock, and it is done by ISSUING ONE STATEMENT PER ID in sorted
- * order rather than by a single `ORDER BY id ... FOR UPDATE`. A single statement
- * does currently lock in id order on this schema — `LockRows` sits above an
- * index scan on `gl_accounts_id_company_uq` — but that is a property of the
- * plan the planner happens to choose, and a lock ordering that depends on a
- * plan shape is not an ordering. Two round trips for two accounts is the
- * cheaper mistake.
+ * 40P01 deadlock. It is done by ISSUING ONE STATEMENT PER ID in sorted order,
+ * for the simple reason that with a fixed pair that is obviously correct and
+ * costs one extra round trip.
+ *
+ * **A single `ORDER BY id ... FOR UPDATE` is equally correct, and is what a
+ * caller locking MANY rows should use.** This helper takes a list, so somebody
+ * will eventually hand it 500 ids, and a per-id loop is the wrong shape at that
+ * scale — `bank/lineLock.ts` locks up to 500 rows in one round trip and is the
+ * right precedent there. The ordering does NOT depend on the plan: `LockRows`
+ * is the topmost node either way, and when the scan cannot supply the order the
+ * planner inserts a `Sort` beneath it. Verified on `isaflow_dev` across both
+ * shapes — index scan on `gl_accounts_id_company_uq` by default, and
+ * `LockRows -> Sort -> Seq Scan` with `enable_indexscan`, `enable_bitmapscan`
+ * and `enable_indexonlyscan` all off. An earlier revision of this comment
+ * claimed the opposite; it was wrong, and it disagreed with `lineLock.ts` about
+ * the same Postgres behaviour.
  *
  * Throws if no request transaction is in flight: outside one, every statement is
  * its own implicit transaction, so `FOR UPDATE` releases the instant the SELECT
