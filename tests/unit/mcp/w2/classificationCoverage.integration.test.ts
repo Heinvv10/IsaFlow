@@ -86,9 +86,19 @@ describe('P&L classification coverage — real database', async () => {
         const coverage = await getClassificationCoverage(companyId, START, END);
         // The coverage must describe THIS statement, not a differently filtered
         // population — otherwise its percentages are about some other report.
-        expect(coverage.revenue.totalAmount).toBeCloseTo(statement.totalRevenue, 2);
+        //
+        // EVERY band, not just the ones above the operating line: since the B75
+        // convergence the statement reports other income and other expenses on
+        // their own lines, and coverage still describes all revenue- and
+        // expense-typed accounts. Comparing against `totalRevenue` alone made
+        // this fail by exactly the other-income total the moment the split
+        // landed — which is the test doing its job.
+        expect(coverage.revenue.totalAmount).toBeCloseTo(
+          statement.totalRevenue + statement.totalOtherIncome,
+          2,
+        );
         expect(coverage.expense.totalAmount).toBeCloseTo(
-          statement.totalCostOfSales + statement.totalOperatingExpenses,
+          statement.totalCostOfSales + statement.totalOperatingExpenses + statement.totalOtherExpenses,
           2,
         );
       }

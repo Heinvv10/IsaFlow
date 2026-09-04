@@ -7,7 +7,10 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { IncomeStatementReport } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
-import { canonicalSubtype } from '@/modules/accounting/services/gl/accountClassification';
+import {
+  expenseBand,
+  revenueBand,
+} from '@/modules/accounting/services/gl/accountClassification';
 import {
   buildIncomeStatementSubtypeDisclosure,
   type DisclosureInputRow,
@@ -54,8 +57,10 @@ async function fetchIncomeStatementRows(
   `) as DbRow[];
 
   const revenue: ReportLineItem[] = [];
+  const otherIncome: ReportLineItem[] = [];
   const costOfSales: ReportLineItem[] = [];
   const operatingExpenses: ReportLineItem[] = [];
+  const otherExpenses: ReportLineItem[] = [];
   // Collected in the SAME loop that bands the lines, from the same rows over
   // the same period, so the disclosure cannot disagree with the totals it sits
   // under. See ./incomeStatementDisclosure.ts.
@@ -70,34 +75,56 @@ async function fetchIncomeStatementRows(
     const accountCode = String(r.account_code);
     const accountName = String(r.account_name);
 
+    // Bands come from `accountClassification`, the same functions
+    // `aggregateFigures` uses. Deciding them here independently is what made
+    // the two surfaces report different gross profits (B75).
     if (type === 'revenue') {
       const amount = credit - debit;
       if (Math.abs(amount) > 0.001) {
-        revenue.push({ accountCode, accountName, amount });
+        const item = { accountCode, accountName, amount };
+        if (revenueBand(subtype) === 'other_income') otherIncome.push(item);
+        else revenue.push(item);
         disclosureRows.push({ accountCode, accountName, accountType: 'revenue', accountSubtype: subtype, amount });
       }
     } else if (type === 'expense') {
       const amount = debit - credit;
       if (Math.abs(amount) > 0.001) {
         const item = { accountCode, accountName, amount };
-        // Canonicalise: production charts also carry 'cogs' and
-        // 'cost_of_goods_sold' spellings for the same thing.
-        if (canonicalSubtype(subtype) === 'cost_of_sales') costOfSales.push(item);
-        else operatingExpenses.push(item);
+        switch (expenseBand(subtype)) {
+          case 'cost_of_sales': costOfSales.push(item); break;
+          case 'other_expense': otherExpenses.push(item); break;
+          default: operatingExpenses.push(item); break;
+        }
         disclosureRows.push({ accountCode, accountName, accountType: 'expense', accountSubtype: subtype, amount });
       }
     }
   }
 
   const totalRevenue = revenue.reduce((s, i) => s + i.amount, 0);
+  const totalOtherIncome = otherIncome.reduce((s, i) => s + i.amount, 0);
   const totalCostOfSales = costOfSales.reduce((s, i) => s + i.amount, 0);
-  const grossProfit = totalRevenue - totalCostOfSales;
   const totalOperatingExpenses = operatingExpenses.reduce((s, i) => s + i.amount, 0);
-  const netProfit = grossProfit - totalOperatingExpenses;
+  const totalOtherExpenses = otherExpenses.reduce((s, i) => s + i.amount, 0);
+
+  // Gross profit is TRADING only — turnover less cost of sales. Other income is
+  // not trading revenue and must not reach it.
+  const grossProfit = totalRevenue - totalCostOfSales;
+  // Operating profit puts other income ABOVE the line and finance cost and tax
+  // below it, matching `aggregateFigures` and `profit_and_loss`'s shipped
+  // description. An earlier cut of this file excluded other income here, which
+  // simply moved the B75 divergence from gross profit onto a line this change
+  // introduced — the same defect one row down.
+  const operatingProfit = grossProfit + totalOtherIncome - totalOperatingExpenses;
+  // Net profit is unchanged by the split, to the cent: every figure that moved
+  // was already inside the bottom line, just in the wrong band. That invariant
+  // is what makes this a reclassification rather than a restatement.
+  const netProfit = operatingProfit - totalOtherExpenses;
 
   return {
-    revenue, costOfSales, operatingExpenses,
-    totalRevenue, totalCostOfSales, grossProfit, totalOperatingExpenses, netProfit,
+    revenue, otherIncome, costOfSales, operatingExpenses, otherExpenses,
+    totalRevenue, totalOtherIncome, totalCostOfSales,
+    totalOperatingExpenses, totalOtherExpenses,
+    grossProfit, operatingProfit, netProfit,
     subtypeDisclosure: buildIncomeStatementSubtypeDisclosure(disclosureRows),
   };
 }
@@ -122,12 +149,17 @@ export async function getIncomeStatement(companyId: string,
       projectId: opts.projectId,
       costCentreId: opts.costCentreId,
       revenue: current.revenue,
+      otherIncome: current.otherIncome,
       costOfSales: current.costOfSales,
       operatingExpenses: current.operatingExpenses,
+      otherExpenses: current.otherExpenses,
       totalRevenue: current.totalRevenue,
+      totalOtherIncome: current.totalOtherIncome,
       totalCostOfSales: current.totalCostOfSales,
-      grossProfit: current.grossProfit,
       totalOperatingExpenses: current.totalOperatingExpenses,
+      totalOtherExpenses: current.totalOtherExpenses,
+      grossProfit: current.grossProfit,
+      operatingProfit: current.operatingProfit,
       netProfit: current.netProfit,
       subtypeDisclosure: current.subtypeDisclosure,
     };
@@ -135,9 +167,12 @@ export async function getIncomeStatement(companyId: string,
     if (comparePeriod && prior) {
       report.comparativePeriod = comparePeriod;
       report.priorTotalRevenue = prior.totalRevenue;
+      report.priorTotalOtherIncome = prior.totalOtherIncome;
       report.priorTotalCostOfSales = prior.totalCostOfSales;
       report.priorGrossProfit = prior.grossProfit;
+      report.priorOperatingProfit = prior.operatingProfit;
       report.priorTotalOperatingExpenses = prior.totalOperatingExpenses;
+      report.priorTotalOtherExpenses = prior.totalOtherExpenses;
       report.priorNetProfit = prior.netProfit;
       // The prior period has its own unclassified mix, so every variance
       // column is a difference between two differently-banded numbers. One
@@ -153,8 +188,10 @@ export async function getIncomeStatement(companyId: string,
         });
       };
       report.revenue = mergeLineItems(current.revenue, prior.revenue);
+      report.otherIncome = mergeLineItems(current.otherIncome, prior.otherIncome);
       report.costOfSales = mergeLineItems(current.costOfSales, prior.costOfSales);
       report.operatingExpenses = mergeLineItems(current.operatingExpenses, prior.operatingExpenses);
+      report.otherExpenses = mergeLineItems(current.otherExpenses, prior.otherExpenses);
     }
 
     return report;

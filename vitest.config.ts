@@ -1,10 +1,16 @@
 import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode ?? 'test', process.cwd(), '');
   return {
+    // tsconfig sets `jsx: "preserve"` for Next.js, which leaves JSX in the
+    // output and makes Vite refuse any .tsx a test imports. Without this a
+    // rendered component cannot be unit-tested at all — which is why deleting a
+    // whole section from the AFS statement left the full suite green.
+    plugins: [react()],
     test: {
       globals: true,
       environment: 'node',

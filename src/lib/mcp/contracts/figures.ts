@@ -183,24 +183,24 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     owner: 'reports/incomeStatementService#getIncomeStatement',
     includes: 'Posted income account movement over the period.',
     excludes:
-      'Cancelled invoices, and draft journals. Under THIS owner it does NOT exclude other income — accounts typed other_income are revenue-typed and are counted here. ' + COVERAGE_CAVEAT,
-    // PRESENTATIONAL divergence, deliberate and temporary. `profit_and_loss`
-    // over MCP reports the LAYERED figures from
-    // gl/accountClassification#aggregateFigures, which separates other income
-    // from turnover and finance cost and tax from operating expenses. The two
-    // implementations agree on the BOTTOM LINE to the cent on both production
-    // companies — the only difference is which band a figure sits in, so this
-    // is one answer presented two ways rather than two answers.
+      'Other income, cancelled invoices, and draft journals. This is TURNOVER — accounts typed other_income are reported on their own line, below gross profit. ' + COVERAGE_CAVEAT,
+    // CONVERGED. This entry previously recorded a "presentational divergence,
+    // deliberate and temporary": getIncomeStatement counted other income as
+    // turnover and put finance cost and tax inside operating expenses, while
+    // aggregateFigures split both. The note claimed the two "agree on the
+    // BOTTOM LINE to the cent — the only difference is which band a figure
+    // sits in", which was true of NET profit and false of GROSS: the page and
+    // the MCP `profit_and_loss` tool printed different gross profits, by
+    // exactly the other-income total, and neither said so (finding B75).
     //
-    // The owner stays here because the income-statement page,
-    // reports-management-accounts and AFS all still consume this shape. Moving
-    // it would make the registry lie about what the UI does. Successor: the
-    // income-statement convergence PR, which is where getIncomeStatement is
-    // rebuilt on aggregateFigures with its own blind review and the AFS owner
-    // in the loop.
-    contested: [
-      'gl/accountClassification#aggregateFigures — PRESENTATIONAL only: it reports turnover separately from other_income. Bottom lines tie to the cent; the two disagree about which band a figure sits in, never about its value.',
-    ],
+    // Both now band through the SAME exported functions,
+    // gl/accountClassification#expenseBand and #revenueBand, so there is one
+    // definition and no room to drift. `incomeStatementConvergence.test.ts`
+    // asserts agreement band for band — turnover, other income, cost of sales,
+    // operating expenses, other expenses, gross profit AND net profit — so a
+    // future edit to either side fails rather than silently re-diverging.
+    // Net profit is unchanged to the cent by the split, which is what proves it
+    // was a reclassification and not a restatement.
   }),
   'costofsales.period.v1': def({
     id: 'costofsales.period.v1',
@@ -211,7 +211,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     excludes:
       'Operating expenses. The audit reported that two accounts typed default_expense overstated gross profit by R562,428 because the bucket was chosen by NAME — and read the sign backwards: under the SUBTYPE rule those accounts are NOT cost of sales, so gross profit is HIGHER, not lower. Brightsphere carries R574,253.66 of them today. Which treatment is right is a chart-of-accounts question. ' + COVERAGE_CAVEAT,
     contested: [
-      'gl/accountClassification#aggregateFigures — PRESENTATIONAL only, and it agrees with this owner on cost of sales specifically; see revenue.period.v1 for the divergence.',
+      'gl/accountClassification#aggregateFigures — agrees with this owner on cost of sales, and since the convergence recorded on revenue.period.v1, on every other band too.',
     ],
   }),
   'otherincome.period.v1': def({
@@ -221,7 +221,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Posted movement on revenue-typed accounts whose SUBTYPE canonicalises to other_income — interest received, forex gains, recoveries.',
     excludes:
-      'Turnover. This is a separate question from revenue.period.v1, not a slice of it: other income is not trading revenue and must not reach gross profit. Under revenue.period.v1 it currently DOES, which is the presentational divergence recorded there. ' + COVERAGE_CAVEAT,
+      'Turnover. This is a separate question from revenue.period.v1, not a slice of it: other income is not trading revenue and must not reach gross profit. It no longer does — see the convergence note on revenue.period.v1. ' + COVERAGE_CAVEAT,
   }),
   'financecost.period.v1': def({
     id: 'financecost.period.v1',
@@ -230,7 +230,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Posted movement on expense accounts whose SUBTYPE canonicalises to finance_cost — interest paid, bank charges of a financing nature.',
     excludes:
-      'Operating expenses. Reported below the operating line so operating profit means what it says; getIncomeStatement puts it inside operating expenses. ' + COVERAGE_CAVEAT,
+      'Operating expenses. Reported below the operating line so operating profit means what it says. getIncomeStatement now agrees — it reports an Other Expenses section and an Operating Profit line. ' + COVERAGE_CAVEAT,
   }),
   'tax.period.v1': def({
     id: 'tax.period.v1',
@@ -239,7 +239,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Posted movement on expense accounts whose SUBTYPE canonicalises to tax_expense. Brightsphere carries R158,412.82 for FY2026 and R365,035.42 all-time.',
     excludes:
-      'VAT, which is not an expense and is never in an income statement — see vat.output.v1 / vat.input.v1. Also excludes operating expenses; getIncomeStatement puts tax inside them, so its operating profit is understated by exactly this. ' + COVERAGE_CAVEAT,
+      'VAT, which is not an expense and is never in an income statement — see vat.output.v1 / vat.input.v1. Also excludes operating expenses; since the B75 convergence getIncomeStatement agrees: tax bands to other_expense and is reported below the operating line on both surfaces. ' + COVERAGE_CAVEAT,
   }),
   'vat.output.v1': def({
     id: 'vat.output.v1',
@@ -289,7 +289,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     excludes:
       'Draft journals, and every layer the income statement adds on top: no cost-of-sales bucketing, no other-income or finance-cost section, no tax. That is deliberate — incomeStatementService has open defects in exactly that layering (rolling-window comparative, cost of sales chosen by account NAME), and a variance against a net profit known to be wrong would carry more authority than it deserves.',
     contested: [
-      'reports/incomeStatementService#getIncomeStatement reports P&L for the same accounts through a different, defective classification layer',
+      'reports/incomeStatementService#getIncomeStatement reported P&L for the same accounts through a different classification layer before the B75 convergence; it now shares this one',
     ],
   }),
   'ppe.register.v1': def({

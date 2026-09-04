@@ -66,7 +66,7 @@ function share(side: CoverageSide): number {
 
 const DESCRIPTION = [
   'Income statement for a date range, LAYERED: turnover, other income, cost of sales, operating expenses, and finance cost / tax reported below the operating line — so operatingProfit means what it says and other income never reaches gross profit.',
-  'IMPLEMENTATION, and it differs from the UI on purpose. This wraps gl/accountClassification#aggregateFigures, the classifier AFS uses. The income-statement PAGE consumes reports/incomeStatementService#getIncomeStatement, which splits two ways: it counts other income as turnover and puts finance cost and tax inside operating expenses. The two agree on the BOTTOM LINE to the cent — the difference is which band a figure sits in, not its value — and the divergence is recorded in the figure registry with a named successor. Expect operatingExpenses here to be lower than the page shows by exactly financeCost + tax.',
+  'IMPLEMENTATION. This wraps gl/accountClassification#aggregateFigures, the classifier AFS uses. The income-statement PAGE consumes reports/incomeStatementService#getIncomeStatement, and the two now AGREE band for band — turnover, other income, cost of sales, operating expenses, other expenses, gross profit, operating profit and net profit — because both band through the same exported expenseBand/revenueBand and incomeStatementConvergence.test.ts asserts every band. They previously diverged: the page counted other income as turnover and put finance cost and tax inside operating expenses, so it reported a different GROSS profit while the registry claimed the two agreed to the cent (true of net, false of gross). That was finding B75 and it is fixed; do not reconcile a difference that no longer exists. What still differs is scope, not banding: this tool has no project or cost-centre filter, so a filtered page cannot be compared to it.',
   'classificationCoverage is MANDATORY and present at every detail level, because every band above is chosen from account_subtype and on these books the subtypes barely exist. On one production company 100% of revenue and 97.6% of expenses sit on accounts with no classification, and its classified cost of sales is 2.4% of total costs — so its gross profit is revenue less 2.4% of what it spent. That figure is not a bug; the code did what the chart of accounts told it. READ THE COVERAGE BEFORE ACTING ON ANY BAND. reliable is false when more than 10% of either side is unclassified. Nothing is excluded from any total: an unclassified expense is still an expense, and the classification is the finding rather than a filter.',
   'compare: "prior_period" is the preceding whole calendar period (March compares to February, Q2 to Q1), and "prior_year" is the same window one year earlier. Or pass compare_start and compare_end explicitly. This is NOT a rolling window: the page computes its comparative in milliseconds and compares March against 29 January to 28 February, so February never appears as itself.',
 ].join(' ');
@@ -146,9 +146,9 @@ export const profitAndLossTool: McpTool = {
     );
     const postedThrough = await getLedgerPostedThrough(ctx.companyId, periodEnd);
 
-    const operatingProfit = round2(
-      current.revenue + current.otherIncome - current.costOfSales - current.operatingExpenses,
-    );
+    // From the classifier, not recomputed here: a local copy of the formula is
+    // how the page and this tool came to disagree in the first place (B75).
+    const operatingProfit = round2(current.operatingProfit);
 
     // The rows ARE the named unclassified accounts. There is no line-item page
     // here: the statement is a set of totals, and the only thing worth paging

@@ -156,6 +156,9 @@ export function toFinancialData(figures: PeriodFigures): FinancialData {
     revenue: period.revenue,
     costOfSales: period.costOfSales,
     operatingExpenses: period.operatingExpenses,
+    // Carried, not re-derived downstream: see FinancialData.operatingProfit.
+    operatingProfit: period.operatingProfit,
+    otherIncome: period.otherIncome,
     netProfit: period.netProfit,
     totalAssets: cumulative.totalAssets,
     totalLiabilities: cumulative.totalLiabilities,

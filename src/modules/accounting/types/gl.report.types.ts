@@ -85,19 +85,37 @@ export interface IncomeStatementReport {
   projectId?: string;
   costCentreId?: string;
   revenue: IncomeStatementLineItem[];
+  /** Revenue-typed accounts whose subtype is other income — NOT trading revenue. */
+  otherIncome: IncomeStatementLineItem[];
   costOfSales: IncomeStatementLineItem[];
   operatingExpenses: IncomeStatementLineItem[];
+  /** Finance cost, tax and other expense — reported below the operating line. */
+  otherExpenses: IncomeStatementLineItem[];
+  /** Turnover only. Other income is reported separately, below gross profit. */
   totalRevenue: number;
+  totalOtherIncome: number;
   totalCostOfSales: number;
-  grossProfit: number;
   totalOperatingExpenses: number;
+  totalOtherExpenses: number;
+  /** Turnover less cost of sales. Trading only. */
+  grossProfit: number;
+  /**
+   * Gross profit PLUS other income, less operating expenses. Other income is
+   * above the operating line; only finance cost and tax sit below it. Written
+   * out because "gross profit less operating expenses" is the wrong formula
+   * that caused B75's re-divergence.
+   */
+  operatingProfit: number;
   netProfit: number;
   // Comparative totals (populated when compare period requested)
   comparativePeriod?: { start: string; end: string };
   priorTotalRevenue?: number;
+  priorTotalOtherIncome?: number;
   priorTotalCostOfSales?: number;
   priorGrossProfit?: number;
+  priorOperatingProfit?: number;
   priorTotalOperatingExpenses?: number;
+  priorTotalOtherExpenses?: number;
   priorNetProfit?: number;
   /**
    * Accounts whose subtype the classifier does not recognise, and which are

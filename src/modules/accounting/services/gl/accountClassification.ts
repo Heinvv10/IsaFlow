@@ -47,6 +47,15 @@ export interface ClassifiedFigures {
   operatingExpenses: number;
   otherExpenses: number;
   depreciation: number;
+  /**
+   * Profit from operations: everything except finance cost, tax and other
+   * expense. Other income IS above this line — `profit_and_loss`'s shipped
+   * description defines the operating line as the one finance cost and tax sit
+   * BELOW, and this is the single definition both surfaces now use. It exists
+   * as a field so `incomeStatementConvergence.test.ts` can assert it; a band
+   * with no counterpart here is a band that can silently re-diverge.
+   */
+  operatingProfit: number;
   netProfit: number;
   totalAssets: number;
   totalLiabilities: number;
@@ -87,7 +96,7 @@ const num = (v: number | string | null | undefined): number => {
 
 const zero = (): ClassifiedFigures => ({
   revenue: 0, otherIncome: 0, costOfSales: 0, grossProfit: 0,
-  operatingExpenses: 0, otherExpenses: 0, depreciation: 0, netProfit: 0,
+  operatingExpenses: 0, otherExpenses: 0, depreciation: 0, operatingProfit: 0, netProfit: 0,
   totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
   currentAssets: 0, nonCurrentAssets: 0, currentLiabilities: 0, nonCurrentLiabilities: 0,
   cash: 0, accountsReceivable: 0, accountsPayable: 0, inventory: 0,
@@ -123,6 +132,31 @@ const OTHER_EXPENSE: ReadonlySet<CanonicalSubtype> = new Set<CanonicalSubtype>([
   'tax_expense',
   'other_expense',
 ]);
+
+/**
+ * Which income-statement band a row belongs in, by subtype alone.
+ *
+ * Exported because `reports/incomeStatementService.ts` must reach the SAME
+ * answer: the two surfaces reported different gross profits for years — by
+ * exactly the other-income total — because each decided its own bands, and
+ * `mcp/contracts/figures.ts` asserted they agreed to the cent (true of net
+ * profit, false of gross). One definition, two callers, no room to drift.
+ */
+export function expenseBand(
+  subtype: string | null | undefined,
+): 'cost_of_sales' | 'other_expense' | 'operating_expense' {
+  const canon = canonicalSubtype(subtype);
+  if (canon === 'cost_of_sales') return 'cost_of_sales';
+  if (canon !== null && OTHER_EXPENSE.has(canon)) return 'other_expense';
+  return 'operating_expense';
+}
+
+/** Revenue counterpart of `expenseBand`. */
+export function revenueBand(
+  subtype: string | null | undefined,
+): 'other_income' | 'turnover' {
+  return canonicalSubtype(subtype) === 'other_income' ? 'other_income' : 'turnover';
+}
 
 /**
  * Fold `GROUP BY account_type, account_subtype` movement into the figures every
@@ -167,20 +201,22 @@ export function aggregateFigures(rows: readonly ClassificationRow[]): Classified
         f.totalEquity += balance;
         break;
       case 'revenue':
-        if (canon === 'other_income') f.otherIncome += balance;
+        if (revenueBand(r.account_subtype) === 'other_income') f.otherIncome += balance;
         else f.revenue += balance;
         break;
       case 'expense':
-        if (canon === 'cost_of_sales') f.costOfSales += balance;
-        else if (canon !== null && OTHER_EXPENSE.has(canon)) f.otherExpenses += balance;
-        else f.operatingExpenses += balance;
+        switch (expenseBand(r.account_subtype)) {
+          case 'cost_of_sales': f.costOfSales += balance; break;
+          case 'other_expense': f.otherExpenses += balance; break;
+          default: f.operatingExpenses += balance; break;
+        }
         if (canon === 'depreciation_expense') f.depreciation += balance;
         break;
     }
   }
 
   f.grossProfit = f.revenue - f.costOfSales;
-  f.netProfit =
-    f.revenue + f.otherIncome - f.costOfSales - f.operatingExpenses - f.otherExpenses;
+  f.operatingProfit = f.grossProfit + f.otherIncome - f.operatingExpenses;
+  f.netProfit = f.operatingProfit - f.otherExpenses;
   return f;
 }

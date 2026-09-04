@@ -190,7 +190,15 @@ function inputFor(f: Fixture, targetId: string, moved: string[], subtype: string
 function figures(over: Partial<ClassifiedFigures> = {}): ClassifiedFigures {
   return {
     revenue: 0, otherIncome: 0, costOfSales: 0, grossProfit: 0,
-    operatingExpenses: 0, otherExpenses: 0, depreciation: 0, netProfit: 0,
+    operatingExpenses: 0, otherExpenses: 0, depreciation: 0,
+    // Required on ClassifiedFigures. tsconfig excludes tests/**, so a missing
+    // field here is invisible to tsc and to vitest: it would sit as `undefined`
+    // behind the annotation and, the moment anyone adds operatingProfit to
+    // PL_BANDS, `compareToOwner` would do undefined - undefined -> NaN and
+    // report "no drift" — the exact failure the _bandsAreNumeric compile-time
+    // guard exists to prevent, defeated because it cannot reach test files.
+    operatingProfit: 0,
+    netProfit: 0,
     totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
     currentAssets: 0, nonCurrentAssets: 0, currentLiabilities: 0, nonCurrentLiabilities: 0,
     cash: 0, accountsReceivable: 0, accountsPayable: 0, inventory: 0,

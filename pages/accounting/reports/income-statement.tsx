@@ -7,12 +7,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
-import type { IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.types';
-import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
-import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
+import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
+import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
+import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 
-import { formatCurrency } from '@/utils/formatters';
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
@@ -227,104 +225,15 @@ export default function IncomeStatementPage() {
                 </h2>
               </div>
 
-              <div className="divide-y divide-[var(--ff-border-light)]">
-                {/* Revenue */}
-                <Section label="Revenue" items={report.revenue} total={report.totalRevenue} color="teal"
-                  periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                  onToggleAccount={toggleAccount} showComparative={showComparative}
-                  onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
-
-                {/* Cost of Sales */}
-                {report.costOfSales.length > 0 && (
-                  <Section label="Cost of Sales" items={report.costOfSales} total={report.totalCostOfSales} color="orange"
-                    periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                    onToggleAccount={toggleAccount} showComparative={showComparative}
-                    onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
-                )}
-
-                {/* Gross Profit */}
-                <div className="px-6 py-3 flex justify-between bg-teal-500/5">
-                  <span className="font-semibold text-[var(--ff-text-primary)]">Gross Profit</span>
-                  <span className={`font-bold font-mono ${report.grossProfit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                    {formatCurrency(report.grossProfit)}
-                    {showComparative && report.priorGrossProfit !== undefined && (
-                      <span className="text-xs text-[var(--ff-text-tertiary)] ml-2">
-                        (prior: {formatCurrency(report.priorGrossProfit)})
-                      </span>
-                    )}
-                  </span>
-                </div>
-
-                {/* Operating Expenses */}
-                <Section label="Operating Expenses" items={report.operatingExpenses} total={report.totalOperatingExpenses} color="red"
-                  periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                  onToggleAccount={toggleAccount} showComparative={showComparative}
-                  onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
-
-                {/* Net Profit */}
-                <div className="px-6 py-4 flex justify-between bg-[var(--ff-bg-primary)]">
-                  <span className="text-lg font-bold text-[var(--ff-text-primary)]">Net Profit / (Loss)</span>
-                  <span className={`text-xl font-bold font-mono ${report.netProfit >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                    {formatCurrency(report.netProfit)}
-                    {showComparative && report.priorNetProfit !== undefined && (
-                      <span className="text-xs text-[var(--ff-text-tertiary)] ml-2">
-                        (prior: {formatCurrency(report.priorNetProfit)})
-                      </span>
-                    )}
-                  </span>
-                </div>
-
-                {/* The shared data-quality notice, rendered ABOVE the margin
-                    stats on purpose: the gross margin immediately below is the
-                    figure these defaults make wrong, and Velocity read 96.6%
-                    off that line while R82.7m of direct cost sat in operating
-                    expenses. Same component, wording and currency format as the
-                    nine other report surfaces — a user comparing two screens
-                    must not see the same defect described two ways. */}
-                {report.subtypeDisclosure && (
-                  <div className="px-6 py-3 border-t border-[var(--ff-border-light)]">
-                    {/* The service already built these sentences, and the CSV and
-                        XLSX exports emit the same array. Passing them through —
-                        rather than re-deriving a partial input here — is what
-                        stops the screen showing fewer caveats than the file
-                        downloaded from it, and stops a count being taken from
-                        the CAPPED named list. */}
-                    <DataQualityNotice notices={report.subtypeDisclosure.notices} />
-                    <p className="mt-2 font-mono text-xs text-[var(--ff-text-tertiary)]">
-                      {report.subtypeDisclosure.accounts
-                        .map(a => `${a.accountCode} ${a.accountName} ${formatCurrency(a.amount)}`)
-                        .join(' \u00b7 ')}
-                      {report.subtypeDisclosure.unnamedAccounts > 0
-                        ? ` \u00b7 and ${report.subtypeDisclosure.unnamedAccounts} more`
-                        : ''}
-                    </p>
-                    {report.priorSubtypeDisclosure && (
-                      <p className="mt-1 text-xs text-amber-400/80">
-                        The comparative period has its own unclassified accounts, so every
-                        variance above is a difference between two differently-banded numbers.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Margin Stats */}
-                {report.totalRevenue > 0 && (
-                  <div className="px-6 py-2 flex gap-6 text-sm border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
-                    <span className="text-[var(--ff-text-tertiary)]">
-                      Gross Margin:{' '}
-                      <span className="font-mono font-medium text-[var(--ff-text-primary)]">
-                        {((report.grossProfit / report.totalRevenue) * 100).toFixed(1)}%
-                      </span>
-                    </span>
-                    <span className="text-[var(--ff-text-tertiary)]">
-                      Net Margin:{' '}
-                      <span className="font-mono font-medium text-[var(--ff-text-primary)]">
-                        {((report.netProfit / report.totalRevenue) * 100).toFixed(1)}%
-                      </span>
-                    </span>
-                  </div>
-                )}
-              </div>
+              <IncomeStatementSections
+                report={report}
+                periodStart={periodStart}
+                periodEnd={periodEnd}
+                expandedAccount={expandedAccount}
+                onToggleAccount={toggleAccount}
+                showComparative={showComparative}
+                onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
+              />
             </div>
           ) : null}
         </div>
@@ -342,77 +251,3 @@ export default function IncomeStatementPage() {
   );
 }
 
-function Section({ label, items, total, color, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative, onEvidence }: {
-  label: string;
-  items: IncomeStatementLineItem[];
-  total: number;
-  color: string;
-  periodStart: string;
-  periodEnd: string;
-  expandedAccount: string | null;
-  onToggleAccount: (code: string) => void;
-  showComparative: boolean;
-  onEvidence: (accountId: string, accountName: string) => void;
-}) {
-  return (
-    <div>
-      <div className={`px-6 py-2 bg-${color}-500/5 flex items-center`}>
-        <span className={`text-sm font-semibold text-${color}-400`}>{label}</span>
-        {showComparative ? (
-          <span className="flex items-center gap-4 text-xs text-[var(--ff-text-tertiary)] ml-auto">
-            <span className="w-28 text-right">Prior</span>
-            <span className="w-28 text-right">Current</span>
-            <span className="w-20 text-right">Variance</span>
-          </span>
-        ) : (
-          <span className="text-xs text-[var(--ff-text-tertiary)] ml-auto">Click account to expand</span>
-        )}
-      </div>
-      {items.map(item => {
-        const isExpanded = expandedAccount === item.accountCode;
-        return (
-          <div key={item.accountCode}>
-            <div className="w-full px-6 py-2 flex justify-between items-center text-sm hover:bg-[var(--ff-bg-tertiary)]">
-              <button
-                type="button"
-                onClick={() => onToggleAccount(item.accountCode)}
-                className="flex items-center gap-1 text-[var(--ff-text-secondary)] flex-1 text-left"
-              >
-                {isExpanded
-                  ? <ChevronDown className="h-3 w-3 shrink-0 text-[var(--ff-text-tertiary)]" />
-                  : <ChevronRight className="h-3 w-3 shrink-0 text-[var(--ff-text-tertiary)]" />}
-                <span className="font-mono text-xs mr-1">{item.accountCode}</span>
-                {item.accountName}
-              </button>
-              <span className="flex items-center gap-3">
-                {showComparative && item.priorAmount !== undefined ? (
-                  <>
-                    <span className="font-mono text-[var(--ff-text-tertiary)] w-28 text-right text-xs">{formatCurrency(item.priorAmount)}</span>
-                    <button onClick={() => onEvidence(item.accountCode, item.accountName)} className="font-mono text-[var(--ff-text-primary)] w-28 text-right hover:text-indigo-400 cursor-pointer">{formatCurrency(item.amount)}</button>
-                    <span className={`font-mono w-20 text-right text-xs ${(item.variance ?? 0) >= 0 ? 'text-teal-400' : 'text-red-400'}`}>
-                      {(item.variance ?? 0) >= 0 ? '+' : ''}{formatCurrency(item.variance ?? 0)}
-                    </span>
-                  </>
-                ) : (
-                  <button onClick={() => onEvidence(item.accountCode, item.accountName)} className="font-mono text-[var(--ff-text-primary)] hover:text-indigo-400 cursor-pointer">{formatCurrency(item.amount)}</button>
-                )}
-              </span>
-            </div>
-            {isExpanded && (
-              <div className="px-6 pb-3">
-                <AccountDrillDown accountCode={item.accountCode} periodStart={periodStart} periodEnd={periodEnd} />
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {items.length === 0 && (
-        <div className="px-6 py-2 text-sm text-[var(--ff-text-tertiary)]">No entries</div>
-      )}
-      <div className="px-6 py-2 flex justify-between border-t border-[var(--ff-border-light)]">
-        <span className="text-sm font-medium text-[var(--ff-text-primary)]">Total {label}</span>
-        <span className="font-mono font-medium text-[var(--ff-text-primary)]">{formatCurrency(total)}</span>
-      </div>
-    </div>
-  );
-}

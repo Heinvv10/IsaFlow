@@ -29,9 +29,10 @@ import {
 /**
  * `profit_and_loss` moved to `reportsProfitAndLoss.ts` when it grew the layer
  * and the coverage exception. The version that lived here returned
- * `getIncomeStatement` verbatim: other income counted as turnover, finance cost
- * and tax inside operating expenses, no coverage disclosure, and no
- * comparative. It is not re-exported.
+ * `getIncomeStatement` verbatim. Since the B75 convergence that service bands
+ * through the same `expenseBand`/`revenueBand` as `aggregateFigures`, so the
+ * two no longer disagree about gross profit; what this older path still lacks
+ * is the coverage disclosure and the comparative. It is not re-exported.
  */
 
 /**

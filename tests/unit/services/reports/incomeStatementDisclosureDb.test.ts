@@ -141,19 +141,21 @@ describe('getIncomeStatement — subtype disclosure against a real ledger', () =
     const report = await getIncomeStatement(c.id, c.from, c.to);
     const d = report.subtypeDisclosure;
     expect(d).toBeTruthy();
-    expect(d!.otherIncomeExposureAtMost).toBeLessThanOrEqual(Math.abs(report.totalRevenue) + 0.01);
-    expect(d!.grossProfitOverstatedByAtLeast).toBeLessThanOrEqual(d!.otherIncomeExposureAtMost + d!.grossProfitOverstatedByAtLeast + 0.01);
+    // Bounded by total income. Turnover alone would be the tighter claim, but
+    // the disclosure's population is every revenue-typed account, so the honest
+    // bound is turnover plus other income — matching what is asserted.
+    expect(d!.otherIncomeExposureAtMost)
+      .toBeLessThanOrEqual(Math.abs(report.totalRevenue) + Math.abs(report.totalOtherIncome) + 0.01);
   });
 
-  it.skipIf(!dbUp)('keeps the floor at or below the total ceiling on real data', async () => {
+  it.skipIf(!dbUp)('totals the two ceilings exactly, on real data', async () => {
     const c = await companyWithUnclassifiedExpenses();
     if (!c) return;
 
     const d = (await getIncomeStatement(c.id, c.from, c.to)).subtypeDisclosure;
     expect(d).toBeTruthy();
-    expect(d!.grossProfitOverstatedByAtLeast).toBeLessThanOrEqual(d!.grossProfitOverstatedByAtMost + 0.01);
     expect(d!.grossProfitOverstatedByAtMost).toBeCloseTo(
-      d!.grossProfitOverstatedByAtLeast + d!.costOfSalesExposureAtMost + d!.otherIncomeExposureAtMost, 2);
+      d!.costOfSalesExposureAtMost + d!.otherIncomeExposureAtMost, 2);
   });
 
   it.skipIf(!dbUp)('is null when every account on the report has a recognised subtype', async () => {
