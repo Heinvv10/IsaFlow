@@ -141,8 +141,9 @@ describe('getIncomeStatement — subtype disclosure against a real ledger', () =
     const report = await getIncomeStatement(c.id, c.from, c.to);
     const d = report.subtypeDisclosure;
     expect(d).toBeTruthy();
-    // Turnover only now: other income has its own line, so an unclassified
-    // revenue account can move at most what turnover contains.
+    // Bounded by total income. Turnover alone would be the tighter claim, but
+    // the disclosure's population is every revenue-typed account, so the honest
+    // bound is turnover plus other income — matching what is asserted.
     expect(d!.otherIncomeExposureAtMost)
       .toBeLessThanOrEqual(Math.abs(report.totalRevenue) + Math.abs(report.totalOtherIncome) + 0.01);
   });

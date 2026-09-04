@@ -100,7 +100,7 @@ describe('getIncomeStatement — the disclosure reaches the report', () => {
   });
 });
 
-describe('getIncomeStatement — the certain floor reaches the report', () => {
+describe('getIncomeStatement — the new bands reach the report', () => {
   it('reports other income on its own line, outside turnover and outside gross profit', async () => {
     sqlMock.mockResolvedValue([
       glRow('4000', 'Sales', 'revenue', 'revenue', 0, 5000000),

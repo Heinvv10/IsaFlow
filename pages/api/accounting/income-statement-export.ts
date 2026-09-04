@@ -54,7 +54,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         `${csvVal('Turnover')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.amount).toFixed(2)}`
       );
     }
-    csvLines.push(`${csvVal('Revenue')},${csvVal('')},${csvVal('Total Turnover')},${Number(report.totalRevenue).toFixed(2)}`);
+    csvLines.push(`${csvVal('Turnover')},${csvVal('')},${csvVal('Total Turnover')},${Number(report.totalRevenue).toFixed(2)}`);
 
     // Cost of Sales lines
     for (const item of report.costOfSales) {

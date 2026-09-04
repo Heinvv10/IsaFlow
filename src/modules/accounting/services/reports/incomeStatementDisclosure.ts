@@ -232,27 +232,16 @@ export function buildIncomeStatementSubtypeDisclosure(
 
   const expenses = scored.filter(r => r.accountType === 'expense');
   const revenues = scored.filter(r => r.accountType === 'revenue');
-  const possible = scored;
 
   const expenseAmount = expenses.reduce((s, r) => s + r.amount, 0);
   const revenueAmount = revenues.reduce((s, r) => s + r.amount, 0);
-  // The per-type sentences describe the FALLBACK-banded accounts only. Summing
-  // every disclosed row while counting only the fallback ones states two
-  // different totals for one set: Brightsphere read "1 revenue account carrying
-  // R 12 434 321,32" for an account holding R12,410,997.90, the extra
-  // R23,323.42 being the other-income account the very next sentence reports
-  // again. One defect, described twice, with an inflated figure.
-  const possibleExpenses = expenses;
-  const possibleRevenues = revenues;
-  const possibleExpenseAmount = expenseAmount;
-  const possibleRevenueAmount = revenueAmount;
 
   // Possible, split — see the docblock. Debits only: a credit-balance expense
   // cannot overstate anything, and neither can a contra-revenue account.
-  const costOfSalesExposure = possible
+  const costOfSalesExposure = scored
     .filter(r => r.accountType === 'expense')
     .reduce((s, r) => s + Math.max(r.amount, 0), 0);
-  const otherIncomeExposure = possible
+  const otherIncomeExposure = scored
     .filter(r => r.accountType === 'revenue')
     .reduce((s, r) => s + Math.max(r.amount, 0), 0);
   const ceiling = costOfSalesExposure + otherIncomeExposure;
@@ -261,23 +250,23 @@ export function buildIncomeStatementSubtypeDisclosure(
 
   const notices = buildDataQualityNotices({
     unclassifiedAccounts: {
-      accounts: possible.length,
-      amount: possibleExpenseAmount + possibleRevenueAmount,
+      accounts: scored.length,
+      amount: expenseAmount + revenueAmount,
       message: '',
       byType: [
-        ...(possibleExpenses.length > 0
+        ...(expenses.length > 0
           ? [{
               type: 'expense',
-              accounts: possibleExpenses.length,
-              amount: possibleExpenseAmount,
+              accounts: expenses.length,
+              amount: expenseAmount,
               defaultedTo: 'operating expenses rather than cost of sales',
             }]
           : []),
-        ...(possibleRevenues.length > 0
+        ...(revenues.length > 0
           ? [{
               type: 'revenue',
-              accounts: possibleRevenues.length,
-              amount: possibleRevenueAmount,
+              accounts: revenues.length,
+              amount: revenueAmount,
               defaultedTo: 'turnover rather than other income',
             }]
           : []),

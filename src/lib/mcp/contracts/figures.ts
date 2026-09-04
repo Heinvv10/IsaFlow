@@ -239,7 +239,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Posted movement on expense accounts whose SUBTYPE canonicalises to tax_expense. Brightsphere carries R158,412.82 for FY2026 and R365,035.42 all-time.',
     excludes:
-      'VAT, which is not an expense and is never in an income statement — see vat.output.v1 / vat.input.v1. Also excludes operating expenses; getIncomeStatement puts tax inside them, so its operating profit is understated by exactly this. ' + COVERAGE_CAVEAT,
+      'VAT, which is not an expense and is never in an income statement — see vat.output.v1 / vat.input.v1. Also excludes operating expenses; Since the B75 convergence getIncomeStatement agrees: tax bands to other_expense and is reported below the operating line on both surfaces. ' + COVERAGE_CAVEAT,
   }),
   'vat.output.v1': def({
     id: 'vat.output.v1',
@@ -289,7 +289,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     excludes:
       'Draft journals, and every layer the income statement adds on top: no cost-of-sales bucketing, no other-income or finance-cost section, no tax. That is deliberate — incomeStatementService has open defects in exactly that layering (rolling-window comparative, cost of sales chosen by account NAME), and a variance against a net profit known to be wrong would carry more authority than it deserves.',
     contested: [
-      'reports/incomeStatementService#getIncomeStatement reports P&L for the same accounts through a different, defective classification layer',
+      'reports/incomeStatementService#getIncomeStatement reported P&L for the same accounts through a different classification layer before the B75 convergence; it now shares this one',
     ],
   }),
   'ppe.register.v1': def({

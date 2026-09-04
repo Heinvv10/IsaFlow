@@ -69,12 +69,13 @@ describe('buildIncomeStatementSubtypeDisclosure — what it tells the reader', (
     expect(d?.message).toMatch(/ceilings on what is unclassified, not corrections/i);
   });
 
-  it('COUNTS revenue towards the gross profit ceiling — this report has no other-income line', () => {
-    // gross profit = totalRevenue - totalCostOfSales, and every revenue row
-    // lands in totalRevenue. So an unclassified revenue account that is really
-    // other income overstates gross profit one-for-one. The first cut excluded
-    // it, and a test enshrined the exclusion: on Velocity that understated the
-    // stated ceiling by R29,154,786.11 in a cell labelled "at most".
+  it('COUNTS an UNCLASSIFIED revenue account towards the gross profit ceiling', () => {
+    // An unclassified revenue account lands in TURNOVER by fallback. If it is
+    // really other income it belongs below gross profit, so it overstates gross
+    // profit one-for-one. (A RECOGNISED other_income account is correctly placed
+    // since B75 and is not disclosed — see the block above.) The first cut
+    // excluded revenue from the ceiling and a test enshrined the exclusion: on
+    // Velocity that understated a cell labelled "at most" by R29,154,786.11.
     const d = buildIncomeStatementSubtypeDisclosure([
       expenseRow({ amount: 1000 }),
       expenseRow({ accountCode: '4310', accountName: 'Interest Received', accountType: 'revenue', amount: 2876.63 }),
