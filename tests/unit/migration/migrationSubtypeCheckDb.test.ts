@@ -10,16 +10,40 @@
  * properties of whatever the ledger holds rather than fixed amounts, so
  * concurrent sessions changing dev data cannot make them flake.
  *
- * Read-only. Writes nothing. Skips without DATABASE_URL.
+ * IT REPORTS SKIPPED, NOT PASSED. `vitest.config.ts` substitutes
+ * `postgresql://dummy:dummy@dummy/test` when DATABASE_URL is absent and
+ * `isDbReachable` returns false for it, so the usual `if (!dbUp) return;`
+ * prologue scores every test PASSED with no database — a suite written to close
+ * a "green while silenced" hole, recreating it one layer up. These use
+ * `it.skipIf`, so an unreachable database shows as `↓ skipped` in the run
+ * summary and nobody can read this file's green as evidence.
+ *
+ * Read-only. Writes nothing.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { sql } from '@/lib/neon';
 import { fetchAccountMovement } from '@/modules/accounting/services/core/migrationSubtypeCheck';
 import { isDbReachable } from '../helpers/dbReachable';
 
-let dbUp = false;
-beforeAll(async () => { dbUp = await isDbReachable(); });
+/**
+ * Probed at MODULE LOAD, not in `beforeAll`. `it.skipIf` is evaluated during
+ * collection, which happens before any hook runs — a `beforeAll` here left
+ * every test skipped even against a live database, which is the same "green
+ * proves nothing" failure in a different costume.
+ */
+const dbUp = await isDbReachable();
+
+/** DATABASE_URL was set to something real, so "unreachable" is a failure. */
+const expectsDb = Boolean(process.env['DATABASE_URL'])
+  && !(process.env['DATABASE_URL'] ?? '').includes('dummy');
+
+describe('the database gate itself', () => {
+  it('is reachable whenever a real DATABASE_URL is configured', () => {
+    if (!expectsDb) return; // no DB configured: the suite below reports skipped
+    expect(dbUp).toBe(true);
+  });
+});
 
 /** A company with posted GL movement, and one with drafts, if either exists. */
 async function companyWithPostedLines(): Promise<string | null> {
@@ -36,18 +60,16 @@ async function companyWithPostedLines(): Promise<string | null> {
 }
 
 describe('fetchAccountMovement — against a real ledger', () => {
-  it('returns rows for a company that has posted journal lines', async () => {
-    if (!dbUp) return;
+  it.skipIf(!dbUp)('returns rows for a company that has posted journal lines', async () => {
     const companyId = await companyWithPostedLines();
-    if (!companyId) return;
+    expect(companyId, 'no company in this database has posted GL lines').not.toBeNull();
 
     const rows = await fetchAccountMovement(companyId);
     expect(rows.length).toBeGreaterThan(0);
     // Mutating `je.status = 'posted'` to any other literal empties this.
   });
 
-  it('reads ONLY posted lines — a draft-only account never appears', async () => {
-    if (!dbUp) return;
+  it.skipIf(!dbUp)('reads ONLY posted lines — a draft-only account never appears', async () => {
     const companyId = await companyWithPostedLines();
     if (!companyId) return;
 
@@ -75,8 +97,7 @@ describe('fetchAccountMovement — against a real ledger', () => {
     // Dropping `AND je.status = 'posted'` turns this red.
   });
 
-  it('returns only accounts belonging to the company asked for', async () => {
-    if (!dbUp) return;
+  it.skipIf(!dbUp)('returns only accounts belonging to the company asked for', async () => {
     const companyId = await companyWithPostedLines();
     if (!companyId) return;
 
@@ -93,8 +114,7 @@ describe('fetchAccountMovement — against a real ledger', () => {
     // is the one that leaks, and that is what this assertion actually guards.
   });
 
-  it('agrees with the ledger on net and gross, per account', async () => {
-    if (!dbUp) return;
+  it.skipIf(!dbUp)('agrees with the ledger on net and gross, per account', async () => {
     const companyId = await companyWithPostedLines();
     if (!companyId) return;
 
@@ -122,8 +142,7 @@ describe('fetchAccountMovement — against a real ledger', () => {
     // Note gross >= |net| always: it is what the nil-balance disclosure reads.
   });
 
-  it('never returns gross movement smaller than the absolute net balance', async () => {
-    if (!dbUp) return;
+  it.skipIf(!dbUp)('never returns gross movement smaller than the absolute net balance', async () => {
     const companyId = await companyWithPostedLines();
     if (!companyId) return;
 

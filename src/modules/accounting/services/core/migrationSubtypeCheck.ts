@@ -57,6 +57,7 @@ export {
   buildSubtypeCoverageResult,
   formatRand,
   isUnbanded,
+  NO_DEFAULT_TYPES,
   SUBTYPE_COVERAGE_CHECK,
   type AccountMovementRow,
 } from './migrationSubtypeMessage';

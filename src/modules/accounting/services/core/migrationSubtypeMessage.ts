@@ -37,7 +37,7 @@ const NAMED_LIMIT = 5;
  * `../gl/accountClassification.ts` makes the same exclusion for the same
  * reason; the two must not drift.
  */
-const NO_DEFAULT_TYPES: ReadonlySet<string> = new Set(['equity']);
+export const NO_DEFAULT_TYPES: ReadonlySet<string> = new Set(['equity']);
 
 /**
  * What the fallback DOES, per account type — the mechanism, never an asserted
@@ -58,6 +58,17 @@ const FALLBACK_BY_TYPE: Record<string, string> = {
     'defaults to CURRENT liabilities and is dropped from accounts payable — wrong for any long-term loan',
   revenue: 'defaults to turnover, so other income is reported as revenue',
 };
+
+/**
+ * `SUM(debit - credit)` is the raw ledger measure; every REPORT signs a
+ * liability, equity or revenue account the other way round (`aggregateFigures`
+ * does exactly this). Naming Velocity's `SYS-8 Trade Payables` as
+ * `-R37,703,241.94` on a go-live screen reads as a payables control in debit,
+ * which is the opposite of what the books say. Amounts are therefore displayed
+ * on NORMAL BALANCE. Totals are absolute and unaffected by the convention.
+ */
+const normalBalance = (accountType: string, net: number): number =>
+  accountType === 'asset' || accountType === 'expense' ? net : -net;
 
 const num = (v: number | string | null | undefined): number => {
   const n = typeof v === 'number' ? v : parseFloat(String(v ?? 0));
@@ -121,7 +132,11 @@ export function buildSubtypeCoverageResult(
 ): ValidationResult {
   const unbanded = rows
     .filter(isUnbanded)
-    .map(r => ({ ...r, amount: num(r.net), moved: Math.abs(num(r.gross)) }));
+    .map(r => ({
+      ...r,
+      amount: normalBalance(r.account_type, num(r.net)),
+      moved: Math.abs(num(r.gross)),
+    }));
 
   const flagged = unbanded
     .filter(r => Math.abs(r.amount) >= MATERIAL)
@@ -145,22 +160,27 @@ export function buildSubtypeCoverageResult(
     };
   }
 
-  const dormantNote =
-    dormant.length === 0
-      ? ''
-      : ` Plus ${dormant.length} account(s) whose posted movement nets to nil, so no balance appears above and nothing is totalled — ` +
-        `${nameAccounts(dormant.map(r => ({ ...r, amount: r.moved })))}. ` +
-        'Still unbanded, and still wrong on any date between the legs.';
+  /** Named list of the dormant accounts, by gross movement. */
+  const dormantList = nameAccounts(dormant.map(r => ({ ...r, amount: r.moved })));
 
   if (flagged.length === 0) {
     return {
       check: SUBTYPE_COVERAGE_CHECK,
       status: 'warn',
       message:
-        `No account carries an unclassified balance, but ${dormant.length} account(s) with posted movement have no usable account_subtype.` +
-        dormantNote,
+        `No account carries an unclassified balance, but ${dormant.length} account(s) with posted movement ` +
+        'have no usable account_subtype. Their movement nets to nil, so no balance is totalled — ' +
+        `${dormantList}. Still unbanded: the amount shown is gross movement, not a balance.`,
     };
   }
+
+  // Written for the flagged branch only — "Plus" is true there and false above,
+  // where the dormant accounts ARE the finding rather than an addition to it.
+  const dormantNote =
+    dormant.length === 0
+      ? ''
+      : ` Plus ${dormant.length} account(s) whose posted movement nets to nil, so no balance appears above and nothing is totalled — ` +
+        `${dormantList} (gross movement, not a balance). Still unbanded.`;
 
   const total = flagged.reduce((sum, r) => sum + Math.abs(r.amount), 0);
   const types = [...new Set(flagged.map(r => r.account_type))].sort();

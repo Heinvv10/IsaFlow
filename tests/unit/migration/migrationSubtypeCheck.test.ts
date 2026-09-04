@@ -20,8 +20,11 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import {
   buildSubtypeCoverageResult,
+  formatRand,
+  NO_DEFAULT_TYPES,
   type AccountMovementRow,
 } from '@/modules/accounting/services/core/migrationSubtypeCheck';
+import { DEFAULTED_WHEN_UNKNOWN } from '@/modules/accounting/services/gl/accountClassification';
 
 type RowOverride = Partial<AccountMovementRow> & { balance: number | string };
 
@@ -330,5 +333,134 @@ describe('buildSubtypeCoverageResult — movement that nets to nil', () => {
   it('still passes when an account has no movement of any kind', () => {
     const r = buildSubtypeCoverageResult([row({ balance: 0, gross: 0 })]);
     expect(r.status).toBe('pass');
+  });
+});
+
+// ── The mutations that survived the second review ────────────────────────────
+
+describe('buildSubtypeCoverageResult — amounts are signed on NORMAL BALANCE', () => {
+  // fetchAccountMovement returns SUM(debit - credit) for every type. Every
+  // report signs liability/equity/revenue the other way. Printing Velocity's
+  // SYS-8 Trade Payables as -R37,703,241.94 reads as a payables control in
+  // debit, which is the opposite of what the books say.
+  it('shows a liability with a credit balance as positive', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: 'SYS-8', account_name: 'Trade Payables', account_type: 'liability', balance: -37703241.94 }),
+    ]);
+    expect(r.detail).toContain('SYS-8 Trade Payables (liability) R37,703,241.94');
+    expect(r.detail).not.toContain('-R37,703,241.94');
+  });
+
+  it('shows revenue earned as positive and an asset debit as positive', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: '4310', account_name: 'Interest Received', account_type: 'revenue', balance: -2876.63 }),
+      row({ account_code: 'SYS-7', account_name: 'Trade Receivables', account_type: 'asset', balance: 32704547.38 }),
+    ]);
+    expect(r.detail).toContain('4310 Interest Received (revenue) R2,876.63');
+    expect(r.detail).toContain('SYS-7 Trade Receivables (asset) R32,704,547.38');
+  });
+
+  it('still shows a genuinely abnormal balance as negative', () => {
+    // Velocity 1120 in debit is a real condition worth seeing, not a convention.
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: '2110', account_name: 'Accounts Payable', account_type: 'liability', balance: 6900 }),
+    ]);
+    expect(r.detail).toContain('-R6,900.00');
+  });
+
+  it('keeps the total and the by-type breakdown absolute regardless of sign', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: 'A', account_type: 'liability', balance: -1000 }),
+      row({ account_code: 'B', account_type: 'liability', balance: 1000 }),
+    ]);
+    expect(r.message).toContain('R2,000.00');
+    expect(r.detail).toContain('liability 2 (R2,000.00)');
+  });
+});
+
+describe('formatRand', () => {
+  it('keeps the minus sign on a negative amount', () => {
+    expect(formatRand(-1234.5)).toBe('-R1,234.50');
+    expect(formatRand(1234.5)).toBe('R1,234.50');
+  });
+
+  it('groups thousands and always shows two decimals', () => {
+    expect(formatRand(0)).toBe('R0.00');
+    expect(formatRand(999)).toBe('R999.00');
+    expect(formatRand(1000)).toBe('R1,000.00');
+    expect(formatRand(273434822.14)).toBe('R273,434,822.14');
+  });
+});
+
+describe('buildSubtypeCoverageResult — the dormant-only branch', () => {
+  const dormant = (code: string, gross: number) =>
+    row({ account_code: code, account_name: `Account ${code}`, account_type: 'asset', balance: 0, gross });
+
+  it('does not report the same accounts twice as though they were additional', () => {
+    const r = buildSubtypeCoverageResult([dormant('1564412', 26263.74), dormant('49784346', 120000)]);
+    expect(r.status).toBe('warn');
+    expect(r.message).toContain('2 account(s)');
+    // "Plus 2" on top of "2" reads as four accounts.
+    expect(r.message).not.toMatch(/Plus 2/);
+  });
+
+  it('does not point at a list of balances that this branch never printed', () => {
+    const r = buildSubtypeCoverageResult([dormant('1564412', 26263.74)]);
+    expect(r.message).not.toContain('appears above');
+  });
+
+  it('reports GROSS movement for a dormant account, not its nil balance', () => {
+    const r = buildSubtypeCoverageResult([dormant('1564412', 26263.74)]);
+    expect(r.message).toContain('R26,263.74');
+    expect(r.message).not.toContain('R0.00');
+  });
+
+  it('says the figure shown is movement rather than a balance', () => {
+    const r = buildSubtypeCoverageResult([dormant('1564412', 26263.74)]);
+    expect(r.message).toMatch(/gross movement, not a balance/i);
+  });
+
+  it('orders dormant accounts by movement, largest first', () => {
+    const r = buildSubtypeCoverageResult([dormant('SMALL', 100), dormant('BIG', 120000)]);
+    const text = r.message;
+    expect(text.indexOf('BIG')).toBeLessThan(text.indexOf('SMALL'));
+  });
+
+  it('counts dormant accounts correctly alongside flagged ones', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: '5000', balance: 1000000 }),
+      dormant('1564412', 26263.74),
+      dormant('49784346', 120000),
+    ]);
+    expect(r.detail).toContain('Plus 2 account(s)');
+    expect(r.detail).toContain('R120,000.00');
+    expect(r.detail).toContain('R26,263.74');
+  });
+});
+
+describe('buildSubtypeCoverageResult — the materiality boundary', () => {
+  it('treats exactly half a cent as material', () => {
+    expect(buildSubtypeCoverageResult([row({ balance: 0.005 })]).status).toBe('warn');
+  });
+
+  it('treats anything below half a cent as dust', () => {
+    expect(buildSubtypeCoverageResult([row({ balance: 0.0049, gross: 0.0049 })]).status).toBe('pass');
+  });
+
+  it('applies the same boundary to dormant gross movement', () => {
+    const bare = row({ account_code: 'X', balance: 0, gross: 0.005 });
+    expect(buildSubtypeCoverageResult([bare]).status).toBe('warn');
+    expect(buildSubtypeCoverageResult([{ ...bare, gross: 0.0049 }]).status).toBe('pass');
+  });
+});
+
+describe('NO_DEFAULT_TYPES', () => {
+  // Declared in two files as complements, with a comment in each saying they
+  // must not diverge. If equity ever gains a sub-split in aggregateFigures, the
+  // check would silently stop reporting the type that just started defaulting.
+  it('is exactly the complement of the classifier\'s DEFAULTED_WHEN_UNKNOWN', () => {
+    const ALL_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const;
+    const complement = ALL_TYPES.filter(t => !DEFAULTED_WHEN_UNKNOWN.has(t));
+    expect([...NO_DEFAULT_TYPES].sort()).toEqual([...complement].sort());
   });
 });
