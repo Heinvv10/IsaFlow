@@ -30,6 +30,7 @@ run_step "user-id-casts"     bun scripts/ci/audit-user-id-casts.ts
 run_step "is-active-filters"  bash scripts/ci/check-is-active-in-balances.sh
 run_step "self-defining-universe" bash scripts/ci/check-self-defining-universe.sh
 run_step "findings-numbering"     bash scripts/ci/check-findings-numbering.sh
+run_step "migration-rls"          bun scripts/ci/check-migration-rls.ts
 run_step "unit-tests"        bun run test:unit
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 
