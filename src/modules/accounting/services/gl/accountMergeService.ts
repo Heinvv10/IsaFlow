@@ -31,6 +31,7 @@ import {
 } from './accountMergeGuards';
 import { digestLineIds, previewAccountMerge } from './accountMergePreview';
 import { recordAccountMerge } from './accountMergeRecord';
+import { lockGlAccountsForUpdate } from './glAccountLock';
 import type { PostingActorOpts } from './journalEntryMeta';
 
 export {
@@ -62,43 +63,6 @@ export interface MergeAccountsResult {
   movedLinesDigest: string;
 }
 
-/**
- * Lock BOTH accounts, in ascending id order, before anything is read for the
- * write. Without it two well-formed merges in OPPOSITE directions — A into B and
- * B into A, different idempotency keys, so the registry's per-key lock does not
- * see them — each pass every guard against their own READ COMMITTED snapshot,
- * each move their own lines, and both set `is_active = false`. The combined
- * balance ends up stranded across two dead accounts.
- *
- * Ascending id order is what makes it deadlock-free: two transactions taking
- * the same two rows in the same order queue instead of crossing.
- * Same-direction concurrency was already safe and stays so — the second
- * transaction's `WHERE gl_account_id = source` simply matches nothing.
- */
-export async function lockAccountsForMerge(companyId: string, a: string, b: string): Promise<void> {
-  const ordered = [a, b].sort();
-  await sql`
-    SELECT id FROM gl_accounts
-     WHERE company_id = ${companyId}::UUID AND id = ANY(${ordered}::uuid[])
-     ORDER BY id
-       FOR UPDATE
-  `;
-}
-
-/**
- * Repoint every line on the source that is STILL movable, and return their ids.
- *
- * The status/period predicate here is the same one `classifySourceLines` uses,
- * repeated at write time on purpose. Classification and this UPDATE are two
- * statements: a journal committed between them — or a period closed between
- * them — would otherwise be moved having never been classified, which is the
- * exact inverse of the invariant the skip list documents. With the predicate
- * such a row is left behind, and the caller's count check turns that into an
- * aborted merge rather than half of one.
- *
- * Exported so the predicate can be proven on its own: given a source carrying a
- * closed-period line and a line posted into no period, this must move neither.
- */
 export async function repointMovableLines(
   companyId: string, sourceId: string, targetId: string,
 ): Promise<string[]> {
@@ -123,8 +87,11 @@ export async function mergeAccounts(
   userId?: string, actor?: PostingActorOpts,
 ): Promise<MergeAccountsResult> {
   // Locked FIRST, so everything below reads a state no concurrent merge can
-  // change under it.
-  await lockAccountsForMerge(companyId, sourceId, targetId);
+  // change under it — `lockGlAccountsForUpdate` takes the rows in ascending id
+  // order under a 5s lock_timeout, which is what makes two opposite merges a
+  // clean wait rather than a deadlock or an unbounded stall inside the
+  // registry's savepoint.
+  await lockGlAccountsForUpdate(companyId, [sourceId, targetId]);
 
   const source = await loadMergeAccount(companyId, sourceId);
   const target = await loadMergeAccount(companyId, targetId);
