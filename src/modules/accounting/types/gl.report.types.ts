@@ -1,3 +1,5 @@
+import type { IncomeStatementSubtypeDisclosure } from '../services/reports/incomeStatementDisclosure';
+
 /**
  * PRD-060: FibreFlow Accounting Module
  * General Ledger Report Type Definitions
@@ -97,6 +99,20 @@ export interface IncomeStatementReport {
   priorGrossProfit?: number;
   priorTotalOperatingExpenses?: number;
   priorNetProfit?: number;
+  /**
+   * Accounts whose subtype the classifier does not recognise, and which are
+   * therefore banded by fallback rather than by classification. Null when there
+   * are none. See `../services/reports/incomeStatementDisclosure.ts` — this is
+   * why a gross margin on this report can be materially wrong while every
+   * total on it adds up.
+   */
+  subtypeDisclosure?: IncomeStatementSubtypeDisclosure | null;
+  /**
+   * The same, for the comparative period. A variance column is a difference
+   * between two independently mis-banded numbers, and the current period's
+   * banner says nothing about the prior one.
+   */
+  priorSubtypeDisclosure?: IncomeStatementSubtypeDisclosure | null;
 }
 
 export interface BalanceSheetLineItem {

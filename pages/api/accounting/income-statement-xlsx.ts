@@ -4,6 +4,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import { reasonLabel } from '@/modules/accounting/services/reports/incomeStatementDisclosure';
 import ExcelJS from 'exceljs';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
@@ -153,6 +154,51 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     report.totalRevenue > 0 ? ((report.grossProfit / report.totalRevenue) * 100).toFixed(1) + '%' : 'N/A',
   ]);
   gpMarginRow.getCell(4).alignment = { horizontal: 'right' };
+
+  // An exported workbook leaves the app and carries the margin with no screen
+  // to qualify it, so the caveat travels WITH the figure — directly beneath the
+  // gross margin it applies to. See incomeStatementDisclosure.ts.
+  if (report.subtypeDisclosure) {
+    const floorRow = ws.addRow([
+      'Warning', '', 'Gross profit overstated by at least',
+      report.subtypeDisclosure.grossProfitOverstatedByAtLeast,
+    ]);
+    floorRow.font = { bold: true, color: { argb: 'FFB45309' } };
+    floorRow.getCell(4).numFmt = '#,##0.00';
+    // Two rows, not their sum: summed they can exceed revenue itself, which is
+    // a true bound and worthless to a reader. See incomeStatementDisclosure.ts.
+    for (const [label, value] of [
+      ['Expense that could be cost of sales (at most)', report.subtypeDisclosure.costOfSalesExposureAtMost],
+      ['Revenue that could be other income (at most)', report.subtypeDisclosure.otherIncomeExposureAtMost],
+    ] as const) {
+      const r = ws.addRow(['Warning', '', label, value]);
+      r.font = { bold: true, color: { argb: 'FFB45309' } };
+      r.getCell(4).numFmt = '#,##0.00';
+    }
+    // Column A is the "Section" column and is inside `autoFilter` A5:D5, so it
+    // is a filter value. Leaving it BLANK does not protect these rows — blank
+    // is itself a value, and filtering Section to "Operating Expenses" hides
+    // every blank-A row, i.e. the whole warning. So each row carries its own
+    // "Warning" section label and filters under that, visibly. Text goes in
+    // column C, amounts in D, matching `addLineItem`'s layout.
+    for (const line of report.subtypeDisclosure.notices) {
+      const noteRow = ws.addRow(['Warning', '', line]);
+      noteRow.font = { italic: true, color: { argb: 'FFB45309' } };
+    }
+    for (const a of report.subtypeDisclosure.accounts) {
+      const r = ws.addRow(['Warning', a.accountCode, `${a.accountName} — ${reasonLabel(a.reason)}`, a.amount]);
+      r.font = { color: { argb: 'FFB45309' } };
+      r.getCell(4).numFmt = '#,##0.00';
+    }
+    if (report.subtypeDisclosure.unnamedAccounts > 0) {
+      ws.addRow(['Warning', '', `and ${report.subtypeDisclosure.unnamedAccounts} further affected account(s)`])
+        .font = { italic: true, color: { argb: 'FFB45309' } };
+    }
+    // Disclosed accounts appear again in their own sections — revenue above
+    // this block, expenses below it — so a column-D sum double-counts them.
+    ws.addRow(['Warning', '', 'The amounts above are repeated elsewhere in this sheet — do not add them again.'])
+      .font = { italic: true, color: { argb: 'FFB45309' } };
+  }
 
   // Operating Expenses
   ws.addRow([]);

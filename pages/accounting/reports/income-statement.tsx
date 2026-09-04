@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 
 import { formatCurrency } from '@/utils/formatters';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -272,6 +273,39 @@ export default function IncomeStatementPage() {
                     )}
                   </span>
                 </div>
+
+                {/* The shared data-quality notice, rendered ABOVE the margin
+                    stats on purpose: the gross margin immediately below is the
+                    figure these defaults make wrong, and Velocity read 96.6%
+                    off that line while R82.7m of direct cost sat in operating
+                    expenses. Same component, wording and currency format as the
+                    nine other report surfaces — a user comparing two screens
+                    must not see the same defect described two ways. */}
+                {report.subtypeDisclosure && (
+                  <div className="px-6 py-3 border-t border-[var(--ff-border-light)]">
+                    {/* The service already built these sentences, and the CSV and
+                        XLSX exports emit the same array. Passing them through —
+                        rather than re-deriving a partial input here — is what
+                        stops the screen showing fewer caveats than the file
+                        downloaded from it, and stops a count being taken from
+                        the CAPPED named list. */}
+                    <DataQualityNotice notices={report.subtypeDisclosure.notices} />
+                    <p className="mt-2 font-mono text-xs text-[var(--ff-text-tertiary)]">
+                      {report.subtypeDisclosure.accounts
+                        .map(a => `${a.accountCode} ${a.accountName} ${formatCurrency(a.amount)}`)
+                        .join(' \u00b7 ')}
+                      {report.subtypeDisclosure.unnamedAccounts > 0
+                        ? ` \u00b7 and ${report.subtypeDisclosure.unnamedAccounts} more`
+                        : ''}
+                    </p>
+                    {report.priorSubtypeDisclosure && (
+                      <p className="mt-1 text-xs text-amber-400/80">
+                        The comparative period has its own unclassified accounts, so every
+                        variance above is a difference between two differently-banded numbers.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Margin Stats */}
                 {report.totalRevenue > 0 && (
