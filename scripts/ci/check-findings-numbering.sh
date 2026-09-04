@@ -20,6 +20,12 @@
 # that can't fail on the malformed case reads as verification while proving
 # nothing. The header row (`# `) and the markdown separator row (`---`) are
 # the only first cells this script recognizes as not being findings.
+#
+# Ids are compared numerically, so `B01` collides with `B1` — but they are
+# still compared as the SAME number, not as distinct strings that happen to
+# render the same digit sequence. The register's convention is unpadded
+# ids; nothing here validates that convention itself, only that whatever
+# number a row claims isn't claimed twice.
 
 set -uo pipefail
 
@@ -44,6 +50,7 @@ output=$(awk '
     if (cell ~ /^B[0-9]+$/) {
       num = cell
       sub(/^B/, "", num)
+      num = num + 0          # numeric key: B01 and B1 collide
       count[num]++
       if (count[num] == 1) { firstline[num] = line }
       else { print "DUP\t" cell "\t" line }
