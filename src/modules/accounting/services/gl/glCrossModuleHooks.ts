@@ -7,6 +7,7 @@
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 import { getSystemAccountId } from './systemAccountResolver';
 import { createJournalEntry, postJournalEntry } from './journalEntryService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
@@ -44,7 +45,24 @@ async function postAssetDepreciationToGLThrows(
   companyId: string,
   assetId: string,
   depreciationAmount: number,
-  userId: string
+  userId: string,
+  /**
+   * The period being depreciated, YYYY-MM-DD. The journal's DATE and its
+   * idempotency NUMBER both come from it.
+   *
+   * They used to come from `new Date()` instead — `CURRENT_DATE` and
+   * `DEP-<asset>-<today's month>` — while `asset_period_ledger` was keyed on
+   * the period. The two idempotency keys therefore disagreed: running March
+   * and then April within one calendar month wrote two subledger periods and
+   * ONE journal, because the second collided with the first entry number and
+   * was read as already posted. Accumulated depreciation then understated by a
+   * whole period with nothing flagging it. Defaulting to today preserves the
+   * old behaviour for the single legacy caller that passes no period, and all
+   * 19 `auto_depreciation` entries in production carry an entry number whose
+   * month equals their creation month — so no run has ever been made for a
+   * period other than the current one and this is a no-op on history.
+   */
+  periodDate?: string,
 ): Promise<string | null> {
   if (depreciationAmount <= 0) return null;
 
@@ -67,7 +85,8 @@ async function postAssetDepreciationToGLThrows(
   // previously hit 23505 for every already-posted asset — swallowed silently
   // before P1.5 made failures loud. Treat an existing entry as already
   // posted and return it instead of failing the asset.
-  const entryNumber = `DEP-${assetNumber}-${new Date().toISOString().slice(0, 7)}`;
+  const period = periodDate ?? fmtDate(new Date());
+  const entryNumber = `DEP-${assetNumber}-${period.slice(0, 7)}`;
   // reversed_at IS NULL: a REVERSED entry must NOT count as already-posted —
   // that would silently under-depreciate (assets.accumulated_depreciation is
   // never touched by reversal). With the number taken by the reversed
@@ -94,7 +113,7 @@ async function postAssetDepreciationToGLThrows(
       company_id, entry_number, entry_date, description, source, status, created_by,
       posting_agent
     ) VALUES (
-      ${companyId}, ${entryNumber}, CURRENT_DATE,
+      ${companyId}, ${entryNumber}, ${period}::DATE,
       ${`Depreciation: ${assetName} (${assetNumber})`},
       'auto_depreciation', 'posted', ${userId},
       'system:asset-depreciation:v1'
@@ -211,7 +230,9 @@ export async function postDualDepreciationToLedger(
           deferred_tax            = EXCLUDED.deferred_tax,
           updated_at              = NOW()
       `;
-      return postAssetDepreciationToGLThrows(companyId, assetId, policy.monthlyDep, userId);
+      return postAssetDepreciationToGLThrows(
+        companyId, assetId, policy.monthlyDep, userId, input.periodDate,
+      );
     });
 
     log.info('Dual depreciation ledger updated', {

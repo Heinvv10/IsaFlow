@@ -332,6 +332,13 @@ code; add new ones to this list in the same PR.
 
 | `unknown_counterparty` | The customer or supplier the document names no longer exists or has been deleted. Added by W1 for `list_unapplied_receipts`: a receipt whose customer row is gone is still real cash, and dropping it would understate the unapplied total by exactly its amount. |
 
+| `disposed_before_as_at` | A fixed asset sold, scrapped or retired on or before the reporting date. It is not carrying amount and is out of the totals, but "there is one asset and it was sold" and "there are no assets" are different facts — so it carries the book value it was still holding. Used by `list_fixed_assets` and `reconcile_fixed_assets`; Brightsphere's ENTIRE register is one such row, R15,000 of a computer sold in April for R8,000. |
+
+The depreciation run reports SKIPS rather than exclusions — a skip is about the
+data, not about a row the report could not classify — and its codes are on the
+same footing: `not_in_service`, `no_purchase_price`,
+`below_capitalisation_threshold`, `no_useful_life`, `already_posted`.
+
 ---
 
 ## 4a. Pagination: which of the four mechanisms to use

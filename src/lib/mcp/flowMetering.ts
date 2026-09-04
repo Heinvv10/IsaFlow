@@ -150,6 +150,10 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   wip_report: null,
   list_fixed_assets: null,
   asset_register: null,
+  reconcile_fixed_assets: null,
+  // One journal per asset. The app's equivalent route is unmetered, but the
+  // operation IS a posting run, so it is priced like the journal it creates.
+  run_depreciation: 'journal.create',
   list_items: null,
   stock_valuation: null,
   supplier_statement: null,

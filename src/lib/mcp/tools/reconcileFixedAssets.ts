@@ -1,0 +1,181 @@
+/**
+ * `reconcile_fixed_assets` — the register against the ledger, decomposed.
+ *
+ * `asset_register` reports the gap. This reports what the gap is MADE OF, with
+ * the account id behind every ledger item and the journal ids behind every
+ * account. On Brightsphere that turns "the difference is R5.75m" into two facts
+ * a reader can act on: the R7,500 the ledger calls accumulated depreciation is
+ * a single MANUAL journal from a migration-479 correction and not a
+ * depreciation run at all, and every account subtyped fixed_assets that carries
+ * a balance is a loan or an investment.
+ *
+ * THE ITEMS RECONCILE BY CONSTRUCTION AND THAT IS NOT A PROOF OF ANYTHING.
+ * Every held asset and every asset-section account is reported at its own
+ * amount, so they sum to the difference whatever the data says. That establishes
+ * the report omitted nothing. It establishes nothing about whether an item is
+ * correctly classified. The description says so in its own words, because a
+ * reader never sees this file.
+ */
+import type { McpTool } from '../types';
+import { fmtDate } from '@/lib/fmtDate';
+import {
+  reconcileFixedAssets,
+  type AssetReconcilingItem,
+  type AssetReconcilingDocument,
+} from '@/modules/accounting/services/items/fixedAssetReconciliationService';
+import {
+  buildEnvelope,
+  decodeCursor,
+  encodeCursor,
+  figureBasis,
+  isDetailLevel,
+  type DetailLevel,
+} from '../contracts';
+import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+
+/** A read that consumed no ledger row has no `posted_through`. */
+const NO_LEDGER_READ = '1970-01-01T00:00:00.000Z';
+
+function itemRow(i: AssetReconcilingItem) {
+  return {
+    side: i.side,
+    type: i.type,
+    amount: i.amount,
+    attribution: i.attribution,
+    attributed_via: i.attributedVia,
+    asset_id: i.assetId,
+    asset_number: i.assetNumber,
+    account_id: i.accountId,
+    account_code: i.accountCode,
+    account_name: i.accountName,
+    account_subtype: i.accountSubtype,
+    normal_balance_violated: i.normalBalanceViolated,
+    posted_line_count: i.postedLineCount,
+    detail: i.detail,
+  };
+}
+
+function documentRow(d: AssetReconcilingDocument) {
+  return {
+    account_id: d.accountId,
+    account_code: d.accountCode,
+    journal_entry_id: d.journalEntryId,
+    entry_number: d.entryNumber,
+    entry_date: d.entryDate,
+    source: d.source,
+    description: d.description,
+    amount: d.amount,
+  };
+}
+
+export const reconcileFixedAssetsTool: McpTool = {
+  name: 'reconcile_fixed_assets',
+  description:
+    'Reconciles the fixed asset register to the general ledger as at a date and DECOMPOSES the difference into itemised reconciling items, each carrying the id of the asset or the GL account behind it. '
+    + 'Use it to answer "why does the balance sheet disagree with the asset register", not merely "by how much". asset_register reports the same two totals without the items. '
+    + 'Returns registerNetBookValue (cost less accumulated depreciation from the assets table), glNetBookValue (posted balances of every account subtyped fixed_assets or accumulated_depreciation), difference = register less GL, and one row per asset and per account. Each row contributes its own amount to the difference. '
+    + 'THE TWO SIDES ARE INDEPENDENTLY DERIVED: the register comes from the assets table and the ledger from posted journal lines, so the difference can genuinely be non-zero. '
+    + 'WHAT A ZERO DIFFERENCE DOES AND DOES NOT PROVE. READ THIS BEFORE RELYING ON IT. It is NECESSARY AND NOT SUFFICIENT. The items sum to the difference by construction — every asset and every account is reported — so a zero says the two totals happen to agree, NOT that the register and the ledger describe the same assets. Two errors that cancel satisfy it exactly. Treat a zero as an invitation to INSPECT THE ITEMS, never as a conclusion about the accounts. '
+    + 'WHAT TO INSPECT. normal_balance_violated marks a cost account carrying a CREDIT balance, or an accumulated-depreciation account carrying a DEBIT one: the sign is opposite to what the subtype implies, so the account is unlikely to be property, plant and equipment. On these books that flag catches millions of rands of loan and investment accounts subtyped fixed_assets, which any single total would present as PPE. The tool REPORTS them; it does not reclassify anything and does not change the chart of accounts. '
+    + 'register_linkage_available is false when NO asset and no asset category in the company records a GL account — the state of every production company today. When it is false, every item is attribution "unlinked" because there is no data by which a link could be made, not because a link was checked and failed, and no part of the ledger can be attributed to a specific asset. '
+    + 'ACCOUNT SELECTION is by SUBTYPE, never by account name — choosing a bucket by name is how two default_expense accounts became cost of sales and overstated gross profit by R562,428. There is NO is_active filter: a deactivated account with a live balance is still on the balance sheet. '
+    + 'An asset disposed on or before as_at is not carrying amount; it appears in excludedRows as disposed_before_as_at with the book value it was still carrying, never silently dropped. '
+    + 'This report makes NO completeness claim (universeTotal is absent) because its rows are PRODUCED by the reconciliation rather than selected from a pool; a universe here could only be synthesized from the numbers it would be checked against, and a claim that cannot fail is worse than none. '
+    + 'detail: "summary" returns the totals only, "standard" (default) returns one row per reconciling item, "full" returns one row per journal entry posted to the asset-section accounts — capped at 50 entries per account, most recent first — and is paginated; call again with cursor until next_cursor is null. Follow a journal_entry_id with list_journals or audit_trail, and an asset_id with list_fixed_assets. '
+    + 'It reports the gap; it does not repair it, does not run depreciation and posts nothing.',
+  scope: 'read:reports',
+  write: false,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      as_at: { type: 'string', format: 'date', description: 'Reporting date, YYYY-MM-DD. Defaults to today.' },
+      detail: {
+        type: 'string',
+        enum: ['summary', 'standard', 'full'],
+        description: 'summary = totals only; standard (default) = reconciling items; full = the journals behind the accounts.',
+      },
+      limit: { type: 'integer', minimum: 1, maximum: 500, description: 'detail=full only. Default 200.' },
+      cursor: { type: 'string', description: 'next_cursor from the previous page.' },
+    },
+    additionalProperties: false,
+  },
+  handler: async (args, ctx) => {
+    const bad = guardCastableArgs(args, { date: ['as_at'] });
+    if (bad) return bad;
+
+    const rawDetail = strArg(args, 'detail');
+    const detail: DetailLevel = isDetailLevel(rawDetail) ? rawDetail : 'standard';
+    const asAt = strArg(args, 'as_at') ?? fmtDate(new Date());
+
+    // Decoded BEFORE the query: a read tool has no savepoint, so nothing may
+    // throw once the query has run.
+    const rawCursor = strArg(args, 'cursor');
+    let after: string | null = null;
+    if (rawCursor !== undefined) {
+      const decoded = decodeCursor(rawCursor, 1);
+      if (!decoded) return toolError('invalid cursor');
+      after = decoded.parts[0]!;
+    }
+
+    // companyId from ctx ONLY.
+    const rec = await reconcileFixedAssets(ctx.companyId, asAt);
+
+    const isFull = detail === 'full';
+    const rowsTotal = isFull ? rec.documentsTotal : rec.items.length;
+
+    let page: Array<ReturnType<typeof itemRow> | ReturnType<typeof documentRow>>;
+    let nextCursor: string | null = null;
+    if (isFull) {
+      const docs = rec.documents;
+      const start = after === null ? 0 : docs.findIndex((d) => d.journalEntryId === after) + 1;
+      const limit = clampLimit(args, 200, 500);
+      const slice = docs.slice(start, start + limit);
+      const last = slice[slice.length - 1];
+      if (last && start + limit < docs.length) {
+        nextCursor = encodeCursor({ parts: [last.journalEntryId] });
+      }
+      page = slice.map(documentRow);
+    } else {
+      page = rec.items.map(itemRow);
+    }
+
+    const envelope = buildEnvelope({
+      rows: detail === 'summary' ? [] : page,
+      rowsTotal,
+      detail,
+      as_at: asAt,
+      posted_through: rec.postedThrough ?? NO_LEDGER_READ,
+      next_cursor: nextCursor,
+      excludedRows: rec.excludedRows,
+      // universeTotal is DELIBERATELY ABSENT. These rows are PRODUCED by the
+      // reconciliation, not selected out of a pool, so any universe would have
+      // to be synthesized from `rowsTotal + excludedRows` — the very identity
+      // buildEnvelope checks it against, which could then never fail. An absent
+      // completeness claim is honest; one that cannot fail reads as
+      // verification and is worse than none. CONTRACTS.md §1.
+      figureBasis: figureBasis('ppe.register.v1'),
+    });
+
+    return ok({
+      ...envelope,
+      register_cost: rec.registerCost,
+      register_accumulated_depreciation: rec.registerAccumulatedDepreciation,
+      register_net_book_value: rec.registerNetBookValue,
+      gl_cost: rec.glCost,
+      gl_accumulated_depreciation: rec.glAccumulatedDepreciation,
+      gl_net_book_value: rec.glNetBookValue,
+      difference: rec.difference,
+      itemsTotal: rec.itemsTotal,
+      unexplainedDifference: rec.unexplainedDifference,
+      linked_item_count: rec.linkedItemCount,
+      unlinked_item_count: rec.unlinkedItemCount,
+      register_linkage_available: rec.registerLinkageAvailable,
+      contra_normal_balance_count: rec.contraNormalBalanceCount,
+      contra_normal_balance_total: rec.contraNormalBalanceTotal,
+      documents_total: rec.documentsTotal,
+      // The two sides name DIFFERENT figures on purpose. Collapsing them into
+      // one "PPE" would destroy the only thing that can detect the break.
+      ledgerFigureBasis: figureBasis('ppe.ledger.v1'),
+    });
+  },
+};
