@@ -29,7 +29,17 @@ const LOCK_NOT_AVAILABLE = '55P03';
 
 /**
  * Raised when another request holds one of the accounts longer than the 5s
- * `lock_timeout`. The MCP tool surfaces the message, so it has to say "retry".
+ * `lock_timeout`.
+ *
+ * The message has to say "retry" because it does reach the caller — but only
+ * where the caller takes the lock BEFORE the first write and can answer with a
+ * `toolError`. `merge_gl_accounts` does exactly that on its live path
+ * (`writeMergeGlAccounts.ts`), matching on `code` rather than `instanceof`.
+ * A timeout raised from INSIDE a service that is called uncaught propagates to
+ * `registry.call()`, which renders everything except `BulkAllocationLineError`
+ * as GENERIC_FAILURE — so the wording would be discarded. An earlier revision of
+ * this comment asserted the message reached the agent unconditionally; it did
+ * not.
  *
  * The timeout is the point, not a detail: without one, a merge that blocks
  * behind a long-running transaction on a control account waits indefinitely

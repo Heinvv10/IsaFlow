@@ -26,6 +26,7 @@ import { getPoolForTests } from '@/lib/neon';
 import {
   mergeAccounts, repointMovableLines, AccountMergeError,
 } from '@/modules/accounting/services/gl/accountMergeService';
+import { classifySourceLines } from '@/modules/accounting/services/gl/accountMergeFigures';
 import { previewAccountMerge } from '@/modules/accounting/services/gl/accountMergePreview';
 
 type Ctx = Parameters<typeof als.run>[0];
@@ -167,6 +168,23 @@ describe('the write re-checks the row state it classified', async () => {
       expect(left.rowCount).toBe(2);
       const reasons = left.rows.map((r) => (r.fiscal_period_id === null ? 'no_period' : 'closed')).sort();
       expect(reasons).toEqual(['closed', 'no_period']);
+    });
+  }, 60_000);
+
+  it.skipIf(!reachable)('the classifier and the write-time predicate select the SAME rows', async () => {
+    await withFixture(async (_c, f) => {
+      // The predicate exists twice — a CASE in classifySourceLines and a WHERE
+      // in repointMovableLines — because a tagged template cannot share a
+      // fragment without concatenating SQL, which this repo forbids. The
+      // count check in mergeAccounts catches drift in HOW MANY rows move; it
+      // cannot catch a same-count substitution that changes WHICH. This does:
+      // both sides are enumerated and compared by id.
+      const { movable } = await classifySourceLines(f.companyId, f.sourceId);
+      const moved = await repointMovableLines(f.companyId, f.sourceId, f.targetId);
+      expect(moved).toEqual(movable.map((l) => l.journalLineId).sort());
+      // And it is not vacuously true on an all-movable fixture: this source
+      // carries four posted lines and only two of them may move.
+      expect(moved).toHaveLength(2);
     });
   }, 60_000);
 

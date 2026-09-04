@@ -132,7 +132,17 @@ export async function mergeAccounts(
   // response, and a merge that silently moved the first 200 of 3,669 lines is
   // exactly the half-merge this service refuses to perform on purpose.
   //
-  // The status/period predicate is REPEATED here, at write time. Classification
+  // The status/period predicate is DUPLICATED from
+  // `accountMergeFigures.classifySourceLines`, and the two are kept in step by
+  // an executable check rather than by memory: `accountMergeRecordDb.test.ts >
+  // the classifier and the write-time predicate select the SAME rows`
+  // enumerates both sides and compares them by id. The count check below
+  // catches drift in how MANY rows move; only that test catches a same-count
+  // substitution that changes WHICH. They are not extracted into a shared
+  // fragment because a tagged template cannot take one without concatenating
+  // SQL in JavaScript, which this repo forbids outright.
+  //
+  // Repeated at write time. Classification
   // and this UPDATE are two statements: a journal committed between them — or a
   // period closed between them — would otherwise be moved without ever having
   // been classified, which is the exact inverse of the invariant the skip list

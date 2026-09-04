@@ -128,6 +128,12 @@ function toLine(r: Record<string, unknown>): MovableLine {
  * write and the caller is told exactly which rows to fix.
  *
  * Drafts move freely: they post nothing, so no period is affected.
+ *
+ * This predicate is DUPLICATED, deliberately, in
+ * `accountMergeService.repointMovableLines`, which re-applies it at write time
+ * so a row committed between classification and the UPDATE cannot move
+ * unclassified. Change one and you must change the other; a test enumerates
+ * both sides and compares them by id so that is not left to memory.
  */
 export async function classifySourceLines(
   companyId: string, sourceId: string,

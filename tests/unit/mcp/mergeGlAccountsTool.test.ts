@@ -24,6 +24,9 @@ vi.mock('@/modules/accounting/services/gl/chartOfAccountsService', () => ({
 vi.mock('@/modules/accounting/services/gl/accountMergePreview', () => ({
   previewAccountMerge: vi.fn(),
 }));
+vi.mock('@/modules/accounting/services/gl/glAccountLock', () => ({
+  lockGlAccountsForUpdate: vi.fn(async () => []),
+}));
 vi.mock('@/modules/accounting/services/gl/accountMergeService', async () => {
   // The error class is real: the tool branches on it, and a stubbed sentinel
   // would let that branch pass by accident.
@@ -35,6 +38,7 @@ vi.mock('@/modules/accounting/services/gl/accountMergeService', async () => {
 
 import { getAccountById } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { previewAccountMerge } from '@/modules/accounting/services/gl/accountMergePreview';
+import { lockGlAccountsForUpdate } from '@/modules/accounting/services/gl/glAccountLock';
 import { mergeAccounts, AccountMergeError } from '@/modules/accounting/services/gl/accountMergeService';
 import { mergeGlAccountsTool } from '@/lib/mcp/tools/writeMergeGlAccounts';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
@@ -73,6 +77,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getAccountById).mockResolvedValue({ id: SOURCE } as never);
   vi.mocked(previewAccountMerge).mockResolvedValue(preview() as never);
+  vi.mocked(lockGlAccountsForUpdate).mockResolvedValue([] as never);
 });
 
 describe('merge_gl_accounts', () => {
@@ -130,6 +135,42 @@ describe('merge_gl_accounts', () => {
   it('rethrows anything the merge itself raises, so the savepoint unwinds', async () => {
     vi.mocked(mergeAccounts).mockRejectedValue(new Error('boom'));
     await expect(mergeGlAccountsTool.handler(ARGS, ctx())).rejects.toThrow('boom');
+  });
+
+  it('locks both accounts on the live path, and NOT on a dry run', async () => {
+    vi.mocked(mergeAccounts).mockResolvedValue({ linesRepointed: 3 } as never);
+
+    await mergeGlAccountsTool.handler({ ...ARGS, dry_run: true }, ctx());
+    // A preview writes nothing and must not hold rows against everyone else for
+    // the rest of the request.
+    expect(lockGlAccountsForUpdate).not.toHaveBeenCalled();
+
+    await mergeGlAccountsTool.handler(ARGS, ctx());
+    expect(lockGlAccountsForUpdate).toHaveBeenCalledWith(COMPANY, [SOURCE, TARGET]);
+    // Taken BEFORE the preview reads the state the write then acts on.
+    const lockOrder = vi.mocked(lockGlAccountsForUpdate).mock.invocationCallOrder[0]!;
+    const previewOrder = vi.mocked(previewAccountMerge).mock.invocationCallOrder.at(-1)!;
+    expect(lockOrder).toBeLessThan(previewOrder);
+  });
+
+  it('turns a lock timeout into a refusal that says retry, not a generic failure', async () => {
+    const timeout = Object.assign(new Error('GL account X is being changed by another request — retry in a moment.'),
+      { code: 'GL_ACCOUNT_LOCK_TIMEOUT' });
+    vi.mocked(lockGlAccountsForUpdate).mockRejectedValue(timeout);
+
+    const r = await mergeGlAccountsTool.handler(ARGS, ctx());
+    // Write-free by construction: the lock is the first thing the live path
+    // does. Left to propagate, the registry would render it GENERIC_FAILURE and
+    // the agent would never learn it can simply retry.
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('retry');
+    expect(mergeAccounts).not.toHaveBeenCalled();
+    expect(previewAccountMerge).not.toHaveBeenCalled();
+  });
+
+  it('rethrows a lock failure that is NOT a timeout', async () => {
+    vi.mocked(lockGlAccountsForUpdate).mockRejectedValue(new Error('connection reset'));
+    await expect(mergeGlAccountsTool.handler(ARGS, ctx())).rejects.toThrow('connection reset');
   });
 
   it('refuses an id from another company with the generic miss text', async () => {

@@ -25,6 +25,7 @@ import {
   AccountMergeError,
   mergeAccounts,
 } from '@/modules/accounting/services/gl/accountMergeService';
+import { lockGlAccountsForUpdate } from '@/modules/accounting/services/gl/glAccountLock';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
@@ -81,6 +82,12 @@ const DESCRIPTION = [
   'resolving to an account that now carries zero while the money joins the target\'s',
   'consolidation line. Check it by hand before merging an account that is in a group.',
   'It also does not rename or renumber the chart, and never merges across companies.',
+  'CONCURRENCY: the live call locks both accounts for the rest of the request. If another request '
+  + 'holds one, this waits 5 seconds and then refuses with a message saying to retry — that one is '
+  + 'safe to re-issue with the same idempotency_key, because nothing was written. One failure mode '
+  + 'is NOT specific: if the ledger changes between the preview and the write (a journal posted, a '
+  + 'period closed), the merge aborts having written nothing, but reaches you as a generic failure '
+  + 'rather than a named one. Re-run with dry_run to see what moved.',
 ].join(' ');
 
 export const mergeGlAccountsTool: McpTool = {
@@ -124,6 +131,39 @@ export const mergeGlAccountsTool: McpTool = {
       getAccountById(ctx.companyId, targetId),
     ]);
     if (!source || !target) return toolError(NOT_FOUND);
+
+    // On the LIVE path only, take the row lock here rather than leaving it to
+    // the service. Two reasons, and the first is the one that matters:
+    //
+    //  - A lock timeout is then a genuine PRE-WRITE refusal and can be returned
+    //    as a toolError carrying its own message. Left inside `mergeAccounts` —
+    //    which is called uncaught, correctly — it would propagate to the
+    //    registry and reach the agent as GENERIC_FAILURE, which tells it
+    //    nothing and in particular does not tell it to retry. This is the
+    //    `writeJournalReverse` pattern: answer every refusal you can from
+    //    before the first write, so the writing call needs no catch.
+    //  - The preview below then reads under the lock, so what the live call
+    //    checks cannot change between the check and the write.
+    //
+    // A DRY RUN takes no lock. It writes nothing and must not hold rows for the
+    // rest of the request against everyone else.
+    //
+    // `mergeAccounts` locks again for its own non-MCP callers; re-locking rows
+    // this transaction already holds is free.
+    if (args.dry_run !== true) {
+      try {
+        await lockGlAccountsForUpdate(ctx.companyId, [sourceId, targetId]);
+      } catch (err) {
+        // By code, not instanceof: the code is the stable half of that contract
+        // (`bulkAllocationPost` reads BANK_TX_LOCK_TIMEOUT the same way).
+        // Write-free by construction — this is the first statement of the write
+        // path, so there is nothing to unwind.
+        if ((err as { code?: unknown }).code === 'GL_ACCOUNT_LOCK_TIMEOUT') {
+          return toolError((err as Error).message);
+        }
+        throw err;
+      }
+    }
 
     // Writes nothing, and re-runs every request-level guard, so a refusal here
     // is answered with nothing to unwind.
