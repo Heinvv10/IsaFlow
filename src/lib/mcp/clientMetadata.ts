@@ -76,6 +76,8 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'wip_report',
   'list_fixed_assets',
   'asset_register',
+  'reconcile_fixed_assets',
+  'run_depreciation',
   'list_items',
   'stock_valuation',
   'supplier_statement',
