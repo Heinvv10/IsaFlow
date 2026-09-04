@@ -31,14 +31,13 @@ export interface DataQualityInput {
   unclassifiedAccounts?: UnclassifiedWarning | null;
   inventory?: InventoryWarning | null;
   /**
-   * Income statement only. That report has no other-income line and computes
-   * gross profit as `revenue - costOfSales`, so THREE things move it silently:
-   * an unclassified expense that is really cost of sales, an unclassified
-   * revenue that is really other income, and other income already sitting in
-   * turnover. The first two are conjecture (a ceiling); the third is certain
-   * (a floor). See `./incomeStatementDisclosure.ts`.
+   * Income statement only. Gross profit there is `revenue - costOfSales`, so an
+   * unclassified expense that is really cost of sales, or an unclassified
+   * revenue that is really other income, moves it silently. Both are
+   * conjecture — a ceiling, never a correction. (The third case, other income
+   * shown inside turnover, was CERTAIN and is now fixed at source: the report
+   * has an other-income line. See `./incomeStatementDisclosure.ts`.)
    */
-  otherIncomeInTurnover?: { accounts: number; amount: number } | null;
   /** Expense that could belong above the gross profit line. */
   costOfSalesExposureAtMost?: number;
   /** Revenue that could be other income rather than turnover. */
@@ -82,18 +81,6 @@ export function buildDataQualityNotices(input: DataQualityInput): string[] {
           'on them for accurate figures.',
       );
     }
-  }
-
-  // Certain before conjectural: a reader who is given a bound first reads the
-  // bound as the finding, and the thing we actually know gets lost under it.
-  const certain = input.otherIncomeInTurnover;
-  if (certain && certain.accounts > 0) {
-    const plural = certain.accounts === 1 ? '' : 's';
-    notices.push(
-      `${certain.accounts} other-income account${plural} carrying ${fmtZAR(certain.amount)} ` +
-        `${certain.accounts === 1 ? 'is' : 'are'} reported inside turnover, because this ` +
-        'statement has no other-income line. That much is already in gross profit.',
-    );
   }
 
   // Stated as two numbers, never their sum: summed, Velocity's reads

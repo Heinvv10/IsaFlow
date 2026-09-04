@@ -56,8 +56,9 @@ describe('getIncomeStatement — the disclosure reaches the report', () => {
     // that is really other income overstates gross profit one-for-one, exactly
     // as an unclassified expense that is really cost of sales does.
     expect(d!.grossProfitOverstatedByAtMost).toBeCloseTo(46923976.23 + 28438736.86, 2);
-    // Nothing here is CERTAIN — both are conjecture until someone classifies.
-    expect(d!.grossProfitOverstatedByAtLeast).toBe(0);
+    // Nothing here is certain — both are conjecture until someone classifies.
+    expect(d!.costOfSalesExposureAtMost).toBeCloseTo(46923976.23, 2);
+    expect(d!.otherIncomeExposureAtMost).toBeCloseTo(28438736.86, 2);
   });
 
   it('puts the unclassified expense in operatingExpenses, which is the whole defect', async () => {
@@ -100,16 +101,18 @@ describe('getIncomeStatement — the disclosure reaches the report', () => {
 });
 
 describe('getIncomeStatement — the certain floor reaches the report', () => {
-  it('reports other income sitting in turnover as a floor, not a ceiling', async () => {
+  it('reports other income on its own line, outside turnover and outside gross profit', async () => {
     sqlMock.mockResolvedValue([
       glRow('4000', 'Sales', 'revenue', 'revenue', 0, 5000000),
       glRow('4300', 'Other Income', 'revenue', 'other_income', 0, 53787.07),
     ]);
     const report = await getIncomeStatement('c-1', '2026-01-01', '2026-12-31');
-    // The report has no other-income line, so it is inside turnover.
-    expect(report.totalRevenue).toBeCloseTo(5053787.07, 2);
-    expect(report.subtypeDisclosure!.grossProfitOverstatedByAtLeast).toBeCloseTo(53787.07, 2);
-    expect(report.subtypeDisclosure!.grossProfitOverstatedByAtMost).toBeCloseTo(53787.07, 2);
+    // B75: this used to read 5053787.07, and gross profit with it.
+    expect(report.totalRevenue).toBeCloseTo(5000000, 2);
+    expect(report.totalOtherIncome).toBeCloseTo(53787.07, 2);
+    expect(report.grossProfit).toBeCloseTo(5000000, 2);
+    // Correctly classified and correctly placed, so nothing to disclose.
+    expect(report.subtypeDisclosure).toBeNull();
   });
 
   it('flags the platform default subtype on a system account', async () => {

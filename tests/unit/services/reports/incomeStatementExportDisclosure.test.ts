@@ -36,6 +36,8 @@ const glRow = (
 const BRIGHTSPHERE = [
   glRow('5001', 'Cost of Goods Sold', 'expense', 'default_expense', 574253.66, 0),
   glRow('4001', 'Product Sales', 'revenue', 'default_revenue', 0, 12410997.9),
+  // Correctly classified other income: now banded to its own line, so it must
+  // NOT appear in the warning block. Kept in the fixture to prove that.
   glRow('35541892', 'Vehicle Rent Income, Ltd', 'revenue', 'other_income', 0, 23323.42),
 ];
 
@@ -68,7 +70,7 @@ describe('CSV export — the disclosure travels with the figures', () => {
 
     const lines = out.body.split('\n');
     const marginIdx = lines.findIndex(l => l.includes('Gross Margin %'));
-    const warnIdx = lines.findIndex(l => l.includes('overstated by at least'));
+    const warnIdx = lines.findIndex(l => l.includes('could be cost of sales'));
     expect(marginIdx).toBeGreaterThan(-1);
     expect(warnIdx).toBeGreaterThan(marginIdx);
   });
