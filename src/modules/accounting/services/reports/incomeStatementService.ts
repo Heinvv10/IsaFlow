@@ -8,6 +8,10 @@ import { log } from '@/lib/logger';
 import type { IncomeStatementReport } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 import { canonicalSubtype } from '@/modules/accounting/services/gl/accountClassification';
+import {
+  buildIncomeStatementSubtypeDisclosure,
+  type DisclosureInputRow,
+} from './incomeStatementDisclosure';
 
 
 interface ReportLineItem {
@@ -52,6 +56,10 @@ async function fetchIncomeStatementRows(
   const revenue: ReportLineItem[] = [];
   const costOfSales: ReportLineItem[] = [];
   const operatingExpenses: ReportLineItem[] = [];
+  // Collected in the SAME loop that bands the lines, from the same rows over
+  // the same period, so the disclosure cannot disagree with the totals it sits
+  // under. See ./incomeStatementDisclosure.ts.
+  const disclosureRows: DisclosureInputRow[] = [];
 
   for (const r of rows) {
     const type = String(r.account_type);
@@ -59,19 +67,24 @@ async function fetchIncomeStatementRows(
     const debit = Number(r.total_debit);
     const credit = Number(r.total_credit);
 
+    const accountCode = String(r.account_code);
+    const accountName = String(r.account_name);
+
     if (type === 'revenue') {
       const amount = credit - debit;
       if (Math.abs(amount) > 0.001) {
-        revenue.push({ accountCode: String(r.account_code), accountName: String(r.account_name), amount });
+        revenue.push({ accountCode, accountName, amount });
+        disclosureRows.push({ accountCode, accountName, accountType: 'revenue', accountSubtype: subtype, amount });
       }
     } else if (type === 'expense') {
       const amount = debit - credit;
       if (Math.abs(amount) > 0.001) {
-        const item = { accountCode: String(r.account_code), accountName: String(r.account_name), amount };
+        const item = { accountCode, accountName, amount };
         // Canonicalise: production charts also carry 'cogs' and
         // 'cost_of_goods_sold' spellings for the same thing.
         if (canonicalSubtype(subtype) === 'cost_of_sales') costOfSales.push(item);
         else operatingExpenses.push(item);
+        disclosureRows.push({ accountCode, accountName, accountType: 'expense', accountSubtype: subtype, amount });
       }
     }
   }
@@ -82,7 +95,11 @@ async function fetchIncomeStatementRows(
   const totalOperatingExpenses = operatingExpenses.reduce((s, i) => s + i.amount, 0);
   const netProfit = grossProfit - totalOperatingExpenses;
 
-  return { revenue, costOfSales, operatingExpenses, totalRevenue, totalCostOfSales, grossProfit, totalOperatingExpenses, netProfit };
+  return {
+    revenue, costOfSales, operatingExpenses,
+    totalRevenue, totalCostOfSales, grossProfit, totalOperatingExpenses, netProfit,
+    subtypeDisclosure: buildIncomeStatementSubtypeDisclosure(disclosureRows),
+  };
 }
 
 export async function getIncomeStatement(companyId: string,
@@ -112,6 +129,7 @@ export async function getIncomeStatement(companyId: string,
       grossProfit: current.grossProfit,
       totalOperatingExpenses: current.totalOperatingExpenses,
       netProfit: current.netProfit,
+      subtypeDisclosure: current.subtypeDisclosure,
     };
 
     if (comparePeriod && prior) {

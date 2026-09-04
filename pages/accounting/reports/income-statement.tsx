@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
+import { ArrowLeft, BarChart3, Loader2, AlertCircle, AlertTriangle, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 
@@ -272,6 +272,38 @@ export default function IncomeStatementPage() {
                     )}
                   </span>
                 </div>
+
+                {/* Unclassified subtypes — rendered ABOVE the margin stats on
+                    purpose. The gross margin immediately below it is the figure
+                    a NULL expense subtype makes wrong, and Velocity read 96.6%
+                    off this line while R82.7m of direct cost sat in operating
+                    expenses. A number this misleading must not be shown
+                    without the caveat attached to it. */}
+                {report.subtypeDisclosure && (
+                  <div className="px-6 py-3 border-t border-amber-500/20 bg-amber-500/10 text-sm text-amber-400">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="font-medium">
+                          {report.subtypeDisclosure.grossProfitOverstatedByAtMost > 0
+                            ? `Gross profit may be overstated by up to ${formatCurrency(report.subtypeDisclosure.grossProfitOverstatedByAtMost)}`
+                            : 'Some accounts are banded by default, not by classification'}
+                        </p>
+                        <p className="mt-0.5">{report.subtypeDisclosure.message}</p>
+                        {report.subtypeDisclosure.accounts.length > 0 && (
+                          <p className="mt-1 font-mono text-xs text-amber-300/80">
+                            {report.subtypeDisclosure.accounts
+                              .map(a => `${a.accountCode} ${a.accountName} ${formatCurrency(a.amount)}`)
+                              .join(' · ')}
+                            {report.subtypeDisclosure.unnamedAccounts > 0
+                              ? ` · and ${report.subtypeDisclosure.unnamedAccounts} more`
+                              : ''}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Margin Stats */}
                 {report.totalRevenue > 0 && (

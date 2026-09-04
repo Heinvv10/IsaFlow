@@ -154,6 +154,29 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   ]);
   gpMarginRow.getCell(4).alignment = { horizontal: 'right' };
 
+  // An exported workbook leaves the app and carries the margin with no screen
+  // to qualify it, so the caveat travels WITH the figure — directly beneath the
+  // gross margin it applies to. See incomeStatementDisclosure.ts.
+  if (report.subtypeDisclosure) {
+    const warnRow = ws.addRow([
+      'Gross profit overstated by at most', '', '',
+      report.subtypeDisclosure.grossProfitOverstatedByAtMost,
+    ]);
+    warnRow.font = { bold: true, color: { argb: 'FFB45309' } };
+    warnRow.getCell(4).numFmt = '#,##0.00';
+    const noteRow = ws.addRow([report.subtypeDisclosure.message]);
+    noteRow.font = { italic: true, color: { argb: 'FFB45309' } };
+    for (const a of report.subtypeDisclosure.accounts) {
+      const r = ws.addRow([`  ${a.accountCode} ${a.accountName}`, '', 'no recognised account_subtype', a.amount]);
+      r.font = { color: { argb: 'FFB45309' } };
+      r.getCell(4).numFmt = '#,##0.00';
+    }
+    if (report.subtypeDisclosure.unnamedAccounts > 0) {
+      ws.addRow([`  and ${report.subtypeDisclosure.unnamedAccounts} further account(s) with no recognised account_subtype`])
+        .font = { italic: true, color: { argb: 'FFB45309' } };
+    }
+  }
+
   // Operating Expenses
   ws.addRow([]);
   addSectionHeader(ws, 'Operating Expenses', 'FFDC2626');
