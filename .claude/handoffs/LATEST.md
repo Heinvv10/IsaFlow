@@ -15,52 +15,52 @@ Production is `549516ed`. Every branch below is based on it.
 
 | Worktree | Branch | Head | State |
 |---|---|---|---|
-| w0-contracts | `mcp/r2-contracts-register` | `679efadf` | done bar 2 items (epoch-literal gate, B68 identifier fix) |
-| w1-cash-application | `mcp/r2-reclassification` | `cc3fa44b` | **done** — both reviewers clear, multi-company acceptance passed |
+| w0-contracts | `mcp/r2-contracts-register` | `4be020f4` | **done** |
+| w1-cash-application | `mcp/r2-reclassification` | `cc3fa44b` | **done** — both reviewers clear |
 | w2-assurance-reporting | `mcp/r2-portfolio-design` | `2f64482f` | **done** — recommends not building |
 | w3-banking-periods | `mcp/r2-subtype-evidence` | `ffd5309f` | **done** — awaiting Hein's decision |
-| w4-integrity-vat | `mcp/r2-merge-gl-accounts` | `f53eadf5` | fixes done + RLS closed; final review pass |
-| w5-governance | `mcp/r2-system-account-seed` | `f2e4deee` | 4 findings in flight |
-| w6-new-domains | `mcp/r2-depreciation` | `254b456a` | 4 findings in flight |
+| w4-integrity-vat | `mcp/r2-merge-gl-accounts` | `9b2cad03` | **done** — both reviewers APPROVED |
+| w5-governance | `mcp/r2-system-account-seed` | `8baf9550` | **done** — both reviewers APPROVED |
+| w6-new-domains | `mcp/r2-depreciation` | `908eb59a` | one item open: `figure_guards` is declared, not measured |
 
-Superseded from the 05:20 version: w1, w4 and w0 have all advanced past the
-partial states recorded below, and w4's blocking RLS gap is closed by `596`
-(verified: zero violations across all 210 `company_id` tables). w6's partial
-`posted_through` is resolved at `254b456a`; its four open items are new, from a
-second review round.
+Six of seven complete. Every branch verified clean, nothing pushed, and
+`schema_migrations` on `isaflow` confirmed to hold nothing from this programme —
+the only `59x` row is `590`, from the previous session's W6 merge.
 
-Two commits are deliberately partial, committed to protect work rather than
-because they are finished. Both typecheck clean; both commit messages list what
-remains. Do not merge either as-is.
+**w6's remaining item.** `figure_guards` in `reconcileFixedAssets.ts` is a
+hardcoded object literal: five labels emitted on every call regardless of
+whether any check ran. One check genuinely executes (the duplicate-disposal
+one); `unsubtyped_account_balance` has none and is labelled `enumerated` anyway.
+That is the same shape as a synthesised `universeTotal` — the defect class
+reproducing inside its own remedy. Fix: derive each label from whether a check
+ran, and move the enumeration check to the wire boundary where the emitted rows
+exist. **`CONTRACTS.md`'s outside-the-envelope rule deliberately does not cite
+this branch as its worked example**; if it ships as-is and is later cited, the
+rule teaches "declare a guard" rather than "run one".
 
-### w6 `f131930d` — `posted_through` half-fixed
-Contract widened to `string | null`. The tool still fabricates
-`1970-01-01T00:00:00.000Z`. **Remaining:** delete `NO_LEDGER_READ` and the
-`?? NO_LEDGER_READ` at `reconcileFixedAssets.ts:37,167`; assert null for an
-empty tenant and for a company with no posted asset-section lines. Also open:
-the reviewer's MEDIUM on `attribution`/`attributedVia` hardcoded `'unlinked'`
-while the type and description assert a conditional the code does not
-implement — it survived a refactor into `fixedAssetReconciliationItems.ts`
-unchanged.
+---
 
-### w5 `f2e4deee` — three findings open from the adversarial review
-1. **DB tests report PASS, not skip, when the database is down.** Every test in
-   `systemAccountRolesDb.test.ts` opens `if (!reachable) return;`, which vitest
-   scores as a pass; `requireDb()` below it is unreachable dead code. Proven
-   side by side with an unreachable `DATABASE_URL`: this file gives
-   `4 passed`, `budgetVarianceDb.test.ts` (the repo's `it.skipIf(!reachable)`
-   pattern) gives `6 skipped`. One of the four no-ops is the brand-new-tenant
-   test — the entire proof that 605 fixed the seed. **Only this one file has
-   the bad shape; every other stream's DB evidence stands.**
-2. `resolverPicks` in `systemRoleCoverage.ts:83` returns the first account by
-   code; the resolver applies `preferSystemAccount` (type-fit, then newer).
-   Latent — no contested role exists in production today.
-3. Neither `opening_balance_equity` nor `disposal_profit_loss` has a
-   `SUBTYPE_TO_AFS_CODE` entry, so every `3300`/`4410` the migration creates is
-   unmapped and absent from the AFS. For opening-balance equity that is equity
-   missing from the balance sheet.
+## Before the first production merge — runbook, not code
 
-Its adversarial report truncated at finding 5; the rest was never received.
+Both merge reviewers converged on this and it belongs in front of whoever signs:
+
+**Merge the code without a human reading it. Do not RUN a merge without one.**
+
+1. **A balanced trial balance afterwards is guaranteed by construction and
+   proves nothing.** A repoint changes no debit and no credit. The response says
+   so in three places and says it well, but a signer under time pressure reads
+   it as confirmation. Say this out of band to whoever runs the first merge.
+2. **The guard refuses a wrong CLASS, never a wrong TARGET within a class.**
+   `SYS-7 → 1140 VAT Input` is dead. `SYS-7 → any other ordinary asset account`
+   passes every check and produces a preview that looks exactly like the right
+   one. The account codes and names in the dry run are the only thing standing
+   there, and they need a person reading them.
+3. **Sign the dry run and run the merge in the same sitting.** Velocity's `1120`
+   and `2110` are still being written to unattended (C4) — `postedThrough` moved
+   during the review itself. `movedLinesDigest` makes a stale signature
+   **detectable, not harmless**: differing digests tell you to stop, but nothing
+   recovers a merge already run against the wrong set. On a generic failure,
+   re-run the dry run rather than retrying the merge.
 
 ---
 
