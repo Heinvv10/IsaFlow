@@ -70,3 +70,44 @@ if [[ -n "$SECRET_OFFENDERS" ]]; then
   exit 1
 fi
 echo "OK: no JWT_SECRET derivations."
+
+echo
+echo "=== posted_through: no fabricated 1970-01-01 sentinel, per docs/mcp/CONTRACTS.md ==="
+# posted_through is string | null; null, not a sentinel timestamp, is correct
+# when a report consumed no ledger row (docs/mcp/CONTRACTS.md, FINDINGS.md
+# B68). The spread mechanism is copy-paste of the LITERAL string, not import
+# of NO_LEDGER_READ — none of the nine known sites import it — so this gates
+# the literal, not the constant name; deprecating the constant reaches
+# nothing a fresh copy-paste would use. postedThroughService.ts is excluded
+# by filename: it is the deprecated constant's own definition, the one place
+# the literal is meant to exist, not a fabricating call site.
+#
+# Report-only against a baseline, same mechanism as migration-rls.baseline —
+# but these entries are KNOWN DEFECTS on a scheduled sweep, not blind spots
+# the gate cannot see; they should shrink to zero, unlike that baseline. No
+# self-cleaning check here (unlike migration-rls.baseline): fixing a site is
+# enough to pass on its own, deleting the now-unneeded baseline line is a
+# separate, later tidy-up — the sweep PR's job, not this gate's.
+SENTINEL_BASELINE="scripts/ci/posted-through-sentinel.baseline"
+SENTINEL_HITS=$(grep -rl "1970-01-01T00:00:00" src/lib/mcp/tools/ src/modules/ --include='*.ts' 2>/dev/null \
+  | grep -v 'src/modules/accounting/services/reports/postedThroughService\.ts' || true)
+
+SENTINEL_NEW=""
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  if [[ -f "$SENTINEL_BASELINE" ]] && grep -qxF "$f" "$SENTINEL_BASELINE"; then
+    continue
+  fi
+  SENTINEL_NEW="${SENTINEL_NEW}${f}"$'\n'
+done <<< "$SENTINEL_HITS"
+
+if [[ -n "$SENTINEL_NEW" ]]; then
+  echo "ERROR: 1970-01-01T00:00:00 sentinel found outside the baseline:"
+  printf '%s' "$SENTINEL_NEW"
+  echo "Fix: return the real string | null and let the caller decide, per"
+  echo "docs/mcp/CONTRACTS.md's posted_through section. Do NOT add this file"
+  echo "to $SENTINEL_BASELINE instead — it is for the nine known, scheduled"
+  echo "sites, not new ones."
+  exit 1
+fi
+echo "OK: no posted_through sentinel outside the known, scheduled sites."
