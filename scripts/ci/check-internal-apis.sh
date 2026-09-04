@@ -84,10 +84,17 @@ echo "=== posted_through: no fabricated 1970-01-01 sentinel, per docs/mcp/CONTRA
 #
 # Report-only against a baseline, same mechanism as migration-rls.baseline —
 # but these entries are KNOWN DEFECTS on a scheduled sweep, not blind spots
-# the gate cannot see; they should shrink to zero, unlike that baseline. No
-# self-cleaning check here (unlike migration-rls.baseline): fixing a site is
-# enough to pass on its own, deleting the now-unneeded baseline line is a
-# separate, later tidy-up — the sweep PR's job, not this gate's.
+# the gate cannot see; they should shrink to zero, unlike that baseline. AND
+# self-cleaning, for a reason specific to that difference: an RLS baseline
+# entry is a permanent, correct exemption (the gate genuinely cannot verify
+# it). A sentinel baseline entry is a TEMPORARY exemption for a live defect —
+# so a site that is fixed and then regressed must fail again, not stay
+# silently exempted forever because it once appeared in this list. Without
+# this check, "fix jobCost.ts, leave the baseline entry" and "re-break
+# jobCost.ts, leave the baseline entry" are indistinguishable to the gate:
+# both pass. A baseline entry not updated when its site is fixed becomes a
+# permanent exemption for a temporary problem — the opposite of what a
+# scheduled-sweep baseline is for.
 SENTINEL_BASELINE="scripts/ci/posted-through-sentinel.baseline"
 SENTINEL_HITS=$(grep -rl "1970-01-01T00:00:00" src/lib/mcp/tools/ src/modules/ --include='*.ts' 2>/dev/null \
   | grep -v 'src/modules/accounting/services/reports/postedThroughService\.ts' || true)
@@ -101,13 +108,32 @@ while IFS= read -r f; do
   SENTINEL_NEW="${SENTINEL_NEW}${f}"$'\n'
 done <<< "$SENTINEL_HITS"
 
+SENTINEL_STALE=""
+if [[ -f "$SENTINEL_BASELINE" ]]; then
+  while IFS= read -r f; do
+    [[ -z "$f" || "$f" == \#* ]] && continue
+    if [[ ! -f "$f" ]] || ! grep -q "1970-01-01T00:00:00" "$f"; then
+      SENTINEL_STALE="${SENTINEL_STALE}${f}"$'\n'
+    fi
+  done < <(grep -v '^#' "$SENTINEL_BASELINE" | grep -v '^$')
+fi
+
+SENTINEL_FAIL=0
 if [[ -n "$SENTINEL_NEW" ]]; then
+  SENTINEL_FAIL=1
   echo "ERROR: 1970-01-01T00:00:00 sentinel found outside the baseline:"
   printf '%s' "$SENTINEL_NEW"
   echo "Fix: return the real string | null and let the caller decide, per"
   echo "docs/mcp/CONTRACTS.md's posted_through section. Do NOT add this file"
   echo "to $SENTINEL_BASELINE instead — it is for the nine known, scheduled"
   echo "sites, not new ones."
+fi
+if [[ -n "$SENTINEL_STALE" ]]; then
+  SENTINEL_FAIL=1
+  echo "ERROR: baseline entry no longer fabricates the sentinel — remove from $SENTINEL_BASELINE:"
+  printf '%s' "$SENTINEL_STALE"
+fi
+if [[ "$SENTINEL_FAIL" -eq 1 ]]; then
   exit 1
 fi
 echo "OK: no posted_through sentinel outside the known, scheduled sites."

@@ -19,6 +19,16 @@
 # constant), and is excluded from the scan by filename rather than baselined
 # as a defect.
 #
+# SELF-CLEANING, unlike migration-rls.baseline. There the 156 entries are a
+# permanent, correct exemption — the gate genuinely cannot verify those
+# tables either way. Here every entry is a TEMPORARY exemption for a live
+# defect: the gate fails again if a listed file no longer contains the
+# literal (fixed, so the line must be deleted) as much as if it were
+# unlisted and unfixed. Without that, "fixed and left in the baseline" and
+# "re-broken and left in the baseline" would both read as clean, and a
+# baseline entry not retired when its site is fixed becomes a permanent
+# exemption for a temporary problem.
+#
 # Delete a line once its file stops fabricating the sentinel (i.e. it returns
 # the real `string | null` and lets the caller decide, per the contract).
 # Do NOT add a file to this list because the gate is failing on it and you
