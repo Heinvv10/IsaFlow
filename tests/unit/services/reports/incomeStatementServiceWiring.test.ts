@@ -51,7 +51,13 @@ describe('getIncomeStatement — the disclosure reaches the report', () => {
     expect(d!.expenseAmount).toBeCloseTo(46923976.23, 2);
     expect(d!.revenueAccounts).toBe(1);
     expect(d!.revenueAmount).toBeCloseTo(28438736.86, 2);
-    expect(d!.grossProfitOverstatedByAtMost).toBeCloseTo(46923976.23, 2);
+    // BOTH count towards the ceiling. This report has no other-income line, so
+    // gross profit is revenue - costOfSales: an unclassified revenue account
+    // that is really other income overstates gross profit one-for-one, exactly
+    // as an unclassified expense that is really cost of sales does.
+    expect(d!.grossProfitOverstatedByAtMost).toBeCloseTo(46923976.23 + 28438736.86, 2);
+    // Nothing here is CERTAIN — both are conjecture until someone classifies.
+    expect(d!.grossProfitOverstatedByAtLeast).toBe(0);
   });
 
   it('puts the unclassified expense in operatingExpenses, which is the whole defect', async () => {
@@ -90,5 +96,45 @@ describe('getIncomeStatement — the disclosure reaches the report', () => {
     const report = await getIncomeStatement('c-1', '2026-01-01', '2026-12-31');
     expect(report.operatingExpenses.map(i => i.accountCode)).toContain('2210');
     expect(report.subtypeDisclosure!.expenseAccounts).toBe(1);
+  });
+});
+
+describe('getIncomeStatement — the certain floor reaches the report', () => {
+  it('reports other income sitting in turnover as a floor, not a ceiling', async () => {
+    sqlMock.mockResolvedValue([
+      glRow('4000', 'Sales', 'revenue', 'revenue', 0, 5000000),
+      glRow('4300', 'Other Income', 'revenue', 'other_income', 0, 53787.07),
+    ]);
+    const report = await getIncomeStatement('c-1', '2026-01-01', '2026-12-31');
+    // The report has no other-income line, so it is inside turnover.
+    expect(report.totalRevenue).toBeCloseTo(5053787.07, 2);
+    expect(report.subtypeDisclosure!.grossProfitOverstatedByAtLeast).toBeCloseTo(53787.07, 2);
+    expect(report.subtypeDisclosure!.grossProfitOverstatedByAtMost).toBeCloseTo(53787.07, 2);
+  });
+
+  it('flags the platform default subtype on a system account', async () => {
+    sqlMock.mockResolvedValue([
+      glRow('5001', 'Cost of Goods Sold', 'expense', 'default_expense', 574253.66, 0),
+      glRow('4000', 'Sales', 'revenue', 'revenue', 0, 13508486.83),
+    ]);
+    const report = await getIncomeStatement('c-1', '2026-01-01', '2026-12-31');
+    // Brightsphere's shape: 100% margin, R0.00 cost of sales, and the account
+    // named Cost of Goods Sold banded as an operating expense.
+    expect(report.totalCostOfSales).toBe(0);
+    expect(report.operatingExpenses.map(i => i.accountCode)).toContain('5001');
+    expect(report.subtypeDisclosure!.grossProfitOverstatedByAtMost).toBeCloseTo(574253.66, 2);
+  });
+
+  it('gives the comparative period its own disclosure', async () => {
+    sqlMock
+      .mockResolvedValueOnce([glRow('5000', 'Expenses', 'expense', null, 1000, 0)])
+      .mockResolvedValueOnce([glRow('5001', 'CoGS', 'expense', 'default_expense', 2000, 0)]);
+    const report = await getIncomeStatement(
+      'c-1', '2026-01-01', '2026-12-31', {}, { start: '2025-01-01', end: '2025-12-31' },
+    );
+    expect(report.subtypeDisclosure!.grossProfitOverstatedByAtMost).toBeCloseTo(1000, 2);
+    // A variance column is a difference between two independently mis-banded
+    // numbers; one banner over the current period does not qualify the prior.
+    expect(report.priorSubtypeDisclosure!.grossProfitOverstatedByAtMost).toBeCloseTo(2000, 2);
   });
 });
