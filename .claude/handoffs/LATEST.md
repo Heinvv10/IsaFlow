@@ -15,13 +15,19 @@ Production is `549516ed`. Every branch below is based on it.
 
 | Worktree | Branch | Head | State |
 |---|---|---|---|
-| w0-contracts | `mcp/r2-contracts-register` | `5f199be6` | **done, verified** |
+| w0-contracts | `mcp/r2-contracts-register` | `679efadf` | done bar 2 items (epoch-literal gate, B68 identifier fix) |
+| w1-cash-application | `mcp/r2-reclassification` | `cc3fa44b` | **done** — both reviewers clear, multi-company acceptance passed |
 | w2-assurance-reporting | `mcp/r2-portfolio-design` | `2f64482f` | **done** — recommends not building |
 | w3-banking-periods | `mcp/r2-subtype-evidence` | `ffd5309f` | **done** — awaiting Hein's decision |
-| w4-integrity-vat | `mcp/r2-merge-gl-accounts` | `7bab15b6` | fixes done; **needs re-review** |
-| w1-cash-application | `mcp/r2-reclassification` | `6b97df3b` | fixes done; multi-company acceptance not started |
-| w6-new-domains | `mcp/r2-depreciation` | `f131930d` | **PARTIAL** — see below |
-| w5-governance | `mcp/r2-system-account-seed` | `f2e4deee` | **PARTIAL** — see below |
+| w4-integrity-vat | `mcp/r2-merge-gl-accounts` | `f53eadf5` | fixes done + RLS closed; final review pass |
+| w5-governance | `mcp/r2-system-account-seed` | `f2e4deee` | 4 findings in flight |
+| w6-new-domains | `mcp/r2-depreciation` | `254b456a` | 4 findings in flight |
+
+Superseded from the 05:20 version: w1, w4 and w0 have all advanced past the
+partial states recorded below, and w4's blocking RLS gap is closed by `596`
+(verified: zero violations across all 210 `company_id` tables). w6's partial
+`posted_through` is resolved at `254b456a`; its four open items are new, from a
+second review round.
 
 Two commits are deliberately partial, committed to protect work rather than
 because they are finished. Both typecheck clean; both commit messages list what
