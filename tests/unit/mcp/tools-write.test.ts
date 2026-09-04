@@ -464,6 +464,10 @@ describe('write-tool manifest invariants', () => {
       // freezes a filed return, and a control an agent can set without the
       // posting permission is not a control.
       'lock_vat_period',
+      // merge_gl_accounts posts no journal, and rewrites POSTED journal lines
+      // in place — potentially thousands at once. write:post is the scope that
+      // gates changing what is in the ledger, so it gates this too.
+      'merge_gl_accounts',
       'perform_bank_reconciliation',
       'post_journal',
       // create_pay_run opens an empty period and posts nothing; posting the
@@ -558,6 +562,7 @@ describe('write-tool manifest invariants', () => {
       create_gl_account: { ...KEY },
       update_gl_account: { ...KEY },
       deactivate_gl_account: { ...KEY },
+      merge_gl_accounts: { ...KEY },
       create_supplier_invoice: { ...KEY },
       approve_supplier_invoice: { ...KEY },
       // Bank-rule writes refuse on a missing required argument before touching

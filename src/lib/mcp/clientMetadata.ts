@@ -105,6 +105,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'create_gl_account',
   'update_gl_account',
   'deactivate_gl_account',
+  'merge_gl_accounts',
   'create_supplier_invoice',
   'approve_supplier_invoice',
   'create_bank_rule',
