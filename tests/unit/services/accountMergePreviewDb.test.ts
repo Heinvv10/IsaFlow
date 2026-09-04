@@ -118,6 +118,48 @@ describe('previewAccountMerge', async () => {
     });
   }, 60_000);
 
+  it.skipIf(!reachable)('survives a brand-new tenant with no ledger at all', async () => {
+    // The state every future customer starts in, and the one place a NULL can
+    // reach arithmetic: postedThrough is MAX(created_at) over no rows, and the
+    // identity, the trial balance and the digest are all computed from an empty
+    // set. Built and rolled back here rather than reusing the demo company,
+    // which has tens of thousands of journal lines and cannot show this.
+    assertMergeTestDb();
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      const co = (await client.query<{ id: string }>(
+        "INSERT INTO companies (name) VALUES ('ZZ merge empty-tenant test') RETURNING id")).rows[0]!.id;
+      const mk = async (code: string) => (await client.query<{ id: string }>(
+        `INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, level)
+         VALUES ($1, $2, $2, 'asset', 'debit', 1) RETURNING id`, [co, code])).rows[0]!.id;
+      const src = await mk('E-SRC');
+      const tgt = await mk('E-TGT');
+
+      const p = await als.run(ctxFor(client, co), () => previewAccountMerge(co, src, tgt));
+      expect(p.linesToRepoint).toBe(0);
+      expect(p.blocked).toBe(false);
+      // null, not a crash and not a fabricated now().
+      expect(p.postedThrough).toBeNull();
+      expect(p.trialBalance.before.totalDebit).toBe(0);
+      expect(p.trialBalance.after.totalDebit).toBe(0);
+      expect(p.trialBalance.before.accountsWithPostedLines).toBe(0);
+      expect(p.trialBalance.after.accountsWithPostedLines).toBe(0);
+      // 0 + 0 + 0 === 0 still has to be asserted, not assumed.
+      expect(p.trialBalance.identity.holds).toBe(true);
+      expect(p.source.postedNet).toBe(0);
+      expect(p.targetAfter.postedNet).toBe(0);
+      // sha256 of the empty string — the digest of an empty set, not undefined.
+      expect(p.movedLinesDigest)
+        .toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+      // No fiscal periods either, and that is not an error here.
+      expect(p.systemAccountImpact.targetSubtypeClaimants).toEqual([]);
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  }, 60_000);
+
   it.skipIf(!reachable)('counts accounts in BOTH directions when the target was empty', async () => {
     await withFixture(async (_c, f) => {
       // One account leaves the trial balance and one joins it, so the count is
