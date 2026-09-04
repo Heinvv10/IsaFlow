@@ -13,30 +13,22 @@ Production is `549516ed`. Every branch below is based on it.
 
 ## Branch state
 
-| Worktree | Branch | Head | State |
+| Worktree | Branch | Head | Reviews |
 |---|---|---|---|
-| w0-contracts | `mcp/r2-contracts-register` | `4be020f4` | **done** |
-| w1-cash-application | `mcp/r2-reclassification` | `cc3fa44b` | **done** — both reviewers clear |
-| w2-assurance-reporting | `mcp/r2-portfolio-design` | `2f64482f` | **done** — recommends not building |
-| w3-banking-periods | `mcp/r2-subtype-evidence` | `ffd5309f` | **done** — awaiting Hein's decision |
-| w4-integrity-vat | `mcp/r2-merge-gl-accounts` | `9b2cad03` | **done** — both reviewers APPROVED |
-| w5-governance | `mcp/r2-system-account-seed` | `8baf9550` | **done** — both reviewers APPROVED |
-| w6-new-domains | `mcp/r2-depreciation` | `908eb59a` | one item open: `figure_guards` is declared, not measured |
+| w0-contracts | `mcp/r2-contracts-register` | `8c38eedb` | — |
+| w1-cash-application | `mcp/r2-reclassification` | `cc3fa44b` | 2 clear |
+| w2-assurance-reporting | `mcp/r2-portfolio-design` | `2f64482f` | recommends NOT building |
+| w3-banking-periods | `mcp/r2-subtype-evidence` | `ffd5309f` | awaiting Hein |
+| w4-integrity-vat | `mcp/r2-merge-gl-accounts` | `9b2cad03` | 2 APPROVED |
+| w5-governance | `mcp/r2-system-account-seed` | `1bb774de` | 2 APPROVED |
+| w6-new-domains | `mcp/r2-depreciation` | `5cfa5a7c` | 2 APPROVED |
 
-Six of seven complete. Every branch verified clean, nothing pushed, and
-`schema_migrations` on `isaflow` confirmed to hold nothing from this programme —
-the only `59x` row is `590`, from the previous session's W6 merge.
+**All seven complete.** Every tree clean, nothing pushed, and `schema_migrations`
+on `isaflow` verified to hold nothing from this programme — the only `59x` row is
+`590`, from the previous session's W6 merge.
 
-**w6's remaining item.** `figure_guards` in `reconcileFixedAssets.ts` is a
-hardcoded object literal: five labels emitted on every call regardless of
-whether any check ran. One check genuinely executes (the duplicate-disposal
-one); `unsubtyped_account_balance` has none and is labelled `enumerated` anyway.
-That is the same shape as a synthesised `universeTotal` — the defect class
-reproducing inside its own remedy. Fix: derive each label from whether a check
-ran, and move the enumeration check to the wire boundary where the emitted rows
-exist. **`CONTRACTS.md`'s outside-the-envelope rule deliberately does not cite
-this branch as its worked example**; if it ships as-is and is later cited, the
-rule teaches "declare a guard" rather than "run one".
+Migrations in play: **595 + 596** (w4), **600** (w1), **605 + 606 + 607** (w5).
+**591–594 released** — w6 carries no migration.
 
 ---
 
