@@ -170,6 +170,39 @@ So, three obligations on anything shipping an identity:
    "inspect the items". A residual of zero is an invitation to look, not a
    conclusion.
 
+### A figure reported outside the envelope keeps its authority and loses its check
+
+The mirror image of the section above, from the other side. That section warns
+that an identity which always closes invites being trusted without inspection.
+**A figure with no identity at all invites exactly the same trust, and has even
+less behind it.**
+
+The fixed-asset reconciliation used to report 58 unsubtyped accounts — net
+**R32,747,547.38** on Velocity, spanning "Assets", "Current Assets", "Petty
+Cash", debtors — inside `excludedRows`. That was wrong in kind, not just
+wrong: the report's universe is defined by subtype, so an account with none was
+never a member of it, and calling R32.7m of debtors "fixed assets this report
+could not classify" is false. Moving those rows to a top-level `disclosures`
+field was the right fix. But it cost something: the endpoint now reports rand
+figures OUTSIDE the reconciling identity — a free-standing `SUM` sitting beside
+`difference` and `unexplainedDifference` with the same visual authority, guarded
+by nothing. One of them already double-counts, because it sums over a table
+whose grouping key a non-unique index permits to repeat.
+
+So: moving a figure out of `excludedRows`, or out of any reconciling identity,
+is often correct, and it **always costs the check**. Every such figure must
+either carry its own guard that can fail, or say in the tool description that
+it is an unguarded sum — not neither, silently.
+
+The question that catches these: **could this number be wrong without anything
+in the response changing?** If yes, and the response does not say so, the
+figure is worse than absent — it reads as verified because of the company it
+keeps beside `unexplainedDifference: 0.00`.
+
+Watch for the specific shape that produces this: a `SUM` over rows grouped by a
+key with no uniqueness guarantee. A non-unique index on the grouping column is
+a double-count waiting for a second row.
+
 ### A filter that drops rows is the defect, not the fix
 
 `casewareExportService` filtered `ga.is_active = true` and silently dropped a
@@ -213,6 +246,22 @@ nothing in the API today lets a reader distinguish that from an arithmetic error
 
 Compute it as the maximum `created_at` of the rows the figure consumed. If your
 report reads from more than one table, take the max across all of them.
+
+`posted_through` is `string | null`. **`null` is the answer when a report
+consumed no ledger row — never a sentinel timestamp.** This was shipped both
+ways at once: `envelope.ts` declares the field nullable and null; a separate
+service exported `NO_LEDGER_READ = '1970-01-01T00:00:00.000Z'` and several tools
+fell back to it with `?? NO_LEDGER_READ`. The epoch's reasoning was not stupid —
+a report reading nothing has no watermark, and `1970-01-01` never claims to be
+as fresh as the clock. But it loses anyway, for one reason that settles it: **a
+sentinel that is a valid value of its own type cannot be told apart from a real
+reading by anything downstream.** `new Date(posted_through) > x` parses the
+epoch exactly as happily as it parses a real timestamp and returns a plausible,
+wrong answer. `null` cannot be silently compared as a date at all — it forces
+whoever consumes the field to ask "did this report read anything?" before
+asking "when." A value indistinguishable from a real one is worse than an
+absent one; see "A figure reported outside the envelope keeps its authority and
+loses its check", above, for the general form of that argument.
 
 ---
 
