@@ -108,9 +108,12 @@ export const chartOfAccountsHealthTool: McpTool = {
   name: 'chart_of_accounts_health',
   description:
     'Audits the chart of accounts itself: accounts with no subtype, subtypes that do not belong to their account type, accounts never posted to, deactivated accounts still carrying a balance, duplicated codes, two accounts that are the same account under different codes, and whether an imported chart and the system chart are running on top of each other. '
-    + 'Returns a summary with a count per finding, the flagged accounts (worst first, then largest balance), and missingSystemAccounts — roles with NO system account, which is a hard failure rather than untidiness because every auto-posting path that needs one throws. '
+    + 'Returns a summary with a count per finding, the flagged accounts (worst first, then largest balance), and systemRoles — every one of the fourteen system account roles, with the ones the ledger cannot resolve broken out in missingSystemAccounts. '
+    + 'READ THE GAP, NOT JUST THE ROLE NAME. An empty role reports HOW it is empty, because the fix differs: no_claimant means no account carries the subtype and one must be created; unflagged_active_claimant means an active account already carries it and is merely missing is_system_account (creating a second account here makes the chart worse — one company had 8,342 bank transactions on an unflagged account beside two empty deactivated ones); deactivated_claimants_only means the right account exists and needs reactivating. Each empty role lists the candidate accounts already in the chart. '
+    + 'contestedSystemAccounts is the opposite failure: more than one active system account claims one role, so the resolver picks deterministically between them and every auto-posting depends on that pick. '
     + 'WHY IT MATTERS: none of this unbalances a trial balance, which is why it survives. An account with no subtype is invisible to the income statement bucketing, the VAT201 and the system account resolver, and lands in whatever the default happens to be — that is how R81m of cost of sales was reported as operating expenses. '
-    + 'LIMITS: it reports and changes nothing. overlaidCharts is only as good as the imported_from column: a chart imported before that column was populated reads as a single chart, so treat false as "not detected" rather than "not happening". Duplicate NAMES are matched after collapsing case and punctuation; two accounts that are the same account under different names are not found.',
+    + 'LIMITS: it reports and changes nothing. overlaidCharts is only as good as the imported_from column: a chart imported before that column was populated reads as a single chart, so treat false as "not detected" rather than "not happening". Duplicate NAMES are matched after collapsing case and punctuation; two accounts that are the same account under different names are not found. '
+    + 'The role check reads the subtype column only: an account that SHOULD hold a role but carries a different subtype (or none) reads as no_claimant, because nothing in the schema records the intent.',
   scope: 'read:reports',
   write: false,
   inputSchema: {
@@ -129,7 +132,34 @@ export const chartOfAccountsHealthTool: McpTool = {
 
     return ok({
       summary: report.summary,
-      missingSystemAccounts: report.missingSystemAccounts,
+      // Every role, then the two failing subsets. The full list is here because
+      // "which roles did you actually check" is the question the previous
+      // version of this tool answered wrongly and silently: it checked 9 of 14
+      // and reported the other five as healthy by never looking at them.
+      // Serving all fourteen makes the coverage checkable by the reader.
+      systemRoles: report.systemRoles.map((r) => ({
+        role: r.key,
+        state: r.state,
+        account: r.holder ? `${r.holder.accountCode} ${r.holder.accountName}` : null,
+      })),
+      missingSystemAccounts: report.missingSystemAccounts.map((r) => ({
+        role: r.key,
+        gap: r.gap,
+        candidates: r.claimants.map((c) => ({
+          accountCode: c.accountCode,
+          accountName: c.accountName,
+          accountType: c.accountType,
+          isActive: c.isActive,
+          isSystemAccount: c.isSystemAccount,
+        })),
+      })),
+      contestedSystemAccounts: report.contestedSystemAccounts.map((r) => ({
+        role: r.key,
+        resolverPicks: r.holder ? `${r.holder.accountCode} ${r.holder.accountName}` : null,
+        claimants: r.claimants
+          .filter((c) => c.isActive && c.isSystemAccount)
+          .map((c) => `${c.accountCode} ${c.accountName}`),
+      })),
       // The chart's completeness is stated HERE rather than through the
       // envelope's universeTotal identity, and deliberately. `universeTotal`
       // asks "rowsTotal + excluded = the universe you drew from", and an

@@ -13,7 +13,7 @@
  */
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
-import { validateSystemAccounts } from './systemAccountResolver';
+import { getSystemRoleCoverage, type SystemRoleCoverage } from './systemRoleCoverage';
 import {
   classifyAccount,
   summariseChart,
@@ -45,10 +45,16 @@ export interface ChartHealthReport {
   /** Every account considered, so completeness is checkable. */
   universeTotal: number;
   /**
-   * Roles with no system account at all. Every auto-posting path that needs one
-   * throws, so this is a hard failure rather than untidiness.
+   * Roles the resolver cannot serve. Every auto-posting path that needs one
+   * throws, so this is a hard failure rather than untidiness — and each carries
+   * the shape of the gap, because "create an account" and "flag the account you
+   * already have" are different jobs.
    */
-  missingSystemAccounts: string[];
+  missingSystemAccounts: SystemRoleCoverage[];
+  /** Roles more than one active system account claims; the resolver picks one. */
+  contestedSystemAccounts: SystemRoleCoverage[];
+  /** All fourteen, so a reader can check WHICH roles were examined. */
+  systemRoles: SystemRoleCoverage[];
   postedThrough: string;
 }
 
@@ -84,6 +90,8 @@ export async function getChartOfAccountsHealth(
     ORDER BY ga.account_code
   `) as DbRow[];
 
+  const coverage = await getSystemRoleCoverage(companyId);
+
   let postedThrough = '';
   const accounts: ChartAccount[] = rows.map((r) => {
     const last = r.last_posted instanceof Date ? r.last_posted.toISOString() : r.last_posted ? String(r.last_posted) : '';
@@ -116,7 +124,9 @@ export async function getChartOfAccountsHealth(
     rows: flagged.slice(0, limit),
     rowsTotal: flagged.length,
     universeTotal: accounts.length,
-    missingSystemAccounts: await validateSystemAccounts(companyId),
+    missingSystemAccounts: coverage.empty,
+    contestedSystemAccounts: coverage.contested,
+    systemRoles: coverage.roles,
     postedThrough: postedThrough || `${asAt}T00:00:00.000Z`,
   };
 }

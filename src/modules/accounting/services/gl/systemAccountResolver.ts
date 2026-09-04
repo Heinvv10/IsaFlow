@@ -14,29 +14,18 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
 import type { GLAccountType } from '../../types/gl.types';
+import { MissingSystemAccountError, SYSTEM_ACCOUNT_KEYS, type SystemAccountKey } from './systemAccountKeys';
+import { describeEmptyRole } from './systemRoleCoverage';
 
 import type { DbRow } from '@/types/db';
 
 
-/**
- * Subtypes that the system requires for auto-posting and reporting.
- * Each maps to exactly one system account (is_system_account = true).
- */
-export type SystemAccountKey =
-  | 'bank'                      // Primary bank account
-  | 'receivable'                // Accounts Receivable
-  | 'payable'                   // Accounts Payable
-  | 'vat_input'                 // VAT Input (claimable)
-  | 'vat_output'                // VAT Output (payable)
-  | 'retained_earnings'         // Retained Earnings
-  | 'opening_balance_equity'    // Opening Balance Equity (clearing; nets to zero once the opening TB is complete)
-  | 'default_revenue'           // Default revenue account
-  | 'other_income'              // Other Income
-  | 'default_expense'           // Default expense (Materials & Supplies)
-  | 'admin_expense'             // Administrative Expenses
-  | 'accumulated_depreciation'  // Accumulated Depreciation
-  | 'depreciation_expense'      // Depreciation Expense
-  | 'disposal_profit_loss';     // Profit / Loss on Disposal of Assets
+// The role list lives in `systemAccountKeys.ts` as a runtime array with the
+// type derived from it. It used to be a bare type union here, which forced
+// every consumer needing the LIST to retype it — and the copy in
+// `validateSystemAccounts` carried 9 of the 14. Re-exported so the ~40 existing
+// `import type { SystemAccountKey }` sites keep working.
+export type { SystemAccountKey } from './systemAccountKeys';
 
 // ── In-memory cache (per company) ───────────────────────────────────────────
 
@@ -156,12 +145,13 @@ export async function getSystemAccountCandidates(
   return winner ? [winner] : [];
 }
 
-/** Subtypes the resolver actually hands out — the only ones a duplicate matters for. */
-const RESOLVED_SUBTYPES: ReadonlySet<string> = new Set<SystemAccountKey>([
-  'bank', 'receivable', 'payable', 'vat_input', 'vat_output', 'retained_earnings',
-  'default_revenue', 'other_income', 'default_expense', 'admin_expense',
-  'accumulated_depreciation', 'depreciation_expense', 'disposal_profit_loss', 'opening_balance_equity',
-]);
+/**
+ * Subtypes the resolver actually hands out — the only ones a duplicate matters
+ * for. Derived from the role array rather than restated, so it cannot drift
+ * from it (payroll_liability and friends are legitimately many-per-company and
+ * are absent from that array).
+ */
+const RESOLVED_SUBTYPES: ReadonlySet<string> = new Set<string>(SYSTEM_ACCOUNT_KEYS);
 
 /** True when `accountType` may legally carry `subtype` (glAccountSubtypes.ts). */
 export function typeFitsSubtype(accountType: string, subtype: string): boolean {
@@ -187,17 +177,27 @@ export function preferSystemAccount(a: CachedAccount, b: CachedAccount): CachedA
 
 /**
  * Get a system account by its subtype key for a specific company.
- * Throws if the account is not found (misconfigured chart of accounts).
+ *
+ * THROWS `MissingSystemAccountError` when the role is empty, and the throw is
+ * deliberate. Every one of this function's ~40 call sites sits inside a service
+ * that goes on to write a journal; handing them a returned refusal would make
+ * each responsible for noticing it, and one that forgot would post against an
+ * `undefined` account id. A silent wrong answer in the ledger is worse than a
+ * 500. The refusal is rendered into something actionable at the MCP boundary
+ * (`registry.ts`), which is the layer that can afford to catch it — nothing has
+ * been written by the time this throws.
+ *
+ * The error carries the near misses, so "you have no bank account" and "your
+ * bank account exists and is missing one boolean" are told apart by the caller.
+ * That costs one extra query on the failing path only.
  */
 export async function getSystemAccount(key: SystemAccountKey, companyId: string): Promise<CachedAccount> {
   const map = await ensureCache(companyId);
   const account = map.get(key);
   if (!account) {
-    log.error('System account not found', { key, companyId }, 'accounting');
-    throw new Error(
-      `System account with subtype '${key}' not found for company ${companyId}. ` +
-      `Ensure the chart of accounts has a system account with account_subtype = '${key}'.`
-    );
+    const { gap, nearMisses } = await describeEmptyRole(key, companyId);
+    log.error('System account not found', { key, companyId, gap, nearMisses: nearMisses.length }, 'accounting');
+    throw new MissingSystemAccountError(key, companyId, gap, nearMisses);
   }
   return account;
 }
@@ -212,16 +212,18 @@ export async function getSystemAccountId(key: SystemAccountKey, companyId: strin
 }
 
 /**
- * Check whether all required system accounts are configured.
- * Returns a list of missing subtypes (empty = all good).
+ * Roles this company cannot resolve — empty means every role is held.
+ *
+ * The `required` list here used to be nine hand-written entries, omitting
+ * `opening_balance_equity`, `other_income`, `accumulated_depreciation`,
+ * `depreciation_expense` and `disposal_profit_loss`. Production on 2026-09-04
+ * was missing three of those five on nearly every tenant and this function
+ * reported them all healthy. It now checks every role in `SYSTEM_ACCOUNT_KEYS`.
+ *
+ * Kept as a thin wrapper because callers wanting the near-miss detail should
+ * use `getSystemRoleCoverage` directly; this is the bare-name answer.
  */
 export async function validateSystemAccounts(companyId: string): Promise<string[]> {
-  const required: SystemAccountKey[] = [
-    'bank', 'receivable', 'payable',
-    'vat_input', 'vat_output', 'retained_earnings',
-    'default_revenue', 'default_expense', 'admin_expense',
-  ];
-
   const map = await ensureCache(companyId);
-  return required.filter(key => !map.has(key));
+  return SYSTEM_ACCOUNT_KEYS.filter((key) => !map.has(key));
 }
