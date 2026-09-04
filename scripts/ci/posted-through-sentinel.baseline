@@ -33,7 +33,6 @@
 # the real `string | null` and lets the caller decide, per the contract).
 # Do NOT add a file to this list because the gate is failing on it and you
 # have not confirmed why — confirm the fabrication is genuine first.
-src/lib/mcp/tools/assets.ts
 src/lib/mcp/tools/budgetVariance.ts
 src/lib/mcp/tools/domainReports.ts
 src/lib/mcp/tools/generalLedger.ts

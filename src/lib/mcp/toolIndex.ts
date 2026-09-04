@@ -98,6 +98,8 @@ import {
 import { budgetVarianceTool } from './tools/budgetVariance';
 import { jobCostReportTool } from './tools/jobCost';
 import { listFixedAssetsTool, assetRegisterTool } from './tools/assets';
+import { reconcileFixedAssetsTool } from './tools/reconcileFixedAssets';
+import { runDepreciationTool } from './tools/writeDepreciation';
 import {
   listItemsTool,
   stockValuationTool,
@@ -184,6 +186,8 @@ export const MCP_TOOLS = [
   wipReportTool,
   listFixedAssetsTool,
   assetRegisterTool,
+  reconcileFixedAssetsTool,
+  runDepreciationTool,
   listItemsTool,
   stockValuationTool,
   supplierStatementTool,

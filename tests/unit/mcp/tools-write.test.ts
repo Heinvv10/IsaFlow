@@ -474,6 +474,7 @@ describe('write-tool manifest invariants', () => {
       'reverse_bank_allocation',
       'reverse_bank_allocation_batch',
       'reverse_journal_entry',
+      'run_depreciation',
       'set_opening_balance',
       // A contra settles a debtor or creditor against a balance-sheet account,
       // so it posts.
@@ -605,6 +606,9 @@ describe('write-tool manifest invariants', () => {
       // touching a service; behaviour in payrollTools.test.ts.
       create_pay_run: { ...KEY },
       post_payroll_journal: { ...KEY },
+      // The depreciation run refuses on a malformed period_date before any
+      // service call; behaviour in runDepreciationTool.test.ts.
+      run_depreciation: { ...KEY, period_date: '2026-02-31' },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

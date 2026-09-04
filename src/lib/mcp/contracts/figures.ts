@@ -292,6 +292,27 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
       'reports/incomeStatementService#getIncomeStatement reports P&L for the same accounts through a different, defective classification layer',
     ],
   }),
+  'ppe.register.v1': def({
+    id: 'ppe.register.v1',
+    label: 'Property, plant and equipment per the fixed asset register',
+    owner: 'items/assetRegisterService#getAssetRegister',
+    includes:
+      'Every asset in the assets table acquired on or before the reporting date and still HELD at it, at purchase_price less accumulated_depreciation. The figures are whatever was last written to the assets table.',
+    excludes:
+      'Assets disposed on or before the reporting date — they are not carrying amount and are reported separately as excludedRows, never dropped. Assets acquired after it. And the ledger: nothing here is derived from a journal, so this figure cannot corroborate itself. It is only as current as the last depreciation run, and on production NO asset carries a gl_asset_account_id, so no part of it can be attributed to a GL account.',
+  }),
+  'ppe.ledger.v1': def({
+    id: 'ppe.ledger.v1',
+    label: 'Property, plant and equipment per the general ledger',
+    owner: 'items/fixedAssetReconciliationQueries#loadAssetSectionAccounts',
+    includes:
+      'Posted GL balance of every account of subtype fixed_assets or accumulated_depreciation as at the reporting date, INCLUDING deactivated accounts — is_active is a picker flag, not a statement about whether an account holds money.',
+    excludes:
+      'Draft journals. Accounts with no subtype: Velocity Fibre carries six accumulated-depreciation and depreciation accounts whose account_subtype is NULL, and they are invisible to this figure by construction. Nothing is excluded by NAME. Note that the subtype does not make an account property, plant and equipment: on Brightsphere thirteen accounts subtyped fixed_assets carry balances and every one is a loan or an investment, R8,458,079.49 of them on the credit side. reconcile_fixed_assets reports each account individually and flags the ones whose balance sign contradicts the subtype, precisely because this total on its own is misleading.',
+    // Deliberately a SEPARATE figure from ppe.register.v1 and never merged: the
+    // gap between them is the only thing that can detect the break, exactly as
+    // for ar.subledger.v1 vs ar.control.v1.
+  }),
   'gl.trialbalance.v2': def({
     id: 'gl.trialbalance.v2',
     label: 'Trial balance',

@@ -24,8 +24,6 @@ import type { DetailLevel, ExcludedRow } from '../contracts';
 import { clampLimit, guardCastableArgs, ok, strArg } from './toolHelpers';
 import { fmtDate } from '@/lib/fmtDate';
 
-const NO_LEDGER_ROWS = '1970-01-01T00:00:00.000Z';
-
 function detailOf(args: Record<string, unknown>): DetailLevel {
   const raw = strArg(args, 'detail');
   return raw && isDetailLevel(raw) ? raw : 'standard';
@@ -94,10 +92,11 @@ export const listFixedAssetsTool: McpTool = {
       universeTotal: page.universeTotal,
       detail,
       as_at: asAt,
-      // The register is not built from journal rows; there is nothing honest to
-      // pin it to, and now() would prove nothing. asset_register carries the
-      // ledger's own posted_through.
-      posted_through: NO_LEDGER_ROWS,
+      // NULL, permanently. The register is not built from journal rows at all,
+      // so there is no watermark to report — and the epoch is not a neutral
+      // stand-in for that, it is a claim that the ledger was read through
+      // 1970. asset_register carries the ledger's own posted_through.
+      posted_through: null,
       excludedRows,
     });
 
@@ -142,7 +141,7 @@ export const assetRegisterTool: McpTool = {
 
     return ok({
       as_at: asAt,
-      posted_through: rec.postedThrough ?? NO_LEDGER_ROWS,
+      posted_through: rec.postedThrough,
       reconciliation: {
         register_cost: rec.registerCost,
         register_accumulated_depreciation: rec.registerAccumulatedDepreciation,

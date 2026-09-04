@@ -256,6 +256,71 @@ clause of an outer join. If a row can legitimately have no match, decide
 explicitly whether it belongs in `rows` or in `excludedRows` — never let it
 through carrying NULLs into an arithmetic expression.
 
+### A figure reported BESIDE the envelope keeps its authority and loses its check
+
+The most dangerous thing about a report is not a wrong number inside the
+identity — that is what the identity is for. It is the figure published next to
+the identity, carrying the same authority, checked by nothing.
+
+`reconcile_fixed_assets` reports three: `unsubtyped_account_balance` and the two
+`unposted_disposal_*` totals. They belong outside the reconciliation on the
+merits — an un-subtyped account was never in a universe defined by subtype, and
+a disposal with no journal is legitimately absent from both sides — and the
+first of them **double-counted** on a data shape the schema permits
+(`asset_disposals` has only a non-unique index on `asset_id`), while
+`unexplainedDifference` sat at 0.00 saying nothing about it.
+
+So, for any figure a report publishes outside its checked identity:
+
+1. **Give it a check it can fail, or say plainly that it has none.** The check
+   that is always available is the total against the ROWS IT IS A TOTAL OF: it
+   catches a capped list, a mapping slip and a duplicated row. Report the result
+   as its own fault field, never by throwing — a read tool has no savepoint, and
+   "this report cannot account for its own disclosure" belongs in front of the
+   reader.
+2. **Say what the check CANNOT do.** It cannot test the query's predicate. A row
+   the query never matched is invisible to it and to everything else, and no
+   amount of arithmetic over the returned rows will find it.
+3. **The guard label must be a MEASUREMENT, not a declaration — and this is the
+   rule that was learned the hard way.** `figure_guards` first shipped as a
+   hardcoded object literal: five strings emitted on every call saying a guard
+   existed, whether or not one had run. That is the same shape as a
+   `universeTotal` synthesised from the numbers it is meant to check, and it had
+   reproduced **inside the remedy built for that very defect**. The fix for "this
+   figure has no check" cannot be "a label saying it has a check".
+   So derive every label from a comparison the call actually performed:
+   `enumerated` when one ran and agreed, `unguarded` when the rows were not
+   emitted and nothing checked it. `unguarded` is a legitimate answer — it is
+   half of rule 1 — and a figure wrongly labelled `enumerated` is worse than one
+   honestly labelled `unguarded`, because the first is a lie and the second is a
+   warning.
+4. **Run the check at the WIRE boundary, over the rows the response carries.**
+   In the service, over the array the total was reduced from, it cannot fail by
+   construction — and it misses the failure most likely to arrive next, a cap
+   applied while mapping to the response, which is downstream of the service
+   entirely.
+5. **Say it in the tool description, per figure.** A reader who is told
+   `unexplainedDifference` is 0.00 will otherwise extend that comfort to every
+   number beside it.
+6. **A guard that cannot fire is decoration.** If the query makes the fault
+   structurally impossible — as `DISTINCT ON` now does for the duplicate asset —
+   the guard still earns its place as defence against the query changing back,
+   but it must be proven to fire by driving the service with a stubbed query.
+   A guard nobody has watched go red is an assertion, not a check.
+
+### `posted_through` is NULL when no ledger row was consumed
+
+The epoch is not a neutral stand-in for an absence. `1970-01-01T00:00:00.000Z`
+is a claim that the ledger was read through that instant, and a caller comparing
+two reports sees a watermark and believes it — anything doing
+`new Date(posted_through) > x` gets a plausible wrong answer instead of the null
+check it would otherwise have been forced to write. Same family as an equity plug
+and a `now()` fallback: an absence dressed as data.
+
+A report that reads no ledger at all — a subledger listing built from the
+`assets` table, say — reports null permanently, not only when the company is
+empty.
+
 ### `posted_through` is not decoration
 
 It is what makes a number re-derivable. Same `as_at` + same `posted_through` must
@@ -331,6 +396,35 @@ code; add new ones to this list in the same PR.
 | `ambiguous_control_account` | More than one live control account for the role. |
 
 | `unknown_counterparty` | The customer or supplier the document names no longer exists or has been deleted. Added by W1 for `list_unapplied_receipts`: a receipt whose customer row is gone is still real cash, and dropping it would understate the unapplied total by exactly its amount. |
+
+| `disposed_before_as_at` | A fixed asset sold, scrapped or retired on or before the reporting date. It is not carrying amount and is out of the totals, but "there is one asset and it was sold" and "there are no assets" are different facts — so it carries the book value it was still holding. Used by `list_fixed_assets` and `reconcile_fixed_assets`; Brightsphere's ENTIRE register is one such row, R15,000 of a computer sold in April for R8,000. |
+
+| `disposal_not_posted_to_ledger` | A fixed asset disposed on or before the reporting date for which NO journal was ever posted. It is an exclusion like `disposed_before_as_at` — the asset was in the register's universe and is withheld from carrying amount — but it gets its own code because a caller has to be able to tell "sold and accounted for" from "sold, and the ledger never heard". This is the one register-versus-ledger break that can never move a difference: the asset is out of the register's carrying amount and the journal is absent from the ledger, so both sides are zero and the arithmetic closes over a real loss. Production holds exactly one disposal and it is one of these — Brightsphere COMP-0001, R7,000 loss, no journal — and no disposal can post on any tenant, because `postAssetDisposalToGL` resolves the system role `disposal_profit_loss` and 0 of 13 companies have an account with that subtype. |
+
+`no_account_subtype` is deliberately NOT in this table. It is a **disclosure**,
+not an exclusion, and `reconcile_fixed_assets` reports it outside the envelope
+for the reason `check-self-defining-universe.sh` already states: a row that was
+never in this report's universe does not belong in `excludedRows`. The universe
+there is defined by SUBTYPE, so an asset-typed account carrying none was never a
+member. It is also the difference between a signal and noise — Velocity Fibre
+has 58 such accounts holding a net R32,747,547.38, and most are debtors and cash.
+Reporting that as "money the fixed asset reconciliation could not classify" would
+be true in magnitude and wrong in kind, and would bury the PPE accounts that are
+genuinely in there. `stock_valuation` set the same precedent.
+
+The depreciation run reports SKIPS rather than exclusions — a skip is about the
+data, not about a row the report could not classify — and its codes are on the
+same footing: `not_in_service`, `not_yet_acquired` (the period ENDS before the
+asset was acquired; `calculatePolicyDepreciation` would otherwise charge a full
+month for a month in which the asset did not exist), `no_purchase_price`,
+`below_capitalisation_threshold`, `no_useful_life`, `already_posted`.
+
+Its DRY RUN carries two more, and they are not skips at all — they name rows the
+live call TOUCHES: `subledger_row_only_no_journal` (no policy depreciation is
+left, so no journal posts, but `asset_period_ledger` is still written) and
+`gl_accounts_not_configured` (no journal can post; the live run writes the
+subledger row, rolls it back and reports it in `glFailed`). A dry run that
+showed neither would report nothing for a call that writes.
 
 ---
 

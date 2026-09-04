@@ -29,12 +29,22 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import {
+  loadAssetSectionAccounts,
+  ASSET_COST_SUBTYPE as COST_SUBTYPE,
+  ASSET_ACCUMULATED_DEPRECIATION_SUBTYPE as ACC_DEP_SUBTYPE,
+} from './fixedAssetReconciliationQueries';
 
 type Row = DbRow;
 
-/** GL subtypes that make up the carrying amount of property, plant and equipment. */
-export const ASSET_COST_SUBTYPE = 'fixed_assets';
-export const ASSET_ACCUMULATED_DEPRECIATION_SUBTYPE = 'accumulated_depreciation';
+// One query, two consumers. `loadAssetSectionAccounts` is the single
+// implementation of "the GL asset section as at a date"; reconcile_fixed_assets
+// reads the same rows, so asset_register and it cannot disagree about what the
+// ledger side is. The subtype constants live with it.
+export {
+  ASSET_COST_SUBTYPE,
+  ASSET_ACCUMULATED_DEPRECIATION_SUBTYPE,
+} from './fixedAssetReconciliationQueries';
 
 export interface AssetRegisterRow {
   id: string;
@@ -93,6 +103,38 @@ export interface AssetRegisterPage {
   hasMore: boolean;
 }
 
+/**
+ * ONE definition of carrying amount, used by the per-asset row and by the SQL
+ * total alike.
+ *
+ * They used to disagree: the row fell back to `cost - accumulatedDepreciation`
+ * while the total fell back to `purchase_price` alone. For an asset with a NULL
+ * `current_book_value` carrying depreciation, the total overstated by exactly
+ * that depreciation — and in `reconcile_fixed_assets`, where `difference` comes
+ * from the total and `itemsTotal` from the rows, that surfaced as an
+ * `unexplainedDifference` describing no real gap at all.
+ *
+ * A NULL `current_book_value` is NOT reachable on INSERT, and an earlier version
+ * of this comment claimed it was. `trg_asset_book_value` is a BEFORE INSERT
+ * trigger that sets `current_book_value := purchase_price` whenever it arrives
+ * NULL, and production carries 0 of 6 assets with one. It is reachable by
+ * UPDATE, which is where the fixture builds it, and unifying the two fallbacks
+ * was right regardless: two definitions of one figure are a divergence waiting
+ * for a caller.
+ *
+ * DEFERRED, and recorded here so it is not rediscovered: that same trigger
+ * ignores opening `accumulated_depreciation`. An asset inserted with opening
+ * depreciation gets `current_book_value = purchase_price`, so the register and
+ * its own total agree on a net book value that is too high by the depreciation —
+ * a wrong number no reconciliation can catch, because both sides of it come from
+ * the register. It is LATENT, not live: the only INSERT path,
+ * `pages/api/accounting/assets.ts`, sends no `accumulated_depreciation` at all,
+ * and all six production assets satisfy
+ * `current_book_value = purchase_price - accumulated_depreciation` exactly. The
+ * fix is a migration to a write-path trigger in the asset domain, which is not
+ * what an MCP read tool's change should carry. A Sage-style import that captures
+ * opening depreciation would make it live on day one.
+ */
 function mapRow(r: Row): AssetRegisterRow {
   const cost = Number(r.purchase_price) || 0;
   const accDep = Number(r.accumulated_depreciation) || 0;
@@ -156,7 +198,12 @@ export async function getAssetRegister(
       COALESCE(SUM(COALESCE(a.accumulated_depreciation, 0)::NUMERIC) FILTER (
         WHERE a.disposal_date IS NULL OR a.disposal_date > ${asOf}::DATE
       ), 0) AS total_depreciation,
-      COALESCE(SUM(COALESCE(a.current_book_value, a.purchase_price)::NUMERIC) FILTER (
+      -- The SAME fallback mapRow applies: cost LESS accumulated depreciation,
+      -- not cost alone. See the note on mapRow.
+      COALESCE(SUM(COALESCE(
+        a.current_book_value,
+        COALESCE(a.purchase_price, 0) - COALESCE(a.accumulated_depreciation, 0)
+      )::NUMERIC) FILTER (
         WHERE a.disposal_date IS NULL OR a.disposal_date > ${asOf}::DATE
       ), 0) AS total_book_value
     FROM assets a
@@ -186,30 +233,7 @@ export async function getAssetGlReconciliation(
   companyId: string,
   asOf: string,
 ): Promise<AssetGlReconciliation> {
-  // The subtype predicate belongs in WHERE, not in the LEFT JOIN's ON clause —
-  // in an ON clause it restricts nothing, and unmatched rows survive carrying
-  // NULLs straight into the SUM.
-  const accountRows = (await sql`
-    SELECT ga.id, ga.account_code, ga.account_name, ga.account_subtype, ga.is_active,
-           COALESCE(SUM(jl.debit - jl.credit), 0) AS balance,
-           MAX(jl.created_at) AS posted_through
-    FROM gl_accounts ga
-    LEFT JOIN gl_journal_lines jl
-           ON jl.gl_account_id = ga.id
-          AND jl.company_id = ${companyId}::UUID
-          AND jl.journal_entry_id IN (
-            SELECT je.id FROM gl_journal_entries je
-            WHERE je.company_id = ${companyId}::UUID
-              AND je.status = 'posted'
-              AND je.entry_date <= ${asOf}::DATE
-          )
-    WHERE ga.company_id = ${companyId}::UUID
-      AND ga.account_subtype IN (
-        ${ASSET_COST_SUBTYPE}, ${ASSET_ACCUMULATED_DEPRECIATION_SUBTYPE}
-      )
-    GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_subtype, ga.is_active
-    ORDER BY ga.account_code
-  `) as Row[];
+  const accountRows = await loadAssetSectionAccounts(companyId, asOf);
 
   const accounts: AssetGlAccountBalance[] = accountRows.map((r) => ({
     accountId: String(r.id),
@@ -226,9 +250,9 @@ export async function getAssetGlReconciliation(
     .sort()
     .slice(-1)[0] ?? null;
 
-  const costAccounts = accounts.filter((a) => a.subtype === ASSET_COST_SUBTYPE);
+  const costAccounts = accounts.filter((a) => a.subtype === COST_SUBTYPE);
   const accDepAccounts = accounts.filter(
-    (a) => a.subtype === ASSET_ACCUMULATED_DEPRECIATION_SUBTYPE,
+    (a) => a.subtype === ACC_DEP_SUBTYPE,
   );
   const glCost = costAccounts.reduce((s, a) => s + a.balance, 0);
   const glAccumulatedDepreciation = accDepAccounts.reduce((s, a) => s + a.balance, 0);

@@ -150,6 +150,15 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   wip_report: null,
   list_fixed_assets: null,
   asset_register: null,
+  reconcile_fixed_assets: null,
+  // FREE, and deliberately. `journal.create` charged ONE journal for a run
+  // that posts N of them, and the count cannot be known at debit time — the
+  // debit runs before the handler, so before the plan exists. The rule this
+  // module already holds decides it instead: a write costs what the equivalent
+  // withFlowMeter endpoint costs, and POST /api/accounting/run-depreciation
+  // carries no meter. Same answer as bulk_allocate_bank_transactions, which
+  // posts N journals for the same reason: N times nothing.
+  run_depreciation: null,
   list_items: null,
   stock_valuation: null,
   supplier_statement: null,
