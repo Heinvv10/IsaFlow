@@ -47,6 +47,15 @@ export interface ClassifiedFigures {
   operatingExpenses: number;
   otherExpenses: number;
   depreciation: number;
+  /**
+   * Profit from operations: everything except finance cost, tax and other
+   * expense. Other income IS above this line — `profit_and_loss`'s shipped
+   * description defines the operating line as the one finance cost and tax sit
+   * BELOW, and this is the single definition both surfaces now use. It exists
+   * as a field so `incomeStatementConvergence.test.ts` can assert it; a band
+   * with no counterpart here is a band that can silently re-diverge.
+   */
+  operatingProfit: number;
   netProfit: number;
   totalAssets: number;
   totalLiabilities: number;
@@ -87,7 +96,7 @@ const num = (v: number | string | null | undefined): number => {
 
 const zero = (): ClassifiedFigures => ({
   revenue: 0, otherIncome: 0, costOfSales: 0, grossProfit: 0,
-  operatingExpenses: 0, otherExpenses: 0, depreciation: 0, netProfit: 0,
+  operatingExpenses: 0, otherExpenses: 0, depreciation: 0, operatingProfit: 0, netProfit: 0,
   totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
   currentAssets: 0, nonCurrentAssets: 0, currentLiabilities: 0, nonCurrentLiabilities: 0,
   cash: 0, accountsReceivable: 0, accountsPayable: 0, inventory: 0,
@@ -207,7 +216,7 @@ export function aggregateFigures(rows: readonly ClassificationRow[]): Classified
   }
 
   f.grossProfit = f.revenue - f.costOfSales;
-  f.netProfit =
-    f.revenue + f.otherIncome - f.costOfSales - f.operatingExpenses - f.otherExpenses;
+  f.operatingProfit = f.grossProfit + f.otherIncome - f.operatingExpenses;
+  f.netProfit = f.operatingProfit - f.otherExpenses;
   return f;
 }

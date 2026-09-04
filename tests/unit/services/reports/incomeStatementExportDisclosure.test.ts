@@ -149,3 +149,63 @@ describe('CSV export — the disclosure travels with the figures', () => {
     expect(out.body).toContain('Gross Margin %');
   });
 });
+
+describe('CSV export — the new bands', () => {
+  it('writes Other Income and Other Expenses sections and an Operating Profit row', async () => {
+    sqlMock.mockResolvedValue([
+      glRow('4000', 'Sales', 'revenue', 'revenue', 0, 5000000),
+      glRow('4300', 'Interest Received', 'revenue', 'other_income', 0, 53787.07),
+      glRow('5000', 'Direct Material', 'expense', 'cost_of_sales', 1800000, 0),
+      glRow('6000', 'Rent', 'expense', 'operating_expenses', 400000, 0),
+      glRow('5810', 'Interest Expense', 'expense', 'finance_cost', 120000, 0),
+    ]);
+    const out = fakeRes();
+    await (csvHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, out.res);
+
+    expect(out.body).toContain('Operating Profit');
+    expect(out.body).toContain('Total Other Income');
+    expect(out.body).toContain('Total Other Expenses');
+    expect(out.body).toContain('4300');
+    expect(out.body).toContain('5810');
+    // Turnover only — other income must NOT be inside it. csvVal quotes the
+    // label, so match the quoted form rather than a bare comma-delimited one.
+    const turnoverTotal = out.body.split('\n').find(l => l.includes('Total Turnover'));
+    expect(turnoverTotal).toBeDefined();
+    expect(Number(turnoverTotal!.split(',').pop())).toBeCloseTo(5000000, 2);
+  });
+
+  it('foots: gross profit, operating profit and net profit reconcile in the file', async () => {
+    sqlMock.mockResolvedValue([
+      glRow('4000', 'Sales', 'revenue', 'revenue', 0, 5000000),
+      glRow('4300', 'Interest Received', 'revenue', 'other_income', 0, 53787.07),
+      glRow('5000', 'Direct Material', 'expense', 'cost_of_sales', 1800000, 0),
+      glRow('6000', 'Rent', 'expense', 'operating_expenses', 400000, 0),
+      glRow('5810', 'Interest Expense', 'expense', 'finance_cost', 120000, 0),
+    ]);
+    const out = fakeRes();
+    await (csvHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, out.res);
+
+    const num = (label: string): number => {
+      const line = out.body.split('\n').find(l => l.includes(`"${label}"`) || l.includes(`,${label},`));
+      return Number((line ?? '').split(',').pop());
+    };
+    const gp = num('Gross Profit');
+    const op = num('Operating Profit');
+    const np = num('Net Profit');
+    expect(gp).toBeCloseTo(5000000 - 1800000, 2);
+    expect(op).toBeCloseTo(gp + 53787.07 - 400000, 2);
+    expect(np).toBeCloseTo(op - 120000, 2);
+  });
+
+  it('omits the sections entirely when there is no other income or expense', async () => {
+    sqlMock.mockResolvedValue([
+      glRow('4000', 'Sales', 'revenue', 'revenue', 0, 5000),
+      glRow('5000', 'Direct Material', 'expense', 'cost_of_sales', 1000, 0),
+    ]);
+    const out = fakeRes();
+    await (csvHandler as unknown as (q: NextApiRequest, r: NextApiResponse) => Promise<void>)(req, out.res);
+    expect(out.body).not.toContain('Total Other Income');
+    expect(out.body).not.toContain('Total Other Expenses');
+    expect(out.body).toContain('Operating Profit');
+  });
+});

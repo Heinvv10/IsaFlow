@@ -47,6 +47,9 @@ const payload = (r: unknown) =>
 const FIGURES = {
   revenue: 1000, otherIncome: 50, costOfSales: 400, grossProfit: 600,
   operatingExpenses: 300, otherExpenses: 100, depreciation: 25,
+  // Other income is ABOVE the operating line: 600 + 50 - 300. The tool reads
+  // this field rather than recomputing it, so the fixture must carry it.
+  operatingProfit: 350,
   netProfit: 250,
   unclassifiedCount: 0, unclassifiedTotal: 0,
   unclassifiedByType: {
@@ -85,8 +88,8 @@ describe('profit_and_loss', () => {
     expect(body.grossProfit).toBe(600);
     expect(body.operatingExpenses).toBe(300);
     expect(body.otherExpenses).toBe(100);
-    // Operating profit excludes finance cost and tax; getIncomeStatement puts
-    // both inside operating expenses, so its operating line is understated.
+    // Operating profit excludes finance cost and tax and includes other income.
+    // Since the B75 convergence getIncomeStatement computes it the same way.
     expect(body.operatingProfit).toBe(350);
     expect(body.netProfit).toBe(250);
   });
@@ -192,15 +195,21 @@ describe('profit_and_loss', () => {
     expect(body.netProfitVariance).toBe(150);
   });
 
-  it('names the divergence from getIncomeStatement in its own description', async () => {
+  it('tells a reader the page and this tool AGREE, and does not describe a divergence that is fixed', async () => {
     const d = profitAndLossTool.description;
     expect(d).toContain('aggregateFigures');
     expect(d).toContain('getIncomeStatement');
-    // A reader comparing this against the UI must be told why they differ, and
-    // that the bottom lines tie — otherwise they spend a day proving the two
-    // reports disagree about revenue, which they do not.
-    expect(d).toContain('BOTTOM LINE to the cent');
-    expect(d).toContain('which band a figure sits in');
+    // This used to assert the OPPOSITE — that the description named a
+    // presentational divergence and warned the bottom lines merely tie. B75
+    // fixed the divergence, and a shipped tool description is runtime guidance
+    // to an agent: leaving the old text would have an assistant "correct"
+    // figures that now agree, or tell a user the page overstates gross profit
+    // when it does not.
+    expect(d).toContain('AGREE band for band');
+    expect(d).not.toContain('BOTTOM LINE to the cent');
+    expect(d).not.toContain('counts other income as turnover');
+    // The one real remaining difference is scope, not banding.
+    expect(d).toMatch(/project or cost-centre filter/i);
   });
 
   it('names the three new figure ids, all owned by the classifier', async () => {

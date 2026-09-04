@@ -137,7 +137,7 @@ function IncomeStatementBlock({ report, periodStart, periodEnd }: {
       </h3>
       <p className="text-xs text-slate-500 mb-3">{periodStart} to {periodEnd}</p>
       <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
-        <ISSection label="Revenue" items={report.revenue} total={report.totalRevenue} />
+        <ISSection label="Turnover" items={report.revenue} total={report.totalRevenue} />
         {report.costOfSales.length > 0 && (
           <ISSection label="Cost of Sales" items={report.costOfSales} total={report.totalCostOfSales} />
         )}
@@ -147,7 +147,24 @@ function IncomeStatementBlock({ report, periodStart, periodEnd }: {
             {formatCurrency(report.grossProfit)}
           </span>
         </div>
+        {report.otherIncome.length > 0 && (
+          <ISSection label="Other Income" items={report.otherIncome} total={report.totalOtherIncome} />
+        )}
         <ISSection label="Operating Expenses" items={report.operatingExpenses} total={report.totalOperatingExpenses} />
+        {/* Operating Profit, Other Expenses: without these the statement does
+            not FOOT. Gross Profit less Operating Expenses stopped equalling Net
+            Profit the moment other income and finance cost/tax got their own
+            bands, and the reconciling amount would be invisible on a statutory
+            statement — R341,712.00 on Brightsphere. */}
+        <div className="px-4 py-2 flex justify-between bg-blue-500/5">
+          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">Operating Profit</span>
+          <span className={`font-mono font-bold text-sm ${report.operatingProfit >= 0 ? 'text-blue-500' : 'text-red-400'}`}>
+            {formatCurrency(report.operatingProfit)}
+          </span>
+        </div>
+        {report.otherExpenses.length > 0 && (
+          <ISSection label="Other Expenses" items={report.otherExpenses} total={report.totalOtherExpenses} />
+        )}
         <div className="px-4 py-3 flex justify-between bg-slate-100 dark:bg-slate-800">
           <span className="text-base font-bold text-slate-900 dark:text-white">Net Profit / (Loss)</span>
           <span className={`font-mono font-bold text-base ${report.netProfit >= 0 ? 'text-teal-500' : 'text-red-400'}`}>

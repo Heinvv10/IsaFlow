@@ -8,7 +8,6 @@ import { log } from '@/lib/logger';
 import type { IncomeStatementReport } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 import {
-  canonicalSubtype,
   expenseBand,
   revenueBand,
 } from '@/modules/accounting/services/gl/accountClassification';
@@ -110,11 +109,16 @@ async function fetchIncomeStatementRows(
   // Gross profit is TRADING only — turnover less cost of sales. Other income is
   // not trading revenue and must not reach it.
   const grossProfit = totalRevenue - totalCostOfSales;
-  const operatingProfit = grossProfit - totalOperatingExpenses;
+  // Operating profit puts other income ABOVE the line and finance cost and tax
+  // below it, matching `aggregateFigures` and `profit_and_loss`'s shipped
+  // description. An earlier cut of this file excluded other income here, which
+  // simply moved the B75 divergence from gross profit onto a line this change
+  // introduced — the same defect one row down.
+  const operatingProfit = grossProfit + totalOtherIncome - totalOperatingExpenses;
   // Net profit is unchanged by the split, to the cent: every figure that moved
   // was already inside the bottom line, just in the wrong band. That invariant
   // is what makes this a reclassification rather than a restatement.
-  const netProfit = operatingProfit + totalOtherIncome - totalOtherExpenses;
+  const netProfit = operatingProfit - totalOtherExpenses;
 
   return {
     revenue, otherIncome, costOfSales, operatingExpenses, otherExpenses,
