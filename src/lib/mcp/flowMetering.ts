@@ -229,6 +229,9 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   create_gl_account: null,
   update_gl_account: null,
   deactivate_gl_account: null,
+  // A merge posts no journal either, and it is a remediation control: pricing
+  // the remedy for a split control account would discourage using it.
+  merge_gl_accounts: null,
 
   // ── Attachments: free ────────────────────────────────────────────────────
   // bank-tx-attachments is not metered in the app, and the file posts nothing.

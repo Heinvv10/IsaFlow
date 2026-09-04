@@ -62,6 +62,7 @@ import {
   updateGlAccountTool,
   deactivateGlAccountTool,
 } from './tools/writeGlAccounts';
+import { mergeGlAccountsTool } from './tools/writeMergeGlAccounts';
 import { listSupplierInvoicesTool, getSupplierInvoiceTool } from './tools/supplierInvoices';
 import {
   createSupplierInvoiceTool,
@@ -215,6 +216,7 @@ export const MCP_TOOLS = [
   createGlAccountTool,
   updateGlAccountTool,
   deactivateGlAccountTool,
+  mergeGlAccountsTool,
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
   createBankRuleTool,
