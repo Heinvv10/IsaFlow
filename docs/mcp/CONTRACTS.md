@@ -575,6 +575,18 @@ So, for anything that writes:
 
 A guard above a query is worth nothing if the query cannot run.
 
+### Reading the code is not evidence that a test works
+
+Neither is an assertion passing. **Mutating the production code and watching
+the test go red is.** An assertion that holds against a mock returning exactly
+the values the assertion checks proves the assertion, not the test — it would
+pass identically whether the code underneath were correct, broken, or deleted.
+
+Before calling any test "verified," break the thing it claims to catch — flip
+the comparison, delete the guard, change the column — and confirm the test
+fails. If it doesn't, the test isn't testing what you think it's testing, and
+neither reading the source nor reading the assertion will tell you that.
+
 ---
 
 ## 10. Tool descriptions
