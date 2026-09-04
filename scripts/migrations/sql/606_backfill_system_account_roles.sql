@@ -44,13 +44,30 @@
 -- a tenant whose ledger must work, and an equality test would silently exclude
 -- it. Only the explicitly-dead are skipped.
 --
--- THE COST OF THIS FILTER, stated so it is not a surprise: a deleted tenant that
--- is ever RESTORED comes back without these roles, and 605 only fixes companies
--- created after it. It will throw on an asset disposal or an opening balance
--- until someone runs this migration's statements again for it.
--- `chart_of_accounts_health` reports the empty role, which is the intended route
--- to noticing. That was judged the better trade against writing 2026-dated
--- accounts into five dead tenants and quoting inflated counts for the change.
+-- THE COST OF THIS FILTER, and exactly what it is. A deleted tenant that is ever
+-- RESTORED comes back short of THREE roles, measured against production:
+-- `opening_balance_equity`, `disposal_profit_loss` and `other_income` — 15
+-- role-gaps across the five dead tenants, and the third of those is only a flag
+-- on a `4300` that already exists. Every other role is already held on all five.
+-- 605 fixes companies created after it, not these.
+--
+-- IF YOU ARE RESTORING ONE: rerun this file and 607 — both are idempotent and
+-- both will now see the tenant as live, so they fix it and change nothing else.
+-- Do that BEFORE handing the tenant back, because until then it throws on an
+-- asset disposal or an opening balance.
+--
+-- That instruction is deliberately not "chart_of_accounts_health will tell you".
+-- An earlier version of this comment said so, and it contradicted the evidence
+-- used elsewhere in this same change: that tool has been called ZERO times in
+-- 6,615 production MCP calls. It cannot be both dead enough to change freely and
+-- alive enough to be a safety net. 607's WARNING block excludes deleted tenants
+-- too, so at restore time there is no automatic signal at all — the first signal
+-- would be the throw. Hence a step someone can follow instead of a report nobody
+-- runs.
+--
+-- The trade: 15 role-gaps recoverable by rerunning two idempotent files, against
+-- writing 2026-dated accounts into five dead tenants and quoting inflated counts
+-- for the change. Worth it.
 --
 -- WHAT A TENANT ALREADY USING 3300 OR 4410 GETS: nothing, and that is
 -- deliberate. Both guards must pass — the code must be free AND no account may
