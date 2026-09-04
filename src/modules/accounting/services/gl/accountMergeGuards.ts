@@ -18,11 +18,14 @@
  * ledger or the chart.
  */
 import { sql } from '@/lib/neon';
+import { reportingClassFor } from './accountReportingClass';
 import {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
   findConfigurationReferences,
   type ConfigurationReference,
 } from './accountMergeReferences';
+
+export { reportingClassFor, type ReportingClass } from './accountReportingClass';
 
 export {
   CONFIGURATION_REFERENCE_EXCLUSIONS,
@@ -116,58 +119,6 @@ export type MergeRefusalCode =
   | 'lines_cannot_be_repointed'
   | 'ledger_moved_during_merge';
 
-/**
- * The reporting class of a subtype — the axis a merge may NOT cross.
- *
- * `account_type` is guarded because crossing it moves a balance to the wrong
- * side of the balance sheet. `account_subtype` needed the same treatment for a
- * narrower but sharper reason, and gating on subtype EQUALITY would have been
- * wrong: `SYS-7 -> 1120` is NULL -> `receivable` and `SYS-8 -> 2110` is
- * NULL -> `payable`, so an equality rule refuses the two merges this tool
- * exists for.
- *
- * What actually matters is which subtypes are read as MEMBERSHIP PREDICATES
- * elsewhere, and there are exactly four:
- *
- *  - `vat_input`, `vat_output`, `tax` — `vatReturnService` scopes the VAT
- *    return by `ga.account_subtype IN ('vat_input','vat_output','tax')`, and
- *    its unclassified-input sweep adds any such line with a NULL `vat_type` to
- *    box 15 at full `debit - credit`. Merging an ordinary account INTO one puts
- *    money that is not tax onto a SARS return; merging one OUT drops its lines
- *    from the filter entirely and understates the return. Both directions, hence
- *    a symmetric check — the out direction is covered today only by accident,
- *    because most VAT accounts carry `is_system_account = true` and the source
- *    guard catches them, but Brightsphere's `34550639 Pay As You Earn` and
- *    `34024651 Income Tax` are subtype `tax` and are NOT system accounts.
- *  - `bank` — `bank_transactions.bank_account_id` FKs to `gl_accounts(id)` while
- *    every banking screen reaches those rows through `account_subtype = 'bank'`.
- *    The source side of this was already guarded by row COUNT; the class rule is
- *    what stops the target side.
- *
- * Everything else — `receivable`, `payable`, `equity`, NULL and the rest — is
- * presentation grouping inside a side of the balance sheet that `account_type`
- * already pins, and stays permitted or the tool cannot do its job. A same-class
- * merge (`vat_input` -> `vat_input`) also stays permitted: that is the same
- * split-control problem one axis over.
- */
-export type ReportingClass = 'vat' | 'bank' | 'ordinary';
-
-const VAT_CLASS_SUBTYPES: ReadonlySet<string> = new Set(['vat_input', 'vat_output', 'tax']);
-
-export function reportingClassFor(subtype: string | null): ReportingClass {
-  if (subtype === null) return 'ordinary';
-  if (VAT_CLASS_SUBTYPES.has(subtype)) return 'vat';
-  if (subtype === 'bank') return 'bank';
-  return 'ordinary';
-}
-
-/**
- * Moving an account off the bank subtype orphans its statement rows:
- * `bank_transactions.bank_account_id` FKs to `gl_accounts(id)`, but every
- * banking screen reaches those rows through `account_subtype = 'bank'`. Same
- * rule `accountReclassifyService` enforces, for the same reason — a merge that
- * deactivates a bank account leaves its transactions reachable from nothing.
- */
 async function countBankTransactions(companyId: string, accountId: string): Promise<number> {
   const rows = (await sql`
     SELECT COUNT(*)::INT AS cnt FROM bank_transactions
