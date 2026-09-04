@@ -100,6 +100,39 @@ to whoever owns AFS, not this programme.
    inserts, 14 updates across all 13 tenants). Land it with nothing else in
    flight so the blame surface is one branch.
 
+### The merge trap: hardcoded tool counts
+
+Three branches each register new MCP tools, so they collide on all three
+manifests (`toolIndex.ts`, `clientMetadata.ts`, `flowMetering.ts`) **and** on
+the tests that assert absolute tool counts. Each branch bumped the count from
+master's 109 to its own total, so the three are mutually incompatible by
+construction:
+
+| Branch | Adds | Its assertion |
+|---|---|---|
+| w6 depreciation | `reconcile_fixed_assets` (read), `run_depreciation` (write) | 111, reads 64 |
+| w4 merge | `merge_gl_accounts` (write) | 110, reads 63 |
+| w1 reclassification | `propose_reclassification` (read), `post_reclassification_batch` (write) | 111, reads 64 |
+
+The first to merge passes. **The second fails**, because its hardcoded number is
+now wrong — and the conflict resolution is *neither side*, it is the sum. After
+all three land the correct figures are:
+
+- **total 114** (109 + 2 + 1 + 2)
+- **reads 65** (63 + `reconcile_fixed_assets` + `propose_reclassification`)
+- **writes 49** (46 + `run_depreciation` + `merge_gl_accounts` + `post_reclassification_batch`)
+
+Set them to those numbers directly rather than accepting either side of the
+conflict. The danger is resolving by taking one side and then deleting a tool
+registration to make the count agree — the manifests would still build, and a
+tool would silently vanish from the connector.
+
+Also overlapping and needing keep-both resolution: `src/lib/mcp/.claude.md` and
+`AGENTS.md` (w6, w4, w5), `services/gl/.claude.md` and `AGENTS.md` (w4, w5),
+`contracts/figures.ts` (w6, w1). The `AGENTS.md` mirrors are generated —
+resolve the `.claude.md` canonical files, then run `bun run agent-docs:generate`
+and verify with `agent-docs:check` rather than hand-merging a mirror.
+
 `FINDINGS.md` is edited by w0 and w3; `CONTRACTS.md` by w0 and w6.
 `git merge-tree` reports `changed in both` on each. They are add/add on
 adjacent register rows — **resolve by keeping both sides.** Taking either side
