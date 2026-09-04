@@ -1,141 +1,59 @@
-# Session handoff — 2026-09-04 05:20 SAST
+# Session handoff — 2026-09-04 12:50 SAST — DEPLOYED
 
-MCP assurance programme, round 2. Seven worktrees, six workstreams. Four agents
-died at their session limit (resets 09:40 SAST); all their work is committed.
+MCP assurance programme, round 2. **Merged and deployed.**
 
-**Nothing has been pushed. Nothing has touched production.** Verified directly:
-`schema_migrations` on `isaflow` holds nothing from this programme. Neither
-control-account merge was run, no subtype was changed, no depreciation posted.
+Production is **`8c48dd8b`**, deployed 12:44 SAST. Rollback target: `549516ed`.
+`origin/master` matches the deployed SHA exactly.
 
-Production is `549516ed`. Every branch below is based on it.
+Seven PRs merged: #311 contracts/gates, #312 portfolio (recommends NOT
+building), #313 subtype evidence, #314 depreciation, #315 reclassification,
+#316 merge_gl_accounts, #317 system-account seed.
 
----
+## Verified against production after deploy
 
-## Branch state
+- **Six migrations applied**: 595, 596, 600, 605, 606, 607.
+- **16 inserts** — 7× `3300`, 8× `4410`, 1× `6010` — exactly as previewed.
+- **All 14 system roles now held on all 8 live tenants.** Zero gaps.
+- **Zero unprotected `company_id` tables** platform-wide; the three new tables
+  are `rowsecurity | forced | 1 policy`.
+- Health `{"status":"ok","db":"ok"}`; golden paths green; integrity green.
 
-| Worktree | Branch | Head | Reviews |
-|---|---|---|---|
-| w0-contracts | `mcp/r2-contracts-register` | `8c38eedb` | — |
-| w1-cash-application | `mcp/r2-reclassification` | `cc3fa44b` | 2 clear |
-| w2-assurance-reporting | `mcp/r2-portfolio-design` | `2f64482f` | recommends NOT building |
-| w3-banking-periods | `mcp/r2-subtype-evidence` | `ffd5309f` | awaiting Hein |
-| w4-integrity-vat | `mcp/r2-merge-gl-accounts` | `9b2cad03` | 2 APPROVED |
-| w5-governance | `mcp/r2-system-account-seed` | `1bb774de` | 2 APPROVED |
-| w6-new-domains | `mcp/r2-depreciation` | `5cfa5a7c` | 2 APPROVED |
+## Two things that nearly went wrong
 
-**All seven complete.** Every tree clean, nothing pushed, and `schema_migrations`
-on `isaflow` verified to hold nothing from this programme — the only `59x` row is
-`590`, from the previous session's W6 merge.
+**`deploy.sh` has NO `--dry-run`.** The flag is silently ignored and a real
+deploy starts. A run killed during the build reaches nothing (migrations run
+after the build), which is the only reason this was harmless.
 
-Migrations in play: **595 + 596** (w4), **600** (w1), **605 + 606 + 607** (w5).
-**591–594 released** — w6 carries no migration.
-
----
-
-## Before the first production merge — runbook, not code
-
-Both merge reviewers converged on this and it belongs in front of whoever signs:
-
-**Merge the code without a human reading it. Do not RUN a merge without one.**
-
-1. **A balanced trial balance afterwards is guaranteed by construction and
-   proves nothing.** A repoint changes no debit and no credit. The response says
-   so in three places and says it well, but a signer under time pressure reads
-   it as confirmation. Say this out of band to whoever runs the first merge.
-2. **The guard refuses a wrong CLASS, never a wrong TARGET within a class.**
-   `SYS-7 → 1140 VAT Input` is dead. `SYS-7 → any other ordinary asset account`
-   passes every check and produces a preview that looks exactly like the right
-   one. The account codes and names in the dry run are the only thing standing
-   there, and they need a person reading them.
-3. **Sign the dry run and run the merge in the same sitting.** Velocity's `1120`
-   and `2110` are still being written to unattended (C4) — `postedThrough` moved
-   during the review itself. `movedLinesDigest` makes a stale signature
-   **detectable, not harmless**: differing digests tell you to stop, but nothing
-   recovers a merge already run against the wrong set. On a generic failure,
-   re-run the dry run rather than retrying the merge.
+**It builds from the WORKING TREE.** An untracked `glAccountLock.ts` left in the
+main repo by a drifted session differed from the merged version by **48 lines** —
+the pre-review copy carrying a docblock a reviewer had corrected. That is what
+would have shipped. Caught only because a rebase refused to overwrite it.
+Before any deploy: check `git ls-files --others --exclude-standard` and diff
+untracked source files against `origin/master`.
 
 ---
 
-## Decisions waiting on Hein
+## Still open — all Hein's
 
-**1. The subtype writes — the only item whose cost rises with time.**
-Velocity Fibre reports a 96.6% gross margin against a real **−1.9%**.
-`accountClassification.ts:176` defaults a NULL expense subtype into operating
-expenses, so **R82,727,277.95** of direct cost sits below the gross-profit line
-with nothing warning. Remedy is nine `account_subtype` writes, five of which
-move money — no journals, no lines moved, no detail destroyed. Net profit is
-unchanged at −R34,816,224.89 before and after, which is what proves it is a
-reclassification rather than a restatement. Figures derived four independent
-ways, agreeing to the cent. Worklist: `docs/mcp/SUBTYPE-REMEDIATION-PROPOSAL.md`
-on `mcp/r2-subtype-evidence`.
+**1. The nine subtype writes.** Velocity reports a 96.6% gross margin against a
+real **−1.9%**; `accountClassification.ts` defaults a NULL expense subtype into
+operating expenses, so **R82,727,277.95** of direct cost sits below the gross
+profit line. Five of nine writes move money; net profit is unchanged at
+−R34,816,224.89, which is what proves it is a reclassification. **The tooling is
+now live; the data change is not made.** Worklist:
+`docs/mcp/SUBTYPE-REMEDIATION-PROPOSAL.md`. All periods open, nothing filed —
+cost rises once anything is signed.
 
-Timing: all 36 fiscal periods are open, nothing is signed or filed, so exposure
-is nil today. AFS sections cache a `data_snapshot` that nothing invalidates, so
-the same change after a year-end sign-off is materially harder.
+**2. C4** — something posts to Velocity's `1120`/`2110` unattended.
 
-**2. C4 — something is posting to Velocity's ledger unattended.**
-`postedThrough` on the AR control pair moved to 02:26 UTC mid-review.
-Two of these tools now take locks against those accounts.
+**3. AFS R700** — three `afs-cash-flow-direct` assertions fail deterministically
+on master, off by exactly R700. Unowned.
 
-**3. AFS direct cash flow is broken on `master` right now.** Three assertions
-in `afs-cash-flow-direct.int.test.ts` off by exactly R700, deterministically —
-reproduced at clean `549516ed` in a detached worktree. One of them is the test
-proving a liability carrying a cash subtype is not counted as cash. All three
-missing by the same amount points at a single misclassified R700 line. Belongs
-to whoever owns AFS, not this programme.
-
----
-
-## Merge order, when the re-reviews are clean
-
-1. **w0 first** — it carries both CI gates, so every later branch is checked by
-   them rather than after them.
-2. w2, w3 — documents only.
-3. w6, w1, w4 — code, each after its re-review passes. Migrations 591–594
-   (unused), 600, 595. Re-verify prefixes against `master` immediately before
-   each.
-4. **w5 last and alone** — the only branch that writes production data (26
-   inserts, 14 updates across all 13 tenants). Land it with nothing else in
-   flight so the blame surface is one branch.
-
-### The merge trap: hardcoded tool counts
-
-Three branches each register new MCP tools, so they collide on all three
-manifests (`toolIndex.ts`, `clientMetadata.ts`, `flowMetering.ts`) **and** on
-the tests that assert absolute tool counts. Each branch bumped the count from
-master's 109 to its own total, so the three are mutually incompatible by
-construction:
-
-| Branch | Adds | Its assertion |
-|---|---|---|
-| w6 depreciation | `reconcile_fixed_assets` (read), `run_depreciation` (write) | 111, reads 64 |
-| w4 merge | `merge_gl_accounts` (write) | 110, reads 63 |
-| w1 reclassification | `propose_reclassification` (read), `post_reclassification_batch` (write) | 111, reads 64 |
-
-The first to merge passes. **The second fails**, because its hardcoded number is
-now wrong — and the conflict resolution is *neither side*, it is the sum. After
-all three land the correct figures are:
-
-- **total 114** (109 + 2 + 1 + 2)
-- **reads 65** (63 + `reconcile_fixed_assets` + `propose_reclassification`)
-- **writes 49** (46 + `run_depreciation` + `merge_gl_accounts` + `post_reclassification_batch`)
-
-Set them to those numbers directly rather than accepting either side of the
-conflict. The danger is resolving by taking one side and then deleting a tool
-registration to make the count agree — the manifests would still build, and a
-tool would silently vanish from the connector.
-
-Also overlapping and needing keep-both resolution: `src/lib/mcp/.claude.md` and
-`AGENTS.md` (w6, w4, w5), `services/gl/.claude.md` and `AGENTS.md` (w4, w5),
-`contracts/figures.ts` (w6, w1). The `AGENTS.md` mirrors are generated —
-resolve the `.claude.md` canonical files, then run `bun run agent-docs:generate`
-and verify with `agent-docs:check` rather than hand-merging a mirror.
-
-`FINDINGS.md` is edited by w0 and w3; `CONTRACTS.md` by w0 and w6.
-`git merge-tree` reports `changed in both` on each. They are add/add on
-adjacent register rows — **resolve by keeping both sides.** Taking either side
-silently drops findings and the numbering gate only catches duplicates, not
-omissions.
+**4. Before any merge is RUN** (the code is deployed; no merge has been run):
+a balanced trial balance afterwards is guaranteed by construction and proves
+nothing; the guard refuses a wrong CLASS but never a wrong TARGET within a
+class; sign the dry run and run the merge in the same sitting, and compare
+`movedLinesDigest` if they are not.
 
 ---
 
