@@ -15,9 +15,19 @@
 -- that cannot be resolved by editing it back.
 --
 -- Two reasons this escaped the gate, both worth knowing before trusting a green
--- CI run on the next table: `rls-policy-coverage.test.ts` lives in the
--- INTEGRATION suite, which `bun run ci` skips silently without DATABASE_URL and
--- five other variables — so the check that would have caught it did not run.
+-- CI run on the next table.
+--
+-- One: `rls-policy-coverage.test.ts` lives in the INTEGRATION suite, which
+-- `bun run ci` skips SILENTLY without DATABASE_URL and five other variables. The
+-- check that would have caught this did not run, and nothing said so.
+--
+-- Two, and it is the deeper one: that check is a DATABASE-DEPENDENT TEST rather
+-- than a static one. It can only ever run where a live Postgres and six
+-- environment variables are present, so it is absent from exactly the
+-- environments a migration is most likely to be reviewed in. A gate that reads
+-- the migration FILES needs none of that and runs every time — which is why a
+-- static migration-RLS check now exists on the contracts branch. This escape is
+-- the reason it was built.
 --
 -- Shape copied verbatim from 570_vat_period_locks.sql. The DO block makes the
 -- policy idempotent; `CREATE POLICY` has no IF NOT EXISTS.

@@ -87,6 +87,14 @@ function isLockTimeout(err: unknown): boolean {
  * its own implicit transaction, so `FOR UPDATE` releases the instant the SELECT
  * returns and the caller believes it is serialised when it is not.
  *
+ * **A caller that locks and then REFUSES holds these rows until the request
+ * transaction ends.** `merge_gl_accounts` does exactly that: it takes the lock
+ * before the preview so the preview reads under it, and a `blocked` or
+ * guard refusal then returns a toolError with the rows still held. Milliseconds,
+ * and the deliberate trade for a preview that cannot be raced — but it is a
+ * trade, so anyone moving that hoist should move it knowingly rather than
+ * discover this.
+ *
  * The 5s `lock_timeout` is re-issued on EVERY call, not memoised per request.
  * `SET LOCAL` is subtransaction-aware: `ROLLBACK TO SAVEPOINT` restores the
  * previous value, which is `0` — no timeout at all. Every MCP tool call runs in
