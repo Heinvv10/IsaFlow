@@ -18,27 +18,13 @@ fi
 echo "OK: decodeToken imports scoped correctly."
 
 echo
-echo "=== BL-13: every gl_journal_lines query must scope by company_id ==="
-# Match "FROM gl_journal_lines" or "JOIN gl_journal_lines"; require company_id
-# scoping within 20 lines (either direction) of the match. Accept aliased
-# forms like `jl.company_id`, `je.company_id`, `gjl.company_id` and bare
-# `company_id =` / `company_id::UUID` (used in unaliased gl_journal_lines
-# queries — still tenant-scoped because the predicate sits on the table itself).
-# customReportFieldDefs.ts contains a string-template FROM clause (not an executed query).
-# Scoping is enforced in customReportRunner.ts which adds jl.company_id to whereParts.
-VIOLATIONS=$(grep -rnE "FROM gl_journal_lines|JOIN gl_journal_lines" src/ pages/ --include='*.ts' 2>/dev/null | grep -v 'customReportFieldDefs\.ts' | while IFS=: read -r file line _; do
-  ctx=$(awk -v start="$((line>20?line-20:1))" -v end="$((line+20))" 'NR>=start && NR<=end' "$file")
-  if ! echo "$ctx" | grep -qE "(jl|je|gjl)\.company_id|\bcompany_id\s*(=|::UUID)"; then
-    echo "$file:$line"
-  fi
-done)
-
-if [[ -n "$VIOLATIONS" ]]; then
-  echo "ERROR: gl_journal_lines usage without company_id scoping:"
-  echo "$VIOLATIONS"
-  exit 1
-fi
-echo "OK: gl_journal_lines usage is tenant-scoped."
+# BL-13: every gl_journal_lines query must scope by company_id. Detection
+# logic lives in glJournalLinesScopeRule.ts (unit-tested in
+# tests/unit/ci/glJournalLinesScopeRule.test.ts) rather than here, because a
+# line-proximity `awk` check here could be — and was — satisfied by a
+# `company_id` mention anywhere within 20 lines, including inside an
+# unrelated comment. See docs/mcp/CONTRACTS.md and FINDINGS.md B64.
+bun scripts/ci/check-gl-journal-lines-scope.ts || exit 1
 
 echo
 echo "=== Pentest H7: client IP must come from getClientIp(), never x-forwarded-for[0] ==="
@@ -55,13 +41,32 @@ echo "OK: client-IP extraction goes through getClientIp()."
 echo
 echo "=== Pentest H1: portal / impersonation JWT secrets must not be derived from JWT_SECRET ==="
 # Match expressions like `JWT_SECRET + '-portal'` that concatenate the staff
-# secret with a suffix to fake a per-purpose secret. Comments are excluded
-# (lines starting with // or *).
-SECRET_OFFENDERS=$(grep -rnE "JWT_SECRET\s*\+\s*['\"]" src/ pages/ --include='*.ts' 2>/dev/null \
-  | grep -vE ':\s*//|:\s*\*' || true)
+# secret with a suffix to fake a per-purpose secret. A line whose own text
+# (after leading whitespace) starts with // or * is a genuine comment line
+# and is excluded.
+#
+# The previous exclusion, `grep -vE ':\s*//|:\s*\*'`, matched that substring
+# ANYWHERE in the "file:line:content" string — not anchored to the start of
+# the line's own content. A real violation sharing a line with a URL
+# (":\/\/" inside a string literal, e.g. `JWT_SECRET + 'https://...-portal'`)
+# contains ":\s*//" too, so the "comment" exclusion silently swallowed a real
+# violation. Re-reading the exact source line and testing ITS OWN leading
+# characters, rather than pattern-matching the composed grep output, closes
+# that. See FINDINGS.md B64.
+SECRET_OFFENDERS=""
+while IFS=: read -r file lineno _rest; do
+  [[ -z "$file" ]] && continue
+  content=$(sed -n "${lineno}p" "$file")
+  trimmed="${content#"${content%%[![:space:]]*}"}"
+  case "$trimmed" in
+    //*|'*'*) continue ;;
+  esac
+  SECRET_OFFENDERS="${SECRET_OFFENDERS}${file}:${lineno}:${content}"$'\n'
+done < <(grep -rnE "JWT_SECRET\s*\+\s*['\"]" src/ pages/ --include='*.ts' 2>/dev/null || true)
+
 if [[ -n "$SECRET_OFFENDERS" ]]; then
   echo "ERROR: JWT_SECRET concatenation detected. Add a dedicated *_JWT_SECRET env var instead."
-  echo "$SECRET_OFFENDERS"
+  printf '%s' "$SECRET_OFFENDERS"
   exit 1
 fi
 echo "OK: no JWT_SECRET derivations."
