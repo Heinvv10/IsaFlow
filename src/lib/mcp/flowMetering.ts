@@ -164,6 +164,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   supplier_statement: null,
   job_cost_report: null,
   budget_variance: null,
+  propose_reclassification: null,
 
   // ── Creation: charged once, on create ────────────────────────────────────
   create_draft_invoice: 'invoice.create',
@@ -171,6 +172,13 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // only posts what the draft already paid for, exactly like finalize_invoice.
   create_supplier_invoice: 'invoice.create',
   create_draft_journal: 'journal.create',
+  // A reclassification posts real journals, so it is priced like one — ONCE for
+  // the batch, matching year_end_close, not per journal. Per-journal would make
+  // the price depend on how many distinct DATES the source lines happen to
+  // carry, which is a property of the books being corrected rather than of the
+  // work asked for, and would put a toll on cleaning up the exact accounts this
+  // programme found to be unclassified.
+  post_reclassification_batch: 'journal.create',
   import_bank_statement: 'bank.import',
   // Quotes are not metered in the app.
   create_draft_quote: null,

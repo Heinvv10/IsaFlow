@@ -322,6 +322,15 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     excludes:
       'Nothing. An account omitted because it did not move in the month is the defect that let a 7-of-118 listing be stamped Balanced.',
   }),
+  'gl.reclassification.v1': def({
+    id: 'gl.reclassification.v1',
+    label: 'Effect of moving posted amounts between two GL accounts',
+    owner: 'gl/reclassification/impact#computeReclassImpact',
+    includes:
+      'TWO full aggregations over the same posted-ledger window: the accounts as they stand, and the same scan with the moved lines projected onto the target account. Both are folded by gl/accountClassification#aggregateFigures, the one owned classifier, so the before side is the same P&L profit_and_loss reports.',
+    excludes:
+      'Draft journals. And note the limit of the self-check: the before side is compared band by band against financialFiguresService and a disagreement is reported as a basis_disagreement warning — that is NECESSARY AND NOT SUFFICIENT. It proves this query has not drifted from the owning service; it cannot prove the PROJECTION is right, because nothing independent computes the after side. Read the journals, not only the delta.',
+  }),
 } as const;
 
 /**

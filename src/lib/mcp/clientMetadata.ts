@@ -14,7 +14,7 @@ export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-s
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
 /** All MCP tool names (37 read + 35 write). Drift-guarded against toolIndex. */
-/** All MCP tool names (45 read + 33 write). Drift-guarded against toolIndex. */
+/** All MCP tool names (64 read + 47 write). Drift-guarded against toolIndex. */
 export const CLIENT_MCP_TOOL_NAMES = [
   // read
   'company_profile',
@@ -83,6 +83,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'supplier_statement',
   'job_cost_report',
   'budget_variance',
+  'propose_reclassification',
   // write
   'create_draft_invoice',
   'create_draft_quote',
@@ -94,6 +95,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'reverse_bank_allocation',
   'bulk_allocate_bank_transactions',
   'reverse_bank_allocation_batch',
+  'post_reclassification_batch',
   'import_bank_statement',
   'undo_bank_import',
   'create_gl_account',
