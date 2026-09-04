@@ -211,3 +211,13 @@ export function findViolations(files: Array<{ file: string; text: string }>): Vi
   }
   return out;
 }
+
+/** A baseline keeps the gate honest only if it can shrink. A table listed in
+ * `baseline` that no longer appears in `violations` has become independently
+ * verifiable (a later migration named it as literal text) and the entry is
+ * stale — left alone, the baseline only ever grows, including entries a
+ * later migration already fixed, and stops being a record of blind spots. */
+export function findStaleBaselineEntries(violations: Violation[], baseline: Set<string>): string[] {
+  const flagged = new Set(violations.map(v => v.table));
+  return [...baseline].filter(t => !flagged.has(t)).sort();
+}

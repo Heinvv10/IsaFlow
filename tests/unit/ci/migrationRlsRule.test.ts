@@ -7,7 +7,7 @@
  * instead of failing.
  */
 import { describe, it, expect } from 'vitest';
-import { findViolations, findCreateTables } from '../../../scripts/ci/migrationRlsRule';
+import { findViolations, findCreateTables, findStaleBaselineEntries } from '../../../scripts/ci/migrationRlsRule';
 
 /** 595_gl_account_merges.sql's actual shape, trimmed to what matters: a
  * company_id table, no ENABLE, no FORCE, no policy, anywhere in the file. */
@@ -226,5 +226,43 @@ CREATE TABLE IF NOT EXISTS after_it (
     };
     const tables = findCreateTables(file.file, file.text);
     expect(tables.map(t => t.table)).toEqual(['weird_default', 'after_it']);
+  });
+
+  describe('findStaleBaselineEntries', () => {
+    it('flags a baseline entry the gate can now verify directly as stale', () => {
+      // A table baselined as gate-blind is later given its own literal
+      // protection — the entry should shrink out of the baseline, not sit
+      // there forever once it stops being true.
+      const nowProtected = {
+        file: 'scripts/migrations/sql/999_late_protection.sql',
+        text: `
+CREATE TABLE IF NOT EXISTS some_table (
+  id UUID PRIMARY KEY,
+  company_id UUID NOT NULL
+);
+ALTER TABLE some_table ENABLE ROW LEVEL SECURITY;
+ALTER TABLE some_table FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON some_table USING (true);
+`,
+      };
+      const violations = findViolations([nowProtected]);
+      const stale = findStaleBaselineEntries(violations, new Set(['some_table']));
+      expect(stale).toEqual(['some_table']);
+    });
+
+    it('does not flag a baseline entry the gate still cannot verify', () => {
+      const stillUnprotected = {
+        file: 'scripts/migrations/sql/999_still_blind.sql',
+        text: `
+CREATE TABLE IF NOT EXISTS some_table (
+  id UUID PRIMARY KEY,
+  company_id UUID NOT NULL
+);
+`,
+      };
+      const violations = findViolations([stillUnprotected]);
+      const stale = findStaleBaselineEntries(violations, new Set(['some_table']));
+      expect(stale).toEqual([]);
+    });
   });
 });

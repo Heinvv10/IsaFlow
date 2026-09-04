@@ -25,6 +25,22 @@
 # the gate is failing on it and you have not confirmed why; confirm first,
 # against isaflow_dev, the way 596_gl_account_merges_rls.sql's own commit
 # message did.
+#
+# THIS GATE AND tests/integration/rls-policy-coverage.test.ts ARE
+# COMPLEMENTARY, NOT REDUNDANT. The static gate catches a NEW table shipped
+# unprotected, at authoring time, with no database — that is what it is for,
+# and it is blind to these 156 by construction. The DB-gated integration test
+# catches DRIFT on tables already protected — a policy dropped, RLS disabled
+# by a later migration, FORCE turned off — which this gate cannot see either,
+# because it only ever checks whether protecting TEXT exists, never whether
+# the database actually applied it. Neither test subsumes the other; these
+# 156 tables are covered by the second even though the first is structurally
+# blind to them.
+#
+# check-migration-rls.ts self-checks this list: a line here that the gate can
+# now verify directly (a later migration named the table as literal text) is
+# a STALE entry and fails the build until removed — the baseline should
+# shrink as tables gain individually-readable protection, not only grow.
 account_external_mapping
 accounting_settings
 account_reporting_groups

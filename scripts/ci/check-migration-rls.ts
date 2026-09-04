@@ -17,12 +17,17 @@
  * baseline, which is how 595_gl_account_merges.sql was found: genuinely
  * unprotected, not a gate blind spot. See FINDINGS.md.
  *
+ * The baseline is also checked for staleness: a table listed in it that a
+ * later migration made independently verifiable is a stale entry and fails
+ * the build until removed, via findStaleBaselineEntries — the baseline
+ * should shrink as protection becomes visible as text, not only grow.
+ *
  * Run: bun scripts/ci/check-migration-rls.ts
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { findViolations } from './migrationRlsRule';
+import { findViolations, findStaleBaselineEntries } from './migrationRlsRule';
 
 const DIR = 'scripts/migrations/sql';
 const BASELINE_PATH = 'scripts/ci/migration-rls.baseline';
@@ -52,12 +57,17 @@ const baseline = readBaseline();
 const allViolations = findViolations(files);
 const newViolations = allViolations.filter(v => !baseline.has(v.table));
 const baselinedCount = allViolations.length - newViolations.length;
+const staleBaselineEntries = findStaleBaselineEntries(allViolations, baseline);
 
 console.log('=== every migration-created company_id table must end up under RLS ===');
 if (baselinedCount > 0) {
   console.log(`(${baselinedCount} table(s) not directly verifiable by this gate, matched against the baseline — see ${BASELINE_PATH})`);
 }
+
+let fail = false;
+
 if (newViolations.length > 0) {
+  fail = true;
   console.error(`ERROR: ${newViolations.length} table(s) with company_id and no ENABLE+FORCE+POLICY found anywhere in scripts/migrations/sql/, and not in the baseline.`);
   for (const v of newViolations) {
     console.error(`  ${v.table}  (created at ${v.file}:${v.line})`);
@@ -66,6 +76,17 @@ if (newViolations.length > 0) {
   console.error('Fix: add ENABLE/FORCE ROW LEVEL SECURITY + a CREATE POLICY for this table,');
   console.error('in the same migration or a new one. Do NOT add it to the baseline instead —');
   console.error('the baseline is for tables independently confirmed safe, not new gaps.');
-  process.exit(1);
 }
+
+if (staleBaselineEntries.length > 0) {
+  fail = true;
+  console.error(`ERROR: ${staleBaselineEntries.length} baseline entr${staleBaselineEntries.length === 1 ? 'y is' : 'ies are'} stale — the gate can now verify ${staleBaselineEntries.length === 1 ? 'it' : 'them'} directly, so ${staleBaselineEntries.length === 1 ? "it doesn't" : "they don't"} belong in ${BASELINE_PATH} any more:`);
+  for (const t of staleBaselineEntries) {
+    console.error(`  ${t}`);
+  }
+  console.error('');
+  console.error(`Fix: delete ${staleBaselineEntries.length === 1 ? 'this line' : 'these lines'} from ${BASELINE_PATH}.`);
+}
+
+if (fail) process.exit(1);
 console.log('OK: every company_id table created by a migration is under RLS (directly or via the baseline).');
