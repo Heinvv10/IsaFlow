@@ -170,6 +170,58 @@ So, three obligations on anything shipping an identity:
    "inspect the items". A residual of zero is an invitation to look, not a
    conclusion.
 
+### A figure reported outside the envelope keeps its authority and loses its check
+
+The mirror image of the section above, from the other side. That section warns
+that an identity which always closes invites being trusted without inspection.
+**A figure with no identity at all invites exactly the same trust, and has even
+less behind it.**
+
+The fixed-asset reconciliation used to report 58 unsubtyped accounts — net
+**R32,747,547.38** on Velocity, spanning "Assets", "Current Assets", "Petty
+Cash", debtors — inside `excludedRows`. That was wrong in kind, not just
+wrong: the report's universe is defined by subtype, so an account with none was
+never a member of it, and calling R32.7m of debtors "fixed assets this report
+could not classify" is false. Moving those rows to a top-level `disclosures`
+field was the right fix. But it cost something: the endpoint now reports rand
+figures OUTSIDE the reconciling identity — a free-standing `SUM` sitting beside
+`difference` and `unexplainedDifference` with the same visual authority, guarded
+by nothing. One of them already double-counts, because it sums over a table
+whose grouping key a non-unique index permits to repeat.
+
+So: moving a figure out of `excludedRows`, or out of any reconciling identity,
+is often correct, and it **always costs the check**. Every such figure must
+either carry its own guard that can fail, or say in the tool description that
+it is an unguarded sum — not neither, silently.
+
+The question that catches these: **could this number be wrong without anything
+in the response changing?** If yes, and the response does not say so, the
+figure is worse than absent — it reads as verified because of the company it
+keeps beside `unexplainedDifference: 0.00`.
+
+Watch for the specific shape that produces this: a `SUM` over rows grouped by a
+key with no uniqueness guarantee. A non-unique index on the grouping column is
+a double-count waiting for a second row.
+
+**Worked example, and it earns the citation by having failed first.**
+`reconcile_fixed_assets`'s first attempt at "either carry a guard that can
+fail, or say it is unguarded" shipped `figure_guards` as a hardcoded object
+literal — five labels emitted on every call, a DECLARATION that a guard
+existed rather than a MEASUREMENT that one ran. That is this section's own
+defect, reproduced inside the fix meant to prevent it. Fixed by deriving each
+label from a comparison the call actually performed, at the WIRE boundary over
+the rows the response carries (not the service-level array the total was
+reduced from, which cannot fail by construction and would miss a cap applied
+downstream while mapping to the response): `identity` for a figure inside the
+reconciliation, `enumerated` when its rows were emitted and summed to the
+total, `unguarded` when they were not — the third label is what makes "or say
+it is unguarded" an outcome a caller can see rather than a promise nobody
+checks. `unguarded` is reachable and directly tested; **no production call
+site in this tool currently reaches it**, because every one passes rows. Keep
+that distinction rather than smooth it — "reachable but never reached here" is
+a different claim from "exercised in production", and this is the one section
+where blurring them would teach exactly the wrong habit.
+
 ### A filter that drops rows is the defect, not the fix
 
 `casewareExportService` filtered `ga.is_active = true` and silently dropped a
@@ -213,6 +265,22 @@ nothing in the API today lets a reader distinguish that from an arithmetic error
 
 Compute it as the maximum `created_at` of the rows the figure consumed. If your
 report reads from more than one table, take the max across all of them.
+
+`posted_through` is `string | null`. **`null` is the answer when a report
+consumed no ledger row — never a sentinel timestamp.** This was shipped both
+ways at once: `envelope.ts` declares the field nullable and null; a separate
+service exported `NO_LEDGER_READ = '1970-01-01T00:00:00.000Z'` and several tools
+fell back to it with `?? NO_LEDGER_READ`. The epoch's reasoning was not stupid —
+a report reading nothing has no watermark, and `1970-01-01` never claims to be
+as fresh as the clock. But it loses anyway, for one reason that settles it: **a
+sentinel that is a valid value of its own type cannot be told apart from a real
+reading by anything downstream.** `new Date(posted_through) > x` parses the
+epoch exactly as happily as it parses a real timestamp and returns a plausible,
+wrong answer. `null` cannot be silently compared as a date at all — it forces
+whoever consumes the field to ask "did this report read anything?" before
+asking "when." A value indistinguishable from a real one is worse than an
+absent one; see "A figure reported outside the envelope keeps its authority and
+loses its check", above, for the general form of that argument.
 
 ---
 
@@ -574,6 +642,18 @@ So, for anything that writes:
   `varchar(255)` — throws at runtime and looks perfectly well-formed in a mock.
 
 A guard above a query is worth nothing if the query cannot run.
+
+### Reading the code is not evidence that a test works
+
+Neither is an assertion passing. **Mutating the production code and watching
+the test go red is.** An assertion that holds against a mock returning exactly
+the values the assertion checks proves the assertion, not the test — it would
+pass identically whether the code underneath were correct, broken, or deleted.
+
+Before calling any test "verified," break the thing it claims to catch — flip
+the comparison, delete the guard, change the column — and confirm the test
+fails. If it doesn't, the test isn't testing what you think it's testing, and
+neither reading the source nor reading the assertion will tell you that.
 
 ---
 

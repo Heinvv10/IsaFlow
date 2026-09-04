@@ -165,6 +165,7 @@ async function loadPeriodData(exportRow: AuditExport): Promise<JEForExport[]> {
       FROM gl_journal_lines jl
       JOIN gl_accounts ga ON ga.id = jl.gl_account_id
       WHERE jl.journal_entry_id = ${je.id as string}::uuid
+        AND jl.company_id = ${exportRow.companyId}::uuid
       ORDER BY jl.created_at ASC
     `) as Row[];
 

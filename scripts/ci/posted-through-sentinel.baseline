@@ -1,0 +1,44 @@
+# Files carrying the 1970-01-01T00:00:00 posted_through sentinel, as at
+# 2026-09-04 — KNOWN DEFECTS on a scheduled sweep, NOT gate blind spots (see
+# migration-rls.baseline for the other kind — that distinction matters here
+# more than there, because these entries should shrink to zero and the RLS
+# ones should not).
+#
+# docs/mcp/CONTRACTS.md settles it: posted_through is string | null, and null
+# — never a sentinel timestamp — is the correct answer when a report consumed
+# no ledger row. Each file below fabricates the epoch instead, via its own
+# local `?? '1970-01-01T00:00:00.000Z'` or a same-shaped helper. NONE of them
+# import NO_LEDGER_READ from postedThroughService.ts — the spread is
+# copy-paste of the string literal, not import of a constant — so do not
+# search for the constant name when sweeping this list; search the literal,
+# the way this gate does. See docs/mcp/FINDINGS.md B68.
+#
+# postedThroughService.ts itself is NOT listed here: it is the one place the
+# literal is allowed, as the deprecated constant's own definition (kept
+# exported per B68 — converging callers is this sweep's job, not deleting the
+# constant), and is excluded from the scan by filename rather than baselined
+# as a defect.
+#
+# SELF-CLEANING, unlike migration-rls.baseline. There the 156 entries are a
+# permanent, correct exemption — the gate genuinely cannot verify those
+# tables either way. Here every entry is a TEMPORARY exemption for a live
+# defect: the gate fails again if a listed file no longer contains the
+# literal (fixed, so the line must be deleted) as much as if it were
+# unlisted and unfixed. Without that, "fixed and left in the baseline" and
+# "re-broken and left in the baseline" would both read as clean, and a
+# baseline entry not retired when its site is fixed becomes a permanent
+# exemption for a temporary problem.
+#
+# Delete a line once its file stops fabricating the sentinel (i.e. it returns
+# the real `string | null` and lets the caller decide, per the contract).
+# Do NOT add a file to this list because the gate is failing on it and you
+# have not confirmed why — confirm the fabrication is genuine first.
+src/lib/mcp/tools/assets.ts
+src/lib/mcp/tools/budgetVariance.ts
+src/lib/mcp/tools/domainReports.ts
+src/lib/mcp/tools/generalLedger.ts
+src/lib/mcp/tools/inventoryAndAp.ts
+src/lib/mcp/tools/jobCost.ts
+src/lib/mcp/tools/payroll.ts
+src/lib/mcp/tools/payrollSars.ts
+src/lib/mcp/tools/reconcileSubledger.ts
