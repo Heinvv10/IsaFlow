@@ -55,9 +55,13 @@
  * so a reversal, rebate or recovery arrives NEGATIVE and REDUCES operating
  * expenses — reclassifying it upward would RAISE gross profit, and the only
  * possible error direction is understatement. Summing absolutes would state the
- * opposite of the fact. Brightsphere carries the shape live: `35409454 Legal
- * Expenses` holds -R1,084,773.56. The `…Amount` fields are SIGNED — what the
- * report actually shows — and only the bound is clamped.
+ * opposite of the fact. No DISCLOSED account carries a credit balance in
+ * production today — Brightsphere's `35409454 Legal Expenses` holds
+ * -R1,084,773.56 but is classified `operating_expenses`, so this predicate
+ * never sees it; the shape is real in the ledger and latent here, which is why
+ * the clamp is written and tested rather than deferred. The `…Amount` fields
+ * are SIGNED — what the report actually shows — and only the bounds are
+ * clamped.
  *
  * WORDING IS NOT DUPLICATED. `buildDataQualityNotices` already owns the
  * sentences and the `R 1 000,00` format ten other report surfaces show. This
@@ -104,6 +108,13 @@ export interface IncomeStatementSubtypeDisclosure {
   /** SIGNED net of those accounts. */
   revenueAmount: number;
   /**
+   * Revenue accounts recognised as other income and reported inside turnover.
+   * Exposed because a caller deriving this from `accounts` gets the CAPPED
+   * named list instead: nine such accounts rendered as "2 other-income
+   * accounts carrying R5,000,000.00".
+   */
+  otherIncomeAccounts: number;
+  /**
    * Gross profit is overstated by AT LEAST this — other income sitting inside
    * turnover. Certain today; no reclassification needed to know it.
    */
@@ -130,6 +141,21 @@ export interface IncomeStatementSubtypeDisclosure {
   message: string;
 }
 
+/**
+ * Human labels for each reason, so the screen, the CSV and the XLSX describe a
+ * reason the same way. An export that says `other_income_in_turnover` where the
+ * screen says something readable is the same defect described twice.
+ */
+export const DISCLOSURE_REASON: Record<DisclosureReason, string> = {
+  no_subtype: 'no recognised account_subtype',
+  platform_default: 'carries the platform default subtype, i.e. nobody classified it',
+  other_income_in_turnover: 'other income, reported inside turnover',
+};
+
+/** Falls back to the raw value rather than rendering the string `undefined`. */
+export const reasonLabel = (reason: string): string =>
+  DISCLOSURE_REASON[reason as DisclosureReason] ?? reason;
+
 /** Below a tenth of a cent is not worth a banner. */
 const MATERIAL = 0.001;
 
@@ -143,8 +169,27 @@ const NAMED_LIMIT = 6;
  */
 const PLATFORM_DEFAULTS: ReadonlySet<string> = new Set(['default_expense', 'default_revenue']);
 
+/**
+ * Normalised exactly as `canonicalSubtype` normalises, including the
+ * space/hyphen collapse. Matching on `.trim().toLowerCase()` alone would let
+ * `"Default Expense"` or `"default-expense"` miss this set, canonicalise to
+ * `operating_expense`, and be called classified — the precise miss this
+ * predicate exists to close.
+ */
 const isPlatformDefault = (raw: string | null): boolean =>
-  PLATFORM_DEFAULTS.has((raw ?? '').trim().toLowerCase());
+  PLATFORM_DEFAULTS.has((raw ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_'));
+
+/**
+ * Subtypes that actually say something about where a row belongs ON THIS
+ * REPORT. A subtype from the other side of the ledger — an expense account
+ * carrying `bank`, or `revenue` — canonicalises non-null and would read as a
+ * classification, while the report still bands the row by its bare `else`.
+ */
+const EXPENSE_VOCABULARY: ReadonlySet<string> = new Set([
+  'cost_of_sales', 'operating_expense', 'admin_expense', 'depreciation_expense',
+  'finance_cost', 'tax_expense', 'other_expense', 'payroll_expense', 'insurance_expense',
+]);
+const REVENUE_VOCABULARY: ReadonlySet<string> = new Set(['revenue', 'sales', 'other_income']);
 
 /** Why this row is disclosed, or null if its placement is a real classification. */
 export function reasonFor(row: DisclosureInputRow): DisclosureReason | null {
@@ -152,6 +197,8 @@ export function reasonFor(row: DisclosureInputRow): DisclosureReason | null {
   const canon = canonicalSubtype(row.accountSubtype);
   if (canon === null) return 'no_subtype';
   if (row.accountType === 'revenue' && canon === 'other_income') return 'other_income_in_turnover';
+  const vocabulary = row.accountType === 'expense' ? EXPENSE_VOCABULARY : REVENUE_VOCABULARY;
+  if (!vocabulary.has(canon)) return 'no_subtype';
   return null;
 }
 
@@ -208,9 +255,25 @@ export function buildIncomeStatementSubtypeDisclosure(
 
   const expenseAmount = expenses.reduce((s, r) => s + r.amount, 0);
   const revenueAmount = revenues.reduce((s, r) => s + r.amount, 0);
+  // The per-type sentences describe the FALLBACK-banded accounts only. Summing
+  // every disclosed row while counting only the fallback ones states two
+  // different totals for one set: Brightsphere read "1 revenue account carrying
+  // R 12 434 321,32" for an account holding R12,410,997.90, the extra
+  // R23,323.42 being the other-income account the very next sentence reports
+  // again. One defect, described twice, with an inflated figure.
+  const possibleExpenses = expenses.filter(r => r.reason !== 'other_income_in_turnover');
+  const possibleRevenues = revenues.filter(r => r.reason !== 'other_income_in_turnover');
+  const possibleExpenseAmount = possibleExpenses.reduce((s, r) => s + r.amount, 0);
+  const possibleRevenueAmount = possibleRevenues.reduce((s, r) => s + r.amount, 0);
 
-  // Certain: other income already inside turnover, so already inside gross profit.
-  const floor = certain.reduce((s, r) => s + Math.max(r.amount, 0), 0);
+  // Certain: other income already inside turnover, so already inside gross
+  // profit. NETTED then clamped once — not clamped per row. A contra
+  // other-income account (a rebate or reversal) carries a negative amount and
+  // genuinely REDUCES what other income contributes; dropping it would inflate
+  // a number labelled a hard minimum. Per-row clamping is right for the two
+  // ceilings, where each account is an independent "could this move?" question,
+  // and wrong here, where the floor is one net quantity.
+  const floor = Math.max(certain.reduce((s, r) => s + r.amount, 0), 0);
   // Possible, split — see the docblock. Debits only: a credit-balance expense
   // cannot overstate anything, and neither can a contra-revenue account.
   const costOfSalesExposure = possible
@@ -226,31 +289,33 @@ export function buildIncomeStatementSubtypeDisclosure(
   const notices = buildDataQualityNotices({
     unclassifiedAccounts: {
       accounts: possible.length,
-      amount: expenseAmount + revenueAmount,
+      amount: possibleExpenseAmount + possibleRevenueAmount,
       message: '',
       byType: [
-        ...(expenses.some(r => r.reason !== 'other_income_in_turnover')
+        ...(possibleExpenses.length > 0
           ? [{
               type: 'expense',
-              accounts: expenses.filter(r => r.reason !== 'other_income_in_turnover').length,
-              amount: expenseAmount,
+              accounts: possibleExpenses.length,
+              amount: possibleExpenseAmount,
               defaultedTo: 'operating expenses rather than cost of sales',
             }]
           : []),
-        ...(revenues.some(r => r.reason !== 'other_income_in_turnover')
+        ...(possibleRevenues.length > 0
           ? [{
               type: 'revenue',
-              accounts: revenues.filter(r => r.reason !== 'other_income_in_turnover').length,
-              amount: revenueAmount,
+              accounts: possibleRevenues.length,
+              amount: possibleRevenueAmount,
               defaultedTo: 'turnover rather than other income',
             }]
           : []),
       ],
     },
-    grossProfitOverstatedByAtLeast: floor,
     costOfSalesExposureAtMost: costOfSalesExposure,
     otherIncomeExposureAtMost: otherIncomeExposure,
-    otherIncomeInTurnover: certain.length > 0
+    // Guarded on the AMOUNT, not the count: a certain set that nets to nil
+    // (a reversal cancelling the income) would otherwise render
+    // "1 other-income account carrying R 0,00", which warns about nothing.
+    otherIncomeInTurnover: floor > 0
       ? { accounts: certain.length, amount: floor }
       : null,
   });
@@ -260,6 +325,7 @@ export function buildIncomeStatementSubtypeDisclosure(
     expenseAmount,
     revenueAccounts: revenues.length,
     revenueAmount,
+    otherIncomeAccounts: certain.length,
     grossProfitOverstatedByAtLeast: floor,
     costOfSalesExposureAtMost: costOfSalesExposure,
     otherIncomeExposureAtMost: otherIncomeExposure,

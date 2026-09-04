@@ -20,6 +20,14 @@ export interface InventoryWarning {
 }
 
 export interface DataQualityInput {
+  /**
+   * Pre-built sentences from a caller that already ran this builder — the
+   * income statement service does, and its result reaches the CSV and XLSX
+   * exports. A surface passing these renders EXACTLY what the export carries;
+   * re-deriving a partial input here is how the screen came to show fewer
+   * caveats than the file downloaded from it.
+   */
+  notices?: string[] | null;
   unclassifiedAccounts?: UnclassifiedWarning | null;
   inventory?: InventoryWarning | null;
   /**
@@ -31,7 +39,6 @@ export interface DataQualityInput {
    * (a floor). See `./incomeStatementDisclosure.ts`.
    */
   otherIncomeInTurnover?: { accounts: number; amount: number } | null;
-  grossProfitOverstatedByAtLeast?: number;
   /** Expense that could belong above the gross profit line. */
   costOfSalesExposureAtMost?: number;
   /** Revenue that could be other income rather than turnover. */
@@ -46,6 +53,8 @@ export const fmtZAR = (n: number): string =>
  *   no assumption and the surface should show nothing.
  */
 export function buildDataQualityNotices(input: DataQualityInput): string[] {
+  if (input.notices && input.notices.length > 0) return [...input.notices];
+
   const notices: string[] = [];
 
   const unclassified = input.unclassifiedAccounts;

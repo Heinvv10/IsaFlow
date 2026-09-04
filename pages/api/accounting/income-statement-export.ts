@@ -9,6 +9,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { reasonLabel } from '@/modules/accounting/services/reports/incomeStatementDisclosure';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -99,7 +100,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
       for (const a of report.subtypeDisclosure.accounts) {
         csvLines.push(
-          `${csvVal('Warning')},${csvVal(a.accountCode)},${csvVal(`${a.accountName} — ${a.reason}`)},${Number(a.amount).toFixed(2)}`
+          `${csvVal('Warning')},${csvVal(a.accountCode)},${csvVal(`${a.accountName} — ${reasonLabel(a.reason)}`)},${Number(a.amount).toFixed(2)}`
         );
       }
       if (report.subtypeDisclosure.unnamedAccounts > 0) {
@@ -108,7 +109,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         );
       }
       csvLines.push(
-        `${csvVal('Warning')},${csvVal('')},${csvVal('The amounts above are repeated in the sections above — do not add them again.')},${csvVal('')}`
+        `${csvVal('Warning')},${csvVal('')},${csvVal('The amounts above are repeated elsewhere in this file — do not add them again.')},${csvVal('')}`
       );
     }
 

@@ -283,28 +283,27 @@ export default function IncomeStatementPage() {
                     must not see the same defect described two ways. */}
                 {report.subtypeDisclosure && (
                   <div className="px-6 py-3 border-t border-[var(--ff-border-light)]">
-                    <DataQualityNotice
-                      otherIncomeInTurnover={
-                        report.subtypeDisclosure.grossProfitOverstatedByAtLeast > 0
-                          ? {
-                              accounts: report.subtypeDisclosure.accounts.filter(
-                                a => a.reason === 'other_income_in_turnover').length,
-                              amount: report.subtypeDisclosure.grossProfitOverstatedByAtLeast,
-                            }
-                          : null
-                      }
-                      grossProfitOverstatedByAtLeast={report.subtypeDisclosure.grossProfitOverstatedByAtLeast}
-                      costOfSalesExposureAtMost={report.subtypeDisclosure.costOfSalesExposureAtMost}
-                  otherIncomeExposureAtMost={report.subtypeDisclosure.otherIncomeExposureAtMost}
-                    />
+                    {/* The service already built these sentences, and the CSV and
+                        XLSX exports emit the same array. Passing them through —
+                        rather than re-deriving a partial input here — is what
+                        stops the screen showing fewer caveats than the file
+                        downloaded from it, and stops a count being taken from
+                        the CAPPED named list. */}
+                    <DataQualityNotice notices={report.subtypeDisclosure.notices} />
                     <p className="mt-2 font-mono text-xs text-[var(--ff-text-tertiary)]">
                       {report.subtypeDisclosure.accounts
                         .map(a => `${a.accountCode} ${a.accountName} ${formatCurrency(a.amount)}`)
-                        .join(' · ')}
+                        .join(' \u00b7 ')}
                       {report.subtypeDisclosure.unnamedAccounts > 0
-                        ? ` · and ${report.subtypeDisclosure.unnamedAccounts} more`
+                        ? ` \u00b7 and ${report.subtypeDisclosure.unnamedAccounts} more`
                         : ''}
                     </p>
+                    {report.priorSubtypeDisclosure && (
+                      <p className="mt-1 text-xs text-amber-400/80">
+                        The comparative period has its own unclassified accounts, so every
+                        variance above is a difference between two differently-banded numbers.
+                      </p>
+                    )}
                   </div>
                 )}
 

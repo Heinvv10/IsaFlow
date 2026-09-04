@@ -118,16 +118,42 @@ describe('getIncomeStatement — subtype disclosure against a real ledger', () =
     expect(report.subtypeDisclosure!.expenseAmount).toBeGreaterThan(0);
   });
 
-  it.skipIf(!dbUp)('never claims more exposure than operating expenses contains', async () => {
+  it.skipIf(!dbUp)('bounds the COST OF SALES exposure by operating expenses', async () => {
     const c = await companyWithUnclassifiedExpenses();
     if (!c) return;
 
     const report = await getIncomeStatement(c.id, c.from, c.to);
     expect(report.subtypeDisclosure).toBeTruthy();
     const opexTotal = report.operatingExpenses.reduce((s, i) => s + Math.abs(i.amount), 0);
-    expect(report.subtypeDisclosure!.grossProfitOverstatedByAtMost).toBeLessThanOrEqual(opexTotal + 0.01);
-    // Totalling ALL affected rows (revenue included) rather than expenses alone
-    // breaches this.
+    // Only the cost-of-sales half is bounded by operating expenses. An earlier
+    // version asserted this of `grossProfitOverstatedByAtMost`, which also
+    // contains the REVENUE ceiling — it passed on the dev database (almost no
+    // unclassified revenue) and failed against production on the very company
+    // its own selector picks: "expected 200037895.31 to be <= 115984525.06".
+    // Green on dev, red on prod, is not a test.
+    expect(report.subtypeDisclosure!.costOfSalesExposureAtMost).toBeLessThanOrEqual(opexTotal + 0.01);
+  });
+
+  it.skipIf(!dbUp)('bounds the OTHER INCOME exposure by revenue', async () => {
+    const c = await companyWithUnclassifiedExpenses();
+    if (!c) return;
+
+    const report = await getIncomeStatement(c.id, c.from, c.to);
+    const d = report.subtypeDisclosure;
+    expect(d).toBeTruthy();
+    expect(d!.otherIncomeExposureAtMost).toBeLessThanOrEqual(Math.abs(report.totalRevenue) + 0.01);
+    expect(d!.grossProfitOverstatedByAtLeast).toBeLessThanOrEqual(d!.otherIncomeExposureAtMost + d!.grossProfitOverstatedByAtLeast + 0.01);
+  });
+
+  it.skipIf(!dbUp)('keeps the floor at or below the total ceiling on real data', async () => {
+    const c = await companyWithUnclassifiedExpenses();
+    if (!c) return;
+
+    const d = (await getIncomeStatement(c.id, c.from, c.to)).subtypeDisclosure;
+    expect(d).toBeTruthy();
+    expect(d!.grossProfitOverstatedByAtLeast).toBeLessThanOrEqual(d!.grossProfitOverstatedByAtMost + 0.01);
+    expect(d!.grossProfitOverstatedByAtMost).toBeCloseTo(
+      d!.grossProfitOverstatedByAtLeast + d!.costOfSalesExposureAtMost + d!.otherIncomeExposureAtMost, 2);
   });
 
   it.skipIf(!dbUp)('is null when every account on the report has a recognised subtype', async () => {
@@ -142,6 +168,7 @@ describe('getIncomeStatement — subtype disclosure against a real ledger', () =
       LIMIT 1
     `) as { company_id: string }[];
     const companyId = rows[0]?.company_id;
+    expect(companyId, 'no production company has a fully-subtyped income statement').toBeDefined();
     if (!companyId) return;
 
     const report = await getIncomeStatement(companyId, '1900-01-01', '2999-12-31');

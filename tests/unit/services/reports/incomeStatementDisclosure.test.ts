@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildIncomeStatementSubtypeDisclosure,
+  reasonLabel,
   type DisclosureInputRow,
 } from '@/modules/accounting/services/reports/incomeStatementDisclosure';
 
@@ -142,7 +143,10 @@ describe('buildIncomeStatementSubtypeDisclosure — expenses that carry a credit
   it('never claims gross profit is overstated by a credit-balance expense', () => {
     const d = buildIncomeStatementSubtypeDisclosure([expenseRow({ amount: -5000 })]);
     expect(d?.grossProfitOverstatedByAtMost).toBe(0);
-    expect(d?.message ?? '').not.toMatch(/overstated by up to R5,000\.00/);
+    expect(d?.costOfSalesExposureAtMost).toBe(0);
+    // Not a text pattern: the previous form of this assertion could never match
+    // under ANY implementation (en-ZA renders "R -5 000,00", and the phrase it
+    // looked for appears in no sentence). Assert on the number instead.
   });
 
   it('bounds gross profit by the DEBIT balances only', () => {
@@ -291,5 +295,180 @@ describe('buildIncomeStatementSubtypeDisclosure — naming across reasons', () =
     expect(reasons.has('no_subtype')).toBe(true);
     expect(reasons.has('platform_default')).toBe(true);
     expect(reasons.has('other_income_in_turnover')).toBe(true);
+  });
+});
+
+// ── Mutations that survived the third review ─────────────────────────────────
+
+describe('buildIncomeStatementSubtypeDisclosure — the named set is the LARGEST', () => {
+  // pickNamed re-sorts its six, so an ordering assertion passes even when the
+  // outer sort is reversed. What the outer sort controls is WHICH six get
+  // chosen: reversed, Velocity would name six R50 accounts and hide the R46.9m
+  // one, under a headline about gross profit.
+  it('names the biggest accounts, not the smallest, when more than the cap exist', () => {
+    const rows = [
+      expenseRow({ accountCode: 'HUGE', accountName: 'Direct Material', amount: 46923976.23 }),
+      ...Array.from({ length: 12 }, (_, i) =>
+        expenseRow({ accountCode: `TINY${i}`, accountName: `Tiny ${i}`, amount: 50 + i })),
+    ];
+    const d = buildIncomeStatementSubtypeDisclosure(rows);
+    expect(d?.accounts.map(a => a.accountCode)).toContain('HUGE');
+    expect(d?.accounts.map(a => a.accountCode)).not.toContain('TINY0');
+  });
+});
+
+describe('buildIncomeStatementSubtypeDisclosure — contra-revenue in the ceiling', () => {
+  // The docblock claims "neither can a contra-revenue account" add to a bound.
+  // Only the expense half of that claim was tested.
+  it('excludes a debit-balance revenue account from the other-income ceiling', () => {
+    const d = buildIncomeStatementSubtypeDisclosure([
+      expenseRow({ accountCode: 'REV', accountType: 'revenue', amount: 100000 }),
+      expenseRow({ accountCode: 'RETURNS', accountName: 'Sales Returns', accountType: 'revenue', amount: -40000 }),
+    ]);
+    // A sales-returns account cannot make other income larger; including it
+    // signed would understate the ceiling to R60,000.
+    expect(d?.otherIncomeExposureAtMost).toBeCloseTo(100000, 2);
+
+    // But the per-type SENTENCE reports what the statement actually shows for
+    // those accounts, which is the NET R60,000. Absolutes there would tell the
+    // reader R140,000 is sitting in turnover when R60,000 is.
+    expect(d?.revenueAmount).toBeCloseTo(60000, 2);
+    expect(d?.message).toMatch(/2 revenue accounts carrying R\s*60\s*000,00/);
+    expect(d?.message).not.toMatch(/140\s*000,00/);
+  });
+});
+
+describe('buildIncomeStatementSubtypeDisclosure — the certain floor nets', () => {
+  // Per-row clamping on the FLOOR overstates a hard minimum 10x.
+  it('nets a contra other-income account against the income it reverses', () => {
+    const d = buildIncomeStatementSubtypeDisclosure([
+      expenseRow({ accountCode: '4300', accountType: 'revenue', accountSubtype: 'other_income', amount: 500000 }),
+      expenseRow({ accountCode: '4301', accountType: 'revenue', accountSubtype: 'other_income', amount: -450000 }),
+    ]);
+    expect(d?.grossProfitOverstatedByAtLeast).toBeCloseTo(50000, 2);
+  });
+
+  it('never warns about R0.00 when the certain set nets to nil', () => {
+    const d = buildIncomeStatementSubtypeDisclosure([
+      expenseRow({ accountCode: '4300', accountType: 'revenue', accountSubtype: 'other_income', amount: 500000 }),
+      expenseRow({ accountCode: '4301', accountType: 'revenue', accountSubtype: 'other_income', amount: -500000 }),
+    ]);
+    expect(d?.grossProfitOverstatedByAtLeast).toBe(0);
+    expect(d?.message ?? '').not.toMatch(/already in gross profit/i);
+  });
+
+  it('reports the true count of other-income accounts, not the capped named list', () => {
+    const rows = [
+      ...Array.from({ length: 9 }, (_, i) =>
+        expenseRow({ accountCode: `OI${i}`, accountType: 'revenue', accountSubtype: 'other_income', amount: 1000 })),
+      ...Array.from({ length: 8 }, (_, i) =>
+        expenseRow({ accountCode: `BIG${i}`, accountName: `Big ${i}`, amount: 9000000 - i })),
+    ];
+    const d = buildIncomeStatementSubtypeDisclosure(rows);
+    expect(d?.otherIncomeAccounts).toBe(9);
+    // The named list is capped, so a caller deriving the count from it gets 1.
+    expect(d!.accounts.filter(a => a.reason === 'other_income_in_turnover').length)
+      .toBeLessThan(d!.otherIncomeAccounts);
+    expect(d?.message).toMatch(/9 other-income accounts/);
+  });
+});
+
+describe('buildIncomeStatementSubtypeDisclosure — per-type sentence counts its own set', () => {
+  // Counting the fallback rows while summing ALL disclosed rows stated two
+  // totals for one set: Brightsphere read "1 revenue account carrying
+  // R 12 434 321,32" for an account holding R12,410,997.90, the extra
+  // R23,323.42 being the other-income account the next sentence repeats.
+  it('excludes other-income accounts from the per-type revenue amount', () => {
+    const d = buildIncomeStatementSubtypeDisclosure([
+      expenseRow({ accountCode: '4001', accountName: 'Product Sales', accountType: 'revenue',
+                   accountSubtype: 'default_revenue', amount: 12410997.90 }),
+      expenseRow({ accountCode: '35541892', accountName: 'Vehicle Rent Income', accountType: 'revenue',
+                   accountSubtype: 'other_income', amount: 23323.42 }),
+    ]);
+    expect(d?.message).toContain('1 revenue account');
+    // en-ZA groups thousands with a NON-BREAKING space (U+00A0), so match \s.
+    expect(d?.message).toMatch(/12\s410\s997,90/);
+    expect(d?.message).not.toMatch(/12\s434\s321,32/);
+  });
+});
+
+describe('the ceiling sentence names BOTH halves', () => {
+  // The previous guard was /other income|turnover/, which the per-type
+  // "treated as turnover rather than other income" sentence satisfies — so the
+  // ceiling's own other-income clause could be deleted and stay green, leaving
+  // a malformed "classifications nobody has made: ." sentence.
+  it('states the revenue half of the ceiling in the ceiling sentence itself', () => {
+    const d = buildIncomeStatementSubtypeDisclosure([
+      expenseRow({ accountCode: 'R', accountType: 'revenue', amount: 2876.63 }),
+    ]);
+    const ceiling = (d?.notices ?? []).find(n => n.includes('rests on classifications nobody has made'));
+    expect(ceiling).toBeDefined();
+    expect(ceiling).toMatch(/could be other income rather than turnover/);
+    expect(ceiling).not.toMatch(/made: \./);
+  });
+
+  it('states the expense half in the ceiling sentence itself', () => {
+    const d = buildIncomeStatementSubtypeDisclosure([expenseRow({ amount: 1000 })]);
+    const ceiling = (d?.notices ?? []).find(n => n.includes('rests on classifications nobody has made'));
+    expect(ceiling).toMatch(/could belong above the line as cost of sales/);
+    expect(ceiling).not.toMatch(/made: \./);
+  });
+});
+
+describe('money and plurals in the rendered sentences', () => {
+  it('renders cents, so a rounded figure cannot pass as exact', () => {
+    const d = buildIncomeStatementSubtypeDisclosure([expenseRow({ amount: 1234.56 })]);
+    expect(d?.message).toMatch(/1\s234,56/);
+  });
+
+  it('agrees in number for one account and for many', () => {
+    const one = buildIncomeStatementSubtypeDisclosure([expenseRow({ amount: 1000 })]);
+    expect(one?.message).toMatch(/1 expense account carrying .* was treated/);
+
+    const two = buildIncomeStatementSubtypeDisclosure([
+      expenseRow({ accountCode: 'A', amount: 1000 }),
+      expenseRow({ accountCode: 'B', amount: 2000 }),
+    ]);
+    expect(two?.message).toMatch(/2 expense accounts carrying .* were treated/);
+  });
+});
+
+describe('reasonLabel', () => {
+  it('gives every reason a human label', () => {
+    expect(reasonLabel('no_subtype')).toMatch(/no recognised account_subtype/);
+    expect(reasonLabel('platform_default')).toMatch(/nobody classified it/);
+    expect(reasonLabel('other_income_in_turnover')).toMatch(/other income/);
+  });
+
+  it('falls back to the raw value instead of rendering the string "undefined"', () => {
+    // A fourth reason added later must not print `undefined` into a workbook a
+    // client opens.
+    expect(reasonLabel('something_new')).toBe('something_new');
+    expect(reasonLabel('something_new')).not.toContain('undefined');
+  });
+});
+
+describe('a subtype from the wrong side of the ledger is not a classification', () => {
+  it('discloses an expense carrying a balance-sheet subtype', () => {
+    // canonicalSubtype('bank') is non-null, but it says nothing about whether
+    // this row is cost of sales — the report still banded it by the bare else.
+    const d = buildIncomeStatementSubtypeDisclosure([expenseRow({ accountSubtype: 'bank', amount: 5000 })]);
+    expect(d?.expenseAccounts).toBe(1);
+    expect(d?.accounts[0]?.reason).toBe('no_subtype');
+  });
+
+  it('still accepts a genuine expense classification', () => {
+    expect(buildIncomeStatementSubtypeDisclosure([
+      expenseRow({ accountSubtype: 'finance_cost', amount: 5000 }),
+    ])).toBeNull();
+  });
+});
+
+describe('platform-default spellings', () => {
+  it('matches the way canonicalSubtype normalises, not merely lowercase', () => {
+    for (const spelling of ['Default Expense', 'default-expense', ' DEFAULT_EXPENSE ']) {
+      const d = buildIncomeStatementSubtypeDisclosure([expenseRow({ accountSubtype: spelling, amount: 1000 })]);
+      expect(d?.accounts[0]?.reason, spelling).toBe('platform_default');
+    }
   });
 });

@@ -44,12 +44,7 @@ interface ManagementReport {
   generatedAt: string;
   kpis: Kpis;
   incomeStatement: Record<string, unknown> & {
-    subtypeDisclosure?: {
-      grossProfitOverstatedByAtLeast: number;
-      costOfSalesExposureAtMost: number;
-      otherIncomeExposureAtMost: number;
-      accounts: Array<{ reason: string }>;
-    } | null;
+    subtypeDisclosure?: { notices: string[] } | null;
   };
   balanceSheet: Record<string, unknown>;
   cashFlow: CashFlow;
@@ -307,20 +302,7 @@ export default function ManagementAccountsPage() {
                   unclassified-subtype defect. This pack is a document people
                   send onward, so the caveat has to travel with the number. */}
               {report.incomeStatement?.subtypeDisclosure && (
-                <DataQualityNotice
-                  otherIncomeInTurnover={
-                    report.incomeStatement.subtypeDisclosure.grossProfitOverstatedByAtLeast > 0
-                      ? {
-                          accounts: report.incomeStatement.subtypeDisclosure.accounts.filter(
-                            a => a.reason === 'other_income_in_turnover').length,
-                          amount: report.incomeStatement.subtypeDisclosure.grossProfitOverstatedByAtLeast,
-                        }
-                      : null
-                  }
-                  grossProfitOverstatedByAtLeast={report.incomeStatement.subtypeDisclosure.grossProfitOverstatedByAtLeast}
-                  costOfSalesExposureAtMost={report.incomeStatement.subtypeDisclosure.costOfSalesExposureAtMost}
-                  otherIncomeExposureAtMost={report.incomeStatement.subtypeDisclosure.otherIncomeExposureAtMost}
-                />
+                <DataQualityNotice notices={report.incomeStatement.subtypeDisclosure.notices} />
               )}
 
               {/* P&L Section */}
