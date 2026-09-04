@@ -16,6 +16,7 @@
 import { getAccountById } from '../chartOfAccountsService';
 import { getPeriodStatusForDate } from '../periodStatusService';
 import { isVatPeriodLocked } from '../../reports/vatPeriodLockService';
+import { lockReclassSource } from './sourceLock';
 import { getLedgerPostedThrough } from '../../reports/postedThroughService';
 import type { AccountType } from '../accountClassification';
 import {
@@ -50,9 +51,22 @@ export interface ReclassPlanInput {
   to: string | null;
   /** One date for every journal, or null to date each at its source line. */
   postingDate: string | null;
+  /**
+   * Take an advisory lock on the source account before reading candidates.
+   *
+   * TRUE only on the path that is about to WRITE. A dry run and
+   * `propose_reclassification` write nothing, so holding a lock that blocks
+   * every real batch on the account for the length of a preview would be a
+   * denial of service dressed as safety. The consequence is honest and small:
+   * a preview can be overtaken by a batch that commits before it, exactly as a
+   * report can.
+   */
+  lockSourceAccount: boolean;
 }
 
 export interface ReclassPlan {
+  /** Echoed from the input so the response reports what was ASKED for. */
+  postingDate: string | null;
   source: ReclassAccount;
   target: ReclassAccount;
   movable: ReclassCandidate[];
@@ -74,8 +88,23 @@ export function isRefusal(x: ReclassPlan | ReclassRefusal): x is ReclassRefusal 
   return 'refused' in x;
 }
 
-/** Subtypes on which a filed VAT return actually depends. */
-const VAT_SUBTYPES = new Set(['vat_input', 'vat_output']);
+/**
+ * The subtypes `vatReturnService` uses to decide VAT201 membership.
+ *
+ * A line on one of these accounts is ON the return, and a line on one of them
+ * with a NULL `vat_type` is swept into **box 15 at full value**. This tool can
+ * move arbitrary posted lines, so a move onto such an account rewrites a
+ * statutory return as a side effect of a housekeeping operation. That is
+ * refused outright rather than warned about: a warning an agent can ignore is
+ * not a control on a SARS submission.
+ *
+ * `'tax'` is in the set even though FINDINGS B37 records that it is NOT VAT —
+ * Brightsphere's PAYE account carries it — precisely because `vatReturnService`
+ * treats it as VAT today. The set mirrors what the return actually reads, not
+ * what it ought to read; narrowing it here would silently re-open the hole
+ * while that defect stands.
+ */
+const VAT_RETURN_SUBTYPES = new Set(['vat_input', 'vat_output', 'tax']);
 
 async function loadAccount(
   companyId: string,
@@ -148,20 +177,55 @@ export async function planReclassification(
     }
   }
 
-  const vatRelevant =
-    (source.subtype !== null && VAT_SUBTYPES.has(source.subtype)) ||
-    (target.subtype !== null && VAT_SUBTYPES.has(target.subtype));
+  for (const account of [source, target]) {
+    if (account.subtype !== null && VAT_RETURN_SUBTYPES.has(account.subtype)) {
+      return {
+        refused:
+          `${account.code} ${account.name} is a VAT control account (subtype ` +
+          `${account.subtype}), and the VAT201 is built from the lines sitting on ` +
+          'those accounts. Moving lines on or off one rewrites a statutory return, ' +
+          'and a line landing there with no vat_type is swept into box 15 at full ' +
+          'value. Reclassify VAT control accounts through the VAT tools, not this one.',
+      };
+    }
+  }
 
-  // A move onto a VAT control account inside a filed period rewrites a return
-  // that has gone to SARS. Refused at the posting date; skipped per line at the
-  // source dates (see `partitionCandidates`).
-  if (vatRelevant && input.postingDate !== null
-      && (await isVatPeriodLocked(companyId, input.postingDate))) {
+  // A line that CARRIES VAT coding and sits in a filed period is anchored to a
+  // return already sent to SARS. Per line, so one such line never costs the
+  // rest of the batch; refused up front only for a posting_date, where the
+  // whole batch would land in the locked period.
+  if (input.postingDate !== null && (await isVatPeriodLocked(companyId, input.postingDate))) {
     return {
       refused:
-        `posting_date ${input.postingDate} falls inside a filed VAT period and this ` +
-        'move touches a VAT control account.',
+        `posting_date ${input.postingDate} falls inside a filed VAT period. Choose a ` +
+        'date outside it, or omit posting_date so each journal is dated at its own ' +
+        'source line.',
     };
+  }
+
+  // ── THE LOCK, and it must be here: BEFORE the candidates are read. ────────
+  //
+  // Nothing else serialises two DIFFERENT requests over the same rows. The
+  // registry's idempotency lock keys on (company, tool, idempotency_key), so
+  // two batches carrying different keys — two agent sessions, or one agent
+  // retrying under a fresh key after a timeout — never meet. All three
+  // duplicate-move guards (`already_reclassified`, `is_reclass_contra`, the
+  // (batch_id, source_line_id) unique index) are read-committed reads of rows
+  // the other transaction has not committed yet, and the unique index is
+  // per-batch, so two batch ids never collide. Both runs would post the same
+  // R11.3m: the source account overdrawn by the full amount, the target
+  // overstated by it, and two live batches to unwind.
+  //
+  // Held to the end of the request transaction, so the second caller waits,
+  // then RE-READS the candidates below and finds them `already_reclassified` —
+  // which is why the lock is taken before the read and not around the write.
+  //
+  // Only the SOURCE account is locked. Locking the target too would let
+  // A→B and B→A deadlock on each other, and target contention is not a
+  // correctness problem: two batches with different sources cannot move the
+  // same line.
+  if (input.lockSourceAccount) {
+    await lockReclassSource(companyId, input.sourceAccountId);
   }
 
   const query = { sourceAccountId: input.sourceAccountId, from: input.from, to: input.to };
@@ -175,10 +239,7 @@ export async function planReclassification(
     };
   }
 
-  const { movable, skipped } = partitionCandidates(rows, {
-    postingDate: input.postingDate,
-    vatRelevant,
-  });
+  const { movable, skipped } = partitionCandidates(rows, { postingDate: input.postingDate });
   // Its own COUNT over the unfiltered candidate predicate. NOT
   // `movable.length + skipped.length`, which would make the envelope's
   // completeness identity unable to fail whatever this function did.
@@ -227,6 +288,7 @@ export async function planReclassification(
   const postedThrough = await getLedgerPostedThrough(companyId, window.end, window.start);
 
   return {
+    postingDate: input.postingDate,
     source, target, movable, skipped, universeTotal,
     drafts, impact, warnings, postedThrough,
   };

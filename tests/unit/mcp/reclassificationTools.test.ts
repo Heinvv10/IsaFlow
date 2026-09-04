@@ -81,6 +81,7 @@ function plan(over: Record<string, unknown> = {}) {
     },
     warnings: [{ code: 'subtype_remedy_available', detail: 'set the subtype instead' }],
     postedThrough: '2026-04-16T00:00:00.000Z',
+    postingDate: null,
     ...over,
   };
 }
@@ -187,21 +188,19 @@ describe('post_reclassification_batch', () => {
     expect(body.warnings).toHaveLength(1);
   });
 
-  it('the dry run reports exactly what the live call would refuse', async () => {
-    // Nothing movable: the live call refuses, so the dry run must show the same
-    // state rather than a preview that would not survive being posted.
+  it('the dry run gives the IDENTICAL refusal the live call gives', async () => {
+    // A dry run that succeeds where the real call refuses is the forbidden
+    // direction: an agent branching on `isError` would get opposite answers
+    // from a preview and the call it previews.
     planReclassification.mockResolvedValue(plan({ movable: [], drafts: [] }));
-    const dry = parse(await postReclassificationBatchTool.handler(
-      { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k', dry_run: true },
-      CTX,
-    ) as never);
-    expect(dry.would_move_lines).toBe(0);
+    const args = { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k' };
+    const dry = await postReclassificationBatchTool.handler({ ...args, dry_run: true }, CTX);
+    const live = await postReclassificationBatchTool.handler(args, CTX);
 
-    const live = await postReclassificationBatchTool.handler(
-      { source_account_id: SRC, target_account_id: TGT, idempotency_key: 'k' }, CTX,
-    );
+    expect(dry.isError).toBe(true);
     expect(live.isError).toBe(true);
-    expect(live.content[0]!.text).toContain('source_period_closed');
+    expect(dry.content[0]!.text).toBe(live.content[0]!.text);
+    expect(dry.content[0]!.text).toContain('source_period_closed');
     expect(postReclassBatch).not.toHaveBeenCalled();
   });
 

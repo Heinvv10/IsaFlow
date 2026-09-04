@@ -25,7 +25,7 @@
  * Pure. It builds drafts; ./post.ts writes them.
  */
 
-import type { JournalLineInput } from '../../../types/gl.types';
+import type { JournalLineInput, VatType } from '../../../types/gl.types';
 
 /** A movable line, as ./candidates.ts hands it over. */
 export interface ReclassSourceLine {
@@ -38,6 +38,9 @@ export interface ReclassSourceLine {
   description: string | null;
   projectId: string | null;
   costCenterId: string | null;
+  /** VAT coding on the line. Carried onto both legs — see below. */
+  vatType: VatType | null;
+  buId: string | null;
 }
 
 export interface ReclassAccountNames {
@@ -64,6 +67,36 @@ export interface ReclassJournalDraft {
 }
 
 const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+/**
+ * Every analysis dimension the source line carries, on BOTH legs.
+ *
+ * Dropping any of them moves the amount OUT of one bucket and into none, which
+ * changes a figure nobody asked to change:
+ *
+ *   - `projectId` / `costCenterId` — project profitability and cost-centre
+ *     reporting shift alongside the account.
+ *   - `vatType` — the contra would not reverse the box contribution the
+ *     original made and the target leg would not re-establish it, so the
+ *     reclassification would be silently VAT-blind. On a VAT control account a
+ *     NULL `vat_type` additionally manufactures one `vatExceptionsService`
+ *     exception per posted line.
+ *   - `buId` — the same argument as project and cost centre, and it was the
+ *     only one of the four this file originally forgot.
+ *
+ * `cc1_id` / `cc2_id` are NOT here because `JournalLineInput` cannot express
+ * them at all. A line carrying either is SKIPPED by `candidates.ts` rather than
+ * posted with them dropped — the one honest answer available without widening a
+ * shared write path used by every journal in the system.
+ */
+function dimensions(line: ReclassSourceLine) {
+  return {
+    projectId: line.projectId ?? undefined,
+    costCenterId: line.costCenterId ?? undefined,
+    vatType: line.vatType ?? undefined,
+    buId: line.buId ?? undefined,
+  };
+}
 
 /** Descriptions carry the source entry, so every posted line names its origin. */
 function legDescription(kind: 'out of' | 'into', line: ReclassSourceLine): string {
@@ -114,8 +147,7 @@ export function buildReclassJournals(
         debit: round2(line.credit),
         credit: round2(line.debit),
         description: legDescription('out of', line),
-        projectId: line.projectId ?? undefined,
-        costCenterId: line.costCenterId ?? undefined,
+        ...dimensions(line),
       });
       // The re-application: the original's own direction, on the target.
       journalLines.push({
@@ -123,11 +155,7 @@ export function buildReclassJournals(
         debit: round2(line.debit),
         credit: round2(line.credit),
         description: legDescription('into', line),
-        // Carried on BOTH legs. Dropping them would move the amount out of a
-        // project's costs on the source account and add it to no project on the
-        // target, quietly changing project profitability alongside the account.
-        projectId: line.projectId ?? undefined,
-        costCenterId: line.costCenterId ?? undefined,
+        ...dimensions(line),
       });
     }
     const totalDebit = round2(journalLines.reduce((t, l) => t + l.debit, 0));

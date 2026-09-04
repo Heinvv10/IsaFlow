@@ -13,8 +13,12 @@ export const MCP_PROD_ENDPOINT = `${MCP_PROD_ORIGIN}${MCP_PATH}`;
 export const MCP_AUTH_SERVER_METADATA_PATH = '/.well-known/oauth-authorization-server';
 export const MCP_PROTECTED_RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource';
 
-/** All MCP tool names (37 read + 35 write). Drift-guarded against toolIndex. */
-/** All MCP tool names (64 read + 47 write). Drift-guarded against toolIndex. */
+/**
+ * All MCP tool names — 64 read + 47 write = 111. Drift-guarded against
+ * toolIndex.ts by tests/unit/mcp/clientMetadata.test.ts, which compares the
+ * ARRAY rather than this comment; the comment is the part that can rot, so it
+ * is derived by counting `MCP_TOOLS.filter(t => !t.write)` and not by hand.
+ */
 export const CLIENT_MCP_TOOL_NAMES = [
   // read
   'company_profile',

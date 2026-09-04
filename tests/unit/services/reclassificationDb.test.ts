@@ -134,7 +134,9 @@ async function accountMovement(
 
 const today = new Date().toISOString().slice(0, 10);
 
-async function planFor(client: PoolClient, f: Fixture): Promise<ReclassPlan> {
+async function planFor(
+  client: PoolClient, f: Fixture, lockSourceAccount = false,
+): Promise<ReclassPlan> {
   const plan = await als.run(ctxFor(client, f.companyId), () =>
     planReclassification({
       companyId: f.companyId,
@@ -142,7 +144,7 @@ async function planFor(client: PoolClient, f: Fixture): Promise<ReclassPlan> {
       targetAccountId: f.targetAccountId,
       // Bounded to the fixture's own day: an unbounded window over a borrowed
       // company would sweep in whatever else the seed posted.
-      from: today, to: today, postingDate: null,
+      from: today, to: today, postingDate: null, lockSourceAccount,
     }));
   if (isRefusal(plan)) throw new Error(`unexpected refusal: ${plan.refused}`);
   return plan;
@@ -164,6 +166,26 @@ describe('reclassification (real DB)', async () => {
 
       const plan = await planFor(client, f);
       expect(plan.movable.map((m) => m.lineId)).toContain(f.lineId);
+
+      // THE UNIVERSE, checked against a count this test issues itself.
+      //
+      // `buildEnvelope`'s identity is `rowsTotal + excluded === universeTotal`,
+      // so a universe derived from those two quantities can never fault — the
+      // 21-instance defect class this repo has a gate for. Asserting it against
+      // an independent COUNT(*) is the only check that can actually fail; a
+      // source-text grep passes on a comment and cannot see a mutation spelled
+      // another way.
+      const { rows: universe } = await client.query<{ n: string }>(
+        `SELECT COUNT(*)::TEXT AS n
+           FROM gl_journal_lines jl
+           JOIN gl_journal_entries je
+             ON je.id = jl.journal_entry_id AND je.company_id = jl.company_id
+          WHERE jl.company_id = $1 AND jl.gl_account_id = $2 AND je.status = 'posted'
+            AND je.entry_date = $3::DATE`,
+        [f.companyId, f.sourceAccountId, today],
+      );
+      expect(plan.universeTotal).toBe(Number(universe[0]!.n));
+      expect(plan.movable.length + plan.skipped.length).toBe(plan.universeTotal);
 
       const result = await als.run(ctxFor(client, f.companyId), () =>
         postReclassBatch(f.companyId, USER_ID, {
@@ -288,6 +310,91 @@ describe('reclassification (real DB)', async () => {
     }
   }, 60_000);
 
+  it.skipIf(!reachable)('takes the source-account lock on the WRITE path, and not on a preview', async (ctx) => {
+    // The lock service has its own contention tests. This one tests the WIRING:
+    // deleting the `lockReclassSource` call from plan.ts leaves every one of
+    // those green, because they call the service directly. Observed through
+    // pg_locks, which is the only thing that can tell "the lock was taken" from
+    // "the code says it takes a lock".
+    assertNotProductionDb('This test inserts journal entries and lines.');
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      const f = await buildFixture(client);
+      if (!f) { ctx.skip('no company with an open period and two expense accounts'); return; }
+
+      const { rows: key } = await client.query<{ c: number; o: number }>(
+        'SELECT hashtext($1) AS c, hashtext($2) AS o', [f.companyId, f.sourceAccountId],
+      );
+      const held = async (): Promise<number> => {
+        const { rows } = await client.query<{ n: string }>(
+          `SELECT COUNT(*)::TEXT AS n FROM pg_locks
+            WHERE locktype = 'advisory' AND classid = $1 AND objid = $2
+              AND pid = pg_backend_pid() AND granted`,
+          [key[0]!.c, key[0]!.o],
+        );
+        return Number(rows[0]!.n);
+      };
+
+      expect(await held()).toBe(0);
+      await planFor(client, f, false);
+      // A preview must NOT hold a lock that blocks every real batch on the
+      // account for its duration.
+      expect(await held()).toBe(0);
+
+      await planFor(client, f, true);
+      expect(await held()).toBe(1);
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  }, 60_000);
+
+  it.skipIf(!reachable)('skips BOTH halves of a real reversal pair', async (ctx) => {
+    // The defect this catches, verified in production: `reversed_at` marks the
+    // entry that WAS reversed and `reversal_of_id` marks the entry that DID the
+    // reversing. Guarding on the first alone moves the second — the charge
+    // stays on the source and its cancellation lands on the target, and neither
+    // nets to zero. R15,477,616.91 on 49775626 and R407,422.11 on 49775627.
+    //
+    // Mocked rows cannot prove this: the pairing is a relationship between two
+    // gl_journal_entries rows that only reverseJournalEntry creates.
+    assertNotProductionDb('This test inserts journal entries and lines.');
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      const f = await buildFixture(client);
+      if (!f) { ctx.skip('no company with an open period and two expense accounts'); return; }
+
+      // A REAL reversal, made by the service that makes them in production.
+      const reversal = await als.run(ctxFor(client, f.companyId), () =>
+        reverseJournalEntry(f.companyId, f.entryId, USER_ID));
+
+      const { rows: pair } = await client.query<{ id: string; rev_at: string | null; rev_of: string | null }>(
+        `SELECT id, reversed_at AS rev_at, reversal_of_id AS rev_of
+           FROM gl_journal_entries WHERE id = ANY($1::UUID[])`,
+        [[f.entryId, reversal.id]],
+      );
+      // The fixture is only meaningful if the pair really is a pair.
+      expect(pair.find((r) => r.id === f.entryId)!.rev_at).not.toBeNull();
+      expect(pair.find((r) => r.id === reversal.id)!.rev_of).toBe(f.entryId);
+
+      const plan = await planFor(client, f);
+      const reasons = new Map(plan.skipped.map((sk) => [sk.lineId, sk.reason]));
+
+      // NOTHING on the source account is movable: both halves are skipped.
+      expect(plan.movable).toEqual([]);
+      expect(reasons.get(f.lineId)).toBe('entry_reversed');
+      expect([...reasons.values()]).toContain('entry_is_reversal');
+      // And they net to zero, which is why leaving them changes no figure.
+      const net = plan.skipped.reduce((t, sk) => t + sk.amount, 0);
+      expect(net).toBeCloseTo(0, 2);
+    } finally {
+      await client.query('ROLLBACK').catch(() => undefined);
+      client.release();
+    }
+  }, 60_000);
+
   it.skipIf(!reachable)('leaves NOTHING behind when a journal in the batch fails to post', async (ctx) => {
     assertNotProductionDb('This test inserts journal entries and lines.');
     const client = await getPoolForTests().connect();
@@ -328,12 +435,32 @@ describe('reclassification (real DB)', async () => {
             postingDate: null, idempotencyKey: null, drafts: poisoned,
           })),
       ).rejects.toThrow();
+
+      // ASSERTED BEFORE THE ROLLBACK, which is the whole point. Asserted after
+      // it, `COUNT(*) = 0` is true by the rollback whatever the code did —
+      // hoisting createReclassBatch above the journal loop would leave that
+      // version green. Before the rollback it is a real claim: no batch row may
+      // exist at the moment of the throw, because the batch is opened only once
+      // every journal has posted.
+      const { rows: mid } = await client.query<{ n: string }>(
+        'SELECT COUNT(*)::TEXT AS n FROM reclassification_batches WHERE company_id = $1',
+        [f.companyId],
+      );
+      expect(Number(mid[0]!.n)).toBe(0);
+      // Nor may any batch LINE, for the same reason.
+      const { rows: midLines } = await client.query<{ n: string }>(
+        'SELECT COUNT(*)::TEXT AS n FROM reclassification_batch_lines WHERE company_id = $1',
+        [f.companyId],
+      );
+      expect(Number(midLines[0]!.n)).toBe(0);
+
       await client.query('ROLLBACK TO SAVEPOINT batch_attempt');
 
-      // The savepoint is what the registry gives a write tool, and it is the
-      // only thing that unwinds the journals already posted.
+      // And the savepoint — what the registry gives a write tool — unwinds the
+      // journals the first drafts DID post before the throw.
       const { rows } = await client.query<{ n: string }>(
-        'SELECT COUNT(*)::TEXT AS n FROM reclassification_batches WHERE company_id = $1',
+        `SELECT COUNT(*)::TEXT AS n FROM gl_journal_entries
+          WHERE company_id = $1 AND description LIKE 'Reclassification:%'`,
         [f.companyId],
       );
       expect(Number(rows[0]!.n)).toBe(0);

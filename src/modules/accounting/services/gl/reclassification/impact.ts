@@ -14,6 +14,17 @@
  * owned classifier every P&L in this codebase goes through. No new aggregate is
  * written here (CONTRACTS.md §5); what is new is the projection.
  *
+ * WHAT THE PROJECTION DOES NOT MODEL: THE DATE.
+ *
+ * With a `posting_date`, the reality is that the source line stays in its own
+ * period and the contra and target legs land in the posting period. This
+ * projection re-points the line's ACCOUNT and leaves its DATE alone, so over
+ * the whole window the band totals are exactly right and the split BETWEEN the
+ * periods inside that window is not. The window is deliberately widened to span
+ * both ends of such a move, so nothing falls outside the figures; what a reader
+ * cannot get from here is a per-period before/after. `crosses_fiscal_periods`
+ * says so in the response, and this is the limit it is describing.
+ *
  * AND THE FOLD IS CHECKED. The `before` side is compared against
  * `financialFiguresService#getFinancialFigures`, the owning service, band by
  * band. If this file's query has drifted from that one — a missing predicate, a
@@ -101,7 +112,16 @@ const PL_BANDS = [
   'operatingExpenses', 'otherExpenses', 'netProfit',
 ] as const;
 
-function compareToOwner(mine: ClassifiedFigures, owner: ClassifiedFigures): string | undefined {
+/**
+ * Exported for its own test. The DB-gated tests can only ever observe this
+ * returning `undefined` — two correct implementations agree — so the case that
+ * matters, a real disagreement, is unreachable from them and would leave the
+ * whole comparison provable only by `const fault = undefined;` staying green.
+ */
+export function compareToOwner(
+  mine: ClassifiedFigures,
+  owner: ClassifiedFigures,
+): string | undefined {
   const drift = PL_BANDS
     .filter((band) => Math.abs(mine[band] - owner[band]) >= 0.01)
     .map((band) => `${band}: ${round2(mine[band])} vs ${round2(owner[band])}`);

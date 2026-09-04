@@ -1,168 +1,20 @@
 /**
- * Which posted lines a reclassification may move, and why each of the rest may
- * not.
+ * Reading the candidate lines a reclassification could move.
  *
- * A reclassification does NOT rewrite the lines it selects. It reads them so it
- * can post a NEW journal that contras the source account and re-applies the
- * amount to the target — see ./journals.ts. Nothing in this file or its callers
- * updates `gl_journal_lines.gl_account_id`, and nothing should: rewriting
- * posted history silently changes a trial balance somebody may already have
- * signed, and leaves an auditor with no way to see the original classification.
- *
- * The partition is PURE and separate from the query, for the reason
- * `bulkAllocationSkip` is: the dry run and the live call must reach the same
- * verdict from the same read, or a dry run that passes where the real call
- * refuses is worse than no dry run at all.
+ * Queries only. The DECISION — which of them may actually move, and why each of
+ * the rest may not — is pure and lives in ./partition.ts, so that the dry run
+ * and the live call reach the same verdict from the same read.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import type { CandidateRow } from './partition';
 
-/** One posted line on the source account, with everything the guards need. */
-export interface CandidateRow {
-  line_id: string;
-  journal_entry_id: string;
-  entry_number: string | null;
-  entry_date: string;
-  debit: string | number | null;
-  credit: string | number | null;
-  description: string | null;
-  project_id: string | null;
-  cost_center_id: string | null;
-  /** The ENTRY carries a reversal; its lines have already been contra'd. */
-  reversed: boolean;
-  /** `open` / `closed` / `locked`, or null when no period covers the entry. */
-  period_status: string | null;
-  has_period: boolean;
-  /** A live earlier batch already moved this line. */
-  already_reclassified: boolean;
-  /** This line IS the contra leg an earlier reclassification posted. */
-  is_reclass_contra: boolean;
-  /** The entry date falls inside a filed VAT period. */
-  vat_period_locked: boolean;
-}
-
-/** A line that WILL move, in the shape the journal builder consumes. */
-export interface ReclassCandidate {
-  lineId: string;
-  journalEntryId: string;
-  entryNumber: string | null;
-  entryDate: string;
-  debit: number;
-  credit: number;
-  description: string | null;
-  projectId: string | null;
-  costCenterId: string | null;
-}
-
-/** A line that will NOT move, and the machine-stable reason. */
-export interface ReclassSkip {
-  lineId: string;
-  journalEntryId: string;
-  entryNumber: string | null;
-  entryDate: string;
-  amount: number;
-  reason: ReclassSkipReason;
-}
-
-export type ReclassSkipReason =
-  | 'entry_reversed'
-  | 'already_reclassified'
-  | 'reclassification_contra'
-  | 'zero_amount'
-  | 'vat_period_locked'
-  | 'source_period_closed'
-  | 'source_period_missing';
-
-export interface PartitionOptions {
-  /**
-   * When set, every reclassification journal is dated HERE instead of at its
-   * source line's own date — so the source line's period being closed no longer
-   * bars the move, because that period is not being written to. The caller
-   * validates this date's own period before it gets here.
-   */
-  postingDate: string | null;
-  /**
-   * True when the source or the target is a VAT control account. Only then does
-   * a filed VAT period bind: a move between two ordinary expense accounts
-   * changes no box on a return that has already gone to SARS.
-   */
-  vatRelevant: boolean;
-}
-
-const num = (v: string | number | null | undefined): number => {
-  const n = typeof v === 'number' ? v : parseFloat(String(v ?? 0));
-  return Number.isFinite(n) ? n : 0;
-};
-
-/**
- * The reasons are ORDERED, and the order is the message the caller gets. A line
- * on a reversed entry in a closed period is reported as reversed, because that
- * is the fact a human needs first: re-opening the period would not make it
- * movable.
- */
-function skipReasonFor(row: CandidateRow, opts: PartitionOptions): ReclassSkipReason | null {
-  if (row.reversed) return 'entry_reversed';
-  if (row.is_reclass_contra) return 'reclassification_contra';
-  if (row.already_reclassified) return 'already_reclassified';
-  if (num(row.debit) === 0 && num(row.credit) === 0) return 'zero_amount';
-  if (opts.vatRelevant && row.vat_period_locked) return 'vat_period_locked';
-  // Both of these are about writing INTO the source line's own period, so both
-  // fall away once the caller names a posting date of its own.
-  if (opts.postingDate === null) {
-    if (!row.has_period) return 'source_period_missing';
-    if (row.period_status !== 'open') return 'source_period_closed';
-  }
-  return null;
-}
-
-export interface Partitioned {
-  movable: ReclassCandidate[];
-  skipped: ReclassSkip[];
-}
-
-/**
- * Every candidate lands in exactly one of the two lists. That identity is what
- * `propose_reclassification` reports to `buildEnvelope`, and it is checkable
- * only because nothing here filters silently.
- */
-export function partitionCandidates(
-  rows: readonly CandidateRow[],
-  opts: PartitionOptions,
-): Partitioned {
-  const movable: ReclassCandidate[] = [];
-  const skipped: ReclassSkip[] = [];
-
-  for (const row of rows) {
-    const reason = skipReasonFor(row, opts);
-    if (reason !== null) {
-      skipped.push({
-        lineId: row.line_id,
-        journalEntryId: row.journal_entry_id,
-        entryNumber: row.entry_number,
-        entryDate: row.entry_date,
-        // The amount is the fact that tells a reader whether to care: "three
-        // lines were skipped" and "R1.06m was skipped" are different findings.
-        amount: num(row.debit) - num(row.credit),
-        reason,
-      });
-      continue;
-    }
-    movable.push({
-      lineId: row.line_id,
-      journalEntryId: row.journal_entry_id,
-      entryNumber: row.entry_number,
-      entryDate: row.entry_date,
-      debit: num(row.debit),
-      credit: num(row.credit),
-      description: row.description,
-      projectId: row.project_id,
-      costCenterId: row.cost_center_id,
-    });
-  }
-
-  return { movable, skipped };
-}
+export type {
+  CandidateRow, ReclassCandidate, ReclassSkip, ReclassSkipReason,
+  PartitionOptions, Partitioned,
+} from './partition';
+export { partitionCandidates } from './partition';
 
 export interface CandidateQuery {
   sourceAccountId: string;
@@ -201,7 +53,12 @@ export async function findReclassCandidates(
            jl.description,
            jl.project_id,
            jl.cost_center_id,
-           (je.reversed_at IS NOT NULL) AS reversed,
+           jl.vat_type,
+           jl.bu_id,
+           jl.cc1_id,
+           jl.cc2_id,
+           (je.reversed_at IS NOT NULL)   AS reversed,
+           (je.reversal_of_id IS NOT NULL) AS is_reversal_leg,
            fp.status                    AS period_status,
            (fp.id IS NOT NULL)          AS has_period,
            EXISTS (
@@ -261,7 +118,12 @@ export async function findReclassCandidates(
     description: r.description === null ? null : String(r.description),
     project_id: r.project_id === null ? null : String(r.project_id),
     cost_center_id: r.cost_center_id === null ? null : String(r.cost_center_id),
+    vat_type: r.vat_type === null || r.vat_type === undefined ? null : String(r.vat_type),
+    bu_id: r.bu_id === null || r.bu_id === undefined ? null : String(r.bu_id),
+    cc1_id: r.cc1_id === null || r.cc1_id === undefined ? null : String(r.cc1_id),
+    cc2_id: r.cc2_id === null || r.cc2_id === undefined ? null : String(r.cc2_id),
     reversed: r.reversed === true,
+    is_reversal_leg: r.is_reversal_leg === true,
     period_status: r.period_status === null ? null : String(r.period_status),
     has_period: r.has_period === true,
     already_reclassified: r.already_reclassified === true,

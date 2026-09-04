@@ -66,6 +66,11 @@ export function guardReclassArgs(args: Record<string, unknown>): McpToolResult |
 export async function planFromArgs(
   args: Record<string, unknown>,
   ctx: McpToolContext,
+  /**
+   * TRUE only on the path that is about to write. A preview must not hold a
+   * lock that blocks every real batch on the account for its duration.
+   */
+  lockSourceAccount = false,
 ): Promise<ReclassPlan | McpToolResult> {
   const sourceAccountId = strArg(args, 'source_account_id');
   const targetAccountId = strArg(args, 'target_account_id');
@@ -75,14 +80,31 @@ export async function planFromArgs(
   const bad = guardReclassArgs(args);
   if (bad) return bad;
 
-  const plan = await planReclassification({
-    companyId: ctx.companyId,
-    sourceAccountId,
-    targetAccountId,
-    from: strArg(args, 'from') ?? null,
-    to: strArg(args, 'to') ?? null,
-    postingDate: strArg(args, 'posting_date') ?? null,
-  });
+  let plan;
+  try {
+    plan = await planReclassification({
+      companyId: ctx.companyId,
+      sourceAccountId,
+      targetAccountId,
+      from: strArg(args, 'from') ?? null,
+      to: strArg(args, 'to') ?? null,
+      postingDate: strArg(args, 'posting_date') ?? null,
+      lockSourceAccount,
+    });
+  } catch (err) {
+    // The source-account lock timed out: another batch is mid-flight on this
+    // account. Write-free by construction — the lock is taken before anything
+    // is read, let alone posted — so this is a PRE-write refusal and a
+    // toolError is the correct shape. The registry audits it with a NULL
+    // idempotency key, leaving the key usable for the retry the message asks
+    // for. Anything else rethrows: only this one condition is known to be
+    // write-free.
+    if (typeof err === 'object' && err !== null
+        && (err as { code?: unknown }).code === 'RECLASS_SOURCE_LOCKED') {
+      return toolError((err as Error).message);
+    }
+    throw err;
+  }
   if (isRefusal(plan)) {
     // The shared generic text for an id that is not in this company, so a
     // cross-tenant probe reads identically to a genuine miss.
@@ -162,12 +184,20 @@ export function renderSkips(plan: ReclassPlan) {
   }));
 }
 
-/** Which fiscal period each journal would land in, resolved by the plan. */
+/**
+ * Which dates the journals would carry.
+ *
+ * `postingDate` is the CALLER's own argument, echoed back — not inferred from
+ * the drafts. Deriving it from `drafts[0].date` claimed a posting date whenever
+ * every source line happened to fall on one day, which is precisely the case
+ * where the caller chose NOT to move the charge between periods. This field is
+ * the one that distinguishes period-neutral from period-moving, so it has to
+ * report what was asked for rather than what the data looked like.
+ */
 export function renderPeriods(plan: ReclassPlan) {
   return {
-    postingDate: plan.drafts.length > 0 && plan.drafts.every((d) => d.date === plan.drafts[0]!.date)
-      ? plan.drafts[0]!.date
-      : null,
+    postingDate: plan.postingDate,
+    periodNeutral: plan.postingDate === null,
     journalDates: [...new Set(plan.drafts.map((d) => d.date))],
   };
 }

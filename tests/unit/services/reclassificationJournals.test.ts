@@ -29,6 +29,8 @@ function line(over: Partial<ReclassSourceLine> = {}): ReclassSourceLine {
     description: 'Fibre cable',
     projectId: null,
     costCenterId: null,
+    vatType: null,
+    buId: null,
     ...over,
   };
 }
@@ -120,6 +122,24 @@ describe('buildReclassJournals', () => {
     expect(journal!.lines[1]!.description).toContain('JE-2026-00001');
     expect(journal!.description).toContain('49775627');
     expect(journal!.description).toContain('5100');
+  });
+
+  it('preserves the VAT coding on BOTH legs', () => {
+    // Dropping it posts two lines with vat_type NULL. On a VAT control account
+    // that manufactures one vatExceptionsService exception per line, and on any
+    // account it means the contra does not reverse the box contribution the
+    // original made and the target leg does not re-establish it — the
+    // reclassification would be silently VAT-blind. 9,410 posted lines
+    // platform-wide carry a vat_type.
+    const [journal] = buildReclassJournals(
+      [line({ vatType: 'standard' })], SOURCE, TARGET, NAMES, null,
+    );
+    expect(journal!.lines.map((l) => l.vatType)).toEqual(['standard', 'standard']);
+  });
+
+  it('preserves the business unit on BOTH legs', () => {
+    const [journal] = buildReclassJournals([line({ buId: 'bu1' })], SOURCE, TARGET, NAMES, null);
+    expect(journal!.lines.map((l) => l.buId)).toEqual(['bu1', 'bu1']);
   });
 
   it('preserves project and cost centre on BOTH legs', () => {

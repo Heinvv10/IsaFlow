@@ -27,6 +27,11 @@ function row(over: Partial<CandidateRow> = {}): CandidateRow {
     project_id: null,
     cost_center_id: null,
     reversed: false,
+    is_reversal_leg: false,
+    vat_type: null,
+    bu_id: null,
+    cc1_id: null,
+    cc2_id: null,
     period_status: 'open',
     has_period: true,
     already_reclassified: false,
@@ -36,7 +41,7 @@ function row(over: Partial<CandidateRow> = {}): CandidateRow {
   };
 }
 
-const OPEN = { postingDate: null, vatRelevant: false } as const;
+const OPEN = { postingDate: null } as const;
 
 describe('partitionCandidates', () => {
   it('moves an ordinary posted line and carries its amount, project and cost centre', () => {
@@ -80,7 +85,7 @@ describe('partitionCandidates', () => {
   it('POSTS a closed-period line when the caller names an open posting date instead', () => {
     const { movable, skipped } = partitionCandidates(
       [row({ period_status: 'closed' })],
-      { postingDate: '2026-09-04', vatRelevant: false },
+      { postingDate: '2026-09-04' },
     );
     // The closed period is not being written to — the correction lands in the
     // period the caller named, which the tool validated before calling.
@@ -91,6 +96,39 @@ describe('partitionCandidates', () => {
   it('skips a line belonging to a reversed journal entry', () => {
     const { skipped } = partitionCandidates([row({ reversed: true })], OPEN);
     expect(skipped[0]).toMatchObject({ reason: 'entry_reversed' });
+  });
+
+  // A reversal is a PAIR on the account: the entry that was reversed
+  // (reversed_at set) and the entry that did the reversing (reversal_of_id
+  // set). Skipping only the first tears the pair in half — the charge stays on
+  // the source and its cancellation is carried to the target, so neither
+  // account nets to zero. On the live Velocity books that is R15,477,616.91 on
+  // 49775626 and R407,422.11 on 49775627, and the band-level P&L check cannot
+  // see it because both accounts sit in the same band.
+  it('skips the REVERSING half too — half a nil pair must never move alone', () => {
+    const { movable, skipped } = partitionCandidates([row({ is_reversal_leg: true })], OPEN);
+    expect(movable).toEqual([]);
+    expect(skipped[0]).toMatchObject({ reason: 'entry_is_reversal' });
+  });
+
+  it('skips BOTH halves of a reversal pair, under distinct reasons', () => {
+    const { movable, skipped } = partitionCandidates(
+      [row({ line_id: 'a', reversed: true }), row({ line_id: 'b', is_reversal_leg: true })],
+      OPEN,
+    );
+    expect(movable).toEqual([]);
+    expect(skipped.map((s) => s.reason)).toEqual(['entry_reversed', 'entry_is_reversal']);
+  });
+
+  it('skips a line carrying analysis coding the reclassification cannot reproduce', () => {
+    // JournalLineInput cannot express cc1_id / cc2_id, so a line carrying them
+    // would post its pair with those dimensions silently dropped.
+    expect(partitionCandidates([row({ cc1_id: 'c1' })], OPEN).skipped[0])
+      .toMatchObject({ reason: 'unreproducible_analysis_coding' });
+    expect(partitionCandidates([row({ cc2_id: 'c2' })], OPEN).skipped[0])
+      .toMatchObject({ reason: 'unreproducible_analysis_coding' });
+    // bu_id IS expressible, so it does not skip.
+    expect(partitionCandidates([row({ bu_id: 'b1' })], OPEN).movable).toHaveLength(1);
   });
 
   it('skips a line an earlier live batch already moved', () => {
@@ -108,11 +146,14 @@ describe('partitionCandidates', () => {
     expect(skipped[0]).toMatchObject({ reason: 'zero_amount', amount: 0 });
   });
 
-  it('skips a VAT-locked date ONLY when the move touches a VAT control account', () => {
-    const locked = [row({ vat_period_locked: true })];
-    expect(partitionCandidates(locked, OPEN).skipped).toEqual([]);
+  it('skips a VAT-locked date ONLY for a line that itself carries VAT coding', () => {
+    // A line with no vat_type contributes to no VAT box, so a filed period does
+    // not bind it. One that does carry vat_type is anchored to a return already
+    // sent to SARS. 9,410 posted lines platform-wide carry a vat_type, so this
+    // is a live rule and not a hypothetical.
+    expect(partitionCandidates([row({ vat_period_locked: true })], OPEN).skipped).toEqual([]);
     expect(
-      partitionCandidates(locked, { postingDate: null, vatRelevant: true }).skipped[0],
+      partitionCandidates([row({ vat_period_locked: true, vat_type: 'standard' })], OPEN).skipped[0],
     ).toMatchObject({ reason: 'vat_period_locked' });
   });
 

@@ -61,12 +61,35 @@ export const postReclassificationBatchTool: McpTool = {
     // Everything the plan does is a READ, and it runs EVERY row-state guard the
     // write path runs. That is what makes the dry run below honest: only the
     // write itself is skipped.
-    const planned = await planFromArgs(args, ctx);
+    // The advisory lock on the source account is taken INSIDE planFromArgs,
+    // before the candidates are read, and only when this call is going to
+    // write. A dry run passes `false`: it writes nothing, and holding a lock
+    // that blocks every real batch on the account for the length of a preview
+    // would be a denial of service dressed as safety.
+    const isDryRun = args.dry_run === true;
+    const planned = await planFromArgs(args, ctx, !isDryRun);
     if (!isPlan(planned)) return planned;
 
     const postingDate = strArg(args, 'posting_date') ?? null;
 
-    if (args.dry_run === true) {
+    // Checked BEFORE the dry-run branch, so both answers are the SAME refusal.
+    // Returning a success envelope here while the live call returns a toolError
+    // is the forbidden direction by this feature's own criterion — an agent
+    // branching on `isError` would get opposite answers from a preview and the
+    // call it is previewing.
+    if (planned.movable.length === 0) {
+      // Pre-write on both paths: the registry audits it with a NULL key, so the
+      // agent can retry on the same key once it has fixed its window.
+      const reasons = [...new Set(planned.skipped.map((s) => s.reason))];
+      return toolError(
+        `Nothing to reclassify on ${planned.source.code}: ${planned.skipped.length} candidate `
+        + `line${planned.skipped.length === 1 ? '' : 's'} skipped`
+        + (reasons.length > 0 ? ` (${reasons.join(', ')})` : '')
+        + '. Widen from/to, or pass posting_date to move lines out of closed periods.',
+      );
+    }
+
+    if (isDryRun) {
       const preview = ok({
         dryRun: true,
         batch_id: null,
@@ -88,21 +111,6 @@ export const postReclassificationBatchTool: McpTool = {
       preview.wroteNothing = true;
       preview.billable = false;
       return preview;
-    }
-
-    if (planned.movable.length === 0) {
-      // Refused BEFORE anything is written, and deliberately not reported as a
-      // success: an empty batch hands back an id that reverses nothing, and a
-      // silent `posted: 0` reads like the work was done. Pre-write, so a
-      // toolError is the right shape — the registry audits it with a NULL key
-      // and the agent can retry on the same key once it has fixed its window.
-      const reasons = [...new Set(planned.skipped.map((s) => s.reason))];
-      return toolError(
-        `Nothing to reclassify on ${planned.source.code}: ${planned.skipped.length} candidate `
-        + `line${planned.skipped.length === 1 ? '' : 's'} skipped`
-        + (reasons.length > 0 ? ` (${reasons.join(', ')})` : '')
-        + '. Widen from/to, or pass posting_date to move lines out of closed periods.',
-      );
     }
 
     // ── Everything below WRITES. No try/catch: a throw must reach the

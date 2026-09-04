@@ -39,6 +39,25 @@
 -- deleted batch row would make a reversed reclassification look like one that
 -- never happened.
 
+-- LOCKING. The two REFERENCES below name `gl_journal_lines` and
+-- `gl_journal_entries`, and a foreign key takes a SHARE ROW EXCLUSIVE lock on
+-- the REFERENCED table for the duration of the CREATE TABLE. That conflicts
+-- with the ROW EXCLUSIVE every INSERT holds, so this migration queues behind
+-- in-flight postings and, once queued, blocks every new posting behind it.
+--
+-- No scan is needed — the new tables are empty and nothing is validated against
+-- the referenced rows — so it is milliseconds ONCE ACQUIRED. The risk is
+-- entirely the WAIT: behind one long-running transaction on the ledger, this
+-- statement sits in the lock queue and every posting in the system sits behind
+-- it. `lock_timeout` converts that from an outage into a failed migration you
+-- re-run, which is the cheaper of the two mistakes.
+--
+-- The FKs are kept rather than dropped: these two columns are the only thing
+-- tying a batch to what it actually moved, and an orphaned batch line would
+-- make `already_reclassified` and the contra probe answer from rows whose
+-- journals no longer exist.
+SET lock_timeout = '5s';
+
 CREATE TABLE IF NOT EXISTS reclassification_batches (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id uuid NOT NULL REFERENCES companies(id),

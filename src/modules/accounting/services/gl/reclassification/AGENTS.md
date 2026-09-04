@@ -56,10 +56,13 @@ credit), so a credit-balance move needs no branch and cannot get one wrong.
 // plan.ts
 planReclassification(input: ReclassPlanInput): Promise<ReclassPlan | ReclassRefusal>
 MAX_RECLASS_LINES = 500   // refuse above it; never truncate silently
-// candidates.ts
+// candidates.ts — queries only
 findReclassCandidates(companyId, q): Promise<CandidateRow[]>   // LIMIT limit + 1
 countReclassCandidates(companyId, q): Promise<number>          // the universe, own COUNT
-partitionCandidates(rows, opts): { movable, skipped }          // PURE
+// partition.ts — the decision, PURE (re-exported from candidates.ts)
+partitionCandidates(rows, opts): { movable, skipped }
+// sourceLock.ts
+lockReclassSource(companyId, sourceAccountId, lockTimeout?): Promise<void>
 // journals.ts
 buildReclassJournals(lines, sourceId, targetId, names, postingDate): ReclassJournalDraft[]  // PURE
 // impact.ts
@@ -73,9 +76,43 @@ createReclassBatch / recordReclassBatchLines / getReclassBatch
 ## Business rules
 
 - **Skip reasons**, machine-stable, in the order they are reported:
-  `entry_reversed`, `reclassification_contra`, `already_reclassified`,
-  `zero_amount`, `vat_period_locked`, `source_period_missing`,
+  `entry_reversed`, `entry_is_reversal`, `reclassification_contra`,
+  `already_reclassified`, `zero_amount`, `unreproducible_analysis_coding`,
+  `unknown_vat_type`, `vat_period_locked`, `source_period_missing`,
   `source_period_closed`.
+- **A REVERSAL IS A PAIR, AND BOTH HALVES ARE SKIPPED.** `reversed_at` marks the
+  entry that WAS reversed; `reversal_of_id` marks the entry that DID the
+  reversing. They mirror each other line for line on the same account and
+  together net to zero. Guarding on `reversed_at` alone tears the pair in half:
+  the original charge stays on the source and its cancellation is carried to the
+  target, and NEITHER account nets to zero afterwards. That defect shipped in
+  the first cut of this module and was invisible to every safety surface it
+  built — the before/after P&L is band-level, both accounts sat in the same
+  band, so `no_profit_and_loss_effect` fired and read as reassurance. Verified
+  live: 39 lines / R15,477,616.91 on `49775626` and 5 lines / R407,422.11 on
+  `49775627`. Both halves skip rather than both moving, because the pair
+  contributes nothing to any balance — moving it posts two more journals to
+  relocate a nil, and reclassifying a reversed charge is a different intent from
+  reclassifying a live one.
+- **The source account is LOCKED before the candidates are read**, on the write
+  path only (`sourceLock.ts`). Nothing else serialises two DIFFERENT requests
+  over the same rows: the registry's idempotency lock keys on the key, and all
+  three duplicate-move guards are read-committed reads of rows the peer has not
+  committed. Two batches under different keys would otherwise both post the same
+  R11.3m. A preview takes no lock — holding one for the length of a read would
+  be a denial of service dressed as safety.
+- **A VAT control account is refused as source or target.** `vatReturnService`
+  decides VAT201 membership by `account_subtype IN ('vat_input','vat_output',
+  'tax')`, and a line landing on one with a NULL `vat_type` is swept into box 15
+  at full value. A warning an agent can ignore is not a control on a SARS
+  submission. `'tax'` is in the set even though it is not VAT (FINDINGS B37)
+  because the return reads it as VAT today.
+- **Every dimension the source line carries goes onto BOTH legs** —
+  `project_id`, `cost_center_id`, `vat_type`, `bu_id`. `cc1_id` / `cc2_id`
+  cannot be expressed by `JournalLineInput` at all, so a line carrying either is
+  SKIPPED rather than posted with them dropped; zero production lines carry them
+  today. An unrecognised `vat_type` (the column is bare `text` with no CHECK)
+  skips for the same reason.
 - **Periods.** With no `posting_date`, one journal per distinct source entry
   date — period-neutral, and every line whose own period is CLOSED is skipped
   because a closed period cannot be posted into. With a `posting_date`, ONE
@@ -88,9 +125,10 @@ createReclassBatch / recordReclassBatchLines / getReclassBatch
   `postJournalEntry` skips its closed-period check behind `if
   (entry.fiscalPeriodId)` — so such an entry POSTS, permanently outside the trial
   balance, the VAT201 and the AFS.
-- **VAT locks bind only when the move touches a VAT control account**
-  (`vat_input` / `vat_output`). A move between two ordinary expense accounts
-  changes no box on a return already filed.
+- **A filed VAT period binds a line that CARRIES VAT coding.** A line with no
+  `vat_type` contributes to no box and is unaffected; one that does is anchored
+  to a return already sent to SARS. Per line, so one such line never costs the
+  rest of the batch. 9,410 posted lines platform-wide carry a `vat_type`.
 - **`is_active` is not a filter on any figure query** (it is a picker flag), but
   BOTH accounts must be active to be POSTED to — a deactivated account refuses
   every posting, so that is a request-level refusal, not a per-line skip.
@@ -140,6 +178,15 @@ actually is: 414 lines and R11.3m moved, no reported figure changed, and the
 source account's name lost.
 
 ## Recent changes
+
+- 2026-09-04 (review round): two HIGH defects closed. **HIGH-1**, the reversal
+  pair split above — the first cut moved the reversing half of every pair whose
+  other half it skipped. **HIGH-2**, no lock: two concurrent batches under
+  different idempotency keys both posted. Plus `vat_type` and `bu_id` now carried
+  onto both legs, VAT control accounts refused, the dry run giving the identical
+  refusal to the live call, `renderPeriods` echoing the caller's own
+  `posting_date` rather than inferring one, `lock_timeout` on migration 600, and
+  test coverage for `impact.ts` and for the `universeTotal` count.
 
 - 2026-09-04: Built (migration 600). Verified read-only against the live Velocity
   books: `49775627 Unallocated Expense → 5100` proposes 414 of 419 lines,
