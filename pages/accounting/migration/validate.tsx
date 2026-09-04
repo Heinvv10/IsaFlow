@@ -25,6 +25,7 @@ export default function ValidatePage() {
   const [isCompleting, setIsCompleting] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState('');
+  const warnCount = validation?.checks.filter(c => c.status === 'warn').length ?? 0;
 
   const loadSession = useCallback(async () => {
     try {
@@ -171,6 +172,17 @@ export default function ValidatePage() {
               <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-400">
                 <p className="font-medium mb-1">Some checks failed</p>
                 <p>Please resolve the issues above before completing your migration. Return to the relevant steps to fix them.</p>
+              </div>
+            )}
+
+            {/* A warning does not block go-live, but it must not be a single amber
+                pill among seven rows on a screen that otherwise reads as ready. */}
+            {warnCount > 0 && (
+              <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-400">
+                <p className="font-medium mb-1">
+                  {warnCount} warning{warnCount === 1 ? '' : 's'} — you can complete the migration, but read these first
+                </p>
+                <p>These do not stop the books balancing. They change where money is REPORTED, which nobody can correct for you after the fact.</p>
               </div>
             )}
 

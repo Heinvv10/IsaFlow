@@ -20,17 +20,24 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import {
   buildSubtypeCoverageResult,
-  type UnclassifiedAccountRow,
+  type AccountMovementRow,
 } from '@/modules/accounting/services/core/migrationSubtypeCheck';
 
-const row = (
-  over: Partial<UnclassifiedAccountRow> & Pick<UnclassifiedAccountRow, 'balance'>,
-): UnclassifiedAccountRow => ({
-  account_code: '5000',
-  account_name: 'Expenses',
-  account_type: 'expense',
-  ...over,
-});
+type RowOverride = Partial<AccountMovementRow> & { balance: number | string };
+
+/** Default gross to |net| — the ordinary case where a balance is real movement. */
+const row = (over: RowOverride): AccountMovementRow => {
+  const { balance, ...rest } = over;
+  return {
+    account_code: '5000',
+    account_name: 'Expenses',
+    account_type: 'expense',
+    account_subtype: null,
+    net: balance,
+    gross: Math.abs(typeof balance === 'number' ? balance : parseFloat(balance)),
+    ...rest,
+  };
+};
 
 describe('buildSubtypeCoverageResult — when nothing is at risk', () => {
   it('passes when no account lacks a subtype', () => {
@@ -39,21 +46,53 @@ describe('buildSubtypeCoverageResult — when nothing is at risk', () => {
     expect(r.check).toBe('Account Subtype Coverage');
   });
 
-  it('passes when the only subtype-less accounts carry no posted movement', () => {
+  it('passes when the only subtype-less accounts have no posted movement at all', () => {
     const r = buildSubtypeCoverageResult([
-      row({ account_code: '1000', account_name: 'Assets', account_type: 'asset', balance: 0 }),
-      row({ account_code: '1100', account_name: 'Current Assets', account_type: 'asset', balance: '0.00' }),
+      row({ account_code: '1000', account_name: 'Assets', account_type: 'asset', balance: 0, gross: 0 }),
+      row({ account_code: '1100', account_name: 'Current Assets', account_type: 'asset', balance: '0.00', gross: 0 }),
+    ]);
+    expect(r.status).toBe('pass');
+  });
+
+  it('passes when every account carries a subtype the classifier recognises', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_subtype: 'cost_of_sales', balance: 82727277.95 }),
+      row({ account_code: '1110', account_type: 'asset', account_subtype: 'bank', balance: 500000 }),
+      row({ account_code: '2100', account_type: 'liability', account_subtype: 'payable', balance: -900000 }),
     ]);
     expect(r.status).toBe('pass');
   });
 
   it('ignores sub-cent rounding dust', () => {
-    expect(buildSubtypeCoverageResult([row({ balance: 0.004 })]).status).toBe('pass');
-    expect(buildSubtypeCoverageResult([row({ balance: -0.004 })]).status).toBe('pass');
+    expect(buildSubtypeCoverageResult([row({ balance: 0.004, gross: 0.004 })]).status).toBe('pass');
+    expect(buildSubtypeCoverageResult([row({ balance: -0.004, gross: 0.004 })]).status).toBe('pass');
   });
 
   it('flags a balance of one cent', () => {
     expect(buildSubtypeCoverageResult([row({ balance: 0.01 })]).status).toBe('warn');
+  });
+});
+
+describe('buildSubtypeCoverageResult — account types where nothing is defaulted', () => {
+  // aggregateFigures bands an equity account on account_type alone — there is no
+  // sub-split, so a missing subtype defaults nothing and costs nothing. Flagging
+  // it would put a number on the screen that no report is actually using.
+  it('passes when the only subtype-less account carrying value is equity', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: '3100', account_name: "Owner's Contribution", account_type: 'equity', balance: -5000000 }),
+    ]);
+    expect(r.status).toBe('pass');
+  });
+
+  it('excludes equity from the count and the total when other types are affected', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: '3100', account_type: 'equity', balance: -5000000 }),
+      row({ account_code: '5000', account_type: 'expense', balance: 1000000 }),
+    ]);
+    expect(r.message).toContain('1 account');
+    expect(r.message).toContain('R1,000,000.00');
+    expect(r.message).not.toContain('R6,000,000.00');
+    expect(r.detail).not.toContain('3100');
   });
 });
 
@@ -66,7 +105,7 @@ describe('buildSubtypeCoverageResult — when value is unclassified', () => {
   it('counts only the accounts carrying value', () => {
     const r = buildSubtypeCoverageResult([
       row({ account_code: '5000', balance: 199836.49 }),
-      row({ account_code: '1000', account_type: 'asset', balance: 0 }),
+      row({ account_code: '1000', account_type: 'asset', balance: 0, gross: 0 }),
       row({ account_code: '4310', account_type: 'revenue', balance: -2876.63 }),
     ]);
     expect(r.message).toContain('2 account');
@@ -94,20 +133,49 @@ describe('buildSubtypeCoverageResult — when value is unclassified', () => {
 
   it('says what a NULL expense subtype COSTS, not just that it found one', () => {
     const r = buildSubtypeCoverageResult([row({ account_type: 'expense', balance: 82727277.95 })]);
-    const text = `${r.message} ${r.detail ?? ''}`;
-    expect(text).toMatch(/operating expense/i);
-    expect(text).toMatch(/gross profit/i);
+    expect(r.message).toMatch(/operating expense/i);
+    expect(r.message).toMatch(/gross profit/i);
   });
 
   it('names the cost for asset, liability and revenue accounts too', () => {
     const asset = buildSubtypeCoverageResult([row({ account_type: 'asset', balance: 100 })]);
-    expect(`${asset.message} ${asset.detail}`).toMatch(/current asset/i);
+    expect(asset.message).toMatch(/current asset/i);
 
     const liability = buildSubtypeCoverageResult([row({ account_type: 'liability', balance: -100 })]);
-    expect(`${liability.message} ${liability.detail}`).toMatch(/current liabilit/i);
+    expect(liability.message).toMatch(/current liabilit/i);
 
+    // Asserted on `message` alone, NOT on detail: detail interpolates the raw
+    // account_type, so `/revenue/` would match the literal "(revenue)" even with
+    // the consequence clause deleted.
     const revenue = buildSubtypeCoverageResult([row({ account_type: 'revenue', balance: -100 })]);
-    expect(`${revenue.message} ${revenue.detail}`).toMatch(/other income|turnover|revenue/i);
+    expect(revenue.message).toMatch(/other income/i);
+    expect(revenue.message).toMatch(/turnover/i);
+  });
+
+  it('reads as English — "an asset", not "a asset"', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_type: 'asset', balance: 100 }),
+      row({ account_type: 'expense', balance: 100 }),
+    ]);
+    expect(r.message).toContain('an asset account');
+    expect(r.message).toContain('an expense account');
+    expect(r.message).not.toMatch(/\ba (asset|expense)\b/);
+  });
+
+  it('never emits a dangling consequence clause', () => {
+    for (const t of ['asset', 'liability', 'revenue', 'expense', 'something_new']) {
+      const r = buildSubtypeCoverageResult([row({ account_type: t, balance: 100 })]);
+      expect(r.message).not.toContain('defaulted: .');
+      expect(r.message).toContain(t);
+    }
+  });
+
+  it('still reports an account_type it has no mapping for, rather than dropping it', () => {
+    const r = buildSubtypeCoverageResult([row({ account_type: 'contra_asset', balance: 5000 })]);
+    expect(r.status).toBe('warn');
+    expect(r.message).toContain('1 account');
+    expect(r.message).toContain('R5,000.00');
+    expect(r.message).toContain('contra_asset');
   });
 
   it('names the largest accounts in detail, biggest first', () => {
@@ -140,5 +208,127 @@ describe('buildSubtypeCoverageResult — when value is unclassified', () => {
     expect(r.detail).toContain('A0');
     expect(r.detail).not.toContain('A50');
     expect(r.detail).toMatch(/46 (more|further)/i);
+  });
+});
+
+// ── Unrecognised spellings (F1) ──────────────────────────────────────────────
+
+describe('buildSubtypeCoverageResult — a subtype the classifier does not recognise', () => {
+  // `IS NULL` was the original predicate and it is the wrong one: aggregateFigures
+  // defaults on canonicalSubtype(...) === null, which is absent OR unrecognised.
+  // Production carries 'other' on ISAFlow Demo's 2210 Long-term Loans, R3,049,137.84,
+  // defaulted into CURRENT liabilities — the exact harm this check claims to catch.
+  it("flags 'other', which production carries on a R3.05m long-term loan", () => {
+    const r = buildSubtypeCoverageResult([
+      row({
+        account_code: '2210', account_name: 'Long-term Loans', account_type: 'liability',
+        account_subtype: 'other', balance: 3049137.84,
+      }),
+    ]);
+    expect(r.status).toBe('warn');
+    expect(r.message).toContain('R3,049,137.84');
+    expect(r.detail).toContain('2210');
+  });
+
+  it("flags 'disposal_profit_loss', seeded on revenue across most tenants", () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_type: 'revenue', account_subtype: 'disposal_profit_loss', balance: -40000 }),
+    ]);
+    expect(r.status).toBe('warn');
+  });
+
+  it('flags the empty string and whitespace, which canonicalise to null', () => {
+    expect(buildSubtypeCoverageResult([row({ account_subtype: '', balance: 1000 })]).status).toBe('warn');
+    expect(buildSubtypeCoverageResult([row({ account_subtype: '   ', balance: 1000 })]).status).toBe('warn');
+  });
+
+  it('accepts the alias spellings the classifier does recognise', () => {
+    for (const spelling of ['Cost of Sales', 'cost-of-sales', ' COST_OF_SALES ']) {
+      expect(buildSubtypeCoverageResult([row({ account_subtype: spelling, balance: 1000 })]).status)
+        .toBe('pass');
+    }
+  });
+
+  it('does not claim in the pass message that every account HAS a subtype', () => {
+    // The old wording ("Every account carrying value has an account_subtype") is
+    // literally true and materially false on a chart full of 'other'.
+    const r = buildSubtypeCoverageResult([]);
+    expect(r.message).toMatch(/recognised/i);
+  });
+});
+
+// ── The stated consequence (F2) ──────────────────────────────────────────────
+
+describe('buildSubtypeCoverageResult — what the message asserts', () => {
+  // SYS-7 Trade Receivables, R32.7m, NULL subtype: it defaults into CURRENT
+  // assets, which is where a trade receivable belongs. currentAssets and
+  // totalAssets are both correct; what is lost is the accountsReceivable memo.
+  // Telling the operator working capital is overstated sends them hunting for
+  // an error that is not there.
+  it('does not assert that an unbanded asset overstates working capital', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: 'SYS-7', account_name: 'Trade Receivables', account_type: 'asset', balance: 32704547.38 }),
+    ]);
+    expect(r.message).not.toMatch(/overstating working capital/i);
+    expect(r.message).toMatch(/receivable/i);
+  });
+
+  it('does not assert that an unbanded liability understates long-term debt', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: 'SYS-8', account_name: 'Trade Payables', account_type: 'liability', balance: -37703241.94 }),
+    ]);
+    expect(r.message).not.toMatch(/understating long-term debt/i);
+    expect(r.message).toMatch(/accounts payable/i);
+  });
+});
+
+// ── What the total means (F3) ────────────────────────────────────────────────
+
+describe('buildSubtypeCoverageResult — the headline total', () => {
+  it('breaks the total down by account type, so flows are not silently added to balances', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_type: 'expense', balance: 115984525.05 }),
+      row({ account_code: 'L', account_type: 'liability', balance: -95547963.6 }),
+    ]);
+    expect(r.detail).toMatch(/expense 1 \(R115,984,525\.05\)/);
+    expect(r.detail).toMatch(/liability 1 \(R95,547,963\.60\)/);
+  });
+
+  it('says the total is a magnitude, not a figure any report shows', () => {
+    const r = buildSubtypeCoverageResult([row({ balance: 1000 })]);
+    expect(r.detail).toMatch(/magnitude/i);
+    expect(r.detail).toMatch(/not a figure any report shows/i);
+  });
+});
+
+// ── Movement hidden by a nil balance (F4) ────────────────────────────────────
+
+describe('buildSubtypeCoverageResult — movement that nets to nil', () => {
+  // Velocity 1564412 "ABSA - PC" is a BANK account: 18 posted lines, no subtype,
+  // zero balance. Absent from f.cash and from getBankAccountsStatus, and the
+  // balance test alone cannot see it.
+  it('reports a dormant bank account the balance test cannot see', () => {
+    const r = buildSubtypeCoverageResult([
+      row({
+        account_code: '1564412', account_name: 'ABSA - PC', account_type: 'asset',
+        balance: 0, gross: 26263.74,
+      }),
+    ]);
+    expect(r.status).toBe('warn');
+    expect(r.detail ?? r.message).toContain('1564412');
+  });
+
+  it('keeps dormant accounts OUT of the headline count and total', () => {
+    const r = buildSubtypeCoverageResult([
+      row({ account_code: '5000', balance: 1000000 }),
+      row({ account_code: '1564412', account_type: 'asset', balance: 0, gross: 26263.74 }),
+    ]);
+    expect(r.message).toContain('1 account(s) carrying R1,000,000.00');
+    expect(r.message).not.toContain('R1,026,263.74');
+  });
+
+  it('still passes when an account has no movement of any kind', () => {
+    const r = buildSubtypeCoverageResult([row({ balance: 0, gross: 0 })]);
+    expect(r.status).toBe('pass');
   });
 });
