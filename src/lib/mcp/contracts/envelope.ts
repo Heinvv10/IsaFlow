@@ -105,8 +105,20 @@ export interface ReportEnvelope<TRow> {
    *
    * It is the MAX(created_at) of the rows the figure consumed — NOT `now()`,
    * which would change on every call and prove nothing.
+   *
+   * **NULL when the report consumed no ledger row at all**, and null is the
+   * only honest answer there. Tools used to substitute the epoch,
+   * `1970-01-01T00:00:00.000Z`, for that case — a fabricated timestamp that
+   * CLAIMS the ledger was read through that instant. It is the same family as
+   * an equity plug and a `now()` fallback: an absence dressed as data. A caller
+   * comparing two reports sees a watermark and believes it, and anything doing
+   * `new Date(posted_through) > x` gets a plausible wrong answer instead of the
+   * null check it would otherwise have been forced to write.
+   *
+   * A report that reads no ledger at all — a subledger listing built from the
+   * `assets` table, say — reports null for the same reason, permanently.
    */
-  posted_through: string;
+  posted_through: string | null;
   /**
    * Which definition produced the figures — e.g. `ar.outstanding.v1`.
    *
@@ -161,7 +173,8 @@ export interface BuildEnvelopeInput<TRow> {
   rowsTotal: number;
   detail: DetailLevel;
   as_at: string;
-  posted_through: string;
+  /** MAX(created_at) of the rows consumed, or NULL when none were. */
+  posted_through: string | null;
   next_cursor?: string | null;
   excludedRows?: ExcludedRow[];
   figureBasis?: string;
