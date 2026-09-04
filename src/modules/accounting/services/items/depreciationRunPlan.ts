@@ -17,12 +17,14 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { isRealCalendarDate } from '@/lib/validation';
 
 /** Statuses the run treats as in-service. Anything else is not depreciated. */
 export const IN_SERVICE_STATUSES = ['available', 'assigned', 'in_maintenance'] as const;
 
 export type DepreciationSkipReason =
   | 'not_in_service'
+  | 'not_yet_acquired'
   | 'no_purchase_price'
   | 'below_capitalisation_threshold'
   | 'no_useful_life'
@@ -41,6 +43,7 @@ export interface DepreciationPlanRow {
 }
 
 export type DepreciationBlocker =
+  | { reason: 'invalid_period_date'; detail: string }
   | { reason: 'no_period'; detail: string }
   | { reason: 'period_closed'; detail: string };
 
@@ -55,6 +58,28 @@ export interface DepreciationPlan {
   postable: DepreciationPlanRow[];
   /** Assets matching the route's original eligibility filter — its `total`. */
   eligibleTotal: number;
+}
+
+/**
+ * `period_date` must be a real calendar day in canonical `YYYY-MM-DD`.
+ *
+ * Postgres ACCEPTS `2026-9-30`, so a non-canonical date reaches the DATE
+ * columns intact — but `periodDate.slice(0, 7)` then yields `2026-9-` and the
+ * entry number becomes `DEP-<asset>-2026-9-`, which does NOT collide with
+ * `DEP-<asset>-2026-09`. The `already_posted` guard never sees it and a second
+ * September journal posts for the same asset. The guard lives here rather than
+ * in either caller so the REST route and the MCP tool cannot diverge on it.
+ */
+export function invalidPeriodDate(periodDate: string): DepreciationBlocker | null {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(periodDate) && isRealCalendarDate(periodDate)) return null;
+  return {
+    reason: 'invalid_period_date',
+    detail:
+      `period_date "${periodDate}" is not a real calendar day in YYYY-MM-DD form. `
+      + 'Postgres would accept a value like 2026-9-30 and it would produce a DIFFERENT '
+      + 'entry number from 2026-09-30, defeating the already-posted guard and posting the '
+      + 'same period twice.',
+  };
 }
 
 /** Last day of the current month, in local components. */
@@ -157,7 +182,10 @@ export async function planDepreciationRun(
   periodDate: string,
   assets: DbRow[],
 ): Promise<DepreciationPlan> {
-  const period = await resolvePeriod(companyId, periodDate);
+  const invalid = invalidPeriodDate(periodDate);
+  const period = invalid
+    ? { id: null, blocker: invalid }
+    : await resolvePeriod(companyId, periodDate);
   const numbers = assets.map(
     (a) => depreciationEntryNumber(String(a.asset_number ?? ''), periodDate),
   );
@@ -172,6 +200,7 @@ export async function planDepreciationRun(
     const cost = Number(a.cost);
     const usefulLifeYears = Number(a.useful_life_years ?? 0);
     const status = String(a.status ?? '');
+    const purchaseDate = a.purchase_date == null ? null : fmtDate(a.purchase_date);
 
     const base = {
       assetId: String(a.id),
@@ -188,6 +217,7 @@ export async function planDepreciationRun(
       skip('not_in_service', `Status is "${status}"; only ${IN_SERVICE_STATUSES.join(', ')} are depreciated.`);
       continue;
     }
+
     if (a.cost == null || !Number.isFinite(cost) || cost <= 0) {
       skip('no_purchase_price', 'No purchase price, so there is nothing to depreciate.');
       continue;
@@ -199,6 +229,30 @@ export async function planDepreciationRun(
 
     // Matches the route's original WHERE clause exactly — this is its `total`.
     eligibleTotal += 1;
+
+    // An asset cannot be depreciated in a period that ENDS before it was
+    // acquired, and nothing downstream stops it.
+    // `calculatePolicyDepreciation` decides its first-month pro-rate by
+    // EQUALITY on purchase year and month, so a period BEFORE the purchase
+    // matches neither branch and falls through to a FULL month's charge,
+    // capped only by `depreciableAmount - openingAccDep` — a quantity with no
+    // relation to elapsed time. The journal posts dated in that period and
+    // `assets.accumulated_depreciation` is incremented permanently, once per
+    // open pre-acquisition period.
+    //
+    // That calculator was written for a caller that always ran the CURRENT
+    // month; `period_date` is an agent-supplied argument and voids the
+    // assumption. This is a PER-ASSET skip and not a whole-run blocker: a
+    // register holding one asset bought last week must still be able to run
+    // for the months before it, for every other asset.
+    if (purchaseDate !== null && purchaseDate > periodDate) {
+      skip(
+        'not_yet_acquired',
+        `Acquired ${purchaseDate}, after the period ending ${periodDate}. Depreciating it here `
+        + 'would post a full month of charge for a month in which the asset did not exist.',
+      );
+      continue;
+    }
 
     if (usefulLifeYears <= 0) {
       skip('no_useful_life', 'No useful life on the asset or its category, so no depreciation can be computed.');

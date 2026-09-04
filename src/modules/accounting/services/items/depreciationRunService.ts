@@ -37,7 +37,19 @@ import { log } from '@/lib/logger';
 import { postDualDepreciationToLedger } from '@/modules/accounting/services/gl/glCrossModuleHooks';
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { calculatePolicyDepreciation } from './farDepreciationService';
-import type { DryRunJournal } from '@/lib/mcp/contracts';
+import type { DryRunJournal, DryRunSkip } from '@/lib/mcp/contracts';
+
+/** The shape `getSystemAccount` resolves to. Not exported by its own module. */
+type CachedSystemAccount = Awaited<ReturnType<typeof getSystemAccount>>;
+
+export interface DepreciationPreview {
+  journals: DryRunJournal[];
+  /**
+   * Assets the run WRITES but posts no journal for. They are neither journals
+   * nor skips: the live call touches them.
+   */
+  writesWithoutJournal: DryRunSkip[];
+}
 import {
   loadDepreciationAssets,
   planDepreciationRun,
@@ -58,7 +70,18 @@ export interface DepreciationRunResult {
   processed: number;
   skipped: number;
   glFailed: number;
+  /**
+   * Every asset considered. `processed + skipped + glFailed === total`.
+   *
+   * It used to be `eligibleTotal` while `skipped` counted every asset in the
+   * company, because the eligibility filter moved out of the SQL and into the
+   * plan — so `skipped > total` became an ordinary response. The two now
+   * describe the same population and `eligible` reports the narrower count
+   * separately.
+   */
   total: number;
+  /** Assets that passed status, price and threshold — the old `total`. */
+  eligible: number;
   periodDate: string;
   yyyymm: string;
   results: DepreciationRunResultRow[];
@@ -141,7 +164,8 @@ export async function executeDepreciationRun(
     processed,
     skipped,
     glFailed,
-    total: plan.eligibleTotal,
+    total: plan.rows.length,
+    eligible: plan.eligibleTotal,
     periodDate: plan.periodDate,
     yyyymm: plan.yyyymm,
     results,
@@ -174,13 +198,39 @@ export async function previewDepreciationJournals(
   companyId: string,
   plan: DepreciationPlan,
   assets: DbRow[],
-): Promise<DryRunJournal[]> {
-  if (plan.postable.length === 0) return [];
-  const expense = await getSystemAccount('depreciation_expense', companyId);
-  const accumulated = await getSystemAccount('accumulated_depreciation', companyId);
+): Promise<DepreciationPreview> {
+  if (plan.postable.length === 0) return { journals: [], writesWithoutJournal: [] };
+
+  // A missing system account is a PARTIAL run, not a failure: the live path
+  // writes the asset_period_ledger row inside its savepoint and THEN throws
+  // from the journal writer, so the savepoint unwinds that asset and the run
+  // reports glFailed. Throwing here instead would answer GENERIC_FAILURE where
+  // the live call answers `ok` with a count — a dry run diverging from the live
+  // call in the one place the caller is relying on it.
+  let expense: CachedSystemAccount;
+  let accumulated: CachedSystemAccount;
+  try {
+    expense = await getSystemAccount('depreciation_expense', companyId);
+    accumulated = await getSystemAccount('accumulated_depreciation', companyId);
+  } catch {
+    return {
+      journals: [],
+      writesWithoutJournal: plan.postable.map((row) => ({
+        id: row.assetId,
+        reason: 'gl_accounts_not_configured',
+        detail:
+          'No system account is configured for depreciation_expense or '
+          + 'accumulated_depreciation, so no journal can post. The live run would still write '
+          + `the asset_period_ledger row for ${row.assetNumber} and then roll it back, reporting `
+          + 'it in glFailed. Configure the accounts with update_gl_account first.',
+      })),
+    };
+  }
+
   const byId = new Map(assets.map((a) => [String(a.id), a]));
 
   const journals: DryRunJournal[] = [];
+  const writesWithoutJournal: DryRunSkip[] = [];
   for (const row of plan.postable) {
     const a = byId.get(row.assetId);
     if (!a) continue;
@@ -193,8 +243,24 @@ export async function previewDepreciationJournals(
       openingAccDep: Number(a.policy_acc_dep),
       ...(a.disposal_date ? { disposalDate: fmtDate(a.disposal_date) } : {}),
     });
-    // The live path posts nothing at or below zero, so neither does the preview.
-    if (policy.monthlyDep <= 0) continue;
+    // The live path posts NO JOURNAL at or below zero — but it still UPSERTs the
+    // asset_period_ledger row, because postDualDepreciationToLedger writes the
+    // subledger before it calls the journal writer. An asset fully depreciated
+    // on policy while still carrying tax life is exactly that case. Dropping it
+    // silently made the dry run report zero journals for a call that writes
+    // rows: the parity break in the dangerous direction, and by the contract's
+    // own words worse than no dry run at all.
+    if (policy.monthlyDep <= 0) {
+      writesWithoutJournal.push({
+        id: row.assetId,
+        reason: 'subledger_row_only_no_journal',
+        detail:
+          `${row.assetNumber} has no policy depreciation left for this period, so NO GL journal `
+          + 'would post — but the live run still writes its asset_period_ledger row, carrying the '
+          + 'tax figures and the closing carrying amounts. This call is not a no-op for it.',
+      });
+      continue;
+    }
 
     journals.push({
       date: plan.periodDate,
@@ -220,5 +286,5 @@ export async function previewDepreciationJournals(
       totalCredit: policy.monthlyDep,
     });
   }
-  return journals;
+  return { journals, writesWithoutJournal };
 }

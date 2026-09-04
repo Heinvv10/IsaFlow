@@ -28,6 +28,10 @@ vi.mock('@/lib/logger', () => ({
 
 import { getPoolForTests, sql } from '@/lib/neon';
 import { runDepreciationTool } from '@/lib/mcp/tools/writeDepreciation';
+import {
+  runDepreciation,
+  DepreciationRunBlockedError,
+} from '@/modules/accounting/services/items/depreciationRunService';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 type AlsCtx = Parameters<typeof als.run>[0];
@@ -66,11 +70,13 @@ async function seedCompany(date: string): Promise<string> {
   return companyId;
 }
 
-async function addAsset(companyId: string, number: string): Promise<string> {
+async function addAsset(
+  companyId: string, number: string, purchaseDate = '2030-01-01',
+): Promise<string> {
   const rows = (await sql`
     INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
                         useful_life_years, accumulated_depreciation, current_book_value, status)
-    VALUES (${companyId}::uuid, ${number}, ${`A ${number}`}, ${'2030-01-01'}::date,
+    VALUES (${companyId}::uuid, ${number}, ${`A ${number}`}, ${purchaseDate}::date,
             ${120000}, ${10}, ${0}, ${120000}, ${'available'})
     RETURNING id
   `) as Array<{ id: string }>;
@@ -227,6 +233,167 @@ describe('run_depreciation — the real run against a real database', async () =
       );
       expect(res.isError).toBe(true);
       expect(res.content[0]!.text).toMatch(/no fiscal period/i);
+    });
+  });
+});
+
+describe('the fixes from the blind review', async () => {
+  const ok = await isDbReachable();
+
+  it.skipIf(!ok)('REFUSES to depreciate an asset in a period before it was acquired', async () => {
+    await inTx(async (companyId) => {
+      // HIGH-1. calculatePolicyDepreciation decides its first-month pro-rate by
+      // EQUALITY on purchase year and month, so a period BEFORE the purchase
+      // matches neither branch and takes a FULL month's charge, capped only by
+      // depreciableAmount - openingAccDep — a quantity unrelated to elapsed
+      // time. It posts a dated journal AND permanently increments
+      // assets.accumulated_depreciation, once per open pre-acquisition period.
+      const assetId = await addAsset(companyId, 'RDEP-FUTURE', '2031-06-15');
+
+      const res = await runDepreciationTool.handler(
+        { period_date: '2031-03-31', idempotency_key: 'early' }, toolCtx(companyId),
+      );
+      expect(res.isError).toBe(true);
+      expect(res.content[0]!.text).toMatch(/not_yet_acquired/);
+
+      const entries = (await sql`SELECT COUNT(*)::INT c FROM gl_journal_entries WHERE company_id = ${companyId}::uuid`) as Array<{ c: number }>;
+      const ledger = (await sql`SELECT COUNT(*)::INT c FROM asset_period_ledger WHERE company_id = ${companyId}::uuid`) as Array<{ c: number }>;
+      const asset = (await sql`SELECT accumulated_depreciation FROM assets WHERE id = ${assetId}::uuid`) as Array<{ accumulated_depreciation: string }>;
+      expect(entries[0]!.c).toBe(0);
+      expect(ledger[0]!.c).toBe(0);
+      expect(Number(asset[0]!.accumulated_depreciation)).toBe(0);
+    });
+  });
+
+  it.skipIf(!ok)('skips only the un-acquired asset, and still runs the rest', async () => {
+    await inTx(async (companyId) => {
+      // A PER-ASSET skip, not a whole-run blocker: a register holding one asset
+      // bought last week must still run for the months before it.
+      await addAsset(companyId, 'RDEP-OLD', '2030-01-01');
+      await addAsset(companyId, 'RDEP-NEW', '2031-06-15');
+
+      const body = json(await runDepreciationTool.handler(
+        { period_date: '2031-03-31', idempotency_key: 'mixed' }, toolCtx(companyId),
+      ));
+      expect(body.processed).toBe(1);
+      expect(body.skipped_assets.some(
+        (s: { reason: string }) => s.reason === 'not_yet_acquired',
+      )).toBe(true);
+
+      const numbers = (await sql`
+        SELECT entry_number FROM gl_journal_entries WHERE company_id = ${companyId}::uuid
+      `) as Array<{ entry_number: string }>;
+      expect(numbers.map((n) => n.entry_number)).toEqual(['DEP-RDEP-OLD-2031-03']);
+    });
+  });
+
+  it.skipIf(!ok)('the dry run reports the un-acquired asset too, not silently', async () => {
+    await inTx(async (companyId) => {
+      await addAsset(companyId, 'RDEP-DRY-OLD', '2030-01-01');
+      await addAsset(companyId, 'RDEP-DRY-NEW', '2031-06-15');
+      const res = await runDepreciationTool.handler(
+        { period_date: '2031-03-31', dry_run: true, idempotency_key: 'dry-mixed' }, toolCtx(companyId),
+      );
+      const body = json(res);
+      expect(res.wroteNothing).toBe(true);
+      expect(body.journalsTotal).toBe(1);
+      expect(body.skipped.some((s: { reason: string }) => s.reason === 'not_yet_acquired')).toBe(true);
+    });
+  });
+
+  it.skipIf(!ok)('the SERVICE refuses a non-canonical period_date — the REST route has no cast guard', async () => {
+    await inTx(async (companyId) => {
+      // LOW-9. The MCP tool is already fenced by guardCastableArgs, so a tool
+      // test cannot see this guard at all — it is the REST route, which passes
+      // req.body.periodDate straight through, that needs it. The guard lives in
+      // the service precisely so the two callers cannot drift, and this test
+      // reaches it the way the route does.
+      await addAsset(companyId, 'RDEP-SVC-DATE');
+      await expect(runDepreciation(companyId, USER, '2031-3-31'))
+        .rejects.toThrow(DepreciationRunBlockedError);
+      await expect(runDepreciation(companyId, USER, 'not-a-date'))
+        .rejects.toThrow(/not a real calendar day/i);
+
+      const entries = (await sql`SELECT COUNT(*)::INT c FROM gl_journal_entries WHERE company_id = ${companyId}::uuid`) as Array<{ c: number }>;
+      expect(entries[0]!.c).toBe(0);
+    });
+  });
+
+  it.skipIf(!ok)('REFUSES a non-canonical period_date that Postgres would accept', async () => {
+    await inTx(async (companyId) => {
+      // LOW-9. '2031-3-31' reaches a DATE column intact, but slice(0,7) gives
+      // '2031-3-' and the entry number DEP-x-2031-3- does not collide with
+      // DEP-x-2031-03 — so the already_posted guard never sees it and a second
+      // March journal posts for the same asset.
+      await addAsset(companyId, 'RDEP-BADDATE');
+      await runDepreciationTool.handler(
+        { period_date: '2031-03-31', idempotency_key: 'canon' }, toolCtx(companyId),
+      );
+      const res = await runDepreciationTool.handler(
+        { period_date: '2031-3-31', idempotency_key: 'noncanon' }, toolCtx(companyId),
+      );
+      expect(res.isError).toBe(true);
+
+      const entries = (await sql`SELECT COUNT(*)::INT c FROM gl_journal_entries WHERE company_id = ${companyId}::uuid`) as Array<{ c: number }>;
+      expect(entries[0]!.c).toBe(1);
+    });
+  });
+
+  it.skipIf(!ok)('processed + skipped + glFailed accounts for total', async () => {
+    await inTx(async (companyId) => {
+      // LOW-8. `total` was eligibleTotal while `skipped` counted every asset in
+      // the company, so skipped > total was an ordinary response.
+      await addAsset(companyId, 'RDEP-T1', '2030-01-01');
+      await addAsset(companyId, 'RDEP-T2', '2031-06-15');
+      await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
+                            useful_life_years, accumulated_depreciation, current_book_value, status)
+        VALUES (${companyId}::uuid, ${'RDEP-T3'}, ${'Disposed'}, ${'2030-01-01'}::date,
+                ${9000}, ${5}, ${0}, ${9000}, ${'disposed'})
+      `;
+      const body = json(await runDepreciationTool.handler(
+        { period_date: '2031-03-31', idempotency_key: 'counts' }, toolCtx(companyId),
+      ));
+      expect(body.processed + body.skipped + body.glFailed).toBe(body.total);
+      expect(body.skipped).toBeLessThanOrEqual(body.total);
+      // `eligible` carries the narrower count the old `total` held: T3 is out on
+      // status, T2 is eligible but skipped on acquisition date.
+      expect(body.eligible).toBe(2);
+    });
+  });
+
+  it.skipIf(!ok)('a fully-depreciated asset appears in the dry run because the run still writes it', async () => {
+    await inTx(async (companyId) => {
+      // MEDIUM-7. postDualDepreciationToLedger UPSERTs asset_period_ledger
+      // BEFORE it calls the journal writer, so an asset with no policy
+      // depreciation left is written even though no journal posts. It used to
+      // appear in neither `journals` nor `skipped`: a dry run showing nothing
+      // for a call that writes a row.
+      await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
+                            useful_life_years, accumulated_depreciation, current_book_value,
+                            tax_useful_life_years, status)
+        VALUES (${companyId}::uuid, ${'RDEP-DONE'}, ${'Fully depreciated'}, ${'2030-01-01'}::date,
+                ${60000}, ${1}, ${60000}, ${0}, ${20}, ${'available'})
+      `;
+      const preview = json(await runDepreciationTool.handler(
+        { period_date: '2031-03-31', dry_run: true, idempotency_key: 'done-dry' }, toolCtx(companyId),
+      ));
+      expect(preview.journalsTotal).toBe(0);
+      const noted = preview.skipped.find(
+        (s: { reason: string }) => s.reason === 'subledger_row_only_no_journal',
+      );
+      expect(noted).toBeDefined();
+
+      // And the live call does exactly what the preview said: no journal, one
+      // subledger row.
+      await runDepreciationTool.handler(
+        { period_date: '2031-03-31', idempotency_key: 'done-live' }, toolCtx(companyId),
+      );
+      const entries = (await sql`SELECT COUNT(*)::INT c FROM gl_journal_entries WHERE company_id = ${companyId}::uuid`) as Array<{ c: number }>;
+      const ledger = (await sql`SELECT COUNT(*)::INT c FROM asset_period_ledger WHERE company_id = ${companyId}::uuid`) as Array<{ c: number }>;
+      expect(entries[0]!.c).toBe(0);
+      expect(ledger[0]!.c).toBe(1);
     });
   });
 });

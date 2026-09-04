@@ -8,10 +8,18 @@
  * the loop would be free to drift from this one. This route is now the HTTP
  * shell over that service and nothing else.
  *
- * ONE BEHAVIOUR CHANGE came with the extraction: a run whose period is closed,
- * or which no fiscal period covers, is now REFUSED with 400 rather than posted.
- * `postAssetDepreciationToGLThrows` INSERTs at status `posted` and so never
- * reached `postJournalEntry`'s closed-period check.
+ * THREE BEHAVIOUR CHANGES came with the extraction, all refusals this route
+ * should always have made:
+ *  - A run whose period is closed, or which no fiscal period covers, is REFUSED
+ *    with 400 rather than posted. `postAssetDepreciationToGLThrows` INSERTs at
+ *    status `posted` and so never reached `postJournalEntry`'s check.
+ *  - A `periodDate` that is not a canonical YYYY-MM-DD calendar day is refused
+ *    with 400 rather than reaching a DATE column and a sliced entry number.
+ *  - An asset acquired AFTER the period being run is skipped rather than
+ *    charged a full month for a month in which it did not exist.
+ *
+ * `total` now counts every asset considered, so `processed + skipped + glFailed`
+ * equals it; `eligible` carries the narrower count this field used to hold.
  */
 
 import type { NextApiResponse } from 'next';
@@ -22,6 +30,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import {
   runDepreciation,
   defaultPeriodDate,
+  invalidPeriodDate,
   DepreciationRunBlockedError,
 } from '@/modules/accounting/services/items/depreciationRunService';
 
@@ -36,6 +45,15 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // date and entry number rather than only the subledger period.
   const { periodDate: periodDateParam } = req.body as { periodDate?: string };
   const periodDate = periodDateParam ?? defaultPeriodDate();
+
+  // The route used to pass req.body.periodDate straight through. Garbage gave a
+  // 500, and a value Postgres accepts but that is not canonical — '2026-9-30' —
+  // produced entry number DEP-<asset>-2026-9-, which does not collide with
+  // DEP-<asset>-2026-09: a second September journal the already-posted guard
+  // never sees. The check is the service's, so this route and the MCP tool
+  // cannot drift apart on it.
+  const badDate = invalidPeriodDate(periodDate);
+  if (badDate) return apiResponse.badRequest(res, badDate.detail);
 
   try {
     return apiResponse.success(res, await runDepreciation(companyId, userId, periodDate));

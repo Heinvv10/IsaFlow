@@ -29,6 +29,7 @@ import { getAssetRegister } from './assetRegisterService';
 import {
   ASSET_COST_SUBTYPE,
   loadAssetSectionAccounts,
+  loadUnsubtypedAssetAccounts,
   loadAssetSectionDocuments,
   hasRegisterLinkage,
   type AssetReconcilingDocument,
@@ -38,6 +39,17 @@ import type { ExcludedRow } from '@/lib/mcp/contracts';
 export type { AssetReconcilingDocument };
 
 export type AssetItemSide = 'register' | 'ledger';
+
+/** A fact about data this reconciliation could NOT draw from. */
+export interface AssetDisclosure {
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  isActive: boolean;
+  balance: number;
+  reason: 'no_account_subtype';
+  detail: string;
+}
 
 export interface AssetReconcilingItem {
   side: AssetItemSide;
@@ -92,6 +104,29 @@ export interface FixedAssetReconciliation {
    * failed.
    */
   registerLinkageAvailable: boolean;
+  /**
+   * Asset-typed GL accounts carrying NO subtype.
+   *
+   * They are a DISCLOSURE, not an exclusion, and the distinction is the
+   * contract's own: an exclusion is a row that belonged to this report's
+   * universe and was withheld from the totals, whereas these were never in it —
+   * the universe is defined by subtype and they have none. Putting them in
+   * `excludedRows` would also drown the signal: Velocity Fibre has 58 such
+   * accounts holding a net R32,747,547.38 between them, and most are debtors
+   * and cash rather than property, plant and equipment. Reporting that as
+   * "R32.7m the fixed asset reconciliation could not classify" would be true in
+   * magnitude and wrong in kind.
+   *
+   * What they ARE is the reason a zero difference can mean nothing: any one of
+   * them that IS property, plant and equipment is missing from the GL side, and
+   * because the items and the totals come from the same subtype-filtered query,
+   * its balance could never make the residual non-zero. This report cannot tell
+   * which — nothing here is inferred from an account NAME — so it names them
+   * all and lets the reader look.
+   */
+  unsubtypedAccounts: AssetDisclosure[];
+  unsubtypedAccountCount: number;
+  unsubtypedAccountBalance: number;
   excludedRows: ExcludedRow[];
   postedThrough: string | null;
 }
@@ -110,6 +145,7 @@ export async function reconcileFixedAssets(
   // reorders work on a connection that may also be holding a savepoint.
   const accountRows = await loadAssetSectionAccounts(companyId, asOf);
   const documents = await loadAssetSectionDocuments(companyId, asOf);
+  const unsubtyped = await loadUnsubtypedAssetAccounts(companyId, asOf);
   const linkageAvailable = await hasRegisterLinkage(companyId);
   // Register side: independently derived from the `assets` table. The high
   // limit is deliberate — the totals this reconciliation compares must cover
@@ -189,6 +225,21 @@ export async function reconcileFixedAssets(
   const itemsTotal = round2(items.reduce((s, i) => s + i.amount, 0));
   const violating = items.filter((i) => i.normalBalanceViolated);
 
+  // Reported OUTSIDE the completeness identity — see the field's own note.
+  const unsubtypedAccounts: AssetDisclosure[] = unsubtyped.map((r) => ({
+    accountId: String(r.id),
+    accountCode: String(r.account_code ?? ''),
+    accountName: String(r.account_name ?? ''),
+    isActive: r.is_active !== false,
+    balance: round2(Number(r.balance) || 0),
+    reason: 'no_account_subtype' as const,
+    detail:
+      `Account ${String(r.account_code ?? '')} "${String(r.account_name ?? '')}" is typed asset `
+      + 'but carries no account_subtype, so it is in neither side of this reconciliation and its '
+      + 'balance can never make the difference non-zero. Set its subtype with update_gl_account '
+      + 'if it is property, plant and equipment.',
+  }));
+
   const excludedRows: ExcludedRow[] = register.disposed.map((a) => ({
     id: a.id,
     reason: 'disposed_before_as_at',
@@ -224,6 +275,11 @@ export async function reconcileFixedAssets(
       violating.reduce((s, i) => s + (i.side === 'ledger' ? -i.amount : i.amount), 0),
     ),
     registerLinkageAvailable: linkageAvailable,
+    unsubtypedAccounts,
+    unsubtypedAccountCount: unsubtypedAccounts.length,
+    unsubtypedAccountBalance: round2(
+      unsubtypedAccounts.reduce((t, d) => t + d.balance, 0),
+    ),
     excludedRows,
     postedThrough,
   };

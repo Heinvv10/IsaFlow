@@ -119,6 +119,22 @@ describe('registration', () => {
     expect(runDepreciationTool.requiresPost).toBe(true);
   });
 
+  it('carries the JOURNALS scope, not the invoices one', () => {
+    // requiresPost ADDS write:post; it does not substitute for the domain
+    // scope. Under write:invoices an ordinary AR grant — invoices plus post,
+    // which finalize_invoice already needs — could depreciate the whole fixed
+    // asset register on a consent screen that said "invoices".
+    expect(runDepreciationTool.scope).toBe('write:journals');
+  });
+
+  it('is FREE, matching its unmetered app route', () => {
+    // journal.create charged ONE journal for a run that posts N, and N is
+    // unknowable at debit time — the debit runs before the handler. The rule
+    // this module holds decides it: a write costs what the equivalent
+    // withFlowMeter endpoint costs, and run-depreciation carries no meter.
+    expect(flowOperationFor('run_depreciation', {})).toBeNull();
+  });
+
   it('takes dry_run and idempotency_key, and dry_run is not defaulted true', () => {
     const props = runDepreciationTool.inputSchema.properties as Record<string, unknown>;
     expect(props.dry_run).toBeDefined();

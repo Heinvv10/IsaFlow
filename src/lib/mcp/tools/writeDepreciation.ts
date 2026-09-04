@@ -36,7 +36,14 @@ export const runDepreciationTool: McpTool = {
     + 'READ glFailed ON THE REPLY. It counts assets whose subledger row and journal were rolled back together as a unit while the rest of the run committed. A success with glFailed above zero is a PARTIAL run and accumulated depreciation is understated by those assets until the cause is fixed and the period re-run. '
     + 'It depreciates on the ACCOUNTING (IAS 16) policy only in the general ledger; the SARS wear-and-tear figure is computed and stored in the subledger but is not journalised. It does not create assets, does not dispose of them, and does not reclassify any account. '
     + 'Call reconcile_fixed_assets afterwards to check the register against the ledger — on these books they do not agree, and a depreciation run does not make them.',
-  scope: 'write:invoices',
+  // write:journals, NOT write:invoices. This posts DR/CR straight to the
+  // general ledger for every asset on the register, exactly as post_journal
+  // and set_opening_balance do. `requiresPost` ADDS write:post; it does not
+  // substitute for the domain scope, so under write:invoices an ordinary AR
+  // grant — invoices plus post, which finalize_invoice already needs — could
+  // depreciate the whole fixed asset register on a consent screen that said
+  // "invoices".
+  scope: 'write:journals',
   write: true,
   requiresPost: true,
   inputSchema: {
@@ -88,13 +95,16 @@ export const runDepreciationTool: McpTool = {
       }));
 
     if (dryRun) {
-      const journals = await previewDepreciationJournals(ctx.companyId, plan, assets);
+      const preview = await previewDepreciationJournals(ctx.companyId, plan, assets);
       const result: DryRunResult = {
         dryRun: true,
-        journals,
-        skipped,
+        journals: preview.journals,
+        // The rows the run TOUCHES but posts no journal for are reported here
+        // beside the true skips. Leaving them out of both lists was a dry run
+        // that showed nothing for a call that still writes asset_period_ledger.
+        skipped: [...skipped, ...preview.writesWithoutJournal],
         effects: [],
-        journalsTotal: journals.length,
+        journalsTotal: preview.journals.length,
         truncated: false,
       };
       // wroteNothing frees the idempotency key. Without it the preview is
@@ -116,6 +126,7 @@ export const runDepreciationTool: McpTool = {
       skipped: run.skipped,
       glFailed: run.glFailed,
       total: run.total,
+      eligible: run.eligible,
       results: run.results.map((r) => ({
         asset_number: r.assetNumber,
         policy_depreciation: r.policyDep,

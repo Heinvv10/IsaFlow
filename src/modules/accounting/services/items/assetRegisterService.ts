@@ -103,6 +103,19 @@ export interface AssetRegisterPage {
   hasMore: boolean;
 }
 
+/**
+ * ONE definition of carrying amount, used by the per-asset row and by the SQL
+ * total alike.
+ *
+ * They used to disagree: the row fell back to `cost - accumulatedDepreciation`
+ * while the total fell back to `purchase_price` alone. `current_book_value` has
+ * no default and `pages/api/accounting/assets.ts` INSERTs without it, so NULL
+ * is the NORMAL state of a UI-created asset until the first depreciation run —
+ * and for any such asset carrying depreciation, the total overstated by exactly
+ * that depreciation. In `reconcile_fixed_assets`, where `difference` comes from
+ * the total and `itemsTotal` from the rows, that surfaced as an
+ * `unexplainedDifference` describing no real gap at all.
+ */
 function mapRow(r: Row): AssetRegisterRow {
   const cost = Number(r.purchase_price) || 0;
   const accDep = Number(r.accumulated_depreciation) || 0;
@@ -166,7 +179,12 @@ export async function getAssetRegister(
       COALESCE(SUM(COALESCE(a.accumulated_depreciation, 0)::NUMERIC) FILTER (
         WHERE a.disposal_date IS NULL OR a.disposal_date > ${asOf}::DATE
       ), 0) AS total_depreciation,
-      COALESCE(SUM(COALESCE(a.current_book_value, a.purchase_price)::NUMERIC) FILTER (
+      -- The SAME fallback mapRow applies: cost LESS accumulated depreciation,
+      -- not cost alone. See the note on mapRow.
+      COALESCE(SUM(COALESCE(
+        a.current_book_value,
+        COALESCE(a.purchase_price, 0) - COALESCE(a.accumulated_depreciation, 0)
+      )::NUMERIC) FILTER (
         WHERE a.disposal_date IS NULL OR a.disposal_date > ${asOf}::DATE
       ), 0) AS total_book_value
     FROM assets a

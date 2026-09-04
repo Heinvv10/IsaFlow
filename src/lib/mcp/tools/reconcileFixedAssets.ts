@@ -80,6 +80,7 @@ export const reconcileFixedAssetsTool: McpTool = {
     + 'register_linkage_available is false when NO asset and no asset category in the company records a GL account — the state of every production company today. When it is false, every item is attribution "unlinked" because there is no data by which a link could be made, not because a link was checked and failed, and no part of the ledger can be attributed to a specific asset. '
     + 'ACCOUNT SELECTION is by SUBTYPE, never by account name — choosing a bucket by name is how two default_expense accounts became cost of sales and overstated gross profit by R562,428. There is NO is_active filter: a deactivated account with a live balance is still on the balance sheet. '
     + 'An asset disposed on or before as_at is not carrying amount; it appears in excludedRows as disposed_before_as_at with the book value it was still carrying, never silently dropped. '
+    + 'READ disclosures BEFORE TRUSTING A ZERO. Accounts are selected by SUBTYPE, so an account typed asset that carries NONE is in neither side of this reconciliation — and because the items and the totals come from the same subtype-filtered query, its balance could never make the difference non-zero. Every such account is listed in disclosures with its id and balance, and unsubtyped_account_balance totals them: Velocity Fibre has 58 holding R32,747,547.38, including PPE cost and accumulated-depreciation accounts. They are DISCLOSURES and not excludedRows on purpose — an exclusion is a row that belonged to this report and was withheld, while these were never in its universe, and most of them are debtors or cash rather than fixed assets. This tool cannot tell which is which, because nothing here is inferred from an account NAME. A difference of zero alongside a non-zero unsubtyped_account_balance is not a reconciliation; set the subtype with update_gl_account and re-run. '
     + 'This report makes NO completeness claim (universeTotal is absent) because its rows are PRODUCED by the reconciliation rather than selected from a pool; a universe here could only be synthesized from the numbers it would be checked against, and a claim that cannot fail is worse than none. '
     + 'detail: "summary" returns the totals only, "standard" (default) returns one row per reconciling item, "full" returns one row per journal entry posted to the asset-section accounts — capped at 50 entries per account, most recent first — and is paginated; call again with cursor until next_cursor is null. Follow a journal_entry_id with list_journals or audit_trail, and an asset_id with list_fixed_assets. '
     + 'It reports the gap; it does not repair it, does not run depreciation and posts nothing.',
@@ -109,12 +110,18 @@ export const reconcileFixedAssetsTool: McpTool = {
 
     // Decoded BEFORE the query: a read tool has no savepoint, so nothing may
     // throw once the query has run.
+    // TWO parts, because a journal entry is NOT unique in this list: the rows
+    // are grouped by (account, journal entry), so one journal touching both the
+    // cost account and the accumulated-depreciation account appears twice. A
+    // cursor keyed on the journal id alone resolved to the FIRST occurrence, and
+    // page 2 then re-served every row in between — a reader summing the pages
+    // double-counts.
     const rawCursor = strArg(args, 'cursor');
-    let after: string | null = null;
+    let after: { accountId: string; journalEntryId: string } | null = null;
     if (rawCursor !== undefined) {
-      const decoded = decodeCursor(rawCursor, 1);
+      const decoded = decodeCursor(rawCursor, 2);
       if (!decoded) return toolError('invalid cursor');
-      after = decoded.parts[0]!;
+      after = { accountId: decoded.parts[0]!, journalEntryId: decoded.parts[1]! };
     }
 
     // companyId from ctx ONLY.
@@ -127,12 +134,24 @@ export const reconcileFixedAssetsTool: McpTool = {
     let nextCursor: string | null = null;
     if (isFull) {
       const docs = rec.documents;
-      const start = after === null ? 0 : docs.findIndex((d) => d.journalEntryId === after) + 1;
+      let start = 0;
+      if (after !== null) {
+        const at = docs.findIndex(
+          (d) => d.accountId === after.accountId && d.journalEntryId === after.journalEntryId,
+        );
+        // A cursor naming a row that is no longer here is REFUSED, not silently
+        // restarted at page 1. `findIndex` returning -1 used to become index 0,
+        // so a stale cursor re-served the whole report as if it were the next
+        // page — every other refusal in this file is explicit and this one has
+        // to be too.
+        if (at === -1) return toolError('invalid cursor: it names a row this report no longer contains — start again without a cursor');
+        start = at + 1;
+      }
       const limit = clampLimit(args, 200, 500);
       const slice = docs.slice(start, start + limit);
       const last = slice[slice.length - 1];
       if (last && start + limit < docs.length) {
-        nextCursor = encodeCursor({ parts: [last.journalEntryId] });
+        nextCursor = encodeCursor({ parts: [last.accountId, last.journalEntryId] });
       }
       page = slice.map(documentRow);
     } else {
@@ -173,6 +192,20 @@ export const reconcileFixedAssetsTool: McpTool = {
       contra_normal_balance_count: rec.contraNormalBalanceCount,
       contra_normal_balance_total: rec.contraNormalBalanceTotal,
       documents_total: rec.documentsTotal,
+      // Facts about accounts this report could NOT draw from, stated OUTSIDE
+      // the completeness identity because they were never in its universe —
+      // the universe is defined by subtype and these have none.
+      unsubtyped_account_count: rec.unsubtypedAccountCount,
+      unsubtyped_account_balance: rec.unsubtypedAccountBalance,
+      disclosures: rec.unsubtypedAccounts.map((d) => ({
+        account_id: d.accountId,
+        account_code: d.accountCode,
+        account_name: d.accountName,
+        is_active: d.isActive,
+        balance: d.balance,
+        reason: d.reason,
+        detail: d.detail,
+      })),
       // The two sides name DIFFERENT figures on purpose. Collapsing them into
       // one "PPE" would destroy the only thing that can detect the break.
       ledgerFigureBasis: figureBasis('ppe.ledger.v1'),

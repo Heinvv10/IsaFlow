@@ -334,10 +334,30 @@ code; add new ones to this list in the same PR.
 
 | `disposed_before_as_at` | A fixed asset sold, scrapped or retired on or before the reporting date. It is not carrying amount and is out of the totals, but "there is one asset and it was sold" and "there are no assets" are different facts — so it carries the book value it was still holding. Used by `list_fixed_assets` and `reconcile_fixed_assets`; Brightsphere's ENTIRE register is one such row, R15,000 of a computer sold in April for R8,000. |
 
+`no_account_subtype` is deliberately NOT in this table. It is a **disclosure**,
+not an exclusion, and `reconcile_fixed_assets` reports it outside the envelope
+for the reason `check-self-defining-universe.sh` already states: a row that was
+never in this report's universe does not belong in `excludedRows`. The universe
+there is defined by SUBTYPE, so an asset-typed account carrying none was never a
+member. It is also the difference between a signal and noise — Velocity Fibre
+has 58 such accounts holding a net R32,747,547.38, and most are debtors and cash.
+Reporting that as "money the fixed asset reconciliation could not classify" would
+be true in magnitude and wrong in kind, and would bury the PPE accounts that are
+genuinely in there. `stock_valuation` set the same precedent.
+
 The depreciation run reports SKIPS rather than exclusions — a skip is about the
 data, not about a row the report could not classify — and its codes are on the
-same footing: `not_in_service`, `no_purchase_price`,
+same footing: `not_in_service`, `not_yet_acquired` (the period ENDS before the
+asset was acquired; `calculatePolicyDepreciation` would otherwise charge a full
+month for a month in which the asset did not exist), `no_purchase_price`,
 `below_capitalisation_threshold`, `no_useful_life`, `already_posted`.
+
+Its DRY RUN carries two more, and they are not skips at all — they name rows the
+live call TOUCHES: `subledger_row_only_no_journal` (no policy depreciation is
+left, so no journal posts, but `asset_period_ledger` is still written) and
+`gl_accounts_not_configured` (no journal can post; the live run writes the
+subledger row, rolls it back and reports it in `glFailed`). A dry run that
+showed neither would report nothing for a call that writes.
 
 ---
 

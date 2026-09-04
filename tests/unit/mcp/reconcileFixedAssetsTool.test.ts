@@ -142,6 +142,17 @@ const REC: FixedAssetReconciliation = {
   contraNormalBalanceCount: 1,
   contraNormalBalanceTotal: -4847978.30,
   registerLinkageAvailable: false,
+  unsubtypedAccounts: [{
+    accountId: 'g-nosub',
+    accountCode: '49784318',
+    accountName: 'Accumulated Depreciation - Computer Equipment - BA4500',
+    isActive: true,
+    balance: 0,
+    reason: 'no_account_subtype',
+    detail: 'Account 49784318 is typed asset but carries no account_subtype.',
+  }],
+  unsubtypedAccountCount: 1,
+  unsubtypedAccountBalance: 0,
   excludedRows: [
     {
       id: 'a-comp1',
@@ -176,6 +187,14 @@ describe('registration', () => {
     // "the books tie" is the reading this caveat exists to prevent.
     expect(d).not.toMatch(/the books tie/i);
     expect(d).toMatch(/necessary and not sufficient/i);
+  });
+
+  it('warns that a zero means nothing while un-subtyped asset accounts exist', () => {
+    // Accounts are selected by subtype, so an asset-typed account carrying none
+    // is in neither side — and because the items and the totals come from the
+    // same filtered query, its balance could never make the residual non-zero.
+    expect(reconcileFixedAssetsTool.description).toMatch(/disclosures/i);
+    expect(reconcileFixedAssetsTool.description).toMatch(/unsubtyped_account_balance/);
   });
 });
 
@@ -224,6 +243,19 @@ describe('the decomposition', () => {
 });
 
 describe('the envelope', () => {
+  it('keeps un-subtyped accounts OUT of the completeness identity', async () => {
+    const out = json(await reconcileFixedAssetsTool.handler({ as_at: '2026-08-31' }, ctx));
+    // A disclosure is not an exclusion: these were never in the report's
+    // universe. Velocity has 58 of them holding R32.7m, mostly debtors and
+    // cash — reporting that as "money the fixed asset reconciliation could not
+    // classify" would be true in magnitude and wrong in kind.
+    expect(out.excludedRows.every((e: { reason: string }) => e.reason !== 'no_account_subtype')).toBe(true);
+    expect(out.disclosures[0].reason).toBe('no_account_subtype');
+    expect(out.disclosures[0].account_id).toBe('g-nosub');
+    expect(out.unsubtyped_account_count).toBe(1);
+    expect(out.completenessFault).toBeUndefined();
+  });
+
   it('makes NO completeness claim, because the rows are produced and not selected', async () => {
     const out = json(await reconcileFixedAssetsTool.handler({ as_at: '2026-08-31' }, ctx));
     // A universeTotal here could only be synthesized from rowsTotal +

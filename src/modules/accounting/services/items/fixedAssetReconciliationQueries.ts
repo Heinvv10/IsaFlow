@@ -47,8 +47,17 @@ export async function loadAssetSectionAccounts(
   // different facts. The NULLs it lets through are absorbed by COALESCE and
   // COUNT(jl.id), never summed blind; the tenant fence is the WHERE clause on
   // `ga.company_id`, which an outer join cannot weaken.
+  //
+  // `ga.is_active` is SELECTED and never filtered on. It was dropped when this
+  // query was shared with `getAssetGlReconciliation`, whose mapping reads
+  // `isActive: r.is_active !== false` — and `undefined !== false` is TRUE, so
+  // every account, production's deactivated 1600 included, reported as active.
+  // A missing column that degrades to a plausible value instead of throwing is
+  // why the guard for it has to be a behavioural test and not a source-text
+  // one: the source-text assertion got GREENER as the behaviour got worse.
   return (await sql`
     SELECT ga.id, ga.account_code, ga.account_name, ga.account_subtype,
+           ga.is_active,
            COALESCE(SUM(jl.debit - jl.credit), 0) AS balance,
            COUNT(jl.id)::INT                      AS posted_lines,
            MAX(jl.created_at)                     AS posted_through
@@ -66,7 +75,7 @@ export async function loadAssetSectionAccounts(
       AND ga.account_subtype IN (
         ${ASSET_COST_SUBTYPE}, ${ASSET_ACCUMULATED_DEPRECIATION_SUBTYPE}
       )
-    GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_subtype
+    GROUP BY ga.id, ga.account_code, ga.account_name, ga.account_subtype, ga.is_active
     ORDER BY ga.account_code
   `) as DbRow[];
 }
@@ -146,4 +155,49 @@ export async function hasRegisterLinkage(companyId: string): Promise<boolean> {
     ) AS linked
   `) as DbRow[];
   return rows[0]?.linked === true;
+}
+
+/**
+ * Asset-typed accounts carrying NO subtype at all.
+ *
+ * `loadAssetSectionAccounts` selects by subtype, so an account typed `asset`
+ * with `account_subtype IS NULL` is in neither total and, until this query
+ * existed, in nothing the reply returned either — `unexplainedDifference`
+ * stayed 0.00 because the items are produced from the same query the totals
+ * come from. That is a completeness claim that cannot fail, inside the report
+ * built to catch exactly that.
+ *
+ * It is not hypothetical. Velocity Fibre carries eight PPE accounts in this
+ * state, including `49784317 Cost - Computer Equipment - BA4000` and
+ * `49784318 Accumulated Depreciation - Computer Equipment - BA4500`. They hold
+ * R0 today, so the CURRENT figure is right — and the first journal posted to
+ * any of them moves money out of `glNetBookValue` with nothing saying so.
+ *
+ * They go in `excludedRows`, with the balance they carry, because the point of
+ * an exclusion is that the reader can see what the total leaves out. Nothing
+ * is inferred from the account NAME.
+ */
+export async function loadUnsubtypedAssetAccounts(
+  companyId: string,
+  asOf: string,
+): Promise<DbRow[]> {
+  return (await sql`
+    SELECT ga.id, ga.account_code, ga.account_name, ga.is_active,
+           COALESCE(SUM(jl.debit - jl.credit), 0) AS balance
+    FROM gl_accounts ga
+    LEFT JOIN gl_journal_lines jl
+           ON jl.gl_account_id = ga.id
+          AND jl.company_id = ${companyId}::UUID
+          AND jl.journal_entry_id IN (
+            SELECT je.id FROM gl_journal_entries je
+            WHERE je.company_id = ${companyId}::UUID
+              AND je.status = 'posted'
+              AND je.entry_date <= ${asOf}::DATE
+          )
+    WHERE ga.company_id = ${companyId}::UUID
+      AND ga.account_type = 'asset'
+      AND (ga.account_subtype IS NULL OR btrim(ga.account_subtype) = '')
+    GROUP BY ga.id, ga.account_code, ga.account_name, ga.is_active
+    ORDER BY ga.account_code
+  `) as DbRow[];
 }

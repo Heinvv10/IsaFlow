@@ -29,6 +29,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { getPoolForTests, sql } from '@/lib/neon';
 import { reconcileFixedAssetsTool } from '@/lib/mcp/tools/reconcileFixedAssets';
+import { assetRegisterTool } from '@/lib/mcp/tools/assets';
 import { assertEnvelopeSound } from '@/lib/mcp/contracts';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -46,12 +47,13 @@ function toolCtx(companyId: string): McpToolContext {
 const json = (r: { content: Array<{ text: string }> }) => JSON.parse(r.content[0]!.text);
 
 async function addAccount(
-  companyId: string, code: string, name: string, subtype: string,
+  companyId: string, code: string, name: string, subtype: string | null,
+  isActive = false,
 ): Promise<string> {
   const rows = (await sql`
     INSERT INTO gl_accounts (company_id, account_code, account_name, account_type,
                              account_subtype, normal_balance, is_active)
-    VALUES (${companyId}::uuid, ${code}, ${name}, ${'asset'}, ${subtype}, ${'debit'}, ${false})
+    VALUES (${companyId}::uuid, ${code}, ${name}, ${'asset'}, ${subtype}, ${'debit'}, ${isActive})
     RETURNING id
   `) as Array<{ id: string }>;
   return String(rows[0]!.id);
@@ -192,6 +194,146 @@ describe('reconcile_fixed_assets — the real SQL against a real database', asyn
       expect(doc.source).toBe('manual');
       expect(doc.journal_entry_id).toBeTruthy();
       expect(Math.abs(doc.amount)).toBeCloseTo(1234.56, 2);
+    });
+  });
+});
+
+describe('the fixes from the blind review', async () => {
+  const reachable2 = await isDbReachable();
+
+  it.skipIf(!reachable2)('asset_register reports is_active FALSE for a deactivated account', async () => {
+    await inTx(async (companyId) => {
+      // MEDIUM-3. The source-text assertion in assetRegisterService.test.ts got
+      // GREENER when the column was dropped from the SELECT, because a missing
+      // column reads as `undefined !== false` → true. Only reading the value
+      // back through the real query can see that.
+      await addAccount(companyId, 'RFA-OFF', 'Deactivated Cost', 'fixed_assets', false);
+      await addAccount(companyId, 'RFA-ON', 'Live Cost', 'fixed_assets', true);
+
+      const body = json(await assetRegisterTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      const accounts = body.reconciliation.cost_accounts as Array<{ account_code: string; is_active: boolean }>;
+
+      expect(accounts.find((a) => a.account_code === 'RFA-OFF')!.is_active).toBe(false);
+      expect(accounts.find((a) => a.account_code === 'RFA-ON')!.is_active).toBe(true);
+    });
+  });
+
+  it.skipIf(!reachable2)('reports an asset-typed account with NO subtype as an exclusion', async () => {
+    await inTx(async (companyId) => {
+      // MEDIUM-4. Velocity Fibre has eight PPE accounts in exactly this state.
+      // They are in neither side of the reconciliation, so without this the
+      // residual is zero BY CONSTRUCTION — the items and the totals come from
+      // one subtype-filtered query and nothing outside it can make it fail.
+      const nul = await addAccount(companyId, 'RFA-NULLSUB', 'Cost - Computer Equipment', null);
+      const contra = await addAccount(companyId, 'RFA-NS-CONTRA', 'Contra', 'accumulated_depreciation');
+      await postJournal(companyId, nul, contra, 44000, 'RFA-JNS');
+
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      const d = body.disclosures.find((e: { account_id: string }) => e.account_id === nul);
+
+      expect(d.reason).toBe('no_account_subtype');
+      expect(d.balance).toBeCloseTo(44000, 2);
+      expect(d.account_code).toBe('RFA-NULLSUB');
+      expect(body.unsubtyped_account_count).toBeGreaterThanOrEqual(1);
+      // A DISCLOSURE, never an exclusion: it was not in this report's universe,
+      // which is defined by subtype. Putting it in excludedRows would report
+      // Velocity's R32.7m of debtors and cash as fixed assets it could not
+      // classify — true in magnitude, wrong in kind.
+      expect(body.excludedRows.every((e: { reason: string }) => e.reason !== 'no_account_subtype')).toBe(true);
+      // The residual is still zero — and now the reader can see WHY that zero
+      // is not a reconciliation.
+      expect(body.unexplainedDifference).toBeCloseTo(0, 2);
+      expect(body.unsubtyped_account_balance).not.toBe(0);
+      assertEnvelopeSound(body);
+    });
+  });
+
+  it.skipIf(!reachable2)('a NULL current_book_value gives the SAME NBV in the total and the item', async () => {
+    await inTx(async (companyId) => {
+      // MEDIUM-5. The total fell back to purchase_price alone while the item
+      // fell back to cost - accDep, so the report showed an
+      // unexplainedDifference describing no real gap.
+      //
+      // NOTE ON REACHABILITY, which the review got wrong: a NULL
+      // current_book_value is NOT the normal state of a UI-created asset.
+      // `trg_asset_book_value` is a BEFORE INSERT trigger that sets it to
+      // purchase_price whenever it arrives NULL, and production carries 0 of 6
+      // assets with a NULL. The trigger is INSERT-only, though, so an UPDATE
+      // can still produce one — which is how this fixture reaches the state,
+      // and why the two fallbacks still had to be made one.
+      const before = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
+                            useful_life_years, accumulated_depreciation, status)
+        VALUES (${companyId}::uuid, ${'RFA-NULLCBV'}, ${'No book value'}, ${'2030-01-01'}::date,
+                ${50000}, ${5}, ${12000}, ${'available'})
+      `;
+      await sql`
+        UPDATE assets SET current_book_value = NULL
+        WHERE company_id = ${companyId}::uuid AND asset_number = ${'RFA-NULLCBV'}
+      `;
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+
+      // 50000 cost less 12000 accumulated depreciation — NOT 50000.
+      expect(body.register_net_book_value - before.register_net_book_value).toBeCloseTo(38000, 2);
+      const item = body.rows.find((r: { asset_number: string | null }) => r.asset_number === 'RFA-NULLCBV');
+      expect(item.amount).toBeCloseTo(38000, 2);
+      expect(body.unexplainedDifference).toBeCloseTo(0, 2);
+    });
+  });
+
+  it.skipIf(!reachable2)('detail:full pages without repeating a journal that hits two accounts', async () => {
+    await inTx(async (companyId) => {
+      // MEDIUM-6. loadAssetSectionDocuments groups by (account, journal), so a
+      // journal touching both sides appears TWICE and journalEntryId is not a
+      // unique key. A cursor keyed on it alone resolved to the first occurrence
+      // and page 2 re-served every row in between.
+      const cost = await addAccount(companyId, 'RFA-PG-COST', 'PPE Cost', 'fixed_assets');
+      const accDep = await addAccount(companyId, 'RFA-PG-ACC', 'Accumulated Depreciation', 'accumulated_depreciation');
+      for (let i = 0; i < 4; i += 1) {
+        await postJournal(companyId, cost, accDep, 100 + i, `RFA-PG-${i}`);
+      }
+
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      for (let page = 0; page < 200; page += 1) {
+        const res = await reconcileFixedAssetsTool.handler(
+          { as_at: AS_AT, detail: 'full', limit: 5, ...(cursor ? { cursor } : {}) },
+          toolCtx(companyId),
+        );
+        expect(res.isError).not.toBe(true);
+        const body = json(res);
+        for (const r of body.rows) seen.push(`${r.account_id}|${r.journal_entry_id}`);
+        cursor = body.next_cursor;
+        if (!cursor) break;
+      }
+      expect(new Set(seen).size).toBe(seen.length);
+      // Every (account, journal) pair the report holds, served exactly once.
+      const all = json(await reconcileFixedAssetsTool.handler(
+        { as_at: AS_AT, detail: 'full', limit: 500 }, toolCtx(companyId),
+      ));
+      expect(seen.length).toBe(all.rowsTotal);
+    });
+  });
+
+  it.skipIf(!reachable2)('REFUSES a cursor naming a row the report no longer holds', async () => {
+    await inTx(async (companyId) => {
+      const cost = await addAccount(companyId, 'RFA-CUR', 'PPE Cost', 'fixed_assets');
+      const accDep = await addAccount(companyId, 'RFA-CUR-ACC', 'Accumulated Depreciation', 'accumulated_depreciation');
+      await postJournal(companyId, cost, accDep, 500, 'RFA-CUR-J');
+
+      // A well-formed 2-part cursor for a pair that is not in this report.
+      const stale = Buffer.from(JSON.stringify([
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+      ])).toString('base64url');
+
+      const res = await reconcileFixedAssetsTool.handler(
+        { as_at: AS_AT, detail: 'full', cursor: stale }, toolCtx(companyId),
+      );
+      // Silently restarting at page 1 is what findIndex → -1 → +1 → 0 did.
+      expect(res.isError).toBe(true);
+      expect(res.content[0]!.text).toMatch(/cursor/i);
     });
   });
 });

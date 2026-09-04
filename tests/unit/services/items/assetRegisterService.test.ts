@@ -144,12 +144,24 @@ describe('getAssetGlReconciliation — the register and the ledger disagree', ()
     expect(q.sql).not.toMatch(/account_name\s+(I?LIKE|=)/);
   });
 
-  it('never filters the GL side on is_active', async () => {
+  it('never filters the GL side on is_active, and still SELECTS it', async () => {
     routeMock();
     await getAssetGlReconciliation(COMPANY, '2026-08-31');
     const q = sqlCalls.find((c) => c.sql.includes('FROM gl_accounts'))!;
     // A deactivated account with a live balance is still on the balance sheet.
     expect(q.sql).not.toMatch(/is_active\s*=/);
+    // And it must still be RETURNED. This half exists because the other half
+    // got GREENER as the behaviour got worse: when the column was dropped from
+    // the SELECT entirely, `not.toMatch(/is_active\s*=/)` passed more easily
+    // than before while every account started reporting is_active: true, since
+    // the mapping reads `r.is_active !== false` and `undefined !== false`.
+    //
+    // This is STILL a source-text assertion and it is not the real guard —
+    // it would pass on a comment containing the string. The guard that can
+    // actually see the value is the DB-gated test in
+    // tests/unit/mcp/reconcileFixedAssetsDb.test.ts, which reads is_active back
+    // through the real query.
+    expect(q.sql).toMatch(/ga\.is_active/);
   });
 
   it('keeps the company and status predicates OUT of the outer join ON clause', async () => {
