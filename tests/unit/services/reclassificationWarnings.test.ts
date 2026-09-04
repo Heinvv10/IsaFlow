@@ -57,6 +57,7 @@ const line = {
 };
 
 const base = {
+  universeTotal: 1,
   source: { id: SRC, code: '49775627', name: 'Unallocated Expense', type: 'expense', subtype: null },
   target: { id: TGT, code: '5100', name: 'Materials & Supplies', type: 'expense', subtype: 'cost_of_sales' },
   movable: [line],
@@ -137,6 +138,19 @@ describe('reclassWarnings', () => {
       ...base, movable: [],
       impact: impact({ profitAndLossBefore: same, profitAndLossAfter: { ...same } }),
     })).not.toContain('no_profit_and_loss_effect');
+  });
+
+  it('says an empty source account read NOTHING, rather than leaving zeros to speak', () => {
+    // A brand-new tenant. Every figure is zero because nothing was read, not
+    // because a total came to zero, and those are different facts.
+    const warning = reclassWarnings({ ...base, universeTotal: 0, movable: [] })
+      .find((w) => w.code === 'no_source_lines');
+    expect(warning).toBeDefined();
+    expect(warning!.detail).toContain('nothing was read');
+  });
+
+  it('does NOT claim an empty source when the account has candidate lines', () => {
+    expect(codes(base)).not.toContain('no_source_lines');
   });
 
   it('surfaces a disagreement with the owning P&L service instead of hiding it', () => {

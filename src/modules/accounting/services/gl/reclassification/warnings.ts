@@ -51,6 +51,7 @@ export type ReclassWarningCode =
   | 'crosses_fiscal_periods'
   | 'net_movement_near_zero'
   | 'no_profit_and_loss_effect'
+  | 'no_source_lines'
   | 'basis_disagreement';
 
 export interface WarningAccount {
@@ -62,6 +63,8 @@ export interface WarningAccount {
 }
 
 export interface WarningInput {
+  /** Candidate lines on the source account before any guard. Zero is legitimate. */
+  universeTotal: number;
   source: WarningAccount;
   target: WarningAccount;
   movable: readonly ReclassCandidate[];
@@ -76,6 +79,20 @@ const money = (v: number): string =>
 export function reclassWarnings(input: WarningInput): ReclassWarning[] {
   const { source, target, movable, impact } = input;
   const warnings: ReclassWarning[] = [];
+
+  // A brand-new tenant, or an account nobody has posted to. Every figure below
+  // is zero because there was nothing to read, NOT because a computation
+  // returned zero — and those are different facts. Said first, because a reader
+  // who does not know which one they are looking at cannot use any of the rest.
+  if (input.universeTotal === 0) {
+    warnings.push({
+      code: 'no_source_lines',
+      detail:
+        `${source.code} ${source.name} carries no posted journal lines in this window, ` +
+        'so there is nothing to reclassify. Every figure in this response is empty ' +
+        'because nothing was read, not because a total came to zero.',
+    });
+  }
 
   if (source.subtype === null && source.type === target.type) {
     warnings.push({

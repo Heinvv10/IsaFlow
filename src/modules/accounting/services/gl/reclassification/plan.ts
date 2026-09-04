@@ -13,6 +13,7 @@
  * other 418.
  */
 
+import { fmtDate } from '@/lib/fmtDate';
 import { lockReclassLinesForUpdate } from './lineLock';
 import { getLedgerPostedThrough } from '../../reports/postedThroughService';
 import {
@@ -167,15 +168,24 @@ export async function planReclassification(
 
   // The window spans the source dates AND the posting date, so the projected
   // aggregate covers both ends of a cross-period move and the two sides stay
-  // comparable. Falls back to the caller's bounds when nothing is movable.
+  // comparable.
+  //
+  // WHEN THERE ARE NO CANDIDATE ROWS AT ALL — a brand-new tenant, or an account
+  // nobody has posted to — it falls back to the caller's own bounds and then to
+  // TODAY. It used to fall back to `1970-01-01` and `9999-12-31`, which made
+  // `as_at` on an empty report a date in the year 9999: a reporting date no
+  // reader could act on, asserted by a report that had read nothing. Today is
+  // the honest answer — "as at now, this account carries nothing" — and it also
+  // keeps the impact scan trivially empty instead of scanning all of history.
   const dates = [
     ...movable.map((m) => m.entryDate),
     ...skipped.map((s) => s.entryDate),
     ...(input.postingDate === null ? [] : [input.postingDate]),
   ].filter((d) => d.length > 0).sort();
+  const today = fmtDate(new Date());
   const window = {
-    start: dates[0] ?? input.from ?? '1970-01-01',
-    end: dates[dates.length - 1] ?? input.to ?? '9999-12-31',
+    start: dates[0] ?? input.from ?? input.to ?? today,
+    end: dates[dates.length - 1] ?? input.to ?? input.from ?? today,
   };
 
   const impact = await computeReclassImpact({
@@ -193,7 +203,9 @@ export async function planReclassification(
   });
 
   const priorSources = await targetPriorSources(companyId, target.id, source.id);
-  const warnings = reclassWarnings({ source, target, movable, impact, priorSources });
+  const warnings = reclassWarnings({
+    universeTotal, source, target, movable, impact, priorSources,
+  });
   const postedThrough = await getLedgerPostedThrough(companyId, window.end, window.start);
 
   return {

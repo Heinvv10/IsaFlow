@@ -24,6 +24,7 @@ const m = vi.hoisted(() => ({
   findReclassCandidates: vi.fn(),
   countReclassCandidates: vi.fn(),
   lockReclassLinesForUpdate: vi.fn(),
+  computeReclassImpact: vi.fn(),
 }));
 
 vi.mock('@/modules/accounting/services/gl/reclassification/candidates', async (orig) => {
@@ -54,10 +55,7 @@ vi.mock('@/modules/accounting/services/reports/postedThroughService', () => ({
   getLedgerPostedThrough: vi.fn(async () => '2026-04-16T00:00:00.000Z'),
 }));
 vi.mock('@/modules/accounting/services/gl/reclassification/impact', () => ({
-  computeReclassImpact: vi.fn(async () => ({
-    window: { start: '2026-04-15', end: '2026-04-15' },
-    profitAndLossBefore: {}, profitAndLossAfter: {}, accounts: [],
-  })),
+  computeReclassImpact: m.computeReclassImpact,
 }));
 vi.mock('@/modules/accounting/services/gl/reclassification/warnings', () => ({
   reclassWarnings: vi.fn(() => []),
@@ -68,6 +66,8 @@ import {
   planReclassification,
   isRefusal,
 } from '@/modules/accounting/services/gl/reclassification/plan';
+
+const TODAY = new Date().toLocaleDateString('en-CA');
 
 const CANDIDATE = {
   line_id: 'l1', journal_entry_id: 'e1', entry_number: 'JE-1', entry_date: '2026-04-15',
@@ -95,6 +95,12 @@ beforeEach(() => {
     m.calls.push('lock');
     return ids;
   });
+  // Echoes the window it was GIVEN. Asserting `plan.impact.window` against a
+  // hardcoded mock would test the mock; the window is computed by plan.ts and
+  // handed to this function, so that is where it has to be observed.
+  m.computeReclassImpact.mockImplementation(async (input: { window: unknown }) => ({
+    window: input.window, profitAndLossBefore: {}, profitAndLossAfter: {}, accounts: [],
+  }));
 });
 
 describe('the write path reads, LOCKS, then reads again', () => {
@@ -110,6 +116,28 @@ describe('the write path reads, LOCKS, then reads again', () => {
   it('locks exactly the lines the first read returned', async () => {
     await planReclassification({ ...INPUT, lockCandidateLines: true });
     expect(m.lockReclassLinesForUpdate).toHaveBeenCalledWith('co', ['l1']);
+  });
+
+  it('dates an EMPTY plan today, never 1970 or 9999', async () => {
+    // A brand-new tenant, or an account nobody has posted to. The window used to
+    // fall back to 1970-01-01 / 9999-12-31, which made `as_at` on an empty
+    // report a date in the year 9999 — a reporting date no reader could act on,
+    // asserted by a report that had read nothing.
+    m.findReclassCandidates.mockImplementation(async () => { m.calls.push('read'); return []; });
+    m.countReclassCandidates.mockResolvedValue(0);
+    const plan = await planReclassification({ ...INPUT, lockCandidateLines: false });
+    if (isRefusal(plan)) throw new Error(plan.refused);
+    expect(plan.impact.window).toEqual({ start: TODAY, end: TODAY });
+  });
+
+  it('uses the CALLER\'s bounds for an empty plan when it was given them', async () => {
+    m.findReclassCandidates.mockImplementation(async () => { m.calls.push('read'); return []; });
+    m.countReclassCandidates.mockResolvedValue(0);
+    const plan = await planReclassification({
+      ...INPUT, from: '2026-01-01', to: '2026-03-31', lockCandidateLines: false,
+    });
+    if (isRefusal(plan)) throw new Error(plan.refused);
+    expect(plan.impact.window).toEqual({ start: '2026-01-01', end: '2026-03-31' });
   });
 
   it('takes NO lock and reads ONCE on the preview path', async () => {
