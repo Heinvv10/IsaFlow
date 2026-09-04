@@ -444,3 +444,60 @@ describe('the addendum: an unposted disposal, and a brand-new tenant', async () 
     });
   });
 });
+
+describe('posted_through is null when no ledger row was consumed', async () => {
+  const ok4 = await isDbReachable();
+
+  it.skipIf(!ok4)('a company with asset accounts but NO posted lines reports null, not the epoch', async () => {
+    await inTx(async (companyId) => {
+      // Not the empty tenant: this company HAS asset-section accounts. They
+      // simply carry no posted journal line, so there is no MAX(created_at) to
+      // report and the honest watermark is absent rather than 1970.
+      await addAccount(companyId, 'RFA-PT-COST', 'PPE Cost', 'fixed_assets');
+      await addAccount(companyId, 'RFA-PT-ACC', 'Accumulated Depreciation', 'accumulated_depreciation');
+
+      const body = json(await reconcileFixedAssetsTool.handler(
+        { as_at: '1990-01-01' }, toolCtx(companyId),
+      ));
+      // as_at before every journal in this database, so nothing is consumed.
+      expect(body.posted_through).toBeNull();
+      expect(body.documents_total).toBe(0);
+    });
+  });
+
+  it.skipIf(!ok4)('a posted line gives a real timestamp, so null is not a constant', async () => {
+    await inTx(async (companyId) => {
+      const cost = await addAccount(companyId, 'RFA-PT2-COST', 'PPE Cost', 'fixed_assets');
+      const acc = await addAccount(companyId, 'RFA-PT2-ACC', 'Accumulated Depreciation', 'accumulated_depreciation');
+      await postJournal(companyId, cost, acc, 900, 'RFA-PT2-JE');
+
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      expect(body.posted_through).not.toBeNull();
+      expect(Number.isNaN(Date.parse(String(body.posted_through)))).toBe(false);
+      // And it is NOT the epoch — a fabricated value would pass the check above.
+      expect(body.posted_through).not.toBe('1970-01-01T00:00:00.000Z');
+    });
+  });
+
+  it.skipIf(!ok4)('reports no per-item attribution it cannot compute', async () => {
+    await inTx(async (companyId) => {
+      // `attribution` was hardcoded 'unlinked' at both construction sites while
+      // its type said 'linked' | 'unlinked' and the description explained WHY an
+      // item was unlinked — a conditional the code never implemented, and
+      // linked_item_count was dead at 0 forever. No asset or category in
+      // production records a GL account, so there is nothing to compute it
+      // from; `register_linkage_available` carries that fact honestly and by
+      // query. The fields are gone rather than lying.
+      await addAsset(companyId, 'RFA-ATTR', 5000, 0);
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+
+      expect(body).not.toHaveProperty('linked_item_count');
+      expect(body).not.toHaveProperty('unlinked_item_count');
+      for (const row of body.rows) {
+        expect(row).not.toHaveProperty('attribution');
+        expect(row).not.toHaveProperty('attributed_via');
+      }
+      expect(body.register_linkage_available).toBe(false);
+    });
+  });
+});

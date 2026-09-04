@@ -256,6 +256,19 @@ clause of an outer join. If a row can legitimately have no match, decide
 explicitly whether it belongs in `rows` or in `excludedRows` — never let it
 through carrying NULLs into an arithmetic expression.
 
+### `posted_through` is NULL when no ledger row was consumed
+
+The epoch is not a neutral stand-in for an absence. `1970-01-01T00:00:00.000Z`
+is a claim that the ledger was read through that instant, and a caller comparing
+two reports sees a watermark and believes it — anything doing
+`new Date(posted_through) > x` gets a plausible wrong answer instead of the null
+check it would otherwise have been forced to write. Same family as an equity plug
+and a `now()` fallback: an absence dressed as data.
+
+A report that reads no ledger at all — a subledger listing built from the
+`assets` table, say — reports null permanently, not only when the company is
+empty.
+
 ### `posted_through` is not decoration
 
 It is what makes a number re-derivable. Same `as_at` + same `posted_through` must

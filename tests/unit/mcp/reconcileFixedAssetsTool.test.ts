@@ -63,8 +63,6 @@ const REC: FixedAssetReconciliation = {
       side: 'ledger',
       type: 'ledger_account_balance',
       amount: -1135193.17,
-      attribution: 'unlinked',
-      attributedVia: null,
       assetId: null,
       assetNumber: null,
       accountId: 'g-loan',
@@ -79,8 +77,6 @@ const REC: FixedAssetReconciliation = {
       side: 'ledger',
       type: 'ledger_account_balance',
       amount: 4847978.30,
-      attribution: 'unlinked',
-      attributedVia: null,
       assetId: null,
       assetNumber: null,
       accountId: 'g-h10',
@@ -95,8 +91,6 @@ const REC: FixedAssetReconciliation = {
       side: 'ledger',
       type: 'ledger_account_balance',
       amount: 7500,
-      attribution: 'unlinked',
-      attributedVia: null,
       assetId: null,
       assetNumber: null,
       accountId: 'g-1230',
@@ -111,8 +105,6 @@ const REC: FixedAssetReconciliation = {
       side: 'ledger',
       type: 'ledger_account_balance',
       amount: 2027017.54,
-      attribution: 'unlinked',
-      attributedVia: null,
       assetId: null,
       assetNumber: null,
       accountId: 'g-rest',
@@ -137,8 +129,6 @@ const REC: FixedAssetReconciliation = {
     },
   ],
   documentsTotal: 1,
-  linkedItemCount: 0,
-  unlinkedItemCount: 4,
   contraNormalBalanceCount: 1,
   contraNormalBalanceTotal: -4847978.30,
   registerLinkageAvailable: false,
@@ -244,8 +234,18 @@ describe('the decomposition', () => {
   it('reports that no asset is linked to a GL account, rather than implying one is', async () => {
     const out = json(await reconcileFixedAssetsTool.handler({ as_at: '2026-08-31' }, ctx));
     expect(out.register_linkage_available).toBe(false);
-    expect(out.linked_item_count).toBe(0);
-    expect(out.unlinked_item_count).toBe(4);
+    // ONE statement about the company, from a real query — not a per-row field
+    // hardcoded to its only possible value with a type promising otherwise.
+    expect(out).not.toHaveProperty('linked_item_count');
+    expect(out.rows.every((r: object) => !('attribution' in r))).toBe(true);
+  });
+
+  it('the description does not explain a per-item check that never runs', () => {
+    const d = reconcileFixedAssetsTool.description;
+    expect(d).toMatch(/register_linkage_available/);
+    // The old copy said every item was attribution "unlinked" BECAUSE no link
+    // could be made — a reason given for a decision the code never took.
+    expect(d).not.toMatch(/attribution "unlinked"/);
   });
 
   it('excludes a disposed asset with the book value it was carrying, not silently', async () => {

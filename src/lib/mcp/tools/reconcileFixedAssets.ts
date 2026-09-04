@@ -33,16 +33,11 @@ import {
 } from '../contracts';
 import { clampLimit, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
-/** A read that consumed no ledger row has no `posted_through`. */
-const NO_LEDGER_READ = '1970-01-01T00:00:00.000Z';
-
 function itemRow(i: AssetReconcilingItem) {
   return {
     side: i.side,
     type: i.type,
     amount: i.amount,
-    attribution: i.attribution,
-    attributed_via: i.attributedVia,
     asset_id: i.assetId,
     asset_number: i.assetNumber,
     account_id: i.accountId,
@@ -77,7 +72,7 @@ export const reconcileFixedAssetsTool: McpTool = {
     + 'THE TWO SIDES ARE INDEPENDENTLY DERIVED: the register comes from the assets table and the ledger from posted journal lines, so the difference can genuinely be non-zero. '
     + 'WHAT A ZERO DIFFERENCE DOES AND DOES NOT PROVE. READ THIS BEFORE RELYING ON IT. It is NECESSARY AND NOT SUFFICIENT. The items sum to the difference by construction — every asset and every account is reported — so a zero says the two totals happen to agree, NOT that the register and the ledger describe the same assets. Two errors that cancel satisfy it exactly. Treat a zero as an invitation to INSPECT THE ITEMS, never as a conclusion about the accounts. '
     + 'WHAT TO INSPECT. normal_balance_violated marks a cost account carrying a CREDIT balance, or an accumulated-depreciation account carrying a DEBIT one: the sign is opposite to what the subtype implies, so the account is unlikely to be property, plant and equipment. On these books that flag catches millions of rands of loan and investment accounts subtyped fixed_assets, which any single total would present as PPE. The tool REPORTS them; it does not reclassify anything and does not change the chart of accounts. '
-    + 'register_linkage_available is false when NO asset and no asset category in the company records a GL account — the state of every production company today. When it is false, every item is attribution "unlinked" because there is no data by which a link could be made, not because a link was checked and failed, and no part of the ledger can be attributed to a specific asset. '
+    + 'register_linkage_available is false when NO asset and no asset category in the company records a GL account — the state of every production company today. While it is false NO part of the ledger can be attributed to a specific asset, by any means, because the data that would make the link does not exist. Items therefore carry no per-asset attribution field: there is nothing to compute one from, and a field that could only ever hold one value would read as a check that had run. '
     + 'ACCOUNT SELECTION is by SUBTYPE, never by account name — choosing a bucket by name is how two default_expense accounts became cost of sales and overstated gross profit by R562,428. There is NO is_active filter: a deactivated account with a live balance is still on the balance sheet. '
     + 'An asset disposed on or before as_at is not carrying amount; it appears in excludedRows with the book value it was still carrying, never silently dropped — as disposed_before_as_at when a journal posted for it, and as disposal_not_posted_to_ledger when none did. '
     + 'READ unposted_disposals. A disposal the register recorded and the ledger never heard about is the one register-versus-ledger break that can NEVER move the difference: the asset is out of the register carrying amount and the journal is absent from the ledger, so both sides are zero and the arithmetic closes over a real loss. unposted_disposal_gain_loss is profit or loss that never reached the income statement and unposted_disposal_book_value is cost less depreciation never removed from the balance sheet. Production holds exactly one disposal and it is in this list: Brightsphere COMP-0001, sold 2026-04-12 for R8,000 against a R15,000 book value, a R7,000 loss with no journal. It cannot post on ANY tenant — posting a disposal resolves the system account role disposal_profit_loss and no company has an account carrying that subtype, so the posting throws before it writes. Fixing that is a chart-of-accounts change; this tool reports it and changes nothing. '
@@ -164,7 +159,10 @@ export const reconcileFixedAssetsTool: McpTool = {
       rowsTotal,
       detail,
       as_at: asAt,
-      posted_through: rec.postedThrough ?? NO_LEDGER_READ,
+      // NULL when no ledger row was consumed, never the epoch. A watermark is
+      // a claim that the ledger was read through that instant; fabricating one
+      // for an absence is the same family as a now() fallback.
+      posted_through: rec.postedThrough,
       next_cursor: nextCursor,
       excludedRows: rec.excludedRows,
       // universeTotal is DELIBERATELY ABSENT. These rows are PRODUCED by the
@@ -187,8 +185,6 @@ export const reconcileFixedAssetsTool: McpTool = {
       difference: rec.difference,
       itemsTotal: rec.itemsTotal,
       unexplainedDifference: rec.unexplainedDifference,
-      linked_item_count: rec.linkedItemCount,
-      unlinked_item_count: rec.unlinkedItemCount,
       register_linkage_available: rec.registerLinkageAvailable,
       contra_normal_balance_count: rec.contraNormalBalanceCount,
       contra_normal_balance_total: rec.contraNormalBalanceTotal,

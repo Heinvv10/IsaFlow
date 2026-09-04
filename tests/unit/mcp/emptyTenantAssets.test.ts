@@ -112,10 +112,13 @@ describe('an empty tenant — the state every customer starts in', async () => {
       expect(body.register_linkage_available).toBe(false);
       expect(body.contra_normal_balance_count).toBe(0);
 
-      // No ledger row was consumed, so posted_through is the epoch and NOT
-      // now() — a figure that changes on every call proves nothing, and this
-      // is the one company where the difference between them is visible.
-      expect(body.posted_through).toBe('1970-01-01T00:00:00.000Z');
+      // No ledger row was consumed, so there is NO watermark — null, not the
+      // epoch. `1970-01-01T00:00:00.000Z` is a claim that the ledger was read
+      // through that instant, which is false; the same family as a now()
+      // fallback or an equity plug, an absence dressed as data. Anything doing
+      // `new Date(posted_through) > x` gets a plausible wrong answer from the
+      // epoch instead of the null check it would have been forced to write.
+      expect(body.posted_through).toBeNull();
       // The rows are produced, so there is still no completeness claim to make.
       expect(body.universeTotal).toBeUndefined();
     });
@@ -154,9 +157,12 @@ describe('an empty tenant — the state every customer starts in', async () => {
       expect(reg.reconciliation.difference).toBe(0);
       expect(reg.reconciliation.cost_accounts).toEqual([]);
       expect(reg.reconciliation.accumulated_depreciation_accounts).toEqual([]);
-      expect(reg.posted_through).toBe('1970-01-01T00:00:00.000Z');
+      expect(reg.posted_through).toBeNull();
 
       const list = json(await listFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      // list_fixed_assets reads the assets table and NO ledger at all, so its
+      // posted_through is null permanently, not only when the company is empty.
+      expect(list.posted_through).toBeNull();
       assertEnvelopeSound(list);
       expect(list.rows).toEqual([]);
       expect(list.rowsTotal).toBe(0);

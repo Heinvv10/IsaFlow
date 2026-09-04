@@ -66,8 +66,6 @@ export interface FixedAssetReconciliation {
   items: AssetReconcilingItem[];
   documents: AssetReconcilingDocument[];
   documentsTotal: number;
-  linkedItemCount: number;
-  unlinkedItemCount: number;
   contraNormalBalanceCount: number;
   contraNormalBalanceTotal: number;
   /**
@@ -173,8 +171,6 @@ export async function reconcileFixedAssets(
     items,
     documents,
     documentsTotal: documents.length,
-    linkedItemCount: items.filter((i) => i.attribution === 'linked').length,
-    unlinkedItemCount: items.filter((i) => i.attribution === 'unlinked').length,
     contraNormalBalanceCount: violating.length,
     // Reported as the BALANCES that violate, not as their contributions to the
     // difference: a reader comparing this to the chart of accounts wants the

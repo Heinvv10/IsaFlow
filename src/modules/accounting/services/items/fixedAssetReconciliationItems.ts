@@ -20,9 +20,23 @@ export interface AssetReconcilingItem {
   type: 'register_asset_carrying_amount' | 'ledger_account_balance';
   /** Contribution to `difference`. The items sum to it exactly. */
   amount: number;
-  /** Whether this item could be tied to the other side. */
-  attribution: 'linked' | 'unlinked';
-  attributedVia: 'asset_gl_account' | 'category_gl_account' | null;
+  //
+  // THERE IS NO PER-ITEM `attribution` FIELD, deliberately.
+  //
+  // There used to be — `attribution: 'linked' | 'unlinked'` with an
+  // `attributedVia` beside it — and both were hardcoded `'unlinked'` / `null`
+  // at every construction site, unconditionally. The type promised a decision
+  // the code never made, `linkedItemCount` was dead at zero forever, and the
+  // tool description explained WHY an item was unlinked as though a check had
+  // run. Nothing in this schema could have computed it: no asset and no asset
+  // category in production records a GL account, so there is no data by which
+  // any item could be tied to the other side.
+  //
+  // `registerLinkageAvailable` carries that fact instead, from a real query, as
+  // ONE statement about the company rather than a per-row claim repeated for
+  // every item. A field that can only ever hold one value is not information,
+  // and a type that says otherwise is a promise the reader will act on.
+  //
   assetId: string | null;
   assetNumber: string | null;
   accountId: string | null;
@@ -65,8 +79,6 @@ export function buildRegisterItems(rows: readonly AssetRegisterRow[]): AssetReco
     side: 'register' as const,
     type: 'register_asset_carrying_amount' as const,
     amount: round2(a.netBookValue),
-    attribution: 'unlinked' as const,
-    attributedVia: null,
     assetId: a.id,
     assetNumber: a.assetNumber,
     accountId: null,
@@ -107,8 +119,6 @@ export function buildLedgerItems(accountRows: readonly DbRow[]): {
       side: 'ledger',
       type: 'ledger_account_balance',
       amount: round2(-balance),
-      attribution: 'unlinked',
-      attributedVia: null,
       assetId: null,
       assetNumber: null,
       accountId: String(r.id),
