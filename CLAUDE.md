@@ -19,38 +19,19 @@ Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tena
 
 ## How to work here
 
-This is a double-entry ledger holding real client money. The failure that costs most is
-not a missing feature — it's a confident wrong number. These four rules outrank
-everything below them.
+This is a double-entry ledger holding real client money. The failure that costs most is not
+a missing feature — it's a confident wrong number. `~/.claude/CLAUDE.md` §How to Work carries
+the behavioural rules (think before coding, simplicity, surgical changes, goal-driven) and
+they apply here with the volume turned up. What follows is what's specific to this repo.
 
-- **Think before coding.** State your assumptions out loud before you act on them. If the
-  request has two readings, present both and ask — don't pick one silently. If a simpler
-  approach exists, say so. If the evidence contradicts the user, say so in one sentence
-  with the evidence. Being agreeable and wrong is the expensive failure mode; if something
-  is unclear, stop and name exactly what is confusing.
-- **Simplicity first.** Write the minimum code that solves the stated problem. No
-  abstractions for single-use code, no configurability nobody asked for, no error handling
-  for scenarios that cannot occur. If you wrote 200 lines and 50 would do, rewrite it.
-- **Surgical changes.** Every changed line must trace to the request. Don't reformat, don't
-  rename, don't "improve" adjacent code or comments, and match the surrounding style even
-  where you'd write it differently. Clean up imports and variables *your* change orphaned;
-  pre-existing dead code gets *mentioned*, not deleted.
-- **Goal-driven execution.** Turn the task into something checkable before you start
-  ("add validation" → "these three invalid inputs return 400; here's the test"). For
-  multi-step work, write the plan with a `verify:` command per step, then loop until each
-  one actually passes.
+**Verify per change class, in the current message:** logic → `bun run test:unit` ·
+types → `bun run type-check` · style → `bun run lint` · anything shipping → `bun run ci`.
 
-## Verification (evidence, not inspection)
-
-- Run the verification command **in the current message**, before you claim anything works.
-- **"Should work", "looks good", "this should be fine" are not completion signals.** Paste
-  the passing output, the diff, or the log line.
-- Per change class: logic → `bun run test:unit` · types → `bun run type-check` ·
-  style → `bun run lint` · anything shipping → `bun run ci`.
-- **UI changes require loading the page in a browser.** Reading the JSX is not proof; a
-  page that compiles can still 500 on data.
 - SQL and money paths: run the query against `isaflow_dev` and read the rows. A migration
-  that "should be idempotent" is unverified until re-run.
+  that "should be idempotent" is unverified until you've re-run it.
+- A ledger number is only verified against a **known-correct total** — trial balance nets to
+  zero, control account ties to its subledger. "The query returned rows" proves nothing.
+- Prove a fix against more than one tenant. One company is not the platform; pick a messy one.
 
 ## Critical Rules (ALL code, ALL agents)
 
