@@ -203,6 +203,25 @@ Watch for the specific shape that produces this: a `SUM` over rows grouped by a
 key with no uniqueness guarantee. A non-unique index on the grouping column is
 a double-count waiting for a second row.
 
+**Worked example, and it earns the citation by having failed first.**
+`reconcile_fixed_assets`'s first attempt at "either carry a guard that can
+fail, or say it is unguarded" shipped `figure_guards` as a hardcoded object
+literal — five labels emitted on every call, a DECLARATION that a guard
+existed rather than a MEASUREMENT that one ran. That is this section's own
+defect, reproduced inside the fix meant to prevent it. Fixed by deriving each
+label from a comparison the call actually performed, at the WIRE boundary over
+the rows the response carries (not the service-level array the total was
+reduced from, which cannot fail by construction and would miss a cap applied
+downstream while mapping to the response): `identity` for a figure inside the
+reconciliation, `enumerated` when its rows were emitted and summed to the
+total, `unguarded` when they were not — the third label is what makes "or say
+it is unguarded" an outcome a caller can see rather than a promise nobody
+checks. `unguarded` is reachable and directly tested; **no production call
+site in this tool currently reaches it**, because every one passes rows. Keep
+that distinction rather than smooth it — "reachable but never reached here" is
+a different claim from "exercised in production", and this is the one section
+where blurring them would teach exactly the wrong habit.
+
 ### A filter that drops rows is the defect, not the fix
 
 `casewareExportService` filtered `ga.is_active = true` and silently dropped a
