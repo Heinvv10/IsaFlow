@@ -197,6 +197,48 @@ identical before and after — which is what the live `49775627 → 5100` move
 actually is: 414 lines and R11.3m moved, no reported figure changed, and the
 source account's name lost.
 
+## A timeout test that passes in five seconds is asserting the wrong thing
+
+`lockReclassLinesForUpdate` re-issues its own `lock_timeout` on every call. So a
+test that sets `SET LOCAL lock_timeout` on its own connection and then calls the
+service has that value **silently overridden**, waits the full production
+timeout, and passes — with a dead line in it that reads as though it controls
+the wait. That shipped here: the contention test took **5,092ms** while claiming
+to assert a 300ms timeout.
+
+Two things fix it, and both are load-bearing:
+
+- the timeout is an **overridable parameter**, bound with
+  `set_config('lock_timeout', $1, true)` because `SET LOCAL` cannot bind one and
+  the literal form would mean interpolating a value into a statement;
+- the test asserts **elapsed time** (`expect(elapsed).toBeLessThan(2_000)`).
+  Hardcoding the literal back pushes it to ~5,003ms and it goes red.
+
+**Elapsed time is the tell.** This was the third test-that-could-not-fail found
+in this module in one day, and the third found by its author rather than a
+reviewer — the other two were a lock whose wiring no test observed, and a
+`basisFault` that two correct implementations can never trigger.
+
+## A second lock phase nobody orders
+
+`lockReclassLinesForUpdate` orders its own acquisition (ascending by `id`, and
+`LockRows` sits above `Sort`). It is NOT the only lock a batch takes.
+
+`trg_gl_jl_balance_update` fires per posted line and upserts
+`gl_account_balances (gl_account_id, fiscal_period_id)`, so every journal also
+takes a row lock on the SOURCE balance row and then the TARGET one. Two batches
+moving X→Y and Y→X concurrently in the same period would acquire those two rows
+in opposite orders, which is the shape of a 40P01.
+
+Three things about it. It is **identical under an account-level lock**, so it is
+not a reason to prefer either design. It is **shared with every other posting
+path** — `bulk_allocate_bank_transactions` posts 500 journals through the same
+trigger. And an attempt to demonstrate it empirically was **inconclusive** (the
+probe blocked rather than deadlocking, and was abandoned), so it is recorded as
+reasoned-but-unproven rather than as a known defect. If it does fire, the
+consequence is a clean one: 40P01 throws, the registry's savepoint unwinds,
+nothing is posted, and the agent retries.
+
 ## Recent changes
 
 - 2026-09-04 (review round): two HIGH defects closed. **HIGH-1**, the reversal

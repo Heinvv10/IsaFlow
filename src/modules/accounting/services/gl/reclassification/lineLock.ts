@@ -48,6 +48,13 @@ import { als, assertTxUsable } from '@/lib/als';
 const LOCK_NOT_AVAILABLE = '55P03';
 
 /**
+ * 5s, matching `bankTxLock`. Long enough to absorb a peer's normal batch, short
+ * enough that a wedged peer surfaces as a retryable error instead of pinning
+ * the connection.
+ */
+const LOCK_TIMEOUT = '5s';
+
+/**
  * Raised when another batch holds one of these lines longer than the 5s
  * `lock_timeout`.
  *
@@ -96,7 +103,7 @@ function isLockTimeout(err: unknown): boolean {
  * SELECT returns, and the caller would believe it was serialised when it was
  * not. Same loud failure as `lockBankTransactionForUpdate`.
  *
- * The 5s `lock_timeout` is re-issued on EVERY call, matching `bankTxLock`:
+ * The `lock_timeout` is re-issued on EVERY call, matching `bankTxLock`:
  * `SET LOCAL` is subtransaction-aware, so `ROLLBACK TO SAVEPOINT` — which every
  * MCP write tool does on failure — restores the previous value of `0`, meaning
  * no timeout at all. Caching it per connection would leave later locks waiting
@@ -105,6 +112,18 @@ function isLockTimeout(err: unknown): boolean {
 export async function lockReclassLinesForUpdate(
   companyId: string,
   lineIds: readonly string[],
+  /**
+   * Overridable ONLY so the contention test can assert the timeout path in
+   * ~300ms instead of the production 5s. No production caller passes it.
+   *
+   * IT IS NOT A CONVENIENCE. Without it the service re-issues the literal `5s`
+   * and OVERRIDES whatever the test set on its own connection, so the test
+   * waits the full production timeout and its own `SET LOCAL` line is dead —
+   * which is exactly what happened here, and the tell was an elapsed time of
+   * 5,092ms on a test that claimed to be asserting a 300ms one. A timeout test
+   * that passes in five seconds is asserting the wrong thing.
+   */
+  lockTimeout: string = LOCK_TIMEOUT,
 ): Promise<string[]> {
   if (lineIds.length === 0) return [];
 
@@ -122,7 +141,11 @@ export async function lockReclassLinesForUpdate(
   // guarded SELECT is reached, handing the caller the opaque error that check
   // exists to replace.
   assertTxUsable();
-  await client.query("SET LOCAL lock_timeout = '5s'");
+  // `set_config(..., is_local => true)`, not `SET LOCAL`: the timeout is a
+  // parameter here and `SET LOCAL` cannot bind one, so the literal form would
+  // mean interpolating a value into a statement — which this codebase does not
+  // do anywhere, test seam or not.
+  await client.query("SELECT set_config('lock_timeout', $1, true)", [lockTimeout]);
   try {
     const rows = (await sql`
       SELECT jl.id

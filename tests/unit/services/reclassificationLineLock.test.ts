@@ -146,12 +146,22 @@ describe('lockReclassLinesForUpdate (real DB)', async () => {
         lockReclassLinesForUpdate(lines!.companyId, lines!.ids));
       expect(locked).toEqual(lines.ids);
 
+      // 300ms passed to the SERVICE, not set on this connection: the service
+      // re-issues the timeout itself, so a `SET LOCAL` here would be silently
+      // overridden and this test would wait the full production 5s while
+      // appearing to assert a 300ms one. `elapsed` below is what makes that
+      // impossible to reintroduce unnoticed.
       await b.query('BEGIN');
-      await b.query("SET LOCAL lock_timeout = '300ms'");
+      const startedAt = Date.now();
       await expect(
         als.run(ctxFor(b, lines.companyId), () =>
-          lockReclassLinesForUpdate(lines!.companyId, lines!.ids)),
+          lockReclassLinesForUpdate(lines!.companyId, lines!.ids, '300ms')),
       ).rejects.toBeInstanceOf(ReclassLineLockTimeoutError);
+      const elapsed = Date.now() - startedAt;
+      // THE ASSERTION THAT KEEPS THIS TEST HONEST. It waited for the timeout it
+      // asked for, not for one the service imposed over it. Hardcode the
+      // literal back into lockReclassLinesForUpdate and this goes red at ~5s.
+      expect(elapsed).toBeLessThan(2_000);
       await b.query('ROLLBACK');
 
       // Released on COMMIT — no unlock path to forget, and the registry's
@@ -189,9 +199,8 @@ describe('lockReclassLinesForUpdate (real DB)', async () => {
         lockReclassLinesForUpdate(one!.companyId, one!.ids));
 
       await b.query('BEGIN');
-      await b.query("SET LOCAL lock_timeout = '2s'");
       const locked = await als.run(ctxFor(b, two.companyId), () =>
-        lockReclassLinesForUpdate(two!.companyId, two!.ids));
+        lockReclassLinesForUpdate(two!.companyId, two!.ids, '2s'));
       expect(locked).toEqual(two.ids);
     } finally {
       await a.query('ROLLBACK').catch(() => undefined);
