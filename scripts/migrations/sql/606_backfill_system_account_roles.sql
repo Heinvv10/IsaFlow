@@ -164,21 +164,32 @@ WHERE c.status IS DISTINCT FROM 'deleted'
 -- without one still gets its account (parent_account_id is nullable) rather than
 -- silently keeping an empty role — a parentless account resolves correctly and
 -- chart_of_accounts_health reports the orphan. Say so if it happens.
--- Counted over the two ROLE SUBTYPES, not over the bare account codes, and
--- restricted to rows this transaction wrote. The first version asked only
--- `account_code IN ('3300','4410') AND parent_account_id IS NULL` with no
--- company predicate and no time bound, so on isaflow_dev it announced "78 of the
--- new role accounts have no parent" on a run that inserted ZERO — all 78 were
--- pre-existing rows belonging to other tenants. A cross-tenant count inside a
--- tenant-scoped migration, printing a number that describes something other than
--- what it claims, is worse than printing nothing: it is the deploy log a human
--- reads when they are deciding whether the migration went well.
--- Counted per COMPANY and over the two role SUBTYPES, which only 605 and this
--- migration ever write — not over the bare account codes. A time bound was the
--- other option and it is not reliable here: `statement_timestamp()` inside a DO
--- block is evaluated after the INSERTs, and `transaction_timestamp()` is only
--- meaningful if the runner wraps the file in one transaction, which psql in
--- autocommit does not. This formulation needs neither.
+-- Counted PER COMPANY and over the two role subtypes, which only 605 and this
+-- migration ever write.
+--
+-- The first version asked `account_code IN ('3300','4410') AND
+-- parent_account_id IS NULL` with no company predicate, and on isaflow_dev
+-- announced "78 of the new role accounts have no parent" on a run that inserted
+-- ZERO — all 78 were pre-existing rows belonging to other tenants. A
+-- cross-tenant count inside a tenant-scoped migration, printing a number that
+-- describes something other than what it claims, is worse than printing
+-- nothing: this is the deploy log a human reads to decide whether the migration
+-- went well.
+--
+-- NOT restricted to rows this run inserted, and the earlier wording here
+-- claiming otherwise overclaimed. A pre-existing account carrying one of these
+-- subtypes with a null parent is still counted. That is acceptable — the point
+-- is to flag a company whose role account has no parent, whoever created it —
+-- but it is not the same statement as "what I just wrote".
+--
+-- A time bound was the alternative. `statement_timestamp()` does not work:
+-- inside a DO block it is evaluated after the INSERTs have run.
+-- `transaction_timestamp()` WOULD work under the real runner —
+-- `apply-migrations.ts` wraps each file in BEGIN…COMMIT — so the earlier claim
+-- here that it "only means anything if the runner wraps the file, which psql in
+-- autocommit does not" was wrong about the runner; it is true only of an ad-hoc
+-- `psql -f`, which is how this file gets exercised by hand. The per-company
+-- formulation was kept because it needs neither and reads the same either way.
 DO $$
 DECLARE orphans int;
 BEGIN

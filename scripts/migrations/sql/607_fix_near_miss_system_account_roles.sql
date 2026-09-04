@@ -128,16 +128,26 @@ UPDATE gl_accounts g
 --   5600 (390 journal lines)  operating_expense -> IS253  becomes  admin_expense -> IS160
 --   4300 (159 journal lines)  revenue           -> IS002  becomes  other_income  -> IS143
 --
--- 4300 -> IS143 "Other income" is an improvement. 5600 -> IS160 is NOT: IS160 is
--- "Accounting officer's remuneration", a specific statutory disclosure line, and
--- 390 lines of general administrative spend do not belong in it. That is a
--- defect in the PRE-EXISTING `admin_expense -> IS160` entry of
+-- 4300 -> IS143 "Other income" is an improvement. 5600 -> IS160 is NOT, and the
+-- amount matters: IS160 is "Accounting officer's remuneration"
+-- (`afsTaxonomySeeds.ts:148`), a specific statutory disclosure line, and after
+-- this retype ISAFlow Demo's 5600 carries **R4,015,449.28 across 390 lines**.
+-- The first AFS anyone generates for that tenant would disclose four million
+-- rand of general administrative spend as the accounting officer's fee.
+--
+-- Nothing has been generated wrong yet: `afs_account_mappings` holds ZERO rows
+-- platform-wide, and the only other live balance on the subtype is Weszak's
+-- 5600 at R1,741.94.
+--
+-- This is a defect in the PRE-EXISTING `admin_expense -> IS160` entry of
 -- `SUBTYPE_TO_AFS_CODE`, not something these statements introduce — every
 -- company already carrying `admin_expense` has it. It is left alone here
 -- deliberately: correcting it moves other tenants' AFS figures and belongs in
--- its own change. Fixing that entry restores 5600 to a general-expenses line.
--- ISAFlow Demo is the demo tenant, so nothing filed depends on it in the
--- meantime.
+-- its own change with its own review. Fixing that entry restores 5600 to a
+-- general-expenses line. ISAFlow Demo is the demo tenant, so nothing filed
+-- depends on it meanwhile — but "a defect in a pre-existing entry" and "a defect
+-- that discloses R4m on a statutory line the moment someone runs an AFS" are
+-- different sentences, and whoever picks this up should get the second one.
 UPDATE gl_accounts
    SET account_subtype   = 'admin_expense',
        is_system_account = true,

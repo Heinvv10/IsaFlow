@@ -63,12 +63,19 @@ async function asCompany<T>(companyId: string, fn: () => Promise<T>): Promise<T>
  * return;`. An early return inside a test body is a PASS, so with the database
  * unreachable all four reported green having asserted nothing — including the
  * brand-new-tenant test, which is the entire proof that migration 605 fixed the
- * seed. `describe.skipIf(!process.env.DATABASE_URL)` covered only the no-URL
- * case; the hole was URL-set-but-database-down, which is exactly what
- * `isDbReachable` exists to detect and what this file's docblock claimed to
- * defend against. A guard that reports success when it cannot run is worse than
- * no guard, and it was hiding behind a `requireDb()` helper that the early
- * return meant never executed.
+ * seed. A guard that reports success when it cannot run is worse than no guard,
+ * and it was hiding behind a `requireDb()` helper that the early return meant
+ * never executed.
+ *
+ * THE OUTER GUARD WAS NEVER OPERATIVE EITHER, which is worth knowing before
+ * anyone builds the next DB-gated suite on it. This file used to open
+ * `describe.skipIf(!process.env.DATABASE_URL)`, and that condition can never be
+ * true: `vitest.config.ts` injects `DATABASE_URL` into `test.env`, falling back
+ * to a placeholder `dummy` URL when the environment has none. So the variable
+ * is always set inside a test and `env -u DATABASE_URL` does not remove it. `isDbReachable()` — which rejects the dummy URL by name and
+ * otherwise opens a real short-timeout connection — was and remains the ONLY
+ * working gate. An earlier version of this comment credited the `process.env`
+ * check with covering the no-URL case; it covered nothing.
  */
 describe('system account roles (DB)', async () => {
   const reachable = await isDbReachable();
