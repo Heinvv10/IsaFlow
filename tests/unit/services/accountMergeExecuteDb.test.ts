@@ -24,7 +24,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 
-import { getPoolForTests } from '@/lib/neon';
+import { getPoolForTests, sql } from '@/lib/neon';
 import { mergeAccounts, AccountMergeError } from '@/modules/accounting/services/gl/accountMergeService';
 import { CONFIGURATION_REFERENCE_EXCLUSIONS } from '@/modules/accounting/services/gl/accountMergeGuards';
 
@@ -38,7 +38,6 @@ async function withFixture(fn: (c: PoolClient, f: MergeFixture) => Promise<void>
   try {
     await client.query('BEGIN');
     const fixture = await createMergeFixture(client);
-    if (!fixture) return;
     await als.run(ctxFor(client, fixture.companyId), () => fn(client, fixture));
   } finally {
     await client.query('ROLLBACK').catch(() => undefined);
@@ -90,6 +89,57 @@ describe('mergeAccounts refuses', async () => {
       );
       const code = await refusalCode(() => mergeAccounts(f.companyId, f.cleanSourceId, f.targetId));
       expect(code).toBe('source_referenced_by_configuration');
+    });
+  }, 60_000);
+
+  it.skipIf(!reachable)('a merge that crosses the VAT reporting boundary, in EITHER direction', async () => {
+    await withFixture(async (_c, f) => {
+      // The attack: SYS-7-shaped source (asset, NULL subtype, non-system) into a
+      // vat_input target. Both asset, no cycle, no config references, zero skips —
+      // and vatReturnService scopes VAT membership by account_subtype, so the
+      // unclassified-input sweep would add the whole balance to box 15.
+      expect(await refusalCode(() => mergeAccounts(f.companyId, f.cleanSourceId, f.vatInputId)))
+        .toBe('account_subtype_reporting_class');
+      // The mirror: lines moving OUT of a tax-class account drop out of the
+      // membership filter entirely and understate the return. Covered today only
+      // by accident, because most VAT accounts are system accounts — these two
+      // shapes exist on Brightsphere right now and are not.
+      expect(await refusalCode(() => mergeAccounts(f.companyId, f.taxSourceId, f.contraId)))
+        .toBe('account_subtype_reporting_class');
+    });
+  }, 60_000);
+
+  it.skipIf(!reachable)('but NOT the two merges this tool exists for', async () => {
+    await withFixture(async (_c, f) => {
+      // NULL -> receivable and NULL -> payable are both ordinary -> ordinary.
+      // `receivable` and `payable` appear in neither the VAT membership filter
+      // nor any bank-reachability path, so the class rule permits them.
+      await sql`UPDATE gl_accounts SET account_subtype = 'receivable'
+                 WHERE id = ${f.targetId}::UUID AND company_id = ${f.companyId}::UUID`;
+      await expect(mergeAccounts(f.companyId, f.cleanSourceId, f.targetId)).resolves.toBeDefined();
+
+      await sql`UPDATE gl_accounts
+                   SET account_type = 'liability', account_subtype = 'payable', is_active = true
+                 WHERE id = ${f.inactiveTargetId}::UUID AND company_id = ${f.companyId}::UUID`;
+      await expect(mergeAccounts(f.companyId, f.cleanLiabilitySourceId, f.inactiveTargetId))
+        .resolves.toBeDefined();
+    });
+  }, 60_000);
+
+  it.skipIf(!reachable)('a bank-subtype source its statement rows still reference', async () => {
+    await withFixture(async (_c, f) => {
+      // bank -> bank, so the reporting-class rule permits it and the row-count
+      // guard is the only thing left standing between the merge and a set of
+      // statement rows reachable from nothing.
+      expect(await refusalCode(() => mergeAccounts(f.companyId, f.bankSourceId, f.bankTargetId)))
+        .toBe('source_bank_subtype_referenced');
+    });
+  }, 60_000);
+
+  it.skipIf(!reachable)('a DEACTIVATED target, which would hide the balance again', async () => {
+    await withFixture(async (_c, f) => {
+      expect(await refusalCode(() => mergeAccounts(f.companyId, f.cleanSourceId, f.inactiveTargetId)))
+        .toBe('target_is_inactive');
     });
   }, 60_000);
 

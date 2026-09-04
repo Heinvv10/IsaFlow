@@ -25,7 +25,10 @@ import {
   AccountMergeError,
   mergeAccounts,
 } from '@/modules/accounting/services/gl/accountMergeService';
+import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+
+const TOOL = 'merge_gl_accounts';
 
 const IF_THIS_IS_WRONG = [
   'If the two accounts are not in fact the same control account, this merge fuses two different',
@@ -35,7 +38,10 @@ const IF_THIS_IS_WRONG = [
   'reconciliation and any aged report grouped by control account change for every period the',
   'moved lines touch, including periods already reported on. The company trial balance does not',
   'change, so nothing about a balanced trial balance will tell you this went wrong.',
-  'Reversing it means merging back, which is a second correction, not an undo.',
+  'Reversing it means merging back, which is a second correction, not an undo — a reverse merge',
+  'carries the target\'s ORIGINAL lines with it, so the two populations stay fused. What makes a',
+  'wrong merge recoverable is the gl_account_merges record: it names every line that moved, and',
+  'movedLinesDigest lets you check the merge that ran is the one you signed.',
 ].join(' ');
 
 const DESCRIPTION = [
@@ -62,13 +68,23 @@ const DESCRIPTION = [
   'SKIPS BLOCK THE MERGE: a posted line in a closed fiscal period, or a posted line with no fiscal',
   'period at all, is reported with its amount and the whole merge refuses. A control-account merge',
   'that leaves part of its balance behind is worse than one that does not run.',
-  'Does NOT cover: configuration rows (repoint them yourself first), renaming or renumbering the',
-  'chart, and it never merges across companies. It is not an undo — reversing a merge means',
-  'merging back, which is a second correction.',
+  'ALSO REFUSES a merge that crosses a REPORTING CLASS: vat (subtypes vat_input, vat_output, tax —',
+  'what the VAT201 selects on) and bank (what the banking screens reach statement rows through)',
+  'are each their own class, and everything else including NULL is ordinary. Crossing that',
+  'boundary puts money that is not tax onto a SARS return in one direction and drops it off in the',
+  'other, with the trial balance identical either way. Same-class merges are allowed, so the two',
+  'control-account cases this tool was built for (NULL to receivable, NULL to payable) pass.',
+  'Does NOT cover: configuration rows (repoint them yourself first) — and note that the',
+  'configuration sweep reads foreign keys, so a reference held BY ACCOUNT CODE rather than by id',
+  'is invisible to it. group_accounts.account_code is the known case: the consolidation chart',
+  'resolves by code, the source keeps its code after the merge, so the group mapping goes on',
+  'resolving to an account that now carries zero while the money joins the target\'s',
+  'consolidation line. Check it by hand before merging an account that is in a group.',
+  'It also does not rename or renumber the chart, and never merges across companies.',
 ].join(' ');
 
 export const mergeGlAccountsTool: McpTool = {
-  name: 'merge_gl_accounts',
+  name: TOOL,
   description: DESCRIPTION,
   scope: 'write:accounts',
   write: true,
@@ -142,7 +158,8 @@ export const mergeGlAccountsTool: McpTool = {
 
     // Nothing below is caught: mergeAccounts can write, and the savepoint only
     // unwinds on a throw.
-    const result = await mergeAccounts(ctx.companyId, sourceId, targetId);
+    const actor = mcpPostingOpts(ctx, TOOL);
+    const result = await mergeAccounts(ctx.companyId, sourceId, targetId, ctx.userId, actor);
     return ok({ ...result, ifThisIsWrong: IF_THIS_IS_WRONG });
   },
 };

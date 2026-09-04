@@ -97,7 +97,10 @@ describe('merge_gl_accounts', () => {
     vi.mocked(mergeAccounts).mockResolvedValue({ linesRepointed: 3 } as never);
     const r = await mergeGlAccountsTool.handler(ARGS, ctx());
     expect(r.wroteNothing).toBeFalsy();
-    expect(mergeAccounts).toHaveBeenCalledWith(COMPANY, SOURCE, TARGET);
+    expect(mergeAccounts).toHaveBeenCalledWith(
+      COMPANY, SOURCE, TARGET, expect.any(String),
+      expect.objectContaining({ actorType: 'agent' }),
+    );
   });
 
   it('the dry run runs the SAME row-state guards, so it refuses where the live call would', async () => {
@@ -144,10 +147,25 @@ describe('merge_gl_accounts', () => {
     expect(getAccountById).not.toHaveBeenCalled();
   });
 
-  it('tells a reader what breaks if the merge is wrong, in the response itself', async () => {
-    const r = await mergeGlAccountsTool.handler({ ...ARGS, dry_run: true }, ctx());
-    const risk = payload(r).ifThisIsWrong;
-    expect(typeof risk).toBe('string');
-    expect(String(risk).length).toBeGreaterThan(80);
+  it('tells a reader what breaks if the merge is wrong, on BOTH the preview and the result', async () => {
+    vi.mocked(mergeAccounts).mockResolvedValue({ linesRepointed: 3 } as never);
+    const dry = await mergeGlAccountsTool.handler({ ...ARGS, dry_run: true }, ctx());
+    const live = await mergeGlAccountsTool.handler(ARGS, ctx());
+    // The live reply is the one an agent reads after the fact, and it is the one
+    // that would quietly lose the warning. Asserting the constant's LENGTH would
+    // not catch that; asserting it is on both replies does.
+    expect(payload(dry).ifThisIsWrong).toBe(payload(live).ifThisIsWrong);
+    expect(String(payload(live).ifThisIsWrong)).toContain('trial balance');
+  });
+
+  it('refuses when only the TARGET belongs to another company', async () => {
+    // Mocking both lookups to null lets a handler that checks only the source
+    // pass this test. The target has to be the one that is missing.
+    vi.mocked(getAccountById).mockImplementation(async (_c: string, id: string) =>
+      (id === SOURCE ? ({ id: SOURCE } as never) : null));
+    const r = await mergeGlAccountsTool.handler(ARGS, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toBe('Not found');
+    expect(previewAccountMerge).not.toHaveBeenCalled();
   });
 });

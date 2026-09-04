@@ -42,7 +42,6 @@ async function withFixture(fn: (c: PoolClient, f: MergeFixture) => Promise<void>
   try {
     await client.query('BEGIN');
     const fixture = await createMergeFixture(client);
-    if (!fixture) return;
     await als.run(ctxFor(client, fixture.companyId), () => fn(client, fixture));
   } finally {
     await client.query('ROLLBACK').catch(() => undefined);
@@ -85,7 +84,16 @@ describe('previewAccountMerge', async () => {
       // A repoint moves no money: the company totals must be identical.
       expect(tb.after.totalDebit).toBeCloseTo(tb.before.totalDebit, 2);
       expect(tb.after.totalCredit).toBeCloseTo(tb.before.totalCredit, 2);
-      expect(tb.unchanged).toBe(true);
+      // And the AFTER total must be reachable from the AFTER per-account
+      // figures, not merely echoed from BEFORE — that is the arithmetic a wrong
+      // sourceAfter/targetAfter breaks. `unchanged` is a literal and asserting
+      // it proves nothing, so it is not asserted.
+      expect(tb.after.totalDebit).toBeCloseTo(
+        tb.identity.otherAccountsDebit + p.sourceAfter.postedDebit + p.targetAfter.postedDebit, 2,
+      );
+      expect(tb.after.totalCredit).toBeCloseTo(
+        tb.identity.otherAccountsCredit + p.sourceAfter.postedCredit + p.targetAfter.postedCredit, 2,
+      );
       expect(tb.caveat).toMatch(/necessary/i);
     });
   }, 60_000);
@@ -107,6 +115,17 @@ describe('previewAccountMerge', async () => {
       // A skip blocks the write. The preview has to say so rather than let a
       // reader assume the other 300 would go through on its own.
       expect(p.blocked).toBe(true);
+    });
+  }, 60_000);
+
+  it.skipIf(!reachable)('counts accounts in BOTH directions when the target was empty', async () => {
+    await withFixture(async (_c, f) => {
+      // One account leaves the trial balance and one joins it, so the count is
+      // unchanged. Reporting only the decrement made this wrong by one.
+      const p = await previewAccountMerge(f.companyId, f.cleanSourceId, f.emptyTargetId);
+      expect(p.target.postedLines).toBe(0);
+      expect(p.trialBalance.after.accountsWithPostedLines)
+        .toBe(p.trialBalance.before.accountsWithPostedLines);
     });
   }, 60_000);
 

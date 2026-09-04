@@ -18,6 +18,17 @@
  * ledger or the chart.
  */
 import { sql } from '@/lib/neon';
+import {
+  CONFIGURATION_REFERENCE_EXCLUSIONS,
+  findConfigurationReferences,
+  type ConfigurationReference,
+} from './accountMergeReferences';
+
+export {
+  CONFIGURATION_REFERENCE_EXCLUSIONS,
+  findConfigurationReferences,
+  type ConfigurationReference,
+};
 
 /**
  * Hard stop for the recursive walk, for the same reason as
@@ -26,24 +37,6 @@ import { sql } from '@/lib/neon';
  * forever while holding its row locks. Observed once; it wedged the dev
  * database until the backend was terminated by hand.
  */
-export const MAX_TREE_DEPTH = 32;
-
-export type MergeRefusalCode =
-  | 'account_not_found'
-  | 'source_equals_target'
-  | 'account_type_mismatch'
-  | 'target_is_descendant_of_source'
-  | 'source_is_system_account'
-  | 'source_bank_subtype_referenced'
-  | 'source_referenced_by_configuration'
-  | 'lines_cannot_be_repointed';
-
-export interface ConfigurationReference {
-  table: string;
-  column: string;
-  rows: number;
-}
-
 /** Every refusal, so a caller can map the whole class to one toolError / 400. */
 export class AccountMergeError extends Error {
   constructor(
@@ -67,24 +60,6 @@ export interface MergeAccount {
   parentAccountId: string | null;
   level: number;
 }
-
-/**
- * The three FK columns the sweep below deliberately does NOT treat as
- * configuration, and why. Everything else referencing `gl_accounts.id` is
- * configuration and blocks the merge.
- *
- * A DB-gated test asserts this list against `pg_constraint`, so a table added
- * tomorrow lands in the sweep with no code change and cannot be silently missed.
- */
-export const CONFIGURATION_REFERENCE_EXCLUSIONS: readonly { table: string; column: string }[] = [
-  // The ledger itself — this is what the merge repoints.
-  { table: 'gl_journal_lines', column: 'gl_account_id' },
-  // A trigger-maintained cache. `trg_gl_jl_balance_update` recomputes the source
-  // and deltas the target on every repointed row, so it follows the ledger.
-  { table: 'gl_account_balances', column: 'gl_account_id' },
-  // The chart's own tree — handled explicitly by reparenting the children.
-  { table: 'gl_accounts', column: 'parent_account_id' },
-];
 
 export async function loadMergeAccount(companyId: string, id: string): Promise<MergeAccount | null> {
   const rows = (await sql`
@@ -126,33 +101,64 @@ export async function loadMergeAccount(companyId: string, id: string): Promise<M
  * account id is bound as a parameter and quoted by `format(%L)`. Nothing here
  * is concatenated in JavaScript.
  */
-export async function findConfigurationReferences(accountId: string): Promise<ConfigurationReference[]> {
-  const excludedTables = CONFIGURATION_REFERENCE_EXCLUSIONS.map((e) => e.table);
-  const excludedColumns = CONFIGURATION_REFERENCE_EXCLUSIONS.map((e) => e.column);
-  const rows = (await sql`
-    WITH fk AS (
-      SELECT c.conrelid::regclass::text AS tbl, a.attname AS col
-        FROM pg_constraint c
-        JOIN LATERAL unnest(c.conkey, c.confkey) WITH ORDINALITY AS k(att, fatt, ord) ON true
-        JOIN pg_attribute a  ON a.attrelid  = c.conrelid  AND a.attnum = k.att
-        JOIN pg_attribute fa ON fa.attrelid = c.confrelid AND fa.attnum = k.fatt
-       WHERE c.contype = 'f'
-         AND c.confrelid = 'gl_accounts'::regclass
-         AND fa.attname = 'id'
-         AND NOT (c.conrelid::regclass::text = ANY(${excludedTables}::text[])
-                  AND a.attname = ANY(${excludedColumns}::text[]))
-    )
-    SELECT tbl, col, n FROM (
-      SELECT tbl, col,
-             (xpath('/row/c/text()', query_to_xml(
-                format('SELECT COUNT(*) AS c FROM %I WHERE %I = %L::uuid', tbl, col, ${accountId}::TEXT),
-                false, true, '')))[1]::text::bigint AS n
-        FROM fk
-    ) counted
-     WHERE n > 0
-     ORDER BY tbl, col
-  `) as Record<string, unknown>[];
-  return rows.map((r) => ({ table: String(r.tbl), column: String(r.col), rows: Number(r.n) }));
+export const MAX_TREE_DEPTH = 32;
+
+export type MergeRefusalCode =
+  | 'account_not_found'
+  | 'source_equals_target'
+  | 'account_type_mismatch'
+  | 'account_subtype_reporting_class'
+  | 'target_is_inactive'
+  | 'target_is_descendant_of_source'
+  | 'source_is_system_account'
+  | 'source_bank_subtype_referenced'
+  | 'source_referenced_by_configuration'
+  | 'lines_cannot_be_repointed'
+  | 'ledger_moved_during_merge';
+
+/**
+ * The reporting class of a subtype — the axis a merge may NOT cross.
+ *
+ * `account_type` is guarded because crossing it moves a balance to the wrong
+ * side of the balance sheet. `account_subtype` needed the same treatment for a
+ * narrower but sharper reason, and gating on subtype EQUALITY would have been
+ * wrong: `SYS-7 -> 1120` is NULL -> `receivable` and `SYS-8 -> 2110` is
+ * NULL -> `payable`, so an equality rule refuses the two merges this tool
+ * exists for.
+ *
+ * What actually matters is which subtypes are read as MEMBERSHIP PREDICATES
+ * elsewhere, and there are exactly four:
+ *
+ *  - `vat_input`, `vat_output`, `tax` — `vatReturnService` scopes the VAT
+ *    return by `ga.account_subtype IN ('vat_input','vat_output','tax')`, and
+ *    its unclassified-input sweep adds any such line with a NULL `vat_type` to
+ *    box 15 at full `debit - credit`. Merging an ordinary account INTO one puts
+ *    money that is not tax onto a SARS return; merging one OUT drops its lines
+ *    from the filter entirely and understates the return. Both directions, hence
+ *    a symmetric check — the out direction is covered today only by accident,
+ *    because most VAT accounts carry `is_system_account = true` and the source
+ *    guard catches them, but Brightsphere's `34550639 Pay As You Earn` and
+ *    `34024651 Income Tax` are subtype `tax` and are NOT system accounts.
+ *  - `bank` — `bank_transactions.bank_account_id` FKs to `gl_accounts(id)` while
+ *    every banking screen reaches those rows through `account_subtype = 'bank'`.
+ *    The source side of this was already guarded by row COUNT; the class rule is
+ *    what stops the target side.
+ *
+ * Everything else — `receivable`, `payable`, `equity`, NULL and the rest — is
+ * presentation grouping inside a side of the balance sheet that `account_type`
+ * already pins, and stays permitted or the tool cannot do its job. A same-class
+ * merge (`vat_input` -> `vat_input`) also stays permitted: that is the same
+ * split-control problem one axis over.
+ */
+export type ReportingClass = 'vat' | 'bank' | 'ordinary';
+
+const VAT_CLASS_SUBTYPES: ReadonlySet<string> = new Set(['vat_input', 'vat_output', 'tax']);
+
+export function reportingClassFor(subtype: string | null): ReportingClass {
+  if (subtype === null) return 'ordinary';
+  if (VAT_CLASS_SUBTYPES.has(subtype)) return 'vat';
+  if (subtype === 'bank') return 'bank';
+  return 'ordinary';
 }
 
 /**
@@ -200,6 +206,14 @@ export async function assertMergeable(
   if (source.id === target.id) {
     throw new AccountMergeError('An account cannot be merged into itself', 'source_equals_target');
   }
+  if (!target.isActive) {
+    throw new AccountMergeError(
+      `${target.accountCode} is deactivated. Merging into it would hide the balance from every `
+      + 'picker and every report that filters on is_active — the same "money the write path '
+      + 'cannot reach" state this merge exists to end.',
+      'target_is_inactive',
+    );
+  }
   if (source.accountType !== target.accountType) {
     throw new AccountMergeError(
       `${source.accountCode} is ${source.accountType} and ${target.accountCode} is `
@@ -208,6 +222,20 @@ export async function assertMergeable(
       'account_type_mismatch',
     );
   }
+  const sourceClass = reportingClassFor(source.accountSubtype);
+  const targetClass = reportingClassFor(target.accountSubtype);
+  if (sourceClass !== targetClass) {
+    throw new AccountMergeError(
+      `${source.accountCode} (subtype ${source.accountSubtype ?? 'none'}, reporting class `
+      + `${sourceClass}) and ${target.accountCode} (subtype ${target.accountSubtype ?? 'none'}, `
+      + `reporting class ${targetClass}) are read as different populations by the reports that `
+      + 'select on account_subtype — the VAT201 membership filter and the banking screens. '
+      + 'Moving lines across that boundary changes a statutory figure in one direction and '
+      + 'silently drops it in the other, with the trial balance identical either way.',
+      'account_subtype_reporting_class',
+    );
+  }
+
   // A system account is resolved BY ITS SUBTYPE for every auto-posting path
   // (`systemAccountResolver`), and the resolver's cache only loads rows that
   // are `is_active = true`. Deactivating the source would leave the role
@@ -237,7 +265,7 @@ export async function assertMergeable(
       );
     }
   }
-  const references = await findConfigurationReferences(source.id);
+  const references = await findConfigurationReferences(companyId, source.id);
   if (references.length > 0) {
     throw new AccountMergeError(
       `${source.accountCode} is still named by ${references.length} configuration `

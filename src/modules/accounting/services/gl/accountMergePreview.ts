@@ -9,17 +9,37 @@
  * ids you can go and open, every row that would not move and why, and what
  * breaks if the proposal is wrong.
  */
+import { createHash } from 'crypto';
 import {
-  AccountMergeError, MAX_TREE_DEPTH, assertMergeable, loadMergeAccount, type MergeAccount,
+  AccountMergeError, MAX_TREE_DEPTH, assertMergeable, loadMergeAccount,
+  reportingClassFor, type MergeAccount, type ReportingClass,
 } from './accountMergeGuards';
+import { CAVEAT, CLASS_NOTE, SYSTEM_NOTE } from './accountMergeNotes';
 import {
   accountsWithPostedLines, classifySourceLines, descendantsOf, postedThroughForAccounts,
   postedTotalsExcluding, postedTotalsForAccount, postedTotalsForCompany, systemClaimantsForSubtype,
   type LedgerTotals, type MergeSkip, type MovableLine,
 } from './accountMergeFigures';
 
-/** Entries and skips are capped; the totals beside them are counted separately. */
+/**
+ * `entries` carries a LINE-level sample; `entryIds` carries the complete list.
+ *
+ * The design premise is that the dry run is the document a person signs, and a
+ * 200-entry sample is not that for a 356-entry merge: 156 entries of R37.7m
+ * would be named nowhere. But the full detail cannot simply be uncapped either
+ * — 356 entries with their lines is around 90KB and `vat_status` already
+ * exceeds the response limit at 67KB.
+ *
+ * So the two are separated. The detailed sample stays at 200; the bare id list
+ * runs to 1,000, which covers both merges this tool was built for (356 and 74)
+ * completely. Above that, `movedLinesDigest` is what carries the commitment:
+ * it is a hash of EVERY moved line id in order, is never truncated, and is
+ * stored on the `gl_account_merges` record — so the signed preview and the
+ * record afterwards can be compared line-for-line even when neither list is
+ * printed in full.
+ */
 const SAMPLE_CAP = 200;
+const ENTRY_ID_CAP = 1000;
 
 export interface AccountFigures {
   accountId: string;
@@ -54,6 +74,11 @@ export interface MergePreview {
   entries: MergeEntry[];
   entriesTotal: number;
   truncatedEntries: boolean;
+  /** Complete ordered list of the entries that would move, up to ENTRY_ID_CAP. */
+  entryIds: string[];
+  truncatedEntryIds: boolean;
+  /** sha256 over EVERY moved line id, in order. Never truncated. */
+  movedLinesDigest: string;
   skips: MergeSkip[];
   skipsTotal: number;
   truncatedSkips: boolean;
@@ -67,6 +92,11 @@ export interface MergePreview {
     caveat: string;
   };
   childAccounts: { accountId: string; accountCode: string; accountName: string; level: number; levelAfter: number; isDirectChild: boolean }[];
+  reportingClass: {
+    source: ReportingClass;
+    target: ReportingClass;
+    note: string;
+  };
   systemAccountImpact: {
     sourceIsSystemAccount: boolean;
     targetIsSystemAccount: boolean;
@@ -78,23 +108,18 @@ export interface MergePreview {
   postedThrough: string | null;
 }
 
-const CAVEAT = [
-  'The company totals are unchanged BY CONSTRUCTION — a repoint alters no debit and no credit,',
-  'only which account carries it — so "unchanged: true" on its own proves nothing.',
-  'The part that can fail is the identity: the other accounts, the source and the target are',
-  'counted by three separate queries and must sum to a fourth, company-wide one. That check is',
-  'NECESSARY AND NOT SUFFICIENT: two offsetting errors satisfy it exactly, and the cleaner it',
-  'looks the more it invites being trusted without inspection. Open the entries.',
-].join(' ');
-
-const SYSTEM_NOTE = [
-  'Auto-posting resolves a system account by its SUBTYPE, not by its code or name',
-  '(systemAccountResolver), and its cache only loads accounts that are active. A system source is',
-  'therefore refused outright: deactivating it leaves the role unclaimed and every automatic',
-  'journal starts throwing. Where more than one active system account claims a subtype the',
-  'resolver picks deterministically and logs — targetSubtypeClaimants lists them, so you can see',
-  'whether this merge is moving money into a role that is already contested.',
-].join(' ');
+/**
+ * sha256 over the moved line ids — the commitment a capped list cannot make.
+ *
+ * SORTED, deliberately. The preview lists lines in reporting order (entry date,
+ * then entry number) and the write returns them in whatever order the UPDATE
+ * emitted; an order-sensitive digest would then differ between the document a
+ * person signed and the record of what ran, for no reason at all. Sorting makes
+ * the digest a function of the SET, which is the thing being committed to.
+ */
+export function digestLineIds(ids: readonly string[]): string {
+  return createHash('sha256').update([...ids].sort().join('\n')).digest('hex');
+}
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
@@ -203,6 +228,9 @@ export async function previewAccountMerge(
     entries: entries.slice(0, SAMPLE_CAP),
     entriesTotal: entries.length,
     truncatedEntries: entries.length > SAMPLE_CAP,
+    entryIds: entries.slice(0, ENTRY_ID_CAP).map((e) => e.journalEntryId),
+    truncatedEntryIds: entries.length > ENTRY_ID_CAP,
+    movedLinesDigest: digestLineIds(movable.map((l) => l.journalLineId)),
     skips: skips.slice(0, SAMPLE_CAP),
     skipsTotal: skips.length,
     truncatedSkips: skips.length > SAMPLE_CAP,
@@ -211,7 +239,12 @@ export async function previewAccountMerge(
       before,
       after: {
         ...before,
-        accountsWithPostedLines: accountCount - (sourcePosted.lines > 0 && sourceLinesAfter === 0 ? 1 : 0),
+        // Down one when the source empties, UP one when the target had nothing
+        // posted and gains its first line. Reporting only the decrement made
+        // this wrong by one in a figure that exists for a human to sign.
+        accountsWithPostedLines: accountCount
+          - (sourcePosted.lines > 0 && sourceLinesAfter === 0 ? 1 : 0)
+          + (targetPosted.lines === 0 && moving.lines > 0 ? 1 : 0),
       },
       unchanged: true,
       identity: {
@@ -223,6 +256,11 @@ export async function previewAccountMerge(
       caveat: CAVEAT,
     },
     childAccounts: descendants.map((d) => ({ ...d, levelAfter: d.level + levelDelta })),
+    reportingClass: {
+      source: reportingClassFor(source.accountSubtype),
+      target: reportingClassFor(target.accountSubtype),
+      note: CLASS_NOTE,
+    },
     systemAccountImpact: {
       sourceIsSystemAccount: source.isSystemAccount,
       targetIsSystemAccount: target.isSystemAccount,

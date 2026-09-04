@@ -29,7 +29,9 @@ import { clearSystemAccountCache } from './systemAccountResolver';
 import {
   AccountMergeError, MAX_TREE_DEPTH, assertMergeable, loadMergeAccount,
 } from './accountMergeGuards';
-import { previewAccountMerge } from './accountMergePreview';
+import { digestLineIds, previewAccountMerge } from './accountMergePreview';
+import { recordAccountMerge } from './accountMergeRecord';
+import type { PostingActorOpts } from './journalEntryMeta';
 
 export {
   AccountMergeError,
@@ -54,11 +56,76 @@ export interface MergeAccountsResult {
   sourceDeactivated: true;
   targetPostedNet: number;
   postedThrough: string | null;
+  /** The `gl_account_merges` row that records exactly which lines moved. */
+  mergeRecordId: string;
+  /** sha256 over the moved line ids — compare against the dry run's. */
+  movedLinesDigest: string;
+}
+
+/**
+ * Lock BOTH accounts, in ascending id order, before anything is read for the
+ * write. Without it two well-formed merges in OPPOSITE directions — A into B and
+ * B into A, different idempotency keys, so the registry's per-key lock does not
+ * see them — each pass every guard against their own READ COMMITTED snapshot,
+ * each move their own lines, and both set `is_active = false`. The combined
+ * balance ends up stranded across two dead accounts.
+ *
+ * Ascending id order is what makes it deadlock-free: two transactions taking
+ * the same two rows in the same order queue instead of crossing.
+ * Same-direction concurrency was already safe and stays so — the second
+ * transaction's `WHERE gl_account_id = source` simply matches nothing.
+ */
+export async function lockAccountsForMerge(companyId: string, a: string, b: string): Promise<void> {
+  const ordered = [a, b].sort();
+  await sql`
+    SELECT id FROM gl_accounts
+     WHERE company_id = ${companyId}::UUID AND id = ANY(${ordered}::uuid[])
+     ORDER BY id
+       FOR UPDATE
+  `;
+}
+
+/**
+ * Repoint every line on the source that is STILL movable, and return their ids.
+ *
+ * The status/period predicate here is the same one `classifySourceLines` uses,
+ * repeated at write time on purpose. Classification and this UPDATE are two
+ * statements: a journal committed between them — or a period closed between
+ * them — would otherwise be moved having never been classified, which is the
+ * exact inverse of the invariant the skip list documents. With the predicate
+ * such a row is left behind, and the caller's count check turns that into an
+ * aborted merge rather than half of one.
+ *
+ * Exported so the predicate can be proven on its own: given a source carrying a
+ * closed-period line and a line posted into no period, this must move neither.
+ */
+export async function repointMovableLines(
+  companyId: string, sourceId: string, targetId: string,
+): Promise<string[]> {
+  const rows = (await sql`
+    UPDATE gl_journal_lines l
+       SET gl_account_id = ${targetId}::UUID, updated_at = NOW()
+      FROM gl_journal_entries e
+      LEFT JOIN fiscal_periods fp
+        ON fp.id = e.fiscal_period_id AND fp.company_id = ${companyId}::UUID
+     WHERE l.company_id = ${companyId}::UUID
+       AND l.gl_account_id = ${sourceId}::UUID
+       AND e.id = l.journal_entry_id
+       AND (e.status <> 'posted'
+            OR (e.fiscal_period_id IS NOT NULL AND fp.status = 'open'))
+    RETURNING l.id
+  `) as { id: string }[];
+  return rows.map((r) => String(r.id)).sort();
 }
 
 export async function mergeAccounts(
   companyId: string, sourceId: string, targetId: string,
+  userId?: string, actor?: PostingActorOpts,
 ): Promise<MergeAccountsResult> {
+  // Locked FIRST, so everything below reads a state no concurrent merge can
+  // change under it.
+  await lockAccountsForMerge(companyId, sourceId, targetId);
+
   const source = await loadMergeAccount(companyId, sourceId);
   const target = await loadMergeAccount(companyId, targetId);
   // The same generic text a genuine miss gets: a distinct "belongs to another
@@ -97,13 +164,26 @@ export async function mergeAccounts(
   // `entries` would have been wrong — that list is capped at 200 for the
   // response, and a merge that silently moved the first 200 of 3,669 lines is
   // exactly the half-merge this service refuses to perform on purpose.
-  const repointed = (await sql`
-    UPDATE gl_journal_lines
-       SET gl_account_id = ${targetId}::UUID, updated_at = NOW()
-     WHERE company_id = ${companyId}::UUID
-       AND gl_account_id = ${sourceId}::UUID
-    RETURNING id
-  `) as unknown[];
+  //
+  // The status/period predicate is REPEATED here, at write time. Classification
+  // and this UPDATE are two statements: a journal committed between them — or a
+  // period closed between them — would otherwise be moved without ever having
+  // been classified, which is the exact inverse of the invariant the skip list
+  // documents. With the predicate, such a row is left behind; the count check
+  // below then aborts the whole merge rather than performing half of one.
+  const movedLineIds = await repointMovableLines(companyId, sourceId, targetId);
+
+  // Either number differing means the ledger moved under the preview. Throwing
+  // unwinds the savepoint and leaves nothing written — an all-or-nothing merge
+  // is the only kind that leaves the books coherent.
+  if (movedLineIds.length !== preview.linesToRepoint) {
+    throw new AccountMergeError(
+      `The ledger changed while this merge was being prepared: ${preview.linesToRepoint} lines `
+      + `were classified as movable and ${movedLineIds.length} were still movable at the write. `
+      + 'Nothing has been changed. Re-run the dry run.',
+      'ledger_moved_during_merge',
+    );
+  }
 
   // Children move onto the target, and the whole subtree takes the level shift —
   // without it, descendants keep the depth they had under the old parent and
@@ -119,7 +199,7 @@ export async function mergeAccounts(
   // Seeded from the accounts that actually moved, NOT from "everything under
   // the target" — the target's own existing children did not move and must keep
   // the level they have.
-  let relevelled: unknown[] = [];
+  let relevelled: { id: string }[] = [];
   if (movedRootIds.length > 0 && levelDelta !== 0) {
     relevelled = (await sql`
       WITH RECURSIVE subtree AS (
@@ -134,7 +214,7 @@ export async function mergeAccounts(
        WHERE company_id = ${companyId}::UUID
          AND id IN (SELECT id FROM subtree)
       RETURNING id
-    `) as unknown[];
+    `) as { id: string }[];
   }
 
   // Deactivated, not deleted. The account keeps its code, its history and its
@@ -147,17 +227,38 @@ export async function mergeAccounts(
   cache.invalidatePrefix(`${companyId}:gl-accounts`);
   clearSystemAccountCache(companyId);
 
+  // The record is what makes this recoverable. Merging back does NOT undo a
+  // merge — a reverse merge carries the target's original lines with it — so
+  // the identity of the lines that moved is the only thing that can separate
+  // the two populations again.
+  const movedLinesDigest = digestLineIds(movedLineIds);
+  const mergeRecordId = await recordAccountMerge({
+    companyId, source, target,
+    linesRepointed: movedLineIds.length,
+    entriesAffected: preview.entriesTotal,
+    movedLineIds,
+    movedLinesDigest,
+    reparentedAccountIds: movedRootIds,
+    relevelledAccountIds: relevelled.map((r) => String((r as { id: string }).id)),
+    levelDelta,
+    userId,
+    actor,
+    postedThrough: preview.postedThrough,
+  });
+
   return {
     sourceAccountId: sourceId,
     sourceAccountCode: source.accountCode,
     targetAccountId: targetId,
     targetAccountCode: target.accountCode,
-    linesRepointed: repointed.length,
+    linesRepointed: movedLineIds.length,
     entriesAffected: preview.entriesTotal,
     childAccountsReparented: reparented.length,
     descendantsRelevelled: relevelled.length,
     sourceDeactivated: true,
     targetPostedNet: preview.targetAfter.postedNet,
     postedThrough: preview.postedThrough,
+    mergeRecordId,
+    movedLinesDigest,
   };
 }
