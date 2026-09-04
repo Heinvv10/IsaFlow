@@ -28,6 +28,8 @@ export interface ReportPackInput {
   capitalExpenditure?: number;
   otherIncome?: number;
   otherExpenses?: number;
+  /** From the classifier. Falls back to the derived line when absent. */
+  operatingProfit?: number;
   financingCashFlow?: number;
 }
 
@@ -102,16 +104,29 @@ function buildSectionData(
   const grossProfit = input.revenue - input.costOfSales;
 
   switch (type) {
-    case 'income_statement':
+    case 'income_statement': {
+      // Every band, so the pack FOOTS. `revenue` and `operatingExpenses` come
+      // from the classifier (turnover only; finance cost and tax excluded)
+      // while `netProfit` is the full bottom line — so without these two lines
+      // Revenue - CoS - OpEx misses Net Profit by exactly otherIncome minus
+      // otherExpenses, R341,712.00 on Brightsphere, on a PDF sent to a client.
+      const otherIncome = input.otherIncome ?? 0;
+      const otherExpenses = input.otherExpenses ?? 0;
+      const operatingProfit =
+        input.operatingProfit ?? grossProfit + otherIncome - input.operatingExpenses;
       return {
         revenue: input.revenue,
         costOfSales: input.costOfSales,
         grossProfit,
+        otherIncome,
         operatingExpenses: input.operatingExpenses,
+        operatingProfit,
+        otherExpenses,
         netProfit: input.netProfit,
         grossMargin: input.revenue > 0 ? Math.round((grossProfit / input.revenue) * 10000) / 100 : 0,
         netMargin: input.revenue > 0 ? Math.round((input.netProfit / input.revenue) * 10000) / 100 : 0,
       };
+    }
 
     case 'balance_sheet':
       return {
@@ -203,6 +218,10 @@ export function buildReportPack(
     revenue: data.revenue,
     costOfSales: data.costOfSales,
     operatingExpenses: data.operatingExpenses,
+    // Carried, so the pack's ratios use the same operating line as every other
+    // surface rather than re-deriving one without other income.
+    operatingProfit: data.operatingProfit,
+    otherIncome: data.otherIncome,
     netProfit: data.netProfit,
     totalAssets: data.totalAssets,
     totalLiabilities: data.totalLiabilities,

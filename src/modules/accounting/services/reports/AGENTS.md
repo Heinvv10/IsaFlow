@@ -62,25 +62,66 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/reports/*`,
 - 2026-04-21: disclosure-notes 400 — schema drift + tx cascade.
 - 2026-04-21: three schema-mismatch 500s from PR #31.
 
-## Two P&L implementations, deliberately, until the convergence PR
+## One P&L layering, shared — the convergence happened (B75)
 
-`incomeStatementService#getIncomeStatement` splits two ways: everything
-revenue-typed is turnover, and every expense that is not cost of sales is an
-operating expense — so other income reaches gross profit, and finance cost and
-tax sit inside operating expenses. The income-statement page,
-`reports-management-accounts` and AFS consume this shape.
+`incomeStatementService#getIncomeStatement` and
+`gl/accountClassification#aggregateFigures` band through the SAME exported
+functions, `expenseBand` and `revenueBand`. Turnover, other income, cost of
+sales, operating expenses, other expenses, gross profit, operating profit and
+net profit agree to the cent, and `incomeStatementConvergence.test.ts` asserts
+every band — so a future edit to either side fails rather than silently
+re-diverging.
 
-`gl/accountClassification#aggregateFigures` (via `gl/financialFiguresService`)
-does the full layer and also counts the accounts whose subtype is unknown. The
-`profit_and_loss` MCP tool consumes THAT one.
+**Do not re-implement either layering locally.** They previously diverged: the
+page counted other income as turnover and put finance cost and tax inside
+operating expenses, so it reported a different GROSS profit while the registry
+claimed the two agreed to the cent — true of net profit, false of gross, and
+nothing tested it. That was finding B75.
 
-The divergence is **presentational** — the two agree on the bottom line to the
-cent on both production companies, and differ only in which band a figure sits
-in. It is recorded in `src/lib/mcp/contracts/figures.ts` on `revenue.period.v1`
-with a named successor, not left to be discovered. Do not "fix" it by pointing
-one at the other inside another workstream: converging them changes
-`totalRevenue`, `grossProfit` and `totalOperatingExpenses` for the page and for
-AFS, and belongs in its own PR with the AFS owner in the loop.
+The operating line is the one finance cost and tax sit BELOW: other income is
+ABOVE it. `aggregateFigures.operatingProfit` is the single definition; the
+`profit_and_loss` tool reads that field rather than recomputing it, because a
+local copy of the formula is exactly how the first divergence happened.
+
+Consumers that render this shape must show every band or their statement stops
+footing. **Seven surfaces do**: the income-statement page
+(`components/accounting/IncomeStatementSections`), the management pack
+(`components/accounting/ManagementPandLRows`), the CSV and XLSX exports,
+`components/accounting/afs/AfsStatementsTab`, and the report pack's HTML and PDF
+renderers (`reports-html.ts` / `reports-pdf.ts`, fed by `reportPackService`).
+
+**Finding them all took three review rounds, and the misses rhymed.** AFS is not
+in `services/afs/` — it is a component — so grepping that directory says AFS is
+unaffected when it is not. The report pack renders from `ReportPackInput`, whose
+optional `otherIncome`/`otherExpenses` `getReportPackInput` simply never
+populated, so the pack's P&L was short by `otherIncome - otherExpenses` and
+`buildProfitWaterfall` suppressed both its steps on every pack ever produced.
+When this shape changes, grep for the CONSUMERS of the figures — `grossProfit`,
+`totalRevenue`, `netProfit` — across `src/` and `pages/`, not for a directory
+name.
+
+Every surface is pinned by a test, though not all in the same way, and the
+distinction matters when you add one:
+
+- **Rendered components** — the page, the management pack and the AFS tab — have
+  render tests asserting the bands AND their order
+  (`incomeStatementRenderSurfaces.test.ts`). These are possible only because
+  `vitest.config.ts` loads `@vitejs/plugin-react`; `tsconfig`'s
+  `jsx: "preserve"` otherwise makes any `.tsx` unimportable from a test, which
+  is why a whole section could vanish from a statutory statement with the full
+  suite green. Importing a PAGE still fails on Next's font loader, so the
+  renderable body belongs in `src/components/**`.
+- **The HTML and PDF packs** render from one shared row list,
+  `incomeStatementPackRows`, tested directly
+  (`incomeStatementPackRows.test.ts`). Their own render functions are not
+  exported and one takes a jsPDF document; a single row list is both testable
+  and one fewer place to omit a band.
+- **The CSV and XLSX exports** are tested through their handler and workbook
+  builder (`incomeStatementExportDisclosure.test.ts`,
+  `incomeStatementRenderSurfaces.test.ts`).
+- **The data behind the packs** is pinned at `getReportPackInput`'s own boundary
+  (`reportPackInputCarry.test.ts`) — asserting `toFinancialData` instead left
+  the carry mutations green, because that is not the function that drops them.
 
 `classificationCoverageService` is what makes either safe to read. Every band is
 chosen from `account_subtype`, and on these books the subtypes barely exist —

@@ -7,6 +7,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { incomeStatementPackRows } from '@/modules/accounting/services/reports/incomeStatementPackRows';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
@@ -135,13 +136,9 @@ function renderSection(
         doc,
         autoTable,
         [['Item', 'Amount', 'Margin']],
-        [
-          ['Revenue', fmtZAR(n(d.revenue)), ''],
-          ['Cost of Sales', fmtZAR(n(d.costOfSales)), ''],
-          ['Gross Profit', fmtZAR(n(d.grossProfit)), pct(d.grossMargin)],
-          ['Operating Expenses', fmtZAR(n(d.operatingExpenses)), ''],
-          ['Net Profit', fmtZAR(n(d.netProfit)), pct(d.netMargin)],
-        ],
+        // One row list, shared with the HTML pack — see incomeStatementPackRows.
+        incomeStatementPackRows(d as Record<string, unknown>).map(r =>
+          [r.label, fmtZAR(n(r.amount)), r.margin ? pct(r.margin) : '']),
         y,
         margin,
       );

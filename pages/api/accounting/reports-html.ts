@@ -6,6 +6,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { incomeStatementPackRows } from '@/modules/accounting/services/reports/incomeStatementPackRows';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -136,13 +137,10 @@ function renderSectionHtml(section: PackSection): string {
 
   switch (section.type) {
     case 'income_statement':
-      rows = [
-        ['Revenue', fmtZAR(d.revenue), ''],
-        ['Cost of Sales', fmtZAR(d.costOfSales), ''],
-        ['Gross Profit', fmtZAR(d.grossProfit), fmtPct(d.grossMargin)],
-        ['Operating Expenses', fmtZAR(d.operatingExpenses), ''],
-        ['Net Profit', fmtZAR(d.netProfit), fmtPct(d.netMargin)],
-      ].map(([l, v, m]) => `<tr><td>${l}</td><td class="num">${v}</td><td class="num muted">${m}</td></tr>`).join('');
+      // One row list, shared with the PDF pack — see incomeStatementPackRows.
+      rows = incomeStatementPackRows(d as Record<string, unknown>)
+        .map(r => `<tr><td>${r.label}</td><td class="num">${fmtZAR(r.amount)}</td><td class="num muted">${r.margin ? fmtPct(Number(r.margin)) : ''}</td></tr>`)
+        .join('');
       return tableHtml(['Item', 'Amount', 'Margin'], rows);
 
     case 'balance_sheet':

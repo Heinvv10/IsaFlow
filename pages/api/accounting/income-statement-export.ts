@@ -51,10 +51,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Revenue lines
     for (const item of report.revenue) {
       csvLines.push(
-        `${csvVal('Revenue')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.amount).toFixed(2)}`
+        `${csvVal('Turnover')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.amount).toFixed(2)}`
       );
     }
-    csvLines.push(`${csvVal('Revenue')},${csvVal('')},${csvVal('Total Revenue')},${Number(report.totalRevenue).toFixed(2)}`);
+    csvLines.push(`${csvVal('Turnover')},${csvVal('')},${csvVal('Total Turnover')},${Number(report.totalRevenue).toFixed(2)}`);
 
     // Cost of Sales lines
     for (const item of report.costOfSales) {
@@ -67,6 +67,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Gross Profit summary
     csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Gross Profit')},${Number(report.grossProfit).toFixed(2)}`);
 
+    // Other Income — below gross profit, not inside turnover (B75)
+    for (const item of report.otherIncome) {
+      csvLines.push(
+        `${csvVal('Other Income')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.amount).toFixed(2)}`
+      );
+    }
+    if (report.otherIncome.length > 0) {
+      csvLines.push(`${csvVal('Other Income')},${csvVal('')},${csvVal('Total Other Income')},${Number(report.totalOtherIncome).toFixed(2)}`);
+    }
+
     // Operating Expenses lines
     for (const item of report.operatingExpenses) {
       csvLines.push(
@@ -74,6 +84,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
     }
     csvLines.push(`${csvVal('Operating Expenses')},${csvVal('')},${csvVal('Total Operating Expenses')},${Number(report.totalOperatingExpenses).toFixed(2)}`);
+
+    // Operating Profit summary
+    csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Operating Profit')},${Number(report.operatingProfit).toFixed(2)}`);
+
+
+    // Other Expenses — finance cost, tax, other
+    for (const item of report.otherExpenses) {
+      csvLines.push(
+        `${csvVal('Other Expenses')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.amount).toFixed(2)}`
+      );
+    }
+    if (report.otherExpenses.length > 0) {
+      csvLines.push(`${csvVal('Other Expenses')},${csvVal('')},${csvVal('Total Other Expenses')},${Number(report.totalOtherExpenses).toFixed(2)}`);
+    }
 
     // Net Profit summary
     csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Net Profit')},${Number(report.netProfit).toFixed(2)}`);
@@ -86,9 +110,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // qualify them, so the caveat travels WITH the figures — immediately after
     // the margin rows it applies to, not interleaved into the statement body.
     if (report.subtypeDisclosure) {
-      csvLines.push(
-        `${csvVal('Warning')},${csvVal('')},${csvVal('Gross Profit overstated by at least')},${Number(report.subtypeDisclosure.grossProfitOverstatedByAtLeast).toFixed(2)}`
-      );
       csvLines.push(
         `${csvVal('Warning')},${csvVal('')},${csvVal('Expense that could be cost of sales (at most)')},${Number(report.subtypeDisclosure.costOfSalesExposureAtMost).toFixed(2)}`
       );

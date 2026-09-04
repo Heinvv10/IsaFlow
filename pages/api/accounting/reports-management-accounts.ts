@@ -154,6 +154,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const revenue = pl.totalRevenue ?? 0;
     const grossProfit = pl.grossProfit ?? 0;
     const netProfit = pl.netProfit ?? 0;
+    // Both margins are ON TURNOVER. `totalRevenue` is turnover only since the
+    // B75 convergence — it no longer folds in other income — so gross margin is
+    // now trading margin, which is what it was always labelled. Net margin
+    // keeps the same denominator deliberately: a margin whose denominator moves
+    // with non-trading income is not comparable period to period.
     const grossProfitPct = revenue !== 0 ? (grossProfit / revenue) * 100 : 0;
     const netProfitPct = revenue !== 0 ? (netProfit / revenue) * 100 : 0;
 
