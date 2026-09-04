@@ -125,6 +125,31 @@ const OTHER_EXPENSE: ReadonlySet<CanonicalSubtype> = new Set<CanonicalSubtype>([
 ]);
 
 /**
+ * Which income-statement band a row belongs in, by subtype alone.
+ *
+ * Exported because `reports/incomeStatementService.ts` must reach the SAME
+ * answer: the two surfaces reported different gross profits for years — by
+ * exactly the other-income total — because each decided its own bands, and
+ * `mcp/contracts/figures.ts` asserted they agreed to the cent (true of net
+ * profit, false of gross). One definition, two callers, no room to drift.
+ */
+export function expenseBand(
+  subtype: string | null | undefined,
+): 'cost_of_sales' | 'other_expense' | 'operating_expense' {
+  const canon = canonicalSubtype(subtype);
+  if (canon === 'cost_of_sales') return 'cost_of_sales';
+  if (canon !== null && OTHER_EXPENSE.has(canon)) return 'other_expense';
+  return 'operating_expense';
+}
+
+/** Revenue counterpart of `expenseBand`. */
+export function revenueBand(
+  subtype: string | null | undefined,
+): 'other_income' | 'turnover' {
+  return canonicalSubtype(subtype) === 'other_income' ? 'other_income' : 'turnover';
+}
+
+/**
  * Fold `GROUP BY account_type, account_subtype` movement into the figures every
  * report needs. Signs follow normal balance: debit-credit for assets and
  * expenses, credit-debit for liabilities, equity and revenue.
@@ -167,13 +192,15 @@ export function aggregateFigures(rows: readonly ClassificationRow[]): Classified
         f.totalEquity += balance;
         break;
       case 'revenue':
-        if (canon === 'other_income') f.otherIncome += balance;
+        if (revenueBand(r.account_subtype) === 'other_income') f.otherIncome += balance;
         else f.revenue += balance;
         break;
       case 'expense':
-        if (canon === 'cost_of_sales') f.costOfSales += balance;
-        else if (canon !== null && OTHER_EXPENSE.has(canon)) f.otherExpenses += balance;
-        else f.operatingExpenses += balance;
+        switch (expenseBand(r.account_subtype)) {
+          case 'cost_of_sales': f.costOfSales += balance; break;
+          case 'other_expense': f.otherExpenses += balance; break;
+          default: f.operatingExpenses += balance; break;
+        }
         if (canon === 'depreciation_expense') f.depreciation += balance;
         break;
     }

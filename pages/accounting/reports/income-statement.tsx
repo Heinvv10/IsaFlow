@@ -229,7 +229,7 @@ export default function IncomeStatementPage() {
 
               <div className="divide-y divide-[var(--ff-border-light)]">
                 {/* Revenue */}
-                <Section label="Revenue" items={report.revenue} total={report.totalRevenue} color="teal"
+                <Section label="Turnover" items={report.revenue} total={report.totalRevenue} color="teal"
                   periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
                   onToggleAccount={toggleAccount} showComparative={showComparative}
                   onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
@@ -260,6 +260,39 @@ export default function IncomeStatementPage() {
                   periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
                   onToggleAccount={toggleAccount} showComparative={showComparative}
                   onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+
+                {/* Operating Profit — gross profit less operating expenses, so
+                    the line means what it says now that finance cost and tax
+                    have moved below it. */}
+                <div className="px-6 py-3 flex justify-between bg-blue-500/5">
+                  <span className="font-semibold text-[var(--ff-text-primary)]">Operating Profit</span>
+                  <span className={`font-bold font-mono ${report.operatingProfit >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
+                    {formatCurrency(report.operatingProfit)}
+                    {showComparative && report.priorOperatingProfit !== undefined && (
+                      <span className="text-xs text-[var(--ff-text-tertiary)] ml-2">
+                        (prior: {formatCurrency(report.priorOperatingProfit)})
+                      </span>
+                    )}
+                  </span>
+                </div>
+
+                {/* Other Income — below gross profit, because it is not trading
+                    revenue. Reporting it inside turnover overstated gross
+                    profit and disagreed with every other surface (B75). */}
+                {report.otherIncome.length > 0 && (
+                  <Section label="Other Income" items={report.otherIncome} total={report.totalOtherIncome} color="teal"
+                    periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
+                    onToggleAccount={toggleAccount} showComparative={showComparative}
+                    onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+                )}
+
+                {/* Other Expenses — finance cost, tax and other expense. */}
+                {report.otherExpenses.length > 0 && (
+                  <Section label="Other Expenses" items={report.otherExpenses} total={report.totalOtherExpenses} color="orange"
+                    periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
+                    onToggleAccount={toggleAccount} showComparative={showComparative}
+                    onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+                )}
 
                 {/* Net Profit */}
                 <div className="px-6 py-4 flex justify-between bg-[var(--ff-bg-primary)]">

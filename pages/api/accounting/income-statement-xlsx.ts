@@ -128,12 +128,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   addHeaderRow(ws);
 
   // Revenue
-  addSectionHeader(ws, 'Revenue', TEAL_ARGB);
+  addSectionHeader(ws, 'Turnover', TEAL_ARGB);
   for (const item of report.revenue) {
-    addLineItem(ws, 'Revenue', item.accountCode, item.accountName, item.amount);
+    addLineItem(ws, 'Turnover', item.accountCode, item.accountName, item.amount);
   }
   ws.addRow([]);
-  addTotalRow(ws, 'Total Revenue', report.totalRevenue);
+  addTotalRow(ws, 'Total Turnover', report.totalRevenue);
 
   // Cost of Sales
   if (report.costOfSales.length > 0) {
@@ -159,12 +159,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // to qualify it, so the caveat travels WITH the figure — directly beneath the
   // gross margin it applies to. See incomeStatementDisclosure.ts.
   if (report.subtypeDisclosure) {
-    const floorRow = ws.addRow([
-      'Warning', '', 'Gross profit overstated by at least',
-      report.subtypeDisclosure.grossProfitOverstatedByAtLeast,
-    ]);
-    floorRow.font = { bold: true, color: { argb: 'FFB45309' } };
-    floorRow.getCell(4).numFmt = '#,##0.00';
     // Two rows, not their sum: summed they can exceed revenue itself, which is
     // a true bound and worthless to a reader. See incomeStatementDisclosure.ts.
     for (const [label, value] of [
@@ -208,6 +202,32 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   }
   ws.addRow([]);
   addTotalRow(ws, 'Total Operating Expenses', report.totalOperatingExpenses);
+
+  // Operating Profit
+  ws.addRow([]);
+  addTotalRow(ws, 'Operating Profit', report.operatingProfit, 'FF2563EB');
+
+  // Other Income — below gross profit, not inside turnover (B75)
+  if (report.otherIncome.length > 0) {
+    ws.addRow([]);
+    addSectionHeader(ws, 'Other Income', 'FF0D9488');
+    for (const item of report.otherIncome) {
+      addLineItem(ws, 'Other Income', item.accountCode, item.accountName, item.amount);
+    }
+    ws.addRow([]);
+    addTotalRow(ws, 'Total Other Income', report.totalOtherIncome);
+  }
+
+  // Other Expenses — finance cost, tax, other
+  if (report.otherExpenses.length > 0) {
+    ws.addRow([]);
+    addSectionHeader(ws, 'Other Expenses', 'FFEA580C');
+    for (const item of report.otherExpenses) {
+      addLineItem(ws, 'Other Expenses', item.accountCode, item.accountName, item.amount);
+    }
+    ws.addRow([]);
+    addTotalRow(ws, 'Total Other Expenses', report.totalOtherExpenses);
+  }
 
   // Net Profit
   ws.addRow([]);

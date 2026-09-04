@@ -231,53 +231,42 @@ describe('buildIncomeStatementSubtypeDisclosure — platform default subtypes', 
   });
 });
 
-// ── Other income inside turnover (adversarial review, F3) ───────────────────
+// ── Other income now has a line of its own (B75 fixed) ──────────────────────
 
-describe('buildIncomeStatementSubtypeDisclosure — other income has nowhere to go', () => {
-  // fetchIncomeStatementRows pushes EVERY revenue row into revenue[]. There is
-  // no other-income line, so a correctly-classified other_income account is
-  // certainly inside turnover and certainly inside gross profit. Nothing is
-  // conjectural about it, and canonicalSubtype recognises it, so the
-  // unclassified test passes straight over it.
-  it('flags a RECOGNISED other_income revenue account', () => {
+describe('buildIncomeStatementSubtypeDisclosure — a recognised other_income account', () => {
+  // This block used to assert the opposite. The income statement had no
+  // other-income line, so a correctly-classified other_income account was
+  // CERTAINLY inside turnover and inside gross profit, and the disclosure
+  // reported it as a floor. B75 fixed that at source: the report now has an
+  // other-income line and agrees with aggregateFigures band for band. A
+  // correctly-classified account is now correctly placed, so there is nothing
+  // to disclose — reporting one would be crying wolf about a fixed defect.
+  it('is NOT disclosed, because it is now reported below gross profit', () => {
     const d = buildIncomeStatementSubtypeDisclosure([
       expenseRow({ accountCode: '4300', accountName: 'Other Income', accountType: 'revenue',
                    accountSubtype: 'other_income', amount: 53787.07 }),
     ]);
-    expect(d).not.toBeNull();
-    expect(d?.accounts[0]?.reason).toBe('other_income_in_turnover');
+    expect(d).toBeNull();
   });
 
-  it('counts it as a CERTAIN floor, not a conjectural ceiling', () => {
+  it('leaves an unclassified revenue account still disclosed beside it', () => {
     const d = buildIncomeStatementSubtypeDisclosure([
-      expenseRow({ accountCode: '4300', accountType: 'revenue', accountSubtype: 'other_income', amount: 53787.07 }),
+      expenseRow({ accountCode: '4300', accountType: 'revenue', accountSubtype: 'other_income', amount: 20000 }),
+      expenseRow({ accountCode: '4310', accountType: 'revenue', accountSubtype: null, amount: 2876.63 }),
     ]);
-    expect(d?.grossProfitOverstatedByAtLeast).toBeCloseTo(53787.07, 2);
-    expect(d?.grossProfitOverstatedByAtMost).toBeCloseTo(53787.07, 2);
-    expect(d?.message).toMatch(/already in gross profit/i);
+    expect(d?.revenueAccounts).toBe(1);
+    expect(d?.otherIncomeExposureAtMost).toBeCloseTo(2876.63, 2);
+    expect(d?.accounts.map(a => a.accountCode)).not.toContain('4300');
   });
 
-  it('keeps the floor below the ceiling when both kinds are present', () => {
+  it('no longer claims anything is already inside gross profit', () => {
     const d = buildIncomeStatementSubtypeDisclosure([
       expenseRow({ accountCode: '4300', accountType: 'revenue', accountSubtype: 'other_income', amount: 20000 }),
       expenseRow({ accountCode: '5000', amount: 100000 }),
     ]);
-    expect(d?.grossProfitOverstatedByAtLeast).toBeCloseTo(20000, 2);
+    expect(d?.message ?? '').not.toMatch(/already in gross profit/i);
     expect(d?.costOfSalesExposureAtMost).toBeCloseTo(100000, 2);
-    expect(d?.grossProfitOverstatedByAtMost).toBeCloseTo(120000, 2);
-    expect(d?.message).toMatch(/already in gross profit/i);
-    expect(d?.message).toMatch(/could belong above the line as cost of sales/i);
-  });
-
-  it('does not treat other_income on an EXPENSE account as turnover', () => {
-    const d = buildIncomeStatementSubtypeDisclosure([
-      expenseRow({ accountSubtype: 'other_income', amount: 1000 }),
-    ]);
-    // Nonsense data. `other_income` resolves to a real band and the row lands
-    // in operating expenses, so there is nothing to disclose — what must NOT
-    // happen is it counting towards the certain floor, which describes revenue
-    // sitting in turnover.
-    expect(d?.grossProfitOverstatedByAtLeast ?? 0).toBe(0);
+    expect(d?.otherIncomeExposureAtMost).toBe(0);
   });
 });
 
@@ -287,14 +276,11 @@ describe('buildIncomeStatementSubtypeDisclosure — naming across reasons', () =
       ...Array.from({ length: 8 }, (_, i) =>
         expenseRow({ accountCode: `N${i}`, accountName: `Unclassified ${i}`, amount: 9000000 - i })),
       expenseRow({ accountCode: 'PD', accountName: 'Cost of Goods Sold', accountSubtype: 'default_expense', amount: 50 }),
-      expenseRow({ accountCode: 'OI', accountName: 'Other Income', accountType: 'revenue',
-                   accountSubtype: 'other_income', amount: 10 }),
     ];
     const d = buildIncomeStatementSubtypeDisclosure(rows);
     const reasons = new Set((d?.accounts ?? []).map(a => a.reason));
     expect(reasons.has('no_subtype')).toBe(true);
     expect(reasons.has('platform_default')).toBe(true);
-    expect(reasons.has('other_income_in_turnover')).toBe(true);
   });
 });
 
@@ -335,41 +321,6 @@ describe('buildIncomeStatementSubtypeDisclosure — contra-revenue in the ceilin
     expect(d?.revenueAmount).toBeCloseTo(60000, 2);
     expect(d?.message).toMatch(/2 revenue accounts carrying R\s*60\s*000,00/);
     expect(d?.message).not.toMatch(/140\s*000,00/);
-  });
-});
-
-describe('buildIncomeStatementSubtypeDisclosure — the certain floor nets', () => {
-  // Per-row clamping on the FLOOR overstates a hard minimum 10x.
-  it('nets a contra other-income account against the income it reverses', () => {
-    const d = buildIncomeStatementSubtypeDisclosure([
-      expenseRow({ accountCode: '4300', accountType: 'revenue', accountSubtype: 'other_income', amount: 500000 }),
-      expenseRow({ accountCode: '4301', accountType: 'revenue', accountSubtype: 'other_income', amount: -450000 }),
-    ]);
-    expect(d?.grossProfitOverstatedByAtLeast).toBeCloseTo(50000, 2);
-  });
-
-  it('never warns about R0.00 when the certain set nets to nil', () => {
-    const d = buildIncomeStatementSubtypeDisclosure([
-      expenseRow({ accountCode: '4300', accountType: 'revenue', accountSubtype: 'other_income', amount: 500000 }),
-      expenseRow({ accountCode: '4301', accountType: 'revenue', accountSubtype: 'other_income', amount: -500000 }),
-    ]);
-    expect(d?.grossProfitOverstatedByAtLeast).toBe(0);
-    expect(d?.message ?? '').not.toMatch(/already in gross profit/i);
-  });
-
-  it('reports the true count of other-income accounts, not the capped named list', () => {
-    const rows = [
-      ...Array.from({ length: 9 }, (_, i) =>
-        expenseRow({ accountCode: `OI${i}`, accountType: 'revenue', accountSubtype: 'other_income', amount: 1000 })),
-      ...Array.from({ length: 8 }, (_, i) =>
-        expenseRow({ accountCode: `BIG${i}`, accountName: `Big ${i}`, amount: 9000000 - i })),
-    ];
-    const d = buildIncomeStatementSubtypeDisclosure(rows);
-    expect(d?.otherIncomeAccounts).toBe(9);
-    // The named list is capped, so a caller deriving the count from it gets 1.
-    expect(d!.accounts.filter(a => a.reason === 'other_income_in_turnover').length)
-      .toBeLessThan(d!.otherIncomeAccounts);
-    expect(d?.message).toMatch(/9 other-income accounts/);
   });
 });
 
@@ -437,7 +388,6 @@ describe('reasonLabel', () => {
   it('gives every reason a human label', () => {
     expect(reasonLabel('no_subtype')).toMatch(/no recognised account_subtype/);
     expect(reasonLabel('platform_default')).toMatch(/nobody classified it/);
-    expect(reasonLabel('other_income_in_turnover')).toMatch(/other income/);
   });
 
   it('falls back to the raw value instead of rendering the string "undefined"', () => {
