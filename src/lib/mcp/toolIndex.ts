@@ -46,6 +46,8 @@ import {
   finalizeInvoiceTool,
 } from './tools/writeInvoices';
 import { createDraftJournalTool, postJournalTool } from './tools/writeJournals';
+import { proposeReclassificationTool } from './tools/reclassificationPropose';
+import { postReclassificationBatchTool } from './tools/writeReclassification';
 import { suggestBankAllocationTool } from './tools/writeBank';
 import { allocateBankTransactionTool, reverseBankAllocationTool } from './tools/writeBankAllocate';
 import { importBankStatementTool, undoBankImportTool } from './tools/writeBankImport';
@@ -121,7 +123,7 @@ import { performBankReconciliationTool } from './tools/writeBankReconciliation';
 import { logTimeEntryTool, submitTimeEntriesTool } from './tools/writePracticeTime';
 
 export const MCP_TOOLS = [
-  // read (63)
+  // read (64)
   companyProfileTool,
   listCompaniesTool,
   trialBalanceTool,
@@ -193,7 +195,8 @@ export const MCP_TOOLS = [
   supplierStatementTool,
   jobCostReportTool,
   budgetVarianceTool,
-  // write (46) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  proposeReclassificationTool,
+  // write (47) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -206,6 +209,7 @@ export const MCP_TOOLS = [
   reverseBankAllocationTool,
   bulkAllocateBankTransactionsTool,
   reverseBankAllocationBatchTool,
+  postReclassificationBatchTool,
   importBankStatementTool,
   undoBankImportTool,
   createGlAccountTool,

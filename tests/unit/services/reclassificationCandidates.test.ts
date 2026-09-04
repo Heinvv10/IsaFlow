@@ -1,0 +1,215 @@
+/**
+ * `partitionCandidates` — which posted lines a reclassification may move, and
+ * why each of the rest may not.
+ *
+ * Pure, so every guard is testable without a database. The DB-gated half
+ * (reclassificationDb.test.ts) proves the query that feeds it actually runs.
+ *
+ * A REFUSAL IS ABOUT THE REQUEST; A SKIP IS ABOUT THE DATA. Everything here is
+ * a skip: the caller cannot fix a closed period by re-sending the call, and one
+ * unmovable line must not cost the other 418.
+ */
+import { describe, it, expect } from 'vitest';
+import {
+  partitionCandidates,
+  type CandidateRow,
+} from '@/modules/accounting/services/gl/reclassification/candidates';
+
+function row(over: Partial<CandidateRow> = {}): CandidateRow {
+  return {
+    line_id: '11111111-1111-4111-8111-111111111111',
+    journal_entry_id: '22222222-2222-4222-8222-222222222222',
+    entry_number: 'JE-2026-00001',
+    entry_date: '2026-04-15',
+    debit: '1000.00',
+    credit: '0.00',
+    description: 'Fibre cable',
+    project_id: null,
+    cost_center_id: null,
+    reversed: false,
+    is_reversal_leg: false,
+    vat_type: null,
+    bu_id: null,
+    cc1_id: null,
+    cc2_id: null,
+    period_status: 'open',
+    has_period: true,
+    already_reclassified: false,
+    is_reclass_contra: false,
+    vat_period_locked: false,
+    ...over,
+  };
+}
+
+const OPEN = { postingDate: null } as const;
+
+describe('partitionCandidates', () => {
+  it('moves an ordinary posted line and carries its amount, project and cost centre', () => {
+    const { movable, skipped } = partitionCandidates(
+      [row({ debit: '1234.56', credit: '0.00', project_id: 'p1', cost_center_id: 'c1' })],
+      OPEN,
+    );
+    expect(skipped).toEqual([]);
+    expect(movable).toHaveLength(1);
+    expect(movable[0]).toMatchObject({
+      debit: 1234.56,
+      credit: 0,
+      projectId: 'p1',
+      costCenterId: 'c1',
+      entryDate: '2026-04-15',
+      entryNumber: 'JE-2026-00001',
+    });
+  });
+
+  it('carries a credit-side line without flipping it — the journal is built from both sides', () => {
+    const { movable } = partitionCandidates([row({ debit: '0.00', credit: '500.00' })], OPEN);
+    expect(movable[0]).toMatchObject({ debit: 0, credit: 500 });
+  });
+
+  it('skips a line whose fiscal period is closed, and says so', () => {
+    const { movable, skipped } = partitionCandidates([row({ period_status: 'closed' })], OPEN);
+    expect(movable).toEqual([]);
+    expect(skipped).toEqual([
+      expect.objectContaining({ reason: 'source_period_closed', amount: 1000 }),
+    ]);
+  });
+
+  it('skips a line whose entry sits in NO fiscal period', () => {
+    const { skipped } = partitionCandidates(
+      [row({ has_period: false, period_status: null })],
+      OPEN,
+    );
+    expect(skipped[0]).toMatchObject({ reason: 'source_period_missing' });
+  });
+
+  it('POSTS a closed-period line when the caller names an open posting date instead', () => {
+    const { movable, skipped } = partitionCandidates(
+      [row({ period_status: 'closed' })],
+      { postingDate: '2026-09-04' },
+    );
+    // The closed period is not being written to — the correction lands in the
+    // period the caller named, which the tool validated before calling.
+    expect(skipped).toEqual([]);
+    expect(movable).toHaveLength(1);
+  });
+
+  it('skips a line belonging to a reversed journal entry', () => {
+    const { skipped } = partitionCandidates([row({ reversed: true })], OPEN);
+    expect(skipped[0]).toMatchObject({ reason: 'entry_reversed' });
+  });
+
+  // A reversal is a PAIR on the account: the entry that was reversed
+  // (reversed_at set) and the entry that did the reversing (reversal_of_id
+  // set). Skipping only the first tears the pair in half — the charge stays on
+  // the source and its cancellation is carried to the target, so neither
+  // account nets to zero. On the live Velocity books that is R15,477,616.91 on
+  // 49775626 and R407,422.11 on 49775627, and the band-level P&L check cannot
+  // see it because both accounts sit in the same band.
+  it('skips the REVERSING half too — half a nil pair must never move alone', () => {
+    const { movable, skipped } = partitionCandidates([row({ is_reversal_leg: true })], OPEN);
+    expect(movable).toEqual([]);
+    expect(skipped[0]).toMatchObject({ reason: 'entry_is_reversal' });
+  });
+
+  it('skips BOTH halves of a reversal pair, under distinct reasons', () => {
+    const { movable, skipped } = partitionCandidates(
+      [row({ line_id: 'a', reversed: true }), row({ line_id: 'b', is_reversal_leg: true })],
+      OPEN,
+    );
+    expect(movable).toEqual([]);
+    expect(skipped.map((s) => s.reason)).toEqual(['entry_reversed', 'entry_is_reversal']);
+  });
+
+  it('skips a line carrying analysis coding the reclassification cannot reproduce', () => {
+    // JournalLineInput cannot express cc1_id / cc2_id, so a line carrying them
+    // would post its pair with those dimensions silently dropped.
+    expect(partitionCandidates([row({ cc1_id: 'c1' })], OPEN).skipped[0])
+      .toMatchObject({ reason: 'unreproducible_analysis_coding' });
+    expect(partitionCandidates([row({ cc2_id: 'c2' })], OPEN).skipped[0])
+      .toMatchObject({ reason: 'unreproducible_analysis_coding' });
+    // bu_id IS expressible, so it does not skip.
+    expect(partitionCandidates([row({ bu_id: 'b1' })], OPEN).movable).toHaveLength(1);
+  });
+
+  it('skips a line an earlier live batch already moved', () => {
+    const { skipped } = partitionCandidates([row({ already_reclassified: true })], OPEN);
+    expect(skipped[0]).toMatchObject({ reason: 'already_reclassified' });
+  });
+
+  it('skips the CONTRA leg of an earlier reclassification — moving it moves the correction', () => {
+    const { skipped } = partitionCandidates([row({ is_reclass_contra: true })], OPEN);
+    expect(skipped[0]).toMatchObject({ reason: 'reclassification_contra' });
+  });
+
+  it('skips a zero line: there is nothing to move and the pair would not balance usefully', () => {
+    const { skipped } = partitionCandidates([row({ debit: '0.00', credit: '0.00' })], OPEN);
+    expect(skipped[0]).toMatchObject({ reason: 'zero_amount', amount: 0 });
+  });
+
+  it('skips a VAT-locked date ONLY for a line that itself carries VAT coding', () => {
+    // A line with no vat_type contributes to no VAT box, so a filed period does
+    // not bind it. One that does carry vat_type is anchored to a return already
+    // sent to SARS. 9,410 posted lines platform-wide carry a vat_type, so this
+    // is a live rule and not a hypothetical.
+    expect(partitionCandidates([row({ vat_period_locked: true })], OPEN).skipped).toEqual([]);
+    expect(
+      partitionCandidates([row({ vat_period_locked: true, vat_type: 'standard' })], OPEN).skipped[0],
+    ).toMatchObject({ reason: 'vat_period_locked' });
+  });
+
+  it('will not move a line it does not hold a lock on', () => {
+    // A line that appeared on the source account BETWEEN the lock and the
+    // re-read is real and belongs in the universe, but it is not locked —
+    // moving it would reintroduce the race the lock closes. Skipped rather
+    // than dropped, so `rowsTotal + excluded` still accounts for it and no
+    // completeness fault fires with the wrong stated cause.
+    const rows = [row({ line_id: 'locked' }), row({ line_id: 'newcomer' })];
+    const { movable, skipped } = partitionCandidates(rows, {
+      postingDate: null,
+      lockedLineIds: new Set(['locked']),
+    });
+    expect(movable.map((m) => m.lineId)).toEqual(['locked']);
+    expect(skipped).toEqual([
+      expect.objectContaining({ lineId: 'newcomer', reason: 'appeared_after_lock' }),
+    ]);
+  });
+
+  it('reports appeared_after_lock BEFORE any other verdict about that row', () => {
+    // The rest of an unlocked row's state was read outside the lock, so no
+    // verdict about it is trustworthy enough to report as the reason.
+    const { skipped } = partitionCandidates(
+      [row({ line_id: 'x', reversed: true })],
+      { postingDate: null, lockedLineIds: new Set<string>() },
+    );
+    expect(skipped[0]!.reason).toBe('appeared_after_lock');
+  });
+
+  it('locks nothing on a read-only path, and then moves everything movable', () => {
+    // `lockedLineIds: undefined` is the preview path — no lock was taken, so
+    // the absence of one must not read as "every line is unlocked".
+    const { movable } = partitionCandidates([row()], { postingDate: null });
+    expect(movable).toHaveLength(1);
+  });
+
+  it('reports the FIRST applicable reason per line and never both moves and skips it', () => {
+    const { movable, skipped } = partitionCandidates(
+      [row({ reversed: true, period_status: 'closed' })],
+      OPEN,
+    );
+    expect(movable).toEqual([]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]!.reason).toBe('entry_reversed');
+  });
+
+  it('accounts for every candidate exactly once — the identity the envelope checks', () => {
+    const rows = [
+      row({ line_id: 'a' }),
+      row({ line_id: 'b', period_status: 'closed' }),
+      row({ line_id: 'c', reversed: true }),
+      row({ line_id: 'd', debit: '0.00', credit: '0.00' }),
+    ];
+    const { movable, skipped } = partitionCandidates(rows, OPEN);
+    expect(movable.length + skipped.length).toBe(rows.length);
+    expect(new Set([...movable.map(m => m.lineId), ...skipped.map(s => s.lineId)]).size).toBe(4);
+  });
+});

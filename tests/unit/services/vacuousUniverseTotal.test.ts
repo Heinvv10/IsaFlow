@@ -47,6 +47,16 @@ describe('no report may synthesize its own universe', () => {
     expect(src('src/lib/mcp/tools/documents.ts')).not.toMatch(/universeTotal:\s*page\.rowsTotal/);
   });
 
+  it('the reclassification plan counts its universe instead of adding up its parts', () => {
+    const t = src('src/modules/accounting/services/gl/reclassification/plan.ts');
+    // `movable` is rowsTotal and `skipped` becomes excludedRows, so deriving the
+    // universe from them makes buildEnvelope's identity an algebraic tautology.
+    expect(t).not.toMatch(/universeTotal\s*=\s*movable\.length\s*\+\s*skipped\.length/);
+    expect(t).not.toMatch(/universeTotal\s*=\s*\w+\.length\s*\+\s*[\w.]+\.length/);
+    // And it must still come from the separate COUNT(*).
+    expect(t).toMatch(/universeTotal\s*=\s*await countReclassCandidates\(/);
+  });
+
   // The independently-derived ones must survive: this fix is about removing
   // claims that cannot fail, NOT about removing completeness reporting.
   it('leaves genuinely independent universe counts in place', () => {

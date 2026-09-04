@@ -1,0 +1,166 @@
+/**
+ * The request-level refusals, and the account read they need.
+ *
+ * A REFUSAL IS ABOUT THE REQUEST — the agent has to change what it sent — so
+ * every one of these runs BEFORE a single candidate line is read, and the tool
+ * renders them as a pre-write `toolError` with the idempotency key left free.
+ * They live apart from `plan.ts` because that file is at the 300-line ceiling
+ * and because this is the narrower question: is this move admissible at all,
+ * before anything about the DATA is consulted.
+ */
+
+import { getAccountById } from '../chartOfAccountsService';
+import { getPeriodStatusForDate } from '../periodStatusService';
+import { isVatPeriodLocked } from '../../reports/vatPeriodLockService';
+import type { AccountType } from '../accountClassification';
+
+export interface ReclassAccount {
+  id: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  subtype: string | null;
+  isActive: boolean;
+}
+
+/** A fault in the REQUEST. The caller returns it as a pre-write toolError. */
+export interface ReclassRefusal {
+  refused: string;
+}
+
+/**
+ * The subtypes `vatReturnService` uses to decide VAT201 membership.
+ *
+ * A line on one of these accounts is ON the return, and a line on one of them
+ * with a NULL `vat_type` is swept into **box 15 at full value**. This tool can
+ * move arbitrary posted lines, so a move onto such an account rewrites a
+ * statutory return as a side effect of a housekeeping operation. That is
+ * refused outright rather than warned about: a warning an agent can ignore is
+ * not a control on a SARS submission.
+ *
+ * `'tax'` is in the set even though FINDINGS B37 records that it is NOT VAT —
+ * Brightsphere's PAYE account carries it — precisely because `vatReturnService`
+ * treats it as VAT today. The set mirrors what the return actually reads, not
+ * what it ought to read; narrowing it here would silently re-open the hole
+ * while that defect stands.
+ */
+const VAT_RETURN_SUBTYPES = new Set(['vat_input', 'vat_output', 'tax']);
+
+async function loadAccount(
+  companyId: string,
+  id: string,
+): Promise<ReclassAccount | null> {
+  const account = await getAccountById(companyId, id);
+  if (!account) return null;
+  return {
+    id: account.id,
+    code: account.accountCode,
+    name: account.accountName,
+    type: account.accountType as AccountType,
+    subtype: account.accountSubtype ?? null,
+    isActive: account.isActive,
+  };
+}
+
+export interface GuardInput {
+  companyId: string;
+  sourceAccountId: string;
+  targetAccountId: string;
+  from: string | null;
+  to: string | null;
+  postingDate: string | null;
+}
+
+export interface AdmissibleMove {
+  source: ReclassAccount;
+  target: ReclassAccount;
+}
+
+export function isRefusal<T>(x: T | ReclassRefusal): x is ReclassRefusal {
+  return typeof x === 'object' && x !== null && 'refused' in x;
+}
+
+/** Both accounts, or the reason this move may not proceed at all. */
+export async function admitReclassification(
+  input: GuardInput,
+): Promise<AdmissibleMove | ReclassRefusal> {
+  const { companyId } = input;
+  if (input.sourceAccountId === input.targetAccountId) {
+    return { refused: 'source_account_id and target_account_id must differ.' };
+  }
+  if (input.from !== null && input.to !== null && input.to < input.from) {
+    return { refused: 'to must not precede from.' };
+  }
+
+  // Ownership, from a READ, with the shared NOT_FOUND text supplied by the
+  // caller: a cross-tenant id must read identically to a typo'd one.
+  const source = await loadAccount(companyId, input.sourceAccountId);
+  if (!source) return { refused: 'NOT_FOUND' };
+  const target = await loadAccount(companyId, input.targetAccountId);
+  if (!target) return { refused: 'NOT_FOUND' };
+
+  // A deactivated account refuses every posting (`assertNoInactiveAccountLines`),
+  // so EVERY journal in the batch would fail. That is a fault in the request —
+  // refused here, before anything is written, rather than discovered on line 1
+  // of 419 with a generic failure.
+  if (!source.isActive) {
+    return {
+      refused:
+        `Source account ${source.code} is deactivated, so the contra leg cannot post. ` +
+        'Reactivate it for the duration of the reclassification.',
+    };
+  }
+  if (!target.isActive) {
+    return {
+      refused:
+        `Target account ${target.code} is deactivated and cannot receive a posting. ` +
+        'Reactivate it, or choose another target.',
+    };
+  }
+
+  // The posting date's OWN period, validated before any candidate is read. Both
+  // states get their own message because the remedies differ: create the fiscal
+  // year, versus re-open the period.
+  if (input.postingDate !== null) {
+    const status = await getPeriodStatusForDate(companyId, input.postingDate);
+    if (status === 'no_period') {
+      return {
+        refused:
+          `No fiscal period covers posting_date ${input.postingDate}. Create the fiscal ` +
+          'year first — a journal outside every period is invisible to the trial ' +
+          'balance, the VAT201 and the AFS.',
+      };
+    }
+    if (status !== 'open') {
+      return { refused: `The fiscal period covering posting_date ${input.postingDate} is closed.` };
+    }
+  }
+
+  for (const account of [source, target]) {
+    if (account.subtype !== null && VAT_RETURN_SUBTYPES.has(account.subtype)) {
+      return {
+        refused:
+          `${account.code} ${account.name} is a VAT control account (subtype ` +
+          `${account.subtype}), and the VAT201 is built from the lines sitting on ` +
+          'those accounts. Moving lines on or off one rewrites a statutory return, ' +
+          'and a line landing there with no vat_type is swept into box 15 at full ' +
+          'value. Reclassify VAT control accounts through the VAT tools, not this one.',
+      };
+    }
+  }
+
+  // A line that CARRIES VAT coding and sits in a filed period is anchored to a
+  // return already sent to SARS. Per line, so one such line never costs the
+  // rest of the batch; refused up front only for a posting_date, where the
+  // whole batch would land in the locked period.
+  if (input.postingDate !== null && (await isVatPeriodLocked(companyId, input.postingDate))) {
+    return {
+      refused:
+        `posting_date ${input.postingDate} falls inside a filed VAT period. Choose a ` +
+        'date outside it, or omit posting_date so each journal is dated at its own ' +
+        'source line.',
+    };
+  }
+
+  return { source, target };
+}

@@ -469,6 +469,9 @@ describe('write-tool manifest invariants', () => {
       // create_pay_run opens an empty period and posts nothing; posting the
       // payroll journal writes to gl_journal_entries, so only this one posts.
       'post_payroll_journal',
+      // A reclassification posts real journals to the ledger, so it needs the
+      // same explicit opt-in every other posting path does.
+      'post_reclassification_batch',
       'reopen_fiscal_period',
       'reverse_allocations',
       'reverse_bank_allocation',
@@ -609,6 +612,9 @@ describe('write-tool manifest invariants', () => {
       // The depreciation run refuses on a malformed period_date before any
       // service call; behaviour in runDepreciationTool.test.ts.
       run_depreciation: { ...KEY, period_date: '2026-02-31' },
+      // Refuses on the missing account ids before any query; behaviour in
+      // reclassificationTools.test.ts.
+      post_reclassification_batch: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
