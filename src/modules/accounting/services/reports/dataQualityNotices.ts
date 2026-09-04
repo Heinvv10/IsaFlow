@@ -22,9 +22,23 @@ export interface InventoryWarning {
 export interface DataQualityInput {
   unclassifiedAccounts?: UnclassifiedWarning | null;
   inventory?: InventoryWarning | null;
+  /**
+   * Income statement only. That report has no other-income line and computes
+   * gross profit as `revenue - costOfSales`, so THREE things move it silently:
+   * an unclassified expense that is really cost of sales, an unclassified
+   * revenue that is really other income, and other income already sitting in
+   * turnover. The first two are conjecture (a ceiling); the third is certain
+   * (a floor). See `./incomeStatementDisclosure.ts`.
+   */
+  otherIncomeInTurnover?: { accounts: number; amount: number } | null;
+  grossProfitOverstatedByAtLeast?: number;
+  /** Expense that could belong above the gross profit line. */
+  costOfSalesExposureAtMost?: number;
+  /** Revenue that could be other income rather than turnover. */
+  otherIncomeExposureAtMost?: number;
 }
 
-const fmtZAR = (n: number): string =>
+export const fmtZAR = (n: number): string =>
   `R ${n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /**
@@ -59,6 +73,34 @@ export function buildDataQualityNotices(input: DataQualityInput): string[] {
           'on them for accurate figures.',
       );
     }
+  }
+
+  // Certain before conjectural: a reader who is given a bound first reads the
+  // bound as the finding, and the thing we actually know gets lost under it.
+  const certain = input.otherIncomeInTurnover;
+  if (certain && certain.accounts > 0) {
+    const plural = certain.accounts === 1 ? '' : 's';
+    notices.push(
+      `${certain.accounts} other-income account${plural} carrying ${fmtZAR(certain.amount)} ` +
+        `${certain.accounts === 1 ? 'is' : 'are'} reported inside turnover, because this ` +
+        'statement has no other-income line. That much is already in gross profit.',
+    );
+  }
+
+  // Stated as two numbers, never their sum: summed, Velocity's reads
+  // R 200 037 895,31 against R 84 053 370,26 of revenue — a true bound and
+  // worthless as information. The halves are separate questions with separate
+  // remedies, and a reader can act on either.
+  const cos = input.costOfSalesExposureAtMost ?? 0;
+  const oi = input.otherIncomeExposureAtMost ?? 0;
+  if (cos > 0 || oi > 0) {
+    const clauses: string[] = [];
+    if (cos > 0) clauses.push(`up to ${fmtZAR(cos)} of expense could belong above the line as cost of sales`);
+    if (oi > 0) clauses.push(`up to ${fmtZAR(oi)} of revenue could be other income rather than turnover`);
+    notices.push(
+      `Gross profit above rests on classifications nobody has made: ${clauses.join(', and ')}. ` +
+        'Those are ceilings on what is unclassified, not corrections to apply.',
+    );
   }
 
   if (input.inventory && input.inventory.resolved === false) {

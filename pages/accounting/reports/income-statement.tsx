@@ -7,9 +7,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, BarChart3, Loader2, AlertCircle, AlertTriangle, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
+import { ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 
 import { formatCurrency } from '@/utils/formatters';
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -273,35 +274,37 @@ export default function IncomeStatementPage() {
                   </span>
                 </div>
 
-                {/* Unclassified subtypes — rendered ABOVE the margin stats on
-                    purpose. The gross margin immediately below it is the figure
-                    a NULL expense subtype makes wrong, and Velocity read 96.6%
-                    off this line while R82.7m of direct cost sat in operating
-                    expenses. A number this misleading must not be shown
-                    without the caveat attached to it. */}
+                {/* The shared data-quality notice, rendered ABOVE the margin
+                    stats on purpose: the gross margin immediately below is the
+                    figure these defaults make wrong, and Velocity read 96.6%
+                    off that line while R82.7m of direct cost sat in operating
+                    expenses. Same component, wording and currency format as the
+                    nine other report surfaces — a user comparing two screens
+                    must not see the same defect described two ways. */}
                 {report.subtypeDisclosure && (
-                  <div className="px-6 py-3 border-t border-amber-500/20 bg-amber-500/10 text-sm text-amber-400">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                      <div className="min-w-0">
-                        <p className="font-medium">
-                          {report.subtypeDisclosure.grossProfitOverstatedByAtMost > 0
-                            ? `Gross profit may be overstated by up to ${formatCurrency(report.subtypeDisclosure.grossProfitOverstatedByAtMost)}`
-                            : 'Some accounts are banded by default, not by classification'}
-                        </p>
-                        <p className="mt-0.5">{report.subtypeDisclosure.message}</p>
-                        {report.subtypeDisclosure.accounts.length > 0 && (
-                          <p className="mt-1 font-mono text-xs text-amber-300/80">
-                            {report.subtypeDisclosure.accounts
-                              .map(a => `${a.accountCode} ${a.accountName} ${formatCurrency(a.amount)}`)
-                              .join(' · ')}
-                            {report.subtypeDisclosure.unnamedAccounts > 0
-                              ? ` · and ${report.subtypeDisclosure.unnamedAccounts} more`
-                              : ''}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+                  <div className="px-6 py-3 border-t border-[var(--ff-border-light)]">
+                    <DataQualityNotice
+                      otherIncomeInTurnover={
+                        report.subtypeDisclosure.grossProfitOverstatedByAtLeast > 0
+                          ? {
+                              accounts: report.subtypeDisclosure.accounts.filter(
+                                a => a.reason === 'other_income_in_turnover').length,
+                              amount: report.subtypeDisclosure.grossProfitOverstatedByAtLeast,
+                            }
+                          : null
+                      }
+                      grossProfitOverstatedByAtLeast={report.subtypeDisclosure.grossProfitOverstatedByAtLeast}
+                      costOfSalesExposureAtMost={report.subtypeDisclosure.costOfSalesExposureAtMost}
+                  otherIncomeExposureAtMost={report.subtypeDisclosure.otherIncomeExposureAtMost}
+                    />
+                    <p className="mt-2 font-mono text-xs text-[var(--ff-text-tertiary)]">
+                      {report.subtypeDisclosure.accounts
+                        .map(a => `${a.accountCode} ${a.accountName} ${formatCurrency(a.amount)}`)
+                        .join(' · ')}
+                      {report.subtypeDisclosure.unnamedAccounts > 0
+                        ? ` · and ${report.subtypeDisclosure.unnamedAccounts} more`
+                        : ''}
+                    </p>
                   </div>
                 )}
 

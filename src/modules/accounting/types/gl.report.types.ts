@@ -107,6 +107,12 @@ export interface IncomeStatementReport {
    * total on it adds up.
    */
   subtypeDisclosure?: IncomeStatementSubtypeDisclosure | null;
+  /**
+   * The same, for the comparative period. A variance column is a difference
+   * between two independently mis-banded numbers, and the current period's
+   * banner says nothing about the prior one.
+   */
+  priorSubtypeDisclosure?: IncomeStatementSubtypeDisclosure | null;
 }
 
 export interface BalanceSheetLineItem {

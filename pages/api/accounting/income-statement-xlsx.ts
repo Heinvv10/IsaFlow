@@ -87,6 +87,13 @@ function addTotalRow(ws: ExcelJS.Worksheet, label: string, amount: number, bgArg
   row.getCell(4).alignment = { horizontal: 'right' };
 }
 
+/** Human labels for why an account is disclosed. */
+const DISCLOSURE_REASON: Record<string, string> = {
+  no_subtype: 'no recognised account_subtype',
+  platform_default: 'carries the platform default subtype, i.e. nobody classified it',
+  other_income_in_turnover: 'other income, reported inside turnover',
+};
+
 async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
@@ -158,23 +165,44 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // to qualify it, so the caveat travels WITH the figure — directly beneath the
   // gross margin it applies to. See incomeStatementDisclosure.ts.
   if (report.subtypeDisclosure) {
-    const warnRow = ws.addRow([
-      'Gross profit overstated by at most', '', '',
-      report.subtypeDisclosure.grossProfitOverstatedByAtMost,
+    const floorRow = ws.addRow([
+      '', '', 'Gross profit overstated by at least',
+      report.subtypeDisclosure.grossProfitOverstatedByAtLeast,
     ]);
-    warnRow.font = { bold: true, color: { argb: 'FFB45309' } };
-    warnRow.getCell(4).numFmt = '#,##0.00';
-    const noteRow = ws.addRow([report.subtypeDisclosure.message]);
-    noteRow.font = { italic: true, color: { argb: 'FFB45309' } };
+    floorRow.font = { bold: true, color: { argb: 'FFB45309' } };
+    floorRow.getCell(4).numFmt = '#,##0.00';
+    // Two rows, not their sum: summed they can exceed revenue itself, which is
+    // a true bound and worthless to a reader. See incomeStatementDisclosure.ts.
+    for (const [label, value] of [
+      ['Expense that could be cost of sales (at most)', report.subtypeDisclosure.costOfSalesExposureAtMost],
+      ['Revenue that could be other income (at most)', report.subtypeDisclosure.otherIncomeExposureAtMost],
+    ] as const) {
+      const r = ws.addRow(['', '', label, value]);
+      r.font = { bold: true, color: { argb: 'FFB45309' } };
+      r.getCell(4).numFmt = '#,##0.00';
+    }
+    // Column A is the "Section" column and is inside `autoFilter` A5:D5, so
+    // anything written there becomes a filter value — and filtering Section to
+    // "Operating Expenses" would then HIDE the warning that qualifies it. Notes
+    // go in column B onwards, and every named account uses the same B/C/D
+    // layout as `addLineItem` so the sheet stays one shape.
+    for (const line of report.subtypeDisclosure.notices) {
+      const noteRow = ws.addRow(['', line]);
+      noteRow.font = { italic: true, color: { argb: 'FFB45309' } };
+    }
     for (const a of report.subtypeDisclosure.accounts) {
-      const r = ws.addRow([`  ${a.accountCode} ${a.accountName}`, '', 'no recognised account_subtype', a.amount]);
+      const r = ws.addRow(['', a.accountCode, `${a.accountName} — ${DISCLOSURE_REASON[a.reason]}`, a.amount]);
       r.font = { color: { argb: 'FFB45309' } };
       r.getCell(4).numFmt = '#,##0.00';
     }
     if (report.subtypeDisclosure.unnamedAccounts > 0) {
-      ws.addRow([`  and ${report.subtypeDisclosure.unnamedAccounts} further account(s) with no recognised account_subtype`])
+      ws.addRow(['', '', `and ${report.subtypeDisclosure.unnamedAccounts} further affected account(s)`])
         .font = { italic: true, color: { argb: 'FFB45309' } };
     }
+    // These amounts also appear below in their own sections; a column-D sum
+    // must not double-count them.
+    ws.addRow(['', '', 'The amounts above are repeated in the sections below — do not add them again.'])
+      .font = { italic: true, color: { argb: 'FFB45309' } };
   }
 
   // Operating Expenses

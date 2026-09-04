@@ -139,6 +139,10 @@ export async function getIncomeStatement(companyId: string,
       report.priorGrossProfit = prior.grossProfit;
       report.priorTotalOperatingExpenses = prior.totalOperatingExpenses;
       report.priorNetProfit = prior.netProfit;
+      // The prior period has its own unclassified mix, so every variance
+      // column is a difference between two differently-banded numbers. One
+      // banner over the current period reads as though it qualified both.
+      report.priorSubtypeDisclosure = prior.subtypeDisclosure;
 
       const mergeLineItems = (curr: ReportLineItem[], prev: ReportLineItem[]) => {
         const priorMap = new Map(prev.map(p => [p.accountCode, p.amount]));
