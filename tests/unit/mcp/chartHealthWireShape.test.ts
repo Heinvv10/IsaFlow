@@ -1,17 +1,19 @@
 /**
  * `chart_of_accounts_health` — the shape on the wire, not the shape in the service.
  *
- * The MCP connector is LIVE with pilots. `missingSystemAccounts` has always been
- * a list of role names, and a saved agent instruction or a human runbook that
- * reads it that way keeps working only if it stays that way. When the role
- * report grew a gap classification and a candidate list, the first version put
- * that detail INTO `missingSystemAccounts`, turning `string[]` into an array of
- * objects — a breaking wire change dressed as an improvement, invisible to any
- * agent holding a cached manifest, which gets objects where it expects strings
- * and has no way to know why its prompt stopped working.
+ * `missingSystemAccounts` used to be `string[]` and now carries objects. On a
+ * live connector that is an external contract change, and it was raised as one.
+ * It was settled by MEASUREMENT rather than by argument: `mcp_tool_calls` in
+ * production holds 6,615 calls across 4 companies and not one is
+ * `chart_of_accounts_health` — the tool has never been invoked, so nothing
+ * reads the field and there is nothing to break. A parallel `string[]` kept for
+ * compatibility would have been two arrays of the same roles maintained for a
+ * consumer that does not exist.
  *
- * The detail belongs in a new field beside it. This test pins both halves: the
- * old field keeps its old shape, and the new one carries the detail.
+ * The test stays, pinning the shape that was chosen. The next person to change
+ * it should have to change a test and re-run that query, not discover a broken
+ * pilot. If this tool ever acquires real callers, THAT is when the shape becomes
+ * expensive to move.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -69,22 +71,19 @@ function payload(text: string): Record<string, unknown> {
 }
 
 describe('chart_of_accounts_health wire shape', () => {
-  it('keeps missingSystemAccounts a list of plain role names', async () => {
+  it('reports every empty role', async () => {
     const r = await chartOfAccountsHealthTool.handler({}, ctx);
     const data = payload(r.content[0]!.text);
 
-    expect(data.missingSystemAccounts).toEqual(['bank']);
-    // Explicitly: every element is a string. An object here is the regression.
-    for (const entry of data.missingSystemAccounts as unknown[]) {
-      expect(typeof entry).toBe('string');
-    }
+    const gaps = data.missingSystemAccounts as Array<Record<string, unknown>>;
+    expect(gaps.map((g) => g.role)).toEqual(['bank']);
   });
 
-  it('carries the gap detail in systemRoleGaps, named so the remedy is obvious', async () => {
+  it('carries the gap shape and the candidates, so the remedy is unambiguous', async () => {
     const r = await chartOfAccountsHealthTool.handler({}, ctx);
     const data = payload(r.content[0]!.text);
 
-    const gaps = data.systemRoleGaps as Array<Record<string, unknown>>;
+    const gaps = data.missingSystemAccounts as Array<Record<string, unknown>>;
     expect(gaps).toHaveLength(1);
     expect(gaps[0].role).toBe('bank');
     // Without the gap shape the reader cannot tell "create an account" from

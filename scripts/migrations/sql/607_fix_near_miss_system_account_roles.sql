@@ -77,6 +77,16 @@ UPDATE gl_accounts g
    AND g.account_code    = t.account_code
    AND g.account_subtype = 'other_income'   -- refuse to flag an account that
    AND g.is_active       = true             -- drifted since this was measured
+   -- Five of the eleven rows above belong to tenants with status = 'deleted'
+   -- (My Test Company, QA-COMPANY-DELETE-ME, the three Test Company E2E). They
+   -- stay in the list because the list records what was MEASURED on 2026-09-04;
+   -- the guard is what decides who is written to. `is_active` on `companies` is
+   -- true for all thirteen and would not have separated them.
+   AND EXISTS (
+         SELECT 1 FROM companies c
+          WHERE c.id = g.company_id
+            AND c.status IS DISTINCT FROM 'deleted'
+       )
    AND g.is_system_account IS DISTINCT FROM true
    -- ...and refuse if the role is already held. Every one of these statements
    -- exists to fill an EMPTY role; flagging a second claimant would create the
@@ -203,34 +213,57 @@ UPDATE gl_accounts
 
 -- ── Report what is still empty ──────────────────────────────────────────────
 --
--- Not a guard — the migration has done everything it is allowed to do by the
--- time this runs. It exists so a run against an environment whose charts differ
--- from production (isaflow_dev, a restored snapshot) says so in the output
--- rather than leaving someone to discover it from a 500.
+-- Not a guard — by the time this runs the migration has done everything it is
+-- allowed to do. It exists because a SILENT skip here becomes a
+-- `getSystemAccount` throw months later, on a tenant nobody was watching.
+--
+-- Both 606 and 607 skip rather than guess in three situations, all deliberate:
+-- a company already using code 3300 or 4410 for something unrelated, a company
+-- whose only claimant for a role is deactivated, and one whose claimant is
+-- active but unflagged. In every case forcing a role onto an unrelated account,
+-- or inventing a fallback code, would be worse than leaving it and saying so.
+-- Saying so is this block's whole job, which is why it names the COMPANY as
+-- well as the role: "role X is still empty on 4 companies" is not something an
+-- operator can act on, and a count is easy to skim past.
+--
+-- Deleted tenants are excluded here too, so the output describes the tenants
+-- the migration actually targeted.
 DO $$
 DECLARE
-  role_name text;
-  gaps      int := 0;
+  r         record;
+  gap_count int := 0;
 BEGIN
-  FOR role_name IN
-    SELECT unnest(ARRAY[
-      'bank', 'receivable', 'payable', 'vat_input', 'vat_output',
-      'retained_earnings', 'opening_balance_equity', 'default_revenue',
-      'other_income', 'default_expense', 'admin_expense',
-      'accumulated_depreciation', 'depreciation_expense', 'disposal_profit_loss'
-    ])
-  LOOP
-    SELECT count(*) INTO gaps
+  FOR r IN
+    SELECT c.id AS company_id, c.name AS company_name, k.role
       FROM companies c
-     WHERE NOT EXISTS (
+      CROSS JOIN unnest(ARRAY[
+             'bank', 'receivable', 'payable', 'vat_input', 'vat_output',
+             'retained_earnings', 'opening_balance_equity', 'default_revenue',
+             'other_income', 'default_expense', 'admin_expense',
+             'accumulated_depreciation', 'depreciation_expense', 'disposal_profit_loss'
+           ]) AS k(role)
+     WHERE c.status IS DISTINCT FROM 'deleted'
+       -- A company with no chart at all is a fixture stub, not a tenant this
+       -- migration makes any claim about; listing all fourteen roles for each
+       -- would bury the real findings.
+       AND EXISTS (SELECT 1 FROM gl_accounts g WHERE g.company_id = c.id)
+       AND NOT EXISTS (
              SELECT 1 FROM gl_accounts g
               WHERE g.company_id = c.id
-                AND g.account_subtype = role_name
+                AND g.account_subtype = k.role
                 AND g.is_system_account = true
                 AND g.is_active = true
-           );
-    IF gaps > 0 THEN
-      RAISE NOTICE 'mig 606: role % is still empty on % compan(y/ies)', role_name, gaps;
-    END IF;
+           )
+     ORDER BY c.name, k.role
+  LOOP
+    gap_count := gap_count + 1;
+    RAISE WARNING 'mig 607: role % STILL EMPTY on % (%) — auto-posting that needs it will throw',
+      r.role, r.company_name, r.company_id;
   END LOOP;
+
+  IF gap_count = 0 THEN
+    RAISE NOTICE 'mig 607: every system account role is held on every live tenant with a chart';
+  ELSE
+    RAISE WARNING 'mig 607: % company/role gap(s) remain — see the lines above, and chart_of_accounts_health', gap_count;
+  END IF;
 END $$;

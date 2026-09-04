@@ -33,14 +33,24 @@
 -- be holding `other_income` and it is left alone, because it does hold the role
 -- and re-pointing it is chart correction, not this migration's job.
 --
--- WHO ACTUALLY RECEIVES THESE ROWS. Production holds 13 companies, of which
--- FIVE are `status = 'deleted'` (My Test Company, QA-COMPANY-DELETE-ME and the
--- three Test Company E2E rows). `companies.is_active` is true on all 13, so
--- that column does not separate them — `status` does. They are backfilled
--- anyway and deliberately: the rows are inert in a tenant nobody opens, and a
--- tenant that is ever restored then works rather than throwing. But the counts
--- this migration is described by should be read as 8 live tenants and 5 dead
--- ones, not 13 equal ones.
+-- WHO RECEIVES THESE ROWS: LIVE TENANTS ONLY. Production holds 13 companies,
+-- of which FIVE are `status = 'deleted'` (My Test Company, QA-COMPANY-DELETE-ME
+-- and the three Test Company E2E rows). `companies.is_active` is true on all 13,
+-- so that column does not separate them — `status` is the discriminator, and
+-- every statement here filters on it.
+--
+-- `IS DISTINCT FROM 'deleted'` rather than `= 'active'`, deliberately: a tenant
+-- that is suspended, trialling, or carrying some status invented later is still
+-- a tenant whose ledger must work, and an equality test would silently exclude
+-- it. Only the explicitly-dead are skipped.
+--
+-- THE COST OF THIS FILTER, stated so it is not a surprise: a deleted tenant that
+-- is ever RESTORED comes back without these roles, and 605 only fixes companies
+-- created after it. It will throw on an asset disposal or an opening balance
+-- until someone runs this migration's statements again for it.
+-- `chart_of_accounts_health` reports the empty role, which is the intended route
+-- to noticing. That was judged the better trade against writing 2026-dated
+-- accounts into five dead tenants and quoting inflated counts for the change.
 --
 -- WHAT A TENANT ALREADY USING 3300 OR 4410 GETS: nothing, and that is
 -- deliberate. Both guards must pass — the code must be free AND no account may
@@ -103,7 +113,8 @@ SELECT c.id, '3300', 'Opening Balance Equity', 'equity', 'opening_balance_equity
        (SELECT p.id FROM gl_accounts p
          WHERE p.company_id = c.id AND p.account_code = '3000')
 FROM companies c
-WHERE NOT EXISTS (
+WHERE c.status IS DISTINCT FROM 'deleted'
+  AND NOT EXISTS (
         SELECT 1 FROM gl_accounts g
          WHERE g.company_id = c.id AND g.account_code = '3300'
       )
@@ -139,7 +150,8 @@ SELECT c.id, '4410', 'Profit / Loss on Disposal of Assets', 'revenue', 'disposal
        (SELECT p.id FROM gl_accounts p
          WHERE p.company_id = c.id AND p.account_code = '4000')
 FROM companies c
-WHERE NOT EXISTS (
+WHERE c.status IS DISTINCT FROM 'deleted'
+  AND NOT EXISTS (
         SELECT 1 FROM gl_accounts g
          WHERE g.company_id = c.id AND g.account_code = '4410'
       )

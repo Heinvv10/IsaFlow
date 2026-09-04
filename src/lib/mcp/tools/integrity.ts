@@ -108,7 +108,7 @@ export const chartOfAccountsHealthTool: McpTool = {
   name: 'chart_of_accounts_health',
   description:
     'Audits the chart of accounts itself: accounts with no subtype, subtypes that do not belong to their account type, accounts never posted to, deactivated accounts still carrying a balance, duplicated codes, two accounts that are the same account under different codes, and whether an imported chart and the system chart are running on top of each other. '
-    + 'Returns a summary with a count per finding, the flagged accounts (worst first, then largest balance), and systemRoles — every one of the fourteen system account roles. missingSystemAccounts stays a plain list of role names the ledger cannot resolve; systemRoleGaps carries the same roles with the detail. '
+    + 'Returns a summary with a count per finding, the flagged accounts (worst first, then largest balance), and systemRoles — every one of the fourteen system account roles, with the ones the ledger cannot resolve broken out in missingSystemAccounts, each carrying how it is empty and which accounts nearly claim it. '
     + 'READ THE GAP, NOT JUST THE ROLE NAME. An empty role reports HOW it is empty, because the fix differs: no_claimant means no account carries the subtype and one must be created; unflagged_active_claimant means an active account already carries it and is merely missing is_system_account (creating a second account here makes the chart worse — one company had 8,342 bank transactions on an unflagged account beside two empty deactivated ones); deactivated_claimants_only means the right account exists and needs reactivating. Each empty role lists the candidate accounts already in the chart. '
     + 'contestedSystemAccounts is the opposite failure: more than one active system account claims one role, so the resolver picks deterministically between them and every auto-posting depends on that pick. '
     + 'WHY IT MATTERS: none of this unbalances a trial balance, which is why it survives. An account with no subtype is invisible to the income statement bucketing, the VAT201 and the system account resolver, and lands in whatever the default happens to be — that is how R81m of cost of sales was reported as operating expenses. '
@@ -142,14 +142,16 @@ export const chartOfAccountsHealthTool: McpTool = {
         state: r.state,
         account: r.holder ? `${r.holder.accountCode} ${r.holder.accountName}` : null,
       })),
-      // STILL string[]. This field predates the change and the MCP connector is
-      // live with pilots: a saved agent instruction or a human runbook that
-      // reads it as a list of role names keeps working. The detail goes in a
-      // NEW field beside it, because widening an existing field in place is a
-      // breaking wire change dressed as an improvement — an agent on a cached
-      // manifest gets objects where it expects strings and has no way to know.
-      missingSystemAccounts: report.missingSystemAccounts.map((r) => r.key),
-      systemRoleGaps: report.missingSystemAccounts.map((r) => ({
+      // Objects, not the bare `string[]` this field used to be. That IS a wire
+      // change on a live connector, and it was raised as one — then settled by
+      // measurement rather than by argument: `mcp_tool_calls` in production
+      // holds 6,615 calls across 4 companies and NOT ONE of them is
+      // `chart_of_accounts_health`. The tool has never been invoked, so no
+      // saved prompt, agent instruction or runbook reads this field and there
+      // is nothing to break. Keeping a parallel `string[]` for compatibility
+      // would have been two arrays of the same roles maintained for a consumer
+      // that does not exist.
+      missingSystemAccounts: report.missingSystemAccounts.map((r) => ({
         role: r.key,
         gap: r.gap,
         candidates: r.claimants.map((c) => ({
