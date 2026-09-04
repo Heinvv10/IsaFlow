@@ -108,13 +108,32 @@ export interface AssetRegisterPage {
  * total alike.
  *
  * They used to disagree: the row fell back to `cost - accumulatedDepreciation`
- * while the total fell back to `purchase_price` alone. `current_book_value` has
- * no default and `pages/api/accounting/assets.ts` INSERTs without it, so NULL
- * is the NORMAL state of a UI-created asset until the first depreciation run —
- * and for any such asset carrying depreciation, the total overstated by exactly
- * that depreciation. In `reconcile_fixed_assets`, where `difference` comes from
- * the total and `itemsTotal` from the rows, that surfaced as an
+ * while the total fell back to `purchase_price` alone. For an asset with a NULL
+ * `current_book_value` carrying depreciation, the total overstated by exactly
+ * that depreciation — and in `reconcile_fixed_assets`, where `difference` comes
+ * from the total and `itemsTotal` from the rows, that surfaced as an
  * `unexplainedDifference` describing no real gap at all.
+ *
+ * A NULL `current_book_value` is NOT reachable on INSERT, and an earlier version
+ * of this comment claimed it was. `trg_asset_book_value` is a BEFORE INSERT
+ * trigger that sets `current_book_value := purchase_price` whenever it arrives
+ * NULL, and production carries 0 of 6 assets with one. It is reachable by
+ * UPDATE, which is where the fixture builds it, and unifying the two fallbacks
+ * was right regardless: two definitions of one figure are a divergence waiting
+ * for a caller.
+ *
+ * DEFERRED, and recorded here so it is not rediscovered: that same trigger
+ * ignores opening `accumulated_depreciation`. An asset inserted with opening
+ * depreciation gets `current_book_value = purchase_price`, so the register and
+ * its own total agree on a net book value that is too high by the depreciation —
+ * a wrong number no reconciliation can catch, because both sides of it come from
+ * the register. It is LATENT, not live: the only INSERT path,
+ * `pages/api/accounting/assets.ts`, sends no `accumulated_depreciation` at all,
+ * and all six production assets satisfy
+ * `current_book_value = purchase_price - accumulated_depreciation` exactly. The
+ * fix is a migration to a write-path trigger in the asset domain, which is not
+ * what an MCP read tool's change should carry. A Sage-style import that captures
+ * opening depreciation would make it live on day one.
  */
 function mapRow(r: Row): AssetRegisterRow {
   const cost = Number(r.purchase_price) || 0;

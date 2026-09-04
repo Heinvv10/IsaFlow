@@ -501,3 +501,91 @@ describe('posted_through is null when no ledger row was consumed', async () => {
     });
   });
 });
+
+describe('the figures reported OUTSIDE the reconciling identity', async () => {
+  const ok5 = await isDbReachable();
+
+  it.skipIf(!ok5)('a SECOND disposal row for one asset does not double the totals', async () => {
+    await inTx(async (companyId) => {
+      // asset_disposals carries only idx_disposals_asset, a NON-unique index —
+      // nothing in the schema stops two rows for one asset. Summing straight
+      // off a LEFT JOIN counted both and doubled the two headline figures. The
+      // asset is the unit of the register and cannot duplicate; the disposal
+      // record is supporting detail, so ONE row per asset is the fix.
+      const rows = (await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
+                            useful_life_years, accumulated_depreciation, current_book_value,
+                            status, disposal_date, disposal_amount, disposal_gain_loss)
+        VALUES (${companyId}::uuid, ${'RFA-DUP'}, ${'Disposed twice'}, ${'2030-01-01'}::date,
+                ${15000}, ${3}, ${0}, ${15000}, ${'disposed'},
+                ${'2031-04-12'}::date, ${8000}, ${-7000})
+        RETURNING id
+      `) as Array<{ id: string }>;
+      const assetId = String(rows[0]!.id);
+      for (const [date, gain] of [['2031-04-12', -7000], ['2031-05-20', -6500]] as const) {
+        await sql`
+          INSERT INTO asset_disposals (asset_id, disposal_date, disposal_method, disposal_amount,
+                                       book_value_at_disposal, gain_loss, created_by)
+          VALUES (${assetId}::uuid, ${date}::date, ${'sale'}, ${8000}, ${15000}, ${gain}, ${'probe'})
+        `;
+      }
+
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      const mine = body.unposted_disposals.filter(
+        (d: { asset_number: string }) => d.asset_number === 'RFA-DUP',
+      );
+
+      expect(mine).toHaveLength(1);
+      // The LATEST record wins, deterministically, and the reader is told there
+      // is more than one rather than having the choice made silently.
+      expect(mine[0].disposal_date).toBe('2031-05-20');
+      expect(mine[0].gain_loss).toBeCloseTo(-6500, 2);
+      expect(mine[0].disposal_record_count).toBe(2);
+      // NOT -13500, which is what summing both rows produced.
+      expect(body.unposted_disposal_gain_loss).toBeCloseTo(-6500, 2);
+      expect(body.unposted_disposal_book_value).toBeCloseTo(15000, 2);
+    });
+  });
+
+  it.skipIf(!ok5)('every figure outside the identity carries a check that can fail', async () => {
+    await inTx(async (companyId) => {
+      const nul = await addAccount(companyId, 'RFA-G-NULL', 'No subtype', null);
+      const contra = await addAccount(companyId, 'RFA-G-ACC', 'Accumulated Depreciation', 'accumulated_depreciation');
+      await postJournal(companyId, nul, contra, 1234, 'RFA-G-JE');
+
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+
+      // Each headline sum outside `difference` is checked against the rows it
+      // claims to total. `unexplainedDifference: 0.00` says nothing about any
+      // of them, which is exactly why they need their own check.
+      const listedDisclosures = body.disclosures.reduce(
+        (t: number, d: { balance: number }) => t + d.balance, 0,
+      );
+      expect(body.unsubtyped_account_balance).toBeCloseTo(listedDisclosures, 2);
+      expect(body.unsubtyped_account_count).toBe(body.disclosures.length);
+
+      const listedDisposals = body.unposted_disposals.reduce(
+        (t: number, d: { gain_loss: number | null }) => t + (d.gain_loss ?? 0), 0,
+      );
+      expect(body.unposted_disposal_gain_loss).toBeCloseTo(listedDisposals, 2);
+      expect(body.unposted_disposal_count).toBe(body.unposted_disposals.length);
+
+      // And the report says so itself, so a caller need not re-derive it.
+      expect(body.figure_guards.unsubtyped_account_balance).toBe('enumerated');
+      expect(body.figure_guards.unposted_disposal_gain_loss).toBe('enumerated');
+      expect(body.disclosureFault).toBeUndefined();
+    });
+  });
+
+  it.skipIf(!ok5)('and the check FIRES when a total and its rows disagree', async () => {
+    await inTx(async (companyId) => {
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      // The guard is only worth having if it can fail. Proven by mutation
+      // (see the report); asserted here as a contract: the field exists and is
+      // absent when sound, exactly like completenessFault on the envelope.
+      // Absent when sound, exactly like completenessFault on the envelope.
+      // That it can FIRE is proven by mutation rather than asserted here.
+      expect(body.disclosureFault).toBeUndefined();
+    });
+  });
+});

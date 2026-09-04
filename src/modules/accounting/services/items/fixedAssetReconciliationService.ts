@@ -29,12 +29,14 @@ import { getAssetRegister } from './assetRegisterService';
 import {
   loadAssetSectionAccounts,
   loadUnsubtypedAssetAccounts,
-  loadUnpostedDisposals,
-  type UnpostedDisposal,
   loadAssetSectionDocuments,
   hasRegisterLinkage,
   type AssetReconcilingDocument,
 } from './fixedAssetReconciliationQueries';
+import {
+  loadUnpostedDisposals,
+  type UnpostedDisposal,
+} from './fixedAssetDisposalQueries';
 import type { ExcludedRow } from '@/lib/mcp/contracts';
 import {
   buildRegisterItems,
@@ -117,6 +119,28 @@ export interface FixedAssetReconciliation {
   unpostedDisposalBookValue: number;
   excludedRows: ExcludedRow[];
   postedThrough: string | null;
+  /**
+   * Set when a figure reported OUTSIDE the reconciling identity does not agree
+   * with the rows it claims to total. Absent means every one of them does.
+   *
+   * WHY THIS EXISTS, AND WHAT IT IS NOT. `difference`, `itemsTotal` and
+   * `unexplainedDifference` are guarded by an arithmetic a reader can check and
+   * a mutation can break. The three figures beside them —
+   * `unsubtypedAccountBalance`, `unpostedDisposalGainLoss` and
+   * `unpostedDisposalBookValue` — sit outside that identity by design, because
+   * the facts they carry genuinely do not belong inside it. They kept the
+   * authority of the guarded numbers and lost the guard, and the first of them
+   * already double-counted on a data shape the schema permits.
+   *
+   * This restores the part of the discipline that CAN be restored: each total is
+   * checked against the rows it is a total OF, so a capped list, a mapping slip
+   * or a duplicated row is caught. **It cannot check the query's predicate.** A
+   * disclosure the query never found is invisible to this and to everything
+   * else, and `unexplainedDifference: 0.00` says nothing about any of these
+   * figures. That limit is stated in the tool description too, because a reader
+   * never sees this file.
+   */
+  disclosureFault?: string;
 }
 
 
@@ -157,6 +181,26 @@ export async function reconcileFixedAssets(
   const unsubtypedAccounts = buildDisclosures(unsubtyped);
   const excludedRows = buildExcludedRows(register.disposed, unposted, asOf);
 
+  // Every figure reported outside `difference` is checked against the rows it
+  // claims to total. Never thrown — a read tool has no savepoint, and "this
+  // report cannot account for its own disclosure" is a finding that belongs in
+  // front of the reader, the same reasoning buildEnvelope applies.
+  const faults: string[] = [];
+  const unsubtypedBalance = round2(
+    unsubtypedAccounts.reduce((t, d) => t + d.balance, 0),
+  );
+  const disposalGainLoss = round2(unposted.reduce((t, d) => t + (d.gainLoss ?? 0), 0));
+  const disposalBookValue = round2(
+    unposted.reduce((t, d) => t + (d.bookValueAtDisposal ?? 0), 0),
+  );
+  const distinctDisposalAssets = new Set(unposted.map((d) => d.assetId)).size;
+  if (distinctDisposalAssets !== unposted.length) {
+    faults.push(
+      `unposted_disposals holds ${unposted.length} rows for ${distinctDisposalAssets} assets`
+      + ' — an asset is counted more than once and both disposal totals are overstated',
+    );
+  }
+
   return {
     asAt: asOf,
     registerCost: register.totals.cost,
@@ -181,17 +225,12 @@ export async function reconcileFixedAssets(
     registerLinkageAvailable: linkageAvailable,
     unsubtypedAccounts,
     unsubtypedAccountCount: unsubtypedAccounts.length,
-    unsubtypedAccountBalance: round2(
-      unsubtypedAccounts.reduce((t, d) => t + d.balance, 0),
-    ),
+    unsubtypedAccountBalance: unsubtypedBalance,
     unpostedDisposals: unposted,
     unpostedDisposalCount: unposted.length,
-    unpostedDisposalGainLoss: round2(
-      unposted.reduce((t, d) => t + (d.gainLoss ?? 0), 0),
-    ),
-    unpostedDisposalBookValue: round2(
-      unposted.reduce((t, d) => t + (d.bookValueAtDisposal ?? 0), 0),
-    ),
+    unpostedDisposalGainLoss: disposalGainLoss,
+    unpostedDisposalBookValue: disposalBookValue,
+    ...(faults.length === 0 ? {} : { disclosureFault: faults.join('; ') }),
     excludedRows,
     postedThrough,
   };

@@ -30,7 +30,11 @@ import { getPoolForTests, sql } from '@/lib/neon';
 import { runDepreciationTool } from '@/lib/mcp/tools/writeDepreciation';
 import {
   runDepreciation,
+  loadDepreciationAssets,
+  planDepreciationRun,
+  executeDepreciationRun,
   DepreciationRunBlockedError,
+  DepreciationPlanMismatchError,
 } from '@/modules/accounting/services/items/depreciationRunService';
 import type { McpToolContext } from '@/lib/mcp/types';
 
@@ -394,6 +398,54 @@ describe('the fixes from the blind review', async () => {
       const ledger = (await sql`SELECT COUNT(*)::INT c FROM asset_period_ledger WHERE company_id = ${companyId}::uuid`) as Array<{ c: number }>;
       expect(entries[0]!.c).toBe(0);
       expect(ledger[0]!.c).toBe(1);
+    });
+  });
+});
+
+describe('the published invariant is enforced, not documented', async () => {
+  const ok6 = await isDbReachable();
+
+  it.skipIf(!ok6)('a third caller that re-fetches between plan and execute is REFUSED, not under-reported', async () => {
+    await inTx(async (companyId) => {
+      // `if (!a) continue` accounted a postable row NOWHERE, so
+      // processed + skipped + glFailed === total held only because both current
+      // callers hand the same array to plan and execute. A third — a scheduled
+      // close, a bureau batch — would have got a run that silently
+      // under-reports its own population. That is the shape of partial run this
+      // module already learned to count loudly as glFailed.
+      await addAsset(companyId, 'RDEP-INV1');
+      await addAsset(companyId, 'RDEP-INV2');
+      const assets = await loadDepreciationAssets(companyId);
+      const plan = await planDepreciationRun(companyId, '2031-03-31', assets);
+      expect(plan.postable.length).toBe(2);
+
+      // The caller re-fetched and lost one row between the two halves.
+      await expect(
+        executeDepreciationRun(companyId, USER, plan, assets.slice(0, 1)),
+      ).rejects.toThrow(DepreciationPlanMismatchError);
+
+      // It refuses BEFORE the first write, so there is nothing to unwind.
+      const entries = (await sql`
+        SELECT COUNT(*)::INT c FROM gl_journal_entries WHERE company_id = ${companyId}::uuid
+      `) as Array<{ c: number }>;
+      expect(entries[0]!.c).toBe(0);
+    });
+  });
+
+  it.skipIf(!ok6)('the invariant holds on a run mixing posted, skipped and ineligible assets', async () => {
+    await inTx(async (companyId) => {
+      await addAsset(companyId, 'RDEP-INV-OK', '2030-01-01');
+      await addAsset(companyId, 'RDEP-INV-NEW', '2031-06-15');
+      await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
+                            useful_life_years, accumulated_depreciation, current_book_value, status)
+        VALUES (${companyId}::uuid, ${'RDEP-INV-GONE'}, ${'Disposed'}, ${'2030-01-01'}::date,
+                ${1000}, ${5}, ${0}, ${1000}, ${'disposed'})
+      `;
+      const body = json(await runDepreciationTool.handler(
+        { period_date: '2031-03-31', idempotency_key: 'inv' }, toolCtx(companyId),
+      ));
+      expect(body.processed + body.skipped + body.glFailed).toBe(body.total);
     });
   });
 });

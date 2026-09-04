@@ -77,6 +77,7 @@ export const reconcileFixedAssetsTool: McpTool = {
     + 'An asset disposed on or before as_at is not carrying amount; it appears in excludedRows with the book value it was still carrying, never silently dropped — as disposed_before_as_at when a journal posted for it, and as disposal_not_posted_to_ledger when none did. '
     + 'READ unposted_disposals. A disposal the register recorded and the ledger never heard about is the one register-versus-ledger break that can NEVER move the difference: the asset is out of the register carrying amount and the journal is absent from the ledger, so both sides are zero and the arithmetic closes over a real loss. unposted_disposal_gain_loss is profit or loss that never reached the income statement and unposted_disposal_book_value is cost less depreciation never removed from the balance sheet. Production holds exactly one disposal and it is in this list: Brightsphere COMP-0001, sold 2026-04-12 for R8,000 against a R15,000 book value, a R7,000 loss with no journal. It cannot post on ANY tenant — posting a disposal resolves the system account role disposal_profit_loss and no company has an account carrying that subtype, so the posting throws before it writes. Fixing that is a chart-of-accounts change; this tool reports it and changes nothing. '
     + 'READ disclosures BEFORE TRUSTING A ZERO. Accounts are selected by SUBTYPE, so an account typed asset that carries NONE is in neither side of this reconciliation — and because the items and the totals come from the same subtype-filtered query, its balance could never make the difference non-zero. Every such account is listed in disclosures with its id and balance, and unsubtyped_account_balance totals them: Velocity Fibre has 58 holding R32,747,547.38, including PPE cost and accumulated-depreciation accounts. They are DISCLOSURES and not excludedRows on purpose — an exclusion is a row that belonged to this report and was withheld, while these were never in its universe, and most of them are debtors or cash rather than fixed assets. This tool cannot tell which is which, because nothing here is inferred from an account NAME. A difference of zero alongside a non-zero unsubtyped_account_balance is not a reconciliation; set the subtype with update_gl_account and re-run. '
+    + 'WHAT CHECKS WHICH NUMBER. difference, itemsTotal and unexplainedDifference are guarded by an arithmetic you can verify: the items sum to the difference. The three figures reported BESIDE them — unsubtyped_account_balance, unposted_disposal_gain_loss and unposted_disposal_book_value — sit outside that identity because the facts they carry genuinely do not belong inside it, and unexplainedDifference of 0.00 tells you NOTHING about whether any of them is right. Each is instead checked against the rows it is a total of, which catches a capped list or a duplicated row and is reported as figure_guards: "enumerated"; disclosureFault appears when one of those checks fails. NO check can test the query that found the rows, so a disclosure or a disposal the predicate never matched is invisible to every number here. '
     + 'This report makes NO completeness claim (universeTotal is absent) because its rows are PRODUCED by the reconciliation rather than selected from a pool; a universe here could only be synthesized from the numbers it would be checked against, and a claim that cannot fail is worse than none. '
     + 'detail: "summary" returns the totals only, "standard" (default) returns one row per reconciling item, "full" returns one row per journal entry posted to the asset-section accounts — capped at 50 entries per account, most recent first — and is paginated; call again with cursor until next_cursor is null. Follow a journal_entry_id with list_journals or audit_trail, and an asset_id with list_fixed_assets. '
     + 'It reports the gap; it does not repair it, does not run depreciation and posts nothing.',
@@ -189,6 +190,19 @@ export const reconcileFixedAssetsTool: McpTool = {
       contra_normal_balance_count: rec.contraNormalBalanceCount,
       contra_normal_balance_total: rec.contraNormalBalanceTotal,
       documents_total: rec.documentsTotal,
+      // WHAT CHECKS EACH FIGURE REPORTED OUTSIDE `difference`. "enumerated"
+      // means the total is checked against the rows it is a total of, so a
+      // capped list or a duplicated row is caught — and NOT against the query
+      // that found them, so a row the predicate missed is invisible.
+      // "unguarded" would mean nothing checks it at all.
+      figure_guards: {
+        difference: 'identity',
+        itemsTotal: 'identity',
+        unsubtyped_account_balance: 'enumerated',
+        unposted_disposal_gain_loss: 'enumerated',
+        unposted_disposal_book_value: 'enumerated',
+      },
+      ...(rec.disclosureFault === undefined ? {} : { disclosureFault: rec.disclosureFault }),
       // Facts about accounts this report could NOT draw from, stated OUTSIDE
       // the completeness identity because they were never in its universe —
       // the universe is defined by subtype and these have none.
@@ -211,6 +225,7 @@ export const reconcileFixedAssetsTool: McpTool = {
         book_value_at_disposal: d.bookValueAtDisposal,
         gain_loss: d.gainLoss,
         disposal_record_missing: d.disposalRecordMissing,
+        disposal_record_count: d.disposalRecordCount,
       })),
       disclosures: rec.unsubtypedAccounts.map((d) => ({
         account_id: d.accountId,

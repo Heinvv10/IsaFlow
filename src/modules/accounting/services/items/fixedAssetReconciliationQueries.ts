@@ -173,9 +173,19 @@ export async function hasRegisterLinkage(companyId: string): Promise<boolean> {
  * R0 today, so the CURRENT figure is right — and the first journal posted to
  * any of them moves money out of `glNetBookValue` with nothing saying so.
  *
- * They go in `excludedRows`, with the balance they carry, because the point of
- * an exclusion is that the reader can see what the total leaves out. Nothing
- * is inferred from the account NAME.
+ * They are reported as DISCLOSURES, never `excludedRows`, and the distinction is
+ * load-bearing rather than cosmetic. An exclusion is a row that belonged to this
+ * report's universe and was withheld from the totals; the universe here is
+ * DEFINED by subtype, so a subtype-less account was never a member. It is also
+ * signal against noise: Velocity carries 58 of these holding a net
+ * R32,747,547.38, most of it debtors and petty cash, and calling that "fixed
+ * assets this report could not classify" is a false statement about kind that
+ * would bury the PPE accounts genuinely among them. A test asserts
+ * `no_account_subtype` never reaches `excludedRows`.
+ *
+ * Nothing is inferred from the account NAME — and no narrowing is available that
+ * is not one, which is why the honest answer to "we cannot tell which of these
+ * is PPE" is to return them all and say so.
  */
 export async function loadUnsubtypedAssetAccounts(
   companyId: string,
@@ -200,80 +210,4 @@ export async function loadUnsubtypedAssetAccounts(
     GROUP BY ga.id, ga.account_code, ga.account_name, ga.is_active
     ORDER BY ga.account_code
   `) as DbRow[];
-}
-
-/** A disposal the register recorded and the ledger never heard about. */
-export interface UnpostedDisposal {
-  assetId: string;
-  assetNumber: string;
-  name: string;
-  disposalId: string | null;
-  disposalDate: string;
-  proceeds: number | null;
-  bookValueAtDisposal: number | null;
-  gainLoss: number | null;
-  /** True when the asset is disposed but no asset_disposals row exists at all. */
-  disposalRecordMissing: boolean;
-}
-
-/**
- * Disposals recorded on the register with NO posted journal behind them.
- *
- * This is the register-versus-ledger disagreement the endpoint exists to find,
- * and the one shape that could never show up in `difference`. A disposed asset
- * is correctly out of the register's carrying amount, and a disposal that never
- * posted is correctly absent from the ledger — so BOTH sides are zero and the
- * arithmetic closes over a real, recorded loss. The same unfailable-identity
- * trap as the un-subtyped accounts, in a different place.
- *
- * It is not hypothetical. Production holds exactly one disposal: Brightsphere's
- * COMP-0001, sold 2026-04-12 for R8,000 against a R15,000 book value, a
- * **R7,000 loss** recorded in `asset_disposals` and on the asset row, with
- * `journal_entry_id` NULL and no disposal journal anywhere in the GL. It cannot
- * post on any tenant: `postAssetDisposalToGL` resolves the system role
- * `disposal_profit_loss`, and NO company in production has an account carrying
- * that subtype — 0 of 13. `getSystemAccount` throws on an empty role.
- *
- * Driven from `assets`, not from `asset_disposals`, so an asset marked disposed
- * with no disposal record at all is caught too — that is a worse version of the
- * same gap, not a reason to miss it. `asset_disposals` carries NO `company_id`
- * column and is reached only through this company's assets.
- */
-export async function loadUnpostedDisposals(
-  companyId: string,
-  asOf: string,
-): Promise<UnpostedDisposal[]> {
-  const rows = (await sql`
-    SELECT a.id, a.asset_number, a.name, a.disposal_date,
-           a.disposal_amount, a.disposal_gain_loss, a.current_book_value,
-           d.id AS disposal_id, d.disposal_amount AS d_amount,
-           d.book_value_at_disposal, d.gain_loss
-    FROM assets a
-    LEFT JOIN asset_disposals d ON d.asset_id = a.id
-    WHERE a.company_id = ${companyId}::UUID
-      AND a.disposal_date IS NOT NULL
-      AND a.disposal_date <= ${asOf}::DATE
-      -- No journal claimed, or one claimed that is not a posted entry of this
-      -- company. A claimed id that resolves to nothing is the worse case.
-      AND NOT EXISTS (
-        SELECT 1 FROM gl_journal_entries je
-        WHERE je.id = d.journal_entry_id
-          AND je.company_id = ${companyId}::UUID
-          AND je.status = 'posted'
-      )
-    ORDER BY a.disposal_date, a.asset_number
-  `) as DbRow[];
-
-  const num = (v: unknown): number | null => (v == null ? null : Number(v));
-  return rows.map((r) => ({
-    assetId: String(r.id),
-    assetNumber: String(r.asset_number ?? ''),
-    name: String(r.name ?? ''),
-    disposalId: r.disposal_id == null ? null : String(r.disposal_id),
-    disposalDate: fmtDate(r.disposal_date),
-    proceeds: num(r.d_amount ?? r.disposal_amount),
-    bookValueAtDisposal: num(r.book_value_at_disposal ?? r.current_book_value),
-    gainLoss: num(r.gain_loss ?? r.disposal_gain_loss),
-    disposalRecordMissing: r.disposal_id == null,
-  }));
 }

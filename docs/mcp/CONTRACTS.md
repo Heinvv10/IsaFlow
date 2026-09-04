@@ -256,6 +256,43 @@ clause of an outer join. If a row can legitimately have no match, decide
 explicitly whether it belongs in `rows` or in `excludedRows` — never let it
 through carrying NULLs into an arithmetic expression.
 
+### A figure reported BESIDE the envelope keeps its authority and loses its check
+
+The most dangerous thing about a report is not a wrong number inside the
+identity — that is what the identity is for. It is the figure published next to
+the identity, carrying the same authority, checked by nothing.
+
+`reconcile_fixed_assets` reports three: `unsubtyped_account_balance` and the two
+`unposted_disposal_*` totals. They belong outside the reconciliation on the
+merits — an un-subtyped account was never in a universe defined by subtype, and
+a disposal with no journal is legitimately absent from both sides — and the
+first of them **double-counted** on a data shape the schema permits
+(`asset_disposals` has only a non-unique index on `asset_id`), while
+`unexplainedDifference` sat at 0.00 saying nothing about it.
+
+So, for any figure a report publishes outside its checked identity:
+
+1. **Give it a check it can fail, or say plainly that it has none.** The check
+   that is always available is the total against the ROWS IT IS A TOTAL OF: it
+   catches a capped list, a mapping slip and a duplicated row. Report the result
+   as its own fault field, never by throwing — a read tool has no savepoint, and
+   "this report cannot account for its own disclosure" belongs in front of the
+   reader.
+2. **Say what the check CANNOT do.** It cannot test the query's predicate. A row
+   the query never matched is invisible to it and to everything else, and no
+   amount of arithmetic over the returned rows will find it.
+3. **Say it in the tool description, per figure.** `reconcile_fixed_assets`
+   returns a `figure_guards` map — `identity` for the numbers inside the
+   reconciliation, `enumerated` for the ones checked against their own rows — so
+   a caller does not have to infer which is which. A reader who is told
+   `unexplainedDifference` is 0.00 will otherwise extend that comfort to every
+   number beside it.
+4. **A guard that cannot fire is decoration.** If the query makes the fault
+   structurally impossible — as `DISTINCT ON` now does for the duplicate asset —
+   the guard still earns its place as defence against the query changing back,
+   but it must be proven to fire by driving the service with a stubbed query.
+   A guard nobody has watched go red is an assertion, not a check.
+
 ### `posted_through` is NULL when no ledger row was consumed
 
 The epoch is not a neutral stand-in for an absence. `1970-01-01T00:00:00.000Z`

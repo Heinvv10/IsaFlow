@@ -9,7 +9,7 @@
 
 import type { AssetRegisterRow } from './assetRegisterService';
 import { ASSET_COST_SUBTYPE } from './fixedAssetReconciliationQueries';
-import type { UnpostedDisposal } from './fixedAssetReconciliationQueries';
+import type { UnpostedDisposal } from './fixedAssetDisposalQueries';
 import type { DbRow } from '@/lib/neon';
 import type { ExcludedRow } from '@/lib/mcp/contracts';
 
