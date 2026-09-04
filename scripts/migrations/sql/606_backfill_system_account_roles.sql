@@ -33,6 +33,42 @@
 -- be holding `other_income` and it is left alone, because it does hold the role
 -- and re-pointing it is chart correction, not this migration's job.
 --
+-- WHO ACTUALLY RECEIVES THESE ROWS. Production holds 13 companies, of which
+-- FIVE are `status = 'deleted'` (My Test Company, QA-COMPANY-DELETE-ME and the
+-- three Test Company E2E rows). `companies.is_active` is true on all 13, so
+-- that column does not separate them — `status` does. They are backfilled
+-- anyway and deliberately: the rows are inert in a tenant nobody opens, and a
+-- tenant that is ever restored then works rather than throwing. But the counts
+-- this migration is described by should be read as 8 live tenants and 5 dead
+-- ones, not 13 equal ones.
+--
+-- WHAT A TENANT ALREADY USING 3300 OR 4410 GETS: nothing, and that is
+-- deliberate. Both guards must pass — the code must be free AND no account may
+-- carry the subtype — so a company using 3300 for, say, a directors loan is
+-- skipped entirely rather than having a role forced onto an unrelated account or
+-- silently renumbered. The same is true of a tenant whose only claimant is
+-- deactivated or unflagged: skipped, not guessed at. That is why the closing DO
+-- block reports every still-empty role by name — the skip is visible in the
+-- deploy output instead of being discovered later from a 500. No production
+-- company is in this state; only Weszak holds 3300 and it already holds the
+-- role.
+--
+-- A FIX THAT OPENED A GAP ONE LAYER UP, AND THE LESSON. Creating these accounts
+-- made the ledger resolvable and made the AFS wrong: `SUBTYPE_TO_AFS_CODE` in
+-- `afsTaxonomySeeds.ts` had no entry for `opening_balance_equity` or
+-- `disposal_profit_loss`, and `afsAutoMapper` falls through subtype, then name
+-- patterns, then counts the account as skipped. Neither "Opening Balance
+-- Equity" nor "Profit / Loss on Disposal of Assets" matches any pattern, so
+-- every account these statements create would have been absent from the annual
+-- financial statements — for opening-balance equity, equity missing from the
+-- balance sheet. Both codes were added (`BS046` and `IS472`) in the same change
+-- as this migration, with a test asserting the codes exist in the taxonomy.
+--
+-- The lesson is the general one: a role is not "supported" because the resolver
+-- can find it. Every layer that enumerates subtypes — the AFS mapper, the
+-- classifier, the VAT201 bucketing — is a place a new role can fall through
+-- silently. Adding a subtype means walking those, not just the resolver.
+--
 -- ON THE LAZY PATH THAT ALSO CREATES 3300. `openingBalanceEquityService` creates
 -- an Opening Balance Equity account on first use, trying 3300, 3310, 3320, 3390
 -- in that order. It is NOT made redundant by this migration and the two cannot
@@ -116,13 +152,34 @@ WHERE NOT EXISTS (
 -- without one still gets its account (parent_account_id is nullable) rather than
 -- silently keeping an empty role — a parentless account resolves correctly and
 -- chart_of_accounts_health reports the orphan. Say so if it happens.
+-- Counted over the two ROLE SUBTYPES, not over the bare account codes, and
+-- restricted to rows this transaction wrote. The first version asked only
+-- `account_code IN ('3300','4410') AND parent_account_id IS NULL` with no
+-- company predicate and no time bound, so on isaflow_dev it announced "78 of the
+-- new role accounts have no parent" on a run that inserted ZERO — all 78 were
+-- pre-existing rows belonging to other tenants. A cross-tenant count inside a
+-- tenant-scoped migration, printing a number that describes something other than
+-- what it claims, is worse than printing nothing: it is the deploy log a human
+-- reads when they are deciding whether the migration went well.
+-- Counted per COMPANY and over the two role SUBTYPES, which only 605 and this
+-- migration ever write — not over the bare account codes. A time bound was the
+-- other option and it is not reliable here: `statement_timestamp()` inside a DO
+-- block is evaluated after the INSERTs, and `transaction_timestamp()` is only
+-- meaningful if the runner wraps the file in one transaction, which psql in
+-- autocommit does not. This formulation needs neither.
 DO $$
 DECLARE orphans int;
 BEGIN
-  SELECT count(*) INTO orphans FROM gl_accounts
-   WHERE account_code IN ('3300', '4410') AND parent_account_id IS NULL;
+  SELECT count(*) INTO orphans
+    FROM companies c
+   WHERE EXISTS (
+           SELECT 1 FROM gl_accounts g
+            WHERE g.company_id = c.id
+              AND g.account_subtype IN ('opening_balance_equity', 'disposal_profit_loss')
+              AND g.parent_account_id IS NULL
+         );
   IF orphans > 0 THEN
-    RAISE NOTICE 'mig 606: % of the new role accounts have no parent (company missing 3000/4000)', orphans;
+    RAISE NOTICE 'mig 606: % compan(y/ies) hold a role account with no parent (missing 3000/4000)', orphans;
   END IF;
 END $$;
 

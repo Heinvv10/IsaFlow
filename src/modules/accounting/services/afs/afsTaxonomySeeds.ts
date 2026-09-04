@@ -258,10 +258,29 @@ export const SUBTYPE_TO_AFS_CODE: Record<string, string> = {
   // Equity
   equity:                     'BS043',
   retained_earnings:          'BS045',
+  // Opening Balance Equity is a CLEARING account: it nets to zero once the
+  // opening trial balance is complete, and a residual is a signal that
+  // something is missing, not a reserve anyone intends to report. There is no
+  // exact line for it in this taxonomy. BS046 is the least wrong one available
+  // — it keeps the balance inside Capital and reserves (so the balance sheet
+  // still balances) and out of BS045 Accumulated profit, which is the whole
+  // reason a dedicated account exists: parking opening balances in retained
+  // earnings misstates prior-year profit, the first figure an auditor
+  // reconciles. Leaving it UNMAPPED was the alternative and it is worse —
+  // migrations 605/606 create this account for every tenant, and an unmapped
+  // equity account is equity missing from the balance sheet entirely.
+  // If it is non-zero at year end the mapping is not the problem; the close
+  // readiness check already says so.
+  opening_balance_equity:     'BS046',
   // Revenue
   default_revenue:            'IS002',
   revenue:                    'IS002',
   other_income:               'IS143',
+  // Profit or loss on disposal of a fixed asset. IS472 is an exact match and
+  // was already in the taxonomy with nothing mapped to it. The account itself
+  // is seeded on the revenue side (a loss is a debit against it), which is the
+  // usual SA presentation; IS472 sits in the income statement either way.
+  disposal_profit_loss:       'IS472',
   // Expenses
   cost_of_sales:              'IS042',
   default_expense:            'IS253',

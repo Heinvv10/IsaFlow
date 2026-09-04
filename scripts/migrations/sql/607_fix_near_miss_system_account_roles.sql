@@ -100,12 +100,34 @@ UPDATE gl_accounts g
 -- and both have postings (390 and 159 lines), so this is a retype of a live
 -- account and it was signed off as such.
 --
--- REPORTED FIGURES DO NOT MOVE, verified against `accountClassification.ts`:
--- the income-statement bucketing keys off account_TYPE, which is unchanged.
--- The expense branch splits `cost_of_sales`, then the OTHER_EXPENSE set, then
--- everything else to operatingExpenses — `admin_expense` and
--- `operating_expense` both land in that last band. Revenue is the same shape.
--- Nobody needs to re-derive this.
+-- WHAT MOVES AND WHAT DOES NOT — stated narrowly, because the first version of
+-- this comment claimed "reported figures do not move" and that was broader than
+-- the evidence behind it.
+--
+-- VERIFIED UNCHANGED. The income statement and balance sheet, per
+-- `accountClassification.ts`: bucketing keys off account_TYPE, which these
+-- statements do not touch. The expense branch splits `cost_of_sales`, then the
+-- OTHER_EXPENSE set, then everything else to operatingExpenses, so
+-- `admin_expense` and `operating_expense` land in the same band; revenue is the
+-- same shape. Cash flow too, per `cashFlowClassification.ts:75-76`, which puts
+-- both subtypes in `cash_paid_to_suppliers`.
+--
+-- WHAT DOES MOVE: the AFS. ISAFlow Demo has ZERO rows in
+-- `afs_account_mappings`, and `autoMapAccounts` maps only accounts that are not
+-- yet mapped — so the next AFS run maps these two by their NEW subtype:
+--   5600 (390 journal lines)  operating_expense -> IS253  becomes  admin_expense -> IS160
+--   4300 (159 journal lines)  revenue           -> IS002  becomes  other_income  -> IS143
+--
+-- 4300 -> IS143 "Other income" is an improvement. 5600 -> IS160 is NOT: IS160 is
+-- "Accounting officer's remuneration", a specific statutory disclosure line, and
+-- 390 lines of general administrative spend do not belong in it. That is a
+-- defect in the PRE-EXISTING `admin_expense -> IS160` entry of
+-- `SUBTYPE_TO_AFS_CODE`, not something these statements introduce — every
+-- company already carrying `admin_expense` has it. It is left alone here
+-- deliberately: correcting it moves other tenants' AFS figures and belongs in
+-- its own change. Fixing that entry restores 5600 to a general-expenses line.
+-- ISAFlow Demo is the demo tenant, so nothing filed depends on it in the
+-- meantime.
 UPDATE gl_accounts
    SET account_subtype   = 'admin_expense',
        is_system_account = true,

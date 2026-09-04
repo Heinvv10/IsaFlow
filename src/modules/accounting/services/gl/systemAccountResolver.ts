@@ -12,9 +12,19 @@
 
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
-import type { GLAccountType } from '../../types/gl.types';
-import { MissingSystemAccountError, SYSTEM_ACCOUNT_KEYS, type SystemAccountKey } from './systemAccountKeys';
+import {
+  MissingSystemAccountError,
+  SYSTEM_ACCOUNT_KEYS,
+  preferSystemAccount,
+  typeFitsSubtype,
+  type NearMissClaimant,
+  type SystemAccountKey,
+  type SystemRoleGap,
+} from './systemAccountKeys';
+// Re-exported: `chartOfAccountsHealth` and the resolver's own tests import both
+// from here, and both now live in the leaf module so `systemRoleCoverage` can
+// rank rivals by the same rule the resolver uses.
+export { preferSystemAccount, typeFitsSubtype };
 import { describeEmptyRole } from './systemRoleCoverage';
 
 import type { DbRow } from '@/types/db';
@@ -153,26 +163,6 @@ export async function getSystemAccountCandidates(
  */
 const RESOLVED_SUBTYPES: ReadonlySet<string> = new Set<string>(SYSTEM_ACCOUNT_KEYS);
 
-/** True when `accountType` may legally carry `subtype` (glAccountSubtypes.ts). */
-export function typeFitsSubtype(accountType: string, subtype: string): boolean {
-  const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType as GLAccountType] as readonly string[] | undefined;
-  return allowed?.includes(subtype) ?? false;
-}
-
-/** Exported for the unit test; deterministic and total over (typeFits, createdAt, id). */
-export function preferSystemAccount(a: CachedAccount, b: CachedAccount): CachedAccount {
-  const fa = typeFitsSubtype(a.accountType, a.accountSubtype);
-  const fb = typeFitsSubtype(b.accountType, b.accountSubtype);
-  if (fa !== fb) return fa ? a : b;
-  // created_at is nullable in the schema. NaN compares false both ways, which
-  // made the outcome depend on argument order — i.e. on fetch order again. An
-  // unknown date ranks OLDEST so a dated row always beats it, symmetrically.
-  const ca = Number.isFinite(a.createdAt) ? a.createdAt : Number.NEGATIVE_INFINITY;
-  const cb = Number.isFinite(b.createdAt) ? b.createdAt : Number.NEGATIVE_INFINITY;
-  if (ca !== cb) return ca > cb ? a : b;
-  return a.id > b.id ? a : b;
-}
-
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -195,7 +185,26 @@ export async function getSystemAccount(key: SystemAccountKey, companyId: string)
   const map = await ensureCache(companyId);
   const account = map.get(key);
   if (!account) {
-    const { gap, nearMisses } = await describeEmptyRole(key, companyId);
+    // The near-miss lookup is a SECOND query, and it must never be what decides
+    // whether the caller gets a diagnosis. If the surrounding transaction is
+    // already aborted (a prior statement raised and someone swallowed it), this
+    // SELECT raises 25P02 and that would propagate INSTEAD of
+    // MissingSystemAccountError — the registry would fall through to
+    // GENERIC_FAILURE, losing the named blocker in exactly the situation where
+    // working the cause out by hand is hardest. So the detail is best-effort and
+    // the refusal is not: on failure we throw the same typed error with no
+    // candidates, which still names the role and the remedy.
+    let gap: SystemRoleGap = 'no_claimant';
+    let nearMisses: NearMissClaimant[] = [];
+    try {
+      ({ gap, nearMisses } = await describeEmptyRole(key, companyId));
+    } catch (err) {
+      log.warn(
+        'Could not classify the empty system account role; refusing without candidates',
+        { key, companyId, err: err instanceof Error ? err.message : String(err) },
+        'accounting',
+      );
+    }
     log.error('System account not found', { key, companyId, gap, nearMisses: nearMisses.length }, 'accounting');
     throw new MissingSystemAccountError(key, companyId, gap, nearMisses);
   }

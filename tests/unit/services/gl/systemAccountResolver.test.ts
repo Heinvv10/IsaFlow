@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import {
   clearSystemAccountCache, getSystemAccount, preferSystemAccount, typeFitsSubtype,
 } from '@/modules/accounting/services/gl/systemAccountResolver';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 
 const CO = '4a159669-2f50-46b5-a7b8-2e94dab3d495';
 const mockSql = vi.mocked(sql) as unknown as ReturnType<typeof vi.fn>;
@@ -108,5 +109,40 @@ describe('duplicate system rows', () => {
     expect(typeFitsSubtype('revenue', 'disposal_profit_loss')).toBe(true);
     expect(typeFitsSubtype('expense', 'disposal_profit_loss')).toBe(true);
     expect(typeFitsSubtype('nonsense', 'bank')).toBe(false);
+  });
+});
+
+/**
+ * The refusal must survive its own diagnostics.
+ *
+ * `getSystemAccount` runs a SECOND query on the empty-role path to classify the
+ * gap and name the near misses. If the surrounding transaction is already
+ * aborted — a prior statement raised and someone swallowed it — that SELECT
+ * raises 25P02 and, unguarded, propagates INSTEAD of the typed error. The
+ * registry then falls through to GENERIC_FAILURE and the caller is told "the
+ * operation failed, please try again" about a chart that will never be able to
+ * answer, in exactly the situation where working the cause out by hand is
+ * hardest.
+ */
+describe('an empty role refuses even when the near-miss lookup cannot run', () => {
+  it('still throws MissingSystemAccountError when the second query fails', async () => {
+    mockSql.mockResolvedValueOnce([]); // cache load: no system accounts at all
+    mockSql.mockRejectedValueOnce(     // describeEmptyRole, in an aborted tx
+      Object.assign(new Error('current transaction is aborted'), { code: '25P02' }),
+    );
+
+    const err = await getSystemAccount('disposal_profit_loss', CO).then(
+      () => null,
+      (e: unknown) => e,
+    );
+
+    expect(err).toBeInstanceOf(MissingSystemAccountError);
+    const missing = err as MissingSystemAccountError;
+    expect(missing.key).toBe('disposal_profit_loss');
+    // Best-effort detail: absent rather than fabricated.
+    expect(missing.nearMisses).toEqual([]);
+    expect(missing.gap).toBe('no_claimant');
+    // And it is not silent about having given up on the detail.
+    expect(log.warn).toHaveBeenCalled();
   });
 });

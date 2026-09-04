@@ -41,7 +41,6 @@ const BRIGHTSPHERE = 'd27bac33-cdc0-4e58-bf6b-709c1597d41c';
 const DEMO = '00000000-0000-0000-0000-000000000001';
 
 let client: PoolClient | null = null;
-let reachable = false;
 
 function ctxFor(companyId: string): Ctx {
   return { client, userId: USER_ID, companyId, claims: {} } as unknown as Ctx;
@@ -53,39 +52,54 @@ async function asCompany<T>(companyId: string, fn: () => Promise<T>): Promise<T>
   return als.run(ctxFor(companyId), fn);
 }
 
-beforeAll(async () => {
-  reachable = await isDbReachable();
-  if (!reachable) return;
-  assertNotProductionDb('creates a company and GL accounts, then rolls back');
-  client = await getPoolForTests().connect();
-  await client.query('BEGIN');
-});
 
-afterAll(async () => {
-  if (client) {
-    await client.query('ROLLBACK');
-    client.release();
-  }
-});
 
 /**
- * Fail rather than skip when the DB is up but the fixture cannot be built.
+ * `it.skipIf(!reachable)`, evaluated at COLLECTION time — the pattern
+ * `budgetVarianceDb.test.ts` uses, and the reason `reachable` is awaited in the
+ * describe body rather than in `beforeAll`.
  *
- * A fixture that returns early on a missing precondition turns every assertion
- * below it into a green no-op — the failure mode is indistinguishable from a
- * passing suite. Skipping is only correct when there is no database at all,
- * which `isDbReachable` decides once, up front.
+ * The first version of this file opened every test with `if (!reachable)
+ * return;`. An early return inside a test body is a PASS, so with the database
+ * unreachable all four reported green having asserted nothing — including the
+ * brand-new-tenant test, which is the entire proof that migration 605 fixed the
+ * seed. `describe.skipIf(!process.env.DATABASE_URL)` covered only the no-URL
+ * case; the hole was URL-set-but-database-down, which is exactly what
+ * `isDbReachable` exists to detect and what this file's docblock claimed to
+ * defend against. A guard that reports success when it cannot run is worse than
+ * no guard, and it was hiding behind a `requireDb()` helper that the early
+ * return meant never executed.
  */
-function requireDb(): void {
-  if (!reachable) return;
-  if (!client) throw new Error('DB reachable but no client — fixture is broken, not skipped');
-}
+describe('system account roles (DB)', async () => {
+  const reachable = await isDbReachable();
 
-describe.skipIf(!process.env.DATABASE_URL)('system account roles (DB)', () => {
-  it('a brand-new tenant can resolve all fourteen roles', async () => {
+  beforeAll(async () => {
     if (!reachable) return;
-    requireDb();
-    const c = client!;
+    assertNotProductionDb('creates a company and GL accounts, then rolls back');
+    client = await getPoolForTests().connect();
+    await client.query('BEGIN');
+  });
+
+  afterAll(async () => {
+    if (client) {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
+  /**
+   * The fixture is REQUIRED once we have decided not to skip. Skipping is the
+   * answer to "there is no database"; it is not the answer to "the database is
+   * there and the fixture did not build", which is a broken test and must say
+   * so.
+   */
+  function db(): PoolClient {
+    if (!client) throw new Error('DB reachable but no client — fixture is broken, not skipped');
+    return client;
+  }
+
+  it.skipIf(!reachable)('a brand-new tenant can resolve all fourteen roles', async () => {
+    const c = db();
 
     // The same seeder `create_company_with_owner` invokes, so this exercises
     // migration 605's template and not a hand-built chart.
@@ -139,12 +153,17 @@ describe.skipIf(!process.env.DATABASE_URL)('system account roles (DB)', () => {
    *
    * Restricted to the ids present in THIS database, because dev holds a subset
    * of production's — but it fails rather than passes if that subset is empty,
-   * so it cannot go green by matching nothing.
+   * so it cannot go green by matching nothing. The name says PRESENT IN THIS
+   * DATABASE rather than "all thirteen" because on dev it checks six: the gap
+   * between one and thirteen is real and the title should not paper over it.
+   *
+   * NOTE WHAT THIS IS. It asserts the STATE of the database it finds; it does
+   * not run 606. It is a migration-applied smoke test, not a test of the
+   * migration file's logic, and it should not be read as proof that 606 is
+   * correct — only that whatever ran left the roles resolvable.
    */
-  it('every production tenant migration 606 names holds all fourteen roles', async () => {
-    if (!reachable) return;
-    requireDb();
-    const c = client!;
+  it.skipIf(!reachable)('every production tenant PRESENT IN THIS DATABASE holds all fourteen roles', async () => {
+    const c = db();
 
     // The 13 companies measured in production on 2026-09-04.
     const PRODUCTION_TENANTS = [
@@ -180,10 +199,8 @@ describe.skipIf(!process.env.DATABASE_URL)('system account roles (DB)', () => {
     expect(empties).toEqual([]);
   });
 
-  it('reports the near miss rather than a bare absence, and tells the two shapes apart', async () => {
-    if (!reachable) return;
-    requireDb();
-    const c = client!;
+  it.skipIf(!reachable)('reports the near miss rather than a bare absence, and tells the two shapes apart', async () => {
+    const c = db();
 
     const { rows } = await c.query<{ id: string }>(
       `INSERT INTO companies (name, registered_name, country, default_currency)
@@ -237,10 +254,8 @@ describe.skipIf(!process.env.DATABASE_URL)('system account roles (DB)', () => {
     expect((err as MissingSystemAccountError).nearMisses[0].accountCode).toBe('4300');
   });
 
-  it('Brightsphere and the demo tenant resolve every role after the backfill', async () => {
-    if (!reachable) return;
-    requireDb();
-    const c = client!;
+  it.skipIf(!reachable)('Brightsphere and the demo tenant resolve every role after the backfill', async () => {
+    const c = db();
 
     for (const companyId of [BRIGHTSPHERE, DEMO]) {
       const { rows } = await c.query<{ n: string }>(

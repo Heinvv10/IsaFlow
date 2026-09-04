@@ -20,12 +20,20 @@ import {
   type NearMissClaimant,
 } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { classifyRole } from '@/modules/accounting/services/gl/systemRoleCoverage';
+import {
+  BS_LINES,
+  IS_LINES,
+  SUBTYPE_TO_AFS_CODE,
+} from '@/modules/accounting/services/afs/afsTaxonomySeeds';
 
 function claimant(over: Partial<NearMissClaimant> = {}): NearMissClaimant {
   return {
+    id: 'a',
     accountCode: '1110',
     accountName: 'Bank - Primary',
     accountType: 'asset',
+    accountSubtype: 'bank',
+    createdAt: Date.parse('2026-01-01T00:00:00Z'),
     isActive: true,
     isSystemAccount: true,
     ...over,
@@ -87,11 +95,42 @@ describe('classifyRole', () => {
 
   it('reports contested when two active system accounts claim one role', () => {
     const r = classifyRole('vat_input', [
-      claimant({ accountCode: '1140' }),
-      claimant({ accountCode: 'SYS-2' }),
+      claimant({ id: 'a', accountCode: '1140', accountSubtype: 'vat_input' }),
+      claimant({ id: 'b', accountCode: 'SYS-2', accountSubtype: 'vat_input' }),
     ]);
     expect(r.state).toBe('contested');
     expect(r.claimants).toHaveLength(2);
+  });
+
+  /**
+   * The Velocity Fibre state the resolver's own comment documents: two active
+   * system rows claiming `vat_input`, one of them a LIABILITY named "VAT
+   * Payable". The resolver applies `preferSystemAccount` — type-fit first — and
+   * hands out the ASSET. A coverage report that ranked by account_code instead
+   * would name `0900 VAT Payable` as the holder while every auto-posting went
+   * to `1140`, and `chart_of_accounts_health` labels that field `resolverPicks`.
+   *
+   * `0900` sorts first by code AND is newer, so it wins on both of the tiebreaks
+   * that come after type-fit. Only the type-fit rule saves it, which is why the
+   * assertion is on `holder` and not merely on `state`.
+   */
+  it('names the account the RESOLVER would pick when a role is contested, not the first by code', () => {
+    const vatPayable = claimant({
+      id: 'b', accountCode: '0900', accountName: 'VAT Payable',
+      accountType: 'liability', accountSubtype: 'vat_input',
+      createdAt: Date.parse('2026-06-01T00:00:00Z'),
+    });
+    const vatInput = claimant({
+      id: 'a', accountCode: '1140', accountName: 'VAT Input',
+      accountType: 'asset', accountSubtype: 'vat_input',
+      createdAt: Date.parse('2026-01-01T00:00:00Z'),
+    });
+    // Both orderings: the answer must not depend on fetch order.
+    for (const rows of [[vatPayable, vatInput], [vatInput, vatPayable]]) {
+      const r = classifyRole('vat_input', rows);
+      expect(r.state).toBe('contested');
+      expect(r.holder?.accountCode).toBe('1140');
+    }
   });
 
   it('does not count a deactivated system row towards a contest', () => {
@@ -100,6 +139,42 @@ describe('classifyRole', () => {
       claimant({ accountCode: 'SYS-2', isActive: false }),
     ]);
     expect(r.state).toBe('ok');
+  });
+});
+
+/**
+ * A role the ledger can resolve but the AFS cannot place is a fix that opens a
+ * hole one layer up. Migrations 605/606 create `3300 Opening Balance Equity`
+ * and `4410 Profit / Loss on Disposal of Assets` for EVERY tenant;
+ * `afsAutoMapper` tries subtype, then name patterns, then gives up and counts
+ * the account as skipped. Neither name matches any pattern, so without a
+ * subtype entry every one of those accounts is absent from the annual financial
+ * statements — and for opening-balance equity that is equity missing from the
+ * balance sheet.
+ */
+describe('every system role can be placed on the AFS', () => {
+  const lines = [...BS_LINES, ...IS_LINES];
+  const codes = new Set(lines.map((l) => l.code));
+
+  it('maps both roles migrations 605/606 introduce', () => {
+    expect(SUBTYPE_TO_AFS_CODE.opening_balance_equity).toBe('BS046');
+    expect(SUBTYPE_TO_AFS_CODE.disposal_profit_loss).toBe('IS472');
+  });
+
+  it('maps them to codes that actually exist in the taxonomy', () => {
+    // A typo'd code is indistinguishable from no mapping at all downstream.
+    expect(codes.has(SUBTYPE_TO_AFS_CODE.opening_balance_equity)).toBe(true);
+    expect(codes.has(SUBTYPE_TO_AFS_CODE.disposal_profit_loss)).toBe(true);
+  });
+
+  it('places opening balance equity inside capital and reserves, not in accumulated profit', () => {
+    // The entire reason a dedicated clearing account exists is to keep opening
+    // balances OUT of retained earnings, which is the first figure an auditor
+    // reconciles. Landing it on BS045 would defeat the account.
+    const line = lines.find((l) => l.code === SUBTYPE_TO_AFS_CODE.opening_balance_equity);
+    expect(line?.parentCode).toBe('BS041');
+    expect(SUBTYPE_TO_AFS_CODE.opening_balance_equity)
+      .not.toBe(SUBTYPE_TO_AFS_CODE.retained_earnings);
   });
 });
 

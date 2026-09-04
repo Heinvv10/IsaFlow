@@ -19,6 +19,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/types/db';
 import {
   SYSTEM_ACCOUNT_KEYS,
+  preferSystemAccount,
   type NearMissClaimant,
   type SystemAccountKey,
   type SystemRoleGap,
@@ -52,9 +53,13 @@ export interface SystemRoleCoverageReport {
 
 function toClaimant(r: DbRow): NearMissClaimant {
   return {
+    id: String(r.id ?? ''),
     accountCode: String(r.account_code ?? ''),
     accountName: String(r.account_name ?? ''),
     accountType: String(r.account_type ?? ''),
+    accountSubtype: String(r.account_subtype ?? ''),
+    createdAt: r.created_at instanceof Date ? r.created_at.getTime()
+      : r.created_at == null ? Number.NaN : Date.parse(String(r.created_at)),
     isActive: r.is_active === true,
     isSystemAccount: r.is_system_account === true,
   };
@@ -77,7 +82,12 @@ export function classifyRole(key: SystemAccountKey, claimants: NearMissClaimant[
     return { key, state: 'ok', holder: resolvable[0], claimants };
   }
   if (resolvable.length > 1) {
-    return { key, state: 'contested', holder: resolvable[0], claimants };
+    // `preferSystemAccount`, NOT the first row. These are ordered by
+    // account_code, and taking resolvable[0] reported Velocity's
+    // `0900 VAT Payable` (a LIABILITY) as the holder of vat_input while every
+    // auto-posting resolved to `1140 VAT Input` — the report named an account
+    // the ledger does not use, which is worse than naming none.
+    return { key, state: 'contested', holder: resolvable.reduce(preferSystemAccount), claimants };
   }
 
   let gap: SystemRoleGap = 'no_claimant';
@@ -97,8 +107,8 @@ export function classifyRole(key: SystemAccountKey, claimants: NearMissClaimant[
  */
 export async function getSystemRoleCoverage(companyId: string): Promise<SystemRoleCoverageReport> {
   const rows = (await sql`
-    SELECT account_code, account_name, account_type, account_subtype,
-           is_active, is_system_account
+    SELECT id::TEXT AS id, account_code, account_name, account_type, account_subtype,
+           created_at, is_active, is_system_account
     FROM gl_accounts
     WHERE company_id = ${companyId}::UUID
       AND account_subtype = ANY(${[...SYSTEM_ACCOUNT_KEYS]}::TEXT[])
@@ -135,7 +145,8 @@ export async function describeEmptyRole(
   companyId: string,
 ): Promise<{ gap: SystemRoleGap; nearMisses: NearMissClaimant[] }> {
   const rows = (await sql`
-    SELECT account_code, account_name, account_type, is_active, is_system_account
+    SELECT id::TEXT AS id, account_code, account_name, account_type,
+           account_subtype, created_at, is_active, is_system_account
     FROM gl_accounts
     WHERE company_id = ${companyId}::UUID
       AND account_subtype = ${key}

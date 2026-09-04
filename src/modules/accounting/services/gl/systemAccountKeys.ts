@@ -16,10 +16,15 @@
  * So the array is the source of truth and the type is derived from it. Adding a
  * role means adding one array entry, and every consumer picks it up.
  *
- * This module deliberately imports nothing. `registry.ts` renders
- * `MissingSystemAccountError` at the MCP boundary and must not depend on a
- * service that opens a database connection.
+ * It also holds the rule for CHOOSING between rival claimants, because two
+ * modules need it and neither may import the other: the resolver hands out the
+ * winner, and `systemRoleCoverage` has to report the same winner or its report
+ * names an account the ledger does not use. This module's only import is a
+ * table of constants, so `registry.ts` can render `MissingSystemAccountError`
+ * at the MCP boundary without pulling in anything that opens a database.
  */
+import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
+import type { GLAccountType } from '../../types/gl.types';
 
 /**
  * Every role the resolver hands out, in reporting order.
@@ -72,13 +77,56 @@ export type SystemRoleGap =
   | 'deactivated_claimants_only'
   | 'unflagged_active_claimant';
 
-/** A row that nearly claims a role, named so the operator can go and look at it. */
-export interface NearMissClaimant {
+/**
+ * The fields `preferSystemAccount` needs to rank two rivals. Kept minimal so
+ * both the resolver's `CachedAccount` and the coverage report's claimant
+ * satisfy it structurally.
+ */
+export interface SystemAccountCandidate {
+  id: string;
   accountCode: string;
   accountName: string;
   accountType: string;
+  accountSubtype: string;
+  /** Epoch ms of gl_accounts.created_at; NaN when the column is null. */
+  createdAt: number;
+}
+
+/** A row claiming a role, named so the operator can go and look at it. */
+export interface NearMissClaimant extends SystemAccountCandidate {
   isActive: boolean;
   isSystemAccount: boolean;
+}
+
+/** True when `accountType` may legally carry `subtype` (glAccountSubtypes.ts). */
+export function typeFitsSubtype(accountType: string, subtype: string): boolean {
+  const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType as GLAccountType] as readonly string[] | undefined;
+  return allowed?.includes(subtype) ?? false;
+}
+
+/**
+ * Which of two rival system accounts the ledger actually uses.
+ *
+ * Deterministic and total over (typeFits, createdAt, id): a row whose type may
+ * legally carry the subtype beats a mistyped one, then the newer row beats the
+ * older, then the higher id breaks the tie. Moved here from
+ * `systemAccountResolver` so `systemRoleCoverage` can apply the SAME rule —
+ * ranking rivals by account_code instead, as it briefly did, made
+ * `chart_of_accounts_health` report `0900 VAT Payable` as the resolver's pick
+ * while every auto-posting went to `1140 VAT Input`. A report that names an
+ * account the ledger does not use is worse than one that names none.
+ */
+export function preferSystemAccount<T extends SystemAccountCandidate>(a: T, b: T): T {
+  const fa = typeFitsSubtype(a.accountType, a.accountSubtype);
+  const fb = typeFitsSubtype(b.accountType, b.accountSubtype);
+  if (fa !== fb) return fa ? a : b;
+  // created_at is nullable in the schema. NaN compares false both ways, which
+  // made the outcome depend on argument order — i.e. on fetch order again. An
+  // unknown date ranks OLDEST so a dated row always beats it, symmetrically.
+  const ca = Number.isFinite(a.createdAt) ? a.createdAt : Number.NEGATIVE_INFINITY;
+  const cb = Number.isFinite(b.createdAt) ? b.createdAt : Number.NEGATIVE_INFINITY;
+  if (ca !== cb) return ca > cb ? a : b;
+  return a.id > b.id ? a : b;
 }
 
 /** The fix sentence for each shape of gap. */
