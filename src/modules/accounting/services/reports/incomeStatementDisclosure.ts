@@ -194,7 +194,7 @@ function pickNamed(scored: readonly DisclosureAccount[]): DisclosureAccount[] {
   const take = (r: DisclosureAccount | undefined) => {
     if (r && !chosen.includes(r)) chosen.push(r);
   };
-  // One of each REASON: the headline cites all three, so each needs an example.
+  // One of each REASON: the headline cites both, so each needs an example.
   for (const reason of ['platform_default', 'no_subtype'] as const) {
     take(scored.find(r => r.reason === reason));
   }

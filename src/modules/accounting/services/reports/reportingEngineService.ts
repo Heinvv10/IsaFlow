@@ -7,6 +7,19 @@ export interface FinancialData {
   revenue: number;
   costOfSales: number;
   operatingExpenses: number;
+  /**
+   * Profit from operations, computed once by
+   * `gl/accountClassification#aggregateFigures`. Carried rather than derived:
+   * every consumer that recomputed `grossProfit - operatingExpenses` locally
+   * excluded other income and so reported a different operating line from the
+   * income statement and from `profit_and_loss` — the B75 defect, on eight live
+   * ratio surfaces. Optional only so a hand-built `FinancialData` need not
+   * supply it; when absent the old derivation is used and the caller gets what
+   * it always got.
+   */
+  operatingProfit?: number;
+  /** Non-trading income, below the gross-profit line. */
+  otherIncome?: number;
   netProfit: number;
   totalAssets: number;
   totalLiabilities: number;
@@ -146,11 +159,21 @@ function pct(numerator: number, denominator: number): number {
   return Math.round(safeDiv(numerator, denominator) * 10000) / 100;
 }
 
+/**
+ * The operating line, from the classifier when the caller carried it. Other
+ * income is ABOVE this line; only finance cost and tax sit below. Deriving it
+ * locally is what made eight ratio endpoints disagree with the income statement.
+ */
+function operatingProfitOf(data: FinancialData): number {
+  return data.operatingProfit
+    ?? (data.revenue - data.costOfSales + (data.otherIncome ?? 0) - data.operatingExpenses);
+}
+
 export function calculateFinancialRatios(data: FinancialData): RatioResult {
   const grossProfit = data.revenue - data.costOfSales;
   const equityFailure = equityBasisFailure(data.totalEquity);
   const notMeaningful = equityNotMeaningful(data.totalEquity);
-  const operatingProfit = grossProfit - data.operatingExpenses;
+  const operatingProfit = operatingProfitOf(data);
 
   return {
     grossProfitMargin: pct(grossProfit, data.revenue),
@@ -179,7 +202,9 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const equityFailure = equityBasisFailure(data.totalEquity);
   const notMeaningful = { ...base.notMeaningful, ...equityNotMeaningful(data.totalEquity) };
   const grossProfit = data.revenue - data.costOfSales;
-  const ebit = grossProfit - data.operatingExpenses;
+  // EBIT is the operating line: earnings before interest and tax, so other
+  // income is in and finance cost and tax are out.
+  const ebit = operatingProfitOf(data);
   const dep = data.depreciation ?? 0;
   const amort = data.amortization ?? 0;
   const interestExp = data.interestExpense ?? 0;

@@ -255,15 +255,27 @@ export default function IncomeStatementPage() {
                   </span>
                 </div>
 
+                {/* Other Income — below gross profit because it is not trading
+                    revenue, and ABOVE the Operating Profit that contains it so
+                    the column reconciles as a reader works down it. Printing it
+                    after the total made GP - OpEx fall short of the stated
+                    Operating Profit by exactly this amount. */}
+                {report.otherIncome.length > 0 && (
+                  <Section label="Other Income" items={report.otherIncome} total={report.totalOtherIncome} color="teal"
+                    periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
+                    onToggleAccount={toggleAccount} showComparative={showComparative}
+                    onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
+                )}
+
                 {/* Operating Expenses */}
                 <Section label="Operating Expenses" items={report.operatingExpenses} total={report.totalOperatingExpenses} color="red"
                   periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
                   onToggleAccount={toggleAccount} showComparative={showComparative}
                   onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
 
-                {/* Operating Profit — gross profit less operating expenses, so
-                    the line means what it says now that finance cost and tax
-                    have moved below it. */}
+                {/* Operating Profit — gross profit PLUS other income, less
+                    operating expenses. Other income is above this line; only
+                    finance cost and tax sit below it. */}
                 <div className="px-6 py-3 flex justify-between bg-blue-500/5">
                   <span className="font-semibold text-[var(--ff-text-primary)]">Operating Profit</span>
                   <span className={`font-bold font-mono ${report.operatingProfit >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
@@ -275,16 +287,6 @@ export default function IncomeStatementPage() {
                     )}
                   </span>
                 </div>
-
-                {/* Other Income — below gross profit, because it is not trading
-                    revenue. Reporting it inside turnover overstated gross
-                    profit and disagreed with every other surface (B75). */}
-                {report.otherIncome.length > 0 && (
-                  <Section label="Other Income" items={report.otherIncome} total={report.totalOtherIncome} color="teal"
-                    periodStart={periodStart} periodEnd={periodEnd} expandedAccount={expandedAccount}
-                    onToggleAccount={toggleAccount} showComparative={showComparative}
-                    onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })} />
-                )}
 
                 {/* Other Expenses — finance cost, tax and other expense. */}
                 {report.otherExpenses.length > 0 && (

@@ -99,7 +99,12 @@ export interface IncomeStatementReport {
   totalOtherExpenses: number;
   /** Turnover less cost of sales. Trading only. */
   grossProfit: number;
-  /** Gross profit less operating expenses. */
+  /**
+   * Gross profit PLUS other income, less operating expenses. Other income is
+   * above the operating line; only finance cost and tax sit below it. Written
+   * out because "gross profit less operating expenses" is the wrong formula
+   * that caused B75's re-divergence.
+   */
   operatingProfit: number;
   netProfit: number;
   // Comparative totals (populated when compare period requested)

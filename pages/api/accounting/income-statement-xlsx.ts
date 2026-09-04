@@ -4,6 +4,7 @@
  */
 
 import type { NextApiResponse } from 'next';
+import type { IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
 import { reasonLabel } from '@/modules/accounting/services/reports/incomeStatementDisclosure';
 import ExcelJS from 'exceljs';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -88,31 +89,17 @@ function addTotalRow(ws: ExcelJS.Worksheet, label: string, amount: number, bgArg
   row.getCell(4).alignment = { horizontal: 'right' };
 }
 
-async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET');
-    res.status(405).end('Method Not Allowed');
-    return;
-  }
-
-  const companyId = (req as unknown as CompanyAuthedRequest).companyId;
-  const { period_start: start, period_end: end, cost_centre_id: ccId } = req.query as Record<string, string>;
-
-  if (!start || !end) {
-    res.status(400).json({ success: false, error: 'period_start and period_end are required' });
-    return;
-  }
-
-  apiLogger.info({ companyId, start, end }, 'Income statement xlsx export requested');
-
-  const [companyRows, report] = await Promise.all([
-    sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<Row[]>,
-    getIncomeStatement(companyId, start, end, ccId ? { costCentreId: ccId } : {}),
-  ]);
-
-  const companyName = String(companyRows[0]?.name ?? 'Company');
-  const today = new Date().toISOString().slice(0, 10);
-
+/**
+ * Build the workbook from a report. Extracted from the handler so the RENDERED
+ * output is testable: every band on this sheet could be deleted with the full
+ * unit suite green, because nothing could reach the sheet without an HTTP
+ * request. The AFS statement was missed the same way.
+ */
+export async function buildIncomeStatementWorkbook(
+  report: IncomeStatementReport,
+  companyName: string,
+  today: string = new Date().toISOString().slice(0, 10),
+): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook();
   wb.creator = 'ISAFlow';
   wb.created = new Date();
@@ -124,7 +111,12 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   ws.getColumn(3).width = 35;
   ws.getColumn(4).width = 16;
 
-  addTitleRows(ws, `${companyName} — Income Statement`, `Period: ${start} to ${end}`, today);
+  addTitleRows(
+    ws,
+    `${companyName} — Income Statement`,
+    `Period: ${report.periodStart} to ${report.periodEnd}`,
+    today,
+  );
   addHeaderRow(ws);
 
   // Revenue
@@ -194,6 +186,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
       .font = { italic: true, color: { argb: 'FFB45309' } };
   }
 
+  // Other Income — below gross profit, not inside turnover (B75)
+  if (report.otherIncome.length > 0) {
+    ws.addRow([]);
+    addSectionHeader(ws, 'Other Income', 'FF0D9488');
+    for (const item of report.otherIncome) {
+      addLineItem(ws, 'Other Income', item.accountCode, item.accountName, item.amount);
+    }
+    ws.addRow([]);
+    addTotalRow(ws, 'Total Other Income', report.totalOtherIncome);
+  }
+
   // Operating Expenses
   ws.addRow([]);
   addSectionHeader(ws, 'Operating Expenses', 'FFDC2626');
@@ -206,17 +209,6 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   // Operating Profit
   ws.addRow([]);
   addTotalRow(ws, 'Operating Profit', report.operatingProfit, 'FF2563EB');
-
-  // Other Income — below gross profit, not inside turnover (B75)
-  if (report.otherIncome.length > 0) {
-    ws.addRow([]);
-    addSectionHeader(ws, 'Other Income', 'FF0D9488');
-    for (const item of report.otherIncome) {
-      addLineItem(ws, 'Other Income', item.accountCode, item.accountName, item.amount);
-    }
-    ws.addRow([]);
-    addTotalRow(ws, 'Total Other Income', report.totalOtherIncome);
-  }
 
   // Other Expenses — finance cost, tax, other
   if (report.otherExpenses.length > 0) {
@@ -245,6 +237,36 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     report.totalRevenue > 0 ? ((report.netProfit / report.totalRevenue) * 100).toFixed(1) + '%' : 'N/A',
   ]);
   nmRow.getCell(4).alignment = { horizontal: 'right' };
+
+  return wb;
+}
+
+async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET');
+    res.status(405).end('Method Not Allowed');
+    return;
+  }
+
+  const companyId = (req as unknown as CompanyAuthedRequest).companyId;
+  const { period_start: start, period_end: end, cost_centre_id: ccId } = req.query as Record<string, string>;
+
+  if (!start || !end) {
+    res.status(400).json({ success: false, error: 'period_start and period_end are required' });
+    return;
+  }
+
+  apiLogger.info({ companyId, start, end }, 'Income statement xlsx export requested');
+
+  const [companyRows, report] = await Promise.all([
+    sql`SELECT name FROM companies WHERE id = ${companyId}::UUID LIMIT 1` as Promise<Row[]>,
+    getIncomeStatement(companyId, start, end, ccId ? { costCentreId: ccId } : {}),
+  ]);
+
+  const companyName = String(companyRows[0]?.name ?? 'Company');
+  const today = new Date().toISOString().slice(0, 10);
+
+  const wb = await buildIncomeStatementWorkbook(report, companyName, today);
 
   const filename = `income-statement-${start}-to-${end}.xlsx`;
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

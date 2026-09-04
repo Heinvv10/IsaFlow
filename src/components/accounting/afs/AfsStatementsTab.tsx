@@ -125,7 +125,7 @@ function ISSection({ label, items, total }: { label: string; items: IncomeStatem
   );
 }
 
-function IncomeStatementBlock({ report, periodStart, periodEnd }: {
+export function IncomeStatementBlock({ report, periodStart, periodEnd }: {
   report: IncomeStatementReport;
   periodStart: string;
   periodEnd: string;

@@ -67,6 +67,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Gross Profit summary
     csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Gross Profit')},${Number(report.grossProfit).toFixed(2)}`);
 
+    // Other Income — below gross profit, not inside turnover (B75)
+    for (const item of report.otherIncome) {
+      csvLines.push(
+        `${csvVal('Other Income')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.amount).toFixed(2)}`
+      );
+    }
+    if (report.otherIncome.length > 0) {
+      csvLines.push(`${csvVal('Other Income')},${csvVal('')},${csvVal('Total Other Income')},${Number(report.totalOtherIncome).toFixed(2)}`);
+    }
+
     // Operating Expenses lines
     for (const item of report.operatingExpenses) {
       csvLines.push(
@@ -78,15 +88,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Operating Profit summary
     csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Operating Profit')},${Number(report.operatingProfit).toFixed(2)}`);
 
-    // Other Income — below gross profit, not inside turnover (B75)
-    for (const item of report.otherIncome) {
-      csvLines.push(
-        `${csvVal('Other Income')},${csvVal(item.accountCode)},${csvVal(item.accountName)},${Number(item.amount).toFixed(2)}`
-      );
-    }
-    if (report.otherIncome.length > 0) {
-      csvLines.push(`${csvVal('Other Income')},${csvVal('')},${csvVal('Total Other Income')},${Number(report.totalOtherIncome).toFixed(2)}`);
-    }
 
     // Other Expenses — finance cost, tax, other
     for (const item of report.otherExpenses) {
