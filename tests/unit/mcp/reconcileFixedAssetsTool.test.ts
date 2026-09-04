@@ -339,3 +339,45 @@ describe('tenant and argument fences', () => {
     expect(reconcileFixedAssets).not.toHaveBeenCalled();
   });
 });
+
+describe('figure_guards is measured at the wire, and its fault reaches the caller', () => {
+  it('labels a figure unguarded when the response carries no rows for it', async () => {
+    // A hardcoded literal cannot produce this: it does not know what the
+    // payload contains. The old `figure_guards` said "enumerated" on every
+    // call whether or not anything had been enumerated.
+    vi.mocked(reconcileFixedAssets).mockResolvedValue({
+      ...REC, unsubtypedAccounts: [], unsubtypedAccountCount: 0, unsubtypedAccountBalance: 0,
+    });
+    const out = json(await reconcileFixedAssetsTool.handler({ as_at: '2026-08-31' }, ctx));
+    // Zero rows totalling zero IS a check that ran and agreed.
+    expect(out.figure_guards.unsubtyped_account_balance).toBe('enumerated');
+    expect(out.disclosureFault).toBeUndefined();
+  });
+
+  it('FIRES on the wire when a total disagrees with the rows beside it', async () => {
+    // The failure a service-level check could not see: the total is right for
+    // the population and the payload shows part of it. Nothing else in the
+    // response says so, and `unexplainedDifference` is still 0.
+    vi.mocked(reconcileFixedAssets).mockResolvedValue({
+      ...REC,
+      unsubtypedAccountBalance: 999999,
+      unsubtypedAccountCount: 1,
+    });
+    const out = json(await reconcileFixedAssetsTool.handler({ as_at: '2026-08-31' }, ctx));
+
+    expect(out.disclosureFault).toMatch(/unsubtyped_account_balance/);
+    expect(out.disclosureFault).toMatch(/999999/);
+    expect(out.unexplainedDifference).toBe(0);
+    // Reported, not suppressed: a reader told the number is wrong is better
+    // served than one handed an error that says nothing.
+    expect(out.unsubtyped_account_balance).toBe(999999);
+  });
+
+  it('carries a fault the SERVICE raised through to the wire as well', async () => {
+    vi.mocked(reconcileFixedAssets).mockResolvedValue({
+      ...REC, disclosureFault: 'unposted_disposals holds 2 rows for 1 assets — overstated',
+    });
+    const out = json(await reconcileFixedAssetsTool.handler({ as_at: '2026-08-31' }, ctx));
+    expect(out.disclosureFault).toMatch(/2 rows for 1 assets/);
+  });
+});

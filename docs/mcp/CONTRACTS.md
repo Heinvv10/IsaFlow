@@ -281,13 +281,28 @@ So, for any figure a report publishes outside its checked identity:
 2. **Say what the check CANNOT do.** It cannot test the query's predicate. A row
    the query never matched is invisible to it and to everything else, and no
    amount of arithmetic over the returned rows will find it.
-3. **Say it in the tool description, per figure.** `reconcile_fixed_assets`
-   returns a `figure_guards` map — `identity` for the numbers inside the
-   reconciliation, `enumerated` for the ones checked against their own rows — so
-   a caller does not have to infer which is which. A reader who is told
+3. **The guard label must be a MEASUREMENT, not a declaration — and this is the
+   rule that was learned the hard way.** `figure_guards` first shipped as a
+   hardcoded object literal: five strings emitted on every call saying a guard
+   existed, whether or not one had run. That is the same shape as a
+   `universeTotal` synthesised from the numbers it is meant to check, and it had
+   reproduced **inside the remedy built for that very defect**. The fix for "this
+   figure has no check" cannot be "a label saying it has a check".
+   So derive every label from a comparison the call actually performed:
+   `enumerated` when one ran and agreed, `unguarded` when the rows were not
+   emitted and nothing checked it. `unguarded` is a legitimate answer — it is
+   half of rule 1 — and a figure wrongly labelled `enumerated` is worse than one
+   honestly labelled `unguarded`, because the first is a lie and the second is a
+   warning.
+4. **Run the check at the WIRE boundary, over the rows the response carries.**
+   In the service, over the array the total was reduced from, it cannot fail by
+   construction — and it misses the failure most likely to arrive next, a cap
+   applied while mapping to the response, which is downstream of the service
+   entirely.
+5. **Say it in the tool description, per figure.** A reader who is told
    `unexplainedDifference` is 0.00 will otherwise extend that comfort to every
    number beside it.
-4. **A guard that cannot fire is decoration.** If the query makes the fault
+6. **A guard that cannot fire is decoration.** If the query makes the fault
    structurally impossible — as `DISTINCT ON` now does for the duplicate asset —
    the guard still earns its place as defence against the query changing back,
    but it must be proven to fire by driving the service with a stubbed query.

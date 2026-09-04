@@ -577,15 +577,31 @@ describe('the figures reported OUTSIDE the reconciling identity', async () => {
     });
   });
 
-  it.skipIf(!ok5)('and the check FIRES when a total and its rows disagree', async () => {
+  it.skipIf(!ok5)('reports every figure as MEASURED, and none as unguarded here', async () => {
     await inTx(async (companyId) => {
       const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
-      // The guard is only worth having if it can fail. Proven by mutation
-      // (see the report); asserted here as a contract: the field exists and is
-      // absent when sound, exactly like completenessFault on the envelope.
-      // Absent when sound, exactly like completenessFault on the envelope.
-      // That it can FIRE is proven by mutation rather than asserted here.
+
+      // This test used to be named "the check FIRES when a total and its rows
+      // disagree" and assert only `disclosureFault` toBeUndefined — which
+      // passed BECAUSE the field was absent. A test named for firing that
+      // cannot fire is the defect class this programme keeps finding, and it
+      // had got into the test written to catch it. Firing is proven where it
+      // can be: tests/unit/mcp/wireFigureGuards.test.ts drives the measurement
+      // directly, and fixedAssetDisclosureGuard.test.ts drives the service with
+      // a stubbed query. This one asserts what a live call can actually show.
       expect(body.disclosureFault).toBeUndefined();
+      // Every figure carries a label its call PRODUCED. On real data with rows
+      // emitted, that label is `enumerated` — never `unguarded`, which would
+      // mean the response dropped the rows the total claims to cover.
+      for (const figure of [
+        'unsubtyped_account_balance',
+        'unposted_disposal_gain_loss',
+        'unposted_disposal_book_value',
+      ]) {
+        expect(body.figure_guards[figure]).toBe('enumerated');
+      }
+      expect(body.figure_guards.itemsTotal).toBe('enumerated');
+      expect(body.figure_guards.difference).toBe('identity');
     });
   });
 });

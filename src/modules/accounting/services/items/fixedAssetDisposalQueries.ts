@@ -83,6 +83,7 @@ export async function loadUnpostedDisposals(
       AND a.disposal_date <= ${asOf}::DATE
       -- No journal claimed, or one claimed that is not a posted entry of this
       -- company. A claimed id that resolves to nothing is the worse case.
+      -- Evaluated per JOINED ROW, before DISTINCT ON — see the note above.
       AND NOT EXISTS (
         SELECT 1 FROM gl_journal_entries je
         WHERE je.id = d.journal_entry_id
