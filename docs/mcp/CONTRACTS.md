@@ -334,6 +334,8 @@ code; add new ones to this list in the same PR.
 
 | `disposed_before_as_at` | A fixed asset sold, scrapped or retired on or before the reporting date. It is not carrying amount and is out of the totals, but "there is one asset and it was sold" and "there are no assets" are different facts — so it carries the book value it was still holding. Used by `list_fixed_assets` and `reconcile_fixed_assets`; Brightsphere's ENTIRE register is one such row, R15,000 of a computer sold in April for R8,000. |
 
+| `disposal_not_posted_to_ledger` | A fixed asset disposed on or before the reporting date for which NO journal was ever posted. It is an exclusion like `disposed_before_as_at` — the asset was in the register's universe and is withheld from carrying amount — but it gets its own code because a caller has to be able to tell "sold and accounted for" from "sold, and the ledger never heard". This is the one register-versus-ledger break that can never move a difference: the asset is out of the register's carrying amount and the journal is absent from the ledger, so both sides are zero and the arithmetic closes over a real loss. Production holds exactly one disposal and it is one of these — Brightsphere COMP-0001, R7,000 loss, no journal — and no disposal can post on any tenant, because `postAssetDisposalToGL` resolves the system role `disposal_profit_loss` and 0 of 13 companies have an account with that subtype. |
+
 `no_account_subtype` is deliberately NOT in this table. It is a **disclosure**,
 not an exclusion, and `reconcile_fixed_assets` reports it outside the envelope
 for the reason `check-self-defining-universe.sh` already states: a row that was

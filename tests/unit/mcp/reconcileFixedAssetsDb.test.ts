@@ -337,3 +337,110 @@ describe('the fixes from the blind review', async () => {
     });
   });
 });
+
+describe('the addendum: an unposted disposal, and a brand-new tenant', async () => {
+  const ok3 = await isDbReachable();
+
+  it.skipIf(!ok3)('names a disposal the ledger never heard about, at its own reason code', async () => {
+    await inTx(async (companyId) => {
+      // Production's only disposal is exactly this shape: Brightsphere
+      // COMP-0001, sold 2026-04-12 for R8,000 against a R15,000 book value, a
+      // R7,000 loss recorded in asset_disposals with journal_entry_id NULL and
+      // no disposal journal anywhere. It cannot post on any tenant, because
+      // postAssetDisposalToGL resolves the system role disposal_profit_loss and
+      // 0 of 13 production companies have an account with that subtype.
+      const rows = (await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
+                            useful_life_years, accumulated_depreciation, current_book_value,
+                            status, disposal_date, disposal_amount, disposal_gain_loss)
+        VALUES (${companyId}::uuid, ${'RFA-SOLD'}, ${'Sold computer'}, ${'2030-01-01'}::date,
+                ${15000}, ${3}, ${0}, ${15000}, ${'disposed'},
+                ${'2031-04-12'}::date, ${8000}, ${-7000})
+        RETURNING id
+      `) as Array<{ id: string }>;
+      const assetId = String(rows[0]!.id);
+      await sql`
+        INSERT INTO asset_disposals (asset_id, disposal_date, disposal_method,
+                                     disposal_amount, book_value_at_disposal, gain_loss, created_by)
+        VALUES (${assetId}::uuid, ${'2031-04-12'}::date, ${'sale'}, ${8000}, ${15000}, ${-7000}, ${'probe'})
+      `;
+
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      assertEnvelopeSound(body);
+
+      const d = body.unposted_disposals.find(
+        (x: { asset_number: string }) => x.asset_number === 'RFA-SOLD',
+      );
+      expect(d.gain_loss).toBeCloseTo(-7000, 2);
+      expect(d.proceeds).toBeCloseTo(8000, 2);
+      expect(d.book_value_at_disposal).toBeCloseTo(15000, 2);
+      expect(d.disposal_id).toBeTruthy();
+      expect(d.disposal_record_missing).toBe(false);
+
+      // Its OWN reason code, so a caller can tell "sold and accounted for" from
+      // "sold, and the ledger never heard".
+      const ex = body.excludedRows.find((e: { id: string }) => e.id === assetId);
+      expect(ex.reason).toBe('disposal_not_posted_to_ledger');
+
+      // And it contributes NOTHING to the arithmetic — which is exactly why it
+      // needs its own report. Both sides are zero for a disposed asset with no
+      // journal, so the difference closes over a real R7,000 loss.
+      const summed = body.rows.reduce((s: number, r: { amount: number }) => s + r.amount, 0);
+      expect(summed).toBeCloseTo(body.difference, 2);
+      expect(body.unexplainedDifference).toBeCloseTo(0, 2);
+      expect(body.rows.some((r: { asset_id: string | null }) => r.asset_id === assetId)).toBe(false);
+    });
+  });
+
+  it.skipIf(!ok3)('flags a disposed asset with NO asset_disposals row at all', async () => {
+    await inTx(async (companyId) => {
+      await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
+                            useful_life_years, accumulated_depreciation, current_book_value,
+                            status, disposal_date)
+        VALUES (${companyId}::uuid, ${'RFA-NOREC'}, ${'Scrapped'}, ${'2030-01-01'}::date,
+                ${4000}, ${3}, ${0}, ${4000}, ${'disposed'}, ${'2031-05-01'}::date)
+      `;
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      const d = body.unposted_disposals.find(
+        (x: { asset_number: string }) => x.asset_number === 'RFA-NOREC',
+      );
+      // A worse version of the same gap, not a reason to miss it.
+      expect(d.disposal_record_missing).toBe(true);
+      expect(d.disposal_id).toBeNull();
+    });
+  });
+
+  it.skipIf(!ok3)('a disposal WITH a posted journal keeps the ordinary reason code', async () => {
+    await inTx(async (companyId) => {
+      const cost = await addAccount(companyId, 'RFA-D-COST', 'PPE Cost', 'fixed_assets');
+      const acc = await addAccount(companyId, 'RFA-D-ACC', 'Accumulated Depreciation', 'accumulated_depreciation');
+      await postJournal(companyId, cost, acc, 1000, 'RFA-DISPOSAL-JE');
+      const je = (await sql`
+        SELECT id FROM gl_journal_entries
+        WHERE company_id = ${companyId}::uuid AND entry_number = ${'RFA-DISPOSAL-JE'}
+      `) as Array<{ id: string }>;
+      const rows = (await sql`
+        INSERT INTO assets (company_id, asset_number, name, purchase_date, purchase_price,
+                            useful_life_years, accumulated_depreciation, current_book_value,
+                            status, disposal_date, disposal_amount)
+        VALUES (${companyId}::uuid, ${'RFA-POSTED'}, ${'Sold and posted'}, ${'2030-01-01'}::date,
+                ${5000}, ${3}, ${0}, ${5000}, ${'disposed'}, ${'2031-04-12'}::date, ${5000})
+        RETURNING id
+      `) as Array<{ id: string }>;
+      await sql`
+        INSERT INTO asset_disposals (asset_id, disposal_date, disposal_method, disposal_amount,
+                                     book_value_at_disposal, gain_loss, journal_entry_id, created_by)
+        VALUES (${String(rows[0]!.id)}::uuid, ${'2031-04-12'}::date, ${'sale'}, ${5000},
+                ${5000}, ${0}, ${String(je[0]!.id)}::uuid, ${'probe'})
+      `;
+
+      const body = json(await reconcileFixedAssetsTool.handler({ as_at: AS_AT }, toolCtx(companyId)));
+      const ex = body.excludedRows.find((e: { id: string }) => e.id === String(rows[0]!.id));
+      expect(ex.reason).toBe('disposed_before_as_at');
+      expect(body.unposted_disposals.some(
+        (x: { asset_number: string }) => x.asset_number === 'RFA-POSTED',
+      )).toBe(false);
+    });
+  });
+});

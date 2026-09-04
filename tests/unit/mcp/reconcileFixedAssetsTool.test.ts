@@ -153,10 +153,24 @@ const REC: FixedAssetReconciliation = {
   }],
   unsubtypedAccountCount: 1,
   unsubtypedAccountBalance: 0,
+  unpostedDisposals: [{
+    assetId: 'a-comp1',
+    assetNumber: 'COMP-0001',
+    name: 'QA Test Computer 2026-04-12',
+    disposalId: '04855c06-e7b4-40bb-9000-a13167d0f5ea',
+    disposalDate: '2026-04-12',
+    proceeds: 8000,
+    bookValueAtDisposal: 15000,
+    gainLoss: -7000,
+    disposalRecordMissing: false,
+  }],
+  unpostedDisposalCount: 1,
+  unpostedDisposalGainLoss: -7000,
+  unpostedDisposalBookValue: 15000,
   excludedRows: [
     {
       id: 'a-comp1',
-      reason: 'disposed_before_as_at',
+      reason: 'disposal_not_posted_to_ledger',
       detail: 'Disposed on 2026-04-12 for 8000.00; not carrying amount at 2026-08-31.',
       amount: 15000,
       documentNumber: 'COMP-0001',
@@ -237,8 +251,30 @@ describe('the decomposition', () => {
   it('excludes a disposed asset with the book value it was carrying, not silently', async () => {
     const out = json(await reconcileFixedAssetsTool.handler({ as_at: '2026-08-31' }, ctx));
     const ex = out.excludedRows.find((e: { id: string }) => e.id === 'a-comp1');
-    expect(ex.reason).toBe('disposed_before_as_at');
+    expect(ex.reason).toBe('disposal_not_posted_to_ledger');
     expect(ex.amount).toBe(15000);
+  });
+
+  it('names a disposal the ledger never heard about, which the difference cannot show', async () => {
+    // Brightsphere's only disposal: sold for R8,000 against a R15,000 book
+    // value, a R7,000 loss with no journal. Both sides are zero for it — the
+    // asset is out of the register carrying amount and the journal is absent
+    // from the ledger — so `difference` closes over it. Only this list shows it.
+    const out = json(await reconcileFixedAssetsTool.handler({ as_at: '2026-08-31' }, ctx));
+    expect(out.unposted_disposal_count).toBe(1);
+    expect(out.unposted_disposal_gain_loss).toBe(-7000);
+    expect(out.unposted_disposal_book_value).toBe(15000);
+    const d = out.unposted_disposals[0];
+    expect(d.asset_number).toBe('COMP-0001');
+    expect(d.disposal_id).toBe('04855c06-e7b4-40bb-9000-a13167d0f5ea');
+    expect(d.proceeds).toBe(8000);
+    // The arithmetic is untouched by it, which is the whole point.
+    expect(out.unexplainedDifference).toBe(0);
+  });
+
+  it('tells the reader WHY no disposal can post on any tenant', () => {
+    expect(reconcileFixedAssetsTool.description).toMatch(/disposal_profit_loss/);
+    expect(reconcileFixedAssetsTool.description).toMatch(/unposted_disposals/);
   });
 });
 

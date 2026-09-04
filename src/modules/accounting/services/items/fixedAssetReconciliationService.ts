@@ -27,54 +27,28 @@
 
 import { getAssetRegister } from './assetRegisterService';
 import {
-  ASSET_COST_SUBTYPE,
   loadAssetSectionAccounts,
   loadUnsubtypedAssetAccounts,
+  loadUnpostedDisposals,
+  type UnpostedDisposal,
   loadAssetSectionDocuments,
   hasRegisterLinkage,
   type AssetReconcilingDocument,
 } from './fixedAssetReconciliationQueries';
 import type { ExcludedRow } from '@/lib/mcp/contracts';
+import {
+  buildRegisterItems,
+  buildLedgerItems,
+  buildDisclosures,
+  buildExcludedRows,
+  round2,
+  type AssetDisclosure,
+  type AssetItemSide,
+  type AssetReconcilingItem,
+} from './fixedAssetReconciliationItems';
 
-export type { AssetReconcilingDocument };
-
-export type AssetItemSide = 'register' | 'ledger';
-
-/** A fact about data this reconciliation could NOT draw from. */
-export interface AssetDisclosure {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  isActive: boolean;
-  balance: number;
-  reason: 'no_account_subtype';
-  detail: string;
-}
-
-export interface AssetReconcilingItem {
-  side: AssetItemSide;
-  type: 'register_asset_carrying_amount' | 'ledger_account_balance';
-  /** Contribution to `difference`. The items sum to it exactly. */
-  amount: number;
-  /** Whether this item could be tied to the other side. */
-  attribution: 'linked' | 'unlinked';
-  attributedVia: 'asset_gl_account' | 'category_gl_account' | null;
-  assetId: string | null;
-  assetNumber: string | null;
-  accountId: string | null;
-  accountCode: string | null;
-  accountName: string | null;
-  accountSubtype: string | null;
-  /**
-   * A cost account carrying a CREDIT balance, or an accumulated-depreciation
-   * account carrying a DEBIT one. Structural and name-free: it is the only
-   * honest signal available that an account subtyped into the asset section is
-   * not property, plant and equipment. Reported, never acted on.
-   */
-  normalBalanceViolated: boolean;
-  postedLineCount: number;
-  detail: string;
-}
+export type { AssetReconcilingDocument, UnpostedDisposal };
+export type { AssetDisclosure, AssetItemSide, AssetReconcilingItem };
 
 export interface FixedAssetReconciliation {
   asAt: string;
@@ -127,13 +101,26 @@ export interface FixedAssetReconciliation {
   unsubtypedAccounts: AssetDisclosure[];
   unsubtypedAccountCount: number;
   unsubtypedAccountBalance: number;
+  /**
+   * Disposals the register recorded that never reached the ledger.
+   *
+   * The one register-versus-ledger break that can never move `difference`: a
+   * disposed asset is correctly out of the register's carrying amount and an
+   * unposted disposal is correctly absent from the ledger, so both sides are
+   * zero and the arithmetic closes over a real recorded loss. Brightsphere's
+   * R7,000 on COMP-0001 is exactly that, and it cannot post on any tenant
+   * because no company has a `disposal_profit_loss` account.
+   */
+  unpostedDisposals: UnpostedDisposal[];
+  unpostedDisposalCount: number;
+  /** Profit or loss on disposal that never reached the income statement. */
+  unpostedDisposalGainLoss: number;
+  /** Cost less depreciation that was never removed from the balance sheet. */
+  unpostedDisposalBookValue: number;
   excludedRows: ExcludedRow[];
   postedThrough: string | null;
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
 
 export async function reconcileFixedAssets(
   companyId: string,
@@ -146,73 +133,17 @@ export async function reconcileFixedAssets(
   const accountRows = await loadAssetSectionAccounts(companyId, asOf);
   const documents = await loadAssetSectionDocuments(companyId, asOf);
   const unsubtyped = await loadUnsubtypedAssetAccounts(companyId, asOf);
+  const unposted = await loadUnpostedDisposals(companyId, asOf);
   const linkageAvailable = await hasRegisterLinkage(companyId);
   // Register side: independently derived from the `assets` table. The high
   // limit is deliberate — the totals this reconciliation compares must cover
   // every asset, not a page of them.
   const register = await getAssetRegister(companyId, asOf, { limit: 5000, offset: 0 });
 
-  const items: AssetReconcilingItem[] = [];
-
-  // Register side. Each held asset contributes its own carrying amount to the
-  // difference, positively, and carries the asset id so a reader can follow it
-  // with list_fixed_assets.
-  for (const a of register.rows) {
-    items.push({
-      side: 'register',
-      type: 'register_asset_carrying_amount',
-      amount: round2(a.netBookValue),
-      attribution: 'unlinked',
-      attributedVia: null,
-      assetId: a.id,
-      assetNumber: a.assetNumber,
-      accountId: null,
-      accountCode: null,
-      accountName: null,
-      accountSubtype: null,
-      normalBalanceViolated: false,
-      postedLineCount: 0,
-      detail:
-        `Register carrying amount ${a.netBookValue.toFixed(2)} `
-        + `(cost ${a.purchasePrice.toFixed(2)} less accumulated depreciation `
-        + `${a.accumulatedDepreciation.toFixed(2)}). No GL account is recorded against it.`,
-    });
-  }
-
-  // Ledger side. glNetBookValue is the SUM of these balances, so each one
-  // contributes the NEGATIVE of its balance to `register − GL`.
-  let glCost = 0;
-  let glAccumulatedDepreciation = 0;
-  for (const r of accountRows) {
-    const balance = round2(Number(r.balance) || 0);
-    const subtype = String(r.account_subtype ?? '');
-    if (subtype === ASSET_COST_SUBTYPE) glCost = round2(glCost + balance);
-    else glAccumulatedDepreciation = round2(glAccumulatedDepreciation + balance);
-
-    const violated = subtype === ASSET_COST_SUBTYPE ? balance < 0 : balance > 0;
-
-    items.push({
-      side: 'ledger',
-      type: 'ledger_account_balance',
-      amount: round2(-balance),
-      attribution: 'unlinked',
-      attributedVia: null,
-      assetId: null,
-      assetNumber: null,
-      accountId: String(r.id),
-      accountCode: String(r.account_code ?? ''),
-      accountName: String(r.account_name ?? ''),
-      accountSubtype: subtype,
-      normalBalanceViolated: violated,
-      postedLineCount: Number(r.posted_lines) || 0,
-      detail:
-        `GL balance ${balance.toFixed(2)} on an account subtyped ${subtype}`
-        + (violated
-          ? ' — the sign is opposite to the one this subtype implies, so the'
-            + ' account is unlikely to be property, plant and equipment.'
-          : '.'),
-    });
-  }
+  const registerItems = buildRegisterItems(register.rows);
+  const ledger = buildLedgerItems(accountRows);
+  const items = [...registerItems, ...ledger.items];
+  const { glCost, glAccumulatedDepreciation } = ledger;
 
   const postedThrough = accountRows
     .map((r) => (r.posted_through ? new Date(String(r.posted_through)).toISOString() : null))
@@ -225,31 +156,8 @@ export async function reconcileFixedAssets(
   const itemsTotal = round2(items.reduce((s, i) => s + i.amount, 0));
   const violating = items.filter((i) => i.normalBalanceViolated);
 
-  // Reported OUTSIDE the completeness identity — see the field's own note.
-  const unsubtypedAccounts: AssetDisclosure[] = unsubtyped.map((r) => ({
-    accountId: String(r.id),
-    accountCode: String(r.account_code ?? ''),
-    accountName: String(r.account_name ?? ''),
-    isActive: r.is_active !== false,
-    balance: round2(Number(r.balance) || 0),
-    reason: 'no_account_subtype' as const,
-    detail:
-      `Account ${String(r.account_code ?? '')} "${String(r.account_name ?? '')}" is typed asset `
-      + 'but carries no account_subtype, so it is in neither side of this reconciliation and its '
-      + 'balance can never make the difference non-zero. Set its subtype with update_gl_account '
-      + 'if it is property, plant and equipment.',
-  }));
-
-  const excludedRows: ExcludedRow[] = register.disposed.map((a) => ({
-    id: a.id,
-    reason: 'disposed_before_as_at',
-    detail:
-      `Disposed on ${a.disposalDate}`
-      + (a.disposalAmount === null ? '' : ` for ${a.disposalAmount.toFixed(2)}`)
-      + `; not carrying amount at ${asOf}.`,
-    amount: a.netBookValue,
-    documentNumber: a.assetNumber,
-  }));
+  const unsubtypedAccounts = buildDisclosures(unsubtyped);
+  const excludedRows = buildExcludedRows(register.disposed, unposted, asOf);
 
   return {
     asAt: asOf,
@@ -279,6 +187,14 @@ export async function reconcileFixedAssets(
     unsubtypedAccountCount: unsubtypedAccounts.length,
     unsubtypedAccountBalance: round2(
       unsubtypedAccounts.reduce((t, d) => t + d.balance, 0),
+    ),
+    unpostedDisposals: unposted,
+    unpostedDisposalCount: unposted.length,
+    unpostedDisposalGainLoss: round2(
+      unposted.reduce((t, d) => t + (d.gainLoss ?? 0), 0),
+    ),
+    unpostedDisposalBookValue: round2(
+      unposted.reduce((t, d) => t + (d.bookValueAtDisposal ?? 0), 0),
     ),
     excludedRows,
     postedThrough,
