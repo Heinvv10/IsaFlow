@@ -66,6 +66,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Gross Profit summary
     csvLines.push(`${csvVal('Summary')},${csvVal('')},${csvVal('Gross Profit')},${Number(report.grossProfit).toFixed(2)}`);
 
+    // An exported file leaves the app and carries the number with no screen to
+    // qualify it, so the caveat has to travel WITH the figure. See
+    // incomeStatementDisclosure.ts — an expense with no recognised subtype is
+    // shown in operating expenses by default, which overstates gross profit.
+    if (report.subtypeDisclosure) {
+      csvLines.push(
+        `${csvVal('Summary')},${csvVal('')},${csvVal('Gross Profit overstated by at most')},${Number(report.subtypeDisclosure.grossProfitOverstatedByAtMost).toFixed(2)}`
+      );
+      csvLines.push(`${csvVal('Warning')},${csvVal('')},${csvVal(report.subtypeDisclosure.message)},${csvVal('')}`);
+      for (const a of report.subtypeDisclosure.accounts) {
+        csvLines.push(
+          `${csvVal('Warning')},${csvVal(a.accountCode)},${csvVal(`${a.accountName} — no recognised account_subtype`)},${Number(a.amount).toFixed(2)}`
+        );
+      }
+      if (report.subtypeDisclosure.unnamedAccounts > 0) {
+        csvLines.push(
+          `${csvVal('Warning')},${csvVal('')},${csvVal(`and ${report.subtypeDisclosure.unnamedAccounts} further account(s) with no recognised account_subtype`)},${csvVal('')}`
+        );
+      }
+    }
+
     // Operating Expenses lines
     for (const item of report.operatingExpenses) {
       csvLines.push(
