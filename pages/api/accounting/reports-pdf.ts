@@ -135,11 +135,18 @@ function renderSection(
         doc,
         autoTable,
         [['Item', 'Amount', 'Margin']],
+        // Every band, in reconciling order, so the pack FOOTS. Turnover less
+        // cost of sales less operating expenses misses Net Profit by exactly
+        // other income minus other expenses — R341,712.00 on Brightsphere, on a
+        // PDF sent to a client.
         [
-          ['Revenue', fmtZAR(n(d.revenue)), ''],
+          ['Turnover', fmtZAR(n(d.revenue)), ''],
           ['Cost of Sales', fmtZAR(n(d.costOfSales)), ''],
           ['Gross Profit', fmtZAR(n(d.grossProfit)), pct(d.grossMargin)],
+          ...(n(d.otherIncome) !== 0 ? [['Other Income', fmtZAR(n(d.otherIncome)), '']] : []),
           ['Operating Expenses', fmtZAR(n(d.operatingExpenses)), ''],
+          ['Operating Profit', fmtZAR(n(d.operatingProfit)), ''],
+          ...(n(d.otherExpenses) !== 0 ? [['Other Expenses', fmtZAR(n(d.otherExpenses)), '']] : []),
           ['Net Profit', fmtZAR(n(d.netProfit)), pct(d.netMargin)],
         ],
         y,

@@ -201,7 +201,6 @@ export function calculateExtendedRatios(data: FinancialData): ExtendedRatioResul
   const base = calculateFinancialRatios(data);
   const equityFailure = equityBasisFailure(data.totalEquity);
   const notMeaningful = { ...base.notMeaningful, ...equityNotMeaningful(data.totalEquity) };
-  const grossProfit = data.revenue - data.costOfSales;
   // EBIT is the operating line: earnings before interest and tax, so other
   // income is in and finance cost and tax are out.
   const ebit = operatingProfitOf(data);

@@ -34,11 +34,12 @@ export interface DataQualityInput {
    * Income statement only. Gross profit there is `revenue - costOfSales`, so an
    * unclassified expense that is really cost of sales, or an unclassified
    * revenue that is really other income, moves it silently. Both are
-   * conjecture — a ceiling, never a correction. (The third case, other income
+   * conjecture — a ceiling, never a correction. (A third case, other income
    * shown inside turnover, was CERTAIN and is now fixed at source: the report
    * has an other-income line. See `./incomeStatementDisclosure.ts`.)
+   *
+   * Expense that could belong above the gross profit line.
    */
-  /** Expense that could belong above the gross profit line. */
   costOfSalesExposureAtMost?: number;
   /** Revenue that could be other income rather than turnover. */
   otherIncomeExposureAtMost?: number;

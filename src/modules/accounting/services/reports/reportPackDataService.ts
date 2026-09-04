@@ -70,6 +70,15 @@ export async function getReportPackInput(
     revenue: data.revenue,
     costOfSales: data.costOfSales,
     operatingExpenses: data.operatingExpenses,
+    // Carried so the pack's P&L FOOTS and its waterfall shows the steps it
+    // already supports. Omitted, `ReportPackInput`'s optional fields defaulted
+    // to 0 and `buildProfitWaterfall` gated both steps on `!== 0`, so a pack's
+    // Other Income and Other Expenses were ALWAYS suppressed and its Net Profit
+    // subtotal hung off the running total by their net — R341,712.00 on
+    // Brightsphere, on a customer-facing PDF.
+    otherIncome: data.otherIncome ?? 0,
+    otherExpenses: figures.period.otherExpenses,
+    operatingProfit: data.operatingProfit ?? 0,
     netProfit: data.netProfit,
     totalAssets: data.totalAssets,
     totalLiabilities: data.totalLiabilities,

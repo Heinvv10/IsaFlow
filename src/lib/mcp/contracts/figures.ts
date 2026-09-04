@@ -239,7 +239,7 @@ export const FIGURE_DEFINITIONS: Readonly<Record<string, FigureDefinition>> = {
     includes:
       'Posted movement on expense accounts whose SUBTYPE canonicalises to tax_expense. Brightsphere carries R158,412.82 for FY2026 and R365,035.42 all-time.',
     excludes:
-      'VAT, which is not an expense and is never in an income statement — see vat.output.v1 / vat.input.v1. Also excludes operating expenses; Since the B75 convergence getIncomeStatement agrees: tax bands to other_expense and is reported below the operating line on both surfaces. ' + COVERAGE_CAVEAT,
+      'VAT, which is not an expense and is never in an income statement — see vat.output.v1 / vat.input.v1. Also excludes operating expenses; since the B75 convergence getIncomeStatement agrees: tax bands to other_expense and is reported below the operating line on both surfaces. ' + COVERAGE_CAVEAT,
   }),
   'vat.output.v1': def({
     id: 'vat.output.v1',

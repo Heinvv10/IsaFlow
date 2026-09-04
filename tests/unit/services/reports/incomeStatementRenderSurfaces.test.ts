@@ -21,6 +21,7 @@ import { getIncomeStatement } from '@/modules/accounting/services/reports/income
 import { buildIncomeStatementWorkbook } from '@/../pages/api/accounting/income-statement-xlsx';
 import { IncomeStatementBlock } from '@/components/accounting/afs/AfsStatementsTab';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
+import { ManagementPandLRows } from '@/components/accounting/ManagementPandLRows';
 
 const glRow = (
   code: string, name: string, type: 'revenue' | 'expense',
@@ -160,6 +161,38 @@ describe('income statement PAGE — every band, in reconciling order', () => {
         onEvidence: () => {},
       }) as never,
     );
+    expect(h).not.toContain('Other Income');
+    expect(h).not.toContain('Other Expenses');
+    expect(h).toContain('Operating Profit');
+  });
+});
+
+describe('management-accounts pack — every band, so it foots', () => {
+  const FIGS = {
+    totalRevenue: 13485163.41, totalCostOfSales: 0, grossProfit: 13485163.41,
+    totalOtherIncome: 23323.42, totalOperatingExpenses: 4748602.81,
+    operatingProfit: 8759884.02, totalOtherExpenses: 365035.42, netProfit: 8394848.60,
+  };
+
+  it('renders every band', () => {
+    const h = renderToStaticMarkup(ManagementPandLRows({ is: FIGS }) as never);
+    for (const label of ['Turnover', 'Cost of Sales', 'Gross Profit', 'Other Income',
+                         'Operating Expenses', 'Operating Profit', 'Other Expenses', 'Net Profit']) {
+      expect(h, label).toContain(label);
+    }
+  });
+
+  it('places Other Income above the Operating Profit that contains it', () => {
+    const h = renderToStaticMarkup(ManagementPandLRows({ is: FIGS }) as never);
+    expect(h.indexOf('Other Income')).toBeLessThan(h.indexOf('Operating Expenses'));
+    expect(h.indexOf('Operating Profit')).toBeGreaterThan(h.indexOf('Other Income'));
+    expect(h.indexOf('Other Expenses')).toBeGreaterThan(h.indexOf('Operating Profit'));
+  });
+
+  it('omits the optional rows when they are nil', () => {
+    const h = renderToStaticMarkup(ManagementPandLRows({
+      is: { ...FIGS, totalOtherIncome: 0, totalOtherExpenses: 0 },
+    }) as never);
     expect(h).not.toContain('Other Income');
     expect(h).not.toContain('Other Expenses');
     expect(h).toContain('Operating Profit');

@@ -136,11 +136,18 @@ function renderSectionHtml(section: PackSection): string {
 
   switch (section.type) {
     case 'income_statement':
+      // Every band, in reconciling order, so the pack FOOTS. Turnover less cost
+      // of sales less operating expenses misses Net Profit by exactly other
+      // income minus other expenses — R341,712.00 on Brightsphere, on a
+      // document sent to a client.
       rows = [
-        ['Revenue', fmtZAR(d.revenue), ''],
+        ['Turnover', fmtZAR(d.revenue), ''],
         ['Cost of Sales', fmtZAR(d.costOfSales), ''],
         ['Gross Profit', fmtZAR(d.grossProfit), fmtPct(d.grossMargin)],
+        ...(Number(d.otherIncome ?? 0) !== 0 ? [['Other Income', fmtZAR(Number(d.otherIncome)), '']] : []),
         ['Operating Expenses', fmtZAR(d.operatingExpenses), ''],
+        ['Operating Profit', fmtZAR(d.operatingProfit), ''],
+        ...(Number(d.otherExpenses ?? 0) !== 0 ? [['Other Expenses', fmtZAR(Number(d.otherExpenses)), '']] : []),
         ['Net Profit', fmtZAR(d.netProfit), fmtPct(d.netMargin)],
       ].map(([l, v, m]) => `<tr><td>${l}</td><td class="num">${v}</td><td class="num muted">${m}</td></tr>`).join('');
       return tableHtml(['Item', 'Amount', 'Margin'], rows);

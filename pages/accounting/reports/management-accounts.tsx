@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
+import { ManagementPandLRows, KVRow } from '@/components/accounting/ManagementPandLRows';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,17 +111,6 @@ function Section({ title, icon: Icon, color, defaultOpen, children }: {
 }
 
 // ─── Simple KV row ───────────────────────────────────────────────────────────
-
-function KVRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
-  return (
-    <div className={`flex justify-between py-1 text-sm border-b border-[var(--ff-border-light)] last:border-0 ${bold ? 'font-semibold' : ''}`}>
-      <span className="text-[var(--ff-text-secondary)]">{label}</span>
-      <span className="text-[var(--ff-text-primary)]">{value}</span>
-    </div>
-  );
-}
-
-// ─── Email modal ─────────────────────────────────────────────────────────────
 
 function EmailModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState('');
@@ -307,22 +297,7 @@ export default function ManagementAccountsPage() {
 
               {/* P&L Section */}
               <Section title="Income Statement (P&L)" icon={TrendingUp} color="teal" defaultOpen>
-                {/* Every band, so the pack FOOTS. Turnover less cost of sales
-                    stopped equalling gross profit less operating expenses the
-                    moment other income and finance cost/tax got their own
-                    lines, and this pack is a document people send onward. */}
-                <KVRow label="Turnover" value={formatCurrency(is?.totalRevenue ?? 0)} bold />
-                <KVRow label="Cost of Sales" value={formatCurrency(is?.totalCostOfSales ?? 0)} />
-                <KVRow label="Gross Profit" value={formatCurrency(is?.grossProfit ?? 0)} bold />
-                {(is?.totalOtherIncome ?? 0) !== 0 && (
-                  <KVRow label="Other Income" value={formatCurrency(is?.totalOtherIncome ?? 0)} />
-                )}
-                <KVRow label="Operating Expenses" value={formatCurrency(is?.totalOperatingExpenses ?? 0)} />
-                <KVRow label="Operating Profit" value={formatCurrency(is?.operatingProfit ?? 0)} bold />
-                {(is?.totalOtherExpenses ?? 0) !== 0 && (
-                  <KVRow label="Other Expenses" value={formatCurrency(is?.totalOtherExpenses ?? 0)} />
-                )}
-                <KVRow label="Net Profit" value={formatCurrency(is?.netProfit ?? 0)} bold />
+                <ManagementPandLRows is={is} />
               </Section>
 
               {/* Balance Sheet Section */}
