@@ -110,7 +110,7 @@ const zero = (): ClassifiedFigures => ({
  *   expense    — operating vs cost of sales vs other expenses
  * Equity is absent deliberately: it has no sub-split, so nothing is defaulted.
  */
-const DEFAULTED_WHEN_UNKNOWN: ReadonlySet<AccountType> = new Set<AccountType>([
+export const DEFAULTED_WHEN_UNKNOWN: ReadonlySet<AccountType> = new Set<AccountType>([
   'asset',
   'liability',
   'revenue',

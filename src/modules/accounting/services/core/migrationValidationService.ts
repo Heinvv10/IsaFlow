@@ -8,6 +8,7 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { validateSystemAccounts } from '../gl/systemAccountResolver';
+import { checkAccountSubtypeCoverage } from './migrationSubtypeCheck';
 import type { DbRow } from '@/types/db';
 
 
@@ -32,21 +33,23 @@ export async function validateMigration(
 ): Promise<ValidationResult[]> {
   const results: ValidationResult[] = [];
 
-  const [tb, arCheck, apCheck, sysAccounts, orphanAR, orphanAP] = await Promise.all([
+  const [tb, arCheck, apCheck, sysAccounts, orphanAR, orphanAP, subtypes] = await Promise.all([
     checkTrialBalance(companyId),
     checkARvsGL(companyId),
     checkAPvsGL(companyId),
     checkSystemAccounts(companyId),
     checkOrphanARInvoices(companyId),
     checkOrphanAPInvoices(companyId),
+    checkAccountSubtypeCoverage(companyId),
   ]);
 
-  results.push(tb, arCheck, apCheck, sysAccounts, orphanAR, orphanAP);
+  results.push(tb, arCheck, apCheck, sysAccounts, orphanAR, orphanAP, subtypes);
 
   log.info('Migration validation complete', {
     companyId,
     sessionId,
     passed: results.filter(r => r.status === 'pass').length,
+    warned: results.filter(r => r.status === 'warn').length,
     failed: results.filter(r => r.status === 'fail').length,
   }, 'migration');
 
