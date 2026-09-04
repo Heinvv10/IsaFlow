@@ -30,6 +30,7 @@ vi.mock('@/lib/logger', () => ({
 
 import { McpRegistry } from '@/lib/mcp/registry';
 import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 import { hashArgs } from '@/lib/mcp/audit';
 import type { McpTool, McpToolContext } from '@/lib/mcp/types';
 import { resetSqlMock, mockSqlOnce, sqlCallText, sqlCallValues, sqlMock } from '../auth/helpers';
@@ -306,6 +307,54 @@ describe('McpRegistry — a per-line failure inside a batch', () => {
     const errorRow = auditInserts().find((c) => c.values.includes('error'));
     expect(errorRow, 'the failure must still be audited').toBeDefined();
     expect(errorRow!.values).not.toContain('k1');
+  });
+});
+
+describe('McpRegistry — an empty system account role', () => {
+  it('names the role and the account to fix instead of GENERIC_FAILURE', async () => {
+    // Production on 2026-09-04 held no `disposal_profit_loss` account on any of
+    // its 13 companies, so every asset disposal answered "The operation failed.
+    // Please try again or contact support." — inviting a retry that cannot
+    // succeed, because the chart is the same on the second call.
+    //
+    // Handled in the registry rather than per-tool because ~40 services resolve
+    // system accounts; a per-tool catch would cover whichever ones someone
+    // remembered to write one for.
+    const handler = vi.fn(async () => {
+      throw new MissingSystemAccountError(
+        'bank',
+        COMPANY_ID,
+        'unflagged_active_claimant',
+        [{
+          accountCode: '1049686', accountName: 'Brighttech Absa', accountType: 'asset',
+          isActive: true, isSystemAccount: false,
+        }],
+      );
+    });
+    registry.register(makeTool({
+      name: 'allocate_bank_transaction', write: true, scope: 'write:bank-tx', handler,
+    }));
+
+    const r = await registry.call(
+      'allocate_bank_transaction', { idempotency_key: 'k9' }, ctxWithScopes(['write:bank-tx']),
+    );
+
+    expect(r.isError).toBe(true);
+    const text = r.content[0]!.text;
+    expect(text).toContain('allocate_bank_transaction');
+    expect(text).toContain("'bank'");
+    // The remedy has to name the ACCOUNT, or the agent creates a second bank
+    // account beside the one holding 8,342 transactions.
+    expect(text).toContain('1049686 Brighttech Absa');
+    expect(text).toContain('is_system_account');
+    expect(text).not.toContain('The operation failed');
+
+    // Everything else about a failure is unchanged: the savepoint unwound on
+    // the throw, and the idempotency key is not burned.
+    expect(savepointMock).toHaveBeenCalled();
+    const errorRow = auditInserts().find((c) => c.values.includes('error'));
+    expect(errorRow, 'the failure must still be audited').toBeDefined();
+    expect(errorRow!.values).not.toContain('k9');
   });
 });
 
