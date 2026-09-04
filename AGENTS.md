@@ -32,7 +32,7 @@ Next.js 14 + TypeScript accounting SaaS for South African businesses. Multi-tena
 - **Nav**: Update `src/components/accounting/accountingNavConfig.ts` for every new page.
 - **Migrations**: `IF NOT EXISTS` on all `CREATE TABLE` / `CREATE INDEX`.
 - **Migrations**: Use the next unused 3-digit prefix. Never reuse an existing prefix. Use `244b_` style suffix if inserting between existing numbers.
-- **Git**: No `--no-verify`, no force-push to `master`, no amending published commits. Stage by explicit path — never `git add -A` (parallel sessions leave untracked files in the tree).
+- **Git**: No `--no-verify`, no force-push to `master`, no amending published commits. Stage by explicit path — never `git add -A` (parallel sessions leave untracked files in the tree). **No `git stash`** — `push`, `pop`, `list`-then-`apply`, none of it: `refs/stash` is shared across every worktree, and `stash push -- <path>` creates NO entry when that path is already clean, so a paired bare `pop` silently takes whatever another session left at `stash@{0}` instead. Commit to your own branch instead — a WIP commit is cheap, reversible, and scoped to your worktree. Prefix every Bash call with an explicit `cd` to your worktree; a drifted cwd is what turns a worktree-local mistake into a cross-session one.
 - **Deploys**: `bash scripts/deploy.sh` enforces the lint ratchet and migration-naming gate. Production deploys are blocked during business hours (08:00–17:00 SAST, Mon–Fri) without explicit approval.
 
 ## Repo layout
