@@ -1,0 +1,199 @@
+# Tables this gate cannot verify as protected from text alone, as at
+# 2026-09-04 — NOT a list of known defects. Every one of them IS under RLS in
+# isaflow_dev; migrationRlsRule.ts just can't see it, because migrations 348
+# and 498 grant RLS to `company_id` tables DYNAMICALLY (`DO $$ ... FOR r IN
+# (SELECT ... FROM pg_policies ...)`), discovering non-compliant tables by
+# querying the catalogue at apply time rather than naming any of them as
+# literal text. There is nothing for a static scanner to read a table name
+# out of in either migration — see migrationRlsRule.ts's own comment for the
+# one dynamic shape (505_close_runs.sql's FOREACH/ARRAY/EXECUTE-format loop)
+# this gate CAN and does recognize.
+#
+# So this fails only on a table NOT in this list — a table with no
+# ENABLE/FORCE/POLICY the gate can find ANYWHERE, same-file, later-file, or
+# 505's array shape, AND not already known-safe via 348/498. That is exactly
+# how 595_gl_account_merges.sql was found: it is the one table (as of this
+# writing) whose RLS could not be verified either by this gate OR by the
+# database-gated integration test, because it genuinely had none — not a
+# gate limitation, a real gap. See docs/mcp/FINDINGS.md for the pair of
+# findings this gate shipped with.
+#
+# Delete a line once its table's protection becomes visible as literal text
+# (i.e. its own migration, or a later one, explicitly names it in an
+# ALTER/CREATE POLICY statement) — the gate then verifies it directly and no
+# longer needs the baseline entry. Do NOT add a table to this list because
+# the gate is failing on it and you have not confirmed why; confirm first,
+# against isaflow_dev, the way 596_gl_account_merges_rls.sql's own commit
+# message did.
+#
+# THIS GATE AND tests/integration/rls-policy-coverage.test.ts ARE
+# COMPLEMENTARY, NOT REDUNDANT. The static gate catches a NEW table shipped
+# unprotected, at authoring time, with no database — that is what it is for,
+# and it is blind to these 156 by construction. The DB-gated integration test
+# catches DRIFT on tables already protected — a policy dropped, RLS disabled
+# by a later migration, FORCE turned off — which this gate cannot see either,
+# because it only ever checks whether protecting TEXT exists, never whether
+# the database actually applied it. Neither test subsumes the other; these
+# 156 tables are covered by the second even though the first is structurally
+# blind to them.
+#
+# check-migration-rls.ts self-checks this list: a line here that the gate can
+# now verify directly (a later migration named the table as literal text) is
+# a STALE entry and fails the build until removed — the baseline should
+# shrink as tables gain individually-readable protection, not only grow.
+account_external_mapping
+accounting_settings
+account_reporting_groups
+admin_invoices
+afs_account_mappings
+afs_documents
+afs_generation_log
+afs_section_comments
+afs_sections
+afs_statement_lines
+afs_uploaded_images
+analytics_websites
+archive_bank_transactions
+archive_customer_invoices
+archive_gl_journal_entries
+archive_runs
+archive_supplier_invoices
+asset_locations
+asset_period_ledger
+assets
+audit_log
+audit_portal_sessions
+audit_trail_exports
+background_jobs
+bank_accounts
+bank_auto_post_runs
+bank_auto_post_settings
+bank_feed_sync_logs
+bank_rules
+bank_statement_imports
+bank_tx_queries
+brand_profiles
+bureau_companies
+business_units
+capture_api_keys
+capture_events
+capture_inboxes
+company_directors
+company_document_numbers
+company_documents
+company_feature_overrides
+company_group_members
+company_messages
+company_udf_definitions
+company_user_permissions
+compliance_alerts
+cost_centre_gl_mappings
+cost_centres
+customer_activities
+customer_contacts
+customer_delivery_addresses
+customer_dunning_overrides
+customer_invoice_disputes
+customer_invoice_views
+customer_quotes
+customer_sales_orders
+custom_report_templates
+delivery_notes
+disclosure_notes_manual
+document_validation_results
+dunning_communications
+dunning_sends
+dunning_settings
+dunning_templates
+email_log
+entity_udf_values
+exchange_rates
+expected_invoice_alerts
+expense_claim_lines
+expense_claims
+flow_ledger
+flow_purchases
+flow_wallet
+fraud_alerts
+goods_received_notes
+group_coa_mappings
+imap_mirror_connections
+imap_mirror_scan_log
+item_bundle_lines
+item_categories
+items
+leave_applications
+loan_compliance_assessments
+loan_events
+loan_gl_postings
+loan_payments
+loan_period_locks
+loan_rate_curves
+loans
+loan_schedule_runs
+management_pack_configs
+migration_sessions
+netcash_submissions
+oauth_authorisation_codes
+oauth_authorisations
+page_visits
+payment_transactions
+pay_packages
+payroll_audit_log
+payroll_batches
+payroll_components
+payroll_employee_cost_allocations
+payroll_employee_history
+payroll_employees
+payroll_external_imports
+payroll_external_payslips
+payroll_leave_types
+payroll_loans
+payroll_run_headers
+pay_scales
+paystack_payment_requests
+personal_access_tokens
+portal_contacts
+portal_magic_links
+practice_client_contacts
+practice_client_groups
+practice_client_rate_overrides
+practice_clients
+practice_entry_templates
+practice_job_categories
+practice_jobs
+practice_report_recipients
+practice_staff_cost_rates
+practice_staff_rates
+practice_tasks
+practice_work_items
+products
+projects
+project_time_entries
+purchase_orders
+recurring_transaction_templates
+sales_reps
+sent_mirror_connections
+sent_mirror_scan_log
+stitch_payment_requests
+stock_adjustments
+stock_items
+subscription_charges
+subscription_mandates
+subscriptions
+supplier_activities
+supplier_coding_history
+supplier_coding_rules
+supplier_contacts
+supplier_expectations
+supplier_purchase_orders
+supplier_statement_reconciliations
+tax_directive_payments
+tax_directives
+time_entries
+training_events
+transaction_description_templates
+uif_declarations
+vat_returns
+warehouses
+webhook_endpoints

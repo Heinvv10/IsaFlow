@@ -18,27 +18,13 @@ fi
 echo "OK: decodeToken imports scoped correctly."
 
 echo
-echo "=== BL-13: every gl_journal_lines query must scope by company_id ==="
-# Match "FROM gl_journal_lines" or "JOIN gl_journal_lines"; require company_id
-# scoping within 20 lines (either direction) of the match. Accept aliased
-# forms like `jl.company_id`, `je.company_id`, `gjl.company_id` and bare
-# `company_id =` / `company_id::UUID` (used in unaliased gl_journal_lines
-# queries — still tenant-scoped because the predicate sits on the table itself).
-# customReportFieldDefs.ts contains a string-template FROM clause (not an executed query).
-# Scoping is enforced in customReportRunner.ts which adds jl.company_id to whereParts.
-VIOLATIONS=$(grep -rnE "FROM gl_journal_lines|JOIN gl_journal_lines" src/ pages/ --include='*.ts' 2>/dev/null | grep -v 'customReportFieldDefs\.ts' | while IFS=: read -r file line _; do
-  ctx=$(awk -v start="$((line>20?line-20:1))" -v end="$((line+20))" 'NR>=start && NR<=end' "$file")
-  if ! echo "$ctx" | grep -qE "(jl|je|gjl)\.company_id|\bcompany_id\s*(=|::UUID)"; then
-    echo "$file:$line"
-  fi
-done)
-
-if [[ -n "$VIOLATIONS" ]]; then
-  echo "ERROR: gl_journal_lines usage without company_id scoping:"
-  echo "$VIOLATIONS"
-  exit 1
-fi
-echo "OK: gl_journal_lines usage is tenant-scoped."
+# BL-13: every gl_journal_lines query must scope by company_id. Detection
+# logic lives in glJournalLinesScopeRule.ts (unit-tested in
+# tests/unit/ci/glJournalLinesScopeRule.test.ts) rather than here, because a
+# line-proximity `awk` check here could be — and was — satisfied by a
+# `company_id` mention anywhere within 20 lines, including inside an
+# unrelated comment. See docs/mcp/CONTRACTS.md and FINDINGS.md B64.
+bun scripts/ci/check-gl-journal-lines-scope.ts || exit 1
 
 echo
 echo "=== Pentest H7: client IP must come from getClientIp(), never x-forwarded-for[0] ==="
@@ -55,13 +41,99 @@ echo "OK: client-IP extraction goes through getClientIp()."
 echo
 echo "=== Pentest H1: portal / impersonation JWT secrets must not be derived from JWT_SECRET ==="
 # Match expressions like `JWT_SECRET + '-portal'` that concatenate the staff
-# secret with a suffix to fake a per-purpose secret. Comments are excluded
-# (lines starting with // or *).
-SECRET_OFFENDERS=$(grep -rnE "JWT_SECRET\s*\+\s*['\"]" src/ pages/ --include='*.ts' 2>/dev/null \
-  | grep -vE ':\s*//|:\s*\*' || true)
+# secret with a suffix to fake a per-purpose secret. A line whose own text
+# (after leading whitespace) starts with // or * is a genuine comment line
+# and is excluded.
+#
+# The previous exclusion, `grep -vE ':\s*//|:\s*\*'`, matched that substring
+# ANYWHERE in the "file:line:content" string — not anchored to the start of
+# the line's own content. A real violation sharing a line with a URL
+# (":\/\/" inside a string literal, e.g. `JWT_SECRET + 'https://...-portal'`)
+# contains ":\s*//" too, so the "comment" exclusion silently swallowed a real
+# violation. Re-reading the exact source line and testing ITS OWN leading
+# characters, rather than pattern-matching the composed grep output, closes
+# that. See FINDINGS.md B64.
+SECRET_OFFENDERS=""
+while IFS=: read -r file lineno _rest; do
+  [[ -z "$file" ]] && continue
+  content=$(sed -n "${lineno}p" "$file")
+  trimmed="${content#"${content%%[![:space:]]*}"}"
+  case "$trimmed" in
+    //*|'*'*) continue ;;
+  esac
+  SECRET_OFFENDERS="${SECRET_OFFENDERS}${file}:${lineno}:${content}"$'\n'
+done < <(grep -rnE "JWT_SECRET\s*\+\s*['\"]" src/ pages/ --include='*.ts' 2>/dev/null || true)
+
 if [[ -n "$SECRET_OFFENDERS" ]]; then
   echo "ERROR: JWT_SECRET concatenation detected. Add a dedicated *_JWT_SECRET env var instead."
-  echo "$SECRET_OFFENDERS"
+  printf '%s' "$SECRET_OFFENDERS"
   exit 1
 fi
 echo "OK: no JWT_SECRET derivations."
+
+echo
+echo "=== posted_through: no fabricated 1970-01-01 sentinel, per docs/mcp/CONTRACTS.md ==="
+# posted_through is string | null; null, not a sentinel timestamp, is correct
+# when a report consumed no ledger row (docs/mcp/CONTRACTS.md, FINDINGS.md
+# B68). The spread mechanism is copy-paste of the LITERAL string, not import
+# of NO_LEDGER_READ — none of the nine known sites import it — so this gates
+# the literal, not the constant name; deprecating the constant reaches
+# nothing a fresh copy-paste would use. postedThroughService.ts is excluded
+# by filename: it is the deprecated constant's own definition, the one place
+# the literal is meant to exist, not a fabricating call site.
+#
+# Report-only against a baseline, same mechanism as migration-rls.baseline —
+# but these entries are KNOWN DEFECTS on a scheduled sweep, not blind spots
+# the gate cannot see; they should shrink to zero, unlike that baseline. AND
+# self-cleaning, for a reason specific to that difference: an RLS baseline
+# entry is a permanent, correct exemption (the gate genuinely cannot verify
+# it). A sentinel baseline entry is a TEMPORARY exemption for a live defect —
+# so a site that is fixed and then regressed must fail again, not stay
+# silently exempted forever because it once appeared in this list. Without
+# this check, "fix jobCost.ts, leave the baseline entry" and "re-break
+# jobCost.ts, leave the baseline entry" are indistinguishable to the gate:
+# both pass. A baseline entry not updated when its site is fixed becomes a
+# permanent exemption for a temporary problem — the opposite of what a
+# scheduled-sweep baseline is for.
+SENTINEL_BASELINE="scripts/ci/posted-through-sentinel.baseline"
+SENTINEL_HITS=$(grep -rl "1970-01-01T00:00:00" src/lib/mcp/tools/ src/modules/ --include='*.ts' 2>/dev/null \
+  | grep -v 'src/modules/accounting/services/reports/postedThroughService\.ts' || true)
+
+SENTINEL_NEW=""
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+  if [[ -f "$SENTINEL_BASELINE" ]] && grep -qxF "$f" "$SENTINEL_BASELINE"; then
+    continue
+  fi
+  SENTINEL_NEW="${SENTINEL_NEW}${f}"$'\n'
+done <<< "$SENTINEL_HITS"
+
+SENTINEL_STALE=""
+if [[ -f "$SENTINEL_BASELINE" ]]; then
+  while IFS= read -r f; do
+    [[ -z "$f" || "$f" == \#* ]] && continue
+    if [[ ! -f "$f" ]] || ! grep -q "1970-01-01T00:00:00" "$f"; then
+      SENTINEL_STALE="${SENTINEL_STALE}${f}"$'\n'
+    fi
+  done < <(grep -v '^#' "$SENTINEL_BASELINE" | grep -v '^$')
+fi
+
+SENTINEL_FAIL=0
+if [[ -n "$SENTINEL_NEW" ]]; then
+  SENTINEL_FAIL=1
+  echo "ERROR: 1970-01-01T00:00:00 sentinel found outside the baseline:"
+  printf '%s' "$SENTINEL_NEW"
+  echo "Fix: return the real string | null and let the caller decide, per"
+  echo "docs/mcp/CONTRACTS.md's posted_through section. Do NOT add this file"
+  echo "to $SENTINEL_BASELINE instead — it is for the nine known, scheduled"
+  echo "sites, not new ones."
+fi
+if [[ -n "$SENTINEL_STALE" ]]; then
+  SENTINEL_FAIL=1
+  echo "ERROR: baseline entry no longer fabricates the sentinel — remove from $SENTINEL_BASELINE:"
+  printf '%s' "$SENTINEL_STALE"
+fi
+if [[ "$SENTINEL_FAIL" -eq 1 ]]; then
+  exit 1
+fi
+echo "OK: no posted_through sentinel outside the known, scheduled sites."
