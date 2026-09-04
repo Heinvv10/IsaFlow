@@ -36,11 +36,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     fail: failCount,
   }, 'migration');
 
-  // Transform to shape expected by validate.tsx UI
+  // Transform to shape expected by validate.tsx UI.
+  // `status` is carried through as well as `passed`: a warn is not a fail and
+  // must not block go-live, but rendering it as a green "Pass" is how a
+  // R273m subtype gap reaches an operator as a tick.
   const checks = results.map((r, i) => ({
     id: `check-${i}`,
     label: r.check,
     passed: r.status !== 'fail',
+    status: r.status,
     detail: r.message + (r.detail ? ` — ${r.detail}` : ''),
   }));
 

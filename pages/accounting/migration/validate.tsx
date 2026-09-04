@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, CheckCircle2, AlertCircle, Loader2, ShieldCheck, PartyPopper } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, AlertCircle, AlertTriangle, Loader2, ShieldCheck, PartyPopper } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
 interface ValidationCheck {
   id: string;
   label: string;
   passed: boolean;
+  status?: 'pass' | 'warn' | 'fail';
   detail?: string;
 }
 
@@ -144,16 +145,22 @@ export default function ValidatePage() {
               <div className="divide-y divide-[var(--ff-border-light)]">
                 {validation.checks.map(check => (
                   <div key={check.id} className="flex items-start gap-3 px-5 py-4">
-                    {check.passed
-                      ? <CheckCircle2 className="h-5 w-5 text-teal-400 mt-0.5 shrink-0" />
-                      : <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 shrink-0" />
+                    {check.status === 'warn'
+                      ? <AlertTriangle className="h-5 w-5 text-amber-400 mt-0.5 shrink-0" />
+                      : check.passed
+                        ? <CheckCircle2 className="h-5 w-5 text-teal-400 mt-0.5 shrink-0" />
+                        : <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 shrink-0" />
                     }
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-[var(--ff-text-primary)]">{check.label}</p>
                       {check.detail && <p className="text-xs text-[var(--ff-text-secondary)] mt-0.5">{check.detail}</p>}
                     </div>
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${check.passed ? 'bg-teal-500/20 text-teal-400' : 'bg-red-500/20 text-red-400'}`}>
-                      {check.passed ? 'Pass' : 'Fail'}
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                      check.status === 'warn'
+                        ? 'bg-amber-500/20 text-amber-400'
+                        : check.passed ? 'bg-teal-500/20 text-teal-400' : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {check.status === 'warn' ? 'Warning' : check.passed ? 'Pass' : 'Fail'}
                     </span>
                   </div>
                 ))}
