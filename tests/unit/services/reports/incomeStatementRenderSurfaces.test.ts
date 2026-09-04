@@ -20,6 +20,7 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { buildIncomeStatementWorkbook } from '@/../pages/api/accounting/income-statement-xlsx';
 import { IncomeStatementBlock } from '@/components/accounting/afs/AfsStatementsTab';
+import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 
 const glRow = (
   code: string, name: string, type: 'revenue' | 'expense',
@@ -112,5 +113,55 @@ describe('AFS statement tab — the statutory statement FOOTS', () => {
     expect(html.replace(/[^0-9]/g, '')).toContain(digits(r.totalOtherIncome));
     expect(html.replace(/[^0-9]/g, '')).toContain(digits(r.totalOtherExpenses));
     expect(html.replace(/[^0-9]/g, '')).toContain(digits(r.operatingProfit));
+  });
+});
+
+describe('income statement PAGE — every band, in reconciling order', () => {
+  const html = async (): Promise<string> => {
+    const r = await report();
+    return renderToStaticMarkup(
+      IncomeStatementSections({
+        report: r, periodStart: '2026-01-01', periodEnd: '2026-12-31',
+        expandedAccount: null, onToggleAccount: () => {}, showComparative: false,
+        onEvidence: () => {},
+      }) as never,
+    );
+  };
+
+  it('renders every band', async () => {
+    const h = await html();
+    for (const label of ['Turnover', 'Cost of Sales', 'Gross Profit', 'Other Income',
+                         'Operating Expenses', 'Operating Profit', 'Other Expenses', 'Net Profit']) {
+      expect(h, label).toContain(label);
+    }
+  });
+
+  it('places Other Income ABOVE the Operating Profit that contains it', async () => {
+    const h = await html();
+    // Printed after the total, a reader computes Gross Profit less Operating
+    // Expenses and falls short by exactly the other income — a figure on a line
+    // BELOW the total it belongs to.
+    expect(h.indexOf('Other Income')).toBeLessThan(h.indexOf('Operating Expenses'));
+    expect(h.indexOf('Operating Profit')).toBeGreaterThan(h.indexOf('Other Income'));
+    expect(h.indexOf('Other Expenses')).toBeGreaterThan(h.indexOf('Operating Profit'));
+    expect(h.indexOf('Net Profit')).toBeGreaterThan(h.indexOf('Other Expenses'));
+  });
+
+  it('omits the optional sections when they are empty', async () => {
+    sqlMock.mockResolvedValue([
+      glRow('4000', 'Sales', 'revenue', 'revenue', 0, 5000),
+      glRow('5000', 'Direct Material', 'expense', 'cost_of_sales', 1000, 0),
+    ]);
+    const r = await getIncomeStatement('c-1', '2026-01-01', '2026-12-31');
+    const h = renderToStaticMarkup(
+      IncomeStatementSections({
+        report: r, periodStart: '2026-01-01', periodEnd: '2026-12-31',
+        expandedAccount: null, onToggleAccount: () => {}, showComparative: false,
+        onEvidence: () => {},
+      }) as never,
+    );
+    expect(h).not.toContain('Other Income');
+    expect(h).not.toContain('Other Expenses');
+    expect(h).toContain('Operating Profit');
   });
 });
