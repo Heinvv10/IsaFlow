@@ -11,7 +11,8 @@ vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import {
-  listAnnotations, createAnnotation, resolveAnnotation, MAX_BODY_CHARS, MAX_ROW_IDS,
+  listAnnotations, createAnnotation, resolveAnnotation, resolveAuthorName,
+  MAX_BODY_CHARS, MAX_ROW_IDS,
 } from '@/modules/accounting/services/annotations/annotationService';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -107,5 +108,42 @@ describe('resolveAnnotation', () => {
   it('returns false when nothing matched, so the route answers 404', async () => {
     sqlMock.mockResolvedValue([]);
     expect(await resolveAnnotation(COMPANY, ID, 'u2')).toBe(false);
+  });
+});
+
+describe('resolveAuthorName', () => {
+  it('joins through company_users, so a user id outside the company resolves to nothing', async () => {
+    sqlMock.mockResolvedValue([]);
+
+    expect(await resolveAuthorName(COMPANY, 'u1', 'u1@example.co.za')).toBe('u1@example.co.za');
+    expect(queryText()).toContain('JOIN company_users cu');
+    expect(queryText()).toContain('cu.company_id = ');
+    expect(bindings()).toContain(COMPANY);
+  });
+
+  it('prefers the display name over the email', async () => {
+    sqlMock.mockResolvedValue([{ display_name: 'Hein van Vuuren' }]);
+
+    expect(await resolveAuthorName(COMPANY, 'u1', 'u1@example.co.za')).toBe('Hein van Vuuren');
+  });
+
+  it('falls back to the email when the name columns are empty', async () => {
+    sqlMock.mockResolvedValue([{ display_name: null }]);
+
+    expect(await resolveAuthorName(COMPANY, 'u1', 'u1@example.co.za')).toBe('u1@example.co.za');
+  });
+
+  it('returns null when there is no name and no email either', async () => {
+    sqlMock.mockResolvedValue([{ display_name: null }]);
+
+    expect(await resolveAuthorName(COMPANY, 'u1', null)).toBeNull();
+  });
+
+  it('casts the uuid side of the join, never users.id which is TEXT', async () => {
+    sqlMock.mockResolvedValue([]);
+    await resolveAuthorName(COMPANY, 'u1', null);
+
+    expect(queryText()).toContain('cu.user_id::TEXT = u.id');
+    expect(queryText()).not.toMatch(/u\.id::UUID/i);
   });
 });

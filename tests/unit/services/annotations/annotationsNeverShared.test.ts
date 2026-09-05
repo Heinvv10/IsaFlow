@@ -42,9 +42,40 @@ const FIGURES = {
   },
 };
 
+/**
+ * POPULATED on purpose. An empty `sections: []` would let the key-walk below
+ * pass without ever descending into a section, so the deep guard would be
+ * asserting over three top-level keys and proving nothing about the shape the
+ * viewer actually receives. Every section here carries rows with ids, which is
+ * exactly where a note would ride along if one were ever attached.
+ */
 const PACK = {
-  type: 'board', companyName: 'Acme', period: '2026-01-01 to 2026-03-31',
-  generatedAt: '', sections: [],
+  type: 'board',
+  companyName: 'Acme',
+  period: '2026-01-01 to 2026-03-31',
+  generatedAt: '2026-04-01T00:00:00.000Z',
+  sections: [
+    {
+      type: 'income_statement',
+      title: 'Income Statement',
+      data: {
+        rows: [
+          { id: 'acc:4000', label: 'Sales', actual: 100 },
+          { id: 'total:grossProfit', label: 'Gross profit', actual: 60 },
+        ],
+        revenue: 100, costOfSales: 40, grossProfit: 60, netProfit: 40,
+      },
+    },
+    {
+      type: 'balance_sheet',
+      title: 'Balance Sheet',
+      data: {
+        rows: [{ id: 'acc:1000', label: 'Bank', actual: 60 }],
+        totalAssets: 500, totalLiabilities: 200, totalEquity: 300,
+      },
+    },
+    { type: 'commentary', title: 'Commentary', data: { rows: [] } },
+  ],
 };
 
 const LINK: ResolvedShareLink = {
@@ -86,7 +117,11 @@ describe('the share path and annotations', () => {
     const shared = await buildSharedPack(LINK);
 
     const keys = everyKey(shared);
-    expect(keys.length).toBeGreaterThan(0);
+    // The walk must actually have descended into the pack. Without this, an
+    // empty pack would make the filter below vacuously true.
+    expect(keys).toContain('sections');
+    expect(keys).toContain('rows');
+    expect(keys).toContain('id');
     expect(keys.filter(k => /note|annotation|resolved/i.test(k))).toEqual([]);
   });
 });

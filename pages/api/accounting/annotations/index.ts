@@ -17,8 +17,9 @@ import { withAuth, withCsrf, withWriteAccess, type CompanyAuthedRequest } from '
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import {
-  createAnnotation, listAnnotations, MAX_ROW_IDS,
+  createAnnotation, listAnnotations, resolveAuthorName, MAX_ROW_IDS,
 } from '@/modules/accounting/services/annotations/annotationService';
+import { annotationRateLimitKey } from '@/modules/accounting/services/annotations/rateLimitKey';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -63,7 +64,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     if (body.periodStart > body.periodEnd) return apiResponse.badRequest(res, 'periodStart must not be after periodEnd');
 
-    if (!(await checkReportRateLimit(companyId, 'annotation-create'))) {
+    // Keyed per USER, not per company. A company-wide bucket lets one person
+    // typing fast lock every colleague out of adding a note, which is a denial
+    // of service by a teammate rather than a defence against one.
+    if (!(await checkReportRateLimit(companyId, annotationRateLimitKey('create', user.id)))) {
       log.warn('Annotation create rate limit exceeded', { companyId, userId: user.id }, 'rateLimit');
       return apiResponse.tooManyRequests(res, 'Too many notes. Please try again shortly.');
     }
@@ -71,7 +75,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const annotation = await createAnnotation({
       companyId,
       userId: user.id,
-      authorName: user.email ?? null,
+      authorName: await resolveAuthorName(companyId, user.id, user.email ?? null),
       rowId,
       periodStart: body.periodStart,
       periodEnd: body.periodEnd,

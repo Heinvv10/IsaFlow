@@ -9,7 +9,10 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, withCsrf, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
+import { log } from '@/lib/logger';
+import { checkReportRateLimit } from '@/lib/rateLimit';
 import { resolveAnnotation } from '@/modules/accounting/services/annotations/annotationService';
+import { annotationRateLimitKey } from '@/modules/accounting/services/annotations/rateLimitKey';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,6 +21,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, user } = req as CompanyAuthedRequest;
   const id = req.query.id;
   if (typeof id !== 'string' || !UUID.test(id)) return apiResponse.notFound(res, 'Annotation');
+
+  // Same per-user bucket as create. Resolve writes to the ledger of who
+  // settled what, so it is as much a write worth bounding as the note itself.
+  if (!(await checkReportRateLimit(companyId, annotationRateLimitKey('resolve', user.id)))) {
+    log.warn('Annotation resolve rate limit exceeded', { companyId, userId: user.id }, 'rateLimit');
+    return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
+  }
 
   // A row belonging to another company answers the same 404 as one that does
   // not exist, and as one already resolved: no probe distinguishes them.

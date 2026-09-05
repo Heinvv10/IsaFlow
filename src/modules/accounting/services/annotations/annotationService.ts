@@ -74,6 +74,33 @@ export async function listAnnotations(
   return rows.map(toRow);
 }
 
+/**
+ * The display name to file a note under. A byline reading
+ * "hein@example.co.za" is an address, not a person, so the name is preferred
+ * and the email is only the fallback.
+ *
+ * The join through company_users is the tenant boundary, not a nicety: without
+ * it this would resolve any user id in the platform to a real name, turning a
+ * note create into a directory lookup. `cu.user_id::TEXT` casts the UUID side,
+ * because `users.id` is TEXT and `::UUID` on it throws at runtime.
+ */
+export async function resolveAuthorName(
+  companyId: string,
+  userId: string,
+  fallbackEmail: string | null,
+): Promise<string | null> {
+  const rows = (await sql`
+    SELECT NULLIF(TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '') AS display_name
+    FROM users u
+    JOIN company_users cu ON cu.user_id::TEXT = u.id
+    WHERE cu.company_id = ${companyId}::uuid
+      AND u.id = ${userId}
+    LIMIT 1
+  `) as DbRow[];
+  const name = rows[0]?.display_name;
+  return name === null || name === undefined ? fallbackEmail : String(name);
+}
+
 export async function createAnnotation(input: {
   companyId: string;
   userId: string;
