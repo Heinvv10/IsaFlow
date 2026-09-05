@@ -41,7 +41,9 @@ import {
   InsufficientFlowsError,
 } from '@/modules/billing/services/flowWalletService';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
-import { flowOperationFor, debitForTool, refundForTool } from '@/lib/mcp/flowMetering';
+import {
+  flowOperationFor, flowQuantityFor, debitForTool, refundForTool,
+} from '@/lib/mcp/flowMetering';
 import { MCP_TOOLS } from '@/lib/mcp/toolIndex';
 
 const COMPANY = 'company-1';
@@ -117,7 +119,42 @@ describe('flowOperationFor — writes-only map', () => {
   });
 });
 
+describe('flowQuantityFor — bulk creates bill per ELEMENT', () => {
+  it('is 1 for an ordinary tool, whatever it was sent', () => {
+    expect(flowQuantityFor('create_supplier_invoice', {})).toBe(1);
+    expect(flowQuantityFor('create_supplier_invoice', { invoices: [1, 2, 3] })).toBe(1);
+  });
+
+  it('is the element count for each bulk create', () => {
+    for (const name of ['bulk_create_supplier_invoices', 'bulk_create_customer_invoices']) {
+      expect(flowQuantityFor(name, { invoices: Array.from({ length: 40 }) })).toBe(40);
+    }
+  });
+
+  it('is 1 for a malformed batch — the handler refuses it and the refund returns that one', () => {
+    expect(flowQuantityFor('bulk_create_supplier_invoices', {})).toBe(1);
+    expect(flowQuantityFor('bulk_create_supplier_invoices', { invoices: [] })).toBe(1);
+    expect(flowQuantityFor('bulk_create_supplier_invoices', { invoices: 'nope' })).toBe(1);
+  });
+});
+
 describe('debitForTool', () => {
+  it('charges a bulk create N times the single tool, not once', async () => {
+    // A flat debit would let an agent create 100 bills for the price of one.
+    const single = await debitForTool(COMPANY, 'create_supplier_invoice', {});
+    expect(single.ok).toBe(true);
+    const unit = vi.mocked(deductFlows).mock.calls[0]![1] as number;
+    expect(unit).toBeGreaterThan(0);
+
+    vi.mocked(deductFlows).mockClear();
+    const bulk = await debitForTool(COMPANY, 'bulk_create_supplier_invoices', {
+      invoices: Array.from({ length: 7 }),
+    });
+    expect(bulk.ok).toBe(true);
+    expect(vi.mocked(deductFlows).mock.calls[0]![1]).toBe(unit * 7);
+    expect(vi.mocked(deductFlows).mock.calls[0]![2]).toBe('invoice.create');
+  });
+
   it('charges a PAYG company the catalog cost before the tool runs', async () => {
     const res = await debitForTool(COMPANY, 'create_draft_journal', {});
 

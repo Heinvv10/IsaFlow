@@ -68,6 +68,11 @@ import {
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
 } from './tools/writeSupplierInvoices';
+import {
+  bulkCreateSupplierInvoicesTool,
+  bulkCreateCustomerInvoicesTool,
+} from './tools/writeBulkInvoices';
+import { voidReceiptTool, voidPaymentTool } from './tools/writeVoidPayments';
 import { listBankRulesTool, getBankRuleTool } from './tools/bankRules';
 import { listCreditNotesTool, getCreditNoteTool } from './tools/creditNotes';
 import {
@@ -197,7 +202,7 @@ export const MCP_TOOLS = [
   jobCostReportTool,
   budgetVarianceTool,
   proposeReclassificationTool,
-  // write (47) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // write (51) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -219,6 +224,10 @@ export const MCP_TOOLS = [
   mergeGlAccountsTool,
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
+  bulkCreateSupplierInvoicesTool,
+  bulkCreateCustomerInvoicesTool,
+  voidReceiptTool,
+  voidPaymentTool,
   createBankRuleTool,
   updateBankRuleTool,
   disableBankRuleTool,

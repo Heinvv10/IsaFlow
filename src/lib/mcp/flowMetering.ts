@@ -198,8 +198,19 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // debit, not a flat one.
   bulk_allocate_bank_transactions: null,
 
+  // Priced per ELEMENT, not per call — see flowQuantityFor. A bulk create that
+  // debited once would let an agent create 100 bills for the price of one,
+  // which is the hole `bulk_allocate_bank_transactions` only avoids because the
+  // single tool it batches happens to be free.
+  bulk_create_supplier_invoices: 'invoice.create',
+  bulk_create_customer_invoices: 'invoice.create',
+
   // ── Corrections ──────────────────────────────────────────────────────────
   reverse_bank_allocation: null,
+  // Free like every other correction: pricing the undo of a mis-captured
+  // receipt puts a toll on the control that keeps the subledger honest.
+  void_receipt: null,
+  void_payment: null,
   reverse_bank_allocation_batch: null,
   // Same rule as the other two reversals: pricing a correction discourages
   // using the control the whole agent-safety model depends on. The range
@@ -344,6 +355,27 @@ export function flowOperationFor(
 }
 
 /**
+ * How many chargeable units one call represents.
+ *
+ * One for every tool but the bulk creates, which do N invoices' work in a
+ * single request and must cost N invoices. Reading the count off the ARGUMENT
+ * rather than the result is deliberate: the debit is taken before the handler
+ * runs, and a failed call is refunded by the same number.
+ *
+ * A malformed `invoices` argument yields 1 — the handler refuses it before
+ * writing anything, and the refund path returns that one unit.
+ */
+export function flowQuantityFor(
+  toolName: string,
+  args: Record<string, unknown>,
+): number {
+  if (toolName !== 'bulk_create_supplier_invoices' && toolName !== 'bulk_create_customer_invoices') {
+    return 1;
+  }
+  return Array.isArray(args.invoices) && args.invoices.length > 0 ? args.invoices.length : 1;
+}
+
+/**
  * Debit before the tool runs. MUST be called OUTSIDE the registry's savepoint:
  * a debit taken inside it would be rolled back automatically when a write tool
  * throws, and then refunded again explicitly — crediting the company twice.
@@ -360,7 +392,7 @@ export async function debitForTool(
   const plan = await getCompanyPlan(companyId);
   if (!plan || plan.planCode !== 'payg') return { ok: true, handle: null };
 
-  const cost = getFlowCost(code);
+  const cost = getFlowCost(code) * flowQuantityFor(toolName, args);
   try {
     await deductFlows(companyId, cost, code, null);
     return { ok: true, handle: { code, cost } };

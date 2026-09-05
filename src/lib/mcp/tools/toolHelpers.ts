@@ -66,13 +66,28 @@ export function guardCastableArgs(
   args: Record<string, unknown>,
   spec: CastableArgs,
 ): McpToolResult | null {
+  const message = castableArgError(args, spec);
+  return message === null ? null : toolError(message);
+}
+
+/**
+ * The same check as `guardCastableArgs`, as a bare message.
+ *
+ * A bulk tool validates one ELEMENT at a time and has to prefix the refusal
+ * with that element's index before it becomes the reply, which it cannot do
+ * once the message is sealed inside an `McpToolResult`.
+ */
+export function castableArgError(
+  args: Record<string, unknown>,
+  spec: CastableArgs,
+): string | null {
   for (const key of spec.uuid ?? []) {
     const value = strArg(args, key);
-    if (value !== undefined && !UUID_RE.test(value)) return toolError(`invalid ${key}`);
+    if (value !== undefined && !UUID_RE.test(value)) return `invalid ${key}`;
   }
   for (const key of spec.date ?? []) {
     const value = strArg(args, key);
-    if (value !== undefined && !isRealCalendarDate(value)) return toolError(`invalid ${key}`);
+    if (value !== undefined && !isRealCalendarDate(value)) return `invalid ${key}`;
   }
   return null;
 }
@@ -121,4 +136,22 @@ export function safeErrorText(err: unknown, fallback: string): string {
     return err.message;
   }
   return fallback;
+}
+
+/**
+ * Is `amount` exactly representable as whole cents?
+ *
+ * Money is NUMERIC(15,2). A third decimal would be rounded by Postgres, so the
+ * agent's own arithmetic and the ledger's would disagree silently — but the
+ * obvious guard, `Math.round(amount * 100) !== amount * 100`, is itself wrong:
+ * `282543.34 * 100` is `28254334.000000004` in IEEE-754, so a real receipt of
+ * R282,543.34 was refused as "more than two decimal places". That blocked a
+ * production AR reload (Velocity Fibre, 2026-09-05).
+ *
+ * Comparing the two-decimal rendering back to the number is exact at every
+ * magnitude a NUMERIC(15,2) can hold, where a fixed epsilon on `amount * 100`
+ * is not: at 1e13 the spacing between doubles already exceeds a cent.
+ */
+export function hasWholeCents(amount: number): boolean {
+  return Number.isFinite(amount) && Number(amount.toFixed(2)) === amount;
 }

@@ -85,6 +85,93 @@ function round2(n: number): number {
  * it represented is no longer applied to anything, which is true — its journal
  * is about to be reversed.
  */
+/** One payment document's worth of unwind. */
+export interface PaymentUnwindResult {
+  invoicesReopened: number;
+  amountUnapplied: number;
+}
+
+/**
+ * Reverse every invoice application made by ONE payment document and cancel it.
+ *
+ * Split out of `unwindBankAllocationApplication` so `void_receipt` /
+ * `void_payment` can unwind a payment the caller already holds by id, without
+ * having to reach it through a journal entry — a receipt that was never posted
+ * has no journal to reach it through.
+ *
+ * The caller owns the company scope: `paymentId` must already have been read
+ * back under `company_id`. Neither allocation table carries a `company_id` of
+ * its own, so reaching them by id alone would otherwise be an unscoped read.
+ */
+export async function unwindOnePayment(
+  companyId: string,
+  kind: 'customer' | 'supplier',
+  paymentId: string,
+): Promise<PaymentUnwindResult> {
+  let invoicesReopened = 0;
+  let amountUnapplied = 0;
+
+  // customer_payment_allocations vs payment_allocations is not a typo:
+  // `supplier_payment_allocations` (migration 201) holds zero rows in dev and
+  // in production and is read by nothing, while every supplier service uses
+  // `payment_allocations`.
+  const allocs = (kind === 'customer'
+    ? await sql`
+        SELECT invoice_id, amount_allocated FROM customer_payment_allocations
+        WHERE payment_id = ${paymentId}::UUID`
+    : await sql`
+        SELECT invoice_id, amount_allocated FROM payment_allocations
+        WHERE payment_id = ${paymentId}::UUID`) as DbRow[];
+
+  for (const a of allocs) {
+    const invoiceId = String(a.invoice_id);
+    const amt = round2(Number(a.amount_allocated ?? 0));
+    if (amt <= 0) continue;
+
+    if (kind === 'customer') {
+      // GREATEST(...,0): never drive the column negative. A concurrent
+      // correction may already have taken the balance down, and a negative
+      // amount_paid reads as a credit nobody authorised.
+      await sql`
+        UPDATE customer_invoices
+        SET amount_paid = GREATEST(COALESCE(amount_paid, 0) - ${amt}, 0),
+            updated_at = NOW()
+        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`;
+    } else {
+      // Money only, like the customer arm. This used to derive
+      // `payment_matched` inline as well — a THIRD writer of that column, and
+      // an UNGUARDED one: it carried no `status = ANY(BALANCE_DERIVED)` filter,
+      // so it would re-flag a cancelled or written-off bill, and the guarded
+      // recompute below then no-ops on exactly those statuses and cannot
+      // correct it. Blind review found it.
+      await sql`
+        UPDATE supplier_invoices
+        SET amount_paid = GREATEST(COALESCE(amount_paid, 0) - ${amt}, 0),
+            updated_at = NOW()
+        WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`;
+    }
+
+    // Owns status, paid_at AND payment_matched, from the balance just moved.
+    await recomputeInvoiceStatus(companyId, kind, invoiceId);
+    invoicesReopened += 1;
+    amountUnapplied = round2(amountUnapplied + amt);
+  }
+
+  if (kind === 'customer') {
+    await sql`DELETE FROM customer_payment_allocations WHERE payment_id = ${paymentId}::UUID`;
+    await sql`
+      UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
+  } else {
+    await sql`DELETE FROM payment_allocations WHERE payment_id = ${paymentId}::UUID`;
+    await sql`
+      UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
+      WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
+  }
+
+  return { invoicesReopened, amountUnapplied };
+}
+
 export async function unwindBankAllocationApplication(
   companyId: string,
   journalEntryId: string,
@@ -107,69 +194,9 @@ export async function unwindBankAllocationApplication(
             AND status <> 'cancelled'`) as DbRow[];
 
     for (const p of payments) {
-      const paymentId = String(p.id);
-
-      // Scoped through the payment, which was company-scoped above. Neither
-      // allocation table carries a company_id of its own, so reaching them by
-      // id alone would be an unscoped read.
-      //
-      // customer_payment_allocations vs payment_allocations is not a typo:
-      // `supplier_payment_allocations` (migration 201) holds zero rows in dev
-      // and in production and is read by nothing, while every supplier service
-      // uses `payment_allocations`.
-      const allocs = (kind === 'customer'
-        ? await sql`
-            SELECT invoice_id, amount_allocated FROM customer_payment_allocations
-            WHERE payment_id = ${paymentId}::UUID`
-        : await sql`
-            SELECT invoice_id, amount_allocated FROM payment_allocations
-            WHERE payment_id = ${paymentId}::UUID`) as DbRow[];
-
-      for (const a of allocs) {
-        const invoiceId = String(a.invoice_id);
-        const amt = round2(Number(a.amount_allocated ?? 0));
-        if (amt <= 0) continue;
-
-        if (kind === 'customer') {
-          // GREATEST(...,0): never drive the column negative. A concurrent
-          // correction may already have taken the balance down, and a negative
-          // amount_paid reads as a credit nobody authorised.
-          await sql`
-            UPDATE customer_invoices
-            SET amount_paid = GREATEST(COALESCE(amount_paid, 0) - ${amt}, 0),
-                updated_at = NOW()
-            WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`;
-        } else {
-          // Money only, like the customer arm. This used to derive
-          // `payment_matched` inline as well — a THIRD writer of that column,
-          // and an UNGUARDED one: it carried no `status = ANY(BALANCE_DERIVED)`
-          // filter, so it would re-flag a cancelled or written-off bill, and
-          // the guarded recompute below then no-ops on exactly those statuses
-          // and cannot correct it. Blind review found it.
-          await sql`
-            UPDATE supplier_invoices
-            SET amount_paid = GREATEST(COALESCE(amount_paid, 0) - ${amt}, 0),
-                updated_at = NOW()
-            WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID`;
-        }
-
-        // Owns status, paid_at AND payment_matched, from the balance just moved.
-        await recomputeInvoiceStatus(companyId, kind, invoiceId);
-        invoicesReopened += 1;
-        amountUnapplied = round2(amountUnapplied + amt);
-      }
-
-      if (kind === 'customer') {
-        await sql`DELETE FROM customer_payment_allocations WHERE payment_id = ${paymentId}::UUID`;
-        await sql`
-          UPDATE customer_payments SET status = 'cancelled', updated_at = NOW()
-          WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
-      } else {
-        await sql`DELETE FROM payment_allocations WHERE payment_id = ${paymentId}::UUID`;
-        await sql`
-          UPDATE supplier_payments SET status = 'cancelled', updated_at = NOW()
-          WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`;
-      }
+      const one = await unwindOnePayment(companyId, kind, String(p.id));
+      invoicesReopened += one.invoicesReopened;
+      amountUnapplied = round2(amountUnapplied + one.amountUnapplied);
       paymentsCancelled += 1;
     }
   }
