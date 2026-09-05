@@ -127,8 +127,10 @@ async function fetchIncomeStatementRows(
   // built, and a component deriving its own version hides that from every
   // other surface. Null rather than 0 when there is no turnover — a margin on
   // no revenue is undefined, not zero.
-  const grossMarginPct = marginPct(grossProfit, totalRevenue);
-  const netMarginPct = marginPct(netProfit, totalRevenue);
+  // `allowNegativeRevenue`: this service has guarded `totalRevenue !== 0` and
+  // computed through a negative since the field was added. See marginPct.ts.
+  const grossMarginPct = marginPct(grossProfit, totalRevenue, { allowNegativeRevenue: true });
+  const netMarginPct = marginPct(netProfit, totalRevenue, { allowNegativeRevenue: true });
 
   return {
     revenue, otherIncome, costOfSales, operatingExpenses, otherExpenses,

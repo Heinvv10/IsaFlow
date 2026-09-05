@@ -12,6 +12,22 @@ describe('marginPct', () => {
     expect(marginPct(-120000, 5000000)).toBeCloseTo(-2.4, 10);
   });
 
+  it('is null on NEGATIVE revenue by default', () => {
+    // Credit notes or reversals exceeding sales, which unguarded SQL sums
+    // reach. A loss over a negative turnover prints a healthy-looking POSITIVE
+    // percentage, and the AFS RAG bands would colour it green.
+    expect(marginPct(-50, -100)).toBeNull();
+    expect(marginPct(50, -100)).toBeNull();
+    expect(marginPct2dp(-50, -100)).toBeNull();
+  });
+
+  it('allowNegativeRevenue computes through it, for the two callers that always did', () => {
+    expect(marginPct(-50, -100, { allowNegativeRevenue: true })).toBeCloseTo(50, 10);
+    expect(marginPct(50, -100, { allowNegativeRevenue: true })).toBeCloseTo(-50, 10);
+    // Zero revenue is still null: there is no turnover to take a margin of.
+    expect(marginPct(50, 0, { allowNegativeRevenue: true })).toBeNull();
+  });
+
   it('is null on no revenue, not zero — a margin on no turnover is undefined', () => {
     expect(marginPct(100, 0)).toBeNull();
     // Callers that must keep emitting 0 do it themselves, so this function

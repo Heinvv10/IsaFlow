@@ -104,10 +104,13 @@ export function calculateKpis(
     totalDebt, totalEquity, openingCash, closingCash, daysInPeriod } = current;
 
   // `?? 0` at the call site: these KPIs have always reported 0 on no revenue
-  // and the RAG bands are calibrated on that.
-  const grossMarginPct     = marginPct(grossProfit, revenue) ?? 0;
-  const ebitdaMarginPct    = marginPct(ebitda, revenue) ?? 0;
-  const netProfitMarginPct = marginPct(netProfit, revenue) ?? 0;
+  // and the RAG bands are calibrated on that. `allowNegativeRevenue` holds the
+  // other half of the pre-existing behaviour still — this service guarded
+  // `revenue === 0` and computed through a negative. See marginPct.ts.
+  const NEG = { allowNegativeRevenue: true };
+  const grossMarginPct     = marginPct(grossProfit, revenue, NEG) ?? 0;
+  const ebitdaMarginPct    = marginPct(ebitda, revenue, NEG) ?? 0;
+  const netProfitMarginPct = marginPct(netProfit, revenue, NEG) ?? 0;
   const currentRatio       = safeDiv(currentAssets, currentLiabilities);
   const quickRatio         = safeDiv(currentAssets - inventory, currentLiabilities);
   const debtorDays         = revenue === 0 ? 0 : safeDiv(tradeReceivables, revenue) * daysInPeriod;
