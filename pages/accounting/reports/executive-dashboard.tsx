@@ -17,6 +17,7 @@ import {
   type UnclassifiedWarning,
   type InventoryWarning,
 } from '@/components/accounting/DataQualityNotice';
+import { KpiTile } from '@/components/accounting/kpi/KpiTile';
 import { log } from '@/lib/logger';
 
 const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false });
@@ -51,27 +52,8 @@ interface Highlight { type: 'positive' | 'negative' | 'neutral'; message: string
 interface Alert { severity: 'info' | 'warning' | 'danger'; message: string }
 interface Summary { period: string; companyName: string; kpis: ExecutiveKPIs; cashPosition: CashPosition; highlights: Highlight[]; alerts: Alert[] }
 
-const fmt = (n: number) => `R ${Math.abs(n).toLocaleString('en-ZA', { maximumFractionDigits: 0 })}`;
-const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
 const alertIcon = { info: CheckCircle, warning: AlertTriangle, danger: AlertCircle };
 const alertColor = { info: 'border-teal-500/30 bg-teal-500/10 text-teal-400', warning: 'border-amber-500/30 bg-amber-500/10 text-amber-400', danger: 'border-red-500/30 bg-red-500/10 text-red-400' };
-
-function KPICard({ label, value, sub, trend }: { label: string; value: string; sub?: string; trend?: number }) {
-  const Icon = trend === undefined ? Minus : trend > 0 ? TrendingUp : trend < 0 ? TrendingDown : Minus;
-  const trendColor = trend === undefined ? 'text-gray-400' : trend > 0 ? 'text-teal-400' : trend < 0 ? 'text-red-400' : 'text-gray-400';
-  return (
-    <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-4">
-      <p className="text-xs text-[var(--ff-text-tertiary)] mb-1">{label}</p>
-      <p className="text-2xl font-bold text-[var(--ff-text-primary)]">{value}</p>
-      {(sub || trend !== undefined) && (
-        <div className="flex items-center gap-1 mt-1">
-          {trend !== undefined && <Icon className={`h-3.5 w-3.5 ${trendColor}`} />}
-          {sub && <span className={`text-xs ${trendColor}`}>{sub}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function ExecutiveDashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -152,14 +134,14 @@ export default function ExecutiveDashboardPage() {
 
               {/* KPI Cards */}
               <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
-                <KPICard label="Revenue" value={fmt(summary.kpis.revenue)} trend={summary.kpis.revenueGrowth} sub={fmtPct(summary.kpis.revenueGrowth)} />
-                <KPICard label="Net Profit" value={fmt(summary.kpis.netProfit)} trend={summary.kpis.profitGrowth} sub={fmtPct(summary.kpis.profitGrowth)} />
-                <KPICard label="Gross Margin" value={`${summary.kpis.grossProfitMargin.toFixed(1)}%`} />
-                <KPICard label="Net Margin" value={`${summary.kpis.netProfitMargin.toFixed(1)}%`} />
-                <KPICard label="Cash Balance" value={fmt(summary.kpis.cashBalance)} />
-                <KPICard label="Current Ratio" value={summary.kpis.currentRatio.toFixed(2)} />
-                <KPICard label="Debt/Equity" value={summary.kpis.debtToEquity.toFixed(2)} />
-                <KPICard label="NWC" value={fmt(summary.cashPosition.netWorkingCapital)} />
+                <KpiTile label="Revenue" value={summary.kpis.revenue} kind="money" deltaPct={summary.kpis.revenueGrowth} favourable={summary.kpis.revenueGrowth >= 0} />
+                <KpiTile label="Net profit" value={summary.kpis.netProfit} kind="money" deltaPct={summary.kpis.profitGrowth} favourable={summary.kpis.profitGrowth >= 0} />
+                <KpiTile label="Gross margin" value={summary.kpis.grossProfitMargin} kind="pct" />
+                <KpiTile label="Net margin" value={summary.kpis.netProfitMargin} kind="pct" />
+                <KpiTile label="Cash balance" value={summary.kpis.cashBalance} kind="money" />
+                <KpiTile label="Current ratio" value={summary.kpis.currentRatio} kind="ratio" />
+                <KpiTile label="Debt/equity" value={summary.kpis.debtToEquity} kind="ratio" />
+                <KpiTile label="NWC" value={summary.cashPosition.netWorkingCapital} kind="money" />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
