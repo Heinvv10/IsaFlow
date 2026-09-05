@@ -92,7 +92,16 @@ export interface VatNonSupplyLine {
   reason: NonSupplyReason | null;
   vatType: string;
   description: string;
+  /** The flagged line's own movement — the expense or asset, NOT the tax. */
   amount: number;
+  /**
+   * VAT-control movement of the whole journal entry this line belongs to.
+   * This is the number at risk: the flagged line carries the contra leg, so
+   * `amount` shows R2 669 254,37 of salary where the defect is the
+   * R400 388,14 of input tax beside it. Journal-level, so it repeats across
+   * rows sharing a journal rather than pretending to split.
+   */
+  journalVat: number;
 }
 
 export interface VatControlRecon {

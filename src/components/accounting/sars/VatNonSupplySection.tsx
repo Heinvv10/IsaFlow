@@ -31,16 +31,22 @@ export default function VatNonSupplySection({ lines }: { lines: VatNonSupplyLine
     <>
       <p className={`${td} !border-0 text-slate-500`}>
         VAT arises on a supply. These lines carry a VAT code against an account where
-        no supply can happen — salaries and statutory deductions, taxes and penalties,
-        distributions, depreciation, donations, and exempt financial services such as
-        interest, loans and share investments. Input tax claimed here has nothing to
-        substantiate it, and output tax declared here was never due.
+        normally no supply can happen — salaries and statutory deductions, taxes and
+        penalties, distributions, depreciation, donations, and exempt financial services
+        such as interest, loans and share investments. Input tax claimed here usually has
+        nothing to substantiate it, and output tax declared here was never due. VAT ON
+        JOURNAL is the whole entry&rsquo;s VAT movement, which is the amount at risk — the
+        account column shows the contra leg. Matched on account name, so treat these as
+        candidates to check rather than confirmed errors: labour supplied through a broker,
+        investment property and payroll software are real supplies whose names look like
+        these.
       </p>
       <table className="min-w-full">
         <thead><tr>
           <th className={th}>Entry</th><th className={th}>Date</th><th className={th}>Account</th>
           <th className={th}>Why</th><th className={th}>VAT type</th>
           <th className={th}>Description</th><th className={`${th} text-right`}>Amount</th>
+          <th className={`${th} text-right`}>VAT on journal</th>
         </tr></thead>
         <tbody>
           {lines.map((l, i) => (
@@ -54,6 +60,7 @@ export default function VatNonSupplySection({ lines }: { lines: VatNonSupplyLine
               <td className={td}>{l.vatType}</td>
               <td className={`${td} max-w-[16rem] truncate`}>{l.description}</td>
               <td className={tdNum}>{fmt(l.amount)}</td>
+              <td className={`${tdNum} text-amber-400 font-semibold`}>{fmt(l.journalVat)}</td>
             </tr>
           ))}
         </tbody>

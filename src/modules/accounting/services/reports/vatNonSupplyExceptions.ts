@@ -22,19 +22,47 @@
  *
  * Exactly 15%. Employment is not an enterprise and salaries are not a supply,
  * so R400 388,14 of input tax was manufactured and the salary cost understated
- * by the same amount. The VAT legs sit on a `vat_input` account coded
- * `standard`, so vatReturnService puts them in box 15 — a real VAT201 number,
- * not a label. Brightsphere `35948127 Investment - Blitz Fibre` is the same
- * mistake on the output side: R9 782,61 of output tax on the disposal of a
- * share investment, an exempt financial service.
+ * by the same amount.
+ *
+ * WHICH report that money reaches matters, because there are two. The VAT legs
+ * sit on a `vat_input` account coded `standard`, so `getVATReturn` puts them in
+ * box 15 — and `getVATReturn` is not a display-only number: `vatSubmissionService`
+ * (line 234) reads its `totalInputTax` and posts the period's real GL settlement
+ * journal from it, crediting VAT Input and booking the net to accrued expenses.
+ * So the fictitious R400 388,14 would be closed off as though it were claimable
+ * and carried into a real posted journal. The ISV eFiling payload is a
+ * different path — `submitVAT201ToSars` builds it from `generateVAT201`, which
+ * is invoice-derived — so this money does NOT reach the filed VAT201's boxes.
+ * Do not simplify either half of that sentence away.
+ *
+ * Brightsphere `35948127 Investment - Blitz Fibre` is the same mistake on the
+ * output side: R9 782,61 of output tax on a R75 000 receipt credited to a share
+ * investment, an exempt financial service.
  *
  * Nothing in the codebase would have reported either. `vat_input_denied`
  * exists but encodes s17(2)(a) entertainment DENIAL, which is a different fact
  * — there a supply happens and the claim is refused; here no supply happens at
  * all. inputVatDenial.ts already warns against conflating the two.
  *
- * INFORMATIONAL ONLY. Same altitude, and the same reasoning, as the
- * balance-sheet rule: it reports before filing and blocks no posting.
+ * IT BLOCKS NO POSTING — BUT IT IS NOT COSMETIC. Same altitude as the
+ * balance-sheet rule: it reports before filing and refuses nothing anyone
+ * posts. It does count toward `totalExceptions`, and `evaluateEfilingGate`
+ * (sarsEfilingSubmissionService.ts:70) throws `EfilingBlockedError` on any
+ * non-zero count, so a period containing one of these will refuse to file on
+ * the ISV channel until the journal is corrected. That is the intended
+ * behaviour of that gate — a period carrying fictitious input tax should not
+ * be filed — and it is why this category is counted like the other eight
+ * rather than shown as an advisory. The consequences, stated plainly:
+ *   - There is no waive or acknowledge path anywhere in the gate. The only
+ *     way to clear one of these is to correct the journal (reverse and
+ *     re-allocate with a `none` VAT code).
+ *   - For Velocity, two bi-monthly periods (2025-P04 and 2025-P05) have no
+ *     other exception and so become blocked by this rule alone.
+ *   - Nothing is blocked today: the ISV channel is unarmed in production (no
+ *     `SARS_EFILING_*` env), so `submitVAT201ToSars` throws
+ *     `EfilingNotConfiguredError` before the gate is reached.
+ * If that trade is ever judged wrong, change the GATE, not this rule — making
+ * one category advisory while eight block is the inconsistency that hides.
  *
  * WHY IT MATCHES ON NAME, NOT SUBTYPE
  * ------------------------------------
@@ -47,25 +75,61 @@
  * in reports nothing — which is precisely how `vat_input_denied` sat unused
  * while R400k accumulated.
  *
- * Verified against production before shipping: across all tenants these
- * patterns match 111 accounts, and of the posted VAT-coded lines on them
- * exactly the two defects above are flagged. Every other standard-rated account
- * in the ledger — bank charges, short-term insurance, travel, entertainment —
- * is deliberately absent from the patterns because those ARE supplies.
+ * WHAT A NAME-MATCHED RULE CANNOT DO
+ * -----------------------------------
+ * A clean section here means "no name-matched non-supply VAT", not "no
+ * non-supply VAT". Known gaps, none of which carry a VAT-coded line in
+ * production today: `Bonus`, `Commission`, `Directors Remuneration`, `Medical
+ * Aid`, `Pension`/`Provident Fund`, `13th Cheque`, `COIDA`/`WCA` on the
+ * employment side; `Deferred Tax` and `Company Tax`; `Members Distribution`;
+ * `Bond`, `Mortgage`, `Finance Charges`, `Debenture`, `Fixed Deposit`; and
+ * `Impairment`. Add patterns as real account names appear — but re-run the
+ * production sweep first, because the patterns cut the other way too.
+ *
+ * The rule also produces CANDIDATES, not verdicts, and a handful of real
+ * account names are genuinely ambiguous: casual or contract labour supplied
+ * through a labour broker IS a taxable supply with claimable input tax
+ * (production has `COS - Casual wages - EX2009`, no VAT-coded lines today);
+ * so are "Payroll Software", "Investment Property" rental, and engineering
+ * "Technical Drawings". Name alone cannot separate those from the dominant
+ * case, so the section reads as "check these before you file" rather than as
+ * an assertion of error.
+ *
+ * Verified against production before shipping, across all 13 companies: the
+ * patterns match 192 `gl_accounts` rows (176 active, 86 distinct names), of
+ * which 44 carry any journal line at all. Of the posted VAT-coded lines on
+ * those, exactly the two defects above are flagged and nothing else. Every
+ * other standard-rated account in the ledger — bank charges, short-term
+ * insurance, travel, entertainment — is deliberately absent from the patterns
+ * because those ARE supplies.
  */
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
 import { dateStr, r2, toNum } from './vatExceptionsTypes';
 import type { NonSupplyReason, VatNonSupplyLine } from './vatExceptionsTypes';
 
 /**
  * VAT codes that make no claim, so carry no defect on a non-supply account.
  *
- * `exempt` is here and is load-bearing: interest received and financial
- * services are exactly the accounts this rule matches, and coding them
- * `exempt` is the CORRECT treatment. Without this exclusion the rule would
- * flag every properly-coded interest account in the platform.
+ * `exempt` is here and is load-bearing — but for ONE of the six categories.
+ * Interest received and share/loan transactions are genuinely s12(a) exempt
+ * supplies, and coding `financial_service` accounts `exempt` is the correct
+ * treatment; without this exclusion the rule would flag every properly-coded
+ * interest account in the platform (production has 2 such lines today, on
+ * `4310 Interest Received`).
+ *
+ * For the other five categories `exempt` is NOT correct — salaries, taxes,
+ * distributions and depreciation are OUT OF SCOPE, not exempt, and `no_vat`
+ * is the right code. `exempt` on those positively asserts that a supply
+ * occurred and was exempt, which in `getVATReturn` lands in output box 3 and
+ * so distorts the s17(1) turnover apportionment ratio. The exclusion stays
+ * whole anyway: `getVATReturn` only reads accounts subtyped `vat_input`,
+ * `vat_output` or `tax`, so an `exempt` code on a salary EXPENSE account
+ * reaches no box today, and production carries no such line. If that changes,
+ * the fix is a narrower exclusion — `exempt` accepted only for
+ * `financial_service` — not the removal of this constant.
  */
 export const NON_CLAIMING_VAT_TYPES: readonly string[] = ['no_vat', 'exempt'];
 
@@ -94,7 +158,7 @@ export const NON_SUPPLY_PATTERNS: ReadonlyArray<{ reason: NonSupplyReason; patte
   { reason: 'donation', pattern: 'donation' },
   // Exempt financial services (VAT Act s12(a)): interest, and the issue,
   // holding or disposal of shares and loans.
-  { reason: 'financial_service', pattern: 'interest|investment|\\mloan' },
+  { reason: 'financial_service', pattern: 'interest|investment|\\mloans?\\M' },
 ];
 
 /** The union of every pattern above — what the SQL filters on. */
@@ -143,6 +207,18 @@ export function isNonSupplyVatException(line: {
 
 export function mapVatNonSupplyLine(r: DbRow): VatNonSupplyLine {
   const accountName = String(r.account_name ?? '');
+  const reason = classifyNonSupplyAccount(accountName);
+  if (reason === null) {
+    // The SQL filtered on the union of the same patterns, so this row matched
+    // in Postgres and not in JavaScript. That is drift between the two
+    // engines, and the UI would render it as a blank "Why" — invisible.
+    // Say it out loud instead.
+    log.warn(
+      'Non-supply line matched in SQL but not by the classifier — pattern drift',
+      { accountName },
+      'vatNonSupplyExceptions',
+    );
+  }
   return {
     journalEntryId: String(r.journal_entry_id),
     entryNumber: String(r.entry_number ?? ''),
@@ -150,14 +226,17 @@ export function mapVatNonSupplyLine(r: DbRow): VatNonSupplyLine {
     accountCode: String(r.account_code ?? ''),
     accountName,
     // Classified here rather than in SQL so the ordered pattern list stays the
-    // single source of truth. Null is unreachable while the SQL filters on the
-    // union of the same patterns; it is typed anyway rather than defaulted to a
-    // category, so a future divergence shows as a blank reason instead of a
-    // confidently wrong one.
-    reason: classifyNonSupplyAccount(accountName),
+    // single source of truth. Null should be unreachable while the SQL filters
+    // on the union of the same patterns — verified across all 387 distinct
+    // production account names, both engines select the same 86 — and it is
+    // typed anyway rather than defaulted to a category, so a future divergence
+    // shows as a blank reason and a logged warning rather than a confidently
+    // wrong one.
+    reason,
     vatType: String(r.vat_type ?? ''),
     description: String(r.description ?? ''),
     amount: r2(toNum(r.amount)),
+    journalVat: r2(toNum(r.journal_vat)),
   };
 }
 
@@ -167,8 +246,16 @@ const LIST_CAP = 100;
  * Posted lines in the period carrying a VAT code against an account on which
  * no supply can arise.
  *
- * Company-scoped on both `gl_journal_lines` and `gl_journal_entries`, matching
- * every other query in this report.
+ * Company-scoped on `gl_journal_lines`, `gl_journal_entries` AND the account
+ * join, so tenant isolation is local to this query rather than inherited from
+ * an assumed invariant elsewhere.
+ *
+ * `journal_vat` is the VAT-control movement of the WHOLE journal entry, not of
+ * this line — the flagged line is the contra leg and carries the expense, not
+ * the tax. Without it the report shows R2 669 254,37 of salary and never the
+ * R400 388,14 of input tax it exists to surface. Journal-level is the honest
+ * granularity: the tax leg is not attributable to one contra line when a
+ * journal has several, so it repeats per row rather than pretending to split.
  */
 export async function findVatNonSupplyLines(
   companyId: string,
@@ -181,10 +268,22 @@ export async function findVatNonSupplyLines(
       jl.vat_type,
       COALESCE(je.description, jl.description, '') AS description,
       jl.debit - jl.credit AS amount,
+      (
+        SELECT COALESCE(SUM(
+          CASE WHEN vga.account_subtype = 'vat_output'
+            THEN vjl.credit - vjl.debit ELSE vjl.debit - vjl.credit END
+        ), 0)
+        FROM gl_journal_lines vjl
+        JOIN gl_accounts vga
+          ON vga.id = vjl.gl_account_id AND vga.company_id = vjl.company_id
+        WHERE vjl.journal_entry_id = jl.journal_entry_id
+          AND vjl.company_id = jl.company_id
+          AND vga.account_subtype IN ('vat_input', 'vat_output')
+      ) AS journal_vat,
       COUNT(*) OVER() AS total_count
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
     WHERE jl.company_id = ${companyId}::UUID
       AND je.company_id = ${companyId}::UUID
       AND je.status = 'posted'

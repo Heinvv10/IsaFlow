@@ -191,6 +191,8 @@ describe('getVatExceptions — VAT where no supply can arise', () => {
     expect(flagged!.reason).toBe('employment_cost');
     expect(flagged!.vatType).toBe('standard');
     expect(flagged!.amount).toBe(2669254.37);
+    // The number the rule exists to surface — not the salary cost.
+    expect(flagged!.journalVat).toBe(400388.14);
 
     expect(report.totalExceptions).toBe(1);
   });

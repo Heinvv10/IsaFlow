@@ -108,6 +108,21 @@ describe('isNonSupplyVatException', () => {
   });
 });
 
+describe('the loan anchor', () => {
+  // Every other acronym in the pattern list is anchored at both ends; this one
+  // was anchored only at the start, so it matched mid-word suffixes.
+  it('matches the singular and the plural account names', () => {
+    expect(classifyNonSupplyAccount('Loan - RL2 Holdings - BA8807')).toBe('financial_service');
+    expect(classifyNonSupplyAccount('Long-term Loans')).toBe('financial_service');
+    expect(classifyNonSupplyAccount('Shareholder loan - Blitz Fibre')).toBe('financial_service');
+  });
+
+  it('does not match a word that merely ends in loan', () => {
+    expect(classifyNonSupplyAccount('Loanword Services')).toBeNull();
+    expect(classifyNonSupplyAccount('Sloane Street Rent')).toBeNull();
+  });
+});
+
 describe('toJsRegExp', () => {
   it('translates the Postgres word-boundary spellings JavaScript would swallow', () => {
     // Untranslated, JS reads \m as a literal "m" and matches nothing.
@@ -142,6 +157,7 @@ describe('mapVatNonSupplyLine', () => {
       vat_type: 'standard',
       description: 'Salary run',
       amount: '2669254.374',
+      journal_vat: '400388.14',
       total_count: '29',
     })).toEqual({
       journalEntryId: 'je-1',
@@ -153,6 +169,30 @@ describe('mapVatNonSupplyLine', () => {
       vatType: 'standard',
       description: 'Salary run',
       amount: 2669254.37,
+      journalVat: 400388.14,
     });
+  });
+
+  it('carries the journal VAT separately from the contra amount', () => {
+    // The whole point: the flagged line shows the salary cost, and the number
+    // that is actually wrong is the tax leg beside it.
+    const row = mapVatNonSupplyLine({
+      journal_entry_id: 'je-2', entry_number: 'JE-0010', entry_date: '2025-04-01',
+      account_code: '49784360', account_name: 'Salaries & Wages - EX4000',
+      vat_type: 'standard', description: '', amount: '62486.96',
+      journal_vat: '9373.04', total_count: '1',
+    });
+    expect(row.amount).toBe(62486.96);
+    expect(row.journalVat).toBe(9373.04);
+  });
+
+  it('reports zero journal VAT rather than NaN when the entry has no VAT leg', () => {
+    const row = mapVatNonSupplyLine({
+      journal_entry_id: 'je-3', entry_number: 'JE-0011', entry_date: '2025-04-01',
+      account_code: '5820', account_name: 'Depreciation Expense',
+      vat_type: 'zero_rated', description: '', amount: '1000',
+      journal_vat: null, total_count: '1',
+    });
+    expect(row.journalVat).toBe(0);
   });
 });

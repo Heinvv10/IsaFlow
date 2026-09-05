@@ -153,6 +153,7 @@ export function makeNonSupplyVatRow(overrides: Record<string, unknown> = {}) {
     vat_type: 'standard',
     description: 'Salary run allocated VAT-exclusive',
     amount: '2669254.37',
+    journal_vat: '400388.14',
     total_count: '1',
     ...overrides,
   };
