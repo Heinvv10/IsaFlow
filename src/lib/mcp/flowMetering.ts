@@ -31,6 +31,7 @@ import {
   InsufficientFlowsError,
 } from '@/modules/billing/services/flowWalletService';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
+import { MAX_INVOICES } from './tools/writeBulkInvoices';
 import {
   getFlowCost,
   type FlowOperationCode,
@@ -372,7 +373,14 @@ export function flowQuantityFor(
   if (toolName !== 'bulk_create_supplier_invoices' && toolName !== 'bulk_create_customer_invoices') {
     return 1;
   }
-  return Array.isArray(args.invoices) && args.invoices.length > 0 ? args.invoices.length : 1;
+  if (!Array.isArray(args.invoices) || args.invoices.length === 0) return 1;
+  // CAPPED. The debit is taken before the handler runs, and JSON Schema
+  // `maxItems` is advisory — nothing in this server enforces it — so a 50,000
+  // element array would debit 50,000 invoices before the handler refused it as
+  // over the maximum. The refusal refunds, but in between the wallet is drained
+  // and the human UI sharing it gets 402s. The handler will never create more
+  // than MAX_INVOICES, so it must never be billed for more either.
+  return Math.min(args.invoices.length, MAX_INVOICES);
 }
 
 /**

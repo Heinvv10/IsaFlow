@@ -76,9 +76,22 @@ function voidTool(
 
       if (isVoidRefusal(result)) {
         // NOT_FOUND covers a foreign id too: a distinct "belongs to another
-        // company" reply is an existence oracle.
+        // company" reply is an existence oracle. The other two name the
+        // document's own status, which the agent can already read.
+        if (result.refusal === 'not_found') return toolError(NOT_FOUND);
+        if (result.refusal === 'already_cancelled') {
+          return toolError('This document is already cancelled.');
+        }
+        if (result.refusal === 'ambiguous_bank_lines') {
+          return toolError(
+            `This document's journal settles ${result.count} bank transactions, so voiding it `
+            + 'would reverse the journal while leaving the others allocated against it. '
+            + 'Reverse each bank line with reverse_bank_allocation instead.',
+          );
+        }
         return toolError(
-          result.refusal === 'not_found' ? NOT_FOUND : 'This document is already cancelled.',
+          `Only a document whose cash has been applied can be voided (status: ${result.status}). `
+          + 'An unapplied document has not moved any invoice balance — cancel it instead.',
         );
       }
 

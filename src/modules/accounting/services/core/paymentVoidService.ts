@@ -37,6 +37,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { lockCustomerPaymentForUpdate, lockSupplierPaymentForUpdate } from './paymentLock';
 import {
   unwindBankAllocationApplication,
   unwindOnePayment,
@@ -63,7 +64,30 @@ export interface VoidPaymentResult {
 /** Why a void was refused. Distinguished so the caller can word each one. */
 export type VoidRefusal =
   | { refusal: 'not_found' }
-  | { refusal: 'already_cancelled' };
+  | { refusal: 'already_cancelled' }
+  | { refusal: 'not_applied'; status: string }
+  | { refusal: 'ambiguous_bank_lines'; count: number };
+
+/**
+ * The statuses at which a payment's allocations HAVE been added to the
+ * invoice's `amount_paid`, and are therefore the statuses it is safe to
+ * subtract them at.
+ *
+ * A `draft` customer payment and a `draft`/`approved` supplier payment already
+ * carry allocation ROWS — both create paths insert them up front — but neither
+ * has touched `amount_paid`: that happens in `confirmCustomerPayment` and
+ * `processSupplierPayment`. Unwinding one would subtract cash the document
+ * never applied, taking it out of some OTHER payment's settlement while the GL
+ * control account stands still. Production carries 2 customer and 63 supplier
+ * drafts, so this is a live shape, not a hypothetical one.
+ *
+ * `voidSupplierPayment` has refused non-`processed` payments for exactly this
+ * reason; this path must not be the way around that guard.
+ */
+const VOIDABLE_STATUSES: Record<PaymentKind, readonly string[]> = {
+  customer: ['confirmed', 'reconciled'],
+  supplier: ['processed', 'reconciled'],
+};
 
 export function isVoidRefusal(v: VoidPaymentResult | VoidRefusal): v is VoidRefusal {
   return 'refusal' in v;
@@ -76,22 +100,25 @@ interface PaymentRow {
   journalEntryId: string | null;
 }
 
-/** Read the payment back UNDER company_id — the only tenant check there is. */
+/**
+ * Read the payment back UNDER company_id — the only tenant check there is —
+ * holding a row lock for the rest of the transaction.
+ *
+ * The lock is not decoration. The registry's idempotency lock only serialises
+ * calls carrying the SAME key, so two `void_receipt` calls on one receipt with
+ * different keys would both read `confirmed`, both read the not-yet-deleted
+ * allocation rows, and both subtract from `amount_paid` — landing the deduction
+ * twice on an invoice that carries other receipts' cash, which `GREATEST(...,0)`
+ * only floors at zero rather than prevents.
+ */
 async function loadPayment(
   companyId: string,
   kind: PaymentKind,
   paymentId: string,
 ): Promise<PaymentRow | null> {
-  const rows = (kind === 'customer'
-    ? await sql`
-        SELECT id, payment_number, status, gl_journal_entry_id
-        FROM customer_payments
-        WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`
-    : await sql`
-        SELECT id, payment_number, status, gl_journal_entry_id
-        FROM supplier_payments
-        WHERE id = ${paymentId}::UUID AND company_id = ${companyId}::UUID`) as DbRow[];
-  const row = rows[0];
+  const row = kind === 'customer'
+    ? await lockCustomerPaymentForUpdate(companyId, paymentId)
+    : await lockSupplierPaymentForUpdate(companyId, paymentId);
   if (!row) return null;
   return {
     id: String(row.id),
@@ -102,16 +129,26 @@ async function loadPayment(
 }
 
 /**
- * The bank line this journal settles, if any.
+ * The bank lines this journal settles.
  *
  * Matched through `gl_journal_lines`, because `matched_journal_line_id` names a
  * LINE and the payment names an ENTRY. Only a line that is still allocated
  * counts: one already returned to `imported` has nothing left to reverse.
+ *
+ * Returns ALL of them, not the first, because `reverseReconciledTransaction`
+ * reverses the journal once and returns exactly ONE bank line to `imported`.
+ * Picking one of several would leave the others `allocated` against a journal
+ * that no longer exists — invisible to unreconciled listings and unrecoverable,
+ * since a later reversal of that journal throws on `reversedAt`. Ten journals
+ * in production already carry two bank lines each (bank transfers: one entry,
+ * two bank legs); none of them belongs to a payment document, so this is a
+ * refusal for a shape the void path cannot reach today rather than a live
+ * defect — but guessing would be the wrong way to be wrong about money.
  */
-async function findBankTransaction(
+async function findBankTransactions(
   companyId: string,
   journalEntryId: string,
-): Promise<string | null> {
+): Promise<string[]> {
   const rows = (await sql`
     SELECT bt.id
     FROM bank_transactions bt
@@ -119,8 +156,8 @@ async function findBankTransaction(
     WHERE bt.company_id = ${companyId}::UUID
       AND jl.journal_entry_id = ${journalEntryId}::UUID
       AND bt.status IN ('allocated', 'matched', 'reconciled')
-    LIMIT 1`) as DbRow[];
-  return rows[0] ? String(rows[0].id) : null;
+    ORDER BY bt.transaction_date, bt.id`) as DbRow[];
+  return rows.map((r) => String(r.id));
 }
 
 export async function voidPaymentDocument(
@@ -133,27 +170,39 @@ export async function voidPaymentDocument(
   const payment = await loadPayment(companyId, kind, paymentId);
   if (!payment) return { refusal: 'not_found' };
   if (payment.status === 'cancelled') return { refusal: 'already_cancelled' };
+  if (!VOIDABLE_STATUSES[kind].includes(payment.status)) {
+    return { refusal: 'not_applied', status: payment.status };
+  }
 
-  const bankTransactionId = payment.journalEntryId
-    ? await findBankTransaction(companyId, payment.journalEntryId)
-    : null;
+  const bankLines = payment.journalEntryId
+    ? await findBankTransactions(companyId, payment.journalEntryId)
+    : [];
+  if (bankLines.length > 1) {
+    return { refusal: 'ambiguous_bank_lines', count: bankLines.length };
+  }
+  const bankTransactionId = bankLines[0] ?? null;
 
   // Shape 1: the bank path already unwinds, posts the contra AND resets the
   // bank line. Doing any of that here as well would double-reverse.
   if (bankTransactionId) {
-    await reverseReconciledTransaction(companyId, bankTransactionId, userId, opts);
+    // The counts come back from the bank path rather than being reported as
+    // zero. This is the branch that does the MOST work, and an agent told
+    // "0 invoices reopened" after a successful void concludes nothing was
+    // undone and re-applies the receipt. The agent IS the display.
+    const unwoundViaBank = await reverseReconciledTransaction(
+      companyId, bankTransactionId, userId, opts,
+    );
     log.info('Voided payment document via its bank allocation', {
       companyId, kind, paymentId, bankTransactionId,
+      invoicesReopened: unwoundViaBank.invoicesReopened,
+      amountUnapplied: unwoundViaBank.amountUnapplied,
     }, 'accounting');
     return {
       paymentId: payment.id,
       paymentNumber: payment.paymentNumber,
       kind,
-      // reverseReconciledTransaction owns the unwind and does not report its
-      // counts. Re-reading them here would be a second source of truth for a
-      // number the caller only displays.
-      invoicesReopened: 0,
-      amountUnapplied: 0,
+      invoicesReopened: unwoundViaBank.invoicesReopened,
+      amountUnapplied: unwoundViaBank.amountUnapplied,
       journalEntryId: payment.journalEntryId,
       bankTransactionId,
     };

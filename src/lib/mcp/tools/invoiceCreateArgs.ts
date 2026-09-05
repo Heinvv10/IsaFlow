@@ -184,10 +184,21 @@ export function parseCustomerInvoiceInput(
     const o = line as Record<string, unknown>;
     const description = typeof o.description === 'string' ? o.description.trim() : '';
     if (!description) return `items[${i}].description is required`;
+    // Bounds, not just finiteness — the supplier arm above checks them and so
+    // does `createDraftCustomerInvoice` ("Line unit prices cannot be negative").
+    // The service throwing is what stops a negative invoice being created; this
+    // is about WHERE the refusal lands. Answered here it names the element and
+    // the line, before the first INSERT; left to the service it surfaces
+    // mid-batch, after a bulk create has already written the elements above it
+    // and has to discard them.
     const unitPrice = Number(o.unit_price);
-    if (!Number.isFinite(unitPrice)) return `items[${i}].unit_price must be a number`;
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      return `items[${i}].unit_price must be a non-negative number`;
+    }
     const quantity = o.quantity === undefined ? 1 : Number(o.quantity);
-    if (!Number.isFinite(quantity)) return `items[${i}].quantity must be a number`;
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return `items[${i}].quantity must be a positive number`;
+    }
     items.push({ description, unitPrice, quantity });
   }
 

@@ -252,6 +252,25 @@ describe('bulk_create_customer_invoices', () => {
     expect(createDraftCustomerInvoice).not.toHaveBeenCalled();
   });
 
+  it('refuses a negative unit_price and a non-positive quantity at parse time', async () => {
+    // createDraftCustomerInvoice throws on both, so no negative invoice is ever
+    // created either way — but refused HERE it names the element and the line
+    // before the first INSERT, instead of surfacing after earlier elements were
+    // written and had to be discarded.
+    const bad = await bulkCreateCustomerInvoicesTool.handler({
+      invoices: [inv(), inv({ items: [{ description: 'x', unit_price: -5000 }] })],
+      ...KEY,
+    }, ctx());
+    expect(errText(bad)).toBe('invoices[1].items[0].unit_price must be a non-negative number');
+
+    const zeroQty = await bulkCreateCustomerInvoicesTool.handler({
+      invoices: [inv({ items: [{ description: 'x', unit_price: 10, quantity: 0 }] })],
+      ...KEY,
+    }, ctx());
+    expect(errText(zeroQty)).toBe('invoices[0].items[0].quantity must be a positive number');
+    expect(createDraftCustomerInvoice).not.toHaveBeenCalled();
+  });
+
   it('THROWS when an element fails mid-batch', async () => {
     vi.mocked(createDraftCustomerInvoice)
       .mockResolvedValueOnce({ id: 'ci-1' } as never)

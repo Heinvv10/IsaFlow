@@ -33,6 +33,7 @@ import {
   type ParsedSupplierInvoice,
 } from './invoiceCreateArgs';
 import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
+import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 
 /**
  * More invoices than this in one call is a mistake, not a batch.
@@ -41,7 +42,7 @@ import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
  * how much work a single rollback should be able to throw away, not about how
  * many an agent can hold. 2,200 bills is 22 calls at this size.
  */
-const MAX_INVOICES = 100;
+export const MAX_INVOICES = 100;
 
 /** Pull `args.invoices` out as a list of records, or return the refusal. */
 function parseBatch(raw: unknown): Record<string, unknown>[] | string {
@@ -86,6 +87,23 @@ const CUSTOMER_LINE_SCHEMA = {
   required: ['description', 'unit_price'],
   additionalProperties: false,
 } as const;
+
+
+/**
+ * Name the failing element without destroying the error.
+ *
+ * `registry.ts` dispatches on `instanceof MissingSystemAccountError` (and
+ * `BulkAllocationLineError`) to turn an unactionable GENERIC_FAILURE into a
+ * message naming what to fix. Wrapping in a bare `new Error` threw that class
+ * away, so a bulk create against a chart missing a system account came back as
+ * "please try again" — advice that cannot work, the chart being the same on the
+ * retry. Typed errors pass through untouched; only an untyped one is wrapped,
+ * and it keeps the original as `cause`.
+ */
+function elementError(index: number, err: unknown, fallback: string): unknown {
+  if (err instanceof MissingSystemAccountError) return err;
+  return new Error(`invoices[${index}]: ${safeErrorText(err, fallback)}`, { cause: err });
+}
 
 export const bulkCreateSupplierInvoicesTool: McpTool = {
   name: 'bulk_create_supplier_invoices',
@@ -201,9 +219,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
         // INSERT, so this element wrote nothing — but the elements above it
         // did. Only a throw reaches the registry's savepoint and discards them;
         // a returned error RELEASES the savepoint and commits the partial run.
-        throw new Error(
-          `invoices[${i}]: ${safeErrorText(err, 'Failed to create supplier invoice.')}`,
-        );
+        throw elementError(i, err, 'Failed to create supplier invoice.');
       }
     }
 
@@ -280,10 +296,10 @@ export const bulkCreateCustomerInvoicesTool: McpTool = {
       } catch (err) {
         // Same reasoning as the AP arm above: rethrow so the savepoint discards
         // every element, including the ones already committed.
-        const detail = err instanceof InvoiceLineValidationError
-          ? err.message
-          : safeErrorText(err, 'Failed to create customer invoice.');
-        throw new Error(`invoices[${i}]: ${detail}`);
+        if (err instanceof InvoiceLineValidationError) {
+          throw new Error(`invoices[${i}]: ${err.message}`, { cause: err });
+        }
+        throw elementError(i, err, 'Failed to create customer invoice.');
       }
     }
 

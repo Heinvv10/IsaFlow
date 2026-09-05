@@ -22,6 +22,10 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
+vi.mock('@/modules/accounting/services/core/paymentLock', () => ({
+  lockCustomerPaymentForUpdate: vi.fn(),
+  lockSupplierPaymentForUpdate: vi.fn(),
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationUnwind', () => ({
   unwindOnePayment: vi.fn(),
   unwindBankAllocationApplication: vi.fn(),
@@ -34,6 +38,10 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 }));
 
 import { sql } from '@/lib/neon';
+import {
+  lockCustomerPaymentForUpdate,
+  lockSupplierPaymentForUpdate,
+} from '@/modules/accounting/services/core/paymentLock';
 import {
   unwindOnePayment,
   unwindBankAllocationApplication,
@@ -52,8 +60,15 @@ const PAYMENT = '77777777-7777-4777-8777-777777777777';
 const JE = '88888888-8888-4888-8888-888888888888';
 const BANK_TX = '99999999-9999-4999-8999-999999999999';
 
-/** Queue the rows each `sql` call returns, in call order. */
-function queue(...results: unknown[][]): void {
+/**
+ * Set the locked payment row, then queue what each subsequent `sql` call
+ * returns. The payment is read through the LOCK helper, not bare `sql` — the
+ * lock is what stops two concurrent voids subtracting the same allocation
+ * twice, so a test that bypassed it would not be exercising the real path.
+ */
+function given(payment: Record<string, unknown> | null, ...results: unknown[][]): void {
+  vi.mocked(lockCustomerPaymentForUpdate).mockResolvedValue(payment as never);
+  vi.mocked(lockSupplierPaymentForUpdate).mockResolvedValue(payment as never);
   const m = vi.mocked(sql);
   for (const rows of results) m.mockResolvedValueOnce(rows as never);
 }
@@ -75,17 +90,22 @@ describe('voidPaymentDocument', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // clearAllMocks clears CALLS, not implementations — a mockRejectedValue set
-    // by one test would otherwise leak into the next.
+    // by one test would otherwise leak into the next, and an UNCONSUMED
+    // mockResolvedValueOnce stays queued and is handed to the next test's first
+    // `sql` call, silently offsetting every result after it.
+    vi.mocked(sql).mockReset();
     vi.mocked(unwindOnePayment).mockResolvedValue({ invoicesReopened: 2, amountUnapplied: 1500 });
     vi.mocked(unwindBankAllocationApplication).mockResolvedValue({
       invoicesReopened: 2, amountUnapplied: 1500, paymentsCancelled: 1,
     });
     vi.mocked(reverseJournalEntry).mockResolvedValue(undefined as never);
-    vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined as never);
+    vi.mocked(reverseReconciledTransaction).mockResolvedValue({
+      invoicesReopened: 3, amountUnapplied: 2750.25, paymentsCancelled: 1,
+    } as never);
   });
 
   it('refuses a payment that is not in the company', async () => {
-    queue([]);
+    given(null);
     const r = await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
     expect(r).toEqual({ refusal: 'not_found' });
     expect(unwindOnePayment).not.toHaveBeenCalled();
@@ -93,7 +113,7 @@ describe('voidPaymentDocument', () => {
   });
 
   it('refuses an already-cancelled document rather than voiding it twice', async () => {
-    queue([paymentRow({ status: 'cancelled' })]);
+    given(paymentRow({ status: 'cancelled' }));
     const r = await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
     expect(r).toEqual({ refusal: 'already_cancelled' });
     expect(unwindOnePayment).not.toHaveBeenCalled();
@@ -101,7 +121,7 @@ describe('voidPaymentDocument', () => {
   });
 
   it('delegates wholly to the bank path when the payment settled a bank line', async () => {
-    queue([paymentRow()], [{ id: BANK_TX }]);
+    given(paymentRow(), [{ id: BANK_TX }]);
     const r = asResult(await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER));
 
     expect(reverseReconciledTransaction).toHaveBeenCalledWith(COMPANY, BANK_TX, USER, undefined);
@@ -112,8 +132,75 @@ describe('voidPaymentDocument', () => {
     expect(r.bankTransactionId).toBe(BANK_TX);
   });
 
+  it('reports the counts the BANK path actually unwound, never zero', async () => {
+    // This branch does the most work. Answering "0 invoices reopened" after a
+    // successful void tells an agent nothing was undone, and it re-applies the
+    // receipt.
+    given(paymentRow(), [{ id: BANK_TX }]);
+    const r = asResult(await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER));
+    expect(r.invoicesReopened).toBe(3);
+    expect(r.amountUnapplied).toBe(2750.25);
+  });
+
+  it('REFUSES a draft receipt — its allocations were never added to amount_paid', async () => {
+    // A draft carries allocation ROWS but has not touched amount_paid, which
+    // only moves in confirmCustomerPayment. Unwinding one subtracts cash the
+    // document never applied, taking it out of some OTHER receipt's settlement
+    // while the GL control account stands still. Production carries 2 of these.
+    given(paymentRow({ status: 'draft' }));
+    const r = await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
+    expect(r).toEqual({ refusal: 'not_applied', status: 'draft' });
+    expect(unwindOnePayment).not.toHaveBeenCalled();
+    expect(unwindBankAllocationApplication).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+  });
+
+  it('REFUSES an approved (not yet processed) supplier payment', async () => {
+    // The AP mirror: amount_paid moves in processSupplierPayment, not before.
+    // Production carries 63 draft supplier payments.
+    for (const status of ['draft', 'approved']) {
+      vi.clearAllMocks();
+      given(paymentRow({ status }));
+      const r = await voidPaymentDocument(COMPANY, 'supplier', PAYMENT, USER);
+      expect(r).toEqual({ refusal: 'not_applied', status });
+      expect(unwindOnePayment).not.toHaveBeenCalled();
+    }
+  });
+
+  it('ACCEPTS the statuses at which the cash HAS been applied', async () => {
+    for (const [kind, status] of [
+      ['customer', 'confirmed'], ['customer', 'reconciled'],
+      ['supplier', 'processed'], ['supplier', 'reconciled'],
+    ] as const) {
+      vi.clearAllMocks();
+      vi.mocked(unwindOnePayment).mockResolvedValue({ invoicesReopened: 1, amountUnapplied: 10 });
+      given(paymentRow({ status, gl_journal_entry_id: null }));
+      const r = await voidPaymentDocument(COMPANY, kind, PAYMENT, USER);
+      expect(isVoidRefusal(r as never)).toBe(false);
+      expect(unwindOnePayment).toHaveBeenCalledWith(COMPANY, kind, PAYMENT);
+    }
+  });
+
+  it('reads the payment under a ROW LOCK, not a bare SELECT', async () => {
+    // Two concurrent voids with different idempotency keys are not serialised
+    // by the registry; only the row lock stops both subtracting the same
+    // allocation from amount_paid.
+    given(paymentRow(), []);
+    await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
+    expect(lockCustomerPaymentForUpdate).toHaveBeenCalledWith(COMPANY, PAYMENT);
+
+    vi.clearAllMocks();
+    vi.mocked(unwindBankAllocationApplication).mockResolvedValue({
+      invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
+    });
+    vi.mocked(reverseJournalEntry).mockResolvedValue(undefined as never);
+    given(paymentRow(), []);
+    await voidPaymentDocument(COMPANY, 'supplier', PAYMENT, USER);
+    expect(lockSupplierPaymentForUpdate).toHaveBeenCalledWith(COMPANY, PAYMENT);
+  });
+
   it('unwinds BEFORE reversing when there is a journal but no bank line', async () => {
-    queue([paymentRow()], []);
+    given(paymentRow(), []);
     const order: string[] = [];
     vi.mocked(unwindBankAllocationApplication).mockImplementation(async () => {
       order.push('unwind');
@@ -138,14 +225,27 @@ describe('voidPaymentDocument', () => {
     // Reversing the journal takes the cash out of the ledger for every payment
     // hanging off it. Unwinding only the named one would leave a sibling reading
     // as settled with its posting reversed.
-    queue([paymentRow()], []);
+    given(paymentRow(), []);
     await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
     expect(unwindBankAllocationApplication).toHaveBeenCalledWith(COMPANY, JE);
     expect(unwindOnePayment).not.toHaveBeenCalled();
   });
 
+  it('REFUSES rather than guess when the journal settles two bank lines', async () => {
+    // reverseReconciledTransaction reverses the journal once and returns ONE
+    // bank line to imported. Picking one of two would strand the other against
+    // a journal that no longer exists — unrecoverable, since reversing it again
+    // throws on reversedAt.
+    given(paymentRow(), [{ id: BANK_TX }, { id: 'other-bank-tx' }]);
+    const r = await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
+    expect(r).toEqual({ refusal: 'ambiguous_bank_lines', count: 2 });
+    expect(reverseReconciledTransaction).not.toHaveBeenCalled();
+    expect(unwindBankAllocationApplication).not.toHaveBeenCalled();
+    expect(reverseJournalEntry).not.toHaveBeenCalled();
+  });
+
   it('unwinds and reverses NOTHING when the payment was never posted', async () => {
-    queue([paymentRow({ gl_journal_entry_id: null })]);
+    given(paymentRow({ gl_journal_entry_id: null, status: 'confirmed' }));
     const r = asResult(await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER));
 
     expect(unwindOnePayment).toHaveBeenCalledWith(COMPANY, 'customer', PAYMENT);
@@ -155,21 +255,23 @@ describe('voidPaymentDocument', () => {
   });
 
   it('lets a reversal failure propagate rather than committing a half-void', async () => {
-    queue([paymentRow()], []);
+    given(paymentRow(), []);
     vi.mocked(reverseJournalEntry).mockRejectedValue(new Error('period is closed'));
     await expect(voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER))
       .rejects.toThrow('period is closed');
   });
 
   it('unwinds the SUPPLIER side when asked for one', async () => {
-    queue([paymentRow({ gl_journal_entry_id: null })]);
+    // 'processed', not 'confirmed': the AP subledger's applied state has its own
+    // name, and 'confirmed' is a customer-side status the guard rightly refuses.
+    given(paymentRow({ gl_journal_entry_id: null, status: 'processed' }));
     const r = asResult(await voidPaymentDocument(COMPANY, 'supplier', PAYMENT, USER));
     expect(unwindOnePayment).toHaveBeenCalledWith(COMPANY, 'supplier', PAYMENT);
     expect(r.kind).toBe('supplier');
   });
 
   it('forwards the posting stamp and reversal date to the reversal', async () => {
-    queue([paymentRow()], []);
+    given(paymentRow(), []);
     const opts = { postingAgent: 'mcp:void_receipt:v1', reversalDate: '2026-03-01' };
     await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER, opts as never);
     expect(reverseJournalEntry).toHaveBeenCalledWith(COMPANY, JE, USER, opts);

@@ -131,6 +131,15 @@ describe('flowQuantityFor — bulk creates bill per ELEMENT', () => {
     }
   });
 
+  it('is CAPPED at the batch maximum — an oversized array must not drain the wallet', () => {
+    // The debit is taken before the handler runs and JSON Schema maxItems is
+    // advisory, so an uncapped quantity would bill 50,000 invoices before the
+    // handler refused the batch as over the maximum.
+    expect(flowQuantityFor('bulk_create_supplier_invoices', {
+      invoices: Array.from({ length: 50_000 }),
+    })).toBe(100);
+  });
+
   it('is 1 for a malformed batch — the handler refuses it and the refund returns that one', () => {
     expect(flowQuantityFor('bulk_create_supplier_invoices', {})).toBe(1);
     expect(flowQuantityFor('bulk_create_supplier_invoices', { invoices: [] })).toBe(1);
