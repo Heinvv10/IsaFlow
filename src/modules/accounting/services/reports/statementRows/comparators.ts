@@ -18,17 +18,13 @@ import type { Comparison, StatementRow } from './statementModel';
 /**
  * Build the prior-period comparison for one row.
  *
- * A prior of EXACTLY ZERO carries no movement worth printing. The services
- * hand back `variance = actual` and `variancePct = 0` in that case — divide by
- * zero has no percentage, so zero is the placeholder — and the grid then draws
- * a full-width variance bar next to a Δ% of 0.0%, which reads as "no change by
- * the largest movement on the statement". Both are artefacts of an absent
- * comparator, not findings about the account, so both are left undefined and
- * the cells print empty. Same judgement the budget column already makes: a
- * comparator with nothing behind it prints nothing.
- *
- * `favourable` goes with them. A polarity verdict on a movement that is not
- * shown would colour a figure the reader cannot see.
+ * A prior of EXACTLY ZERO is a real comparator, and the movement against it is
+ * a real figure: an account that went from nothing to R5.5m moved by R5.5m,
+ * and that is worth printing. What does NOT exist is the percentage — there is
+ * nothing to divide by — and the services return 0 as the placeholder, which
+ * the grid then prints as "0.0%": a claim of no change beside the largest
+ * movement on the statement. So the amount and its polarity are kept and only
+ * `variancePct` is dropped, leaving that one cell empty.
  */
 export function priorComparison(
   value: number,
@@ -36,8 +32,11 @@ export function priorComparison(
   variancePct: number | undefined,
   favourable: (v: number) => boolean,
 ): Comparison {
-  if (value === 0) return { value };
-  const prior: Comparison = { value, variance, variancePct };
+  // No denominator, no percentage. The services' 0 is a placeholder for a
+  // figure that does not exist, not a measurement of one.
+  const prior: Comparison = value === 0
+    ? { value, variance }
+    : { value, variance, variancePct };
   if (variance !== undefined) prior.favourable = favourable(variance);
   return prior;
 }

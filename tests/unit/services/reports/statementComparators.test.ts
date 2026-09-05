@@ -110,16 +110,21 @@ describe('applyBudgetComparator', () => {
 describe('priorComparison', () => {
   const fav = (v: number) => v >= 0;
 
-  it('prints no movement and no percentage when the prior is exactly zero', () => {
-    // The services hand back variance = the whole actual and variancePct = 0
-    // when there is nothing to divide by. Rendered, that is a full-width bar
-    // beside a Δ% of 0.0% — two artefacts of an absent comparator, neither a
-    // finding about the account.
+  it('keeps the movement against a zero prior, and drops only the percentage', () => {
+    // Nothing to R500 000 IS a movement of R500 000, and it is the reader's
+    // whole interest in the row. The percentage is the only figure that does
+    // not exist — no denominator — and the services' 0 is a placeholder for
+    // it, which the grid would otherwise print as "0.0%": a claim of no change
+    // beside the largest movement on the statement.
     const c = priorComparison(0, 500_000, 0, fav);
-    expect(c).toEqual({ value: 0 });
-    expect(c.variance).toBeUndefined();
+    expect(c.value).toBe(0);
+    expect(c.variance).toBe(500_000);
+    expect(c.favourable).toBe(true);
     expect(c.variancePct).toBeUndefined();
-    expect(c.favourable).toBeUndefined();
+  });
+
+  it('still judges polarity against a zero prior', () => {
+    expect(priorComparison(0, -500_000, 0, fav).favourable).toBe(false);
   });
 
   it('keeps the movement when the prior is a real figure', () => {
@@ -137,7 +142,7 @@ describe('priorComparison', () => {
 });
 
 describe('the balance-sheet adapter applies the zero-prior rule', () => {
-  it('drops the movement on an account whose prior balance was zero', () => {
+  it('keeps the movement but drops the percentage when the prior balance was zero', () => {
     const report = {
       assets: [{ accountCode: '1110', accountName: 'Bank', balance: -3_184_600, priorBalance: 0, variance: -3_184_600, variancePct: 0 }],
       liabilities: [], equity: [],
@@ -145,6 +150,7 @@ describe('the balance-sheet adapter applies the zero-prior rule', () => {
     } as unknown as Parameters<typeof toBalanceSheetRows>[0];
     const { assets } = toBalanceSheetRows(report, { comparative: true });
     const bank = assets.find(r => r.accountCode === '1110')!;
-    expect(bank.prior).toEqual({ value: 0 });
+    expect(bank.prior?.variance).toBe(-3_184_600);
+    expect(bank.prior?.variancePct).toBeUndefined();
   });
 });
