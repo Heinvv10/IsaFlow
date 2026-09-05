@@ -197,9 +197,12 @@ const LIST_CAP = 100;
  * Posted lines in the period carrying a VAT code against a balance-sheet
  * account that has no legitimate reason to hold one.
  *
- * Company-scoped on BOTH `gl_journal_lines` and `gl_journal_entries`, matching
- * every other query in this report — the line and its entry each carry
- * `company_id` and both are filtered.
+ * Company-scoped on `gl_journal_lines`, `gl_journal_entries` AND the account
+ * join. The account was already pinned by primary key, so the third predicate
+ * changes no row today (measured: zero lines in production whose account
+ * belongs to a different company than the line) — it makes tenant isolation a
+ * local property of this query rather than one inherited from an invariant
+ * asserted elsewhere.
  */
 export async function findVatOnBalanceSheetLines(
   companyId: string,
@@ -215,7 +218,7 @@ export async function findVatOnBalanceSheetLines(
       COUNT(*) OVER() AS total_count
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
     WHERE jl.company_id = ${companyId}::UUID
       AND je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
