@@ -36,7 +36,7 @@ describe('toBalanceSheetRows', () => {
   it('carries prior balances only when comparative', () => {
     const on = toBalanceSheetRows(R, { comparative: true }).assets.find(r => r.accountCode === '1000')!;
     const off = toBalanceSheetRows(R, { comparative: false }).assets.find(r => r.accountCode === '1000')!;
-    expect(on.prior).toBe(400000); expect(off.prior).toBeUndefined();
+    expect(on.prior?.value).toBe(400000); expect(off.prior).toBeUndefined();
   });
 
   it('colours the band subtotals the same way as the income statement does', () => {
@@ -44,9 +44,9 @@ describe('toBalanceSheetRows', () => {
     // Assets up 400000 → 500000: favourable. Liabilities down 250000 → 200000:
     // favourable. Equity up 150000 → 270000 is a claim going UP: unfavourable
     // by the same convention incomeStatementRows applies.
-    expect(assets.find(r => r.id === 'sub:assets')?.favourable).toBe(true);
-    expect(liabilitiesAndEquity.find(r => r.id === 'sub:liabilities')?.favourable).toBe(true);
-    expect(liabilitiesAndEquity.find(r => r.id === 'sub:equity')?.favourable).toBe(false);
+    expect(assets.find(r => r.id === 'sub:assets')?.prior?.favourable).toBe(true);
+    expect(liabilitiesAndEquity.find(r => r.id === 'sub:liabilities')?.prior?.favourable).toBe(true);
+    expect(liabilitiesAndEquity.find(r => r.id === 'sub:equity')?.prior?.favourable).toBe(false);
   });
 
   it('says so when a section has no lines, rather than showing a bare header', () => {
@@ -59,7 +59,31 @@ describe('toBalanceSheetRows', () => {
 
   it('a liability going down is favourable; an asset going up is favourable', () => {
     const { assets, liabilitiesAndEquity } = toBalanceSheetRows(R, { comparative: true });
-    expect(assets.find(r => r.accountCode === '1000')?.favourable).toBe(true);
-    expect(liabilitiesAndEquity.find(r => r.accountCode === '2000')?.favourable).toBe(true);
+    expect(assets.find(r => r.accountCode === '1000')?.prior?.favourable).toBe(true);
+    expect(liabilitiesAndEquity.find(r => r.accountCode === '2000')?.prior?.favourable).toBe(true);
+  });
+
+  it('gives the empty-state placeholder its own kind, not a band header', () => {
+    const empty = { ...R, assets: [], totalAssets: 0 };
+    const { assets } = toBalanceSheetRows(empty, { comparative: false });
+    const placeholder = assets.find(r => r.label === 'No asset balances')!;
+    // Shared with `section`, a consumer summing rows cannot tell a band header
+    // from a placeholder, and the header carries a figure the placeholder must
+    // never have.
+    expect(placeholder.kind).toBe('empty');
+    expect(assets.find(r => r.id === 'sec:assets')!.kind).toBe('section');
+  });
+
+  it('links account lines to account detail only when the caller supplies a URL', () => {
+    const linked = toBalanceSheetRows(R, {
+      comparative: false,
+      detailHref: code => `/accounting/reports/account-detail/${code}?source=bs`,
+    });
+    expect(linked.assets.find(r => r.accountCode === '1000')?.href)
+      .toBe('/accounting/reports/account-detail/1000?source=bs');
+    // Totals are not accounts and never link.
+    expect(linked.assets.find(r => r.id === 'sub:assets')?.href).toBeUndefined();
+    expect(toBalanceSheetRows(R, { comparative: false }).assets.find(r => r.accountCode === '1000')?.href)
+      .toBeUndefined();
   });
 });

@@ -47,7 +47,7 @@ describe('toIncomeStatementRows', () => {
     walk(R);
     for (const row of rows) {
       expect(reportNumbers, `${row.label} actual`).toContain(row.actual);
-      if (row.prior !== undefined) expect(reportNumbers, `${row.label} prior`).toContain(row.prior);
+      if (row.prior !== undefined) expect(reportNumbers, `${row.label} prior`).toContain(row.prior.value);
     }
   });
 
@@ -64,9 +64,9 @@ describe('toIncomeStatementRows', () => {
     expect(at('total:operatingProfit').actual).toBe(R.operatingProfit);
     expect(at('sub:otherExpenses').actual).toBe(R.totalOtherExpenses);
     expect(at('grand:netProfit').actual).toBe(R.netProfit);
-    expect(at('total:grossProfit').prior).toBe(R.priorGrossProfit);
-    expect(at('total:operatingProfit').prior).toBe(R.priorOperatingProfit);
-    expect(at('grand:netProfit').prior).toBe(R.priorNetProfit);
+    expect(at('total:grossProfit').prior?.value).toBe(R.priorGrossProfit);
+    expect(at('total:operatingProfit').prior?.value).toBe(R.priorOperatingProfit);
+    expect(at('grand:netProfit').prior?.value).toBe(R.priorNetProfit);
   });
 
   it('omits Other Income and Other Expenses sections when empty', () => {
@@ -76,15 +76,24 @@ describe('toIncomeStatementRows', () => {
     expect(l).toContain('Operating Profit');
   });
 
+  it('names its comparator: every movement hangs off `prior`, never a bare field', () => {
+    const rows = toIncomeStatementRows(R, { comparative: true });
+    const sales = rows.find(r => r.accountCode === '4000')!;
+    // A budget column must be addable without renaming any of these. That is
+    // the whole point of the Comparison shape.
+    expect(sales.prior).toEqual({ value: 4100000, variance: 900000, variancePct: undefined, favourable: true });
+    expect(sales.budget).toBeUndefined();
+  });
+
   it('marks favourability by sign convention: revenue up is good, expense up is bad', () => {
     const rows = toIncomeStatementRows(R, { comparative: true });
-    expect(rows.find(r => r.accountCode === '4000')?.favourable).toBe(true);
-    expect(rows.find(r => r.accountCode === '6000')?.favourable).toBe(false);
+    expect(rows.find(r => r.accountCode === '4000')?.prior?.favourable).toBe(true);
+    expect(rows.find(r => r.accountCode === '6000')?.prior?.favourable).toBe(false);
   });
 
   it('carries no prior or variance when comparative is off', () => {
     const rows = toIncomeStatementRows(R, { comparative: false });
-    expect(rows.every(r => r.prior === undefined && r.variance === undefined)).toBe(true);
+    expect(rows.every(r => r.prior === undefined)).toBe(true);
   });
 
   it('gives line rows the account code and depth 1; totals depth 0 and no code', () => {

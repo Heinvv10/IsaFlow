@@ -38,7 +38,7 @@ function SectionErr({ message }: { message: string }) {
 
 function BalanceSheetBlock({ report }: { report: BalanceSheetReport }) {
   const { assets, liabilitiesAndEquity } = toBalanceSheetRows(report, { comparative: false });
-  const columns = { prior: false, variance: false, trend: false };
+  const columns = { prior: false, budget: false, variance: false, trend: false };
   return (
     <section className="mb-10">
       <h3 className="text-sm font-bold uppercase tracking-wide mb-3 text-[var(--ff-text-primary)]">
@@ -71,7 +71,7 @@ export function IncomeStatementBlock({ report, periodStart, periodEnd }: {
     <section>
       <h3 className="text-sm font-bold uppercase tracking-wide mb-1 text-[var(--ff-text-primary)]">Statement of Comprehensive Income</h3>
       <p className="text-xs text-[var(--ff-text-tertiary)] mb-3">{periodStart} to {periodEnd}</p>
-      <StatementGrid rows={rows} columns={{ prior: false, variance: false, trend: false }} cents />
+      <StatementGrid rows={rows} columns={{ prior: false, budget: false, variance: false, trend: false }} cents />
     </section>
   );
 }

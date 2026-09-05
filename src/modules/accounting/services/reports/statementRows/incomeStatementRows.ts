@@ -6,7 +6,7 @@
  * operating line on purpose (see incomeStatementService and B75).
  */
 import type { IncomeStatementLineItem, IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
-import type { StatementRow } from './statementModel';
+import type { Comparison, StatementRow } from './statementModel';
 
 type Polarity = 'income' | 'expense';
 
@@ -17,10 +17,9 @@ function lineRows(items: IncomeStatementLineItem[], polarity: Polarity, comparat
       accountCode: it.accountCode, actual: it.amount,
     };
     if (comparative && it.priorAmount !== undefined) {
-      row.prior = it.priorAmount;
-      row.variance = it.variance;
-      row.variancePct = it.variancePct;
-      if (it.variance !== undefined) row.favourable = polarity === 'income' ? it.variance >= 0 : it.variance <= 0;
+      const prior: Comparison = { value: it.priorAmount, variance: it.variance, variancePct: it.variancePct };
+      if (it.variance !== undefined) prior.favourable = polarity === 'income' ? it.variance >= 0 : it.variance <= 0;
+      row.prior = prior;
     }
     return row;
   });
@@ -33,15 +32,19 @@ function section(
   const head: StatementRow = { id: `sec:${key}`, kind: 'section', label, depth: 0, actual: total };
   const sub: StatementRow = { id: `sub:${key}`, kind: 'subtotal', label: `Total ${label}`, depth: 0, actual: total };
   if (comparative && prior !== undefined) {
-    sub.prior = prior;
-    sub.favourable = polarity === 'income' ? total >= prior : total <= prior;
+    // No `variance` here: the report has no variance field for a band total
+    // and this layer does not subtract. Only `favourable`, which is a
+    // polarity judgement, not a figure.
+    sub.prior = { value: prior, favourable: polarity === 'income' ? total >= prior : total <= prior };
   }
   return [head, ...lineRows(items, polarity, comparative), sub];
 }
 
 function total(id: string, kind: 'total' | 'grand', label: string, actual: number, prior: number | undefined, comparative: boolean): StatementRow {
   const row: StatementRow = { id, kind, label, depth: 0, actual };
-  if (comparative && prior !== undefined) { row.prior = prior; row.favourable = actual >= prior; }
+  if (comparative && prior !== undefined) {
+    row.prior = { value: prior, favourable: actual >= prior };
+  }
   return row;
 }
 

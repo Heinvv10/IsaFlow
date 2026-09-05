@@ -36,7 +36,7 @@ export function ManagementPandLRows({ is }: { is: Record<string, number> | undef
     ...(n('totalOtherExpenses') !== 0 ? [{ id: 'sub:otherExpenses', kind: 'subtotal' as const, label: 'Other Expenses', depth: 0 as const, actual: n('totalOtherExpenses') }] : []),
     { id: 'grand:netProfit', kind: 'grand', label: 'Net Profit / (Loss)', depth: 0, actual: n('netProfit') },
   ];
-  return <StatementGrid rows={rows} columns={{ prior: false, variance: false, trend: false }} cents />;
+  return <StatementGrid rows={rows} columns={{ prior: false, budget: false, variance: false, trend: false }} cents />;
 }
 
 /** The management pack's balance-sheet summary — three subtotals plus the
@@ -55,5 +55,5 @@ export function ManagementBalanceSheetRows({ bs, detail }: { bs: Record<string, 
     { id: 'sub:totalEquity', kind: 'subtotal', label: 'Total Equity', depth: 0, actual: n('totalEquity') },
     { id: 'grand:totalLiabilitiesAndEquity', kind: 'grand', label: 'Total Liabilities and Equity', depth: 0, actual: n('totalLiabilities') + n('totalEquity') },
   ];
-  return <StatementGrid rows={rows} columns={{ prior: false, variance: false, trend: false }} cents />;
+  return <StatementGrid rows={rows} columns={{ prior: false, budget: false, variance: false, trend: false }} cents />;
 }

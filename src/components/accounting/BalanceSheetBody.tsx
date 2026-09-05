@@ -23,8 +23,14 @@ interface BalanceSheetBodyProps {
 export function BalanceSheetBody({
   report, showComparative, expandedAccount, onToggleAccount, drillDownStart, drillDownEnd, onEvidence,
 }: BalanceSheetBodyProps) {
-  const { assets, liabilitiesAndEquity } = toBalanceSheetRows(report, { comparative: showComparative });
-  const columns = { prior: showComparative, variance: showComparative, trend: false };
+  // The account-detail route master's BalanceSheetRow linked every account
+  // name to. The migration to StatementGrid dropped it; the row model now
+  // carries an href and this is the only surface that sets one.
+  const detailHref = (code: string) =>
+    `/accounting/reports/account-detail/${encodeURIComponent(code)}` +
+    `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`;
+  const { assets, liabilitiesAndEquity } = toBalanceSheetRows(report, { comparative: showComparative, detailHref });
+  const columns = { prior: showComparative, budget: false, variance: showComparative, trend: false };
   const nameOf = (code: string) =>
     [...report.assets, ...report.liabilities, ...report.equity].find(a => a.accountCode === code)?.accountName ?? code;
   const evidence = (code: string) => onEvidence(code, nameOf(code));

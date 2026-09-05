@@ -43,7 +43,7 @@ describe.each(TENANTS)('$name', ({ id }) => {
     const service = numbersIn(r);
     for (const row of toIncomeStatementRows(r, { comparative: true })) {
       expect(service, row.label).toContain(Math.round(row.actual * 100));
-      if (row.prior !== undefined) expect(service, `${row.label} prior`).toContain(Math.round(row.prior * 100));
+      if (row.prior !== undefined) expect(service, `${row.label} prior`).toContain(Math.round(row.prior.value * 100));
     }
     expect(r.totalRevenue - r.totalCostOfSales).toBeCloseTo(r.grossProfit, 2);
     expect(r.grossProfit + r.totalOtherIncome - r.totalOperatingExpenses).toBeCloseTo(r.operatingProfit, 2);

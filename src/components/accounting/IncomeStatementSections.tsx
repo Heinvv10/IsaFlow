@@ -46,7 +46,7 @@ export function IncomeStatementSections({
     <div>
       <StatementGrid
         rows={rows}
-        columns={{ prior: showComparative, variance: showComparative, trend: false }}
+        columns={{ prior: showComparative, budget: false, variance: showComparative, trend: false }}
         title="Statement of Comprehensive Income"
         expandedAccount={expandedAccount}
         onToggleAccount={onToggleAccount}
