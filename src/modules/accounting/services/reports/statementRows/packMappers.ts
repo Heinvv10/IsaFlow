@@ -21,6 +21,7 @@ export interface BalanceSheetDetail {
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /**
  * Each band of the shared pack row list, keyed by its BAND KEY, never by its
@@ -88,9 +89,14 @@ export function packToTotals(d: Record<string, unknown>): Record<string, number>
 
 /** The pack's two margin figures. The service computes them; the pack lost
  * them when it moved onto StatementGrid, and they are the figures a reader
- * quotes back. */
-export function packToMargins(d: Record<string, unknown>): { grossMargin: number; netMargin: number } {
-  return { grossMargin: num(d.grossMargin), netMargin: num(d.netMargin) };
+ * quotes back.
+ *
+ * `null` survives here rather than defaulting to 0 like the other mappers:
+ * a total of zero is a real total, but a margin of zero on no turnover is a
+ * percentage nothing on the page supports. See `marginKvItem` in
+ * packDocument.ts for the row the surfaces print instead. */
+export function packToMargins(d: Record<string, unknown>): { grossMargin: number | null; netMargin: number | null } {
+  return { grossMargin: numOrNull(d.grossMargin), netMargin: numOrNull(d.netMargin) };
 }
 
 /** The pack's `balance_sheet` section keys → the balance-sheet totals shape.

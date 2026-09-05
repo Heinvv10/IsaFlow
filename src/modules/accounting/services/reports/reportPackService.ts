@@ -124,10 +124,14 @@ function buildSectionData(
         operatingProfit,
         otherExpenses,
         netProfit: input.netProfit,
-        // `?? 0` here, not in marginPct: the pack has always printed 0.00%
-        // on no turnover and this change must not move a single figure.
-        grossMargin: marginPct2dp(grossProfit, input.revenue) ?? 0,
-        netMargin: marginPct2dp(input.netProfit, input.revenue) ?? 0,
+        // NULL, not 0. A margin needs turnover to be a margin OF, and on
+        // zero or negative turnover (credit notes exceeding sales) the pack
+        // printed "Gross margin 0.0%" — a figure nothing else on the page
+        // supports, on a document a director forwards to a bank. The null is
+        // carried through packToMargins to PackDocument, where it becomes a
+        // row with its reason instead of a percentage.
+        grossMargin: marginPct2dp(grossProfit, input.revenue),
+        netMargin: marginPct2dp(input.netProfit, input.revenue),
       };
     }
 

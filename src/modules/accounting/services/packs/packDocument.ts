@@ -148,6 +148,22 @@ const isRatioEntry = (e: [string, unknown]): e is [RatioKey, number | null] =>
 /** Reached only if the service nulls a ratio without recording why. */
 const NOT_MEANINGFUL = 'Not meaningful';
 
+/** Why a margin row can have no figure. `marginPct` returns null on zero or
+ *  negative turnover, and dividing by a negative prints a healthy-looking
+ *  POSITIVE percentage — so there is no margin to print, not a margin of 0. */
+export const NO_MARGIN_REASON = 'No margin on non-positive turnover';
+
+/**
+ * One margin row. Exported because the interactive screen prints the same two
+ * figures off the same section data: two call sites formatting a nullable
+ * margin their own way is how one of them ends up printing "0.0%" again.
+ */
+export function marginKvItem(label: string, value: number | null): PackKvItem {
+  return value === null
+    ? { label, value: null, format: 'pct', unavailable: NO_MARGIN_REASON }
+    : { label, value, format: 'pct' };
+}
+
 function humanise(key: string): string {
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
 }
@@ -173,8 +189,8 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
         {
           kind: 'kv',
           items: [
-            { label: 'Gross Margin', value: margins.grossMargin, format: 'pct' },
-            { label: 'Net Margin', value: margins.netMargin, format: 'pct' },
+            marginKvItem('Gross Margin', margins.grossMargin),
+            marginKvItem('Net Margin', margins.netMargin),
           ],
         },
       ];

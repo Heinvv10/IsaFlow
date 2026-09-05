@@ -9,6 +9,13 @@
  *
  * Each expectation below is the value the call site produced BEFORE the
  * convergence, so this file fails if any of the four moves again.
+ *
+ * EXCEPT reportPackService, deliberately changed 2026-09-06: it now carries
+ * marginPct2dp's `null` instead of coercing it to 0. "Gross margin 0.0%" on a
+ * loss period is a figure nothing else on the pack supports, and the pack is
+ * a document a director forwards to a bank. The surfaces print the reason
+ * (packDocument.NO_MARGIN_REASON) in place of a percentage. The other three
+ * call sites are unchanged and still pinned at 0 below.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -23,7 +30,7 @@ import { getIncomeStatement } from '@/modules/accounting/services/reports/income
 
 beforeEach(() => sqlMock.mockReset());
 
-describe('reportPackService — 0, as it always was', () => {
+describe('reportPackService — null, so no percentage is printed at all', () => {
   const input = (revenue: number): ReportPackInput => ({
     companyName: 'Reversal Co', period: '2026-01-01 to 2026-01-31',
     revenue, costOfSales: 0, operatingExpenses: 50, otherIncome: 0, otherExpenses: 0,
@@ -36,18 +43,20 @@ describe('reportPackService — 0, as it always was', () => {
 
   const margins = (revenue: number) => {
     const pack = buildReportPack('management', input(revenue), '2026-01-01', '2026-01-31');
-    return pack.sections.find(s => s.type === 'income_statement')!.data as Record<string, number>;
+    return pack.sections.find(s => s.type === 'income_statement')!.data as Record<string, number | null>;
   };
 
-  it('prints 0.00% on negative revenue, not a computed percentage', () => {
-    // The predecessor guard was `input.revenue > 0 ? … : 0`.
+  it('emits no margin at all on negative revenue, neither 0 nor a computed percentage', () => {
+    // Dividing a loss by negative turnover prints a healthy-looking POSITIVE
+    // percentage, which is why `marginPct` refuses it. The old `?? 0` turned
+    // that refusal back into a printable 0.0%.
     const m = margins(-100);
-    expect(m.grossMargin).toBe(0);
-    expect(m.netMargin).toBe(0);
+    expect(m.grossMargin).toBeNull();
+    expect(m.netMargin).toBeNull();
   });
 
-  it('still prints 0 on zero revenue and a real figure on positive revenue', () => {
-    expect(margins(0).grossMargin).toBe(0);
+  it('emits no margin on zero revenue and a real figure on positive revenue', () => {
+    expect(margins(0).grossMargin).toBeNull();
     expect(margins(200).grossMargin).toBeCloseTo(100, 10);
   });
 });

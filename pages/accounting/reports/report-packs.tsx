@@ -15,6 +15,8 @@ import {
 import { log } from '@/lib/logger';
 import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
 import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
+import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -52,8 +54,8 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
                   document people send onward and these are the two figures a
                   reader quotes back off it. */}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <KVItem label="Gross Margin" value={`${margins.grossMargin.toFixed(1)}%`} />
-                <KVItem label="Net Margin" value={`${margins.netMargin.toFixed(1)}%`} />
+                <KVItem label="Gross Margin" value={formatPackKv(marginKvItem('Gross Margin', margins.grossMargin))} />
+                <KVItem label="Net Margin" value={formatPackKv(marginKvItem('Net Margin', margins.netMargin))} />
               </div>
             </div>
           )}
