@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { apiJson, ApiRequestError } from '@/lib/apiFetch';
-import type { ShareLinkRow } from '@/modules/accounting/services/share/shareLinkService';
+import { clampTtlDays, type ShareLinkRow } from '@/modules/accounting/services/share/shareLinkService';
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
 
 const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
@@ -67,6 +67,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
   async function handleCreate() {
     setCreating(true);
     setCreateError(null);
+    setNewLink(null);
     try {
       const r = await apiJson('/api/accounting/share/links', {
         method: 'POST',
@@ -144,7 +145,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
             min={1}
             max={90}
             value={ttlDays}
-            onChange={e => setTtlDays(Number(e.target.value))}
+            onChange={e => setTtlDays(clampTtlDays(Number(e.target.value)))}
             className={`${INPUT} w-16`}
           />
         </label>

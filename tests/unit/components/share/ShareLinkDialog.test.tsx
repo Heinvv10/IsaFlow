@@ -119,4 +119,40 @@ describe('ShareLinkDialog', () => {
     expect((init as RequestInit).method).toBe('POST');
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  it('clamps an emptied or out-of-range Days field to a valid value', async () => {
+    fetchMock.mockResolvedValue(envelope({ links: [] }));
+    render(<ShareLinkDialog params={PARAMS} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    const days = screen.getByLabelText('Days') as HTMLInputElement;
+
+    fireEvent.change(days, { target: { value: '' } });
+    expect(Number(days.value)).toBeGreaterThanOrEqual(1);
+    expect(Number(days.value)).toBeLessThanOrEqual(90);
+
+    fireEvent.change(days, { target: { value: '500' } });
+    expect(Number(days.value)).toBe(90);
+  });
+
+  it('clears the shown-once URL panel when a second create fails', async () => {
+    fetchMock
+      .mockResolvedValueOnce(envelope({ links: [] })) // initial load
+      .mockResolvedValueOnce(envelope({ // first create succeeds
+        link: LINK, token: 'raw-token', url: 'https://app.isaflow.co.za/share/raw-token',
+      }))
+      .mockResolvedValueOnce(envelope({ links: [LINK] })) // refresh after first create
+      .mockResolvedValueOnce(errorEnvelope(400, 'bad params')); // second create fails
+
+    render(<ShareLinkDialog params={PARAMS} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() =>
+      expect(screen.getByDisplayValue('https://app.isaflow.co.za/share/raw-token')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(screen.getByText('bad params')).toBeTruthy());
+    expect(screen.queryByDisplayValue(/^https?:\/\//)).toBeNull();
+  });
 });
