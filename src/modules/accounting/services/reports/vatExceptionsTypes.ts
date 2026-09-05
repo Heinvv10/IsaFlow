@@ -65,6 +65,36 @@ export interface VatOnBalanceSheetLine {
   amount: number;
 }
 
+/**
+ * Why an account can never carry VAT. Ordered patterns and the reasoning for
+ * each category live in vatNonSupplyExceptions.ts.
+ */
+export type NonSupplyReason =
+  | 'employment_cost'
+  | 'tax_or_penalty'
+  | 'distribution'
+  | 'depreciation'
+  | 'donation'
+  | 'financial_service';
+
+/**
+ * A posted line claiming VAT against an account on which no supply can arise.
+ * Distinct from VatOnBalanceSheetLine: that rule is about which side of the
+ * statements the contra leg sits on, this one about whether a supply happened.
+ */
+export interface VatNonSupplyLine {
+  journalEntryId: string;
+  entryNumber: string;
+  entryDate: string;
+  accountCode: string;
+  accountName: string;
+  /** Carried so the reader can see WHY it was flagged, not just that it was. */
+  reason: NonSupplyReason | null;
+  vatType: string;
+  description: string;
+  amount: number;
+}
+
 export interface VatControlRecon {
   outputVat201: number;
   outputGl: number;
@@ -92,6 +122,8 @@ export interface VatExceptionsReport {
   invoiceGlMismatchCount: number;
   vatOnBalanceSheetLines: VatOnBalanceSheetLine[];
   vatOnBalanceSheetCount: number;
+  vatNonSupplyLines: VatNonSupplyLine[];
+  vatNonSupplyCount: number;
   controlRecon: VatControlRecon;
   totalExceptions: number;
   /** True when generateVAT201 ran on missing sources — recon totals untrustworthy. */

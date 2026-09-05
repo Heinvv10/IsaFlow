@@ -1,7 +1,7 @@
 /**
  * Shared builders/mocks for vatExceptionsService tests.
  *
- * The service runs 7 SQL queries (in declaration order inside Promise.all)
+ * The service runs 9 SQL queries (in declaration order inside Promise.all)
  * plus one generateVAT201 call. mockExceptionsSql queues each in sequence:
  *  1. Uncoded GL VAT lines (vat_type IS NULL on vat_input/vat_output accounts)
  *  2. Customer invoices with tax-code issues
@@ -12,6 +12,8 @@
  *  7. Unposted invoice VAT aggregates (one row)
  *  8. VAT coded against a balance-sheet account (appended last, so adding it
  *     did not shift the positions the existing six queues rely on)
+ *  9. VAT coded against an account on which no supply can arise (appended
+ *     after 8 for the same reason)
  *
  * All numeric values arrive as strings (pg numeric) — the service must coerce.
  * NOTE: each test file must call vi.mock('@/lib/neon', ...) itself; this
@@ -107,9 +109,10 @@ export interface MockExceptionsOpts {
   glControl?: unknown[];
   unposted?: unknown[];
   vatOnBalanceSheet?: unknown[];
+  vatNonSupply?: unknown[];
 }
 
-/** Queue the 8 SQL results in service call order. */
+/** Queue the 9 SQL results in service call order. */
 export function mockExceptionsSql(opts: MockExceptionsOpts) {
   vi.mocked(sql)
     .mockResolvedValueOnce((opts.uncoded ?? []) as never)
@@ -119,7 +122,8 @@ export function mockExceptionsSql(opts: MockExceptionsOpts) {
     .mockResolvedValueOnce((opts.supplierMismatches ?? []) as never)
     .mockResolvedValueOnce((opts.glControl ?? EMPTY_GL_CONTROL) as never)
     .mockResolvedValueOnce((opts.unposted ?? EMPTY_UNPOSTED) as never)
-    .mockResolvedValueOnce((opts.vatOnBalanceSheet ?? []) as never);
+    .mockResolvedValueOnce((opts.vatOnBalanceSheet ?? []) as never)
+    .mockResolvedValueOnce((opts.vatNonSupply ?? []) as never);
 }
 
 export function makeBalanceSheetVatRow(overrides: Record<string, unknown> = {}) {
@@ -134,6 +138,21 @@ export function makeBalanceSheetVatRow(overrides: Record<string, unknown> = {}) 
     vat_type: 'standard',
     description: 'Input VAT coded to the bank leg',
     amount: '150.55',
+    total_count: '1',
+    ...overrides,
+  };
+}
+
+export function makeNonSupplyVatRow(overrides: Record<string, unknown> = {}) {
+  return {
+    journal_entry_id: 'je-ns-1',
+    entry_number: 'JE-2026-00099',
+    entry_date: '2026-03-25',
+    account_code: '5200',
+    account_name: 'Salaries & Wages',
+    vat_type: 'standard',
+    description: 'Salary run allocated VAT-exclusive',
+    amount: '2669254.37',
     total_count: '1',
     ...overrides,
   };
