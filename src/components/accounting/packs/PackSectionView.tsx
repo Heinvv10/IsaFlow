@@ -1,0 +1,99 @@
+/**
+ * One pack section, printed. Renders PackBlocks and nothing else — every
+ * figure arrives already chosen by buildPackDocument.
+ */
+import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
+import { formatMoney, formatPct } from '@/lib/format/money';
+import { waterfallOption, trendOption } from '@/modules/accounting/services/packs/packChartOptions';
+import type { PackBlock, PackDocumentSection, PackKvItem } from '@/modules/accounting/services/packs/packDocument';
+import { PackChart } from './PackChart';
+
+const NO_COMPARATORS = { prior: false, budget: false, variance: false, trend: false } as const;
+
+/** The en dash formatMoney prints for a zero, reused for a figure that has no
+ *  value at all. Never "0.00": a ratio that could not be computed must not
+ *  read as a ratio of zero. */
+const NO_FIGURE = '–';
+
+/**
+ * A KV item, as text. Exported so the deck and the PDF cannot drift from the
+ * screen on the same document — the unit lives on the item, not in a
+ * renderer's guess about the field name.
+ */
+export function formatPackKv(item: PackKvItem): string {
+  // Whatever the format, an unavailable figure prints its reason INSTEAD of a
+  // number, exactly as KpiTile.unavailable does on the executive dashboard.
+  if (item.unavailable) return item.unavailable;
+  if (item.value === null) return NO_FIGURE;
+  switch (item.format) {
+    case 'pct': return formatPct(item.value);
+    case 'ratio': return item.value.toFixed(2);
+    case 'days': return `${item.value.toFixed(0)} days`;
+    case 'money': return formatMoney(item.value, { cents: true });
+  }
+}
+
+function Block({ block }: { block: PackBlock }) {
+  switch (block.kind) {
+    case 'statement':
+      return <StatementGrid rows={block.rows} columns={NO_COMPARATORS} cents />;
+
+    case 'kv':
+      return (
+        <dl className="grid grid-cols-3 gap-3">
+          {block.items.map((item) => (
+            <div key={item.label}>
+              <dt className="text-xs text-[var(--ff-text-tertiary)]">{item.label}</dt>
+              <dd className="text-sm font-medium text-[var(--ff-text-primary)] tabular-nums">{formatPackKv(item)}</dd>
+            </div>
+          ))}
+        </dl>
+      );
+
+    case 'scorecard':
+      return (
+        <div className="grid grid-cols-3 gap-2">
+          {block.items.map((item) => (
+            <div key={item.ratioKey} className="rounded border border-[var(--ff-border-light)] p-2 text-xs">
+              <span className="block text-[var(--ff-text-tertiary)]">{item.name}</span>
+              {item.value === null ? (
+                <span className="text-[var(--ff-text-tertiary)]">{item.reason ?? NO_FIGURE}</span>
+              ) : (
+                <>
+                  <span className="font-bold tabular-nums text-[var(--ff-text-primary)]">{item.value.toFixed(2)}</span>
+                  <span className="ml-1 text-[var(--ff-text-tertiary)]">/ {item.target}</span>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      );
+
+    case 'waterfall':
+      return <PackChart option={waterfallOption(block.steps)} />;
+
+    case 'trend':
+      // Revenue is the series a reader quotes off a twelve-month page; the
+      // other two are on the statements a page earlier.
+      return <PackChart option={trendOption(block.points.map((p) => ({ label: p.label, value: p.revenue })))} />;
+
+    case 'text':
+      return <p className="text-sm text-[var(--ff-text-secondary)]">{block.text}</p>;
+  }
+}
+
+export function PackSectionView({ section }: { section: PackDocumentSection }) {
+  return (
+    <section
+      data-print-break
+      {...(section.landscape ? { 'data-print-landscape': '' } : {})}
+      id={`pack-section-${section.type}`}
+      className="space-y-4"
+    >
+      <h2 className="text-lg font-semibold text-[var(--ff-text-primary)]">{section.title}</h2>
+      {section.blocks.map((block, i) => (
+        <Block key={`${section.type}-${i}`} block={block} />
+      ))}
+    </section>
+  );
+}
