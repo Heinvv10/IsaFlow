@@ -28,7 +28,7 @@ export function buildBudgetBulletOption(
   // array below (yAxis, both series, tooltip/label lookups, colours) is
   // built from this same `rows` order so index k always means the same
   // account everywhere in the option.
-  const rows = ranked;
+  const rows = [...ranked].reverse();
 
   const budget = roleStyle('budget', palette);
   const actual = roleStyle('actual', palette);
