@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { AppProps } from 'next/app';
+import { useRouter } from 'next/router';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
@@ -8,6 +9,7 @@ import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
+import { isTrackedPath } from '@/modules/analytics/isTrackedPath';
 import '../styles/globals.css';
 import '../styles/print.css';
 
@@ -18,6 +20,9 @@ import '../styles/print.css';
  * SW caching breaks HMR in dev by pinning old webpack bundles).
  */
 export default function App({ Component, pageProps }: AppProps) {
+  // The public share page is not tracked: its pathname carries the token.
+  const tracked = isTrackedPath(useRouter().pathname);
+
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
@@ -46,7 +51,7 @@ export default function App({ Component, pageProps }: AppProps) {
         </ErrorBoundary>
         </TableDensityProvider>
         </ThemeModeProvider>
-        <TrackerScript />
+        {tracked && <TrackerScript />}
         <Toaster
           position="top-right"
           containerStyle={{ top: 16, right: 16 }}
