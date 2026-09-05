@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_PALETTE, paletteFromTheme } from '@/components/accounting/charts/chartTypes';
+import { DEFAULT_PALETTE, escapeHtml, paletteFromTheme } from '@/components/accounting/charts/chartTypes';
 import { roleStyle, varianceColor, axisDomain } from '@/components/accounting/charts/ibcs';
 import { buildTheme } from '@/lib/charts/theme';
 
@@ -64,6 +64,18 @@ describe('axisDomain', () => {
   it('gives a flat all-zero series a usable domain instead of min === max', () => {
     const d = axisDomain([0, 0, 0]);
     expect(d.max).toBeGreaterThan(d.min);
+  });
+});
+
+describe('escapeHtml', () => {
+  it('neutralises an HTML injection attempt from a ledger-sourced string', () => {
+    const escaped = escapeHtml('<img src=x onerror=alert(1)>');
+    expect(escaped).not.toContain('<img');
+    expect(escaped).toBe('&lt;img src=x onerror=alert(1)&gt;');
+  });
+
+  it('escapes amp, quote and apostrophe too', () => {
+    expect(escapeHtml(`Tom & Jerry's "Co"`)).toBe('Tom &amp; Jerry&#39;s &quot;Co&quot;');
   });
 });
 

@@ -8,7 +8,7 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import { formatMoney } from '@/lib/format/money';
-import type { ChartPalette } from './chartTypes';
+import { escapeHtml, type ChartPalette } from './chartTypes';
 import { roleStyle } from './ibcs';
 
 export interface CashFlowReport {
@@ -59,7 +59,7 @@ export function buildCashFlowSankeyOption(
     tooltip: {
       trigger: 'item',
       formatter: (p: { name: string; value: number }) =>
-        `${p.name}<br/>${formatMoney(p.value, { symbol: true })}`,
+        `${escapeHtml(p.name)}<br/>${formatMoney(p.value, { symbol: true })}`,
     },
     series: [
       {

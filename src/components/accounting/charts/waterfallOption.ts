@@ -23,7 +23,7 @@ import type {
 } from 'echarts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { formatMoney } from '@/lib/format/money';
-import type { ChartPalette } from './chartTypes';
+import { escapeHtml, type ChartPalette } from './chartTypes';
 import { axisDomain, roleStyle, varianceColor } from './ibcs';
 
 /** A movement's colour is the variance of the movement itself — favourable
@@ -96,7 +96,9 @@ export function buildWaterfallOption(
       trigger: 'item',
       formatter: (p: { dataIndex: number }) => {
         const s = steps[p.dataIndex];
-        return s ? `${s.label}<br/>${formatMoney(s.value, { cents: opts.cents, symbol: true })}` : '';
+        return s
+          ? `${escapeHtml(s.label)}<br/>${formatMoney(s.value, { cents: opts.cents, symbol: true })}`
+          : '';
       },
     },
     xAxis: {

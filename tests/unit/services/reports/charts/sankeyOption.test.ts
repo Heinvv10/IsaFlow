@@ -31,8 +31,23 @@ const linksOf = (o: Record<string, unknown>) =>
 const nodesOf = (o: Record<string, unknown>) =>
   ((o['series'] as Array<{ data: Array<{ name: string }> }>)[0]!).data;
 
+type TooltipOption = { tooltip: { formatter: (p: { name: string; value: number }) => string } };
+
 describe('buildCashFlowSankeyOption', () => {
   const opt = buildCashFlowSankeyOption(REPORT, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
+
+  it('escapes a node name before it reaches the tooltip formatter', () => {
+    const malicious: CashFlowReport = {
+      ...REPORT,
+      sections: [
+        { section: 'Operating Activities', total: 0, items: [{ label: '<img src=x onerror=1>', amount: 1_000 }] },
+      ],
+    };
+    const withXss = buildCashFlowSankeyOption(malicious, DEFAULT_PALETTE) as unknown as TooltipOption;
+    const html = withXss.tooltip.formatter({ name: '<img src=x onerror=1>', value: 1_000 });
+    expect(html).toContain('&lt;img');
+    expect(html).not.toContain('<img src=x onerror=1>');
+  });
 
   it('balances: everything into Cash equals everything out of it', () => {
     const links = linksOf(opt);

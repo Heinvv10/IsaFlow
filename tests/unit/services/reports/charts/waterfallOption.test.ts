@@ -60,8 +60,18 @@ function renderStep(steps: Parameters<typeof makeWaterfallRenderItem>[0], index:
   ) as unknown as { children: [RectChild, TextChild] };
 }
 
+type TooltipOption = { tooltip: { formatter: (p: { dataIndex: number }) => string } };
+
 describe('buildWaterfallOption', () => {
   const opt = buildWaterfallOption(STEPS, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
+
+  it('escapes a step label before it reaches the tooltip formatter', () => {
+    const malicious = STEPS.map((s, i) => (i === 0 ? { ...s, label: '<img src=x onerror=1>' } : s));
+    const withXss = buildWaterfallOption(malicious, DEFAULT_PALETTE) as unknown as TooltipOption;
+    const html = withXss.tooltip.formatter({ dataIndex: 0 });
+    expect(html).toContain('&lt;img');
+    expect(html).not.toContain('<img src=x onerror=1>');
+  });
 
   it('draws one bar per service step, in service order', () => {
     expect(catAxis(opt).data).toEqual(STEPS.map((s) => s.label));
