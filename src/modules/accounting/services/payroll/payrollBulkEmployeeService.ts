@@ -159,10 +159,19 @@ export async function applyBulkEmployeeUpdate(
   // `withAuth` opens for every request — so it commits the WHOLE request and
   // destroys any enclosing savepoint.
   //
-  // `recordEmployeeChange` below still writes through the module-level `sql`.
-  // That is correct and not an oversight: on a request connection
-  // `withTransaction` nests a SAVEPOINT on that SAME ALS client, so the nested
-  // service's writes are inside this unit of work and roll back with it.
+  // `recordEmployeeChange` below still writes through the module-level `sql`
+  // rather than the `tx` handed to the callback. That holds ONLY because a
+  // request transaction is always in flight here: the single caller is
+  // `pages/api/payroll/employees/bulk/apply.ts`, wrapped in `withAuth`. On that
+  // branch `withTransaction` nests a SAVEPOINT on the SAME ALS client, so the
+  // nested service's writes land in this unit of work and unwind with it.
+  //
+  // KNOWN EDGE, recorded rather than left to be rediscovered: on the OTHER
+  // branch — no request transaction — `withTransaction` takes a dedicated pool
+  // client and `sql` falls through to `getPool()`, a DIFFERENT connection. The
+  // history rows would then commit independently of the employee updates and
+  // survive a rollback. Unreachable today; if this function ever gains a caller
+  // outside a request transaction, `recordEmployeeChange` must take the `tx`.
   return withTransaction(async (tx) => {
     for (const r of rows) {
       const id = String(r.id);
