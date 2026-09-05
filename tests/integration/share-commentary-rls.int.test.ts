@@ -1,0 +1,147 @@
+// tests/integration/share-commentary-rls.int.test.ts
+/**
+ * Two properties, both of which a unit test cannot establish:
+ *  1. Under RLS (role app_user, GUCs set for tenant A), tenant A sees zero of
+ *     tenant B's share links, commentary and annotations, and cannot write a
+ *     row into tenant B's company.
+ *  2. A share page renders APPROVED text only. A draft on the same pack, for
+ *     the same period, is absent from buildSharedPack's output.
+ *
+ * Deliberately fails (not skips) without a real DATABASE_URL — same convention
+ * as share-link-lifecycle.int.test.ts and statement-grid-foots.int.test.ts.
+ *
+ * A third property is pinned here too: `shareResolver`'s public path runs on
+ * the pool connection (a superuser that bypasses RLS — see the file header in
+ * shareResolver.ts), not as `app_user`. `resolveShareLink` still returns 'ok'
+ * with no tenant GUC set at all. That is the documented, intended shape — RLS
+ * is the second line of defence for this feature, not the first, because an
+ * unauthenticated visitor has no session to carry a GUC — so the test below
+ * pins the CURRENT behaviour rather than assuming it.
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { Pool } from 'pg';
+import { createShareLink } from '@/modules/accounting/services/share/shareLinkService';
+import { resolveShareLink } from '@/modules/accounting/services/share/shareResolver';
+import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
+import { canonicalParamsHash } from '@/modules/accounting/services/share/shareParams';
+
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL || DATABASE_URL.includes('dummy.neon.tech')) {
+  throw new Error('share-commentary-rls requires DATABASE_URL; it does not skip');
+}
+
+const CA = '00000000-0000-0000-0000-0000000054aa';
+const CB = '00000000-0000-0000-0000-0000000054bb';
+const UA = 'ws3-rls-user-A';
+const UB = 'ws3-rls-user-B';
+const PARAMS = { type: 'board', from: '2026-03-01', to: '2026-08-31' } as const;
+
+let admin: Pool;
+
+beforeAll(async () => {
+  admin = new Pool({ connectionString: DATABASE_URL, max: 2 });
+  await admin.query(`INSERT INTO companies (id,name,is_active) VALUES ($1,'WS3R-A',true),($2,'WS3R-B',true) ON CONFLICT (id) DO NOTHING`, [CA, CB]);
+  await admin.query(`INSERT INTO users (id,email,is_active) VALUES ($1,'r-a@test.local',true),($2,'r-b@test.local',true) ON CONFLICT (id) DO NOTHING`, [UA, UB]);
+  await admin.query(`INSERT INTO company_users (company_id,user_id,role) VALUES ($1,$3,'admin'),($2,$4,'admin') ON CONFLICT DO NOTHING`, [CA, CB, UA, UB]);
+
+  const hash = canonicalParamsHash(PARAMS);
+  // Tenant B: one link, one approved commentary, one annotation.
+  await createShareLink({ companyId: CB, userId: UB, params: PARAMS });
+  await admin.query(
+    `INSERT INTO report_commentary (company_id, report_kind, params_hash, period_start, period_end, section_ref, row_ref, draft_text, approved_text, status, generated_by, approved_by, approved_at)
+     VALUES ($1,'pack',$2,'2026-03-01','2026-08-31','income_statement','revenue','B DRAFT','B APPROVED','approved',$3,$3,NOW())`,
+    [CB, hash, UB]);
+  await admin.query(
+    `INSERT INTO report_annotations (company_id,row_id,period_start,period_end,body,author)
+     VALUES ($1,'line:4000','2026-03-01','2026-08-31','B NOTE',$2)`, [CB, UB]);
+});
+
+afterAll(async () => {
+  for (const t of ['share_link_views', 'share_links', 'report_commentary', 'report_annotations']) {
+    await admin.query(`DELETE FROM ${t} WHERE company_id IN ($1,$2)`, [CA, CB]);
+  }
+  await admin.query(`DELETE FROM company_users WHERE user_id IN ($1,$2)`, [UA, UB]);
+  await admin.query(`DELETE FROM users WHERE id IN ($1,$2)`, [UA, UB]);
+  await admin.query(`DELETE FROM companies WHERE id IN ($1,$2)`, [CA, CB]);
+  await admin.end();
+});
+
+describe('RLS on the WS3 tables', () => {
+  it('tenant A reads none of tenant B rows on any of the four tables', async () => {
+    const client = await admin.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query(`SELECT set_config('request.jwt.claims',$1,true)`, [JSON.stringify({ sub: UA })]);
+      await client.query(`SELECT set_config('app.current_company_id',$1,true)`, [CA]);
+      for (const t of ['share_links', 'share_link_views', 'report_commentary', 'report_annotations']) {
+        const r = await client.query<{ c: number }>(
+          `SELECT COUNT(*)::int AS c FROM public."${t}" WHERE company_id = $1::uuid`, [CB]);
+        expect(r.rows[0]!.c, `${t} leaked tenant B rows to tenant A`).toBe(0);
+      }
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+  });
+
+  it('tenant A cannot INSERT a share link for tenant B', async () => {
+    const client = await admin.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL ROLE app_user');
+      await client.query(`SELECT set_config('request.jwt.claims',$1,true)`, [JSON.stringify({ sub: UA })]);
+      await client.query(`SELECT set_config('app.current_company_id',$1,true)`, [CA]);
+      await expect(client.query(
+        `INSERT INTO share_links (company_id, report_kind, params, token_hash, created_by)
+         VALUES ($1,'pack','{}'::jsonb,'deadbeef',$2)`, [CB, UA])).rejects.toThrow();
+      await client.query('ROLLBACK');
+    } finally {
+      client.release();
+    }
+  });
+
+  it('resolveShareLink still resolves as app_user with NO tenant GUC set (pool bypasses RLS; this path does not)', async () => {
+    // Pins the documented dependency in shareResolver.ts: the public resolve
+    // path runs on the pool's superuser connection, which bypasses RLS by
+    // design, because an unauthenticated visitor has no session to carry a
+    // company GUC. This is not exercised through `admin` at all — it goes
+    // through the real service, exactly as the public share page does.
+    const { token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
+    const r = await resolveShareLink(token, { ip: '203.0.113.11', userAgent: 'vitest' });
+    expect(r.status).toBe('ok');
+    if (r.status === 'ok') expect(r.link.companyId).toBe(CA);
+  });
+});
+
+describe('a share link publishes approved text only', () => {
+  it('renders the approved sentence and not the draft on the same row', async () => {
+    const hash = canonicalParamsHash(PARAMS);
+    await admin.query(
+      `INSERT INTO report_commentary (company_id, report_kind, params_hash, period_start, period_end, section_ref, row_ref, draft_text, approved_text, status, generated_by, approved_by, approved_at)
+       VALUES ($1,'pack',$2,'2026-03-01','2026-08-31','income_statement','netProfit','SHOULD NOT APPEAR','APPROVED SENTENCE','approved',$3,$3,NOW()),
+              ($1,'pack',$2,'2026-03-01','2026-08-31','income_statement','revenue','DRAFT SHOULD NOT APPEAR',NULL,'draft',$3,NULL,NULL),
+              ($1,'pack',$2,'2026-03-01','2026-08-31','income_statement','costOfSales','WITHDRAWN DRAFT TEXT','WITHDRAWN APPROVAL LEFTOVER','draft',$3,NULL,NULL)`,
+      [CA, hash, UA]);
+    // The third row above is the case the status filter (not the NULL check
+    // alone) exists for: an approval that was withdrawn back to 'draft' without
+    // clearing approved_text. Dropping `AND status = 'approved'` from
+    // loadApprovedCommentary would still pass `approved_text IS NOT NULL` for
+    // this row and leak it — proven by the mutation in the PR description.
+
+    const { token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
+    const r = await resolveShareLink(token, { ip: '203.0.113.10', userAgent: 'vitest' });
+    expect(r.status).toBe('ok');
+    if (r.status !== 'ok') return;
+
+    const shared = await buildSharedPack(r.link);
+    const text = JSON.stringify(shared);
+    expect(text).toContain('APPROVED SENTENCE');
+    expect(text).not.toContain('SHOULD NOT APPEAR');
+    expect(text).not.toContain('DRAFT SHOULD NOT APPEAR');
+    expect(text).not.toContain('WITHDRAWN APPROVAL LEFTOVER');
+    expect(text).not.toContain('WITHDRAWN DRAFT TEXT');
+    expect(text).not.toContain('B APPROVED');   // tenant B's approved text
+    expect(text).not.toContain('B NOTE');       // no annotation, ever
+  });
+});
