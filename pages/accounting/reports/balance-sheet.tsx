@@ -19,6 +19,7 @@ import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDri
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { useComparatorColumns } from '@/components/accounting/reportControls/useComparatorColumns';
 import { useStatementComparators } from '@/components/accounting/reportControls/useStatementComparators';
+import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -73,7 +74,7 @@ export default function BalanceSheetPage() {
   const { columns, setColumns } = useComparatorColumns();
   const showComparative = columns.prior;
   const anyColumn = columns.prior || columns.trend;
-  const { apply } = useStatementComparators({
+  const { apply, budgetState, trendFailed } = useStatementComparators({
     trend: columns.trend, budget: false, asOf: asAtDate,
     basis: 'balance', periodStart: asAtDate, periodEnd: asAtDate,
   });
@@ -175,6 +176,8 @@ export default function BalanceSheetPage() {
               <ComparatorControls value={columns} onChange={setColumns} comparators={['prior']} />
             </div>
           </div>
+
+          <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed} />
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">

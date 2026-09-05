@@ -65,7 +65,7 @@ export default function ExecutiveDashboardPage() {
   // Density changes what is SHOWN and never what a figure IS: the owner view
   // hides the four ratio tiles and the scorecard, and computes nothing
   // differently.
-  const { density, setDensity } = useDensity();
+  const { density, setDensity, error: densityError } = useDensity();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -105,7 +105,11 @@ export default function ExecutiveDashboardPage() {
           <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-400 mb-2">
             <ArrowLeft className="h-4 w-4" /> Back to Reports
           </Link>
-          <div className="flex items-center justify-between">
+          {/* Both rows wrap. The density toggle is a third control in a row
+              that already held two date inputs, and without wrapping it pushed
+              the "to" date off the right edge at 375 — where the page body
+              does not scroll horizontally, so the control was unreachable. */}
+          <div className="flex flex-wrap items-center justify-between gap-y-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10"><LayoutDashboard className="h-6 w-6 text-teal-500" /></div>
               <div>
@@ -113,13 +117,16 @@ export default function ExecutiveDashboardPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">KPI overview, cash position & alerts</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 gap-y-2">
               <DensityToggle density={density} onChange={setDensity} />
               <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="ff-input text-sm" />
               <span className="text-[var(--ff-text-secondary)]">to</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
             </div>
           </div>
+          {densityError && (
+            <p role="alert" className="mt-2 text-xs text-red-400">{densityError}</p>
+          )}
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">

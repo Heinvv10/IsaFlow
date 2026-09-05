@@ -17,6 +17,7 @@ import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDri
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { useComparatorColumns } from '@/components/accounting/reportControls/useComparatorColumns';
 import { useStatementComparators } from '@/components/accounting/reportControls/useStatementComparators';
+import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -104,7 +105,7 @@ export default function IncomeStatementPage() {
   const { columns, setColumns } = useComparatorColumns();
   const showComparative = columns.prior;
   const anyColumn = columns.prior || columns.budget || columns.trend;
-  const { apply, budgetAvailable } = useStatementComparators({
+  const { apply, budgetState, trendFailed } = useStatementComparators({
     trend: columns.trend, budget: columns.budget, asOf: periodEnd,
     basis: 'movement', periodStart, periodEnd,
   });
@@ -220,12 +221,7 @@ export default function IncomeStatementPage() {
             </div>
           </div>
 
-          {columns.budget && budgetAvailable === false && (
-            <p className="text-xs text-[var(--ff-text-tertiary)]">
-              No budget has been captured for this period, so the Budget column is empty.
-              Capture one under Accounting → Budgets.
-            </p>
-          )}
+          <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed} />
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
