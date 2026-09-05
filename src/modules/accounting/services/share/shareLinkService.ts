@@ -6,7 +6,7 @@
  * The raw token is returned by createShareLink and NEVER again — not by
  * listShareLinks, not by any route. A lost link is re-created, not recovered.
  */
-import { sql, type DbRow } from '@/lib/neon';
+import { sql, withTransaction, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mintShareToken, hashShareToken } from './shareToken';
 import type { SharePackParams } from './shareParams';
@@ -73,23 +73,30 @@ export async function createShareLink(input: {
 }): Promise<{ link: ShareLinkRow; token: string }> {
   const token = mintShareToken();
   const ttl = clampTtlDays(input.ttlDays);
-  // The cap is enforced INSIDE the insert rather than by a preceding SELECT:
-  // one statement, so two concurrent creates cannot both read a count of 99
-  // and both write. No row back means the guard rejected it.
-  const rows = (await sql`
-    INSERT INTO share_links (company_id, report_kind, params, token_hash, label, expires_at, created_by)
-    SELECT
-      ${input.companyId}::uuid, 'pack', ${JSON.stringify(input.params)}::jsonb,
-      ${hashShareToken(token)}, ${input.label ?? null},
-      NOW() + (${ttl} || ' days')::interval, ${input.userId}
-    WHERE (
-      SELECT COUNT(*) FROM share_links
-      WHERE company_id = ${input.companyId}::uuid
-        AND revoked_at IS NULL
-        AND expires_at > NOW()
-    ) < ${MAX_LIVE_LINKS}
-    RETURNING *
-  `) as DbRow[];
+  // The count in the guard below does NOT serialise anything on its own. Under
+  // READ COMMITTED each session's subquery reads a snapshot that cannot see the
+  // other's uncommitted row, so two concurrent creates at 99 live links both
+  // pass the guard and land 101 — reproduced against a live database. The
+  // advisory lock is what closes it: transaction-scoped, released on COMMIT or
+  // ROLLBACK, and keyed per company so two tenants never block each other.
+  // Same shape as acquireIdempotencyLock in src/lib/mcp/audit.ts.
+  const rows = await withTransaction(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`share:link-create:${input.companyId}`})::bigint)`;
+    return (await tx`
+      INSERT INTO share_links (company_id, report_kind, params, token_hash, label, expires_at, created_by)
+      SELECT
+        ${input.companyId}::uuid, 'pack', ${JSON.stringify(input.params)}::jsonb,
+        ${hashShareToken(token)}, ${input.label ?? null},
+        NOW() + (${ttl} || ' days')::interval, ${input.userId}
+      WHERE (
+        SELECT COUNT(*) FROM share_links
+        WHERE company_id = ${input.companyId}::uuid
+          AND revoked_at IS NULL
+          AND expires_at > NOW()
+      ) < ${MAX_LIVE_LINKS}
+      RETURNING *
+    `) as DbRow[];
+  });
   if (rows.length === 0) throw new ShareLinkLimitError();
   const link = toRow(rows[0]!);
   log.info('Share link created', {

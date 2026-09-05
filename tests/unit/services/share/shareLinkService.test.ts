@@ -11,7 +11,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const sqlMock = vi.fn();
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
+// withTransaction hands the callback a tagged-template `tx` bound to the same
+// mock, so the assertions below see the lock and the insert as calls 0 and 1
+// in the order the service issued them.
+vi.mock('@/lib/neon', () => ({
+  sql: (...a: unknown[]) => sqlMock(...a),
+  withTransaction: (fn: (tx: unknown) => unknown) => fn((...a: unknown[]) => sqlMock(...a)),
+}));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 import {
@@ -85,7 +91,7 @@ describe('createShareLink', () => {
     });
 
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    const params = values();
+    const params = values(1);
     expect(params).toContain(hashShareToken(token));
     expect(params).not.toContain(token);
     expect(JSON.stringify(params)).not.toContain(token);
@@ -97,16 +103,16 @@ describe('createShareLink', () => {
       companyId: COMPANY, userId: 'user-1', params: PARAMS, ttlDays: 4000,
     });
 
-    expect(values()[0]).toBe(COMPANY);
-    expect(values()).toContain(90);
-    expect(text()).toContain('INSERT INTO share_links');
-    expect(text()).toContain('company_id');
+    expect(values(1)[0]).toBe(COMPANY);
+    expect(values(1)).toContain(90);
+    expect(text(1)).toContain('INSERT INTO share_links');
+    expect(text(1)).toContain('company_id');
   });
 
   it('serialises params as JSON so a caller cannot smuggle extra keys into a column', async () => {
     sqlMock.mockResolvedValue([dbRow()]);
     await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
-    expect(values()).toContain(JSON.stringify(PARAMS));
+    expect(values(1)).toContain(JSON.stringify(PARAMS));
   });
 
   it('never returns the token hash to the caller', async () => {
@@ -120,6 +126,29 @@ describe('createShareLink', () => {
     expect(link.viewCount).toBe(0);
   });
 
+  it('takes a company-scoped advisory lock BEFORE the counted insert', async () => {
+    // Proven necessary against a live database: under READ COMMITTED two
+    // concurrent guarded inserts at 99 live rows both succeed, landing 101.
+    // The count subquery reads a snapshot that cannot see the other session's
+    // uncommitted row, so the single statement does not serialise anything.
+    sqlMock.mockResolvedValue([dbRow()]);
+    await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
+
+    expect(sqlMock).toHaveBeenCalledTimes(2);
+    expect(text(0)).toContain('pg_advisory_xact_lock');
+    expect(values(0)).toEqual([`share:link-create:${COMPANY}`]);
+    expect(text(1)).toContain('INSERT INTO share_links');
+  });
+
+  it('scopes the lock to the company, so two companies do not block each other', async () => {
+    sqlMock.mockResolvedValue([dbRow()]);
+    await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
+    const first = values(0)[0];
+    sqlMock.mockClear();
+    await createShareLink({ companyId: OTHER_COMPANY, userId: 'user-1', params: PARAMS });
+    expect(values(0)[0]).not.toBe(first);
+  });
+
   it('refuses to mint past the live-link cap, and says so distinguishably', async () => {
     // The guarded INSERT ... SELECT returns no row when the company is already
     // at the cap, which is the only signal the service gets.
@@ -128,24 +157,24 @@ describe('createShareLink', () => {
       createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS }),
     ).rejects.toBeInstanceOf(ShareLinkLimitError);
 
-    expect(text()).toContain('revoked_at IS NULL');
-    expect(text()).toContain('expires_at > NOW()');
-    expect(values()).toContain(MAX_LIVE_LINKS);
+    expect(text(1)).toContain('revoked_at IS NULL');
+    expect(text(1)).toContain('expires_at > NOW()');
+    expect(values(1)).toContain(MAX_LIVE_LINKS);
   });
 
   it('counts only this company towards the cap', async () => {
     sqlMock.mockResolvedValue([dbRow()]);
     await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
-    expect(values()).not.toContain(OTHER_COMPANY);
+    expect(values(1)).not.toContain(OTHER_COMPANY);
     // The guard subquery and the inserted row are scoped to the same company.
-    expect(values().filter(v => v === COMPANY).length).toBeGreaterThanOrEqual(2);
+    expect(values(1).filter(v => v === COMPANY).length).toBeGreaterThanOrEqual(2);
   });
 
   it('carries a null label through rather than the string "null"', async () => {
     sqlMock.mockResolvedValue([dbRow()]);
     const { link } = await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
     expect(link.label).toBeNull();
-    expect(values()).toContain(null);
+    expect(values(1)).toContain(null);
   });
 });
 
