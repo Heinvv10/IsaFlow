@@ -24,6 +24,7 @@ vi.mock('@/lib/logger', () => ({
 vi.mock('@/lib/neon', () => ({ sql: vi.fn() }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationUnwind', () => ({
   unwindOnePayment: vi.fn(),
+  unwindBankAllocationApplication: vi.fn(),
 }));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   reverseReconciledTransaction: vi.fn(),
@@ -33,7 +34,10 @@ vi.mock('@/modules/accounting/services/gl/journalEntryService', () => ({
 }));
 
 import { sql } from '@/lib/neon';
-import { unwindOnePayment } from '@/modules/accounting/services/bank/bankAllocationUnwind';
+import {
+  unwindOnePayment,
+  unwindBankAllocationApplication,
+} from '@/modules/accounting/services/bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import {
@@ -73,6 +77,9 @@ describe('voidPaymentDocument', () => {
     // clearAllMocks clears CALLS, not implementations — a mockRejectedValue set
     // by one test would otherwise leak into the next.
     vi.mocked(unwindOnePayment).mockResolvedValue({ invoicesReopened: 2, amountUnapplied: 1500 });
+    vi.mocked(unwindBankAllocationApplication).mockResolvedValue({
+      invoicesReopened: 2, amountUnapplied: 1500, paymentsCancelled: 1,
+    });
     vi.mocked(reverseJournalEntry).mockResolvedValue(undefined as never);
     vi.mocked(reverseReconciledTransaction).mockResolvedValue(undefined as never);
   });
@@ -108,9 +115,9 @@ describe('voidPaymentDocument', () => {
   it('unwinds BEFORE reversing when there is a journal but no bank line', async () => {
     queue([paymentRow()], []);
     const order: string[] = [];
-    vi.mocked(unwindOnePayment).mockImplementation(async () => {
+    vi.mocked(unwindBankAllocationApplication).mockImplementation(async () => {
       order.push('unwind');
-      return { invoicesReopened: 2, amountUnapplied: 1500 };
+      return { invoicesReopened: 2, amountUnapplied: 1500, paymentsCancelled: 1 };
     });
     vi.mocked(reverseJournalEntry).mockImplementation(async () => {
       order.push('reverse');
@@ -125,6 +132,16 @@ describe('voidPaymentDocument', () => {
     expect(r.amountUnapplied).toBe(1500);
     expect(r.journalEntryId).toBe(JE);
     expect(r.bankTransactionId).toBeNull();
+  });
+
+  it('unwinds EVERY payment on the journal it is about to reverse', async () => {
+    // Reversing the journal takes the cash out of the ledger for every payment
+    // hanging off it. Unwinding only the named one would leave a sibling reading
+    // as settled with its posting reversed.
+    queue([paymentRow()], []);
+    await voidPaymentDocument(COMPANY, 'customer', PAYMENT, USER);
+    expect(unwindBankAllocationApplication).toHaveBeenCalledWith(COMPANY, JE);
+    expect(unwindOnePayment).not.toHaveBeenCalled();
   });
 
   it('unwinds and reverses NOTHING when the payment was never posted', async () => {

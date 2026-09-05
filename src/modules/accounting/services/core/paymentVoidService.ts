@@ -37,7 +37,10 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { unwindOnePayment } from '../bank/bankAllocationUnwind';
+import {
+  unwindBankAllocationApplication,
+  unwindOnePayment,
+} from '../bank/bankAllocationUnwind';
 import { reverseReconciledTransaction } from '../bank/bankAllocationService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
 
@@ -157,7 +160,18 @@ export async function voidPaymentDocument(
   }
 
   // Shapes 2 and 3. Unwind FIRST — see the header.
-  const unwound = await unwindOnePayment(companyId, kind, payment.id);
+  //
+  // When there IS a journal, unwind EVERY payment hanging off it, not just this
+  // one. Reversing the journal takes the cash back out of the ledger for all of
+  // them, so unwinding only the named payment would leave any sibling reading as
+  // settled with its posting reversed — the subledger-to-control gap this
+  // function exists to avoid, arrived at from the other direction. Nothing
+  // writes two payments against one journal today and no unique index forbids
+  // it, so this is a guard against a shape the schema permits rather than a
+  // live defect.
+  const unwound = payment.journalEntryId
+    ? await unwindBankAllocationApplication(companyId, payment.journalEntryId)
+    : await unwindOnePayment(companyId, kind, payment.id);
 
   if (payment.journalEntryId) {
     const { reverseJournalEntry } = await import('../gl/journalEntryService');
