@@ -54,6 +54,10 @@ const pack: SharedPack = {
         title: 'Financial Ratios',
         data: { currentRatio: -0.58, debtToEquity: 2.4 },
       },
+      { type: 'kpis', title: 'KPI Scorecard', data: { scorecard: [{ name: 'Gross margin', value: 40 }] } },
+      { type: 'waterfall', title: 'Profit Waterfall', data: { steps: [{ label: 'Revenue', value: 1 }] } },
+      { type: 'trends', title: 'Trend Analysis', data: { series: [1, 2, 3] } },
+      { type: 'commentary', title: 'Commentary', data: { summary: 'Generated summary nobody approved.' } },
     ],
   },
 } as SharedPack;
@@ -69,7 +73,7 @@ describe('SharedPackView', () => {
   });
 
   it('renders every section the pack carries, keyed by its type', () => {
-    for (const t of ['income_statement', 'balance_sheet', 'cash_flow', 'ratios']) {
+    for (const t of ['income_statement', 'balance_sheet', 'cash_flow', 'ratios', 'kpis', 'waterfall', 'trends', 'commentary']) {
       expect(html).toContain(`data-section="${t}"`);
     }
     expect(html).toContain('Income Statement');
@@ -121,5 +125,36 @@ describe('SharedPackView', () => {
     expect(html).not.toContain('href=');
     expect(html).not.toContain('<nav');
     expect(html).not.toContain('<button');
+  });
+
+  it('says plainly that the array-shaped sections are not on a shared link', () => {
+    // An empty heading on a document sent to a client reads as a rendering
+    // failure. Three headings did exactly that before this.
+    const notes = html.match(/Not included on shared links\./g) ?? [];
+    expect(notes).toHaveLength(3);
+    for (const t of ['kpis', 'waterfall', 'trends']) {
+      const at = html.indexOf(`data-section="${t}"`);
+      const nextSection = html.indexOf('data-section="', at + 1);
+      const body = nextSection === -1 ? html.slice(at) : html.slice(at, nextSection);
+      expect(body).toContain('Not included on shared links.');
+    }
+  });
+
+  it('never renders the pack\'s own generated commentary summary', () => {
+    // The commentary section shows APPROVED text only. The pack's generated
+    // summary has been through no approval and must not reach a third party.
+    expect(html).not.toContain('Generated summary nobody approved.');
+    expect(html).toContain('No approved commentary for this period.');
+  });
+
+  it('renders approved commentary in the commentary section instead of the empty state', () => {
+    const withNote = renderToStaticMarkup(React.createElement(SharedPackView, {
+      data: {
+        ...pack,
+        commentary: [...pack.commentary, { sectionRef: 'commentary', rowRef: 'summary', text: 'Approved closing note.' }],
+      },
+    }));
+    expect(withNote).toContain('Approved closing note.');
+    expect(withNote).not.toContain('No approved commentary for this period.');
   });
 });

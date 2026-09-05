@@ -3,6 +3,13 @@
  * token. getServerSideProps does all the work so nothing about the link or the
  * company reaches the client bundle except the rendered pack.
  *
+ * ACCEPTED RESIDUAL: Next.js serialises the route query into the page's
+ * __NEXT_DATA__, so the rendered HTML carries the token. getServerSideProps
+ * does not put it there and a dynamic route cannot opt out; only a middleware
+ * rewrite onto a fixed path could. Ruled acceptable: the viewer already holds
+ * the token in their address bar, the page is no-store and noindex, and no
+ * cookie is issued. Do not "fix" this by editing middleware.ts.
+ *
  * Unknown, expired and revoked are ONE outcome here: the same neutral page,
  * the same 404, the same props. Distinguishing them would make this route an
  * oracle — a caller walking tokens could tell "this link never existed" from

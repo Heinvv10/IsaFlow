@@ -39,6 +39,21 @@ function formatFigure(sectionType: string, value: number): string {
   return formatMoney(value);
 }
 
+/** Sections whose data is arrays and prose, not top-level numbers: the KPI
+ *  scorecard, the profit waterfall and the trend series. Rendering them here
+ *  would mean inventing a second shape for each, so a shared link says plainly
+ *  that they are not on it rather than showing a heading with nothing under it.
+ *  WS2's section view replaces this note with the real renderers after merge. */
+const OMITTED_SECTIONS = new Set(['kpis', 'waterfall', 'trends']);
+
+function hasNotes(commentary: PublishedCommentary[], sectionRef: string): boolean {
+  return commentary.some(c => c.sectionRef === sectionRef);
+}
+
+function Note({ children }: { children: string }) {
+  return <p className="text-sm italic text-[var(--ff-text-tertiary)]">{children}</p>;
+}
+
 export function SharedPackView({ data }: { data: SharedPack }) {
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">
@@ -66,7 +81,17 @@ export function SharedPackView({ data }: { data: SharedPack }) {
           {section.type === 'balance_sheet' && (
             <ManagementBalanceSheetRows bs={packToBsTotals(section.data)} detail={packToBsDetail(section.data)} />
           )}
-          {section.type !== 'income_statement' && section.type !== 'balance_sheet' && (
+          {OMITTED_SECTIONS.has(section.type) && (
+            <Note>Not included on shared links.</Note>
+          )}
+          {/* The pack's own `commentary` section carries a generated summary.
+              A shared link shows APPROVED text only, which CommentaryFor
+              renders below, so this body is just the empty-state. */}
+          {section.type === 'commentary' && !hasNotes(data.commentary, 'commentary') && (
+            <Note>No approved commentary for this period.</Note>
+          )}
+          {section.type !== 'income_statement' && section.type !== 'balance_sheet'
+            && section.type !== 'commentary' && !OMITTED_SECTIONS.has(section.type) && (
             <dl className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
               {Object.entries(section.data)
                 .filter(([, v]) => typeof v === 'number')
