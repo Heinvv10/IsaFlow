@@ -7,6 +7,7 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { verifyToken } from './gotrue';
+import { verifyPrintToken } from '@/lib/pdf/printAuth';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
@@ -103,9 +104,25 @@ export function withAuth(handler: Handler): NextApiHandler {
     try {
       claims = await verifyToken(token);
     } catch (err) {
-      log.warn('withAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
-      clearAuthCookies(res);
-      return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
+      // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
+      // Chromium request carries a short-lived print token instead of a
+      // GoTrue session in the SAME cookie. verifyPrintToken is a no-op
+      // (always null) unless PRINT_TOKEN_SECRET is set, so this branch is
+      // fully disabled by default, and it only ever accepts a token bound
+      // to this exact request path.
+      const requestPath = req.url?.split('?')[0] ?? '';
+      const printPayload = verifyPrintToken(token, requestPath);
+      if (!printPayload || printPayload.companyId !== activeCompanyId) {
+        log.warn('withAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+        clearAuthCookies(res);
+        return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
+      }
+      log.info('withAuth: print token accepted', {
+        companyId: printPayload.companyId,
+        userId: printPayload.userId,
+        path: printPayload.path,
+      }, 'Auth');
+      claims = { sub: printPayload.userId } as Awaited<ReturnType<typeof verifyToken>>;
     }
 
     const startedAt = Date.now();
