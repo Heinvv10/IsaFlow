@@ -11,7 +11,27 @@ vi.mock('@/lib/rateLimit', () => ({ checkReportRateLimit: (...a: unknown[]) => r
 const sqlMock = vi.fn(async () => [{ name: 'Acme Fibre (Pty) Ltd' }]);
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 
+// The deck itself is built for real (buildPackDeck is pure); only the two
+// database reads and the byte renderer are stood in for.
+vi.mock('@/modules/accounting/services/reports/reportPackDataService', () => ({
+  getReportPackInput: vi.fn(async () => ({
+    companyName: 'Acme Fibre (Pty) Ltd', period: '2026-01-01 to 2026-09-05',
+    revenue: 1000, costOfSales: 400, operatingExpenses: 200, netProfit: 400,
+    totalAssets: 5000, totalLiabilities: 2000, totalEquity: 3000,
+    currentAssets: 2500, currentLiabilities: 1000, cash: 800,
+    accountsReceivable: 900, accountsPayable: 500, inventory: 100,
+    otherIncome: 0, otherExpenses: 0, operatingProfit: 400,
+    inventoryCaveat: null, classificationCaveat: null,
+  })),
+}));
+vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({ getPackTrend: vi.fn(async () => []) }));
+const renderPackPptxMock = vi.fn(async () => Buffer.from('PK-pptx-bytes'));
+vi.mock('@/modules/accounting/services/packs/pptxExportService', () => ({
+  renderPackPptx: (...a: unknown[]) => renderPackPptxMock(...a),
+}));
+
 import pdfRoute from '../../../pages/api/accounting/packs/[id]/pdf';
+import pptxRoute from '../../../pages/api/accounting/packs/[id]/pptx';
 import { log } from '@/lib/logger';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -126,6 +146,75 @@ describe('GET /api/accounting/packs/[id]/pdf', () => {
         from: '2026-01-01',
         to: '2026-09-05',
         bytes: expect.any(Number),
+      }),
+      expect.any(String),
+    );
+  });
+});
+
+describe('GET /api/accounting/packs/[id]/pptx', () => {
+  beforeEach(() => {
+    renderPackPptxMock.mockClear();
+    rateLimitMock.mockClear();
+    rateLimitMock.mockResolvedValue(true);
+    sqlMock.mockClear();
+    sqlMock.mockResolvedValue([{ name: 'Acme Fibre (Pty) Ltd' }]);
+    vi.mocked(log.info).mockClear();
+  });
+
+  it('streams a pptx named after the company, the pack and the period', async () => {
+    const res = mockRes();
+    await pptxRoute(req({ id: 'management', from: '2026-01-01', to: '2026-09-05' }), res);
+    expect(res.statusCode).toBe(200);
+    expect(String(res.headers['Content-Type'])).toContain('presentationml.presentation');
+    expect(String(res.headers['Content-Disposition']))
+      .toContain('acme-fibre-pty-ltd-report-pack-management-2026-01-01-to-2026-09-05.pptx');
+  });
+
+  it('renders the deck the pack service produced, title slide first', async () => {
+    const res = mockRes();
+    await pptxRoute(req({ id: 'management', from: '2026-01-01', to: '2026-09-05' }), res);
+    const [slides] = renderPackPptxMock.mock.calls[0] as unknown as [Array<{ kind: string; subtitle?: string }>];
+    expect(slides[0]).toEqual(expect.objectContaining({ kind: 'title', subtitle: 'Management Pack' }));
+    expect(slides.length).toBeGreaterThan(1);
+  });
+
+  it('rejects an unknown pack id before touching the database', async () => {
+    const res = mockRes();
+    await pptxRoute(req({ id: 'secret', from: '2026-01-01', to: '2026-09-05' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(renderPackPptxMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-ISO date', async () => {
+    const res = mockRes();
+    await pptxRoute(req({ id: 'board', from: '01/01/2026', to: '2026-09-05' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(renderPackPptxMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a POST', async () => {
+    const res = mockRes();
+    await pptxRoute(req({ id: 'board', from: '2026-01-01', to: '2026-09-05' }, 'POST'), res);
+    expect(res.statusCode).toBe(405);
+  });
+
+  it('rate-limits repeated deck downloads', async () => {
+    rateLimitMock.mockResolvedValueOnce(false);
+    const res = mockRes();
+    await pptxRoute(req({ id: 'board', from: '2026-01-01', to: '2026-09-05' }), res);
+    expect(res.statusCode).toBe(429);
+    expect(renderPackPptxMock).not.toHaveBeenCalled();
+  });
+
+  it('audits every download with company, user, type, period and byte count', async () => {
+    const res = mockRes();
+    await pptxRoute(req({ id: 'monthly', from: '2026-01-01', to: '2026-09-05' }), res);
+    expect(log.info).toHaveBeenCalledWith(
+      expect.stringContaining('Pack PPTX'),
+      expect.objectContaining({
+        companyId: COMPANY, userId: USER, packType: 'monthly',
+        from: '2026-01-01', to: '2026-09-05', bytes: expect.any(Number),
       }),
       expect.any(String),
     );

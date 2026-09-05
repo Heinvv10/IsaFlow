@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Download, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Loader2, ChevronDown, ChevronRight, Presentation } from 'lucide-react';
 import { apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
@@ -140,7 +140,7 @@ function ReportPacksScreen() {
   const [selectedType, setSelectedType] = useState<PackType>('board');
   const [pack, setPack] = useState<ReportPack | null>(null);
   const [loading, setLoading] = useState(false);
-  const [pdfLoading, setPdfLoading] = useState(false);
+  const [downloading, setDownloading] = useState<'pdf' | 'pptx' | null>(null);
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
@@ -157,20 +157,36 @@ function ReportPacksScreen() {
 
   useEffect(() => { void loadPack(); }, [loadPack]);
 
-  const downloadPdf = async () => {
-    setPdfLoading(true);
+  /**
+   * Fetch a generated document and hand it to the browser. The server names
+   * the file (Content-Disposition); `fallbackName` is only reached when the
+   * blob arrives without one, since an `<a download>` needs some name.
+   */
+  const downloadFile = async (url: string, fallbackName: string, failure: string) => {
+    const res = await apiFetch(url);
+    await assertOk(res, failure);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = fallbackName;
+    a.click();
+    URL.revokeObjectURL(objectUrl);
+  };
+
+  const download = async (format: 'pdf' | 'pptx') => {
+    setDownloading(format);
     try {
-      const res = await apiFetch(`/api/accounting/packs/${selectedType}/pdf?from=${from}&to=${to}`);
-      await assertOk(res, 'PDF generation failed');
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `report-pack-${selectedType}-${from}-to-${to}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) { log.error('Failed to download PDF', { error: err instanceof Error ? err.message : String(err) }); }
-    finally { setPdfLoading(false); }
+      await downloadFile(
+        `/api/accounting/packs/${selectedType}/${format}?from=${from}&to=${to}`,
+        `report-pack-${selectedType}-${from}-to-${to}.${format}`,
+        `${format.toUpperCase()} generation failed`,
+      );
+    } catch (err) {
+      log.error('Failed to download report pack', { format, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setDownloading(null);
+    }
   };
 
   return (
@@ -192,9 +208,13 @@ function ReportPacksScreen() {
               <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="ff-input text-sm" />
               <span className="text-[var(--ff-text-secondary)]">to</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
-              <button onClick={downloadPdf} disabled={pdfLoading || !pack} className="ff-btn-secondary flex items-center gap-1 text-sm">
-                {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              <button onClick={() => void download('pdf')} disabled={downloading !== null || !pack} className="ff-btn-secondary flex items-center gap-1 text-sm">
+                {downloading === 'pdf' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 PDF
+              </button>
+              <button onClick={() => void download('pptx')} disabled={downloading !== null || !pack} className="ff-btn-secondary flex items-center gap-1 text-sm">
+                {downloading === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4" />}
+                PowerPoint
               </button>
             </div>
           </div>
