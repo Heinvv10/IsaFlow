@@ -83,6 +83,12 @@ describe('importChartOfAccounts', () => {
     const promote = updates.filter((u) => u.text.includes('SET account_subtype = ?, is_system_account = true'));
     expect(demote).toHaveLength(Object.keys(MAP).length);
     expect(promote).toHaveLength(Object.keys(MAP).length);
+    // A demoted income-statement row falls to the type default, never to NULL.
+    for (const u of demote) {
+      expect(u.text).toContain("WHEN 'revenue' THEN 'revenue'");
+      expect(u.text).toContain("WHEN 'expense' THEN 'operating_expense'");
+      expect(u.text).not.toContain('account_subtype = NULL');
+    }
     const vatDemote = demote.find((u) => u.params.includes('vat_input'))!;
     expect(vatDemote.params).toEqual([CO, 'vat_input', '1140']);
     expect(vatDemote.text).toContain('account_code <> ?');

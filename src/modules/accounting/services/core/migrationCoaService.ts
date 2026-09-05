@@ -190,10 +190,17 @@ export async function importChartOfAccounts(
   // old system row in place — two rows for one role, the resolver choosing
   // between them, which is exactly how the Sage SYS-* controls came to sit
   // beside the seeded chart in production (migration 525).
+  // A demoted revenue/expense row is NOT cleared to NULL — that would put an
+  // income-statement account back into the unbanded state the creation and
+  // edit gates refuse — it falls to the type's default and stays classified.
   for (const [subtype, accountCode] of Object.entries(systemAccountMap)) {
     await sql`
       UPDATE gl_accounts
-      SET is_system_account = false, account_subtype = NULL
+      SET is_system_account = false,
+          account_subtype = CASE account_type
+            WHEN 'revenue' THEN 'revenue'
+            WHEN 'expense' THEN 'operating_expense'
+            ELSE NULL END
       WHERE company_id = ${companyId}::UUID
         AND account_subtype = ${subtype}
         AND is_system_account = true

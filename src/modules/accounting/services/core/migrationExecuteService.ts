@@ -86,9 +86,10 @@ export async function executeMigration(
             ${source}
           )
           ON CONFLICT (company_id, account_code) DO UPDATE SET
-            account_name  = EXCLUDED.account_name,
-            account_type  = EXCLUDED.account_type,
-            imported_from = EXCLUDED.imported_from
+            account_name    = EXCLUDED.account_name,
+            account_type    = EXCLUDED.account_type,
+            account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype),
+            imported_from   = EXCLUDED.imported_from
         `)
       );
       accountsImported = validAccounts.length;

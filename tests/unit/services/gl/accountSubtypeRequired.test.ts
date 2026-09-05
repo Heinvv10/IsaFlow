@@ -73,8 +73,11 @@ describe('autoMapAccounts', () => {
     expect(xero.map(a => a.mappedSubtype)).toEqual(['cost_of_sales', 'operating_expense', 'revenue', 'revenue']);
     const qb = autoMapAccounts('quickbooks', [parsed('Cost of Goods Sold'), parsed('Expense'), parsed('Income')]);
     expect(qb.map(a => a.mappedSubtype)).toEqual(['cost_of_sales', 'operating_expense', 'revenue']);
-    const pastel = autoMapAccounts('pastel', [parsed('?', '4100'), parsed('?', '6200')]);
-    expect(pastel.map(a => a.mappedSubtype)).toEqual(['revenue', 'operating_expense']);
+    // 4-digit and 7-digit (Sage 50) Pastel codes must type the same way.
+    const pastel = autoMapAccounts('pastel', [parsed('?', '4100'), parsed('?', '6200'), parsed('?', '4100000'), parsed('?', '1110000')]);
+    expect(pastel.map(a => [a.mappedType, a.mappedSubtype])).toEqual([
+      ['revenue', 'revenue'], ['expense', 'operating_expense'], ['revenue', 'revenue'], ['asset', undefined],
+    ]);
     for (const a of [...xero, ...qb, ...pastel]) {
       expect(missingSubtypeError(a.mappedType!, a.mappedSubtype)).toBeNull();
     }

@@ -223,13 +223,18 @@ const QB_TYPE_MAP: Record<string, { type: GLAccountType; normalBalance: 'debit' 
 };
 
 function mapByPastelCodeRange(code: string): { type: GLAccountType; normalBalance: 'debit' | 'credit'; subtype?: string } | null {
-  const numeric = parseInt(code.replace(/\D/g, ''), 10);
-  if (isNaN(numeric)) return null;
-  if (numeric < 2000) return { type: 'asset',     normalBalance: 'debit'  };
-  if (numeric < 3000) return { type: 'liability', normalBalance: 'credit' };
-  if (numeric < 4000) return { type: 'equity',    normalBalance: 'credit' };
-  if (numeric < 5000) return { type: 'revenue',   normalBalance: 'credit', subtype: 'revenue' };
-  return                     { type: 'expense',   normalBalance: 'debit',  subtype: 'operating_expense' };
+  // By LEADING digit, not magnitude: Pastel Partner / Sage 50 codes are seven
+  // digits (4100000 is Sales), and a numeric threshold typed every one of
+  // them as an expense.
+  const digits = code.replace(/\D/g, '');
+  if (!digits) return null;
+  switch (digits[0]) {
+    case '1': return { type: 'asset',     normalBalance: 'debit'  };
+    case '2': return { type: 'liability', normalBalance: 'credit' };
+    case '3': return { type: 'equity',    normalBalance: 'credit' };
+    case '4': return { type: 'revenue',   normalBalance: 'credit', subtype: 'revenue' };
+    default:  return { type: 'expense',   normalBalance: 'debit',  subtype: 'operating_expense' };
+  }
 }
 
 export function autoMapAccounts(source: MigrationSource, accounts: ParsedAccount[]): ParsedAccount[] {

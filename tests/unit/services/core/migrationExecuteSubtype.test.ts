@@ -43,5 +43,8 @@ describe('executeMigration — income-statement rows without a subtype', () => {
     expect(byCode('5900')).toContain('operating_expense');
     expect(byCode('5910')).toContain('cost_of_sales');
     expect(byCode('1500')).toContain(null);
+    // A re-run fills a NULL subtype on an existing row but never overwrites one that is set.
+    const text = (byCode('5900')[0] as TemplateStringsArray).join('?');
+    expect(text).toContain('account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype)');
   });
 });
