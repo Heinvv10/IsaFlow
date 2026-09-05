@@ -121,3 +121,21 @@ describe('toManagementPandLRows', () => {
     expect(rows.map(r => r.label)).toContain('Operating Profit');
   });
 });
+
+describe('toManagementPandLRows — identity comes from the band key, not the label', () => {
+  it('every band the shared builder can emit has an id and a kind declared', () => {
+    // `Record<PackPandLBand, …>` makes a new band a compile error rather than
+    // a row that quietly defaults to a subtotal, but only if every band is
+    // reachable from a fixture. This is that fixture.
+    const rows = toManagementPandLRows({
+      totalRevenue: 100, totalCostOfSales: 40, grossProfit: 60,
+      totalOtherIncome: 5, totalOperatingExpenses: 10,
+      operatingProfit: 55, totalOtherExpenses: 5, netProfit: 50,
+    });
+    expect(rows.map(r => r.id)).toEqual([
+      'sub:revenue', 'sub:costOfSales', 'total:grossProfit', 'sub:otherIncome',
+      'sub:operatingExpenses', 'total:operatingProfit', 'sub:otherExpenses', 'grand:netProfit',
+    ]);
+    expect(rows.find(r => r.id === 'grand:netProfit')!.label).toBe('Net Profit / (Loss)');
+  });
+});

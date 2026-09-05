@@ -23,6 +23,13 @@ const KIND_CLASS: Record<StatementRow['kind'], string> = {
 const FIG_STYLE: CSSProperties = { fontFamily: 'var(--ff-fig-font)' };
 const FIG = 'text-right whitespace-nowrap tabular-nums';
 
+// One focus ring for every interactive element in a row. The chevron in the
+// linked branch was declared without it while its unlinked sibling had it, so
+// a keyboard user saw a different ring on the two balance-sheet row shapes.
+// Written out in full rather than composed, so Tailwind's content scan sees it.
+const FOCUS_RING =
+  'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
+
 const favColour = (favourable?: boolean) =>
   favourable === undefined ? undefined : favourable ? 'var(--ff-fav)' : 'var(--ff-unfav)';
 
@@ -79,12 +86,12 @@ function RowLabel({ row, expanded, onToggle }: {
         {toggles && (
           <button type="button" onClick={() => onToggle!(code)} aria-expanded={expanded}
             aria-label={expanded ? 'Collapse' : 'Expand'}
-            className="p-0.5 text-[var(--ff-text-tertiary)] shrink-0">
+            className={`p-0.5 text-[var(--ff-text-tertiary)] shrink-0 ${FOCUS_RING}`}>
             {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           </button>
         )}
         {codeTag}
-        <Link href={row.href} className="hover:underline hover:text-[var(--ff-brand-500)]">{row.label}</Link>
+        <Link href={row.href} className={`hover:underline hover:text-[var(--ff-brand-500)] ${FOCUS_RING}`}>{row.label}</Link>
       </span>
     );
   }
@@ -94,7 +101,7 @@ function RowLabel({ row, expanded, onToggle }: {
   if (toggles) {
     return (
       <button type="button" onClick={() => onToggle!(code!)} aria-expanded={expanded}
-        className="text-left hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]">
+        className={`text-left hover:underline ${FOCUS_RING}`}>
         {codeTag}{row.label}
       </button>
     );
