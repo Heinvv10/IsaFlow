@@ -44,9 +44,9 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
         {open ? <ChevronDown className="h-4 w-4 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)]" />}
       </button>
       {open && (
-        <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3 min-w-0">
           {section.type === 'income_statement' && (
-            <div className="col-span-3 space-y-3">
+            <div className="col-span-full min-w-0 space-y-3">
               <ManagementPandLRows is={packToTotals(d)} />
               {/* Both margins come from reportPackService; the pack is a
                   document people send onward and these are the two figures a
@@ -58,7 +58,7 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
             </div>
           )}
           {section.type === 'balance_sheet' && (
-            <div className="col-span-3">
+            <div className="col-span-full min-w-0">
               <ManagementBalanceSheetRows bs={packToBsTotals(d)} detail={packToBsDetail(d)} />
             </div>
           )}
@@ -76,7 +76,7 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
             <KVItem key={k} label={k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())} value={typeof v === 'number' ? v.toFixed(2) : String(v)} />
           ))}
           {section.type === 'kpis' && Array.isArray((d as { scorecard?: unknown[] }).scorecard) && (
-            <div className="col-span-3 grid grid-cols-3 gap-2">
+            <div className="col-span-full min-w-0 grid grid-cols-3 gap-2">
               {((d as { scorecard: Array<{ name: string; value: number; target: number; status: string }> }).scorecard).map((item, i) => (
                 <div key={i} className={`rounded p-2 text-xs border ${item.status === 'green' ? 'border-teal-500/30 text-teal-400' : item.status === 'amber' ? 'border-amber-500/30 text-amber-400' : 'border-red-500/30 text-red-400'}`}>
                   <span className="block opacity-70 mb-0.5">{item.name}</span>
@@ -87,10 +87,10 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
             </div>
           )}
           {section.type === 'commentary' && (
-            <div className="col-span-3 text-sm text-[var(--ff-text-secondary)]">{String(d.summary ?? '')}</div>
+            <div className="col-span-full text-sm text-[var(--ff-text-secondary)]">{String(d.summary ?? '')}</div>
           )}
           {(section.type === 'waterfall' || section.type === 'trends') && (
-            <div className="col-span-3 text-sm text-[var(--ff-text-tertiary)] italic">
+            <div className="col-span-full text-sm text-[var(--ff-text-tertiary)] italic">
               {section.type === 'waterfall' ? 'Waterfall chart data available — render with WaterfallChart component' : 'Trend data requires multi-period historical context'}
             </div>
           )}

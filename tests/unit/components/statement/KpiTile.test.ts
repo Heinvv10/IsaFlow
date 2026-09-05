@@ -35,4 +35,23 @@ describe('KpiTile', () => {
     // formatMoney(0, { symbol: true }) returns '–' — the zero dash wins over the symbol.
     expect(html).toContain('–');
   });
+
+  // Added for the executive-dashboard fix: the Debt/Equity KPI tile showed a
+  // numeric ratio while the KPI Scorecard, for the same period, marked the
+  // same ratio "Not meaningful" (negative equity inverts it) — same page,
+  // contradictory verdicts. `unavailable` lets the tile defer to the
+  // scorecard's own predicate instead of always showing a number.
+  it('renders the unavailable text instead of the figure when set', () => {
+    const html = render({ label: 'Debt/equity', value: -2.47, kind: 'ratio', unavailable: 'Not meaningful' });
+    expect(html).toContain('Not meaningful');
+    expect(html).not.toContain('-2.47');
+  });
+
+  it('suppresses the delta badge when unavailable is set', () => {
+    const html = render({
+      label: 'Debt/equity', value: -2.47, kind: 'ratio',
+      unavailable: 'Not meaningful', deltaPct: 5, favourable: true,
+    });
+    expect(html).not.toContain('+5.0%');
+  });
 });

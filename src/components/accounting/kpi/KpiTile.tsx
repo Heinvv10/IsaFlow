@@ -16,6 +16,10 @@ export interface KpiTileProps {
   favourable?: boolean;
   trend?: number[];
   note?: string;
+  /** When set, the tile renders this text instead of the figure — for a
+   * ratio the scorecard has already marked not meaningful (e.g. negative
+   * equity), so the tile stops disagreeing with the scorecard. */
+  unavailable?: string;
 }
 
 // Inline style rather than a Tailwind arbitrary property, per the convention
@@ -29,16 +33,20 @@ function fmt(v: number, kind: KpiTileProps['kind']): string {
   return v.toFixed(2);
 }
 
-export function KpiTile({ label, value, kind, comparator, deltaPct, favourable, trend, note }: KpiTileProps) {
+export function KpiTile({ label, value, kind, comparator, deltaPct, favourable, trend, note, unavailable }: KpiTileProps) {
   const deltaColour = favourable === undefined ? 'var(--ff-text-tertiary)' : favourable ? 'var(--ff-fav)' : 'var(--ff-unfav)';
   return (
     <div className="rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)] p-4 flex flex-col gap-2">
       <span className="text-xs uppercase tracking-wide text-[var(--ff-text-tertiary)]">{label}</span>
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-2xl font-semibold tabular-nums text-[var(--ff-text-primary)]" style={FIG_STYLE}>
-          {fmt(value, kind)}
-        </span>
-        {deltaPct !== undefined && (
+        {unavailable ? (
+          <span className="text-sm font-semibold text-[var(--ff-text-tertiary)]">{unavailable}</span>
+        ) : (
+          <span className="text-2xl font-semibold tabular-nums text-[var(--ff-text-primary)]" style={FIG_STYLE}>
+            {fmt(value, kind)}
+          </span>
+        )}
+        {!unavailable && deltaPct !== undefined && (
           <span
             data-fav={favourable === undefined ? undefined : String(favourable)}
             className="text-sm tabular-nums"

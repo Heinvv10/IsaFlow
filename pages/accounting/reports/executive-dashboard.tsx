@@ -86,6 +86,13 @@ export default function ExecutiveDashboardPage() {
 
   useEffect(() => { void loadData(); }, [loadData]);
 
+  // The KPI Scorecard already marks a ratio not_meaningful (e.g. negative
+  // equity inverting debt-to-equity) — reuse that verdict here so the tile
+  // row never contradicts the scorecard for the same period.
+  const notMeaningful = new Map(
+    scorecard.filter(item => item.status === 'not_meaningful').map(item => [item.ratioKey, item.reason]),
+  );
+
   const cashChartData = summary ? [
     { name: 'Cash', value: summary.cashPosition.cashBalance },
     { name: 'AR', value: summary.cashPosition.accountsReceivable },
@@ -144,8 +151,8 @@ export default function ExecutiveDashboardPage() {
                 <KpiTile label="Gross margin" value={summary.kpis.grossProfitMargin} kind="pct" />
                 <KpiTile label="Net margin" value={summary.kpis.netProfitMargin} kind="pct" />
                 <KpiTile label="Cash balance" value={summary.kpis.cashBalance} kind="money" />
-                <KpiTile label="Current ratio" value={summary.kpis.currentRatio} kind="ratio" />
-                <KpiTile label="Debt/equity" value={summary.kpis.debtToEquity} kind="ratio" />
+                <KpiTile label="Current ratio" value={summary.kpis.currentRatio} kind="ratio" unavailable={notMeaningful.get('currentRatio') ? 'Not meaningful' : undefined} />
+                <KpiTile label="Debt/equity" value={summary.kpis.debtToEquity} kind="ratio" unavailable={notMeaningful.get('debtToEquity') ? 'Not meaningful' : undefined} />
                 <KpiTile label="NWC" value={summary.cashPosition.netWorkingCapital} kind="money" />
               </div>
 
