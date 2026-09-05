@@ -20,12 +20,14 @@
  */
 import type { GetServerSideProps } from 'next';
 import Head from 'next/head';
-import { resolveShareLink } from '@/modules/accounting/services/share/shareResolver';
-import { buildSharedPack, type SharedPack } from '@/modules/accounting/services/share/sharedPackService';
-import { SharedPackView } from '@/components/accounting/share/SharedPackView';
+import { commitShareView, resolveShareLink } from '@/modules/accounting/services/share/shareResolver';
+import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
+import { stripOmittedSections, type SharedReportPack } from '@/modules/accounting/services/share/sharedSections';
+import { SharedPackView, type SharedPackProps } from '@/components/accounting/share/SharedPackView';
+import { log } from '@/lib/logger';
 
 type PageProps =
-  | { state: 'ok'; data: SharedPack }
+  | { state: 'ok'; data: SharedPackProps }
   | { state: 'unavailable' | 'rate_limited' };
 
 const MESSAGES: Record<'unavailable' | 'rate_limited', string> = {
@@ -81,10 +83,11 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
   ctx.res.setHeader('Cache-Control', 'no-store, private');
 
   const ua = ctx.req.headers['user-agent'];
-  const resolution = await resolveShareLink(ctx.params?.token, {
+  const viewCtx = {
     ip: clientIp(ctx.req as unknown as IpSource),
     userAgent: typeof ua === 'string' ? ua.slice(0, UA_MAX_CHARS) : null,
-  });
+  };
+  const resolution = await resolveShareLink(ctx.params?.token, viewCtx);
 
   if (resolution.status === 'rate_limited') {
     ctx.res.statusCode = 429;
@@ -95,8 +98,41 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
     return { props: { state: 'unavailable' } };
   }
 
-  // JSON round-trip: getServerSideProps rejects `undefined` anywhere in the
-  // tree, and the pack's optional figures are absent rather than null.
-  const data = JSON.parse(JSON.stringify(await buildSharedPack(resolution.link))) as SharedPack;
-  return { props: { state: 'ok', data } };
+  const { id, companyId } = resolution.link;
+  try {
+    // Only what the view draws crosses into the props. The builder also returns
+    // `unclassifiedAccounts` — how many of the company's accounts have no
+    // recognised subtype and the rand value sitting in them — which is an
+    // internal bookkeeping-quality confession, is not derivable from anything on
+    // the page, and would otherwise sit in the HTML of a document sent to a bank.
+    const built = await buildSharedPack(resolution.link);
+    const data: SharedPackProps = {
+      companyName: built.companyName,
+      period: built.period,
+      pack: stripOmittedSections(built.pack),
+      commentary: built.commentary,
+    };
+
+    // AFTER the build. A view recorded before it would leave share_link_views
+    // claiming a successful view the recipient never saw. A throw from here is
+    // a refusal to serve: the pack is not shown unaudited.
+    await commitShareView({ id, companyId }, viewCtx);
+
+    // JSON round-trip: getServerSideProps rejects `undefined` anywhere in the
+    // tree, and a stripped section has no `data` key at all.
+    return { props: { state: 'ok', data: JSON.parse(JSON.stringify(data)) as SharedPackProps } };
+  } catch (err) {
+    // Degrade to the SAME neutral page a dead link gets. Anything else — Next's
+    // 500 page — would tell a caller walking tokens that this one is live.
+    log.error('Share link view failed', {
+      companyId, shareLinkId: id,
+      err: err instanceof Error ? err.message : String(err),
+    }, 'share');
+    ctx.res.statusCode = 404;
+    return { props: { state: 'unavailable' } };
+  }
 };
+
+// `SharedReportPack` is re-exported for the view's prop type; naming it here
+// keeps the page's contract with the component visible in one place.
+export type { SharedReportPack };

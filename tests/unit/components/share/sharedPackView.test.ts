@@ -10,17 +10,15 @@
 import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { SharedPackView } from '@/components/accounting/share/SharedPackView';
-import type { SharedPack } from '@/modules/accounting/services/share/sharedPackService';
+import { SharedPackView, type SharedPackProps } from '@/components/accounting/share/SharedPackView';
 
-const pack: SharedPack = {
+const pack: SharedPackProps = {
   companyName: 'Brightsphere (Pty) Ltd',
   period: { from: '2026-03-01', to: '2026-08-31' },
   commentary: [
     { sectionRef: 'income_statement', rowRef: 'netProfit', text: 'Margin recovered after the March price review.' },
     { sectionRef: 'balance_sheet', rowRef: 'cash', text: 'Cash includes the call account.' },
   ],
-  unclassifiedAccounts: null,
   pack: {
     type: 'management',
     companyName: 'Brightsphere (Pty) Ltd',
@@ -49,18 +47,15 @@ const pack: SharedPack = {
         title: 'Cash Flow',
         data: { operatingCashFlow: 640_000, investingCashFlow: -120_000, note: 'not a number' },
       },
-      {
-        type: 'ratios',
-        title: 'Financial Ratios',
-        data: { currentRatio: -0.58, debtToEquity: 2.4 },
-      },
-      { type: 'kpis', title: 'KPI Scorecard', data: { scorecard: [{ name: 'Gross margin', value: 40 }] } },
-      { type: 'waterfall', title: 'Profit Waterfall', data: { steps: [{ label: 'Revenue', value: 1 }] } },
-      { type: 'trends', title: 'Trend Analysis', data: { series: [1, 2, 3] } },
-      { type: 'commentary', title: 'Commentary', data: { summary: 'Generated summary nobody approved.' } },
+      // As the page builds them: named, with no data at all.
+      { type: 'ratios', title: 'Financial Ratios' },
+      { type: 'kpis', title: 'KPI Scorecard' },
+      { type: 'waterfall', title: 'Profit Waterfall' },
+      { type: 'trends', title: 'Trend Analysis' },
+      { type: 'commentary', title: 'Commentary' },
     ],
   },
-} as SharedPack;
+};
 
 const html = renderToStaticMarkup(React.createElement(SharedPackView, { data: pack }));
 
@@ -112,14 +107,6 @@ describe('SharedPackView', () => {
     expect(html).not.toContain('not a number');
   });
 
-  it('prints ratios to two decimals, never through the money formatter', () => {
-    // formatMoney rounds to whole units: -0.58 came out as "(1)", a wrong
-    // figure on a document a company hands to its bank.
-    expect(html).toContain('-0.58');
-    expect(html).toContain('2.40');
-    expect(html).not.toContain('(1)');
-  });
-
   it('contains no link back into the application and no nav', () => {
     expect(html).not.toContain('<a ');
     expect(html).not.toContain('href=');
@@ -131,8 +118,8 @@ describe('SharedPackView', () => {
     // An empty heading on a document sent to a client reads as a rendering
     // failure. Three headings did exactly that before this.
     const notes = html.match(/Not included on shared links\./g) ?? [];
-    expect(notes).toHaveLength(3);
-    for (const t of ['kpis', 'waterfall', 'trends']) {
+    expect(notes).toHaveLength(4);
+    for (const t of ['kpis', 'waterfall', 'trends', 'ratios']) {
       const at = html.indexOf(`data-section="${t}"`);
       const nextSection = html.indexOf('data-section="', at + 1);
       const body = nextSection === -1 ? html.slice(at) : html.slice(at, nextSection);
@@ -140,11 +127,26 @@ describe('SharedPackView', () => {
     }
   });
 
-  it('never renders the pack\'s own generated commentary summary', () => {
-    // The commentary section shows APPROVED text only. The pack's generated
-    // summary has been through no approval and must not reach a third party.
-    expect(html).not.toContain('Generated summary nobody approved.');
+  it('shows the commentary empty state when no approved note exists', () => {
     expect(html).toContain('No approved commentary for this period.');
+  });
+
+  it('draws nothing from a section the page stripped, even if data reappears', () => {
+    // Defence in depth against the strip being lost: the view must not draw a
+    // figure for an omitted section just because one arrived in the props.
+    const smuggled = renderToStaticMarkup(React.createElement(SharedPackView, {
+      data: {
+        ...pack,
+        pack: {
+          ...pack.pack,
+          sections: pack.pack.sections.map(sec =>
+            sec.type === 'ratios' ? { ...sec, data: { currentRatio: -0.58, ebitda: 1_819_000 } } : sec),
+        },
+      },
+    }));
+    expect(smuggled).not.toContain('-0.58');
+    expect(smuggled).not.toContain('1 819 000');
+    expect(smuggled).toContain('Not included on shared links.');
   });
 
   it('renders approved commentary in the commentary section instead of the empty state', () => {

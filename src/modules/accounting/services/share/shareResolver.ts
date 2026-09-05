@@ -9,7 +9,11 @@
  *  3. Every hit that matches a row is written to share_link_views, including a
  *     hit on a dead link — that record is how a withdrawn link being circulated
  *     becomes visible. The write is NOT swallowed: if the audit row cannot be
- *     written the view does not happen.
+ *     written the view does not happen. A dead link is audited here, since there
+ *     is nothing left to build; a live one is audited by `commitShareView`,
+ *     which the caller runs only once the pack it is about to serve exists.
+ *     Auditing an `ok` view before the build would leave share_link_views
+ *     claiming a successful view the recipient never saw.
  *  4. The rate limiter fails CLOSED. A limiter outage answers `rate_limited`,
  *     never `ok`, because the limiter is the only thing bounding an
  *     unauthenticated caller here.
@@ -118,7 +122,11 @@ export async function resolveShareLink(token: unknown, ctx: ShareViewContext): P
 
   const row = rows[0];
   if (!row) {
-    log.warn('Share link not found', { ip: ctx.ip }, 'share');
+    // A prefix of the HASH, never the token: enough to tell one probed token
+    // from another across log lines, useless to anyone reading the logs, and
+    // the only signal that someone is walking tokens (an unknown token matches
+    // no row, so it can write nothing to share_link_views).
+    log.warn('Share link not found', { ip: ctx.ip, tokenHashPrefix: tokenHash.slice(0, 6) }, 'share');
     return { status: 'not_found' };
   }
 
@@ -144,21 +152,31 @@ export async function resolveShareLink(token: unknown, ctx: ShareViewContext): P
     return { status: 'not_found' };
   }
 
-  // One transaction: the audit row and the counter are the same fact. A
-  // counter bumped without an audit row is a view nobody can trace, and an
-  // audit row without a bump makes view_count disagree with the log. Same
-  // pattern as the create-cap lock in shareLinkService.
+  return { status: 'ok', link: { id: linkId, companyId, params } };
+}
+
+/** Records a SUCCESSFUL view. Separate from `resolveShareLink` and run after
+ *  the pack is built, so a builder failure cannot leave share_link_views
+ *  claiming a view the recipient never received. A throw here is a refusal to
+ *  serve: the caller must degrade rather than show an unaudited pack.
+ *
+ *  `share_link_views_outcome_chk` (migration 610) permits 'ok', 'expired' and
+ *  'revoked' only, so a failed build writes NO row rather than a 'failed' one.
+ *
+ *  One transaction: the audit row and the counter are the same fact. A counter
+ *  bumped without an audit row is a view nobody can trace, and an audit row
+ *  without a bump makes view_count disagree with the log. Same pattern as the
+ *  create-cap lock in shareLinkService. */
+export async function commitShareView(link: ShareLinkIdentity, ctx: ShareViewContext): Promise<void> {
   await withTransaction(async (tx: TxSql) => {
-    await recordShareView(identity, 'ok', ctx, tx);
+    await recordShareView(link, 'ok', ctx, tx);
     await tx`
       UPDATE share_links
       SET view_count = view_count + 1, last_viewed_at = NOW()
-      WHERE id = ${linkId}::uuid AND company_id = ${companyId}::uuid
+      WHERE id = ${link.id}::uuid AND company_id = ${link.companyId}::uuid
     `;
   });
-  log.info('Share link viewed', { companyId, shareLinkId: linkId }, 'share');
-
-  return { status: 'ok', link: { id: linkId, companyId, params } };
+  log.info('Share link viewed', { companyId: link.companyId, shareLinkId: link.id }, 'share');
 }
 
 /** `ip_address` and `user_agent` are unbounded TEXT and are filled from request

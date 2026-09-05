@@ -14,12 +14,19 @@ import type { GetServerSidePropsContext } from 'next';
 
 const resolveShareLink = vi.fn();
 const buildSharedPack = vi.fn();
+const commitShareView = vi.fn();
+const logError = vi.fn();
+/** Call order across the two mocks, so "audited only after it built" is a
+ *  sequence assertion rather than two independent call counts. */
+const order: string[] = [];
 
 vi.mock('@/modules/accounting/services/share/shareResolver', () => ({
   resolveShareLink: (...args: unknown[]) => resolveShareLink(...args),
+  commitShareView: (...args: unknown[]) => { order.push('commit'); return commitShareView(...args); },
 }));
+vi.mock('@/lib/logger', () => ({ log: { error: (...a: unknown[]) => logError(...a), warn: vi.fn(), info: vi.fn() } }));
 vi.mock('@/modules/accounting/services/share/sharedPackService', () => ({
-  buildSharedPack: (...args: unknown[]) => buildSharedPack(...args),
+  buildSharedPack: (...args: unknown[]) => { order.push('build'); return buildSharedPack(...args); },
 }));
 
 import { getServerSideProps } from '../../../pages/share/[token]';
@@ -51,18 +58,54 @@ function makeCtx(opts: {
   return { ctx, headers, res: res as unknown as { statusCode: number } };
 }
 
+const LINK = {
+  id: 'link-1',
+  companyId: 'company-1',
+  params: { type: 'management', from: '2026-03-01', to: '2026-08-31' },
+};
+
+/** What the builder returns — including the two things the page must not pass
+ *  on: the data of the omitted sections, and unclassifiedAccounts. */
 const okPack = {
   companyName: 'Brightsphere (Pty) Ltd',
   period: { from: '2026-03-01', to: '2026-08-31' },
-  pack: { type: 'management', companyName: 'Brightsphere (Pty) Ltd', period: 'x', generatedAt: 'y', sections: [] },
-  commentary: [],
-  unclassifiedAccounts: null,
+  pack: {
+    type: 'management',
+    companyName: 'Brightsphere (Pty) Ltd',
+    period: 'x',
+    generatedAt: 'y',
+    sections: [
+      { type: 'income_statement', title: 'Income Statement', data: { revenue: 5_000_000 } },
+      { type: 'ratios', title: 'Financial Ratios', data: { currentRatio: -0.58, ebitda: -1_819_000 } },
+      { type: 'kpis', title: 'KPI Scorecard', data: { scorecard: [{ name: 'Gross margin' }] } },
+      { type: 'waterfall', title: 'Profit Waterfall', data: { steps: [{ label: 'Revenue' }] } },
+      { type: 'trends', title: 'Trend Analysis', data: { series: [1, 2, 3] } },
+      { type: 'commentary', title: 'Commentary', data: { summary: 'Generated summary nobody approved.' } },
+    ],
+  },
+  commentary: [{ sectionRef: 'income_statement', rowRef: 'netProfit', text: 'Approved note.' }],
+  unclassifiedAccounts: {
+    accounts: 13,
+    amount: 117_139_882.5,
+    message: 'Set account_subtype on them for accurate figures.',
+    byType: [{ accountType: 'asset', accounts: 4 }],
+  },
 };
 
 beforeEach(() => {
   resolveShareLink.mockReset();
   buildSharedPack.mockReset();
+  commitShareView.mockReset();
+  logError.mockReset();
+  commitShareView.mockResolvedValue(undefined);
+  order.length = 0;
 });
+
+/** Resolve to a live link and build the fixture pack. */
+function liveLink(): void {
+  resolveShareLink.mockResolvedValue({ status: 'ok', link: LINK });
+  buildSharedPack.mockResolvedValue(okPack);
+}
 
 describe('/share/[token] getServerSideProps', () => {
   it('sets no-store and noindex before resolving, even on a dead link', async () => {
@@ -96,16 +139,94 @@ describe('/share/[token] getServerSideProps', () => {
   });
 
   it('renders the pack built from the RESOLVED link, and never returns the token', async () => {
-    const link = { id: 'link-1', companyId: 'company-1', params: { type: 'management', from: '2026-03-01', to: '2026-08-31' } };
-    resolveShareLink.mockResolvedValue({ status: 'ok', link });
-    buildSharedPack.mockResolvedValue(okPack);
+    liveLink();
     const token = 'b'.repeat(43);
     const { ctx, res } = makeCtx({ token });
     const out = await getServerSideProps(ctx);
-    expect(buildSharedPack).toHaveBeenCalledWith(link);
+    expect(buildSharedPack).toHaveBeenCalledWith(LINK);
     expect(res.statusCode).toBe(200);
-    expect(out).toEqual({ props: { state: 'ok', data: okPack } });
     expect(JSON.stringify(out)).not.toContain(token);
+  });
+
+  it('passes on ONLY the four fields the view draws', async () => {
+    liveLink();
+    const out = await getServerSideProps(makeCtx().ctx) as { props: { state: string; data: Record<string, unknown> } };
+    expect(Object.keys(out.props).sort()).toEqual(['data', 'state']);
+    expect(Object.keys(out.props.data).sort()).toEqual(['commentary', 'companyName', 'pack', 'period']);
+  });
+
+  it('never ships unclassifiedAccounts to the recipient', async () => {
+    liveLink();
+    const out = await getServerSideProps(makeCtx().ctx);
+    const json = JSON.stringify(out);
+    // The count, the rand value, the remedy sentence: an internal
+    // bookkeeping-quality confession on a document sent to a bank.
+    expect(json).not.toContain('unclassifiedAccounts');
+    expect(json).not.toContain('Set account_subtype');
+    expect(json).not.toContain('117139882.5');
+  });
+
+  it('strips the data of every section a shared link does not draw', async () => {
+    liveLink();
+    const out = await getServerSideProps(makeCtx().ctx) as
+      { props: { data: { pack: { sections: Array<{ type: string; title: string; data?: unknown }> } } } };
+    const byType = Object.fromEntries(out.props.data.pack.sections.map(sec => [sec.type, sec]));
+
+    for (const t of ['ratios', 'kpis', 'waterfall', 'trends', 'commentary']) {
+      expect(byType[t]).toBeDefined();
+      expect(byType[t]!.title).toBeTruthy();
+      expect('data' in byType[t]!).toBe(false);
+    }
+    // The sections that ARE drawn keep their figures.
+    expect(byType.income_statement!.data).toEqual({ revenue: 5_000_000 });
+
+    const json = JSON.stringify(out);
+    expect(json).not.toContain('Generated summary nobody approved.');
+    expect(json).not.toContain('currentRatio');
+    expect(json).not.toContain('scorecard');
+  });
+
+  it('records the view only AFTER the pack is built', async () => {
+    liveLink();
+    await getServerSideProps(makeCtx().ctx);
+    expect(order).toEqual(['build', 'commit']);
+    expect(commitShareView).toHaveBeenCalledWith({ id: LINK.id, companyId: LINK.companyId }, expect.anything());
+  });
+
+  it('records NO view when the pack fails to build, and degrades to the neutral 404', async () => {
+    resolveShareLink.mockResolvedValue({ status: 'ok', link: LINK });
+    buildSharedPack.mockRejectedValue(new Error('figures query timed out'));
+    const { ctx, res } = makeCtx();
+    const out = await getServerSideProps(ctx);
+
+    expect(commitShareView).not.toHaveBeenCalled();
+    expect(order).toEqual(['build']);
+    // Byte-identical to a dead link: a 500 here would tell a caller walking
+    // tokens that this one is live.
+    expect(res.statusCode).toBe(404);
+    expect(out).toEqual({ props: { state: 'unavailable' } });
+  });
+
+  it('degrades the same way when the audit write fails', async () => {
+    liveLink();
+    commitShareView.mockRejectedValue(new Error('share_link_views insert failed'));
+    const { ctx, res } = makeCtx();
+    expect(await getServerSideProps(ctx)).toEqual({ props: { state: 'unavailable' } });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('logs the failure with the link identity and no token', async () => {
+    resolveShareLink.mockResolvedValue({ status: 'ok', link: LINK });
+    buildSharedPack.mockRejectedValue(new Error('figures query timed out'));
+    const token = 'c'.repeat(43);
+    await getServerSideProps(makeCtx({ token }).ctx);
+
+    expect(logError).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ companyId: 'company-1', shareLinkId: 'link-1', err: 'figures query timed out' }),
+      'share',
+    );
+    expect(JSON.stringify(logError.mock.calls)).not.toContain(token);
   });
 
   it('takes the first x-forwarded-for hop and truncates the user agent', async () => {

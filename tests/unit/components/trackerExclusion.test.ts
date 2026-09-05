@@ -7,9 +7,9 @@
  * as long as that table is retained. The recipient is also a third party who
  * never agreed to be measured.
  */
-import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { describe, it, expect, vi } from 'vitest';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { isTrackedPath } from '@/modules/analytics/isTrackedPath';
 
 describe('isTrackedPath', () => {
@@ -29,14 +29,32 @@ describe('isTrackedPath', () => {
   });
 });
 
-describe('pages/_app.tsx', () => {
-  const app = readFileSync(join(__dirname, '../../../pages/_app.tsx'), 'utf8');
+describe('pages/_app.tsx — the gate, rendered', () => {
+  it('mounts the tracker on an app page and omits it on the share page', async () => {
+    // A render, not a grep over the source: a regex passes on a comment
+    // containing the same string and proves nothing about what ships.
+    // TrackerScript is stubbed to a marker because next/script renders nothing
+    // outside a Next runtime, which would make the assertion vacuous.
+    vi.doMock('@/components/analytics/TrackerScript', () => ({
+      TrackerScript: () => React.createElement('div', { 'data-testid': 'tracker' }),
+    }));
+    let pathname = '/accounting/reports/report-packs';
+    vi.doMock('next/router', () => ({
+      useRouter: () => ({ pathname, events: { on: () => {}, off: () => {} } }),
+    }));
 
-  it('mounts TrackerScript behind isTrackedPath', () => {
-    // A source read, not a render: _app pulls in five providers and global CSS.
-    // The behavioural half of this guard is the isTrackedPath suite above; this
-    // half only holds the wiring, which is the part a refactor drops silently.
-    expect(app).toMatch(/isTrackedPath\s*\(/);
-    expect(app).toMatch(/\{\s*tracked\s*&&\s*<TrackerScript/);
+    const { default: App } = await import('../../../pages/_app');
+    const render = () => renderToStaticMarkup(
+      React.createElement(App, {
+        Component: () => React.createElement('main', null, 'page'),
+        pageProps: {},
+        router: {} as never,
+      } as never),
+    );
+
+    expect(render()).toContain('data-testid="tracker"');
+
+    pathname = '/share/[token]';
+    expect(render()).not.toContain('data-testid="tracker"');
   });
 });

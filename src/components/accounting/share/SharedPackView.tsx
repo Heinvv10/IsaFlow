@@ -9,7 +9,15 @@ import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/ac
 import {
   packToTotals, packToMargins, packToBsTotals, packToBsDetail,
 } from '@/modules/accounting/services/reports/statementRows/packMappers';
-import type { SharedPack, PublishedCommentary } from '@/modules/accounting/services/share/sharedPackService';
+import type { PublishedCommentary, SharedPack } from '@/modules/accounting/services/share/sharedPackService';
+import { OMITTED_SECTIONS, type SharedReportPack } from '@/modules/accounting/services/share/sharedSections';
+
+/** Exactly what a shared link renders — the builder's output minus everything
+ *  the view does not draw. `SharedPack`'s `unclassifiedAccounts` is absent by
+ *  construction, so it cannot reach the page props by being forgotten. */
+export type SharedPackProps = Pick<SharedPack, 'companyName' | 'period' | 'commentary'> & {
+  pack: SharedReportPack;
+};
 
 function CommentaryFor({ sectionRef, commentary }: { sectionRef: string; commentary: PublishedCommentary[] }) {
   const notes = commentary.filter(c => c.sectionRef === sectionRef);
@@ -30,22 +38,6 @@ function labelFor(key: string): string {
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase());
 }
 
-/** Ratios are NOT money. formatMoney rounds to whole units, so a current ratio
- *  of -0.58 printed as "(1)" — a wrong figure on a document a company sends to
- *  its bank. Two decimals for the ratios section, money everywhere else, which
- *  is what the authenticated pack page already does. */
-function formatFigure(sectionType: string, value: number): string {
-  if (sectionType === 'ratios') return Number.isFinite(value) ? value.toFixed(2) : '–';
-  return formatMoney(value);
-}
-
-/** Sections whose data is arrays and prose, not top-level numbers: the KPI
- *  scorecard, the profit waterfall and the trend series. Rendering them here
- *  would mean inventing a second shape for each, so a shared link says plainly
- *  that they are not on it rather than showing a heading with nothing under it.
- *  WS2's section view replaces this note with the real renderers after merge. */
-const OMITTED_SECTIONS = new Set(['kpis', 'waterfall', 'trends']);
-
 function hasNotes(commentary: PublishedCommentary[], sectionRef: string): boolean {
   return commentary.some(c => c.sectionRef === sectionRef);
 }
@@ -54,7 +46,7 @@ function Note({ children }: { children: string }) {
   return <p className="text-sm italic text-[var(--ff-text-tertiary)]">{children}</p>;
 }
 
-export function SharedPackView({ data }: { data: SharedPack }) {
+export function SharedPackView({ data }: { data: SharedPackProps }) {
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">
       <header className="mb-8 border-b border-[var(--ff-border-light)] pb-4">
@@ -71,15 +63,15 @@ export function SharedPackView({ data }: { data: SharedPack }) {
           </h2>
           {section.type === 'income_statement' && (
             <Fragment>
-              <ManagementPandLRows is={packToTotals(section.data)} />
+              <ManagementPandLRows is={packToTotals(section.data ?? {})} />
               <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
-                Gross margin {packToMargins(section.data).grossMargin.toFixed(1)}% ·
-                {' '}Net margin {packToMargins(section.data).netMargin.toFixed(1)}%
+                Gross margin {packToMargins(section.data ?? {}).grossMargin.toFixed(1)}% ·
+                {' '}Net margin {packToMargins(section.data ?? {}).netMargin.toFixed(1)}%
               </p>
             </Fragment>
           )}
           {section.type === 'balance_sheet' && (
-            <ManagementBalanceSheetRows bs={packToBsTotals(section.data)} detail={packToBsDetail(section.data)} />
+            <ManagementBalanceSheetRows bs={packToBsTotals(section.data ?? {})} detail={packToBsDetail(section.data ?? {})} />
           )}
           {OMITTED_SECTIONS.has(section.type) && (
             <Note>Not included on shared links.</Note>
@@ -93,12 +85,12 @@ export function SharedPackView({ data }: { data: SharedPack }) {
           {section.type !== 'income_statement' && section.type !== 'balance_sheet'
             && section.type !== 'commentary' && !OMITTED_SECTIONS.has(section.type) && (
             <dl className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-              {Object.entries(section.data)
+              {Object.entries(section.data ?? {})
                 .filter(([, v]) => typeof v === 'number')
                 .map(([k, v]) => (
                   <div key={k} className="rounded border border-[var(--ff-border-light)] p-2">
                     <dt className="text-xs text-[var(--ff-text-tertiary)]">{labelFor(k)}</dt>
-                    <dd className="tabular-nums text-[var(--ff-text-primary)]">{formatFigure(section.type, v as number)}</dd>
+                    <dd className="tabular-nums text-[var(--ff-text-primary)]">{formatMoney(v as number)}</dd>
                   </div>
                 ))}
             </dl>

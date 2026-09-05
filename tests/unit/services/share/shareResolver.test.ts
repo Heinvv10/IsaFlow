@@ -38,6 +38,7 @@ vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: (...a: unknown[]) => rateLim
 import {
   resolveShareLink,
   recordShareView,
+  commitShareView,
   redactShareToken,
 } from '@/modules/accounting/services/share/shareResolver';
 import { hashShareToken } from '@/modules/accounting/services/share/shareToken';
@@ -163,18 +164,14 @@ describe('resolveShareLink — outcomes', () => {
     expect(values(0)).toContain(TOKEN_HASH);
   });
 
-  it('records the view and bumps the counter, both scoped by company_id', async () => {
+  it('audits NOTHING for a live link — that is commitShareView\'s job, after the build', async () => {
+    // A view recorded here would claim a successful view even when the pack
+    // that follows fails to build and the recipient sees the neutral page.
     sqlMock.mockResolvedValueOnce([linkRow()]).mockResolvedValue([]);
     await resolveShareLink(TOKEN, CTX);
-
-    const insert = callWith('INSERT INTO share_link_views');
-    expect(insert).toBeGreaterThan(-1);
-    expect(values(insert)).toEqual([COMPANY, LINK_ID, 'ok', CTX.ip, CTX.userAgent]);
-
-    const update = callWith('UPDATE share_links');
-    expect(update).toBeGreaterThan(-1);
-    expect(text(update)).toContain('company_id');
-    expect(values(update)).toEqual([LINK_ID, COMPANY]);
+    expect(callWith('INSERT INTO share_link_views')).toBe(-1);
+    expect(callWith('UPDATE share_links')).toBe(-1);
+    expect(txMock).not.toHaveBeenCalled();
   });
 
   it('reports a revoked link as revoked and audits the hit', async () => {
@@ -219,9 +216,9 @@ describe('resolveShareLink — outcomes', () => {
     expect(callWith('UPDATE share_links')).toBe(-1);
   });
 
-  it('propagates an audit-write failure rather than serving an unaudited view', async () => {
+  it('propagates an audit-write failure on a DEAD link rather than serving it unaudited', async () => {
     sqlMock
-      .mockResolvedValueOnce([linkRow()])
+      .mockResolvedValueOnce([linkRow({ revoked_at: new Date() })])
       .mockRejectedValueOnce(new Error('share_link_views insert failed'));
     await expect(resolveShareLink(TOKEN, CTX)).rejects.toThrow('share_link_views insert failed');
   });
@@ -240,6 +237,21 @@ describe('resolveShareLink — logging', () => {
     rateLimitMock.mockResolvedValue(false);
     await resolveShareLink(TOKEN, CTX);
 
+    const logged = allLogText();
+    expect(logged).not.toContain(TOKEN);
+    expect(logged).not.toContain(TOKEN_HASH);
+  });
+
+  it('logs a hash PREFIX and the ip on an unknown token, so token-walking is visible', async () => {
+    // An unknown token matches no row, so it can write nothing to
+    // share_link_views. This log line is the only trace it leaves.
+    sqlMock.mockResolvedValue([]);
+    await resolveShareLink(TOKEN, CTX);
+    expect(warnMock).toHaveBeenCalledWith(
+      expect.any(String),
+      { ip: CTX.ip, tokenHashPrefix: TOKEN_HASH.slice(0, 6) },
+      'share',
+    );
     const logged = allLogText();
     expect(logged).not.toContain(TOKEN);
     expect(logged).not.toContain(TOKEN_HASH);
@@ -282,20 +294,33 @@ describe('recordShareView — bounded, row-scoped columns', () => {
   });
 });
 
-describe('resolveShareLink — the ok path is atomic', () => {
+describe('commitShareView — the ok path is atomic', () => {
   it('writes the audit row and bumps the counter inside one transaction', async () => {
-    sqlMock.mockResolvedValueOnce([linkRow()]).mockResolvedValue([]);
-    await resolveShareLink(TOKEN, CTX);
+    sqlMock.mockResolvedValue([]);
+    await commitShareView({ id: LINK_ID, companyId: COMPANY }, CTX);
     expect(txMock).toHaveBeenCalledTimes(1);
     expect(callWith('INSERT INTO share_link_views')).toBeLessThan(callWith('UPDATE share_links'));
+    expect(values(callWith('INSERT INTO share_link_views'))).toEqual([COMPANY, LINK_ID, 'ok', CTX.ip, CTX.userAgent]);
+    const update = callWith('UPDATE share_links');
+    expect(text(update)).toContain('company_id');
+    expect(values(update)).toEqual([LINK_ID, COMPANY]);
   });
 
   it('leaves the counter untouched when the audit insert fails', async () => {
-    sqlMock
-      .mockResolvedValueOnce([linkRow()])
-      .mockRejectedValueOnce(new Error('share_link_views insert failed'));
-    await expect(resolveShareLink(TOKEN, CTX)).rejects.toThrow('share_link_views insert failed');
+    sqlMock.mockRejectedValueOnce(new Error('share_link_views insert failed'));
+    await expect(commitShareView({ id: LINK_ID, companyId: COMPANY }, CTX))
+      .rejects.toThrow('share_link_views insert failed');
     expect(callWith('UPDATE share_links')).toBe(-1);
+  });
+
+  it('logs the view with the link identity and no token', async () => {
+    sqlMock.mockResolvedValue([]);
+    await commitShareView({ id: LINK_ID, companyId: COMPANY }, CTX);
+    expect(infoMock).toHaveBeenCalledWith(
+      expect.any(String),
+      { companyId: COMPANY, shareLinkId: LINK_ID },
+      'share',
+    );
   });
 
   it('opens no transaction on the revoked or expired paths', async () => {
