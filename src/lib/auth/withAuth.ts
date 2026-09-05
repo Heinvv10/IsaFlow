@@ -111,7 +111,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       // branch is fully disabled by default.
       //
       // Signature/expiry and path are checked in two steps deliberately: a
-      // token that is genuinely signed but bound to a DIFFERENT path (e.g.
+      // token that is genuinely signed but bound to DIFFERENT paths (e.g.
       // AppLayout's own background calls, which have no GoTrue session and
       // present the same print-token cookie) must 401 WITHOUT clearing
       // cookies — clearAuthCookies wiping the print cookies mid-render was
@@ -124,9 +124,9 @@ export function withAuth(handler: Handler): NextApiHandler {
         return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
       }
       const requestPath = req.url?.split('?')[0] ?? '';
-      if (candidate.path !== requestPath || candidate.companyId !== activeCompanyId) {
+      if (!candidate.paths.includes(requestPath) || candidate.companyId !== activeCompanyId) {
         log.warn('withAuth: print token not valid for this request', {
-          tokenPath: candidate.path,
+          tokenPaths: candidate.paths,
           requestPath,
           tokenCompanyId: candidate.companyId,
           activeCompanyId,
@@ -136,7 +136,7 @@ export function withAuth(handler: Handler): NextApiHandler {
       log.info('withAuth: print token accepted', {
         companyId: candidate.companyId,
         userId: candidate.userId,
-        path: candidate.path,
+        paths: candidate.paths,
       }, 'Auth');
       claims = { sub: candidate.userId } as Awaited<ReturnType<typeof verifyToken>>;
     }

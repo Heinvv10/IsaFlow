@@ -50,7 +50,7 @@ export async function renderPagePdf(options: RenderPagePdfOptions): Promise<Buff
 
   const { companyId, userId, path, landscape = false } = options;
   const apiPath = options.apiPath ?? path;
-  const token = mintPrintToken(companyId, userId, apiPath);
+  const token = mintPrintToken(companyId, userId, [apiPath]);
 
   const browser = await launchChromium();
   try {
