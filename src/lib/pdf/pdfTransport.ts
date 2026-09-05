@@ -3,7 +3,8 @@
 // The contract every PDF transport implements. A transport receives a fully
 // built URL and the cookies that authenticate it, and returns PDF bytes. It
 // knows nothing about print tokens, companies or report pages — that is
-// renderPagePdf's job — so a new transport is one file and a switch entry.
+// renderPagePdf's job — so a new transport is one file and a registry entry
+// in renderPagePdf.ts's `transports` map.
 
 export interface PrintCookie {
   name: string;

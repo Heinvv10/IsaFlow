@@ -1,12 +1,10 @@
 // src/lib/pdf/renderPagePdf.ts
 //
 // Renders one authenticated app page to a PDF buffer. The browser lives
-// behind PdfTransport (src/lib/pdf/pdfTransport.ts). Today the only
-// registered transport is Playwright's bundled Chromium; a Gotenberg
-// transport registers itself into `transports` below once it exists (see
-// selectTransport.ts for how the choice of NAME is made — that selector
-// already understands "gotenberg", this file just has nothing to hand back
-// for it yet).
+// behind PdfTransport (src/lib/pdf/pdfTransport.ts). Two transports are
+// registered below: Playwright's bundled Chromium (dev/test) and the
+// Gotenberg sidecar (production) — see selectTransport.ts for how the
+// choice of NAME is made.
 //
 // Auth: mints a print token (printAuth.ts) bound to the exact SET of API
 // paths the target page fetches, and hands it to the browser in the SAME
@@ -21,6 +19,7 @@ import { mintPrintToken } from './printAuth';
 import { ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE } from '@/lib/auth/cookies';
 import { chooseTransportName, type TransportName } from './selectTransport';
 import { playwrightTransport } from './transports/playwrightTransport';
+import { gotenbergTransport } from './transports/gotenbergTransport';
 import type { PdfTransport } from './pdfTransport';
 import { log } from '@/lib/logger';
 
@@ -43,6 +42,7 @@ export interface RenderPagePdfOptions {
 // one entry here and needs no other change to renderPagePdf.
 const transports: Partial<Record<TransportName, PdfTransport>> = {
   playwright: playwrightTransport,
+  gotenberg: gotenbergTransport,
 };
 
 function transportFor(name: TransportName): PdfTransport {
