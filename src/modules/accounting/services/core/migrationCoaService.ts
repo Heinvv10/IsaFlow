@@ -11,7 +11,7 @@ import type { ImportResult, MigrationError } from './migrationService';
 import type { GLAccountType } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
-import { subtypeErrorFor, missingSubtypeError } from '../gl/accountSubtypeRules';
+import { subtypeErrorFor, defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 
 
 export interface AccountImportRow {
@@ -121,15 +121,25 @@ export async function importChartOfAccounts(
       }
 
       const subtypeEntry = Object.entries(systemAccountMap).find(([, code]) => code === acct.accountCode);
-      const accountSubtype = subtypeEntry ? subtypeEntry[0] : (acct.accountSubtype ?? null);
       const isSystem = subtypeEntry != null;
+      let accountSubtype = subtypeEntry ? subtypeEntry[0] : (acct.accountSubtype ?? null);
+      // A revenue/expense row with no subtype is imported under the type's
+      // default and SAID SO, rather than skipped: the alternative strands
+      // every income-statement code the opening balances reference.
+      if (!isSystem && !accountSubtype) {
+        const fallback = defaultIncomeStatementSubtype(acct.accountType);
+        if (fallback) {
+          accountSubtype = fallback;
+          errors.push({ step: 'coa', row: i, field: 'accountSubtype',
+            message: `No subtype given; imported as ${fallback}. Reclassify cost-of-sales accounts before reporting.` });
+        }
+      }
       // A row's own subtype goes through the same gate as every other write
       // path (createAccount, reclassifyAccount, the MCP tools): unknown values
       // behave like NULL downstream, and a reserved one would sit beside the
       // real system account. The mapped system rows are set by the map, not here.
       if (!isSystem) {
-        const subtypeError = subtypeErrorFor({ accountType: acct.accountType }, accountSubtype)
-          ?? missingSubtypeError(acct.accountType, accountSubtype);
+        const subtypeError = subtypeErrorFor({ accountType: acct.accountType }, accountSubtype);
         if (subtypeError) {
           errors.push({ step: 'coa', row: i, field: 'accountSubtype', message: subtypeError });
           skipped++;

@@ -33,6 +33,13 @@ describe('sageAccountSubtype', () => {
     expect(sageAccountSubtype('expense', undefined, 'Salaries & Wages - EX4000')).toBe('operating_expense');
     expect(sageAccountSubtype('expense', undefined, 'Bank Charges - EX5006')).toBe('operating_expense');
   });
+  it('a category the extension sends does not switch the name recovery off', () => {
+    // The category is unvalidated payload; "Expenses" on every row must not
+    // re-band Velocity's direct costs as operating expense.
+    expect(sageAccountSubtype('expense', 'Expenses', 'COS - Sub-Contractors - EX2005')).toBe('cost_of_sales');
+    expect(sageAccountSubtype('expense', 'Cost of Sale', 'Direct Material - EX2001')).toBe('cost_of_sales');
+    expect(sageAccountSubtype('expense', 'Expenses', 'Cosmetic repairs')).toBe('operating_expense');
+  });
   it('bands every revenue line as revenue', () => {
     expect(sageAccountSubtype('revenue', 'Sales', 'Contract Revenue - IN1008')).toBe('revenue');
     expect(sageAccountSubtype('revenue', 'Other Income', 'Interest Received')).toBe('revenue');

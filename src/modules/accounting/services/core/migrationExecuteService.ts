@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import { postOpeningBalances } from './migrationOpeningBalanceService';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
+import { missingSubtypeError } from '../gl/accountSubtypeRules';
 
 
 export interface ExecuteMigrationResult {
@@ -50,6 +51,13 @@ export async function executeMigration(
     if (!acct.sourceCode && !acct.sourceName) return false;
     if (!acct.mappedType) {
       errors.push(`Account "${acct.sourceCode} ${acct.sourceName}": unmapped type "${acct.sourceType}" — skipped`);
+      return false;
+    }
+    // autoMapAccounts sets a subtype on every revenue/expense mapping; this
+    // catches a caller that built the row by hand.
+    const missing = missingSubtypeError(acct.mappedType, acct.mappedSubtype);
+    if (missing) {
+      errors.push(`Account "${acct.sourceCode} ${acct.sourceName}": ${missing} — skipped`);
       return false;
     }
     return true;

@@ -74,6 +74,24 @@ export function missingSubtypeError(
 ): string | null {
   if (accountType !== 'revenue' && accountType !== 'expense') return null;
   if (subtype) return null;
-  const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType] as readonly string[];
+  // Reserved values are refused by subtypeErrorFor, so listing them here
+  // would send the caller straight into a second, different error.
+  const allowed = (GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType] as readonly GLAccountSubtype[])
+    .filter(s => !SYSTEM_RESERVED_SUBTYPES.includes(s));
   return `Subtype is required for a ${accountType} account. Valid: ${allowed.join(', ')}`;
+}
+
+/**
+ * What a BULK import writes when a revenue/expense row arrives without a
+ * subtype. Interactive creation refuses (the user can be asked); a 400-line
+ * chart import cannot ask, and skipping every income-statement row would
+ * strand the opening trial balance that references those codes. An explicit
+ * default is visible and reclassifiable, which NULL never was — but it does
+ * mean cost-of-sales rows imported without a subtype land under operating
+ * expenses until someone reclassifies them, so callers must say so.
+ */
+export function defaultIncomeStatementSubtype(accountType: GLAccountType): GLAccountSubtype | null {
+  if (accountType === 'revenue') return 'revenue';
+  if (accountType === 'expense') return 'operating_expense';
+  return null;
 }

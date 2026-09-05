@@ -22,7 +22,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { cache } from '@/lib/cache';
 import type { GLAccount, GLAccountSubtype, GLAccountType } from '../../types/gl.types';
-import { subtypeErrorFor } from './accountSubtypeRules';
+import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { ParentAccountError, assertParentUsable } from './accountParentRules';
 import { clearSystemAccountCache } from './systemAccountResolver';
 import { getAccountById } from './chartOfAccountsService';
@@ -83,12 +83,18 @@ async function loadAccount(companyId: string, id: string): Promise<AccountRow> {
 }
 
 /**
- * Clearing (null) is always allowed — a NULL subtype is the state we are
- * trying to get accounts out of, not into, but refusing to clear it would make
- * this the only column on the row with no undo.
+ * Clearing (null) is allowed on balance-sheet accounts — a NULL subtype is the
+ * state we are trying to get accounts out of, not into, but refusing to clear
+ * it would make this the only column on the row with no undo. It is REFUSED
+ * on revenue/expense accounts: the income statement bands on the subtype, and
+ * a clear here would re-open the hole `createAccount` closes.
  */
 function assertSubtypeAllowed(account: AccountRow, subtype: GLAccountSubtype | null): void {
-  if (subtype === null) return;
+  if (subtype === null) {
+    const missing = missingSubtypeError(account.account_type, null);
+    if (missing) throw new ReclassifyError(missing);
+    return;
+  }
   if (account.is_system_account) {
     throw new ReclassifyError(
       `Cannot change the subtype of system account ${account.account_code} — ` +

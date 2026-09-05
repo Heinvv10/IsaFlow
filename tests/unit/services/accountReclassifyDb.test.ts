@@ -230,6 +230,30 @@ describe('reclassifyAccount', async () => {
 
   // The cross-type rule, through the OTHER code path. `createAccount` used to
   // check only that the parent existed, so it shared none of these guards.
+  it.skipIf(!reachable)('refuses to clear the subtype of an expense account, allows it on an asset', async (ctx) => {
+    assertNotProductionDb('This test inserts GL accounts.');
+    const client = await getPoolForTests().connect();
+    try {
+      await client.query('BEGIN');
+      const companyId = await findCompany(client);
+      if (!companyId) { ctx.skip('no company with GL accounts'); return; }
+      const expense = await makeAccount(client, companyId, '7300', { type: 'expense', subtype: 'operating_expense' });
+      const asset = await makeAccount(client, companyId, '7310', { type: 'asset', subtype: 'other_current_asset' });
+      await als.run(ctxFor(client, companyId), async () => {
+        await expect(reclassifyAccount(companyId, expense, { accountSubtype: null }))
+          .rejects.toThrow(/subtype is required/i);
+        await reclassifyAccount(companyId, asset, { accountSubtype: null });
+      });
+      const { rows } = await client.query<{ account_subtype: string | null }>(
+        'SELECT account_subtype FROM gl_accounts WHERE id = ANY($1::uuid[]) ORDER BY account_code', [[expense, asset]],
+      );
+      expect(rows.map(r => r.account_subtype)).toEqual(['operating_expense', null]);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+
   it.skipIf(!reachable)('createAccount refuses a cross-type parent', async (ctx) => {
     assertNotProductionDb('This test inserts GL accounts.');
     const client = await getPoolForTests().connect();

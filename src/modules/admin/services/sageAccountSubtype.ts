@@ -10,7 +10,17 @@
  * so the suffix recovers the category when the extension did not send one.
  *
  * Only non-reserved subtypes are returned: the reserved ones belong to the
- * company's system accounts (see SYSTEM_RESERVED_SUBTYPES).
+ * company's system accounts (see SYSTEM_RESERVED_SUBTYPES). That is why every
+ * revenue account bands as `revenue`, including Sage's "Other Income": the
+ * matching subtype (`other_income`) is reserved for the system row that
+ * auto-posting resolves, and a second claimant would displace it. Interest
+ * and sundry income therefore show in turnover until reclassified by hand —
+ * a smaller misband than cost of sales, and a visible one.
+ *
+ * Category and name are BOTH consulted, never one instead of the other: the
+ * category comes verbatim from the browser extension and is not validated
+ * here, so a payload that sends "Expenses" on every row must not switch the
+ * name recovery off.
  */
 import type { GLAccountSubtype, GLAccountType } from '@/modules/accounting/types/gl.types';
 
@@ -24,7 +34,8 @@ export function sageAccountSubtype(
 ): GLAccountSubtype | null {
   if (accountType === 'revenue') return 'revenue';
   if (accountType !== 'expense') return null;
-  if (category && COST_OF_SALES_CATEGORY.test(category)) return 'cost_of_sales';
-  if (!category && COST_OF_SALES_NAME.test(accountName)) return 'cost_of_sales';
+  if ((category && COST_OF_SALES_CATEGORY.test(category)) || COST_OF_SALES_NAME.test(accountName)) {
+    return 'cost_of_sales';
+  }
   return 'operating_expense';
 }

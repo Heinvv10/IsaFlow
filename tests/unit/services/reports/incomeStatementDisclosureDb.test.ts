@@ -38,8 +38,9 @@ describe('the database gate itself', () => {
  * to make another, so a query for "some company with the defect" comes back
  * empty on a healthy database. The rows are written by raw INSERT (the only
  * way to produce the state any more) inside a transaction that is always
- * rolled back. Two unclassified expenses and one classified one, so the
- * disclosure has something to name AND something it must leave out.
+ * rolled back. Two unclassified expenses, one unclassified revenue and one
+ * classified expense, so the disclosure has something to name on each side
+ * AND something it must leave out.
  */
 interface Seeded { id: string; from: string; to: string; expenseAccounts: number }
 
@@ -57,6 +58,7 @@ async function seedUnclassifiedLedger(client: PoolClient, opts: { classified?: b
     return rows[0]!.id;
   };
   const sales = await account('4000', 'revenue', 'revenue', 'credit');
+  const bareIncome = await account('4900', 'revenue', opts.classified ? 'revenue' : null, 'credit');
   const bank = await account('1110', 'asset', 'bank', 'debit');
   const cos = await account('5100', 'expense', 'cost_of_sales', 'debit');
   const bareSubtype = opts.classified ? 'operating_expense' : null;
@@ -64,7 +66,8 @@ async function seedUnclassifiedLedger(client: PoolClient, opts: { classified?: b
   const bare2 = await account('5300', 'expense', bareSubtype, 'debit');
 
   await postEntry(client, companyId, null, '2026-03-01', [
-    { accountId: bank, debit: 10000, credit: 0 }, { accountId: sales, debit: 0, credit: 10000 },
+    { accountId: bank, debit: 11000, credit: 0 }, { accountId: sales, debit: 0, credit: 10000 },
+    { accountId: bareIncome, debit: 0, credit: 1000 },
   ]);
   await postEntry(client, companyId, null, '2026-03-10', [
     { accountId: cos, debit: 4000, credit: 0 }, { accountId: bare1, debit: 2500, credit: 0 },
@@ -91,7 +94,12 @@ describe('getIncomeStatement — subtype disclosure against a real ledger', () =
       expect(report.subtypeDisclosure).not.toBeNull();
       expect(report.subtypeDisclosure).toBeDefined();
       expect(report.subtypeDisclosure!.expenseAccounts).toBe(c.expenseAccounts);
-      expect(report.subtypeDisclosure!.grossProfitOverstatedByAtMost).toBeCloseTo(3000, 2);
+      expect(report.subtypeDisclosure!.revenueAccounts).toBe(c.expenseAccounts === 0 ? 0 : 1);
+      // R3,000 of unclassified expense could be cost of sales; R1,000 of
+      // unclassified revenue could be other income. Both ceilings are named.
+      expect(report.subtypeDisclosure!.costOfSalesExposureAtMost).toBeCloseTo(3000, 2);
+      expect(report.subtypeDisclosure!.otherIncomeExposureAtMost).toBeCloseTo(1000, 2);
+      expect(report.subtypeDisclosure!.grossProfitOverstatedByAtMost).toBeCloseTo(4000, 2);
     });
   });
 
@@ -117,11 +125,9 @@ describe('getIncomeStatement — subtype disclosure against a real ledger', () =
     await withSeededLedger(async (c) => {
       const report = await getIncomeStatement(c.id, c.from, c.to);
       expect(report.subtypeDisclosure).toBeTruthy();
-      // >= not ==: the service drops accounts whose period amount rounds to nil,
-      // and counts unrecognised spellings the NULL-only query above cannot see.
-      // Dropping the disclosureRows.push for expenses takes this to 0.
-      expect(report.subtypeDisclosure!.expenseAccounts).toBeGreaterThan(0);
-      expect(report.subtypeDisclosure!.expenseAmount).toBeGreaterThan(0);
+      // Dropping the disclosureRows.push for expenses takes both to 0.
+      expect(report.subtypeDisclosure!.expenseAccounts).toBe(2);
+      expect(report.subtypeDisclosure!.expenseAmount).toBeCloseTo(3000, 2);
     });
   });
 
@@ -151,6 +157,7 @@ describe('getIncomeStatement — subtype disclosure against a real ledger', () =
       // bound is turnover plus other income — matching what is asserted.
       expect(d!.otherIncomeExposureAtMost)
         .toBeLessThanOrEqual(Math.abs(report.totalRevenue) + Math.abs(report.totalOtherIncome) + 0.01);
+      expect(d!.otherIncomeExposureAtMost).toBeCloseTo(1000, 2);
     });
   });
 
@@ -160,6 +167,7 @@ describe('getIncomeStatement — subtype disclosure against a real ledger', () =
       expect(d).toBeTruthy();
       expect(d!.grossProfitOverstatedByAtMost).toBeCloseTo(
         d!.costOfSalesExposureAtMost + d!.otherIncomeExposureAtMost, 2);
+      expect(d!.grossProfitOverstatedByAtMost).toBeCloseTo(4000, 2);
     });
   });
 

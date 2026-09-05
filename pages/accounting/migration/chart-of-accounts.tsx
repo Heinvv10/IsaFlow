@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 
-const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'normal_balance', 'parent_code', 'description'] as const;
+const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'account_subtype', 'normal_balance', 'parent_code', 'description'] as const;
 type CoaField = typeof COA_FIELDS[number];
 
 const SYSTEM_ACCOUNT_ROLES = [
@@ -123,6 +123,7 @@ export default function ChartOfAccountsPage() {
         accountCode: r.mapped.account_code ?? '',
         accountName: r.mapped.account_name ?? '',
         accountType: r.mapped.account_type ?? '',
+        accountSubtype: r.mapped.account_subtype || undefined,
         normalBalance: r.mapped.normal_balance ?? 'debit',
         parentCode: r.mapped.parent_code,
         description: r.mapped.description,

@@ -15,9 +15,11 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 vi.mock('@/lib/cache', () => ({ cache: { invalidatePrefix: vi.fn() }, cacheThrough: vi.fn() }));
 
 import { sql } from '@/lib/neon';
-import { missingSubtypeError } from '@/modules/accounting/services/gl/accountSubtypeRules';
+import { missingSubtypeError, defaultIncomeStatementSubtype } from '@/modules/accounting/services/gl/accountSubtypeRules';
+import { SYSTEM_RESERVED_SUBTYPES } from '@/modules/accounting/types/glAccountSubtypes';
+import { autoMapAccounts, type ParsedAccount } from '@/modules/accounting/services/core/migrationParserService';
 import { createAccount } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import { templateLinesFor } from '@/modules/accounting/services/gl/chartOfAccountsImportService';
+import { getTemplateLines } from '@/modules/accounting/services/gl/chartOfAccountsImportService';
 
 const CO = '11111111-1111-4111-8111-111111111111';
 
@@ -34,6 +36,12 @@ describe('missingSubtypeError', () => {
     expect(missingSubtypeError('liability', '')).toBeNull();
     expect(missingSubtypeError('equity', null)).toBeNull();
   });
+  it('lists only subtypes the next call would accept', () => {
+    const msg = missingSubtypeError('revenue', undefined)!;
+    const listed = msg.slice(msg.indexOf('Valid: ') + 7).split(', ');
+    expect(listed).toEqual(['revenue', 'other']);
+    for (const s of listed) expect(SYSTEM_RESERVED_SUBTYPES).not.toContain(s);
+  });
   it('is satisfied by any present value — validity is subtypeErrorFor’s job', () => {
     expect(missingSubtypeError('expense', 'cost_of_sales')).toBeNull();
     expect(missingSubtypeError('revenue', 'revenue')).toBeNull();
@@ -49,10 +57,34 @@ describe('createAccount', () => {
   });
 });
 
+describe('defaultIncomeStatementSubtype', () => {
+  it('gives bulk imports an explicit, reclassifiable value instead of NULL', () => {
+    expect(defaultIncomeStatementSubtype('revenue')).toBe('revenue');
+    expect(defaultIncomeStatementSubtype('expense')).toBe('operating_expense');
+    expect(defaultIncomeStatementSubtype('asset')).toBeNull();
+  });
+});
+
+describe('autoMapAccounts', () => {
+  const parsed = (sourceType: string, sourceCode = 'X1'): ParsedAccount =>
+    ({ sourceCode, sourceName: sourceType, sourceType, openingBalance: 0 });
+  it('sets a subtype on every income-statement mapping, for every source', () => {
+    const xero = autoMapAccounts('xero', [parsed('DIRECTCOSTS'), parsed('EXPENSE'), parsed('REVENUE'), parsed('OTHERINCOME')]);
+    expect(xero.map(a => a.mappedSubtype)).toEqual(['cost_of_sales', 'operating_expense', 'revenue', 'revenue']);
+    const qb = autoMapAccounts('quickbooks', [parsed('Cost of Goods Sold'), parsed('Expense'), parsed('Income')]);
+    expect(qb.map(a => a.mappedSubtype)).toEqual(['cost_of_sales', 'operating_expense', 'revenue']);
+    const pastel = autoMapAccounts('pastel', [parsed('?', '4100'), parsed('?', '6200')]);
+    expect(pastel.map(a => a.mappedSubtype)).toEqual(['revenue', 'operating_expense']);
+    for (const a of [...xero, ...qb, ...pastel]) {
+      expect(missingSubtypeError(a.mappedType!, a.mappedSubtype)).toBeNull();
+    }
+  });
+});
+
 describe('chart templates', () => {
   it('seed every revenue and expense line with a subtype', () => {
     for (const template of ['isaflow_standard', 'xero_compatible', 'sage_compatible'] as const) {
-      const bare = templateLinesFor(template)
+      const bare = getTemplateLines(template)
         .filter(l => (l.type === 'revenue' || l.type === 'expense') && !l.subtype)
         .map(l => `${template}:${l.code}`);
       expect(bare).toEqual([]);

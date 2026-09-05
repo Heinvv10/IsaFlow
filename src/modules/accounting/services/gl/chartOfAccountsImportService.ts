@@ -139,11 +139,7 @@ const SAGE_TEMPLATE: TemplateLine[] = [
   { code:'6006', name:'Marketing & Advertising',type:'expense',   normalBalance:'debit',  level:2, displayOrder:606, parentCode:'6000', subtype:'operating_expense' },
 ];
 
-export function templateLinesFor(template: CoaTemplate): readonly TemplateLine[] {
-  return getTemplateLines(template);
-}
-
-function getTemplateLines(template: CoaTemplate): TemplateLine[] {
+export function getTemplateLines(template: CoaTemplate): readonly TemplateLine[] {
   if (template === 'isaflow_standard') return ISAFLOW_TEMPLATE;
   if (template === 'xero_compatible')  return XERO_TEMPLATE;
   if (template === 'sage_compatible')  return SAGE_TEMPLATE;
