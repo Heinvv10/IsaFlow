@@ -32,7 +32,7 @@ import {
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { fmtDate } from '@/lib/fmtDate';
 import { mcpPostingAgent } from '../postingAgent';
-import { guardCastableArgs, ok, safeErrorText, strArg, toolError } from './toolHelpers';
+import { guardCastableArgs, hasWholeCents, ok, safeErrorText, strArg, toolError } from './toolHelpers';
 
 const TOOL = 'settle_by_contra';
 const SUBLEDGERS: readonly Subledger[] = ['ar', 'ap'];
@@ -115,9 +115,7 @@ export const settleByContraTool: McpTool = {
     if (!Number.isFinite(amount) || amount <= 0) {
       return toolError('amount must be a positive number');
     }
-    // Money is NUMERIC(15,2); a third decimal is rounded by Postgres and the
-    // agent's arithmetic then silently disagrees with the ledger's.
-    if (Math.round(amount * 100) !== amount * 100) {
+    if (!hasWholeCents(amount)) {
       return toolError(`amount has more than two decimal places (${amount}) — amounts are stored to the cent.`);
     }
     const settlementDate = strArg(args, 'settlement_date') ?? fmtDate(new Date());

@@ -15,6 +15,7 @@ import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
+import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
 import { autoLinkCounterpartyTransfer } from './bankTransferAutoLink';
 
@@ -483,13 +484,21 @@ export async function splitAllocateTransaction(
 export async function reverseReconciledTransaction(
   companyId: string, bankTxId: string, userId: string,
   opts?: PostingActorOpts & { reversalDate?: string },
-): Promise<void> {
+): Promise<BankAllocationUnwindResult> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
   if (!tx) throw new Error('Transaction not found');
   if (tx.status !== 'allocated' && tx.status !== 'matched' && tx.status !== 'reconciled') {
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');
   }
   let journalEntryId: string | null = null;
+  // Reported rather than discarded: `void_receipt` delegates to this function
+  // and previously had to answer "0 invoices reopened" for the branch that does
+  // the MOST work, because the counts were computed here and thrown away. An
+  // agent reading that reply concludes nothing was undone and re-applies the
+  // receipt. Callers that do not care keep ignoring the return value.
+  let unwound: BankAllocationUnwindResult = {
+    invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
+  };
   if (tx.matched_journal_line_id) {
     const jlRows = (await sql`
       SELECT jl.journal_entry_id FROM gl_journal_lines jl
@@ -501,7 +510,7 @@ export async function reverseReconciledTransaction(
       // the credit to the control account with the invoice still reading as
       // settled, which widens the subledger-to-control gap behind an
       // ordinary-looking reversal. If this throws, nothing has been posted.
-      await unwindBankAllocationApplication(companyId, journalEntryId);
+      unwound = await unwindBankAllocationApplication(companyId, journalEntryId);
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
         await reverseJournalEntry(companyId, journalEntryId, userId, opts);
@@ -531,4 +540,5 @@ export async function reverseReconciledTransaction(
     throw resetErr;
   }
   log.info('Reversed reconciled bank transaction', { bankTxId, userId }, 'accounting');
+  return unwound;
 }
