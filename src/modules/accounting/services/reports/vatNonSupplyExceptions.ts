@@ -53,13 +53,19 @@
  * behaviour of that gate — a period carrying fictitious input tax should not
  * be filed — and it is why this category is counted like the other eight
  * rather than shown as an advisory. The consequences, stated plainly:
- *   - There is no waive or acknowledge path anywhere in the gate. The only
- *     way to clear one of these is to correct the journal (reverse and
- *     re-allocate with a `none` VAT code).
- *   - For Velocity, two bi-monthly periods (2025-P04 and 2025-P05) have no
- *     other exception and so become blocked by this rule alone.
- *   - Nothing is blocked today: the ISV channel is unarmed in production (no
- *     `SARS_EFILING_*` env), so `submitVAT201ToSars` throws
+ *   - There is no waive or acknowledge path anywhere in the gate, and a
+ *     reversing journal does not clear one of these — the reversal carries the
+ *     same `vat_type` on the same account, so it ADDS a row. Clearing means
+ *     re-coding the original lines.
+ *   - It newly blocks NOTHING in production, and that was measured, not
+ *     assumed. Across all 13 tenants there are 7 (company, bi-monthly period)
+ *     pairs where this rule fires, and every one of them already carries a
+ *     non-zero count from query 1 or query 8 — Velocity 2025-P04 and 2025-P05,
+ *     which have no uncoded lines, are already blocked by 92 and 74
+ *     balance-sheet rows. An earlier draft of this note claimed those two
+ *     periods were newly blocked; it had counted query 1 only.
+ *   - And nothing is reachable today anyway: the ISV channel is unarmed in
+ *     production (no `SARS_EFILING_*` env), so `submitVAT201ToSars` throws
  *     `EfilingNotConfiguredError` before the gate is reached.
  * If that trade is ever judged wrong, change the GATE, not this rule — making
  * one category advisory while eight block is the inconsistency that hides.
