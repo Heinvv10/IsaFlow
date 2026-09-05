@@ -7,17 +7,32 @@
  * this module runs in Node (serverChartSvg.ts) as well as in the browser.
  * Defaults mirror the `--ff-*` fallbacks in src/lib/charts/theme.ts.
  *
- * NOTE ON FIGURES: `base` and `visible` below are chart GEOMETRY derived from
- * the service's own `start`, `end` and `value`; no figure is invented and
- * nothing is summed. The number a reader sees on a bar label is `step.value`
- * exactly as the service produced it.
+ * WATERFALL GEOMETRY: a transparent-base-plus-stacked-bar is the usual trick
+ * for a waterfall, but ECharts stacks positive and negative values on
+ * independent axes — so a step whose `start`/`end` straddle zero (a loss
+ * period) renders in the wrong place entirely (a −700 movement from +500
+ * drew as if it ran 0 → +600). A `custom` series avoids that: `renderItem`
+ * maps `[start, end]` to a rect via `api.coord`, which asks the coordinate
+ * system for each endpoint's actual pixel position instead of asking ECharts
+ * to stack signed magnitudes — correct on either side of zero and across it.
+ *
+ * NOTE ON FIGURES: the rect's `y`/`height` are chart GEOMETRY derived from
+ * the service's own `start` and `end`; no figure is invented and nothing is
+ * summed. The number PRINTED on the bar is `step.value` exactly as the
+ * service produced it — never a value derived from the rect.
  *
  * SECURITY: ECharts' `tooltip.formatter` renders its return value as HTML.
  * Every label below is ledger-sourced text (an account or step name), so it
  * is escaped before interpolation — see `escapeHtml.ts`.
  */
 import type { EChartsCoreOption } from 'echarts/core';
+import type {
+  CustomSeriesRenderItem,
+  CustomSeriesRenderItemAPI,
+  CustomSeriesRenderItemParams,
+} from 'echarts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
+import { formatMoney } from '@/lib/format/money';
 import { escapeHtml } from './escapeHtml';
 
 /** The shape of an ECharts tooltip-formatter callback param this module
@@ -49,9 +64,56 @@ export interface TrendPoint {
   value: number;
 }
 
+/** A movement's colour is the direction of the movement itself — favourable
+ *  when it grows the running total, unfavourable when it shrinks it — never
+ *  the legacy `color` hint on the step. A subtotal carries no variance of
+ *  its own and stays actual ink regardless of whether it is a profit or a
+ *  loss. */
 function stepColour(step: WaterfallStep, palette: ChartPalette): string {
   if (step.isSubtotal) return palette.ink;
-  return step.value < 0 ? palette.unfav : palette.fav;
+  return step.end - step.start >= 0 ? palette.fav : palette.unfav;
+}
+
+function axisDomain(values: number[]): { min: number; max: number } {
+  return { min: Math.min(0, ...values), max: Math.max(0, ...values) };
+}
+
+function makeWaterfallRenderItem(steps: WaterfallStep[], palette: ChartPalette): CustomSeriesRenderItem {
+  return function renderItem(params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) {
+    const step = steps[params.dataIndex];
+    if (!step) return undefined;
+
+    const [x1 = 0, y1 = 0] = api.coord([params.dataIndex, step.start]);
+    const [, y2 = 0] = api.coord([params.dataIndex, step.end]);
+    const bandRaw = api.size ? api.size([1, 0]) : undefined;
+    const band = (Array.isArray(bandRaw) ? bandRaw[0] : typeof bandRaw === 'number' ? bandRaw : 20) ?? 20;
+    const width = band * 0.6;
+    const x = x1 - width / 2;
+    const y = Math.min(y1, y2);
+    const height = Math.abs(y1 - y2);
+
+    return {
+      type: 'group',
+      children: [
+        {
+          type: 'rect',
+          shape: { x, y, width, height },
+          style: { fill: stepColour(step, palette) },
+        },
+        {
+          type: 'text',
+          style: {
+            text: formatMoney(step.value),
+            x: x + width / 2,
+            y: y - 4,
+            fill: palette.ink,
+            align: 'center',
+            verticalAlign: 'bottom',
+          },
+        },
+      ],
+    };
+  };
 }
 
 function firstParam(params: TopLevelFormatterParams): TooltipDataParam | undefined {
@@ -82,27 +144,18 @@ export function waterfallOption(steps: WaterfallStep[], palette: ChartPalette = 
     },
     yAxis: {
       type: 'value',
+      ...axisDomain(steps.flatMap((s) => [s.start, s.end])),
       axisLabel: { color: palette.axis },
       axisLine: { lineStyle: { color: palette.axis } },
       splitLine: { lineStyle: { color: palette.prior } },
     },
     series: [
       {
-        name: 'base',
-        type: 'bar',
-        stack: 'waterfall',
-        silent: true,
-        itemStyle: { color: 'transparent' },
-        data: steps.map((s) => (s.isSubtotal ? 0 : Math.min(s.start, s.end))),
-      },
-      {
-        name: 'movement',
-        type: 'bar',
-        stack: 'waterfall',
-        data: steps.map((s) => ({
-          value: Math.abs(s.value),
-          itemStyle: { color: stepColour(s, palette) },
-        })),
+        name: 'waterfall',
+        type: 'custom',
+        renderItem: makeWaterfallRenderItem(steps, palette),
+        clip: true,
+        data: steps.map((s) => [s.start, s.end]),
       },
     ],
   };
