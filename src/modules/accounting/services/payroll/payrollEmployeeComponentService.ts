@@ -1,6 +1,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { fmtDate } from '@/lib/fmtDate';
 
 type Row = DbRow;
 
@@ -90,16 +91,25 @@ export async function assignComponentToEmployee(
   return mapAssignment(rows[0]);
 }
 
+/**
+ * Close an assignment. Returns whether a row was actually closed.
+ *
+ * The boolean is not decoration. The UPDATE is scoped through the employee's
+ * company, so a stale, mistyped-but-well-formed, or foreign `assignmentId`
+ * matches NOTHING and the statement succeeds having changed nothing. A caller
+ * that reported success on that would tell an agent an old salary had been
+ * ended while it stayed live — and the next costed run would pay it.
+ */
 export async function endEmployeeComponent(
   companyId: string,
   assignmentId: string,
   effectiveTo: Date,
-): Promise<void> {
-  const effectiveToStr = effectiveTo.toISOString().slice(0, 10);
+): Promise<boolean> {
+  const effectiveToStr = fmtDate(effectiveTo);
 
   log.info('Ending employee component', { companyId, assignmentId, effectiveTo: effectiveToStr }, 'payrollEmployeeComponentService');
 
-  await sql`
+  const rows = (await sql`
     UPDATE payroll_employee_components
     SET effective_to = ${effectiveToStr}
     WHERE id = ${assignmentId}::uuid
@@ -107,7 +117,9 @@ export async function endEmployeeComponent(
         SELECT id FROM payroll_employees
         WHERE company_id = ${companyId}::uuid
       )
-  `;
+    RETURNING id
+  `) as Row[];
+  return rows.length > 0;
 }
 
 export async function listEmployeeComponentAssignments(

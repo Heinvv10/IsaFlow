@@ -31,6 +31,7 @@ export async function approvePayrollRun(
   companyId: string,
   runId: string,
   userId: string,
+  opts?: { postingAgent?: string },
 ): Promise<ApprovePayrollRunResult> {
   log.info('Approving payroll run', { companyId, runId }, 'payrollApproval');
 
@@ -59,8 +60,13 @@ export async function approvePayrollRun(
   `) as Row[];
   if (!updatedRows[0]) throw new Error('Status update returned no row');
 
-  // Idempotent — skips posting if journal_entry_id is already set
-  const journalEntryId = await postPayrollRunJournal(companyId, runId, userId);
+  // Idempotent — skips posting if journal_entry_id is already set.
+  //
+  // `opts` is forwarded so an automated caller can attribute its own posting.
+  // Omitting it leaves the journal on `defaultHumanMeta(userId)`, which labels
+  // agent work as the token owner's own and hides it from list_agent_postings —
+  // the same reason postPayrollRunJournal takes the stamp at all.
+  const journalEntryId = await postPayrollRunJournal(companyId, runId, userId, opts);
 
   log.info('Payroll run approved and journal posted', { companyId, runId, journalEntryId }, 'payrollApproval');
 

@@ -1,4 +1,4 @@
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { listPayrollEmployees, listTaxNumbersForCompany } from './payrollEmployeeService';
@@ -233,15 +233,28 @@ export async function calculatePayrollRun(
 
   const r = (n: number) => Math.round(n * 100) / 100;
 
-  // All DB mutations in a single transaction so partial failures don't corrupt state
-  await sql`BEGIN`;
-  try {
-    await sql`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid AND run_id IN (
+  // All DB mutations in one transaction so a partial failure cannot corrupt
+  // state — but via `withTransaction`, NEVER raw BEGIN/COMMIT.
+  //
+  // This used to issue `sql`BEGIN``/`sql`COMMIT`` directly. Those route onto
+  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // `withAuth` opens for every request — so the COMMIT committed the WHOLE
+  // request, not this block: every earlier write in the request was made
+  // durable, and any enclosing savepoint ceased to exist. On the MCP path that
+  // destroyed the registry's per-tool savepoint, so a later failure could not
+  // roll this back and the RELEASE SAVEPOINT afterwards errored into a generic
+  // failure over lines that were already committed.
+  //
+  // `withTransaction` nests a SAVEPOINT when a request transaction is in
+  // flight and opens a real transaction only when there is none, which is
+  // correct under both callers.
+  await withTransaction(async (tx) => {
+    await tx`DELETE FROM payroll_run_lines WHERE run_id = ${runId}::uuid AND run_id IN (
       SELECT id FROM payroll_run_headers WHERE company_id = ${companyId}::uuid
     )`;
 
     for (const ins of lineInserts) {
-      await sql`
+      await tx`
         INSERT INTO payroll_run_lines (
           run_id, employee_id, gross_pay, taxable_income, paye,
           uif_employee, uif_employer, sdl, eti, net_pay,
@@ -256,12 +269,7 @@ export async function calculatePayrollRun(
         )
       `;
     }
-
-    await sql`COMMIT`;
-  } catch (err) {
-    await sql`ROLLBACK`;
-    throw err;
-  }
+  });
 
   const updated = (await sql`
     UPDATE payroll_run_headers SET
