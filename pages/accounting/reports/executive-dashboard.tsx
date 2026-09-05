@@ -6,7 +6,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
 import {
   ArrowLeft, LayoutDashboard, TrendingUp, TrendingDown, Minus,
   AlertTriangle, AlertCircle, CheckCircle, Loader2,
@@ -18,15 +17,8 @@ import {
   type InventoryWarning,
 } from '@/components/accounting/DataQualityNotice';
 import { KpiTile } from '@/components/accounting/kpi/KpiTile';
+import { CashPositionChart } from '@/components/accounting/charts/CashPositionChart';
 import { log } from '@/lib/logger';
-
-const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import('recharts').then(m => m.Bar), { ssr: false });
-const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import('recharts').then(m => m.YAxis), { ssr: false });
-const CartesianGrid = dynamic(() => import('recharts').then(m => m.CartesianGrid), { ssr: false });
-const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
-const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
 
 interface ExecutiveKPIs {
   revenue: number;
@@ -158,18 +150,7 @@ export default function ExecutiveDashboardPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Cash Position Chart */}
-                <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
-                  <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Cash Position</h2>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={cashChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#888' }} />
-                      <YAxis tick={{ fontSize: 10, fill: '#888' }} width={60} tickFormatter={v => `R${(v / 1000).toFixed(0)}K`} />
-                      <Tooltip contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} formatter={(v) => [`R ${Number(v).toLocaleString('en-ZA')}`, '']} />
-                      <Bar dataKey="value" fill="#14b8a6" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <CashPositionChart points={cashChartData} />
 
                 {/* Highlights */}
                 <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
