@@ -38,6 +38,7 @@ import type { Currency } from '@/modules/accounting/services/core/currencyServic
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
+import type { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -68,6 +69,7 @@ interface StaticRoutes {
  */
 interface DynamicRoutes {
   '/api/admin/users/{}/impersonate': { redirect: string };
+  '/api/accounting/packs/{}/trend': Awaited<ReturnType<typeof getPackTrend>>;
 }
 
 export type ApiRouteMap = StaticRoutes & DynamicRoutes;

@@ -88,6 +88,9 @@ import accountTransactionsExport from '../../../pages/api/accounting/account-tra
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import casewareExport from '../../../pages/api/accounting/caseware-export';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import packsTrend from '../../../pages/api/accounting/packs/[id]/trend';
 
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 
@@ -124,6 +127,7 @@ const CASES: Array<[string, Handler, string, Record<string, unknown>]> = [
     { query: { account_code: '1000', period_start: '2026-01-01', period_end: '2026-01-31' } },
   ],
   ['caseware-export', casewareExport as Handler, 'GET', { query: { period_start: '2026-01-01', period_end: '2026-01-31' } }],
+  ['packs/[id]/trend', packsTrend as Handler, 'GET', { query: { id: 'monthly', to: '2026-01-31' } }],
 ];
 
 describe('Report/export endpoints — per-company throttle via checkReportRateLimit', () => {
