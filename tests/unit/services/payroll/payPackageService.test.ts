@@ -1,10 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
+const sqlCalls: Array<{ sql: string; values: unknown[]; viaTx?: boolean }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
+  // withTransaction replaces the raw BEGIN/COMMIT the services used to emit.
+  //
+  // The `tx` handed to the callback records with `viaTx: true` so a statement
+  // issued INSIDE the transaction is distinguishable from one issued bare
+  // through `sql`. Without that marker the two are identical in this log, and a
+  // regression that dropped withTransaction entirely — leaving a mid-loop
+  // failure to strand a DELETE with no INSERTs — would pass every test here.
+  withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(
+    (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqlCalls.push({ sql: strings.join('?'), values, viaTx: true });
+      return mockImpl(strings, ...values);
+    },
+  ),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
@@ -54,10 +67,17 @@ describe('createPayPackage + setPackageComponents', () => {
       { componentId: COMP_A, amount: 10000, isRecurring: true },
       { componentId: COMP_B, amount: 5000, isRecurring: true },
     ]);
-    expect(sqlCalls.some(c => c.sql.trim() === 'BEGIN')).toBe(true);
+    // No BEGIN/COMMIT: the service no longer emits them. `sql` routes onto the
+    // request's ALS client, so a raw COMMIT committed the WHOLE request;
+    // withTransaction nests a SAVEPOINT, which is not a statement in this log.
+    expect(sqlCalls.some(c => c.sql.trim() === 'BEGIN')).toBe(false);
     expect(sqlCalls.some(c => c.sql.includes('DELETE FROM pay_package_components'))).toBe(true);
     expect(sqlCalls.filter(c => c.sql.includes('INSERT INTO pay_package_components')).length).toBe(2);
-    expect(sqlCalls.some(c => c.sql.trim() === 'COMMIT')).toBe(true);
+    expect(sqlCalls.some(c => c.sql.trim() === 'COMMIT')).toBe(false);
+    // Writes went through the TRANSACTION, not bare `sql`.
+    const writes = sqlCalls.filter(c => /INSERT INTO (pay_package_components|payroll_employee_components)|DELETE FROM pay_package_components|UPDATE payroll_employee_components/.test(c.sql));
+    expect(writes.length).toBeGreaterThan(0);
+    expect(writes.every(c => c.viaTx === true)).toBe(true);
   });
 
   it('setPackageComponents rejects package not in company', async () => {
@@ -112,13 +132,20 @@ describe('applyPackageToEmployee', () => {
     };
     const out = await applyPackageToEmployee(COMPANY_ID, PKG_ID, EMP_ID, '2026-05-01', USER_ID);
     expect(out.inserted).toBe(2);
-    expect(sqlCalls.some(c => c.sql.trim() === 'BEGIN')).toBe(true);
+    // No BEGIN/COMMIT: the service no longer emits them. `sql` routes onto the
+    // request's ALS client, so a raw COMMIT committed the WHOLE request;
+    // withTransaction nests a SAVEPOINT, which is not a statement in this log.
+    expect(sqlCalls.some(c => c.sql.trim() === 'BEGIN')).toBe(false);
     expect(sqlCalls.filter(c => c.sql.includes('UPDATE payroll_employee_components')).length).toBe(2);
     expect(sqlCalls.filter(c => c.sql.includes('INSERT INTO payroll_employee_components')).length).toBe(2);
-    expect(sqlCalls.some(c => c.sql.trim() === 'COMMIT')).toBe(true);
+    expect(sqlCalls.some(c => c.sql.trim() === 'COMMIT')).toBe(false);
+    // Writes went through the TRANSACTION, not bare `sql`.
+    const writes = sqlCalls.filter(c => /INSERT INTO (pay_package_components|payroll_employee_components)|DELETE FROM pay_package_components|UPDATE payroll_employee_components/.test(c.sql));
+    expect(writes.length).toBeGreaterThan(0);
+    expect(writes.every(c => c.viaTx === true)).toBe(true);
   });
 
-  it('rolls back on failure', async () => {
+  it('propagates a failure so the surrounding transaction unwinds', async () => {
     let insertCount = 0;
     mockImpl = (strings) => {
       const q = strings.join('?');
@@ -138,7 +165,9 @@ describe('applyPackageToEmployee', () => {
     };
     await expect(applyPackageToEmployee(COMPANY_ID, PKG_ID, EMP_ID, '2026-05-01', USER_ID))
       .rejects.toThrow(/boom/);
-    expect(sqlCalls.some(c => c.sql.trim() === 'ROLLBACK')).toBe(true);
+    // Rollback is withTransaction's savepoint, not a statement this service
+    // emits. What the service owes its caller is that the error PROPAGATES.
+    expect(sqlCalls.some(c => c.sql.trim() === 'ROLLBACK')).toBe(false);
   });
 
   it('lists by company_id', async () => {
