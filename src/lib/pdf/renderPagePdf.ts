@@ -64,6 +64,27 @@ export async function renderPagePdf(options: RenderPagePdfOptions): Promise<Buff
       { name: ONBOARDING_DONE_COOKIE, value: '1', domain: hostname, path: '/', httpOnly: false, sameSite: 'Lax' },
     ]);
 
+    // The print token only authorizes `apiPath`. AppLayout still fires its
+    // own background calls (preferences, setup-guide, company list, /auth/me)
+    // which have no GoTrue session and would otherwise 401 — withAuth no
+    // longer clears cookies for those (see withAuth.ts), but there is no
+    // reason to let them hit the network, retry, or race the report fetch at
+    // all. Stub every other /api/* call with a harmless empty envelope so the
+    // page's own error handling (already built for "no data yet") takes over,
+    // and only the authorized path reaches the server.
+    await context.route('**/api/**', async (route) => {
+      const requestPath = new URL(route.request().url()).pathname;
+      if (requestPath === apiPath) {
+        await route.continue();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: null }),
+      });
+    });
+
     const page = await context.newPage();
     // 'load' rather than 'networkidle': the app keeps background connections
     // open (analytics beacon, polling) that never go quiet, so networkidle
@@ -71,9 +92,20 @@ export async function renderPagePdf(options: RenderPagePdfOptions): Promise<Buff
     // readiness gate.
     await page.goto(`${appUrl}${path}?print=1`, { waitUntil: 'load' });
     await page.waitForSelector(PRINT_READY_SELECTOR, { timeout: PRINT_READY_TIMEOUT_MS });
+
+    // print.css scopes its rules to `html.print-mode` under `@media print` so
+    // an ordinary user's Ctrl+P is never affected — only this renderer ever
+    // adds the class. Also strip `.dark` rather than maintain a parallel set
+    // of print-scoped light-token overrides that would drift as new tokens
+    // are added: removing it makes every `--ff-*` custom property fall back
+    // to its `:root` (light) definition automatically.
+    await page.evaluate(() => {
+      document.documentElement.classList.add('print-mode');
+      document.documentElement.classList.remove('dark');
+    });
     // page.pdf() does not reliably force print media on its own — without
-    // this, styles/print.css's @media print rules (hiding AppLayout chrome)
-    // never applied and the rendered PDF showed the full app shell.
+    // this, styles/print.css's @media print rules never applied and the
+    // rendered PDF showed the full app shell.
     await page.emulateMedia({ media: 'print' });
 
     const pdf = await page.pdf({
