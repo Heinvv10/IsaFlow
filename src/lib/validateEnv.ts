@@ -137,6 +137,14 @@ export function validateEnv(): void {
     if (weak.length > 0) {
       throw new Error(`Secret(s) shorter than ${MIN_SECRET_LEN} chars: ${weak.join(', ')}`);
     }
+    // PRINT_TOKEN_SECRET is optional — the withAuth print-token fallback
+    // (src/lib/pdf/printAuth.ts) is disabled entirely when it's unset — so it
+    // is deliberately not in LENGTH_CHECKED_SECRETS above (that list assumes
+    // presence). Only check strength when an operator has actually set it.
+    const printTokenSecret = process.env.PRINT_TOKEN_SECRET;
+    if (printTokenSecret && printTokenSecret.length < MIN_SECRET_LEN) {
+      throw new Error(`PRINT_TOKEN_SECRET must be at least ${MIN_SECRET_LEN} characters`);
+    }
   }
   const missingRecommended = RECOMMENDED_VARS.filter(v => !process.env[v]);
   if (missingRecommended.length > 0) {

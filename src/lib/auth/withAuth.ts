@@ -7,6 +7,7 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { verifyToken } from './gotrue';
+import { verifyPrintTokenSignature } from '@/lib/pdf/printAuth';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
@@ -103,9 +104,41 @@ export function withAuth(handler: Handler): NextApiHandler {
     try {
       claims = await verifyToken(token);
     } catch (err) {
-      log.warn('withAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
-      clearAuthCookies(res);
-      return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
+      // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
+      // Chromium request carries a short-lived print token instead of a
+      // GoTrue session in the SAME cookie. verifyPrintTokenSignature is a
+      // no-op (always null) unless PRINT_TOKEN_SECRET is set, so this
+      // branch is fully disabled by default.
+      //
+      // Signature/expiry and path are checked in two steps deliberately: a
+      // token that is genuinely signed but bound to a DIFFERENT path (e.g.
+      // AppLayout's own background calls, which have no GoTrue session and
+      // present the same print-token cookie) must 401 WITHOUT clearing
+      // cookies — clearAuthCookies wiping the print cookies mid-render was
+      // racing the actual report fetch. Only a garbage/forged/expired token
+      // gets the original clear-and-401 treatment.
+      const candidate = verifyPrintTokenSignature(token);
+      if (!candidate) {
+        log.warn('withAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+        clearAuthCookies(res);
+        return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
+      }
+      const requestPath = req.url?.split('?')[0] ?? '';
+      if (candidate.path !== requestPath || candidate.companyId !== activeCompanyId) {
+        log.warn('withAuth: print token not valid for this request', {
+          tokenPath: candidate.path,
+          requestPath,
+          tokenCompanyId: candidate.companyId,
+          activeCompanyId,
+        }, 'Auth');
+        return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
+      }
+      log.info('withAuth: print token accepted', {
+        companyId: candidate.companyId,
+        userId: candidate.userId,
+        path: candidate.path,
+      }, 'Auth');
+      claims = { sub: candidate.userId } as Awaited<ReturnType<typeof verifyToken>>;
     }
 
     const startedAt = Date.now();
