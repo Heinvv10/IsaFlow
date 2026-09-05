@@ -12,7 +12,7 @@
  * already-materialised assignments — a new "apply" is required.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -180,20 +180,21 @@ export async function setPackageComponents(
     }
   }
 
-  await sql`BEGIN`;
-  try {
-    await sql`DELETE FROM pay_package_components WHERE package_id = ${packageId}::uuid`;
+  // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
+  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // `withAuth` opens for every request — so it commits the WHOLE request, makes
+  // every earlier write durable and destroys any enclosing savepoint.
+  // `withTransaction` nests a SAVEPOINT when a request transaction is in flight
+  // and opens a real one only when there is none.
+  await withTransaction(async (tx) => {
+    await tx`DELETE FROM pay_package_components WHERE package_id = ${packageId}::uuid`;
     for (const c of components) {
-      await sql`
+      await tx`
         INSERT INTO pay_package_components (package_id, component_id, amount, is_recurring)
         VALUES (${packageId}::uuid, ${c.componentId}::uuid, ${c.amount}, ${c.isRecurring})
       `;
     }
-    await sql`COMMIT`;
-  } catch (err) {
-    await sql`ROLLBACK`;
-    throw err;
-  }
+  });
 }
 
 export interface UpdatePayPackageInput {
@@ -248,12 +249,17 @@ export async function applyPackageToEmployee(
     'payPackageService',
   );
 
-  await sql`BEGIN`;
-  try {
+  // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
+  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // `withAuth` opens for every request — so it commits the WHOLE request, makes
+  // every earlier write durable and destroys any enclosing savepoint.
+  // `withTransaction` nests a SAVEPOINT when a request transaction is in flight
+  // and opens a real one only when there is none.
+  return withTransaction(async (tx) => {
     let ended = 0;
     for (const r of compRows) {
       const componentId = String(r.component_id);
-      const endResult = (await sql`
+      const endResult = (await tx`
         UPDATE payroll_employee_components
            SET effective_to = (${effectiveFrom}::date - INTERVAL '1 day')::date
          WHERE employee_id = ${employeeId}::uuid
@@ -263,17 +269,13 @@ export async function applyPackageToEmployee(
       `) as DbRow[];
       ended += endResult.length;
 
-      await sql`
+      await tx`
         INSERT INTO payroll_employee_components
           (employee_id, component_id, amount, effective_from, is_recurring)
         VALUES
           (${employeeId}::uuid, ${componentId}::uuid, ${Number(r.amount)}, ${effectiveFrom}::date, ${r.is_recurring === true})
       `;
     }
-    await sql`COMMIT`;
     return { inserted: compRows.length, ended };
-  } catch (err) {
-    await sql`ROLLBACK`;
-    throw err;
-  }
+  });
 }

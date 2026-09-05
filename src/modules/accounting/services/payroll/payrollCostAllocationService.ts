@@ -11,7 +11,7 @@
  * thirds (33.33 / 33.33 / 33.34).
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 
@@ -107,15 +107,20 @@ export async function setEmployeeCostAllocations(
     'payrollCostAllocationService',
   );
 
-  await sql`BEGIN`;
-  try {
-    await sql`
+  // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
+  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // `withAuth` opens for every request — so it commits the WHOLE request, makes
+  // every earlier write durable and destroys any enclosing savepoint.
+  // `withTransaction` nests a SAVEPOINT when a request transaction is in flight
+  // and opens a real one only when there is none.
+  await withTransaction(async (tx) => {
+    await tx`
       DELETE FROM payroll_employee_cost_allocations
        WHERE company_id = ${companyId}::uuid
          AND employee_id = ${employeeId}::uuid
     `;
     for (const a of allocations) {
-      await sql`
+      await tx`
         INSERT INTO payroll_employee_cost_allocations
           (company_id, employee_id, cost_centre_id, percentage, created_by)
         VALUES (
@@ -127,11 +132,7 @@ export async function setEmployeeCostAllocations(
         )
       `;
     }
-    await sql`COMMIT`;
-  } catch (err) {
-    await sql`ROLLBACK`;
-    throw err;
-  }
+  });
 }
 
 export async function getEmployeeCostAllocations(
