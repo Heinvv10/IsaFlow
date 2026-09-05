@@ -206,6 +206,20 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   bulk_create_supplier_invoices: 'invoice.create',
   bulk_create_customer_invoices: 'invoice.create',
 
+  // Payroll setup and costing. An employee, a component and a run costing are
+  // subledger setup that posts nothing; approve_pay_run DOES post, but pricing
+  // it would put a toll on the one payroll step that reaches the ledger, and
+  // post_payroll_journal beside it is already free for the same reason.
+  get_employee: null,
+  list_payroll_components: null,
+  list_employee_components: null,
+  create_employee: null,
+  update_employee: null,
+  assign_employee_component: null,
+  end_employee_component: null,
+  calculate_pay_run: null,
+  approve_pay_run: null,
+
   // ── Corrections ──────────────────────────────────────────────────────────
   reverse_bank_allocation: null,
   // Free like every other correction: pricing the undo of a mis-captured

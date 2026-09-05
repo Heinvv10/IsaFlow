@@ -97,6 +97,11 @@ import {
 } from './tools/practice';
 import { createJobCategoryTool, createWorkItemTool } from './tools/writePracticeSetup';
 import { listEmployeesTool, listPayRunsTool } from './tools/payroll';
+import {
+  getEmployeeTool,
+  listEmployeeComponentsTool,
+  listPayrollComponentsTool,
+} from './tools/payrollComponents';
 import { emp201StatusTool, irp5DataTool } from './tools/payrollSars';
 import {
   customerStatementTool,
@@ -114,6 +119,13 @@ import {
   supplierStatementTool,
 } from './tools/inventoryAndAp';
 import { createPayRunTool, postPayrollJournalTool } from './tools/writePayroll';
+import {
+  assignEmployeeComponentTool,
+  createEmployeeTool,
+  endEmployeeComponentTool,
+  updateEmployeeTool,
+} from './tools/writeEmployees';
+import { approvePayRunTool, calculatePayRunTool } from './tools/writePayrollRun';
 import {
   listFiscalPeriodsTool,
   getFiscalPeriodTool,
@@ -186,6 +198,9 @@ export const MCP_TOOLS = [
   // New domains (W6): payroll, statements, project P&L, WIP, assets, inventory
   // and job costing. All reads.
   listEmployeesTool,
+  getEmployeeTool,
+  listPayrollComponentsTool,
+  listEmployeeComponentsTool,
   listPayRunsTool,
   emp201StatusTool,
   irp5DataTool,
@@ -247,7 +262,13 @@ export const MCP_TOOLS = [
   // Payroll: create_pay_run opens an empty period and posts nothing, so it is
   // not requiresPost. post_payroll_journal writes to gl_journal_entries and is.
   createPayRunTool,
+  calculatePayRunTool,
+  approvePayRunTool,
   postPayrollJournalTool,
+  createEmployeeTool,
+  updateEmployeeTool,
+  assignEmployeeComponentTool,
+  endEmployeeComponentTool,
   // Cash application: moves a customer's outstanding balance, and on the
   // bank-line branch posts DR Bank / CR Accounts Receivable. requiresPost.
   applyReceiptToInvoiceTool,

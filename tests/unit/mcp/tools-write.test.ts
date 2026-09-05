@@ -452,6 +452,7 @@ describe('write-tool manifest invariants', () => {
       'apply_payment_to_supplier_invoice',
       'apply_receipt_to_invoice',
       'approve_credit_note',
+      'approve_pay_run',
       'approve_supplier_invoice',
       'bulk_allocate_bank_transactions',
       'cancel_credit_note',
@@ -632,6 +633,14 @@ describe('write-tool manifest invariants', () => {
       // voidPaymentTools.test.ts.
       void_receipt: { ...KEY },
       void_payment: { ...KEY },
+      // Payroll setup refuses on the missing required argument before any
+      // query; behaviour in employeeTools.test.ts / payRunLifecycle.test.ts.
+      create_employee: { ...KEY },
+      update_employee: { ...KEY },
+      assign_employee_component: { ...KEY },
+      end_employee_component: { ...KEY },
+      calculate_pay_run: { ...KEY },
+      approve_pay_run: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {
