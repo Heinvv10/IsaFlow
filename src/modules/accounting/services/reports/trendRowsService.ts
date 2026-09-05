@@ -27,15 +27,42 @@
  * the movement series, and reconstructing it from the returned rows alone
  * cannot work: a zero row and an absent row are indistinguishable once the
  * figures are shaped. Seeding from an opening balance removes the question.
+ *
+ * ONE ACCOUNT GETS NO SERIES: retained earnings. `balanceSheetService` does not
+ * read that line from the ledger — it computes revenue less expenses to the
+ * date and INJECTS the residual onto the account (`balanceSheetService.ts:157`).
+ * The posted lines this service can see are usually none, so a sparkline drawn
+ * from them would sit flat at zero beside a printed figure in the millions.
+ * The code is returned in `unavailable` instead, and `applyTrend` leaves the
+ * row's `trend` undefined rather than drawing a line that contradicts the
+ * number next to it.
+ *
+ * THE SERIES IS UNFILTERED. Both statements accept a cost centre (and the
+ * income statement a project); neither dimension is applied here, so a trend is
+ * the whole company. Rendering one beside a cost-centre-filtered statement
+ * would put a company-wide shape next to a departmental figure.
  */
 import { sql } from '@/lib/neon';
+import { getSystemAccount } from '../gl/systemAccountResolver';
+import { MissingSystemAccountError } from '../gl/systemAccountKeys';
 
 export interface AccountTrends {
   /** Twelve `YYYY-MM` keys, oldest first. */
   months: string[];
   /** Account code → twelve figures, aligned to `months`. */
   byAccountCode: Record<string, number[]>;
+  /**
+   * Account code → why this account has no series and one must not be drawn
+   * for it. A consumer renders no trend for these rows; an empty series would
+   * read as "flat at zero", which is a claim about the account.
+   */
+  unavailable: Record<string, string>;
 }
+
+/** Balances below this are not a line on the balance sheet either. */
+const CENT = 0.01;
+
+const DERIVED_ON_BALANCE_SHEET = 'derived on the balance sheet';
 
 /** `month_key` is `OPENING_KEY` for everything posted before the window. */
 const OPENING_KEY = 'opening';
@@ -89,7 +116,24 @@ export async function getMonthlyMovements(companyId: string, asOf: string): Prom
     const series = (byAccountCode[row.account_code] ??= new Array<number>(12).fill(0));
     series[slot] = Number(row.amount);
   }
-  return { months, byAccountCode };
+  return { months, byAccountCode, unavailable: {} };
+}
+
+/**
+ * The account the balance sheet injects its derived retained earnings onto, or
+ * null when this company has no such account. Read through the same resolver
+ * the balance sheet uses, so the two cannot name different accounts.
+ */
+async function retainedEarningsCode(companyId: string): Promise<string | null> {
+  try {
+    return (await getSystemAccount('retained_earnings', companyId)).accountCode;
+  } catch (err) {
+    // A company with no retained-earnings account has nothing to suppress: the
+    // balance sheet injects nothing either. Any other failure is not ours to
+    // interpret and must still reach the caller.
+    if (err instanceof MissingSystemAccountError) return null;
+    throw err;
+  }
 }
 
 export async function getMonthlyBalances(companyId: string, asOf: string): Promise<AccountTrends> {
@@ -154,7 +198,20 @@ export async function getMonthlyBalances(companyId: string, asOf: string): Promi
   const byAccountCode: Record<string, number[]> = {};
   for (const [code, series] of Object.entries(movements)) {
     let running = opening[code] ?? 0;
-    byAccountCode[code] = series.map((movement) => (running += movement));
+    const balances = series.map((movement) => (running += movement));
+    // `balanceSheetService` drops a line whose balance is under a cent. An
+    // account that never rises above rounding is not on the statement, so it
+    // has no row to carry a sparkline.
+    if (balances.every((b) => Math.abs(b) < CENT)) continue;
+    byAccountCode[code] = balances;
   }
-  return { months, byAccountCode };
+
+  const unavailable: Record<string, string> = {};
+  const reCode = await retainedEarningsCode(companyId);
+  if (reCode !== null) {
+    delete byAccountCode[reCode];
+    unavailable[reCode] = DERIVED_ON_BALANCE_SHEET;
+  }
+
+  return { months, byAccountCode, unavailable };
 }

@@ -45,13 +45,24 @@ beforeAll(async () => {
   }
 });
 
-/** The last month inside the window that has any posted entry, as `YYYY-MM`. */
+/**
+ * The last month inside the window with a posted entry that reaches the INCOME
+ * STATEMENT, as `YYYY-MM`. Restricted to revenue and expense lines: the newest
+ * entry in a month may be a balance-sheet-only journal (a bank transfer, a
+ * receipt), and footing the movement series against an income statement that
+ * has no lines at all proves nothing.
+ */
 async function lastPostedMonth(companyId: string, months: string[]): Promise<string | null> {
   const rows = (await sql`
     SELECT to_char(MAX(je.entry_date), 'YYYY-MM') AS month_key
-    FROM gl_journal_entries je
-    WHERE je.company_id = ${companyId}::UUID
+    FROM gl_journal_lines jl
+    JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    WHERE jl.company_id = ${companyId}::UUID
+      AND je.company_id = ${companyId}::UUID
+      AND ga.company_id = ${companyId}::UUID
       AND je.status = 'posted'
+      AND ga.account_type IN ('revenue', 'expense')
       AND je.entry_date >= ${`${months[0]}-01`}::date
       AND je.entry_date <= ${AS_OF}::date
   `) as Array<{ month_key: string | null }>;
@@ -158,9 +169,12 @@ describe.each(TENANTS)('account trends — $name', ({ id: companyId }) => {
     const trends = await getMonthlyBalances(companyId, AS_OF);
     const bs = await getBalanceSheet(companyId, AS_OF);
     // The balance sheet INJECTS derived retained earnings onto this account,
-    // which is a P&L residual and not a posting to the account. The trend
-    // reports what the ledger holds, so the two legitimately differ here.
+    // which is a P&L residual and not a posting to the account. The trend must
+    // refuse the series rather than draw the posted lines, which are flat at
+    // zero next to a printed figure in the millions.
     const re = await getSystemAccount('retained_earnings', companyId);
+    expect(trends.byAccountCode[re.accountCode]).toBeUndefined();
+    expect(trends.unavailable[re.accountCode]).toBe('derived on the balance sheet');
 
     const foreign = await codesReadThroughForeignAccounts(companyId);
 
@@ -184,6 +198,8 @@ describe.each(TENANTS)('account trends — $name', ({ id: companyId }) => {
     const re = await getSystemAccount('retained_earnings', companyId);
     const foreign = await codesReadThroughForeignAccounts(companyId);
 
+    expect(trends.unavailable[re.accountCode]).toBe('derived on the balance sheet');
+
     for (const line of [...bs.assets, ...bs.liabilities, ...bs.equity]) {
       if (line.accountCode === re.accountCode || foreign.has(line.accountCode)) continue;
       expect(trends.byAccountCode[line.accountCode], `no trend series for ${line.accountCode}`).toBeDefined();
@@ -191,6 +207,34 @@ describe.each(TENANTS)('account trends — $name', ({ id: companyId }) => {
         trends.byAccountCode[line.accountCode]![5],
         `balance for ${line.accountCode} at ${monthEnd(month)}`,
       ).toBeCloseTo(line.balance, 2);
+    }
+  });
+
+  it('an account with no ledger activity gets no series at all', async () => {
+    const idle = (await sql`
+      SELECT ga.account_code, ga.account_type
+      FROM gl_accounts ga
+      WHERE ga.company_id = ${companyId}::UUID
+        AND NOT EXISTS (
+          SELECT 1 FROM gl_journal_lines jl
+          JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
+          WHERE jl.gl_account_id = ga.id
+            AND jl.company_id = ${companyId}::UUID
+            AND je.company_id = ${companyId}::UUID
+            AND je.status = 'posted'
+            AND je.entry_date <= ${AS_OF}::date
+        )
+      LIMIT 50
+    `) as Array<{ account_code: string; account_type: string }>;
+    expect(idle.length, 'no idle account in this chart to prove absence').toBeGreaterThan(0);
+
+    const movements = await getMonthlyMovements(companyId, AS_OF);
+    const balances = await getMonthlyBalances(companyId, AS_OF);
+    for (const account of idle) {
+      // An empty series is a claim — "this account sat at zero all year". An
+      // account nothing was ever posted to has no such claim to make.
+      expect(movements.byAccountCode[account.account_code], `movement series for idle ${account.account_code}`).toBeUndefined();
+      expect(balances.byAccountCode[account.account_code], `balance series for idle ${account.account_code}`).toBeUndefined();
     }
   });
 
