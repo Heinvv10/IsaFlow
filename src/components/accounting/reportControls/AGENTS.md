@@ -43,6 +43,10 @@ changed an amount would make two screens disagree about the same period.
 - **`basis` is not a preference.** `movement` for P&L accounts, `balance` for
   balance-sheet accounts. The wrong one draws a shape about a different number
   than the one printed beside it.
+- **A zero prior keeps its movement.** Nothing to R5.5m is a movement of
+  R5.5m and is printed. Only `variancePct` is dropped — no denominator, and
+  the services' 0 placeholder would print as "0.0%" beside the largest
+  movement on the statement. `priorComparison` in `statementRows/comparators.ts`.
 - **Retained earnings gets no trend.** `trendRowsService` returns it in
   `unavailable` and `applyTrend` leaves `trend` undefined, so the grid prints
   an empty cell rather than a line flat at zero beside a figure in the
