@@ -40,6 +40,9 @@ import type { getVATReturn } from '@/modules/accounting/services/reports/vatRetu
 import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
 import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
 import type { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
+import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
+import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
+import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -67,6 +70,12 @@ interface StaticRoutes {
      *  moves with it. */
     budgetedCount: number;
     postedThrough: Awaited<ReturnType<typeof getBudgetVariance>>['postedThrough'];
+  };
+  '/api/accounting/reports-income-statement': Awaited<ReturnType<typeof getIncomeStatement>>;
+  '/api/accounting/reports-pack': {
+    pack: ReturnType<typeof buildReportPack>;
+    period: { from: string; to: string };
+    unclassifiedAccounts: ReturnType<typeof unclassifiedWarning>;
   };
 }
 
