@@ -14,11 +14,18 @@
  * printing it after made the column fail to reconcile by exactly that amount.
  */
 
-/** One rendered row: label, amount, and an optional margin note. */
+/**
+ * One rendered row: label, amount, and an optional margin.
+ *
+ * `margin` is a NUMBER. Carrying it as a string had each pack coerce it
+ * differently — HTML did `fmtPct(Number(r.margin))`, the PDF `pct(r.margin)` —
+ * so typing it properly at source would have kept one working and made the
+ * other print `NaN%`, on surfaces neither of which has a render test.
+ */
 export interface PackPandLRow {
   label: string;
   amount: number;
-  margin?: string;
+  margin?: number;
 }
 
 const num = (v: unknown): number => {
@@ -45,11 +52,11 @@ export function incomeStatementPackRows(d: Record<string, unknown>): PackPandLRo
   return [
     { label: 'Turnover', amount: num(d['revenue']) },
     { label: 'Cost of Sales', amount: num(d['costOfSales']) },
-    { label: 'Gross Profit', amount: grossProfit, margin: String(d['grossMargin'] ?? '') },
+    { label: 'Gross Profit', amount: grossProfit, margin: num(d['grossMargin']) },
     ...(otherIncome !== 0 ? [{ label: 'Other Income', amount: otherIncome }] : []),
     { label: 'Operating Expenses', amount: operatingExpenses },
     { label: 'Operating Profit', amount: operatingProfit },
     ...(otherExpenses !== 0 ? [{ label: 'Other Expenses', amount: otherExpenses }] : []),
-    { label: 'Net Profit', amount: num(d['netProfit']), margin: String(d['netMargin'] ?? '') },
+    { label: 'Net Profit', amount: num(d['netProfit']), margin: num(d['netMargin']) },
   ];
 }

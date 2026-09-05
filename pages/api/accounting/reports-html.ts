@@ -130,7 +130,12 @@ const fmtPct = (v: unknown): string => {
   return `${n.toFixed(1)}%`;
 };
 
-function renderSectionHtml(section: PackSection): string {
+/**
+ * Exported so the WIRING is testable. The row list it renders is tested, but a
+ * future edit here — a `.filter()` on the rows, a dropped `<td>` — would not be
+ * caught by that: the list would still be right and the document still wrong.
+ */
+export function renderSectionHtml(section: PackSection): string {
   const d = section.data;
 
   let rows = '';
@@ -139,7 +144,7 @@ function renderSectionHtml(section: PackSection): string {
     case 'income_statement':
       // One row list, shared with the PDF pack — see incomeStatementPackRows.
       rows = incomeStatementPackRows(d as Record<string, unknown>)
-        .map(r => `<tr><td>${r.label}</td><td class="num">${fmtZAR(r.amount)}</td><td class="num muted">${r.margin ? fmtPct(Number(r.margin)) : ''}</td></tr>`)
+        .map(r => `<tr><td>${r.label}</td><td class="num">${fmtZAR(r.amount)}</td><td class="num muted">${r.margin === undefined ? '' : fmtPct(r.margin)}</td></tr>`)
         .join('');
       return tableHtml(['Item', 'Amount', 'Margin'], rows);
 

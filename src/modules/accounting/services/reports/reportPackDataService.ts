@@ -78,8 +78,11 @@ export async function getReportPackInput(
     // Brightsphere, on a customer-facing PDF.
     otherIncome: data.otherIncome,
     otherExpenses: figures.period.otherExpenses,
-    // NOT `?? 0`: an explicit zero would pin a zero operating line and defeat
-    // `operatingProfitOf`'s fallback, which derives the correct one.
+    // No `?? 0` here: both fields are required `number` on `ClassifiedFigures`
+    // and `toFinancialData` passes them straight through, so the nullish branch
+    // was dead. (An earlier comment claimed it was defeating `operatingProfitOf`'s
+    // fallback — it could never be reached. Recorded because that commit's own
+    // thesis was that a doc must not overclaim.)
     operatingProfit: data.operatingProfit,
     netProfit: data.netProfit,
     totalAssets: data.totalAssets,

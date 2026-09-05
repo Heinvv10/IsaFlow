@@ -110,7 +110,12 @@ function renderTable(doc: JsPDFDoc, autoTable: any, head: string[][], body: stri
   return (doc.lastAutoTable?.finalY ?? startY) + 8;
 }
 
-function renderSection(
+/**
+ * Exported so the WIRING is testable — see `renderSectionHtml`'s note. The
+ * jsPDF document and autoTable are injected, so a test can pass fakes and
+ * assert on the rows this hands to the table.
+ */
+export function renderSection(
   doc: JsPDFDoc,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   autoTable: any,
@@ -138,7 +143,7 @@ function renderSection(
         [['Item', 'Amount', 'Margin']],
         // One row list, shared with the HTML pack — see incomeStatementPackRows.
         incomeStatementPackRows(d as Record<string, unknown>).map(r =>
-          [r.label, fmtZAR(n(r.amount)), r.margin ? pct(r.margin) : '']),
+          [r.label, fmtZAR(n(r.amount)), r.margin === undefined ? '' : pct(r.margin)]),
         y,
         margin,
       );

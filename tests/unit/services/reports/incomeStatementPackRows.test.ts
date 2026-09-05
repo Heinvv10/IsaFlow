@@ -74,8 +74,11 @@ describe('incomeStatementPackRows', () => {
 
   it('carries the margins onto the two rows that show them', () => {
     const r = incomeStatementPackRows(BRIGHTSPHERE);
-    expect(by(r, 'Gross Profit')!.margin).toBe('100');
-    expect(by(r, 'Net Profit')!.margin).toBe('62.25');
+    // NUMBER, not a string carrying one: as a string each pack coerced it
+    // differently, so typing it properly at source would have made one pack
+    // print NaN% while the other kept working.
+    expect(by(r, 'Gross Profit')!.margin).toBe(100);
+    expect(by(r, 'Net Profit')!.margin).toBe(62.25);
     expect(by(r, 'Operating Expenses')!.margin).toBeUndefined();
   });
 
