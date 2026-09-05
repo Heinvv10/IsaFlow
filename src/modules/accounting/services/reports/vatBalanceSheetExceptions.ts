@@ -26,10 +26,8 @@
  *      flags every correctly-coded VAT line in the ledger — 2,042 of them in
  *      production at the time of writing, i.e. all of them.
  *
- *      Excluded by SUBTYPE, not by account_type, and that distinction is not
- *      theoretical: production carries 356 posted lines on a `vat_input`
- *      account typed as a `liability` rather than an `asset`. A type-based
- *      exclusion would have flagged every one.
+ *      Excluded by SUBTYPE, not by account_type, because a control account can
+ *      be typed either way in a migrated chart.
  *
  *   2. BALANCE-SHEET ACCOUNTS THAT LEGITIMATELY BEAR INPUT VAT IN SOUTH
  *      AFRICA. Capital goods are the headline case — input VAT on a fixed-asset
@@ -43,8 +41,17 @@
  * accounts (already gross — a VAT code here double-counts), equity, retained
  * earnings and accumulated depreciation.
  *
- * Verified against production before shipping: this rule flags ZERO existing
- * lines. It is a guard against future mistakes, not a backlog of old ones.
+ * WHAT IT FLAGS IN PRODUCTION (re-measured 2026-09-05). The original note here
+ * said "ZERO existing lines", and attributed 356 production lines to a
+ * `vat_input` account typed as a `liability` — shielded by the subtype
+ * exclusion above. Both halves were wrong. Re-running this rule's own
+ * predicate across all 13 tenants flags exactly those 356 lines: Velocity
+ * Fibre `SYS-9 VAT Payable`, `liability` with `account_subtype` **NULL**, so
+ * no exclusion applies to it at all — R4,917,814.24 gross, all `standard`.
+ * They are a real, currently unclearable exception feeding `totalExceptions`,
+ * and the fix is to give that account a `vat_output` subtype (it is a VAT
+ * control account), not to widen the exclusion list. Do not restore the
+ * "zero lines" claim without re-running the query.
  *
  * ── WHY THERE IS NO auto_vat_submission EXCLUSION HERE (2026-09-03) ──────────
  *
@@ -81,6 +88,11 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { dateStr, r2, toNum } from './vatExceptionsTypes';
 import type { VatOnBalanceSheetLine } from './vatExceptionsTypes';
+import {
+  NON_CLAIMING_VAT_TYPES,
+  NON_SUPPLY_PATTERN,
+  isNonSupplyVatException,
+} from './vatNonSupplyExceptions';
 
 /** Balance-sheet account types. `revenue`/`expense` are the income statement. */
 export const BALANCE_SHEET_TYPES: readonly string[] = ['asset', 'liability', 'equity'];
@@ -112,6 +124,14 @@ const NON_VAT_TYPES: readonly string[] = ['no_vat'];
  * Exported and tested directly so the decision can be exercised without a
  * database, and so the SQL below and this function cannot drift — both read the
  * same two exported constants.
+ *
+ * DELIBERATELY NOT partition-aware — see `isVatOnBalanceSheetReportException`
+ * below. `vatBoxBasis.ts` (line 223) calls THIS one to decide that a line is
+ * `unmapped` rather than taxable `base`. Teaching it to yield to the
+ * non-supply rule would reclassify a VAT-coded `Net Salaries Payable` line
+ * from "excluded" to "part of the box 1/15 taxable base", which is the
+ * opposite of correct on a money path. The report's de-duplication is a
+ * report concern and lives in the report predicate only.
  */
 export function isVatOnBalanceSheetException(line: {
   accountType: string;
@@ -121,6 +141,41 @@ export function isVatOnBalanceSheetException(line: {
   if (line.vatType === null || NON_VAT_TYPES.includes(line.vatType)) return false;
   if (!BALANCE_SHEET_TYPES.includes(line.accountType)) return false;
   return !VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES.includes(line.accountSubtype ?? '');
+}
+
+/**
+ * The pure twin of `findVatOnBalanceSheetLines` — the rule AS THE EXCEPTIONS
+ * REPORT applies it, which is the one above minus the overlap with query 9.
+ *
+ * THE PARTITION (2026-09-05). A line can satisfy both this rule and
+ * `isNonSupplyVatException`: `2170 Net Salaries Payable` (liability,
+ * `payroll_liability`) and `2210 Long-term Loans` are balance-sheet accounts
+ * whose subtypes are not in the legitimate list AND whose names are
+ * non-supply. Production carries 112 such accounts (102 active, 40 distinct
+ * names, across all 13 companies), none with a VAT-coded posted line today — but nothing stops one appearing, and the same line
+ * counted by two rules would inflate `totalExceptions`, which
+ * `evaluateEfilingGate` turns into a filing refusal.
+ *
+ * The non-supply rule WINS the overlap and this one yields. Not arbitrary:
+ * "employment cost — not a supply" tells the reviewer why the line is wrong,
+ * where "it is a liability" only tells them where it sits. No row is lost — it
+ * moves section and gains a better reason. The yield is scoped to exactly the
+ * rows the other rule returns (name AND a claiming vat_type), so an
+ * `exempt`-coded line on a non-supply balance-sheet account — which the other
+ * rule deliberately ignores — is still flagged here.
+ *
+ * It exists for TESTABILITY and has no production consumer: the yield itself is
+ * written inline in `findVatOnBalanceSheetLines`'s SQL below. Nothing detects
+ * drift between the two, so change them together.
+ */
+export function isVatOnBalanceSheetReportException(line: {
+  accountName: string;
+  accountType: string;
+  accountSubtype: string | null;
+  vatType: string | null;
+}): boolean {
+  if (isNonSupplyVatException(line)) return false;
+  return isVatOnBalanceSheetException(line);
 }
 
 export function mapVatOnBalanceSheetLine(r: DbRow): VatOnBalanceSheetLine {
@@ -146,9 +201,12 @@ const LIST_CAP = 100;
  * Posted lines in the period carrying a VAT code against a balance-sheet
  * account that has no legitimate reason to hold one.
  *
- * Company-scoped on BOTH `gl_journal_lines` and `gl_journal_entries`, matching
- * every other query in this report — the line and its entry each carry
- * `company_id` and both are filtered.
+ * Company-scoped on `gl_journal_lines`, `gl_journal_entries` AND the account
+ * join. The account was already pinned by primary key, so the third predicate
+ * changes no row today (measured: zero lines in production whose account
+ * belongs to a different company than the line) — it makes tenant isolation a
+ * local property of this query rather than one inherited from an invariant
+ * asserted elsewhere.
  */
 export async function findVatOnBalanceSheetLines(
   companyId: string,
@@ -164,7 +222,7 @@ export async function findVatOnBalanceSheetLines(
       COUNT(*) OVER() AS total_count
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = jl.company_id
     WHERE jl.company_id = ${companyId}::UUID
       AND je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
@@ -175,6 +233,13 @@ export async function findVatOnBalanceSheetLines(
       AND ga.account_type = ANY(${BALANCE_SHEET_TYPES as string[]}::TEXT[])
       AND COALESCE(ga.account_subtype, '') <> ALL(
         ${VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES as string[]}::TEXT[]
+      )
+      -- Yield the overlap to the non-supply rule; see the partition note on
+      -- isVatOnBalanceSheetException. Scoped to exactly the rows that rule
+      -- returns, so an exempt-coded line on such an account stays here.
+      AND NOT (
+        ga.account_name ~* ${NON_SUPPLY_PATTERN}
+        AND jl.vat_type <> ALL(${NON_CLAIMING_VAT_TYPES as string[]}::TEXT[])
       )
     ORDER BY je.entry_date, je.entry_number
     LIMIT ${LIST_CAP}
