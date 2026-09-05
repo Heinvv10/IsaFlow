@@ -15,7 +15,7 @@ export const PACK_LABELS: Record<PackType, string> = {
   monthly: 'Monthly Pack',
 };
 
-const IFRS_TITLES: Record<string, string> = {
+const IFRS_TITLES = {
   income_statement: 'Statement of Comprehensive Income',
   balance_sheet: 'Statement of Financial Position',
   cash_flow: 'Statement of Cash Flows',
@@ -24,13 +24,25 @@ const IFRS_TITLES: Record<string, string> = {
   waterfall: 'Profit Bridge',
   trends: 'Twelve-Month Trend',
   commentary: 'Commentary',
-};
+} as const satisfies Record<string, string>;
+
+/**
+ * The section types a pack can contain. Derived from the title map rather than
+ * from `getPackTemplate`, whose configs widen their `type` to `string` — and
+ * packSections.test.ts already fails when reportPackService emits a section
+ * with no entry above, so the two lists cannot drift apart unnoticed.
+ */
+export type PackSectionType = keyof typeof IFRS_TITLES;
+
+export function isPackSectionType(sectionType: string): sectionType is PackSectionType {
+  return sectionType in IFRS_TITLES;
+}
 
 /** The pack's title for a section. `fallback` is the service's own title and
  *  is only reached by a section type added upstream without an entry above —
  *  which packSections.test.ts fails on. */
 export function packSectionTitle(sectionType: string, fallback: string): string {
-  return IFRS_TITLES[sectionType] ?? fallback;
+  return (IFRS_TITLES as Record<string, string>)[sectionType] ?? fallback;
 }
 
 /** Sections whose content is a chart wide enough to need the page turned. */

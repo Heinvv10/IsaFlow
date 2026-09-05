@@ -16,10 +16,11 @@ import {
   packToBsDetail, packToBsTotals, packToMargins, packToTotals,
   toManagementBsRows, toManagementPandLRows,
 } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import type { ExtendedRatioResult } from '@/modules/accounting/services/reports/reportingEngineService';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import type { PackTrendPoint } from './packTrendService';
-import { isLandscapeSection, packSectionTitle } from './packSections';
+import { isLandscapeSection, isPackSectionType, packSectionTitle, type PackSectionType } from './packSections';
 
 export interface PackKvItem {
   label: string;
@@ -61,14 +62,97 @@ const CASH_FLOW_LINES: Array<[string, string]> = [
   ['Closing Cash', 'closingCash'],
 ];
 
+/**
+ * Every numeric field `calculateExtendedRatios` returns, and how it must be
+ * READ. Three kinds share that one blob: true ratios and turnover/day counts
+ * (bare numbers), percentages built with `pct()`, and rand amounts. Tagging
+ * the lot `'ratio'` printed R4,400,000 of working capital as "4400000.00"
+ * next to a current ratio of 2.32 — a renderer cannot tell them apart from
+ * the value, only from the field name.
+ *
+ * `satisfies Record<RatioKey, ...>` is what keeps this honest: a field added
+ * to `ExtendedRatioResult` is a COMPILE ERROR here, not a row that quietly
+ * defaults to the wrong unit.
+ */
+type RatioKey = Exclude<keyof ExtendedRatioResult, 'notMeaningful'>;
+
+export const RATIO_FORMATS = {
+  // Base ratios
+  grossProfitMargin: 'pct',
+  netProfitMargin: 'pct',
+  operatingProfitMargin: 'pct',
+  currentRatio: 'ratio',
+  quickRatio: 'ratio',
+  debtToEquity: 'ratio',
+  returnOnAssets: 'pct',
+  returnOnEquity: 'pct',
+  debtorDays: 'ratio',
+  creditorDays: 'ratio',
+  inventoryTurnover: 'ratio',
+  // Profitability
+  ebitda: 'money',
+  ebitdaMargin: 'pct',
+  roce: 'pct',
+  pbitMargin: 'pct',
+  directMaterialMargin: 'pct',
+  // Leverage
+  interestCoverage: 'ratio',
+  debtRatio: 'ratio',
+  equityMultiplier: 'ratio',
+  // Liquidity
+  cashRatio: 'ratio',
+  workingCapital: 'money',
+  operatingCashFlowRatio: 'ratio',
+  // Efficiency
+  assetTurnover: 'ratio',
+  receivablesTurnover: 'ratio',
+  payablesTurnover: 'ratio',
+  inventoryDays: 'ratio',
+  cashConversionCycle: 'ratio',
+  netOperatingAssetTurnover: 'ratio',
+  // Cash flow
+  freeCashFlow: 'money',
+  // Coverage
+  ebitdaToNetInterest: 'ratio',
+  pbtToNetInterest: 'ratio',
+  netProfitToNetInterest: 'ratio',
+  // Employee productivity
+  revenuePerEmployee: 'money',
+  pbitPerEmployee: 'money',
+  ebitdaPerEmployee: 'money',
+  employeeCostToRevenue: 'pct',
+  employeeCostPerHead: 'money',
+  // Returns
+  dividendCover: 'ratio',
+  retentionRate: 'pct',
+  effectiveTaxRate: 'pct',
+  // DuPont
+  dupontMargin: 'pct',
+  dupontTurnover: 'ratio',
+  dupontLeverage: 'ratio',
+} as const satisfies Record<RatioKey, PackKvItem['format']>;
+
+const isRatioEntry = (e: [string, unknown]): e is [RatioKey, number] =>
+  e[0] in RATIO_FORMATS && typeof e[1] === 'number';
+
 function humanise(key: string): string {
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
 }
 
-function blocksFor(section: PackSection, trend: PackTrendPoint[]): PackBlock[] {
+/** A section type reportPackService emits that this file has no blocks for.
+ *  Thrown rather than returned empty: a titled, blank page in a document a
+ *  director forwards to a bank is worse than a failed render. */
+export class UnknownPackSectionError extends Error {
+  constructor(public readonly sectionType: string) {
+    super(`No PackDocument blocks are defined for section type '${sectionType}'.`);
+    this.name = 'UnknownPackSectionError';
+  }
+}
+
+function blocksFor(sectionType: PackSectionType, section: PackSection, trend: PackTrendPoint[]): PackBlock[] {
   const d = section.data;
 
-  switch (section.type) {
+  switch (sectionType) {
     case 'income_statement': {
       const margins = packToMargins(d);
       return [
@@ -96,8 +180,8 @@ function blocksFor(section: PackSection, trend: PackTrendPoint[]): PackBlock[] {
       return [{
         kind: 'kv',
         items: Object.entries(d)
-          .filter(([, v]) => typeof v === 'number')
-          .map(([k, v]) => ({ label: humanise(k), value: num(v), format: 'ratio' as const })),
+          .filter(isRatioEntry)
+          .map(([k, v]) => ({ label: humanise(k), value: v, format: RATIO_FORMATS[k] })),
       }];
 
     case 'kpis': {
@@ -112,6 +196,8 @@ function blocksFor(section: PackSection, trend: PackTrendPoint[]): PackBlock[] {
         : [{ kind: 'text', text: 'No profit bridge for this period.' }];
     }
 
+    // The pack's own `trends` data is a single-period snapshot; the handed-in
+    // twelve-month series supersedes it and the snapshot is not read here.
     case 'trends':
       return trend.length > 0
         ? [{ kind: 'trend', points: trend }]
@@ -120,8 +206,10 @@ function blocksFor(section: PackSection, trend: PackTrendPoint[]): PackBlock[] {
     case 'commentary':
       return [{ kind: 'text', text: String(d.summary ?? '') }];
 
-    default:
-      return [];
+    default: {
+      const unreachable: never = sectionType;
+      throw new UnknownPackSectionError(String(unreachable));
+    }
   }
 }
 
@@ -131,11 +219,14 @@ export function buildPackDocument(pack: ReportPack, trend: PackTrendPoint[]): Pa
     companyName: pack.companyName,
     period: pack.period,
     generatedAt: pack.generatedAt,
-    sections: pack.sections.map((section) => ({
-      type: section.type,
-      title: packSectionTitle(section.type, section.title),
-      landscape: isLandscapeSection(section.type),
-      blocks: blocksFor(section, trend),
-    })),
+    sections: pack.sections.map((section) => {
+      if (!isPackSectionType(section.type)) throw new UnknownPackSectionError(section.type);
+      return {
+        type: section.type,
+        title: packSectionTitle(section.type, section.title),
+        landscape: isLandscapeSection(section.type),
+        blocks: blocksFor(section.type, section, trend),
+      };
+    }),
   };
 }

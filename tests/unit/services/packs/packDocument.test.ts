@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
-import { buildPackDocument } from '@/modules/accounting/services/packs/packDocument';
+import { buildPackDocument, RATIO_FORMATS, UnknownPackSectionError } from '@/modules/accounting/services/packs/packDocument';
+import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
 const INPUT: ReportPackInput = {
@@ -75,5 +76,45 @@ describe('buildPackDocument', () => {
     const trends = doc.sections.find((s) => s.type === 'trends')!;
     expect(trends.blocks.some((b) => b.kind === 'text')).toBe(true);
     expect(trends.blocks.some((b) => b.kind === 'trend')).toBe(false);
+  });
+
+  it('tags each ratio field with the unit it is actually in, not all as ratios', () => {
+    const doc = buildPackDocument(pack, TREND);
+    const ratios = doc.sections.find((s) => s.type === 'ratios')!;
+    const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: Array<{ label: string; value: number; format: string }> }).items;
+
+    // A rand amount printed as a bare ratio is the defect this map exists for.
+    expect(items.find((i) => i.label === 'Working Capital')!.format).toBe('money');
+    expect(items.find((i) => i.label === 'Free Cash Flow')!.format).toBe('money');
+    expect(items.find((i) => i.label === 'Ebitda Margin')!.format).toBe('pct');
+    expect(items.find((i) => i.label === 'Roce')!.format).toBe('pct');
+    expect(items.find((i) => i.label === 'Current Ratio')!.format).toBe('ratio');
+    expect(items.find((i) => i.label === 'Debt Ratio')!.format).toBe('ratio');
+    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'pct', 'ratio']));
+  });
+
+  it('has a format for every numeric field calculateExtendedRatios returns', () => {
+    // The `satisfies Record<RatioKey, …>` on RATIO_FORMATS makes a NEW field a
+    // compile error; this proves the shipped map matches what the service
+    // actually emits at runtime, so no ratio can reach a pack untagged.
+    const ratios = calculateExtendedRatios({
+      revenue: 4812345.67, costOfSales: 2190000, operatingExpenses: 1400000, netProfit: 1275632.74,
+      totalAssets: 8200000, totalLiabilities: 3100000, totalEquity: 5100000,
+      currentAssets: 4400000, currentLiabilities: 1900000, cash: 1250000,
+      accountsReceivable: 2100000, accountsPayable: 900000, inventory: 350000,
+      depreciation: 120000, amortization: 30000, interestExpense: 45000, interestIncome: 5000,
+      operatingCashFlow: 1400000, capitalExpenditure: 200000, employeeCount: 25,
+      employeeCosts: 900000, directMaterialCosts: 1800000, taxExpense: 300000, dividendsPaid: 200000,
+    });
+    const numericKeys = Object.entries(ratios).filter(([, v]) => typeof v === 'number').map(([k]) => k);
+    const untagged = numericKeys.filter((k) => !(k in RATIO_FORMATS));
+    expect(untagged).toEqual([]);
+    expect(numericKeys.length).toBeGreaterThan(30);
+  });
+
+  it('throws on a section type it has no blocks for rather than printing a blank page', () => {
+    const withStranger = { ...pack, sections: [...pack.sections, { type: 'segments', title: 'Segments', data: {} }] };
+    expect(() => buildPackDocument(withStranger, TREND)).toThrow(UnknownPackSectionError);
+    expect(() => buildPackDocument(withStranger, TREND)).toThrow(/segments/);
   });
 });
