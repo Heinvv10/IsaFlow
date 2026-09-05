@@ -58,13 +58,19 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
           </tr>
         </thead>
         <tbody>
-          {rows.map(row => (
-            <StatementRowView key={row.id} row={row} columns={columns} maxVariance={maxVariance} cents={cents}
-              expanded={row.accountCode !== undefined && row.accountCode === expandedAccount}
-              onToggle={onToggleAccount}
-              onEvidence={onEvidence}
-              drill={row.accountCode && renderDrill ? renderDrill(row.accountCode) : undefined} />
-          ))}
+          {rows.map(row => {
+            const expanded = row.accountCode !== undefined && row.accountCode === expandedAccount;
+            return (
+              <StatementRowView key={row.id} row={row} columns={columns} maxVariance={maxVariance} cents={cents}
+                expanded={expanded}
+                onToggle={onToggleAccount}
+                onEvidence={onEvidence}
+                // Only the expanded row's drill is built. Building one per
+                // coded row and discarding it fetches nothing, but it is a
+                // render's worth of work per account on a long statement.
+                drill={expanded && row.accountCode && renderDrill ? renderDrill(row.accountCode) : undefined} />
+            );
+          })}
         </tbody>
       </table>
     </div>

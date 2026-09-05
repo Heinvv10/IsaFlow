@@ -37,3 +37,28 @@ describe('signOf', () => {
     expect(signOf(5)).toBe('pos'); expect(signOf(-5)).toBe('neg'); expect(signOf(0)).toBe('zero');
   });
 });
+
+describe('non-finite figures', () => {
+  // A statement column is the last place a "NaN" should surface. Before this
+  // guard signOf fell through to 'pos' and the grid printed "NaN" and
+  // "+NaN%" in a money column, which reads as a figure.
+  it('signOf treats a non-finite number as zero', () => {
+    expect(signOf(NaN)).toBe('zero');
+    expect(signOf(Infinity)).toBe('zero');
+    expect(signOf(-Infinity)).toBe('zero');
+  });
+
+  it('formatMoney renders a dash rather than the word NaN', () => {
+    expect(formatMoney(NaN)).toBe('–');
+    expect(formatMoney(NaN, { cents: true, symbol: true })).toBe('–');
+    expect(formatMoney(Infinity)).toBe('–');
+  });
+
+  it('formatPct renders a dash rather than 0.0% or +NaN%', () => {
+    // Not "0.0%": a percentage that could not be computed must not read as a
+    // percentage of zero.
+    expect(formatPct(NaN)).toBe('–');
+    expect(formatPct(Infinity)).toBe('–');
+    expect(formatPct(0)).toBe('0.0%');
+  });
+});

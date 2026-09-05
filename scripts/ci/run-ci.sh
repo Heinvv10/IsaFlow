@@ -32,6 +32,7 @@ run_step "self-defining-universe" bash scripts/ci/check-self-defining-universe.s
 run_step "findings-numbering"     bash scripts/ci/check-findings-numbering.sh
 run_step "migration-rls"          bun scripts/ci/check-migration-rls.ts
 run_step "unit-tests"        bun run test:unit
+run_step "component-tests"   bun run test:components
 run_step "migration-naming"  bun scripts/audit-migration-naming.ts
 
 if [ -n "${DATABASE_URL:-}" ]; then
