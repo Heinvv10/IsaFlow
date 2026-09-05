@@ -113,4 +113,19 @@ describe('PresentDeck', () => {
     // @ts-expect-error -- test-only cleanup of a property defined only above
     delete document.exitFullscreen;
   });
+
+  it('does not call exitFullscreen on Escape when the deck is not fullscreen', () => {
+    const exitFullscreen = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(document, 'exitFullscreen', {
+      value: exitFullscreen,
+      configurable: true,
+    });
+    const onExit = vi.fn();
+    render(<PresentDeck slides={SLIDES} renderSlide={renderSlide} onExit={onExit} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect(exitFullscreen).not.toHaveBeenCalled();
+    // @ts-expect-error -- test-only cleanup of a property defined only above
+    delete document.exitFullscreen;
+  });
 });
