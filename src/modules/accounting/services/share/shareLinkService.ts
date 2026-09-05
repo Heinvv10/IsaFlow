@@ -9,7 +9,12 @@
 import { sql, withTransaction, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mintShareToken, hashShareToken } from './shareToken';
-import type { SharePackParams } from './shareParams';
+import { clampTtlDays, type SharePackParams } from './shareParams';
+
+// Re-exported for existing callers/tests — the function itself now lives in
+// shareParams.ts, which is db-free, so a browser component can import it
+// without pulling `@/lib/neon` into its bundle.
+export { clampTtlDays };
 
 export interface ShareLinkRow {
   id: string;
@@ -23,9 +28,6 @@ export interface ShareLinkRow {
   viewCount: number;
   lastViewedAt: string | null;
 }
-
-const MAX_TTL_DAYS = 90;
-const DEFAULT_TTL_DAYS = 30;
 
 /** Live links a company may hold at once. The list below reads at most 200
  *  rows, so a cap under that is what stops a company minting links it can no
@@ -54,14 +56,6 @@ function toRow(r: DbRow): ShareLinkRow {
     viewCount: Number(r.view_count),
     lastViewedAt: r.last_viewed_at ? new Date(r.last_viewed_at).toISOString() : null,
   };
-}
-
-/** Clamp to [1, 90] days. A caller-supplied ttl is a convenience, not a way to
- *  mint a link that outlives the engagement. */
-export function clampTtlDays(days: number | undefined): number {
-  const n = Math.trunc(days ?? DEFAULT_TTL_DAYS);
-  if (!Number.isFinite(n) || n < 1) return DEFAULT_TTL_DAYS;
-  return Math.min(n, MAX_TTL_DAYS);
 }
 
 export async function createShareLink(input: {
