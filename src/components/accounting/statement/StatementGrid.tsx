@@ -15,10 +15,13 @@ export interface StatementGridProps {
   onToggleAccount?: (code: string) => void;
   /** Rendered as a full-width row directly under the expanded line. */
   renderDrill?: (accountCode: string) => ReactNode;
+  /** Opens the evidence drill for an account. Rendered as a button inside the
+   * expanded drill row; omit it and no evidence affordance appears. */
+  onEvidence?: (accountCode: string) => void;
   cents?: boolean;
 }
 
-export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, cents = false }: StatementGridProps) {
+export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, cents = false }: StatementGridProps) {
   const maxVariance = rows.reduce((m, r) => (r.kind === 'line' && r.variance !== undefined ? Math.max(m, Math.abs(r.variance)) : m), 0);
   return (
     <div className="overflow-x-auto rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
@@ -37,6 +40,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
             <StatementRowView key={row.id} row={row} columns={columns} maxVariance={maxVariance} cents={cents}
               expanded={row.accountCode !== undefined && row.accountCode === expandedAccount}
               onToggle={onToggleAccount}
+              onEvidence={onEvidence}
               drill={row.accountCode && renderDrill ? renderDrill(row.accountCode) : undefined} />
           ))}
         </tbody>

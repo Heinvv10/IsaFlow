@@ -1,15 +1,14 @@
 /**
  * BalanceSheetBody — the loaded-report branch of the balance sheet page,
- * extracted so the page stays under the 300-line limit. Renders the
- * balanced / out-of-balance banner (reads service totals, unchanged) and the
- * two StatementGrid columns (Assets; Liabilities and Equity).
+ * extracted so the page stays under the 300-line limit. Renders the shared
+ * balanced / out-of-balance banner and the two StatementGrid columns
+ * (Assets; Liabilities and Equity).
  */
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
+import { BalanceCheckBanner } from '@/components/accounting/statement/BalanceCheckBanner';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { toBalanceSheetRows } from '@/components/accounting/statement/balanceSheetRows';
-import { formatCurrency } from '@/utils/formatters';
 
 interface BalanceSheetBodyProps {
   report: BalanceSheetReport;
@@ -18,36 +17,34 @@ interface BalanceSheetBodyProps {
   onToggleAccount: (code: string) => void;
   drillDownStart: string;
   drillDownEnd: string;
+  onEvidence: (accountId: string, accountName: string) => void;
 }
 
 export function BalanceSheetBody({
-  report, showComparative, expandedAccount, onToggleAccount, drillDownStart, drillDownEnd,
+  report, showComparative, expandedAccount, onToggleAccount, drillDownStart, drillDownEnd, onEvidence,
 }: BalanceSheetBodyProps) {
-  const balanced = Math.abs(report.totalAssets - (report.totalLiabilities + report.totalEquity)) < 0.02;
   const { assets, liabilitiesAndEquity } = toBalanceSheetRows(report, { comparative: showComparative });
   const columns = { prior: showComparative, variance: showComparative, trend: false };
+  const nameOf = (code: string) =>
+    [...report.assets, ...report.liabilities, ...report.equity].find(a => a.accountCode === code)?.accountName ?? code;
+  const evidence = (code: string) => onEvidence(code, nameOf(code));
   const drill = (code: string) => (
     <AccountDrillDown accountCode={code} periodStart={drillDownStart} periodEnd={drillDownEnd} asTableRow={false} />
   );
 
   return (
     <div className="space-y-4">
-      {balanced && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm">
-          <CheckCircle2 className="h-4 w-4" /> Balance sheet is balanced (A = L + E)
-        </div>
-      )}
-      {!balanced && report.totalAssets > 0 && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
-          <AlertCircle className="h-4 w-4" /> Out of balance by {formatCurrency(Math.abs(report.totalAssets - (report.totalLiabilities + report.totalEquity)))}
-        </div>
-      )}
+      <BalanceCheckBanner
+        totalAssets={report.totalAssets}
+        totalLiabilities={report.totalLiabilities}
+        totalEquity={report.totalEquity}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <StatementGrid rows={assets} columns={columns} title="Assets" cents
-          expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} />
+          expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
         <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Liabilities and Equity" cents
-          expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} />
+          expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
       </div>
     </div>
   );

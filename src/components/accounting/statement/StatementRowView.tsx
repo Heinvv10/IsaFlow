@@ -18,14 +18,18 @@ const KIND_CLASS: Record<StatementRow['kind'], string> = {
 const FIG_STYLE: CSSProperties = { fontFamily: 'var(--ff-fig-font)' };
 const FIG = 'text-right whitespace-nowrap tabular-nums';
 
-export function StatementRowView({ row, columns, maxVariance, cents, expanded, onToggle, drill }: {
+export function StatementRowView({ row, columns, maxVariance, cents, expanded, onToggle, onEvidence, drill }: {
   row: StatementRow; columns: StatementColumns; maxVariance: number; cents: boolean;
-  expanded: boolean; onToggle?: (code: string) => void; drill?: ReactNode;
+  expanded: boolean; onToggle?: (code: string) => void; onEvidence?: (code: string) => void; drill?: ReactNode;
 }) {
   const isSection = row.kind === 'section';
   const pad = row.depth === 1 ? 'pl-8' : 'pl-3';
-  const label = row.kind === 'line' && onToggle ? (
-    <button type="button" onClick={() => onToggle(row.accountCode!)} aria-expanded={expanded}
+  const code = row.accountCode;
+  // A `line` row on the management and pack surfaces carries no account code,
+  // so the toggle button must not be rendered there: it would call back with
+  // undefined.
+  const label = row.kind === 'line' && onToggle && code !== undefined ? (
+    <button type="button" onClick={() => onToggle(code)} aria-expanded={expanded}
       className="text-left hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]">
       <span className="font-mono text-xs text-[var(--ff-text-tertiary)] mr-2">{row.accountCode}</span>{row.label}
     </button>
@@ -47,7 +51,21 @@ export function StatementRowView({ row, columns, maxVariance, cents, expanded, o
         )}
         {columns.trend && <td className="px-2 text-[var(--ff-text-secondary)]">{row.trend && <Sparkline points={row.trend} />}</td>}
       </tr>
-      {expanded && drill && <tr data-kind="drill"><td colSpan={colSpan} className="p-0">{drill}</td></tr>}
+      {expanded && code !== undefined && (drill || onEvidence) && (
+        <tr data-kind="drill">
+          <td colSpan={colSpan} className="p-0">
+            {onEvidence && (
+              <div className="px-3 pt-2">
+                <button type="button" onClick={() => onEvidence(code)}
+                  className="text-xs px-2 py-1 rounded border border-[var(--ff-border-light)] text-[var(--ff-text-secondary)] hover:text-[var(--ff-text-primary)] hover:border-[var(--ff-brand-500)]">
+                  Evidence
+                </button>
+              </div>
+            )}
+            {drill}
+          </td>
+        </tr>
+      )}
     </>
   );
 }

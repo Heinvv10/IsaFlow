@@ -27,7 +27,7 @@ import { toIncomeStatementRows } from '@/components/accounting/statement/incomeS
  * the statutory AFS statement came to be missing two bands and stopped footing.
  */
 export function IncomeStatementSections({
-  report, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative, onEvidence: _onEvidence,
+  report, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative, onEvidence,
 }: {
   report: IncomeStatementReport;
   periodStart: string;
@@ -37,9 +37,11 @@ export function IncomeStatementSections({
   showComparative: boolean;
   onEvidence: (accountId: string, accountName: string) => void;
 }) {
-  // `_onEvidence`: the evidence button that used to sit on each line no
-  // longer lives here — it moves into AccountDrillDown in a later workstream.
   const rows = toIncomeStatementRows(report, { comparative: showComparative });
+  // The evidence drill is opened from inside the expanded account row. The
+  // grid speaks account codes only, so the name comes back off the row it
+  // belongs to.
+  const nameOf = (code: string) => rows.find(r => r.accountCode === code)?.label ?? code;
   return (
     <div>
       <StatementGrid
@@ -48,6 +50,7 @@ export function IncomeStatementSections({
         title="Statement of Comprehensive Income"
         expandedAccount={expandedAccount}
         onToggleAccount={onToggleAccount}
+        onEvidence={code => onEvidence(code, nameOf(code))}
         cents
         renderDrill={code => (
           <AccountDrillDown accountCode={code} periodStart={periodStart} periodEnd={periodEnd} asTableRow={false} />
@@ -87,19 +90,21 @@ export function IncomeStatementSections({
         </div>
       )}
 
-      {/* Margin Stats */}
-      {report.totalRevenue > 0 && (
+      {/* Margin Stats — both ratios come from the service (grossMarginPct /
+          netMarginPct). Deriving them here is what let the screen quote a
+          margin no other surface agreed with. */}
+      {report.grossMarginPct != null && report.netMarginPct != null && (
         <div className="px-6 py-2 flex gap-6 text-sm border-t border-[var(--ff-border-light)] bg-[var(--ff-bg-tertiary)]">
           <span className="text-[var(--ff-text-tertiary)]">
             Gross Margin:{' '}
             <span className="font-mono font-medium text-[var(--ff-text-primary)]">
-              {((report.grossProfit / report.totalRevenue) * 100).toFixed(1)}%
+              {report.grossMarginPct.toFixed(1)}%
             </span>
           </span>
           <span className="text-[var(--ff-text-tertiary)]">
             Net Margin:{' '}
             <span className="font-mono font-medium text-[var(--ff-text-primary)]">
-              {((report.netProfit / report.totalRevenue) * 100).toFixed(1)}%
+              {report.netMarginPct.toFixed(1)}%
             </span>
           </span>
         </div>

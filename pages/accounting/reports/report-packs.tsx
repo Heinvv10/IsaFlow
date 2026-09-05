@@ -13,7 +13,8 @@ import {
   type UnclassifiedWarning,
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
-import { ManagementPandLRows, ManagementBalanceSheetRows, type BalanceSheetDetail } from '@/components/accounting/ManagementPandLRows';
+import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
+import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/components/accounting/packMappers';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -28,24 +29,10 @@ const PACK_CONFIGS: Array<{ type: PackType; label: string; description: string; 
 
 const fmt = (n: unknown) => typeof n === 'number' ? `R ${n.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}` : String(n ?? '—');
 
-/** Maps the pack's income_statement section keys onto the totals shape
- * ManagementPandLRows reads (see reportPackService.ts for the section keys). */
-const packToTotals = (d: Record<string, unknown>): Record<string, number> => ({
-  totalRevenue: Number(d.revenue ?? 0), totalCostOfSales: Number(d.costOfSales ?? 0), grossProfit: Number(d.grossProfit ?? 0),
-  totalOtherIncome: Number(d.otherIncome ?? 0), totalOperatingExpenses: Number(d.operatingExpenses ?? 0),
-  operatingProfit: Number(d.operatingProfit ?? 0), totalOtherExpenses: Number(d.otherExpenses ?? 0), netProfit: Number(d.netProfit ?? 0),
-});
-
-/** Copies the pack's balance_sheet section detail figures straight through —
- * no arithmetic (see reportPackService.ts for the section keys). */
-const packToBsDetail = (d: Record<string, unknown>): BalanceSheetDetail => ({
-  currentAssets: Number(d.currentAssets ?? 0), cash: Number(d.cash ?? 0),
-  accountsReceivable: Number(d.accountsReceivable ?? 0), accountsPayable: Number(d.accountsPayable ?? 0),
-});
-
 function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const d = section.data;
+  const margins = packToMargins(d);
 
   return (
     <div className="border border-[var(--ff-border-light)] rounded-lg overflow-hidden">
@@ -59,13 +46,20 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
       {open && (
         <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
           {section.type === 'income_statement' && (
-            <div className="col-span-3">
+            <div className="col-span-3 space-y-3">
               <ManagementPandLRows is={packToTotals(d)} />
+              {/* Both margins come from reportPackService; the pack is a
+                  document people send onward and these are the two figures a
+                  reader quotes back off it. */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <KVItem label="Gross Margin" value={`${margins.grossMargin.toFixed(1)}%`} />
+                <KVItem label="Net Margin" value={`${margins.netMargin.toFixed(1)}%`} />
+              </div>
             </div>
           )}
           {section.type === 'balance_sheet' && (
             <div className="col-span-3">
-              <ManagementBalanceSheetRows bs={d as Record<string, number>} detail={packToBsDetail(d)} />
+              <ManagementBalanceSheetRows bs={packToBsTotals(d)} detail={packToBsDetail(d)} />
             </div>
           )}
           {section.type === 'cash_flow' && (

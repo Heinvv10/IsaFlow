@@ -108,7 +108,6 @@ export default function BalanceSheetPage() {
     setExpandedAccount(prev => prev === code ? null : code);
   }
 
-  // Evidence drill button is not wired into StatementGrid yet — ledgered for a later workstream.
   function handleEvidence(accountId: string, accountName: string) {
     setEvidenceTarget({ accountId, accountName });
   }
@@ -182,6 +181,7 @@ export default function BalanceSheetPage() {
               onToggleAccount={toggleAccount}
               drillDownStart={drillDownStart}
               drillDownEnd={drillDownEnd}
+              onEvidence={handleEvidence}
             />
           ) : null}
         </div>

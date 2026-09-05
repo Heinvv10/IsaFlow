@@ -120,11 +120,21 @@ async function fetchIncomeStatementRows(
   // is what makes this a reclassification rather than a restatement.
   const netProfit = operatingProfit - totalOtherExpenses;
 
+  // The two margins the screen used to derive for itself. They are ratios of
+  // service figures and belong with the figures: the 96.6% gross margin a
+  // reader took off this statement was wrong because of how the bands were
+  // built, and a component deriving its own version hides that from every
+  // other surface. Null rather than 0 when there is no turnover — a margin on
+  // no revenue is undefined, not zero.
+  const grossMarginPct = totalRevenue !== 0 ? (grossProfit / totalRevenue) * 100 : null;
+  const netMarginPct = totalRevenue !== 0 ? (netProfit / totalRevenue) * 100 : null;
+
   return {
     revenue, otherIncome, costOfSales, operatingExpenses, otherExpenses,
     totalRevenue, totalOtherIncome, totalCostOfSales,
     totalOperatingExpenses, totalOtherExpenses,
     grossProfit, operatingProfit, netProfit,
+    grossMarginPct, netMarginPct,
     subtypeDisclosure: buildIncomeStatementSubtypeDisclosure(disclosureRows),
   };
 }
@@ -161,6 +171,8 @@ export async function getIncomeStatement(companyId: string,
       grossProfit: current.grossProfit,
       operatingProfit: current.operatingProfit,
       netProfit: current.netProfit,
+      grossMarginPct: current.grossMarginPct,
+      netMarginPct: current.netMarginPct,
       subtypeDisclosure: current.subtypeDisclosure,
     };
 

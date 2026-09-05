@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
 import type { BalanceSheetReport, IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
 import { AlertCircle } from 'lucide-react';
+import { BalanceCheckBanner } from '@/components/accounting/statement/BalanceCheckBanner';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { toIncomeStatementRows } from '@/components/accounting/statement/incomeStatementRows';
 import { toBalanceSheetRows } from '@/components/accounting/statement/balanceSheetRows';
@@ -44,6 +45,13 @@ function BalanceSheetBlock({ report }: { report: BalanceSheetReport }) {
         Statement of Financial Position
       </h3>
       <div className="space-y-4">
+        {/* The statutory statement is the one whose output goes to a
+            regulator: it must never render silently out of balance. */}
+        <BalanceCheckBanner
+          totalAssets={report.totalAssets}
+          totalLiabilities={report.totalLiabilities}
+          totalEquity={report.totalEquity}
+        />
         <StatementGrid rows={assets} columns={columns} title="Assets" cents />
         <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Liabilities and Equity" cents />
       </div>
