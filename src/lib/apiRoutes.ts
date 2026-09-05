@@ -38,6 +38,8 @@ import type { Currency } from '@/modules/accounting/services/core/currencyServic
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
+import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
+import type { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -54,6 +56,13 @@ interface StaticRoutes {
   '/api/accounting/migration/session': { session: MigrationSession | null };
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
   '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;
+  '/api/accounting/reports-account-trends': Awaited<ReturnType<typeof getMonthlyMovements>>;
+  '/api/accounting/reports-budget-comparator': {
+    fiscalYear: Awaited<ReturnType<typeof getBudgetVariance>>['fiscalYear'];
+    monthKeys: Awaited<ReturnType<typeof getBudgetVariance>>['monthKeys'];
+    lines: Awaited<ReturnType<typeof getBudgetVariance>>['rows'];
+    postedThrough: Awaited<ReturnType<typeof getBudgetVariance>>['postedThrough'];
+  };
 }
 
 /**
