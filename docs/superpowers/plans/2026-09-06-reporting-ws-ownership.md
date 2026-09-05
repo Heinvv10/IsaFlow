@@ -13,7 +13,9 @@ Read by every executor before Task 1. Files not listed under your workstream are
 - `src/modules/accounting/services/packs/**`, `src/lib/pdf/**`, `pages/api/accounting/packs/**`, `scripts/pdf/**`, `styles/print.css`
 - `pages/accounting/reports/report-packs.tsx` — INCLUDING the integration mounts requested by others, done as WS2's final task: WS1's "Present" button (links to `/accounting/reports/present/[pack]`), WS1's waterfall/trends pack sections (import WS1's chart components by the names in the WS1 plan once WS1 merges; until then leave the placeholders), WS3's `<ShareLinkDialog>` behind a Share button and `<CommentaryBlock mode="internal">` under each section (import by the names in the WS3 plan once WS3 merges).
 - `src/lib/auth/withAuth.ts` ONLY for the multi-path print token (adversarial review mandatory)
-- `src/modules/accounting/services/afs/pdfExportService.ts` additive seam
+- `src/modules/accounting/services/afs/pdfExportService.ts`, `afsHtmlRendererService.ts`, `afsHtmlTableRenderer.ts`, `noteGenerators/primaryStatements/incomeStatement.ts` (additive seams only, per the WS2 plan)
+- `src/components/accounting/packs/**` (granted)
+- `src/modules/accounting/services/reports/statementRows/packMappers.ts` and `src/components/accounting/ManagementPandLRows.tsx` (granted: `toManagementBsRows` move; WS1 does not touch these)
 
 ## WS3 (share + commentary + annotations) owns
 - `src/modules/accounting/services/share/**`, `src/modules/accounting/services/commentary/**`, `src/modules/accounting/services/annotations/**`
@@ -21,6 +23,7 @@ Read by every executor before Task 1. Files not listed under your workstream are
 - `src/components/accounting/commentary/**`, `src/components/accounting/annotations/**`, `src/components/accounting/share/**`
 - `scripts/migrations/sql/610_*.sql`, `611_*.sql` (re-verify the prefix before each migration task and before pushing)
 - `StatementRow.note?` / `StatementRowView` note marker: additive only, exact diff in the plan
+- `pages/_app.tsx` (granted for ONE additive change: gate `TrackerScript` on `isTrackedPath`, Task 16) and `src/modules/analytics/isTrackedPath.ts`
 
 ## Shared, touched by nobody without a lead ruling
 `src/components/accounting/statement/StatementGrid.tsx` (WS3's additive `onOpenNote` prop is pre-approved as written in its plan), `src/lib/apiRoutes.ts` (each WS registers ONLY its own routes; append-only), `src/components/accounting/accountingNavConfig.ts` (each WS appends its own entries).

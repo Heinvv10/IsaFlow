@@ -2528,3 +2528,57 @@ Do not merge. Every file here touches a production path, so this PR is outside t
 **4. Known ordering constraint.** Task 6 reads `report_commentary`, which Task 8 creates. Type-check passes either way because SQL is not type-checked, but the integration test in Task 14 will fail if 8 has not been applied. Executed in order, this does not arise.
 
 **5. The strongest argument against this design.** Storing `report_kind` + `params` rather than pointing at a persisted pack means a share link re-computes from the live ledger on every view. A client opening a January link in March sees figures that moved because someone posted a back-dated journal, and the sender will not know. Snapshotting the pack at creation would freeze it. It is not built that way here because WS2 owns pack persistence and WS3 must not depend on it, and because a stale snapshot has its own failure mode: a client reading numbers the accountant has since corrected. If the programme later wants immutability, the change is one nullable `pack_snapshot JSONB` column on `share_links` plus a branch in `buildSharedPack` — it does not disturb the token, the audit or the commentary model. Raise it with Hein rather than deciding it inside this workstream.
+
+---
+
+### Task 16: Exclude the public share page from the analytics tracker (controller-added)
+
+**Files:**
+- Modify: `pages/_app.tsx` (granted to WS3 for this one additive change: the `TrackerScript` mount)
+- Test: `tests/unit/components/trackerExclusion.test.ts`
+
+**Interfaces:**
+- Produces: `isTrackedPath(pathname: string): boolean` in `src/modules/analytics/isTrackedPath.ts` returning `false` for any pathname that starts with `/share/` or equals `/share`, `true` otherwise.
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+import { describe, it, expect } from 'vitest';
+import { isTrackedPath } from '@/modules/analytics/isTrackedPath';
+
+describe('isTrackedPath', () => {
+  it('excludes the public share page and everything under it', () => {
+    expect(isTrackedPath('/share')).toBe(false);
+    expect(isTrackedPath('/share/abc123')).toBe(false);
+    expect(isTrackedPath('/share/abc123/')).toBe(false);
+  });
+  it('keeps every app page tracked', () => {
+    expect(isTrackedPath('/')).toBe(true);
+    expect(isTrackedPath('/accounting/reports/report-packs')).toBe(true);
+    expect(isTrackedPath('/shared-with-me')).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run it, expect FAIL (module not found).**
+
+- [ ] **Step 3: Implement**
+
+```ts
+// src/modules/analytics/isTrackedPath.ts
+/** The public share page is third-party-facing: no path or IP capture there. */
+export function isTrackedPath(pathname: string): boolean {
+  return !(pathname === '/share' || pathname.startsWith('/share/'));
+}
+```
+
+In `pages/_app.tsx`, where `TrackerScript` is mounted, read `useRouter().pathname` (or `router.asPath` split on `?`) and render `TrackerScript` only when `isTrackedPath(pathname)`. Touch nothing else in `_app.tsx`.
+
+- [ ] **Step 4: Run the test, expect PASS. `bun run type-check`. Browser proof: open a share link in a fresh context and confirm no request to the tracker endpoint (`/api/track*`) appears in the network log; open `/accounting` logged in and confirm one does. Note both in the report.**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/modules/analytics/isTrackedPath.ts pages/_app.tsx tests/unit/components/trackerExclusion.test.ts
+git commit -m "feat(share): the public share page is not tracked"
+```
