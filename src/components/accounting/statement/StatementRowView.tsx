@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { formatMoney, formatPct } from '@/lib/format/money';
 import type { ComparatorKey, Comparison, StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { COMPARATORS, NON_FIGURE_KINDS } from '@/modules/accounting/services/reports/statementRows/statementModel';
+import { NoteMarker } from '@/components/accounting/annotations/NoteMarker';
 import { VarianceBar } from './VarianceBar';
 import { Sparkline } from './Sparkline';
 
@@ -109,9 +110,10 @@ function RowLabel({ row, expanded, onToggle }: {
   return <>{row.label}</>;
 }
 
-export function StatementRowView({ row, columns, maxVariance, cents, expanded, onToggle, onEvidence, drill }: {
+export function StatementRowView({ row, columns, maxVariance, cents, expanded, onToggle, onEvidence, onOpenNote, drill }: {
   row: StatementRow; columns: StatementColumns; maxVariance: Record<ComparatorKey, number>; cents: boolean;
-  expanded: boolean; onToggle?: (code: string) => void; onEvidence?: (code: string) => void; drill?: ReactNode;
+  expanded: boolean; onToggle?: (code: string) => void; onEvidence?: (code: string) => void;
+  onOpenNote?: (rowId: string) => void; drill?: ReactNode;
 }) {
   // A band header repeats its subtotal's figure and the placeholder has none:
   // neither prints a number.
@@ -123,7 +125,14 @@ export function StatementRowView({ row, columns, maxVariance, cents, expanded, o
   return (
     <>
       <tr data-kind={row.kind} className={`${KIND_CLASS[row.kind]} text-sm`}>
-        <td className={`${pad} py-1.5`}><RowLabel row={row} expanded={expanded} onToggle={onToggle} /></td>
+        <td className={`${pad} py-1.5`}>
+          <span className="flex items-center gap-1">
+            <RowLabel row={row} expanded={expanded} onToggle={onToggle} />
+            {row.note && onOpenNote && (
+              <NoteMarker note={row.note} onClick={() => onOpenNote(row.id)} label={row.label} />
+            )}
+          </span>
+        </td>
         <td className={`${FIG} py-1.5 pr-3`} style={FIG_STYLE}>{blank ? '' : formatMoney(row.actual, { cents })}</td>
         {active.map(c => (
           <Fragment key={c.key}>
