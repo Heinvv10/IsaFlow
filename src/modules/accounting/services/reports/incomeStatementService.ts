@@ -15,6 +15,7 @@ import {
   buildIncomeStatementSubtypeDisclosure,
   type DisclosureInputRow,
 } from './incomeStatementDisclosure';
+import { marginPct } from './marginPct';
 
 
 interface ReportLineItem {
@@ -120,11 +121,23 @@ async function fetchIncomeStatementRows(
   // is what makes this a reclassification rather than a restatement.
   const netProfit = operatingProfit - totalOtherExpenses;
 
+  // The two margins the screen used to derive for itself. They are ratios of
+  // service figures and belong with the figures: the 96.6% gross margin a
+  // reader took off this statement was wrong because of how the bands were
+  // built, and a component deriving its own version hides that from every
+  // other surface. Null rather than 0 when there is no turnover — a margin on
+  // no revenue is undefined, not zero.
+  // `allowNegativeRevenue`: this service has guarded `totalRevenue !== 0` and
+  // computed through a negative since the field was added. See marginPct.ts.
+  const grossMarginPct = marginPct(grossProfit, totalRevenue, { allowNegativeRevenue: true });
+  const netMarginPct = marginPct(netProfit, totalRevenue, { allowNegativeRevenue: true });
+
   return {
     revenue, otherIncome, costOfSales, operatingExpenses, otherExpenses,
     totalRevenue, totalOtherIncome, totalCostOfSales,
     totalOperatingExpenses, totalOtherExpenses,
     grossProfit, operatingProfit, netProfit,
+    grossMarginPct, netMarginPct,
     subtypeDisclosure: buildIncomeStatementSubtypeDisclosure(disclosureRows),
   };
 }
@@ -161,6 +174,8 @@ export async function getIncomeStatement(companyId: string,
       grossProfit: current.grossProfit,
       operatingProfit: current.operatingProfit,
       netProfit: current.netProfit,
+      grossMarginPct: current.grossMarginPct,
+      netMarginPct: current.netMarginPct,
       subtypeDisclosure: current.subtypeDisclosure,
     };
 

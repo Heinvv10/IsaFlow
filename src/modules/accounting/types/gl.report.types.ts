@@ -107,6 +107,14 @@ export interface IncomeStatementReport {
    */
   operatingProfit: number;
   netProfit: number;
+  /**
+   * Gross profit and net profit as a percentage of turnover. Null when there
+   * is no turnover: a margin on no revenue is undefined, not zero. Computed
+   * here rather than in a component so every surface quotes the same ratio of
+   * the same bands.
+   */
+  grossMarginPct?: number | null;
+  netMarginPct?: number | null;
   // Comparative totals (populated when compare period requested)
   comparativePeriod?: { start: string; end: string };
   priorTotalRevenue?: number;

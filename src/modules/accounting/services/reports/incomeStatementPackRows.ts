@@ -15,7 +15,16 @@
  */
 
 /**
- * One rendered row: label, amount, and an optional margin.
+ * The bands, in reconciling order. The stable identity of a row: `label` is
+ * display text and may be reworded, `key` may not. Consumers that decide
+ * anything from a row — which are totals, what id a row gets — key off this.
+ */
+export type PackPandLBand =
+  | 'revenue' | 'costOfSales' | 'grossProfit' | 'otherIncome'
+  | 'operatingExpenses' | 'operatingProfit' | 'otherExpenses' | 'netProfit';
+
+/**
+ * One rendered row: a band key, a label, an amount, and an optional margin.
  *
  * `margin` is a NUMBER. Carrying it as a string had each pack coerce it
  * differently — HTML did `fmtPct(Number(r.margin))`, the PDF `pct(r.margin)` —
@@ -23,6 +32,7 @@
  * other print `NaN%`, on surfaces neither of which has a render test.
  */
 export interface PackPandLRow {
+  key: PackPandLBand;
   label: string;
   amount: number;
   margin?: number;
@@ -50,13 +60,13 @@ export function incomeStatementPackRows(d: Record<string, unknown>): PackPandLRo
     : num(d['operatingProfit']);
 
   return [
-    { label: 'Turnover', amount: num(d['revenue']) },
-    { label: 'Cost of Sales', amount: num(d['costOfSales']) },
-    { label: 'Gross Profit', amount: grossProfit, margin: num(d['grossMargin']) },
-    ...(otherIncome !== 0 ? [{ label: 'Other Income', amount: otherIncome }] : []),
-    { label: 'Operating Expenses', amount: operatingExpenses },
-    { label: 'Operating Profit', amount: operatingProfit },
-    ...(otherExpenses !== 0 ? [{ label: 'Other Expenses', amount: otherExpenses }] : []),
-    { label: 'Net Profit', amount: num(d['netProfit']), margin: num(d['netMargin']) },
+    { key: 'revenue', label: 'Turnover', amount: num(d['revenue']) },
+    { key: 'costOfSales', label: 'Cost of Sales', amount: num(d['costOfSales']) },
+    { key: 'grossProfit', label: 'Gross Profit', amount: grossProfit, margin: num(d['grossMargin']) },
+    ...(otherIncome !== 0 ? [{ key: 'otherIncome' as const, label: 'Other Income', amount: otherIncome }] : []),
+    { key: 'operatingExpenses', label: 'Operating Expenses', amount: operatingExpenses },
+    { key: 'operatingProfit', label: 'Operating Profit', amount: operatingProfit },
+    ...(otherExpenses !== 0 ? [{ key: 'otherExpenses' as const, label: 'Other Expenses', amount: otherExpenses }] : []),
+    { key: 'netProfit', label: 'Net Profit', amount: num(d['netProfit']), margin: num(d['netMargin']) },
   ];
 }

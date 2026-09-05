@@ -1,7 +1,13 @@
 import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 import path from 'path';
 
 export default defineConfig({
+  // tsconfig sets `jsx: "preserve"` for Next.js, which leaves JSX in the
+  // output and makes Vite refuse any .tsx a test imports (see
+  // vitest.config.ts). Needed here too now that an integration test renders
+  // a component (IncomeStatementBlock) to prove the grid foots.
+  plugins: [react()],
   test: {
     globals: true,
     environment: 'node',

@@ -13,6 +13,8 @@ import {
   type UnclassifiedWarning,
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
+import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
+import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -26,11 +28,11 @@ const PACK_CONFIGS: Array<{ type: PackType; label: string; description: string; 
 ];
 
 const fmt = (n: unknown) => typeof n === 'number' ? `R ${n.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}` : String(n ?? '—');
-const fmtPct = (n: unknown) => typeof n === 'number' ? `${n.toFixed(1)}%` : String(n ?? '—');
 
 function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const d = section.data;
+  const margins = packToMargins(d);
 
   return (
     <div className="border border-[var(--ff-border-light)] rounded-lg overflow-hidden">
@@ -42,28 +44,23 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
         {open ? <ChevronDown className="h-4 w-4 text-[var(--ff-text-tertiary)]" /> : <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)]" />}
       </button>
       {open && (
-        <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3 min-w-0">
           {section.type === 'income_statement' && (
-            <>
-              <KVItem label="Revenue" value={fmt(d.revenue)} />
-              <KVItem label="Cost of Sales" value={fmt(d.costOfSales)} />
-              <KVItem label="Gross Profit" value={fmt(d.grossProfit)} />
-              <KVItem label="Gross Margin" value={fmtPct(d.grossMargin)} />
-              <KVItem label="Operating Expenses" value={fmt(d.operatingExpenses)} />
-              <KVItem label="Net Profit" value={fmt(d.netProfit)} />
-              <KVItem label="Net Margin" value={fmtPct(d.netMargin)} />
-            </>
+            <div className="col-span-full min-w-0 space-y-3">
+              <ManagementPandLRows is={packToTotals(d)} />
+              {/* Both margins come from reportPackService; the pack is a
+                  document people send onward and these are the two figures a
+                  reader quotes back off it. */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <KVItem label="Gross Margin" value={`${margins.grossMargin.toFixed(1)}%`} />
+                <KVItem label="Net Margin" value={`${margins.netMargin.toFixed(1)}%`} />
+              </div>
+            </div>
           )}
           {section.type === 'balance_sheet' && (
-            <>
-              <KVItem label="Total Assets" value={fmt(d.totalAssets)} />
-              <KVItem label="Current Assets" value={fmt(d.currentAssets)} />
-              <KVItem label="Cash" value={fmt(d.cash)} />
-              <KVItem label="Accounts Receivable" value={fmt(d.accountsReceivable)} />
-              <KVItem label="Total Liabilities" value={fmt(d.totalLiabilities)} />
-              <KVItem label="Accounts Payable" value={fmt(d.accountsPayable)} />
-              <KVItem label="Total Equity" value={fmt(d.totalEquity)} />
-            </>
+            <div className="col-span-full min-w-0">
+              <ManagementBalanceSheetRows bs={packToBsTotals(d)} detail={packToBsDetail(d)} />
+            </div>
           )}
           {section.type === 'cash_flow' && (
             <>
@@ -79,7 +76,7 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
             <KVItem key={k} label={k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())} value={typeof v === 'number' ? v.toFixed(2) : String(v)} />
           ))}
           {section.type === 'kpis' && Array.isArray((d as { scorecard?: unknown[] }).scorecard) && (
-            <div className="col-span-3 grid grid-cols-3 gap-2">
+            <div className="col-span-full min-w-0 grid grid-cols-3 gap-2">
               {((d as { scorecard: Array<{ name: string; value: number; target: number; status: string }> }).scorecard).map((item, i) => (
                 <div key={i} className={`rounded p-2 text-xs border ${item.status === 'green' ? 'border-teal-500/30 text-teal-400' : item.status === 'amber' ? 'border-amber-500/30 text-amber-400' : 'border-red-500/30 text-red-400'}`}>
                   <span className="block opacity-70 mb-0.5">{item.name}</span>
@@ -90,10 +87,10 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
             </div>
           )}
           {section.type === 'commentary' && (
-            <div className="col-span-3 text-sm text-[var(--ff-text-secondary)]">{String(d.summary ?? '')}</div>
+            <div className="col-span-full text-sm text-[var(--ff-text-secondary)]">{String(d.summary ?? '')}</div>
           )}
           {(section.type === 'waterfall' || section.type === 'trends') && (
-            <div className="col-span-3 text-sm text-[var(--ff-text-tertiary)] italic">
+            <div className="col-span-full text-sm text-[var(--ff-text-tertiary)] italic">
               {section.type === 'waterfall' ? 'Waterfall chart data available — render with WaterfallChart component' : 'Trend data requires multi-period historical context'}
             </div>
           )}

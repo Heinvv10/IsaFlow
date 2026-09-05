@@ -92,6 +92,13 @@
     --ff-density-y: 0.375rem;
     /* Base body font scale multiplier. */
     --ff-font-scale: 0.9375;
+
+    /* Statement figures — IBCS semantic colours. Favourable/unfavourable ONLY. */
+    --ff-fav: #1f7a4d;
+    --ff-unfav: #b23a3a;
+    --ff-prior: #c9d0cc;
+    --ff-plan: #8a94a0;
+    --ff-fig-font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   }
 
   .dark {
@@ -151,6 +158,11 @@
     --ff-border-secondary: rgba(71, 85, 105, 0.6);
     --ff-border-subtle: #1e293b;
     --ff-border-light: rgba(255, 255, 255, 0.07);
+
+    --ff-fav: #5fcf92;
+    --ff-unfav: #f08a8a;
+    --ff-prior: #3a4752;
+    --ff-plan: #7b8792;
   }
 
   /* ── Theme axis: client (Warm) overrides ──────────────────────────── */
