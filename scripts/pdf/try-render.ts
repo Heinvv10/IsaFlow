@@ -25,7 +25,7 @@ async function main() {
     companyId: DEMO_COMPANY_ID,
     userId: DEMO_USER_ID,
     path: '/accounting/reports/management-accounts',
-    apiPath: '/api/accounting/reports-management-accounts',
+    apiPaths: ['/api/accounting/reports-management-accounts'],
   });
 
   await mkdir(dirname(outPath), { recursive: true });
