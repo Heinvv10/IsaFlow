@@ -1,0 +1,181 @@
+/**
+ * Persistence and approval for commentary. Every function is company-scoped;
+ * the company_id predicate is on every statement, including the UPDATEs, so a
+ * commentary id from another tenant matches zero rows rather than being
+ * approved by someone who is not a member of its company.
+ *
+ * `nextStatus` decides the status and nothing else. The rest of the rule lives
+ * here: an empty draft is never approvable, the approver is the authenticated
+ * caller and the timestamp is the database's NOW(), and approved_text,
+ * approved_by and approved_at are written together in one statement so the 611
+ * CHECK constraint can never observe a half-approved row.
+ */
+import { sql, type DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
+import { nextStatus, type CommentaryStatus } from './commentaryState';
+import { buildDraftSentences } from './commentaryDraft';
+import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
+import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/share/shareParams';
+
+export interface CommentaryRow {
+  id: string;
+  sectionRef: string;
+  rowRef: string;
+  draftText: string;
+  approvedText: string | null;
+  status: CommentaryStatus;
+  approvedBy: string | null;
+  approvedAt: string | null;
+}
+
+/** `not_found` is a 404, `empty_draft` a 400, `invalid_state` a 409. The route
+ *  must not collapse them: an id that is not this company's is not the same
+ *  answer as a draft that has already been approved. */
+export type CommentaryFailureCode = 'not_found' | 'empty_draft' | 'invalid_state';
+export type CommentaryResult =
+  | { ok: true; row: CommentaryRow }
+  | { ok: false; code: CommentaryFailureCode; reason: string };
+
+function toRow(r: DbRow): CommentaryRow {
+  return {
+    id: String(r.id),
+    sectionRef: String(r.section_ref),
+    rowRef: String(r.row_ref),
+    draftText: String(r.draft_text),
+    approvedText: r.approved_text === null || r.approved_text === undefined ? null : String(r.approved_text),
+    status: String(r.status) as CommentaryStatus,
+    approvedBy: r.approved_by ? String(r.approved_by) : null,
+    approvedAt: r.approved_at ? new Date(r.approved_at).toISOString() : null,
+  };
+}
+
+export async function listCommentary(companyId: string, params: SharePackParams): Promise<CommentaryRow[]> {
+  const rows = (await sql`
+    SELECT * FROM report_commentary
+    WHERE company_id = ${companyId}::uuid
+      AND report_kind = 'pack'
+      AND params_hash = ${canonicalParamsHash(params)}
+    ORDER BY section_ref, row_ref
+  `) as DbRow[];
+  return rows.map(toRow);
+}
+
+/** Upserts one draft per sentence. `replace` maps to the regenerate action and
+ *  is the ONLY way an approved row is re-drafted; without it an approved row is
+ *  left exactly as it stands and reported in `skipped`. */
+export async function generateDrafts(input: {
+  companyId: string; userId: string; params: SharePackParams; data: ManagementPackData; replace?: boolean;
+}): Promise<{ written: number; skipped: string[] }> {
+  const hash = canonicalParamsHash(input.params);
+  const existing = new Map(
+    (await listCommentary(input.companyId, input.params)).map(r => [`${r.sectionRef}:${r.rowRef}`, r.status]),
+  );
+
+  let written = 0;
+  const skipped: string[] = [];
+
+  for (const s of buildDraftSentences(input.data)) {
+    const key = `${s.sectionRef}:${s.rowRef}`;
+    const current = existing.get(key) ?? null;
+    const t = nextStatus(current, current === 'approved' && input.replace ? 'regenerate' : 'generate');
+    if (!t.ok) { skipped.push(key); continue; }
+
+    // The DO UPDATE ... WHERE repeats the state-machine decision at the write.
+    // Between the read above and this statement another session can approve the
+    // row; without the guard this upsert would quietly demote that approval to
+    // a draft nobody withdrew.
+    const rows = (await sql`
+      INSERT INTO report_commentary
+        (company_id, report_kind, params_hash, period_start, period_end,
+         section_ref, row_ref, draft_text, status, generated_by)
+      VALUES
+        (${input.companyId}::uuid, 'pack', ${hash}, ${input.params.from}::date, ${input.params.to}::date,
+         ${s.sectionRef}, ${s.rowRef}, ${s.text}, 'draft', ${input.userId})
+      ON CONFLICT (company_id, report_kind, params_hash, section_ref, row_ref)
+      DO UPDATE SET
+        draft_text = EXCLUDED.draft_text,
+        status = 'draft',
+        approved_text = CASE WHEN ${t.clearsApproval}::boolean THEN NULL ELSE report_commentary.approved_text END,
+        approved_by = CASE WHEN ${t.clearsApproval}::boolean THEN NULL ELSE report_commentary.approved_by END,
+        approved_at = CASE WHEN ${t.clearsApproval}::boolean THEN NULL ELSE report_commentary.approved_at END,
+        generated_by = EXCLUDED.generated_by,
+        updated_at = NOW()
+      WHERE report_commentary.status <> 'approved' OR ${t.clearsApproval}::boolean
+      RETURNING id
+    `) as DbRow[];
+
+    if (!rows[0]) { skipped.push(key); continue; }
+    written += 1;
+    if (t.clearsApproval) {
+      log.info('Commentary approval withdrawn by regeneration', {
+        companyId: input.companyId, userId: input.userId, sectionRef: s.sectionRef, rowRef: s.rowRef,
+      }, 'commentary');
+    }
+  }
+
+  log.info('Commentary drafts generated', {
+    companyId: input.companyId, userId: input.userId, written, skipped: skipped.length,
+  }, 'commentary');
+  return { written, skipped };
+}
+
+async function currentRow(
+  companyId: string, id: string,
+): Promise<{ status: CommentaryStatus; draftText: string } | null> {
+  const rows = (await sql`
+    SELECT status, draft_text FROM report_commentary
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid LIMIT 1
+  `) as DbRow[];
+  const r = rows[0];
+  return r ? { status: String(r.status) as CommentaryStatus, draftText: String(r.draft_text ?? '') } : null;
+}
+
+export async function approveCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
+  const row = await currentRow(companyId, id);
+  if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
+  // An approval is a person putting their name to a sentence. There is no
+  // sentence here, so there is nothing to put a name to — and the 611 CHECK
+  // would happily store the blank.
+  if (row.draftText.trim().length === 0) {
+    return { ok: false, code: 'empty_draft', reason: 'There is no draft text to approve.' };
+  }
+
+  const t = nextStatus(row.status, 'approve');
+  if (!t.ok) return { ok: false, code: 'invalid_state', reason: t.reason };
+
+  // One statement: status, text, approver and timestamp together, so the CHECK
+  // constraint never sees a partially approved row. `status = 'draft'` and the
+  // non-empty test are in the WHERE, not only in the branches above: two
+  // approvals racing must not both write, and the second finds no row.
+  const rows = (await sql`
+    UPDATE report_commentary
+    SET status = 'approved', approved_text = draft_text, approved_by = ${userId},
+        approved_at = NOW(), updated_at = NOW()
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid
+      AND status = 'draft' AND btrim(draft_text) <> ''
+    RETURNING *
+  `) as DbRow[];
+  if (!rows[0]) return { ok: false, code: 'invalid_state', reason: 'This commentary is no longer a draft.' };
+
+  log.info('Commentary approved', { companyId, userId, commentaryId: id }, 'commentary');
+  return { ok: true, row: toRow(rows[0]) };
+}
+
+export async function rejectCommentary(companyId: string, id: string, userId: string): Promise<CommentaryResult> {
+  const row = await currentRow(companyId, id);
+  if (!row) return { ok: false, code: 'not_found', reason: 'Commentary not found.' };
+
+  const t = nextStatus(row.status, 'reject');
+  if (!t.ok) return { ok: false, code: 'invalid_state', reason: t.reason };
+
+  const rows = (await sql`
+    UPDATE report_commentary
+    SET status = 'rejected', updated_at = NOW()
+    WHERE id = ${id}::uuid AND company_id = ${companyId}::uuid AND status = 'draft'
+    RETURNING *
+  `) as DbRow[];
+  if (!rows[0]) return { ok: false, code: 'invalid_state', reason: 'This commentary is no longer a draft.' };
+
+  log.info('Commentary rejected', { companyId, userId, commentaryId: id }, 'commentary');
+  return { ok: true, row: toRow(rows[0]) };
+}
