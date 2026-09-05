@@ -31,6 +31,8 @@ export function AddAccountForm({
   onSubmit: () => Promise<void>;
 }) {
   const subtypes = subtypeOptionsFor(addForm.accountType);
+  // The API refuses a blank subtype on revenue/expense (missingSubtypeError).
+  const subtypeRequired = addForm.accountType === 'revenue' || addForm.accountType === 'expense';
 
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-teal-500/30 p-4 space-y-4">
@@ -57,7 +59,7 @@ export function AddAccountForm({
         <div>
           <label className="block text-xs font-medium text-[var(--ff-text-secondary)] mb-1">Subtype</label>
           <select value={addForm.accountSubtype} onChange={e => onChange(f => ({ ...f, accountSubtype: e.target.value }))} className="ff-select w-full text-sm">
-            <option value="">None</option>
+            {subtypeRequired ? <option value="">Select…</option> : <option value="">None</option>}
             {subtypes.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>

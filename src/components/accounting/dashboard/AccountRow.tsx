@@ -201,7 +201,11 @@ export function AccountRow({
                   ? 'System account — auto-posting resolves it by subtype, so the subtype is fixed'
                   : 'Subtype. Bank is what makes an account importable from a statement.'}
               >
-                <option value="">No subtype</option>
+                {account.accountType === 'revenue' || account.accountType === 'expense'
+                  // A legacy row can still be NULL; the placeholder keeps the
+                  // select honest about that and cannot be chosen.
+                  ? <option value="" disabled>Select subtype…</option>
+                  : <option value="">No subtype</option>}
                 {subtypeOptions.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
               <select

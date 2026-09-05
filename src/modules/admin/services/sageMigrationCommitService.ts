@@ -23,6 +23,7 @@ import type {
   CommitPayload,
   CommitSummary,
 } from './sageMigrationTypes';
+import { sageAccountSubtype } from './sageAccountSubtype';
 
 export type {
   MappedAccount,
@@ -212,8 +213,8 @@ export async function commitSageMigration(payload: CommitPayload): Promise<Commi
     await sp(`acc_${ai++}`, async () => {
       try {
         const ins = (await sql`
-          INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, normal_balance, description, is_system_account, is_active, level, display_order)
-          VALUES (${companyId}::UUID, ${a.accountCode}, ${a.accountName}, ${a.accountType}, ${a.normalBalance}, ${a.description ?? null}, ${a.isSystem ?? false}, ${a.isActive ?? true}, 0, 0)
+          INSERT INTO gl_accounts (company_id, account_code, account_name, account_type, account_subtype, normal_balance, description, is_system_account, is_active, level, display_order)
+          VALUES (${companyId}::UUID, ${a.accountCode}, ${a.accountName}, ${a.accountType}, ${sageAccountSubtype(a.accountType, a.category, a.accountName)}, ${a.normalBalance}, ${a.description ?? null}, ${a.isSystem ?? false}, ${a.isActive ?? true}, 0, 0)
           ON CONFLICT (company_id, account_code) DO NOTHING RETURNING id
         `) as Row[];
         if (ins.length) summary.accounts.created += 1; else summary.accounts.skipped += 1;

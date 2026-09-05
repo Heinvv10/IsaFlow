@@ -92,7 +92,7 @@ export const createGlAccountTool: McpTool = {
       account_subtype: {
         type: 'string',
         enum: [...GL_ACCOUNT_SUBTYPES],
-        description: 'Must be valid for the account_type. Subtypes reserved for system accounts (vat_input, receivable, payable, …) are refused.',
+        description: 'Required for revenue and expense accounts (the income statement bands on it: cost_of_sales sits above gross profit). Must be valid for the account_type. Subtypes reserved for system accounts (vat_input, receivable, payable, …) are refused.',
       },
       parent_account_id: { type: 'string', description: 'GL account UUID. Must be the same account_type and must have no postings of its own.' },
       description: { type: 'string' },

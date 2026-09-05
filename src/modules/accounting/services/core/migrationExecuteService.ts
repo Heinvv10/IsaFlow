@@ -8,6 +8,7 @@ import { log } from '@/lib/logger';
 import { postOpeningBalances } from './migrationOpeningBalanceService';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
+import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 
 
 export interface ExecuteMigrationResult {
@@ -53,6 +54,16 @@ export async function executeMigration(
       return false;
     }
     return true;
+  }).map(acct => {
+    // autoMapAccounts sets a subtype on every revenue/expense mapping, but the
+    // mapping table lets the operator re-type a row without one. Default it
+    // and say so — skipping would strand the opening trial balance, which is
+    // posted against the full account list below.
+    if (acct.mappedSubtype) return acct;
+    const fallback = defaultIncomeStatementSubtype(acct.mappedType!);
+    if (!fallback) return acct;
+    errors.push(`Account "${acct.sourceCode} ${acct.sourceName}": no subtype; imported as ${fallback}`);
+    return { ...acct, mappedSubtype: fallback };
   });
 
   if (validAccounts.length > 0) {
@@ -75,9 +86,10 @@ export async function executeMigration(
             ${source}
           )
           ON CONFLICT (company_id, account_code) DO UPDATE SET
-            account_name  = EXCLUDED.account_name,
-            account_type  = EXCLUDED.account_type,
-            imported_from = EXCLUDED.imported_from
+            account_name    = EXCLUDED.account_name,
+            account_type    = EXCLUDED.account_type,
+            account_subtype = COALESCE(gl_accounts.account_subtype, EXCLUDED.account_subtype),
+            imported_from   = EXCLUDED.imported_from
         `)
       );
       accountsImported = validAccounts.length;

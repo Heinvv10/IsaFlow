@@ -55,3 +55,43 @@ export function subtypeErrorFor(
 
   return null;
 }
+
+/**
+ * Income-statement accounts must carry a subtype. The income statement bands
+ * on it — `cost_of_sales` above gross profit, everything else below — and a
+ * NULL is silently "everything else". Velocity Fibre's Sage import left 77
+ * revenue/expense accounts blank, so R82.7m of direct costs sat under
+ * operating expenses and gross margin read 96.6% instead of about −1.9%.
+ * Balance-sheet accounts are exempt: their NULL defaults to CURRENT and is
+ * counted as unclassified, which the reports already disclose.
+ *
+ * @returns a human-readable refusal, or `null` when the value is present or
+ *   not required for this account type.
+ */
+export function missingSubtypeError(
+  accountType: GLAccountType,
+  subtype: string | null | undefined,
+): string | null {
+  if (accountType !== 'revenue' && accountType !== 'expense') return null;
+  if (subtype) return null;
+  // Reserved values are refused by subtypeErrorFor, so listing them here
+  // would send the caller straight into a second, different error.
+  const allowed = (GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType] as readonly GLAccountSubtype[])
+    .filter(s => !SYSTEM_RESERVED_SUBTYPES.includes(s));
+  return `Subtype is required for a ${accountType} account. Valid: ${allowed.join(', ')}`;
+}
+
+/**
+ * What a BULK import writes when a revenue/expense row arrives without a
+ * subtype. Interactive creation refuses (the user can be asked); a 400-line
+ * chart import cannot ask, and skipping every income-statement row would
+ * strand the opening trial balance that references those codes. An explicit
+ * default is visible and reclassifiable, which NULL never was — but it does
+ * mean cost-of-sales rows imported without a subtype land under operating
+ * expenses until someone reclassifies them, so callers must say so.
+ */
+export function defaultIncomeStatementSubtype(accountType: GLAccountType): GLAccountSubtype | null {
+  if (accountType === 'revenue') return 'revenue';
+  if (accountType === 'expense') return 'operating_expense';
+  return null;
+}

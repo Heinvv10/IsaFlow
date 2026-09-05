@@ -25,64 +25,64 @@ export type MigrationStep =
 
 // ── Template definitions ─────────────────────────────────────────────────────
 
-const COA_GENERIC = `account_code,account_name,account_type,normal_balance,parent_code,description
-# account_code: unique identifier (any format); account_type: asset/liability/equity/revenue/expense; normal_balance: debit/credit
-1000,Assets,asset,debit,,Top-level asset category
-1100,Current Assets,asset,debit,1000,Short-term assets
-1110,Bank - Primary,asset,debit,1100,Main operating bank account
-1120,Accounts Receivable,asset,debit,1100,Trade debtors
-2000,Liabilities,liability,credit,,Top-level liability category
-2110,Accounts Payable,liability,credit,2000,Trade creditors
-3200,Retained Earnings,equity,credit,,Accumulated profits
-4100,Sales Revenue,revenue,credit,,Primary revenue account
-5100,Cost of Sales,expense,debit,,Direct costs
+const COA_GENERIC = `account_code,account_name,account_type,account_subtype,normal_balance,parent_code,description
+# account_code: unique identifier (any format); account_type: asset/liability/equity/revenue/expense; account_subtype: required for revenue/expense (revenue, other, cost_of_sales, operating_expense); normal_balance: debit/credit
+1000,Assets,asset,,debit,,Top-level asset category
+1100,Current Assets,asset,,debit,1000,Short-term assets
+1110,Bank - Primary,asset,,debit,1100,Main operating bank account
+1120,Accounts Receivable,asset,,debit,1100,Trade debtors
+2000,Liabilities,liability,,credit,,Top-level liability category
+2110,Accounts Payable,liability,,credit,2000,Trade creditors
+3200,Retained Earnings,equity,,credit,,Accumulated profits
+4100,Sales Revenue,revenue,revenue,credit,,Primary revenue account
+5100,Cost of Sales,expense,cost_of_sales,debit,,Direct costs
 `;
 
-const COA_SAGE_CLOUD = `account_code,account_name,account_type,normal_balance,parent_code,description
+const COA_SAGE_CLOUD = `account_code,account_name,account_type,account_subtype,normal_balance,parent_code,description
 # Sage Business Cloud uses 3-digit account codes (001-999)
-100,Assets,asset,debit,,
-110,Current Assets,asset,debit,100,
-111,Bank Account,asset,debit,110,Primary bank
-120,Trade Debtors,asset,debit,110,Accounts receivable
-200,Liabilities,liability,credit,,
-211,Trade Creditors,liability,credit,200,Accounts payable
-320,Retained Income,equity,credit,,Retained earnings
-410,Sales,revenue,credit,,Revenue
-510,Cost of Sales,expense,debit,,Direct costs
+100,Assets,asset,,debit,,
+110,Current Assets,asset,,debit,100,
+111,Bank Account,asset,,debit,110,Primary bank
+120,Trade Debtors,asset,,debit,110,Accounts receivable
+200,Liabilities,liability,,credit,,
+211,Trade Creditors,liability,,credit,200,Accounts payable
+320,Retained Income,equity,,credit,,Retained earnings
+410,Sales,revenue,revenue,credit,,Revenue
+510,Cost of Sales,expense,cost_of_sales,debit,,Direct costs
 `;
 
-const COA_SAGE_50 = `account_code,account_name,account_type,normal_balance,parent_code,description
+const COA_SAGE_50 = `account_code,account_name,account_type,account_subtype,normal_balance,parent_code,description
 # Sage 50/Pastel Partner uses 7-digit codes (1000000–9999999)
-1000000,ASSETS,asset,debit,,
-1100000,Current Assets,asset,debit,1000000,
-1110000,Bank,asset,debit,1100000,Primary bank
-1120000,Debtors Control,asset,debit,1100000,Trade debtors
-2000000,LIABILITIES,liability,credit,,
-2110000,Creditors Control,liability,credit,2000000,Trade creditors
-3200000,Retained Earnings,equity,credit,,
-4100000,Sales,revenue,credit,,
-5100000,Purchases,expense,debit,,
+1000000,ASSETS,asset,,debit,,
+1100000,Current Assets,asset,,debit,1000000,
+1110000,Bank,asset,,debit,1100000,Primary bank
+1120000,Debtors Control,asset,,debit,1100000,Trade debtors
+2000000,LIABILITIES,liability,,credit,,
+2110000,Creditors Control,liability,,credit,2000000,Trade creditors
+3200000,Retained Earnings,equity,,credit,,
+4100000,Sales,revenue,revenue,credit,,
+5100000,Purchases,expense,cost_of_sales,debit,,
 `;
 
-const COA_XERO = `account_code,account_name,account_type,normal_balance,parent_code,description
+const COA_XERO = `account_code,account_name,account_type,account_subtype,normal_balance,parent_code,description
 # Xero uses flexible 3-6 digit codes; account_type maps directly
-090,Bank,asset,debit,,Current account
-200,Sales,revenue,credit,,Revenue
-310,Accounts Receivable,asset,debit,,Debtors
-800,Accounts Payable,liability,credit,,Creditors
-820,Tax Payable,liability,credit,,VAT output
-970,Retained Earnings,equity,credit,,
+090,Bank,asset,,debit,,Current account
+200,Sales,revenue,revenue,credit,,Revenue
+310,Accounts Receivable,asset,,debit,,Debtors
+800,Accounts Payable,liability,,credit,,Creditors
+820,Tax Payable,liability,,credit,,VAT output
+970,Retained Earnings,equity,,credit,,
 `;
 
-const COA_QUICKBOOKS = `account_code,account_name,account_type,normal_balance,parent_code,description
+const COA_QUICKBOOKS = `account_code,account_name,account_type,account_subtype,normal_balance,parent_code,description
 # QuickBooks Online — account codes are optional (1-7 digits)
-1000,Checking,asset,debit,,Bank account
-1100,Accounts Receivable,asset,debit,,Trade debtors
-2000,Accounts Payable,liability,credit,,Trade creditors
-2200,VAT Payable,liability,credit,,VAT output
-3000,Retained Earnings,equity,credit,,
-4000,Sales,revenue,credit,,
-5000,Cost of Goods Sold,expense,debit,,
+1000,Checking,asset,,debit,,Bank account
+1100,Accounts Receivable,asset,,debit,,Trade debtors
+2000,Accounts Payable,liability,,credit,,Trade creditors
+2200,VAT Payable,liability,,credit,,VAT output
+3000,Retained Earnings,equity,,credit,,
+4000,Sales,revenue,revenue,credit,,
+5000,Cost of Goods Sold,expense,cost_of_sales,debit,,
 `;
 
 const CUSTOMERS_TEMPLATE = `name,email,phone,vat_number,registration_number,billing_address,contact_person,payment_terms,credit_limit,notes

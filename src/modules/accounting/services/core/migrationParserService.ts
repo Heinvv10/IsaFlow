@@ -189,18 +189,18 @@ const XERO_TYPE_MAP: Record<string, { type: GLAccountType; normalBalance: 'debit
   'current':         { type: 'asset',     normalBalance: 'debit',  subtype: 'current_asset' },
   'currliab':        { type: 'liability', normalBalance: 'credit', subtype: 'current_liability' },
   'depreciatn':      { type: 'asset',     normalBalance: 'debit',  subtype: 'fixed_asset' },
-  'directcosts':     { type: 'expense',   normalBalance: 'debit' },
+  'directcosts':     { type: 'expense',   normalBalance: 'debit',  subtype: 'cost_of_sales' },
   'equity':          { type: 'equity',    normalBalance: 'credit' },
-  'expense':         { type: 'expense',   normalBalance: 'debit' },
+  'expense':         { type: 'expense',   normalBalance: 'debit',  subtype: 'operating_expense' },
   'fixed':           { type: 'asset',     normalBalance: 'debit',  subtype: 'fixed_asset' },
   'inventory':       { type: 'asset',     normalBalance: 'debit',  subtype: 'inventory' },
   'liability':       { type: 'liability', normalBalance: 'credit' },
   'noncurrent':      { type: 'asset',     normalBalance: 'debit' },
-  'otherincome':     { type: 'revenue',   normalBalance: 'credit' },
-  'overheads':       { type: 'expense',   normalBalance: 'debit' },
+  'otherincome':     { type: 'revenue',   normalBalance: 'credit', subtype: 'revenue' },
+  'overheads':       { type: 'expense',   normalBalance: 'debit',  subtype: 'operating_expense' },
   'prepayment':      { type: 'asset',     normalBalance: 'debit' },
-  'revenue':         { type: 'revenue',   normalBalance: 'credit' },
-  'sales':           { type: 'revenue',   normalBalance: 'credit' },
+  'revenue':         { type: 'revenue',   normalBalance: 'credit', subtype: 'revenue' },
+  'sales':           { type: 'revenue',   normalBalance: 'credit', subtype: 'revenue' },
   'termliab':        { type: 'liability', normalBalance: 'credit' },
 };
 
@@ -215,21 +215,27 @@ const QB_TYPE_MAP: Record<string, { type: GLAccountType; normalBalance: 'debit' 
   'other current liability': { type: 'liability', normalBalance: 'credit', subtype: 'current_liability' },
   'long term liability':     { type: 'liability', normalBalance: 'credit' },
   'equity':                  { type: 'equity',    normalBalance: 'credit' },
-  'income':                  { type: 'revenue',   normalBalance: 'credit' },
-  'other income':            { type: 'revenue',   normalBalance: 'credit' },
-  'cost of goods sold':      { type: 'expense',   normalBalance: 'debit' },
-  'expense':                 { type: 'expense',   normalBalance: 'debit' },
-  'other expense':           { type: 'expense',   normalBalance: 'debit' },
+  'income':                  { type: 'revenue',   normalBalance: 'credit', subtype: 'revenue' },
+  'other income':            { type: 'revenue',   normalBalance: 'credit', subtype: 'revenue' },
+  'cost of goods sold':      { type: 'expense',   normalBalance: 'debit',  subtype: 'cost_of_sales' },
+  'expense':                 { type: 'expense',   normalBalance: 'debit',  subtype: 'operating_expense' },
+  'other expense':           { type: 'expense',   normalBalance: 'debit',  subtype: 'operating_expense' },
 };
 
-function mapByPastelCodeRange(code: string): { type: GLAccountType; normalBalance: 'debit' | 'credit' } | null {
-  const numeric = parseInt(code.replace(/\D/g, ''), 10);
-  if (isNaN(numeric)) return null;
-  if (numeric < 2000) return { type: 'asset',     normalBalance: 'debit'  };
-  if (numeric < 3000) return { type: 'liability', normalBalance: 'credit' };
-  if (numeric < 4000) return { type: 'equity',    normalBalance: 'credit' };
-  if (numeric < 5000) return { type: 'revenue',   normalBalance: 'credit' };
-  return                     { type: 'expense',   normalBalance: 'debit'  };
+function mapByPastelCodeRange(code: string): { type: GLAccountType; normalBalance: 'debit' | 'credit'; subtype?: string } | null {
+  // By LEADING digit, not magnitude: Pastel Partner / Sage 50 codes are seven
+  // digits (4100000 is Sales), and a numeric threshold typed every one of
+  // them as an expense.
+  const digits = code.replace(/\D/g, '');
+  if (!digits) return null;
+  switch (digits[0]) {
+    case '0':
+    case '1': return { type: 'asset',     normalBalance: 'debit'  };
+    case '2': return { type: 'liability', normalBalance: 'credit' };
+    case '3': return { type: 'equity',    normalBalance: 'credit' };
+    case '4': return { type: 'revenue',   normalBalance: 'credit', subtype: 'revenue' };
+    default:  return { type: 'expense',   normalBalance: 'debit',  subtype: 'operating_expense' };
+  }
 }
 
 export function autoMapAccounts(source: MigrationSource, accounts: ParsedAccount[]): ParsedAccount[] {

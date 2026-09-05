@@ -14,6 +14,8 @@ export interface MappedAccount {
   accountName: string;
   accountType: 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
   normalBalance: 'debit' | 'credit';
+  /** Sage's own category (Sales, Cost of Sales, Expenses, …); bands the subtype. */
+  category?: string;
   description?: string;
   isSystem?: boolean;
   isActive?: boolean;
