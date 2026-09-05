@@ -126,7 +126,14 @@ export async function apiFetch(url: string, options?: RequestInit): Promise<Resp
 
   const refreshed = await refreshSession();
   if (!refreshed) {
-    if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    // The PDF print pipeline (src/lib/pdf/renderPagePdf.ts) authenticates
+    // only the one report-data endpoint via a print token; AppLayout's own
+    // background calls (preferences, setup-guide) have no GoTrue session and
+    // 401 as expected. Bouncing the browser to /login mid-render would abort
+    // the print job before page.pdf() runs, so a print-mode request suppresses
+    // the redirect instead of following it.
+    const isPrintMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('print') === '1';
+    if (typeof window !== 'undefined' && !isPrintMode && !window.location.pathname.startsWith('/login')) {
       // Wipe tenant-scoped client state before bouncing so the next login on
       // this browser does not inherit the previous user's active company.
       // The /login page also defends here, but clearing on the redirect side
