@@ -243,7 +243,8 @@ describe('reclassifyAccount', async () => {
       await als.run(ctxFor(client, companyId), async () => {
         await expect(createAccount(companyId, {
           accountCode: `${PREFIX}6101`, accountName: `${PREFIX} child`,
-          accountType: 'expense', normalBalance: 'debit', parentAccountId: assetParent,
+          accountType: 'expense', accountSubtype: 'operating_expense', normalBalance: 'debit',
+          parentAccountId: assetParent,
         })).rejects.toThrow(/cannot hold an expense account/);
       });
 

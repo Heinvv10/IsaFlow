@@ -28,8 +28,8 @@ const ISAFLOW_TEMPLATE: TemplateLine[] = [
   { code:'1000', name:'Assets',                  type:'asset',     normalBalance:'debit',  level:1, displayOrder:100, isSystem:true },
   { code:'2000', name:'Liabilities',             type:'liability', normalBalance:'credit', level:1, displayOrder:200, isSystem:true },
   { code:'3000', name:'Equity',                  type:'equity',    normalBalance:'credit', level:1, displayOrder:300, isSystem:true },
-  { code:'4000', name:'Revenue',                 type:'revenue',   normalBalance:'credit', level:1, displayOrder:400, isSystem:true },
-  { code:'5000', name:'Expenses',                type:'expense',   normalBalance:'debit',  level:1, displayOrder:500, isSystem:true },
+  { code:'4000', name:'Revenue',                 type:'revenue',   normalBalance:'credit', level:1, displayOrder:400, subtype:'revenue', isSystem:true },
+  { code:'5000', name:'Expenses',                type:'expense',   normalBalance:'debit',  level:1, displayOrder:500, subtype:'operating_expense', isSystem:true },
   { code:'1100', name:'Current Assets',          type:'asset',     normalBalance:'debit',  level:2, displayOrder:110, parentCode:'1000', isSystem:true },
   { code:'1200', name:'Non-Current Assets',      type:'asset',     normalBalance:'debit',  level:2, displayOrder:120, parentCode:'1000', isSystem:true },
   { code:'2100', name:'Current Liabilities',     type:'liability', normalBalance:'credit', level:2, displayOrder:210, parentCode:'2000', isSystem:true },
@@ -66,10 +66,10 @@ const XERO_TEMPLATE: TemplateLine[] = [
   { code:'200', name:'Current Liabilities',     type:'liability', normalBalance:'credit', level:1, displayOrder:40, isSystem:true },
   { code:'300', name:'Long-term Liabilities',   type:'liability', normalBalance:'credit', level:1, displayOrder:50 },
   { code:'400', name:'Equity',                  type:'equity',    normalBalance:'credit', level:1, displayOrder:60, isSystem:true },
-  { code:'500', name:'Revenue',                 type:'revenue',   normalBalance:'credit', level:1, displayOrder:70, isSystem:true },
-  { code:'600', name:'Cost of Sales',           type:'expense',   normalBalance:'debit',  level:1, displayOrder:80, isSystem:true },
-  { code:'700', name:'Operating Expenses',      type:'expense',   normalBalance:'debit',  level:1, displayOrder:90 },
-  { code:'800', name:'Other Income',            type:'revenue',   normalBalance:'credit', level:1, displayOrder:100 },
+  { code:'500', name:'Revenue',                 type:'revenue',   normalBalance:'credit', level:1, displayOrder:70, subtype:'revenue', isSystem:true },
+  { code:'600', name:'Cost of Sales',           type:'expense',   normalBalance:'debit',  level:1, displayOrder:80, subtype:'cost_of_sales', isSystem:true },
+  { code:'700', name:'Operating Expenses',      type:'expense',   normalBalance:'debit',  level:1, displayOrder:90, subtype:'operating_expense' },
+  { code:'800', name:'Other Income',            type:'revenue',   normalBalance:'credit', level:1, displayOrder:100, subtype:'other_income' },
   { code:'002', name:'Current Account',         type:'asset',     normalBalance:'debit',  level:2, displayOrder:11, parentCode:'001', subtype:'bank',                    isSystem:true },
   { code:'003', name:'Petty Cash',              type:'asset',     normalBalance:'debit',  level:2, displayOrder:12, parentCode:'001' },
   { code:'011', name:'Trade Debtors',           type:'asset',     normalBalance:'debit',  level:2, displayOrder:21, parentCode:'010', subtype:'receivable',               isSystem:true },
@@ -87,15 +87,15 @@ const XERO_TEMPLATE: TemplateLine[] = [
   { code:'501', name:'Sales',                   type:'revenue',   normalBalance:'credit', level:2, displayOrder:71, parentCode:'500', subtype:'default_revenue',    isSystem:true },
   { code:'510', name:'Interest Income',         type:'revenue',   normalBalance:'credit', level:2, displayOrder:72, parentCode:'500', subtype:'other_income' },
   { code:'601', name:'Cost of Goods Sold',      type:'expense',   normalBalance:'debit',  level:2, displayOrder:81, parentCode:'600', subtype:'default_expense',    isSystem:true },
-  { code:'701', name:'Advertising & Marketing', type:'expense',   normalBalance:'debit',  level:2, displayOrder:91, parentCode:'700' },
+  { code:'701', name:'Advertising & Marketing', type:'expense',   normalBalance:'debit',  level:2, displayOrder:91, parentCode:'700', subtype:'operating_expense' },
   { code:'710', name:'Bank Charges',            type:'expense',   normalBalance:'debit',  level:2, displayOrder:92, parentCode:'700', subtype:'operating_expense' },
   { code:'720', name:'Depreciation',            type:'expense',   normalBalance:'debit',  level:2, displayOrder:93, parentCode:'700', subtype:'depreciation_expense', isSystem:true },
-  { code:'730', name:'Insurance',               type:'expense',   normalBalance:'debit',  level:2, displayOrder:94, parentCode:'700' },
+  { code:'730', name:'Insurance',               type:'expense',   normalBalance:'debit',  level:2, displayOrder:94, parentCode:'700', subtype:'operating_expense' },
   { code:'740', name:'Office Expenses',         type:'expense',   normalBalance:'debit',  level:2, displayOrder:95, parentCode:'700', subtype:'admin_expense',      isSystem:true },
   { code:'750', name:'Rent',                    type:'expense',   normalBalance:'debit',  level:2, displayOrder:96, parentCode:'700', subtype:'operating_expense' },
   { code:'760', name:'Salaries & Wages',        type:'expense',   normalBalance:'debit',  level:2, displayOrder:97, parentCode:'700', subtype:'operating_expense' },
-  { code:'770', name:'Telephone & Internet',    type:'expense',   normalBalance:'debit',  level:2, displayOrder:98, parentCode:'700' },
-  { code:'801', name:'Other Income',            type:'revenue',   normalBalance:'credit', level:2, displayOrder:101, parentCode:'800' },
+  { code:'770', name:'Telephone & Internet',    type:'expense',   normalBalance:'debit',  level:2, displayOrder:98, parentCode:'700', subtype:'operating_expense' },
+  { code:'801', name:'Other Income',            type:'revenue',   normalBalance:'credit', level:2, displayOrder:101, parentCode:'800', subtype:'other_income' },
 ];
 
 /* ── Sage One SA layout ── */
@@ -109,10 +109,10 @@ const SAGE_TEMPLATE: TemplateLine[] = [
   { code:'2300', name:'Short-term Liabilities', type:'liability', normalBalance:'credit', level:1, displayOrder:230 },
   { code:'2500', name:'Long-term Liabilities',  type:'liability', normalBalance:'credit', level:1, displayOrder:250 },
   { code:'3000', name:'Equity',                 type:'equity',    normalBalance:'credit', level:1, displayOrder:300, isSystem:true },
-  { code:'4000', name:'Sales Income',           type:'revenue',   normalBalance:'credit', level:1, displayOrder:400, isSystem:true },
-  { code:'4100', name:'Other Income',           type:'revenue',   normalBalance:'credit', level:1, displayOrder:410 },
-  { code:'5000', name:'Cost of Sales',          type:'expense',   normalBalance:'debit',  level:1, displayOrder:500, isSystem:true },
-  { code:'6000', name:'Operating Expenses',     type:'expense',   normalBalance:'debit',  level:1, displayOrder:600 },
+  { code:'4000', name:'Sales Income',           type:'revenue',   normalBalance:'credit', level:1, displayOrder:400, subtype:'revenue', isSystem:true },
+  { code:'4100', name:'Other Income',           type:'revenue',   normalBalance:'credit', level:1, displayOrder:410, subtype:'other_income' },
+  { code:'5000', name:'Cost of Sales',          type:'expense',   normalBalance:'debit',  level:1, displayOrder:500, subtype:'cost_of_sales', isSystem:true },
+  { code:'6000', name:'Operating Expenses',     type:'expense',   normalBalance:'debit',  level:1, displayOrder:600, subtype:'operating_expense' },
   { code:'1001', name:'Current Account',        type:'asset',     normalBalance:'debit',  level:2, displayOrder:101, parentCode:'1000', subtype:'bank',                    isSystem:true },
   { code:'1002', name:'Petty Cash',             type:'asset',     normalBalance:'debit',  level:2, displayOrder:102, parentCode:'1000' },
   { code:'1101', name:'Trade Debtors Control',  type:'asset',     normalBalance:'debit',  level:2, displayOrder:111, parentCode:'1100', subtype:'receivable',               isSystem:true },
@@ -136,8 +136,12 @@ const SAGE_TEMPLATE: TemplateLine[] = [
   { code:'6003', name:'Bank Charges',           type:'expense',   normalBalance:'debit',  level:2, displayOrder:603, parentCode:'6000', subtype:'operating_expense' },
   { code:'6004', name:'Depreciation',           type:'expense',   normalBalance:'debit',  level:2, displayOrder:604, parentCode:'6000', subtype:'depreciation_expense', isSystem:true },
   { code:'6005', name:'Administrative Expenses',type:'expense',   normalBalance:'debit',  level:2, displayOrder:605, parentCode:'6000', subtype:'admin_expense',       isSystem:true },
-  { code:'6006', name:'Marketing & Advertising',type:'expense',   normalBalance:'debit',  level:2, displayOrder:606, parentCode:'6000' },
+  { code:'6006', name:'Marketing & Advertising',type:'expense',   normalBalance:'debit',  level:2, displayOrder:606, parentCode:'6000', subtype:'operating_expense' },
 ];
+
+export function templateLinesFor(template: CoaTemplate): readonly TemplateLine[] {
+  return getTemplateLines(template);
+}
 
 function getTemplateLines(template: CoaTemplate): TemplateLine[] {
   if (template === 'isaflow_standard') return ISAFLOW_TEMPLATE;

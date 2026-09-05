@@ -97,3 +97,20 @@ describe('importChartOfAccounts', () => {
     expect(vatRow).toContain(true);
   });
 });
+
+describe('importChartOfAccounts — subtype required on the income statement', () => {
+  it('skips a revenue or expense row with no subtype and imports the rest', async () => {
+    const rows = [acct('4900', 'revenue'), acct('5900', 'expense'), acct('5910', 'expense', { accountSubtype: 'cost_of_sales' })];
+    const r = await importChartOfAccounts(CO, 'sess', [...ACCOUNTS, ...rows], MAP);
+    expect(r.skipped).toBe(2);
+    expect(r.errors.map((e) => e.message)).toEqual([
+      expect.stringContaining('required'), expect.stringContaining('required'),
+    ]);
+    const codes = mockSql.mock.calls
+      .filter((c) => (c[0] as TemplateStringsArray).join('').includes('INSERT INTO gl_accounts'))
+      .map((c) => c[2]);
+    expect(codes).not.toContain('4900');
+    expect(codes).not.toContain('5900');
+    expect(codes).toContain('5910');
+  });
+});

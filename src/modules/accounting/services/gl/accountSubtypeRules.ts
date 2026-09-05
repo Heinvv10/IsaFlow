@@ -55,3 +55,25 @@ export function subtypeErrorFor(
 
   return null;
 }
+
+/**
+ * Income-statement accounts must carry a subtype. The income statement bands
+ * on it — `cost_of_sales` above gross profit, everything else below — and a
+ * NULL is silently "everything else". Velocity Fibre's Sage import left 77
+ * revenue/expense accounts blank, so R82.7m of direct costs sat under
+ * operating expenses and gross margin read 96.6% instead of about −1.9%.
+ * Balance-sheet accounts are exempt: their NULL defaults to CURRENT and is
+ * counted as unclassified, which the reports already disclose.
+ *
+ * @returns a human-readable refusal, or `null` when the value is present or
+ *   not required for this account type.
+ */
+export function missingSubtypeError(
+  accountType: GLAccountType,
+  subtype: string | null | undefined,
+): string | null {
+  if (accountType !== 'revenue' && accountType !== 'expense') return null;
+  if (subtype) return null;
+  const allowed = GL_ACCOUNT_SUBTYPES_BY_TYPE[accountType] as readonly string[];
+  return `Subtype is required for a ${accountType} account. Valid: ${allowed.join(', ')}`;
+}

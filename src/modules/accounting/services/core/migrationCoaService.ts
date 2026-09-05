@@ -11,7 +11,7 @@ import type { ImportResult, MigrationError } from './migrationService';
 import type { GLAccountType } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
-import { subtypeErrorFor } from '../gl/accountSubtypeRules';
+import { subtypeErrorFor, missingSubtypeError } from '../gl/accountSubtypeRules';
 
 
 export interface AccountImportRow {
@@ -128,7 +128,8 @@ export async function importChartOfAccounts(
       // behave like NULL downstream, and a reserved one would sit beside the
       // real system account. The mapped system rows are set by the map, not here.
       if (!isSystem) {
-        const subtypeError = subtypeErrorFor({ accountType: acct.accountType }, accountSubtype);
+        const subtypeError = subtypeErrorFor({ accountType: acct.accountType }, accountSubtype)
+          ?? missingSubtypeError(acct.accountType, accountSubtype);
         if (subtypeError) {
           errors.push({ step: 'coa', row: i, field: 'accountSubtype', message: subtypeError });
           skipped++;
