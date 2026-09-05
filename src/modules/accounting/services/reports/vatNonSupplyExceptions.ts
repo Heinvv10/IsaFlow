@@ -225,6 +225,7 @@ export function mapVatNonSupplyLine(r: DbRow): VatNonSupplyLine {
       'vatNonSupplyExceptions',
     );
   }
+  const rawJournalVat = r.journal_vat;
   return {
     journalEntryId: String(r.journal_entry_id),
     entryNumber: String(r.entry_number ?? ''),
@@ -242,7 +243,9 @@ export function mapVatNonSupplyLine(r: DbRow): VatNonSupplyLine {
     vatType: String(r.vat_type ?? ''),
     description: String(r.description ?? ''),
     amount: r2(toNum(r.amount)),
-    journalVat: r2(toNum(r.journal_vat)),
+    journalVat: rawJournalVat === null || rawJournalVat === undefined
+      ? null
+      : r2(toNum(rawJournalVat)),
   };
 }
 
@@ -262,6 +265,20 @@ const LIST_CAP = 100;
  * R400 388,14 of input tax it exists to surface. Journal-level is the honest
  * granularity: the tax leg is not attributable to one contra line when a
  * journal has several, so it repeats per row rather than pretending to split.
+ * (In production all 30 flagged journals carry exactly one flagged line, so
+ * the repeat has no instance today.)
+ *
+ * It is NULL, not 0, when the journal has no VAT leg this query can identify —
+ * and there is a real way for that to happen. The subquery finds the tax leg
+ * by `account_subtype IN ('vat_input','vat_output')`, and production contains
+ * a VAT control account with a NULL subtype: Velocity `SYS-9 VAT Payable`,
+ * 356 VAT-coded lines, R4 917 814,24. A journal settling through SYS-9 would
+ * sum to nothing here. Rendering that as R0,00 on the column that carries the
+ * whole point of the rule would be indistinguishable from "this journal has no
+ * VAT" — on a money figure feeding a filing gate. So the SUM is deliberately
+ * NOT wrapped in COALESCE: zero rows yields NULL and the UI shows an em dash,
+ * while VAT legs that genuinely net to zero still sum to 0 and display as
+ * R0,00. Unknown and zero must not look the same.
  */
 export async function findVatNonSupplyLines(
   companyId: string,
@@ -275,10 +292,10 @@ export async function findVatNonSupplyLines(
       COALESCE(je.description, jl.description, '') AS description,
       jl.debit - jl.credit AS amount,
       (
-        SELECT COALESCE(SUM(
+        SELECT SUM(
           CASE WHEN vga.account_subtype = 'vat_output'
             THEN vjl.credit - vjl.debit ELSE vjl.debit - vjl.credit END
-        ), 0)
+        )
         FROM gl_journal_lines vjl
         JOIN gl_accounts vga
           ON vga.id = vjl.gl_account_id AND vga.company_id = vjl.company_id

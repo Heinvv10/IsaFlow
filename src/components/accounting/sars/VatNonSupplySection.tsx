@@ -36,7 +36,8 @@ export default function VatNonSupplySection({ lines }: { lines: VatNonSupplyLine
         such as interest, loans and share investments. Input tax claimed here usually has
         nothing to substantiate it, and output tax declared here was never due. VAT ON
         JOURNAL is the whole entry&rsquo;s VAT movement, which is the amount at risk — the
-        account column shows the contra leg. Matched on account name, so treat these as
+        account column shows the contra leg, and an em dash there means no VAT leg could
+        be identified on the journal — not the same as none. Matched on account name, so treat these as
         candidates to check rather than confirmed errors: labour supplied through a broker,
         investment property and payroll software are real supplies whose names look like
         these.
@@ -60,7 +61,9 @@ export default function VatNonSupplySection({ lines }: { lines: VatNonSupplyLine
               <td className={td}>{l.vatType}</td>
               <td className={`${td} max-w-[16rem] truncate`}>{l.description}</td>
               <td className={tdNum}>{fmt(l.amount)}</td>
-              <td className={`${tdNum} text-amber-400 font-semibold`}>{fmt(l.journalVat)}</td>
+              <td className={`${tdNum} text-amber-400 font-semibold`}>
+                {l.journalVat === null ? '—' : fmt(l.journalVat)}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -100,8 +100,12 @@ export interface VatNonSupplyLine {
    * `amount` shows R2 669 254,37 of salary where the defect is the
    * R400 388,14 of input tax beside it. Journal-level, so it repeats across
    * rows sharing a journal rather than pretending to split.
+   *
+   * NULL when no VAT leg could be identified — the tax may sit on a control
+   * account with a NULL subtype, as Velocity's `SYS-9 VAT Payable` does. Not
+   * the same fact as 0,00, and the UI must not render it as one.
    */
-  journalVat: number;
+  journalVat: number | null;
 }
 
 export interface VatControlRecon {

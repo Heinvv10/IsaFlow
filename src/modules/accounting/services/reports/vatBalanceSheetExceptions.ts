@@ -151,8 +151,8 @@ export function isVatOnBalanceSheetException(line: {
  * `isNonSupplyVatException`: `2170 Net Salaries Payable` (liability,
  * `payroll_liability`) and `2210 Long-term Loans` are balance-sheet accounts
  * whose subtypes are not in the legitimate list AND whose names are
- * non-supply. Production carries 134 such accounts, none with a VAT-coded
- * posted line today — but nothing stops one appearing, and the same line
+ * non-supply. Production carries 112 such accounts (102 active, 40 distinct
+ * names, across all 13 companies), none with a VAT-coded posted line today — but nothing stops one appearing, and the same line
  * counted by two rules would inflate `totalExceptions`, which
  * `evaluateEfilingGate` turns into a filing refusal.
  *
@@ -163,6 +163,10 @@ export function isVatOnBalanceSheetException(line: {
  * rows the other rule returns (name AND a claiming vat_type), so an
  * `exempt`-coded line on a non-supply balance-sheet account — which the other
  * rule deliberately ignores — is still flagged here.
+ *
+ * It exists for TESTABILITY and has no production consumer: the yield itself is
+ * written inline in `findVatOnBalanceSheetLines`'s SQL below. Nothing detects
+ * drift between the two, so change them together.
  */
 export function isVatOnBalanceSheetReportException(line: {
   accountName: string;

@@ -186,12 +186,25 @@ describe('mapVatNonSupplyLine', () => {
     expect(row.journalVat).toBe(9373.04);
   });
 
-  it('reports zero journal VAT rather than NaN when the entry has no VAT leg', () => {
+  it('reports NULL journal VAT when no VAT leg could be identified — not 0', () => {
+    // The tax may sit on a control account with a NULL subtype (Velocity's
+    // SYS-9 VAT Payable, 356 lines). Rendering that as R0,00 would read as
+    // "this journal has no VAT" on the column the whole rule turns on.
     const row = mapVatNonSupplyLine({
       journal_entry_id: 'je-3', entry_number: 'JE-0011', entry_date: '2025-04-01',
       account_code: '5820', account_name: 'Depreciation Expense',
       vat_type: 'zero_rated', description: '', amount: '1000',
       journal_vat: null, total_count: '1',
+    });
+    expect(row.journalVat).toBeNull();
+  });
+
+  it('reports a genuine 0,00 as zero, distinct from unknown', () => {
+    const row = mapVatNonSupplyLine({
+      journal_entry_id: 'je-4', entry_number: 'JE-0012', entry_date: '2025-04-01',
+      account_code: '5820', account_name: 'Depreciation Expense',
+      vat_type: 'standard', description: '', amount: '1000',
+      journal_vat: '0', total_count: '1',
     });
     expect(row.journalVat).toBe(0);
   });
