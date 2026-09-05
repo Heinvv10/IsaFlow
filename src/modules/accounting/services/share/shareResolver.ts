@@ -24,7 +24,7 @@
  * URL hands a reader of the logs a working link; `redactShareToken` below is
  * what a caller must put around any URL it logs.
  */
-import { sql, type DbRow } from '@/lib/neon';
+import { sql, withTransaction, type DbRow, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { hashShareToken, isShareTokenShape } from './shareToken';
@@ -40,6 +40,15 @@ export type ShareResolution =
   | { status: 'ok'; link: ResolvedShareLink }
   | { status: 'expired' | 'revoked' | 'not_found' | 'rate_limited' };
 
+/** The pair that identifies a link, always read together off one row. */
+export interface ShareLinkIdentity {
+  id: string;
+  companyId: string;
+}
+
+/** Either the pool `sql` or a transaction's `tx` — both are tagged templates. */
+type TaggedSql = (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>;
+
 export interface ShareViewContext {
   ip: string | null;
   userAgent: string | null;
@@ -50,12 +59,18 @@ const IP_WINDOW_SECS = 300;
 const TOKEN_MAX = 120;
 const TOKEN_WINDOW_SECS = 3600;
 
-/** A 43-character base64url run is a share token wherever it sits directly
- *  after `/share/` or in a `token=` parameter. Both forms are redacted; a
- *  43-character segment anywhere else is left alone, because uuids and ids of
- *  other shapes must stay readable in logs. */
-const TOKEN_IN_PATH = /(\/share\/)[A-Za-z0-9_-]{43}/g;
-const TOKEN_IN_QUERY = /([?&]token=)[A-Za-z0-9_-]{43}/g;
+/** A 43-character base64url run is a share token wherever it sits after a
+ *  `/share/` path segment or in a query parameter whose NAME contains `token`.
+ *  Both forms are redacted; a 43-character segment anywhere else is left alone,
+ *  because uuids and ids of other shapes must stay readable in logs.
+ *
+ *  Case-insensitive, and tolerant of repeated slashes, because a proxy or a
+ *  hand-typed link can present `/SHARE//<token>` and Next.js will still route
+ *  it — a redactor that only matched the canonical form would pass the token
+ *  straight through to the log. The parameter name is matched loosely
+ *  (`token`, `share_token`, `t_token`) for the same reason. */
+const TOKEN_IN_PATH = /(\/share\/+)[A-Za-z0-9_-]{43}/gi;
+const TOKEN_IN_QUERY = /([?&][^=&#]*token[^=&#]*=)[A-Za-z0-9_-]{43}/gi;
 
 /** Replace any share token in a URL with `[token]`, so the URL can be logged.
  *  Production request logging writes `req.url` verbatim; anything in this
@@ -107,16 +122,16 @@ export async function resolveShareLink(token: unknown, ctx: ShareViewContext): P
     return { status: 'not_found' };
   }
 
-  const linkId = String(row.id);
-  const companyId = String(row.company_id);
+  const identity: ShareLinkIdentity = { id: String(row.id), companyId: String(row.company_id) };
+  const { id: linkId, companyId } = identity;
 
   if (row.revoked_at) {
-    await recordShareView(companyId, linkId, 'revoked', ctx);
+    await recordShareView(identity, 'revoked', ctx);
     log.warn('Revoked share link presented', { companyId, shareLinkId: linkId, ip: ctx.ip }, 'share');
     return { status: 'revoked' };
   }
   if (new Date(row.expires_at).getTime() <= Date.now()) {
-    await recordShareView(companyId, linkId, 'expired', ctx);
+    await recordShareView(identity, 'expired', ctx);
     return { status: 'expired' };
   }
 
@@ -129,25 +144,44 @@ export async function resolveShareLink(token: unknown, ctx: ShareViewContext): P
     return { status: 'not_found' };
   }
 
-  await recordShareView(companyId, linkId, 'ok', ctx);
-  await sql`
-    UPDATE share_links
-    SET view_count = view_count + 1, last_viewed_at = NOW()
-    WHERE id = ${linkId}::uuid AND company_id = ${companyId}::uuid
-  `;
+  // One transaction: the audit row and the counter are the same fact. A
+  // counter bumped without an audit row is a view nobody can trace, and an
+  // audit row without a bump makes view_count disagree with the log. Same
+  // pattern as the create-cap lock in shareLinkService.
+  await withTransaction(async (tx: TxSql) => {
+    await recordShareView(identity, 'ok', ctx, tx);
+    await tx`
+      UPDATE share_links
+      SET view_count = view_count + 1, last_viewed_at = NOW()
+      WHERE id = ${linkId}::uuid AND company_id = ${companyId}::uuid
+    `;
+  });
   log.info('Share link viewed', { companyId, shareLinkId: linkId }, 'share');
 
   return { status: 'ok', link: { id: linkId, companyId, params } };
 }
 
+/** `ip_address` and `user_agent` are unbounded TEXT and are filled from request
+ *  headers by an unauthenticated caller. Both are truncated here, in the only
+ *  function that writes them, so no call site can forget: 45 characters holds
+ *  the longest IPv4-mapped IPv6 form, 512 holds any real user agent. */
+const IP_MAX_CHARS = 45;
+const UA_MAX_CHARS = 512;
+
+function clip(v: string | null, max: number): string | null {
+  return v === null ? null : v.slice(0, max);
+}
+
+/** Takes the resolved link itself rather than a loose company id, so a caller
+ *  cannot pair one tenant's id with another tenant's link. */
 export async function recordShareView(
-  companyId: string,
-  shareLinkId: string,
+  link: ShareLinkIdentity,
   outcome: 'ok' | 'expired' | 'revoked',
   ctx: ShareViewContext,
+  exec: TaggedSql = sql,
 ): Promise<void> {
-  await sql`
+  await exec`
     INSERT INTO share_link_views (company_id, share_link_id, outcome, ip_address, user_agent)
-    VALUES (${companyId}::uuid, ${shareLinkId}::uuid, ${outcome}, ${ctx.ip}, ${ctx.userAgent})
+    VALUES (${link.companyId}::uuid, ${link.id}::uuid, ${outcome}, ${clip(ctx.ip, IP_MAX_CHARS)}, ${clip(ctx.userAgent, UA_MAX_CHARS)})
   `;
 }

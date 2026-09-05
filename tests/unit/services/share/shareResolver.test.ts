@@ -18,7 +18,14 @@ const warnMock = vi.fn();
 const infoMock = vi.fn();
 const errorMock = vi.fn();
 
-vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
+// withTransaction hands the callback a tagged-template `tx` bound to the same
+// mock, so the ok path's INSERT and UPDATE appear in sqlMock in issue order and
+// a rejection from either aborts the callback exactly as a real ROLLBACK would.
+const txMock = vi.fn((fn: (tx: unknown) => unknown) => fn((...a: unknown[]) => sqlMock(...a)));
+vi.mock('@/lib/neon', () => ({
+  sql: (...a: unknown[]) => sqlMock(...a),
+  withTransaction: (fn: (tx: unknown) => unknown) => txMock(fn),
+}));
 vi.mock('@/lib/logger', () => ({
   log: {
     info: (...a: unknown[]) => infoMock(...a),
@@ -30,6 +37,7 @@ vi.mock('@/lib/rateLimit', () => ({ checkRateLimit: (...a: unknown[]) => rateLim
 
 import {
   resolveShareLink,
+  recordShareView,
   redactShareToken,
 } from '@/modules/accounting/services/share/shareResolver';
 import { hashShareToken } from '@/modules/accounting/services/share/shareToken';
@@ -67,6 +75,7 @@ const allLogText = (): string =>
 
 beforeEach(() => {
   sqlMock.mockReset();
+  txMock.mockClear();
   rateLimitMock.mockReset().mockResolvedValue(true);
   warnMock.mockReset();
   infoMock.mockReset();
@@ -247,6 +256,55 @@ describe('resolveShareLink — logging', () => {
   });
 });
 
+describe('recordShareView — bounded, row-scoped columns', () => {
+  it('truncates an oversized user agent and ip rather than writing them whole', async () => {
+    const ua = 'U'.repeat(5000);
+    const ip = `${'9'.repeat(200)}`;
+    sqlMock.mockResolvedValueOnce([linkRow({ revoked_at: new Date() })]).mockResolvedValue([]);
+    await resolveShareLink(TOKEN, { ip, userAgent: ua });
+    const v = values(callWith('INSERT INTO share_link_views'));
+    expect(v[3]).toBe('9'.repeat(45));
+    expect(v[4]).toBe('U'.repeat(512));
+  });
+
+  it('leaves a null ip and user agent null rather than writing an empty string', async () => {
+    sqlMock.mockResolvedValueOnce([linkRow({ revoked_at: new Date() })]).mockResolvedValue([]);
+    await resolveShareLink(TOKEN, { ip: null, userAgent: null });
+    const v = values(callWith('INSERT INTO share_link_views'));
+    expect(v[3]).toBeNull();
+    expect(v[4]).toBeNull();
+  });
+
+  it('takes the id and company from one link object, so the pair cannot be mismatched', async () => {
+    sqlMock.mockResolvedValue([]);
+    await recordShareView({ id: LINK_ID, companyId: COMPANY }, 'ok', CTX);
+    expect(values(0).slice(0, 3)).toEqual([COMPANY, LINK_ID, 'ok']);
+  });
+});
+
+describe('resolveShareLink — the ok path is atomic', () => {
+  it('writes the audit row and bumps the counter inside one transaction', async () => {
+    sqlMock.mockResolvedValueOnce([linkRow()]).mockResolvedValue([]);
+    await resolveShareLink(TOKEN, CTX);
+    expect(txMock).toHaveBeenCalledTimes(1);
+    expect(callWith('INSERT INTO share_link_views')).toBeLessThan(callWith('UPDATE share_links'));
+  });
+
+  it('leaves the counter untouched when the audit insert fails', async () => {
+    sqlMock
+      .mockResolvedValueOnce([linkRow()])
+      .mockRejectedValueOnce(new Error('share_link_views insert failed'));
+    await expect(resolveShareLink(TOKEN, CTX)).rejects.toThrow('share_link_views insert failed');
+    expect(callWith('UPDATE share_links')).toBe(-1);
+  });
+
+  it('opens no transaction on the revoked or expired paths', async () => {
+    sqlMock.mockResolvedValueOnce([linkRow({ revoked_at: new Date() })]).mockResolvedValue([]);
+    await resolveShareLink(TOKEN, CTX);
+    expect(txMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('redactShareToken', () => {
   it('replaces the token segment of a share url', () => {
     expect(redactShareToken(`/share/${TOKEN}`)).toBe('/share/[token]');
@@ -258,6 +316,27 @@ describe('redactShareToken', () => {
 
   it('redacts a token carried in a query string too', () => {
     expect(redactShareToken(`/api/share?token=${TOKEN}`)).toBe('/api/share?token=[token]');
+  });
+
+  it('redacts regardless of the case of the share segment', () => {
+    expect(redactShareToken(`/SHARE/${TOKEN}`)).toBe('/SHARE/[token]');
+    expect(redactShareToken(`/Share/${TOKEN}/pdf`)).toBe('/Share/[token]/pdf');
+  });
+
+  it('redacts through repeated slashes, which still route', () => {
+    expect(redactShareToken(`/share//${TOKEN}`)).toBe('/share//[token]');
+    expect(redactShareToken(`/share///${TOKEN}`)).toBe('/share///[token]');
+  });
+
+  it('redacts any query parameter whose name contains token', () => {
+    expect(redactShareToken(`/x?share_token=${TOKEN}`)).toBe('/x?share_token=[token]');
+    expect(redactShareToken(`/x?a=1&shareToken=${TOKEN}&b=2`)).toBe('/x?a=1&shareToken=[token]&b=2');
+    expect(redactShareToken(`/x?TOKEN=${TOKEN}`)).toBe('/x?TOKEN=[token]');
+    expect(redactShareToken(`/x?link_token_v2=${TOKEN}`)).toBe('/x?link_token_v2=[token]');
+  });
+
+  it('leaves a non-token parameter of the same length alone', () => {
+    expect(redactShareToken(`/x?cursor=${TOKEN}`)).toBe(`/x?cursor=${TOKEN}`);
   });
 
   it('redacts every occurrence, not just the first', () => {
