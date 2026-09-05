@@ -41,6 +41,7 @@ export function BalanceSheetBody({
   const liabilitiesAndEquity = applyComparators(built.liabilitiesAndEquity);
   const columns = columnsProp
     ?? { prior: showComparative, budget: false, variance: showComparative, trend: false };
+  const comparatorColumns = columns.prior || columns.budget || columns.trend;
   const nameOf = (code: string) =>
     [...report.assets, ...report.liabilities, ...report.equity].find(a => a.accountCode === code)?.accountName ?? code;
   const evidence = (code: string) => onEvidence(code, nameOf(code));
@@ -56,7 +57,10 @@ export function BalanceSheetBody({
         totalEquity={report.totalEquity}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {/* Side by side while each grid is two columns wide. With a comparator
+          or the trend column on, seven columns do not fit in half a screen and
+          both halves clip their right-hand columns, so the grids stack. */}
+      <div className={comparatorColumns ? 'space-y-4' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
         <StatementGrid rows={assets} columns={columns} title="Assets" cents
           expandedAccount={expandedAccount} onToggleAccount={onToggleAccount} renderDrill={drill} onEvidence={evidence} />
         <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Liabilities and Equity" cents

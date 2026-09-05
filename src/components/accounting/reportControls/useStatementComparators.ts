@@ -88,7 +88,11 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
   const apply = useCallback((rows: StatementRow[]): StatementRow[] => {
     let out = rows;
     if (trend && trends) out = applyTrend(out, trends);
-    if (budget && lines) out = applyBudgetComparator(out, lines);
+    // No budget captured means every account's budget is zero, and applying
+    // the comparator then prints a variance equal to the whole actual against
+    // a target nobody set — a large red bar that is an artefact, not a
+    // finding. The column stays empty and the page says why.
+    if (budget && lines && hasBudget(lines)) out = applyBudgetComparator(out, lines);
     return out;
   }, [trend, budget, trends, lines]);
 

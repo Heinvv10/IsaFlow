@@ -72,6 +72,7 @@ export default function BalanceSheetPage() {
   // about a different number.
   const { columns, setColumns } = useComparatorColumns();
   const showComparative = columns.prior;
+  const anyColumn = columns.prior || columns.trend;
   const { apply } = useStatementComparators({
     trend: columns.trend, budget: false, asOf: asAtDate,
     basis: 'balance', periodStart: asAtDate, periodEnd: asAtDate,
@@ -153,7 +154,9 @@ export default function BalanceSheetPage() {
           </div>
         </div>
 
-        <div className="p-6 max-w-4xl space-y-6">
+        {/* Two grids side by side already; a comparator column on each needs
+            the wider container or both scroll horizontally. */}
+        <div className={`p-6 space-y-6 ${anyColumn ? 'max-w-7xl' : 'max-w-4xl'}`}>
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">As at</label>

@@ -103,6 +103,7 @@ export default function IncomeStatementPage() {
   // column cannot be on with no comparative period behind it.
   const { columns, setColumns } = useComparatorColumns();
   const showComparative = columns.prior;
+  const anyColumn = columns.prior || columns.budget || columns.trend;
   const { apply, budgetAvailable } = useStatementComparators({
     trend: columns.trend, budget: columns.budget, asOf: periodEnd,
     basis: 'movement', periodStart, periodEnd,
@@ -189,7 +190,11 @@ export default function IncomeStatementPage() {
           </div>
         </div>
 
-        <div className="p-6 max-w-4xl space-y-6">
+        {/* The statement is a narrow column until a comparator is on. With
+            prior, budget and trend all showing, eleven columns inside
+            max-w-4xl push the trend off the right edge of a container the
+            reader has no reason to suspect scrolls. */}
+        <div className={`p-6 space-y-6 ${anyColumn ? 'max-w-7xl' : 'max-w-4xl'}`}>
           {/* Date Range + Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
