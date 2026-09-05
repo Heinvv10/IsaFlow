@@ -2610,3 +2610,17 @@ git commit -m "feat(share): the public share page is not tracked"
 - [ ] Add `AND ga.company_id = je.company_id` (or the equivalent parameter predicate) to every `gl_accounts` join in that function; nothing else changes.
 - [ ] Run the tests, `bun run type-check`, `bun run lint`; commit `fix(reports): pack figures classify only through the company's own accounts` with the trailer.
 - [ ] In the report, record the agreed figure for Brightsphere before and after.
+
+---
+
+### Task 19: `useCommentary` hook and `CommentaryPanel` container (controller-added)
+
+**Why:** Task 11's `CommentaryBlock` is presentational; nothing fetches rows or calls approve/reject/regenerate with role gating. WS2's integration must only mount a component.
+
+**Files:** `src/components/accounting/commentary/useCommentary.ts`, `src/components/accounting/commentary/CommentaryPanel.tsx`, `tests/unit/components/commentary/CommentaryPanel.dom.test.tsx`.
+
+**Interfaces:** `useCommentary({ reportKind, paramsHash | { type, from, to }, sectionRef })` → `{ rows, loading, error, generate(replace?), approve(id), reject(id), refresh() }` calling the Task 10 routes through `apiFetch` with `assertOk`/`res.ok` (never `?? []`), CSRF header as `apiFetch` sends; `CommentaryPanel({ sectionRef, mode, canApprove })` renders `CommentaryBlock` with callbacks wired only when `canApprove` (owner/admin from the current user context; find the existing hook the executive dashboard or AppLayout uses for role) and surfaces `error` inline.
+
+- [ ] RED DOM tests: loads rows for the section; approve calls the route with the id and refreshes; a 403 from the route shows an inline error and leaves the row unchanged; non-approver sees no buttons; `generate` with `replace` only when confirmed.
+- [ ] Implement; `bun run type-check`, `bun run lint`, `bun run test:components`.
+- [ ] Commit `feat(commentary): container that fetches, approves and regenerates with role gating` with the trailer.
