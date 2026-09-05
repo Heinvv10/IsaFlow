@@ -9,7 +9,7 @@ import { getPostedAccountBalance, holdsMoney, formatAccountBalance } from './glA
 import { cacheThrough, cache } from '@/lib/cache';
 import { CACHE_KEYS, CACHE_TTL } from '@/lib/cache-keys';
 import type { GLAccount, GLAccountType } from '../../types/gl.types';
-import { subtypeErrorFor } from './accountSubtypeRules';
+import { subtypeErrorFor, missingSubtypeError } from './accountSubtypeRules';
 import { assertParentUsable } from './accountParentRules';
 
 export interface CreateAccountInput {
@@ -241,7 +241,8 @@ export async function createAccount(companyId: string, input: CreateAccountInput
     // guard a typo ('bank ' with a space, 'Bank') wrote fine and then behaved
     // exactly like NULL — invisible to every consumer that filters on a known
     // value, with nothing anywhere reporting a problem.
-    const subtypeError = subtypeErrorFor({ accountType: input.accountType }, input.accountSubtype);
+    const subtypeError = subtypeErrorFor({ accountType: input.accountType }, input.accountSubtype)
+      ?? missingSubtypeError(input.accountType, input.accountSubtype);
     if (subtypeError) throw new Error(subtypeError);
 
     const existing = await sql`

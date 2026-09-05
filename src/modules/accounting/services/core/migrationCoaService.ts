@@ -11,7 +11,7 @@ import type { ImportResult, MigrationError } from './migrationService';
 import type { GLAccountType } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
 import { GL_ACCOUNT_SUBTYPES_BY_TYPE } from '../../types/glAccountSubtypes';
-import { subtypeErrorFor } from '../gl/accountSubtypeRules';
+import { subtypeErrorFor, defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 
 
 export interface AccountImportRow {
@@ -121,8 +121,22 @@ export async function importChartOfAccounts(
       }
 
       const subtypeEntry = Object.entries(systemAccountMap).find(([, code]) => code === acct.accountCode);
-      const accountSubtype = subtypeEntry ? subtypeEntry[0] : (acct.accountSubtype ?? null);
       const isSystem = subtypeEntry != null;
+      // What the row itself said. Stays NULL when it said nothing, so that a
+      // re-import never overwrites a classification someone made by hand.
+      const explicitSubtype = subtypeEntry ? subtypeEntry[0] : (acct.accountSubtype || null);
+      let accountSubtype = explicitSubtype;
+      // A revenue/expense row with no subtype is imported under the type's
+      // default and SAID SO, rather than skipped: the alternative strands
+      // every income-statement code the opening balances reference.
+      if (!isSystem && !accountSubtype) {
+        const fallback = defaultIncomeStatementSubtype(acct.accountType);
+        if (fallback) {
+          accountSubtype = fallback;
+          errors.push({ step: 'coa', row: i, field: 'accountSubtype',
+            message: `No subtype given; imported as ${fallback} (an existing classification is kept). Reclassify cost-of-sales accounts before reporting.` });
+        }
+      }
       // A row's own subtype goes through the same gate as every other write
       // path (createAccount, reclassifyAccount, the MCP tools): unknown values
       // behave like NULL downstream, and a reserved one would sit beside the
@@ -157,7 +171,7 @@ export async function importChartOfAccounts(
         ON CONFLICT (company_id, account_code) DO UPDATE SET
           account_name      = EXCLUDED.account_name,
           account_type      = EXCLUDED.account_type,
-          account_subtype   = COALESCE(EXCLUDED.account_subtype, gl_accounts.account_subtype),
+          account_subtype   = COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype),
           normal_balance    = EXCLUDED.normal_balance,
           description       = COALESCE(EXCLUDED.description, gl_accounts.description),
           is_system_account = EXCLUDED.is_system_account OR gl_accounts.is_system_account
@@ -176,10 +190,17 @@ export async function importChartOfAccounts(
   // old system row in place — two rows for one role, the resolver choosing
   // between them, which is exactly how the Sage SYS-* controls came to sit
   // beside the seeded chart in production (migration 525).
+  // A demoted revenue/expense row is NOT cleared to NULL — that would put an
+  // income-statement account back into the unbanded state the creation and
+  // edit gates refuse — it falls to the type's default and stays classified.
   for (const [subtype, accountCode] of Object.entries(systemAccountMap)) {
     await sql`
       UPDATE gl_accounts
-      SET is_system_account = false, account_subtype = NULL
+      SET is_system_account = false,
+          account_subtype = CASE account_type
+            WHEN 'revenue' THEN 'revenue'
+            WHEN 'expense' THEN 'operating_expense'
+            ELSE NULL END
       WHERE company_id = ${companyId}::UUID
         AND account_subtype = ${subtype}
         AND is_system_account = true
