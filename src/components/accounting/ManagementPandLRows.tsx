@@ -22,15 +22,18 @@ export function KVRow({ label, value, bold }: { label: string; value: string; bo
 
 export function ManagementPandLRows({ is }: { is: Record<string, number> | undefined }) {
   const n = (k: string) => is?.[k] ?? 0;
+  // Kinds match the real adapters (incomeStatementRows): a band total is a
+  // `subtotal`, the reconciling totals are `total`, the bottom line is
+  // `grand`. `line` is reserved for accounts, of which this surface has none.
   const rows: StatementRow[] = [
     { id: 'sub:revenue', kind: 'subtotal', label: 'Turnover', depth: 0, actual: n('totalRevenue') },
-    { id: 'sub:costOfSales', kind: 'line', label: 'Cost of Sales', depth: 0, actual: n('totalCostOfSales') },
+    { id: 'sub:costOfSales', kind: 'subtotal', label: 'Cost of Sales', depth: 0, actual: n('totalCostOfSales') },
     { id: 'total:grossProfit', kind: 'total', label: 'Gross Profit', depth: 0, actual: n('grossProfit') },
-    ...(n('totalOtherIncome') !== 0 ? [{ id: 'sub:otherIncome', kind: 'line' as const, label: 'Other Income', depth: 0 as const, actual: n('totalOtherIncome') }] : []),
-    { id: 'sub:operatingExpenses', kind: 'line', label: 'Operating Expenses', depth: 0, actual: n('totalOperatingExpenses') },
+    ...(n('totalOtherIncome') !== 0 ? [{ id: 'sub:otherIncome', kind: 'subtotal' as const, label: 'Other Income', depth: 0 as const, actual: n('totalOtherIncome') }] : []),
+    { id: 'sub:operatingExpenses', kind: 'subtotal', label: 'Operating Expenses', depth: 0, actual: n('totalOperatingExpenses') },
     { id: 'total:operatingProfit', kind: 'total', label: 'Operating Profit', depth: 0, actual: n('operatingProfit') },
-    ...(n('totalOtherExpenses') !== 0 ? [{ id: 'sub:otherExpenses', kind: 'line' as const, label: 'Other Expenses', depth: 0 as const, actual: n('totalOtherExpenses') }] : []),
-    { id: 'grand:netProfit', kind: 'grand', label: 'Net Profit', depth: 0, actual: n('netProfit') },
+    ...(n('totalOtherExpenses') !== 0 ? [{ id: 'sub:otherExpenses', kind: 'subtotal' as const, label: 'Other Expenses', depth: 0 as const, actual: n('totalOtherExpenses') }] : []),
+    { id: 'grand:netProfit', kind: 'grand', label: 'Net Profit / (Loss)', depth: 0, actual: n('netProfit') },
   ];
   return <StatementGrid rows={rows} columns={{ prior: false, variance: false, trend: false }} cents />;
 }
@@ -56,7 +59,7 @@ export function ManagementBalanceSheetRows({ bs, detail }: { bs: Record<string, 
     { id: 'sub:totalLiabilities', kind: 'subtotal', label: 'Total Liabilities', depth: 0, actual: n('totalLiabilities') },
     ...(detail?.accountsPayable !== undefined ? [{ id: 'line:accountsPayable', kind: 'line' as const, label: 'Accounts Payable', depth: 1 as const, actual: detail.accountsPayable }] : []),
     { id: 'sub:totalEquity', kind: 'subtotal', label: 'Total Equity', depth: 0, actual: n('totalEquity') },
-    { id: 'grand:totalLiabAndEquity', kind: 'grand', label: 'Total Liabilities and Equity', depth: 0, actual: n('totalLiabilities') + n('totalEquity') },
+    { id: 'grand:totalLiabilitiesAndEquity', kind: 'grand', label: 'Total Liabilities and Equity', depth: 0, actual: n('totalLiabilities') + n('totalEquity') },
   ];
   return <StatementGrid rows={rows} columns={{ prior: false, variance: false, trend: false }} cents />;
 }

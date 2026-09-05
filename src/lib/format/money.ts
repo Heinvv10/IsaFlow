@@ -20,7 +20,7 @@ export function formatMoney(n: number, opts: { cents?: boolean; symbol?: boolean
   const body = (opts.cents ? cents : whole)
     .format(Math.abs(n))
     .replace(/[\xa0\u202f]/g, ' ')
-    .replace(',', '.');
+    .replace(/,/g, '.');
   const withSymbol = opts.symbol ? `R ${body}` : body;
   return s === 'neg' ? `(${withSymbol})` : withSymbol;
 }

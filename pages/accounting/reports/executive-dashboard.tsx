@@ -55,6 +55,11 @@ interface Summary { period: string; companyName: string; kpis: ExecutiveKPIs; ca
 const alertIcon = { info: CheckCircle, warning: AlertTriangle, danger: AlertCircle };
 const alertColor = { info: 'border-teal-500/30 bg-teal-500/10 text-teal-400', warning: 'border-amber-500/30 bg-amber-500/10 text-amber-400', danger: 'border-red-500/30 bg-red-500/10 text-red-400' };
 
+/** A growth figure that is not a number (no prior period, divide by zero)
+ * must leave the tile neutral rather than colour it unfavourable red. */
+const favourableGrowth = (growth: number): boolean | undefined =>
+  Number.isFinite(growth) ? growth >= 0 : undefined;
+
 export default function ExecutiveDashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [scorecard, setScorecard] = useState<Array<{ ratioKey: string; name: string; value: number | null; target: number; status: 'green' | 'amber' | 'red' | 'not_meaningful'; reason?: string }>>([]);
@@ -134,8 +139,8 @@ export default function ExecutiveDashboardPage() {
 
               {/* KPI Cards */}
               <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
-                <KpiTile label="Revenue" value={summary.kpis.revenue} kind="money" deltaPct={summary.kpis.revenueGrowth} favourable={summary.kpis.revenueGrowth >= 0} />
-                <KpiTile label="Net profit" value={summary.kpis.netProfit} kind="money" deltaPct={summary.kpis.profitGrowth} favourable={summary.kpis.profitGrowth >= 0} />
+                <KpiTile label="Revenue" value={summary.kpis.revenue} kind="money" deltaPct={summary.kpis.revenueGrowth} favourable={favourableGrowth(summary.kpis.revenueGrowth)} />
+                <KpiTile label="Net profit" value={summary.kpis.netProfit} kind="money" deltaPct={summary.kpis.profitGrowth} favourable={favourableGrowth(summary.kpis.profitGrowth)} />
                 <KpiTile label="Gross margin" value={summary.kpis.grossProfitMargin} kind="pct" />
                 <KpiTile label="Net margin" value={summary.kpis.netProfitMargin} kind="pct" />
                 <KpiTile label="Cash balance" value={summary.kpis.cashBalance} kind="money" />

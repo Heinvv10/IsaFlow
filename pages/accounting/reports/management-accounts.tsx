@@ -8,13 +8,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import Link from 'next/link';
 import {
-  ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight,
+  ArrowLeft, BarChart3, Loader2, AlertCircle,
   Download, Mail, TrendingUp, Scale, Banknote,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
 import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/components/accounting/ManagementPandLRows';
 import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
+import { ManagementSection } from '@/components/accounting/ManagementSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,32 +62,6 @@ function getDefaultDates() {
     periodStart: start.toISOString().split('T')[0] ?? '',
     periodEnd: now.toISOString().split('T')[0] ?? '',
   };
-}
-
-// ─── Collapsible section ─────────────────────────────────────────────────────
-
-function Section({ title, icon: Icon, color, defaultOpen, children }: {
-  title: string; icon: React.ElementType; color: string;
-  defaultOpen?: boolean; children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen ?? true);
-  return (
-    <div className="border border-[var(--ff-border-light)] rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] text-left"
-      >
-        <div className="flex items-center gap-2">
-          <Icon className={`h-4 w-4 text-${color}-400`} />
-          <span className="text-sm font-medium text-[var(--ff-text-primary)]">{title}</span>
-        </div>
-        {open
-          ? <ChevronDown className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-          : <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)]" />}
-      </button>
-      {open && <div className="p-4">{children}</div>}
-    </div>
-  );
 }
 
 // ─── Simple KV row ───────────────────────────────────────────────────────────
@@ -270,20 +245,20 @@ export default function ManagementAccountsPage() {
               )}
 
               {/* P&L Section */}
-              <Section title="Income Statement (P&L)" icon={TrendingUp} color="teal" defaultOpen><ManagementPandLRows is={is} /></Section>
+              <ManagementSection title="Income Statement (P&L)" icon={TrendingUp} color="teal" defaultOpen><ManagementPandLRows is={is} /></ManagementSection>
 
               {/* Balance Sheet Section */}
-              <Section title="Balance Sheet" icon={Scale} color="blue" defaultOpen><ManagementBalanceSheetRows bs={bs} /></Section>
+              <ManagementSection title="Balance Sheet" icon={Scale} color="blue" defaultOpen><ManagementBalanceSheetRows bs={bs} /></ManagementSection>
 
               {/* Cash Flow Section */}
-              <Section title="Cash Flow" icon={Banknote} color="amber" defaultOpen>
+              <ManagementSection title="Cash Flow" icon={Banknote} color="amber" defaultOpen>
                 <KVRow label="Opening Cash" value={formatCurrency(cf?.openingCash ?? 0)} />
                 <KVRow label="Operating Activities" value={formatCurrency(cf?.operatingCashFlow ?? 0)} />
                 <KVRow label="Investing Activities" value={formatCurrency(cf?.investingCashFlow ?? 0)} />
                 <KVRow label="Financing Activities" value={formatCurrency(cf?.financingCashFlow ?? 0)} />
                 <KVRow label="Net Cash Flow" value={formatCurrency(cf?.netCashFlow ?? 0)} bold />
                 <KVRow label="Closing Cash" value={formatCurrency(cf?.closingCash ?? 0)} bold />
-              </Section>
+              </ManagementSection>
 
               <p className="text-xs text-[var(--ff-text-tertiary)] text-right">
                 Generated {new Date(report.generatedAt).toLocaleString('en-ZA')}
