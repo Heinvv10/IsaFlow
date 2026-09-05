@@ -16,6 +16,15 @@ import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statem
 import { IncomeStatementBlock } from '@/components/accounting/afs/AfsStatementsTab';
 import { formatMoney } from '@/lib/format/money';
 
+/**
+ * The plan names Velocity Fibre as a third tenant, and it is the one with the
+ * known unclassified-subtype hazard — 100% of its revenue and 97.6% of its
+ * expenses sit on unclassified accounts, so it is the tenant most likely to
+ * make a band total disagree with its lines. It is NOT covered here because
+ * the company does not exist in `isaflow_dev`, which is the database this
+ * suite runs against; adding it needs the tenant seeded locally or the suite
+ * pointed at production, neither of which this workstream does.
+ */
 const TENANTS = [
   { name: 'ISAFlow Demo', id: '00000000-0000-0000-0000-000000000001' },
   { name: 'Brightsphere (Britech)', id: 'd27bac33-cdc0-4e58-bf6b-709c1597d41c' },

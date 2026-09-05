@@ -12,20 +12,10 @@
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
-import { formatCurrency } from '@/utils/formatters';
+import { formatMoney } from '@/lib/format/money';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 
-/**
- * The statement body — every band, in the order a reader reconciles them:
- * Turnover, Cost of Sales, Gross Profit, Other Income, Operating Expenses,
- * Operating Profit, Other Expenses, Net Profit.
- *
- * Extracted from the page so the ORDER and the presence of each band are
- * testable. Four of the five surfaces that render these bands had no test at
- * all: a whole section could be deleted with the full suite green, which is how
- * the statutory AFS statement came to be missing two bands and stopped footing.
- */
 export function IncomeStatementSections({
   report, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative, onEvidence,
 }: {
@@ -75,7 +65,7 @@ export function IncomeStatementSections({
           <DataQualityNotice notices={report.subtypeDisclosure.notices} />
           <p className="mt-2 font-mono text-xs text-[var(--ff-text-tertiary)]">
             {report.subtypeDisclosure.accounts
-              .map(a => `${a.accountCode} ${a.accountName} ${formatCurrency(a.amount)}`)
+              .map(a => `${a.accountCode} ${a.accountName} ${formatMoney(a.amount, { cents: true, symbol: true })}`)
               .join(' · ')}
             {report.subtypeDisclosure.unnamedAccounts > 0
               ? ` · and ${report.subtypeDisclosure.unnamedAccounts} more`

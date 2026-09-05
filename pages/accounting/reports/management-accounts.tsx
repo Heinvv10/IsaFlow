@@ -12,7 +12,7 @@ import {
   Download, Mail, TrendingUp, Scale, Banknote,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import { formatCurrency } from '@/utils/formatters';
+import { formatMoney } from '@/lib/format/money';
 import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/components/accounting/ManagementPandLRows';
 import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
 import { ManagementSection } from '@/components/accounting/ManagementSection';
@@ -252,12 +252,12 @@ export default function ManagementAccountsPage() {
 
               {/* Cash Flow Section */}
               <ManagementSection title="Cash Flow" icon={Banknote} color="amber" defaultOpen>
-                <KVRow label="Opening Cash" value={formatCurrency(cf?.openingCash ?? 0)} />
-                <KVRow label="Operating Activities" value={formatCurrency(cf?.operatingCashFlow ?? 0)} />
-                <KVRow label="Investing Activities" value={formatCurrency(cf?.investingCashFlow ?? 0)} />
-                <KVRow label="Financing Activities" value={formatCurrency(cf?.financingCashFlow ?? 0)} />
-                <KVRow label="Net Cash Flow" value={formatCurrency(cf?.netCashFlow ?? 0)} bold />
-                <KVRow label="Closing Cash" value={formatCurrency(cf?.closingCash ?? 0)} bold />
+                <KVRow label="Opening Cash" value={formatMoney(cf?.openingCash ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Operating Activities" value={formatMoney(cf?.operatingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Investing Activities" value={formatMoney(cf?.investingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Financing Activities" value={formatMoney(cf?.financingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Net Cash Flow" value={formatMoney(cf?.netCashFlow ?? 0, { cents: true, symbol: true })} bold />
+                <KVRow label="Closing Cash" value={formatMoney(cf?.closingCash ?? 0, { cents: true, symbol: true })} bold />
               </ManagementSection>
 
               <p className="text-xs text-[var(--ff-text-tertiary)] text-right">
