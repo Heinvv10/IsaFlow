@@ -11,6 +11,7 @@
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { BalanceSheetDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { toManagementPandLRows } from '@/modules/accounting/services/reports/statementRows/packMappers';
 
 export function KVRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
@@ -22,21 +23,11 @@ export function KVRow({ label, value, bold }: { label: string; value: string; bo
 }
 
 export function ManagementPandLRows({ is }: { is: Record<string, number> | undefined }) {
-  const n = (k: string) => is?.[k] ?? 0;
-  // Kinds match the real adapters (incomeStatementRows): a band total is a
-  // `subtotal`, the reconciling totals are `total`, the bottom line is
-  // `grand`. `line` is reserved for accounts, of which this surface has none.
-  const rows: StatementRow[] = [
-    { id: 'sub:revenue', kind: 'subtotal', label: 'Turnover', depth: 0, actual: n('totalRevenue') },
-    { id: 'sub:costOfSales', kind: 'subtotal', label: 'Cost of Sales', depth: 0, actual: n('totalCostOfSales') },
-    { id: 'total:grossProfit', kind: 'total', label: 'Gross Profit', depth: 0, actual: n('grossProfit') },
-    ...(n('totalOtherIncome') !== 0 ? [{ id: 'sub:otherIncome', kind: 'subtotal' as const, label: 'Other Income', depth: 0 as const, actual: n('totalOtherIncome') }] : []),
-    { id: 'sub:operatingExpenses', kind: 'subtotal', label: 'Operating Expenses', depth: 0, actual: n('totalOperatingExpenses') },
-    { id: 'total:operatingProfit', kind: 'total', label: 'Operating Profit', depth: 0, actual: n('operatingProfit') },
-    ...(n('totalOtherExpenses') !== 0 ? [{ id: 'sub:otherExpenses', kind: 'subtotal' as const, label: 'Other Expenses', depth: 0 as const, actual: n('totalOtherExpenses') }] : []),
-    { id: 'grand:netProfit', kind: 'grand', label: 'Net Profit / (Loss)', depth: 0, actual: n('netProfit') },
-  ];
-  return <StatementGrid rows={rows} columns={{ prior: false, budget: false, variance: false, trend: false }} cents />;
+  // The band list lives in the service layer, and it is the SAME list the HTML
+  // and PDF packs render. A second copy here is a second chance to omit a
+  // band, which is how the pack came to be short by other income less other
+  // expenses on documents already sent to clients.
+  return <StatementGrid rows={toManagementPandLRows(is)} columns={{ prior: false, budget: false, variance: false, trend: false }} cents />;
 }
 
 /** The management pack's balance-sheet summary — three subtotals plus the

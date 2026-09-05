@@ -8,7 +8,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
-import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { packToTotals, packToMargins, packToBsTotals, packToBsDetail, toManagementPandLRows } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { incomeStatementPackRows } from '@/modules/accounting/services/reports/incomeStatementPackRows';
 
 /** Brightsphere, all-time — the tenant whose pack was short by R341,712.00. */
 const INPUT: ReportPackInput = {
@@ -82,5 +83,41 @@ describe('packToBsTotals and packToBsDetail', () => {
     const t = packToBsTotals({ totalAssets: '900000' as unknown, totalLiabilities: 100, totalEquity: 200 });
     expect(t.totalAssets).toBe(0);
     expect(t.totalLiabilities! + t.totalEquity!).toBe(300);
+  });
+});
+
+describe('toManagementPandLRows', () => {
+  it('renders the SAME bands the HTML and PDF packs render, in the same order', () => {
+    const d = section('income_statement');
+    const shared = incomeStatementPackRows(d);
+    const rows = toManagementPandLRows(packToTotals(d));
+    // One band list. A band added to or removed from the shared builder must
+    // appear on or leave the screen too, or the screen and the document the
+    // client receives stop agreeing.
+    expect(rows.map(r => r.label.replace(' / (Loss)', ''))).toEqual(shared.map(r => r.label));
+    expect(rows.map(r => r.actual)).toEqual(shared.map(r => r.amount));
+  });
+
+  it('the rows FOOT, and the reconciling totals are marked as totals', () => {
+    const rows = toManagementPandLRows(packToTotals(section('income_statement')));
+    const at = (id: string) => rows.find(r => r.id === id)!;
+    expect(at('total:grossProfit').actual + at('sub:otherIncome').actual - at('sub:operatingExpenses').actual)
+      .toBeCloseTo(at('total:operatingProfit').actual, 2);
+    expect(at('total:operatingProfit').actual - at('sub:otherExpenses').actual)
+      .toBeCloseTo(at('grand:netProfit').actual, 2);
+    expect(at('total:grossProfit').kind).toBe('total');
+    expect(at('grand:netProfit').kind).toBe('grand');
+    expect(at('sub:revenue').kind).toBe('subtotal');
+  });
+
+  it('omits Other Income and Other Expenses when they are nil, as the packs do', () => {
+    const rows = toManagementPandLRows({
+      totalRevenue: 100, totalCostOfSales: 40, grossProfit: 60,
+      totalOtherIncome: 0, totalOperatingExpenses: 10,
+      operatingProfit: 50, totalOtherExpenses: 0, netProfit: 50,
+    });
+    expect(rows.map(r => r.label)).not.toContain('Other Income');
+    expect(rows.map(r => r.label)).not.toContain('Other Expenses');
+    expect(rows.map(r => r.label)).toContain('Operating Profit');
   });
 });
