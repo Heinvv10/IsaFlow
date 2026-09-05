@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mintPrintToken, verifyPrintToken } from '@/lib/pdf/printAuth';
+import { mintPrintToken, verifyPrintToken, verifyPrintTokenSignature } from '@/lib/pdf/printAuth';
 
 const ORIGINAL_SECRET = process.env.PRINT_TOKEN_SECRET;
 const TEST_SECRET = '0123456789abcdef0123456789abcdef';
@@ -79,5 +79,35 @@ describe('printAuth — rejection', () => {
   it('throws when minting without PRINT_TOKEN_SECRET set', () => {
     delete process.env.PRINT_TOKEN_SECRET;
     expect(() => mintPrintToken(companyId, userId, path, 120)).toThrow();
+  });
+
+  it('rejects (verify) and throws (mint) when PRINT_TOKEN_SECRET is shorter than 32 chars', () => {
+    process.env.PRINT_TOKEN_SECRET = 'too-short';
+    expect(() => mintPrintToken(companyId, userId, path, 120)).toThrow();
+
+    // Mint one under the valid secret, then shrink the secret and verify —
+    // the too-short secret must fail closed on the read side too, not just
+    // refuse to mint.
+    process.env.PRINT_TOKEN_SECRET = TEST_SECRET;
+    const token = mintPrintToken(companyId, userId, path, 120);
+    process.env.PRINT_TOKEN_SECRET = 'too-short';
+    expect(verifyPrintToken(token, path)).toBeNull();
+  });
+});
+
+describe('printAuth — verifyPrintTokenSignature (no path check)', () => {
+  it('accepts a signed, unexpired token regardless of path — path is checked separately by the caller', () => {
+    const token = mintPrintToken(companyId, userId, path, 120);
+    const candidate = verifyPrintTokenSignature(token);
+    expect(candidate).toEqual({ companyId, userId, path, exp: expect.any(Number) });
+  });
+
+  it('still rejects an expired or tampered token', () => {
+    const expired = mintPrintToken(companyId, userId, path, -1);
+    expect(verifyPrintTokenSignature(expired)).toBeNull();
+
+    const token = mintPrintToken(companyId, userId, path, 120);
+    const [payload] = token.split('.');
+    expect(verifyPrintTokenSignature(`${payload}.${'0'.repeat(64)}`)).toBeNull();
   });
 });

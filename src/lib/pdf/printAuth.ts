@@ -23,8 +23,25 @@ export interface PrintTokenPayload {
   exp: number; // unix seconds
 }
 
+// M7-style floor (see src/lib/validateEnv.ts MIN_SECRET_LEN): a shorter
+// secret is offline-forgeable. Enforced here too, not just in validateEnv,
+// because validateEnv only runs at boot in production — this also protects
+// dev/test against an operator pasting a short secret.
+const MIN_SECRET_LEN = 32;
+
+/** Returns the configured secret only when it meets the minimum length; a
+ *  too-short secret is treated the same as "unset" (both mint and verify
+ *  fail closed), but is logged so a misconfiguration is visible. */
 function getSecret(): string | undefined {
-  return process.env.PRINT_TOKEN_SECRET;
+  const secret = process.env.PRINT_TOKEN_SECRET;
+  if (!secret) return undefined;
+  if (secret.length < MIN_SECRET_LEN) {
+    log.warn('printAuth: PRINT_TOKEN_SECRET is shorter than the minimum length', {
+      minLength: MIN_SECRET_LEN,
+    }, 'printAuth');
+    return undefined;
+  }
+  return secret;
 }
 
 function sign(companyId: string, userId: string, path: string, exp: number, secret: string): string {
@@ -33,8 +50,10 @@ function sign(companyId: string, userId: string, path: string, exp: number, secr
 
 /** Mint a print token bound to one exact API path, expiring in `ttlSeconds`. */
 export function mintPrintToken(companyId: string, userId: string, path: string, ttlSeconds = 120): string {
+  const raw = process.env.PRINT_TOKEN_SECRET;
+  if (!raw) throw new Error('PRINT_TOKEN_SECRET is not set');
   const secret = getSecret();
-  if (!secret) throw new Error('PRINT_TOKEN_SECRET is not set');
+  if (!secret) throw new Error(`PRINT_TOKEN_SECRET must be at least ${MIN_SECRET_LEN} characters`);
 
   const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
   const signature = sign(companyId, userId, path, exp, secret);
@@ -62,12 +81,18 @@ function parsePayload(raw: string): PrintTokenPayload | null {
 }
 
 /**
- * Verify a print token against the path of the request presenting it.
- * Returns the payload only when: PRINT_TOKEN_SECRET is set, the token is
- * well-formed, the signature matches, it has not expired, and its bound
- * path is exactly `requestPath` (query string excluded by the caller).
+ * Verify a print token's signature and expiry only — NOT its bound path.
+ * Returns the payload when: PRINT_TOKEN_SECRET is set (and long enough),
+ * the token is well-formed, the signature matches, and it has not expired.
+ *
+ * Split out from `verifyPrintToken` so a caller (withAuth) can tell "this
+ * is a garbage/forged/expired token" (clear cookies, 401 as normal) apart
+ * from "this is a genuine print token, just not valid for this request"
+ * (401 WITHOUT clearing cookies — an unrelated background call presenting
+ * a token minted for a different path must not wipe out a render in
+ * progress).
  */
-export function verifyPrintToken(token: string, requestPath: string): PrintTokenPayload | null {
+export function verifyPrintTokenSignature(token: string): PrintTokenPayload | null {
   const secret = getSecret();
   if (!secret) return null;
 
@@ -91,6 +116,19 @@ export function verifyPrintToken(token: string, requestPath: string): PrintToken
     log.warn('printAuth: token expired', { companyId: payload.companyId, path: payload.path }, 'printAuth');
     return null;
   }
+
+  return payload;
+}
+
+/**
+ * Verify a print token against the path of the request presenting it.
+ * Returns the payload only when: PRINT_TOKEN_SECRET is set, the token is
+ * well-formed, the signature matches, it has not expired, and its bound
+ * path is exactly `requestPath` (query string excluded by the caller).
+ */
+export function verifyPrintToken(token: string, requestPath: string): PrintTokenPayload | null {
+  const payload = verifyPrintTokenSignature(token);
+  if (!payload) return null;
 
   if (payload.path !== requestPath) {
     log.warn('printAuth: path mismatch', { tokenPath: payload.path, requestPath }, 'printAuth');
