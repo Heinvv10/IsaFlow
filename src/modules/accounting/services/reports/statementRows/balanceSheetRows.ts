@@ -5,7 +5,8 @@
  * totals and is the single derived figure in the statement layer.
  */
 import type { BalanceSheetLineItem, BalanceSheetReport } from '@/modules/accounting/types/gl.report.types';
-import type { Comparison, StatementRow } from './statementModel';
+import type { StatementRow } from './statementModel';
+import { priorComparison } from './comparators';
 
 type Polarity = 'asset' | 'claim'; // claim = liability or equity; going down is favourable for a liability
 
@@ -28,9 +29,8 @@ function lines(items: BalanceSheetLineItem[], polarity: Polarity, opts: RowOptio
     const href = opts.detailHref?.(it.accountCode);
     if (href !== undefined) row.href = href;
     if (comparative && it.priorBalance !== undefined) {
-      const prior: Comparison = { value: it.priorBalance, variance: it.variance, variancePct: it.variancePct };
-      if (it.variance !== undefined) prior.favourable = polarity === 'asset' ? it.variance >= 0 : it.variance <= 0;
-      row.prior = prior;
+      row.prior = priorComparison(it.priorBalance, it.variance, it.variancePct,
+        v => (polarity === 'asset' ? v >= 0 : v <= 0));
     }
     return row;
   });

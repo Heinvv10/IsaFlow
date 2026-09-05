@@ -15,6 +15,33 @@ import type { BudgetVsActualLine } from '../budgetVsActualLines';
 import type { AccountTrends } from '../trendRowsService';
 import type { Comparison, StatementRow } from './statementModel';
 
+/**
+ * Build the prior-period comparison for one row.
+ *
+ * A prior of EXACTLY ZERO carries no movement worth printing. The services
+ * hand back `variance = actual` and `variancePct = 0` in that case — divide by
+ * zero has no percentage, so zero is the placeholder — and the grid then draws
+ * a full-width variance bar next to a Δ% of 0.0%, which reads as "no change by
+ * the largest movement on the statement". Both are artefacts of an absent
+ * comparator, not findings about the account, so both are left undefined and
+ * the cells print empty. Same judgement the budget column already makes: a
+ * comparator with nothing behind it prints nothing.
+ *
+ * `favourable` goes with them. A polarity verdict on a movement that is not
+ * shown would colour a figure the reader cannot see.
+ */
+export function priorComparison(
+  value: number,
+  variance: number | undefined,
+  variancePct: number | undefined,
+  favourable: (v: number) => boolean,
+): Comparison {
+  if (value === 0) return { value };
+  const prior: Comparison = { value, variance, variancePct };
+  if (variance !== undefined) prior.favourable = favourable(variance);
+  return prior;
+}
+
 /** Only a coded line row carries an account-level comparator. A section,
  *  subtotal, total or grand row is a band, and no service returns a
  *  per-account figure for one. */

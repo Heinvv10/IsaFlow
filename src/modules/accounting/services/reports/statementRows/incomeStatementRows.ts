@@ -6,7 +6,8 @@
  * operating line on purpose (see incomeStatementService and B75).
  */
 import type { IncomeStatementLineItem, IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
-import type { Comparison, StatementRow } from './statementModel';
+import type { StatementRow } from './statementModel';
+import { priorComparison } from './comparators';
 
 type Polarity = 'income' | 'expense';
 
@@ -17,9 +18,8 @@ function lineRows(items: IncomeStatementLineItem[], polarity: Polarity, comparat
       accountCode: it.accountCode, actual: it.amount,
     };
     if (comparative && it.priorAmount !== undefined) {
-      const prior: Comparison = { value: it.priorAmount, variance: it.variance, variancePct: it.variancePct };
-      if (it.variance !== undefined) prior.favourable = polarity === 'income' ? it.variance >= 0 : it.variance <= 0;
-      row.prior = prior;
+      row.prior = priorComparison(it.priorAmount, it.variance, it.variancePct,
+        v => (polarity === 'income' ? v >= 0 : v <= 0));
     }
     return row;
   });

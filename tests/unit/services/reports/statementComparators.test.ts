@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyTrend, applyBudgetComparator,
+  applyTrend, applyBudgetComparator, priorComparison,
 } from '@/modules/accounting/services/reports/statementRows/comparators';
+import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { buildBudgetVsActualLines } from '@/modules/accounting/services/reports/budgetVsActualLines';
 
@@ -103,5 +104,47 @@ describe('applyBudgetComparator', () => {
   it('does not mutate the rows it was given', () => {
     applyBudgetComparator(ROWS, lines);
     expect(ROWS[1]!.budget).toBeUndefined();
+  });
+});
+
+describe('priorComparison', () => {
+  const fav = (v: number) => v >= 0;
+
+  it('prints no movement and no percentage when the prior is exactly zero', () => {
+    // The services hand back variance = the whole actual and variancePct = 0
+    // when there is nothing to divide by. Rendered, that is a full-width bar
+    // beside a Δ% of 0.0% — two artefacts of an absent comparator, neither a
+    // finding about the account.
+    const c = priorComparison(0, 500_000, 0, fav);
+    expect(c).toEqual({ value: 0 });
+    expect(c.variance).toBeUndefined();
+    expect(c.variancePct).toBeUndefined();
+    expect(c.favourable).toBeUndefined();
+  });
+
+  it('keeps the movement when the prior is a real figure', () => {
+    expect(priorComparison(400_000, 100_000, 25, fav))
+      .toEqual({ value: 400_000, variance: 100_000, variancePct: 25, favourable: true });
+  });
+
+  it('judges polarity from the movement, not from the value', () => {
+    expect(priorComparison(400_000, -100_000, -25, fav).favourable).toBe(false);
+  });
+
+  it('leaves favourable undefined when the service reported no variance', () => {
+    expect(priorComparison(400_000, undefined, undefined, fav).favourable).toBeUndefined();
+  });
+});
+
+describe('the balance-sheet adapter applies the zero-prior rule', () => {
+  it('drops the movement on an account whose prior balance was zero', () => {
+    const report = {
+      assets: [{ accountCode: '1110', accountName: 'Bank', balance: -3_184_600, priorBalance: 0, variance: -3_184_600, variancePct: 0 }],
+      liabilities: [], equity: [],
+      totalAssets: -3_184_600, totalLiabilities: 0, totalEquity: 0,
+    } as unknown as Parameters<typeof toBalanceSheetRows>[0];
+    const { assets } = toBalanceSheetRows(report, { comparative: true });
+    const bank = assets.find(r => r.accountCode === '1110')!;
+    expect(bank.prior).toEqual({ value: 0 });
   });
 });
