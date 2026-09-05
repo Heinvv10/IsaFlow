@@ -82,3 +82,43 @@ export async function p9(id: string) {
   const redirect: string = r.redirect;
   return redirect;
 }
+
+// 10. WS3: a union-registered path must FORCE narrowing. Reading the list field
+//     straight off the union is the shape a POST caller would write, and it
+//     must not compile — that is the whole reason the union is safe to register.
+export async function p10() {
+  const r = await apiJson('/api/accounting/annotations?rowIds=acc:4000&from=a&to=b');
+  // @ts-expect-error the POST arm has no `annotations`; the caller must narrow first
+  return r.annotations;
+}
+
+// 11. ...and narrowing must reach the real service type on both arms.
+export async function p11() {
+  const r = await apiJson('/api/accounting/annotations?rowIds=acc:4000&from=a&to=b');
+  if ('annotations' in r) return r.annotations[0]?.rowId;
+  return r.annotation.rowId;
+}
+
+// 12. The share-link POST arm carries the raw token; the GET arm cannot. A
+//     caller that reads `token` without narrowing is the leak-shaped mistake.
+export async function p12() {
+  const r = await apiJson('/api/accounting/share/links', { method: 'POST' });
+  // @ts-expect-error the GET arm has no `token` — narrow before reading it
+  return r.token;
+}
+
+// 13. WS3 dynamic routes resolve through a template literal, one segment only.
+export async function p13(id: string) {
+  const r = await apiJson(`/api/accounting/annotations/${id}/resolve`, { method: 'POST' });
+  const resolved: boolean = r.resolved;
+  // @ts-expect-error resolve answers a boolean and nothing else
+  return [resolved, r.annotation];
+}
+
+// 14. The commentary verbs infer the service's own row type, so a snake_case
+//     guess at its fields is a compile error rather than a silent undefined.
+export async function p14(id: string) {
+  const r = await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' });
+  // @ts-expect-error the row is camelCase `approvedText`, never `approved_text`
+  return [r.commentary.approvedText, r.commentary.approved_text];
+}

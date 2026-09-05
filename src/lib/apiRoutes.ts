@@ -38,6 +38,9 @@ import type { Currency } from '@/modules/accounting/services/core/currencyServic
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
+import type { createShareLink, listShareLinks } from '@/modules/accounting/services/share/shareLinkService';
+import type { CommentaryRow, generateDrafts, listCommentary } from '@/modules/accounting/services/commentary/commentaryService';
+import type { createAnnotation, listAnnotations } from '@/modules/accounting/services/annotations/annotationService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -48,12 +51,33 @@ import type { findVatAllocationMismatches } from '@/modules/accounting/services/
  * do NOT register the shared path — split the handler onto its own path, or
  * the second method silently inherits the first one's type and you have
  * recreated the confirmed-but-wrong guess this registry exists to prevent.
+ *
+ * A UNION is the second way out, and the one the WS3 routes below take. Where
+ * a path's GET and POST genuinely return different payloads, registering the
+ * union of both is safe for the same reason a single type is: no method
+ * inherits another's shape. What it costs the caller is a narrowing step —
+ * `'links' in r` — which TypeScript enforces, so a POST caller reading
+ * `r.links` is a compile error rather than an undefined at runtime. Splitting
+ * the handler onto its own path remains the better fix where the two payloads
+ * have nothing to do with each other; a union is right when they are the list
+ * and the item of one resource.
  */
 interface StaticRoutes {
   '/api/accounting/currencies': Currency[];
   '/api/accounting/migration/session': { session: MigrationSession | null };
   '/api/accounting/reports-vat-return': Awaited<ReturnType<typeof getVATReturn>>;
   '/api/accounting/vat-allocation-mismatches': Awaited<ReturnType<typeof findVatAllocationMismatches>>;
+  // WS3. `token` and `url` exist on the POST response and nowhere else — the
+  // raw token is never returned again, so no GET can carry it.
+  '/api/accounting/share/links':
+    | { links: Awaited<ReturnType<typeof listShareLinks>> }
+    | { link: Awaited<ReturnType<typeof createShareLink>>['link']; token: string; url: string };
+  '/api/accounting/commentary':
+    | { commentary: Awaited<ReturnType<typeof listCommentary>> }
+    | Awaited<ReturnType<typeof generateDrafts>>;
+  '/api/accounting/annotations':
+    | { annotations: Awaited<ReturnType<typeof listAnnotations>> }
+    | { annotation: Awaited<ReturnType<typeof createAnnotation>> };
 }
 
 /**
@@ -68,6 +92,13 @@ interface StaticRoutes {
  */
 interface DynamicRoutes {
   '/api/admin/users/{}/impersonate': { redirect: string };
+  // WS3. Each of these serves POST only, so each has one payload and needs no
+  // union. The two commentary verbs return the same row shape by design: an
+  // approval and a rejection differ in `status`, not in envelope.
+  '/api/accounting/share/links/{}/revoke': { revoked: true };
+  '/api/accounting/commentary/{}/approve': { commentary: CommentaryRow };
+  '/api/accounting/commentary/{}/reject': { commentary: CommentaryRow };
+  '/api/accounting/annotations/{}/resolve': { resolved: true };
 }
 
 export type ApiRouteMap = StaticRoutes & DynamicRoutes;
