@@ -229,6 +229,7 @@ function mapByPastelCodeRange(code: string): { type: GLAccountType; normalBalanc
   const digits = code.replace(/\D/g, '');
   if (!digits) return null;
   switch (digits[0]) {
+    case '0':
     case '1': return { type: 'asset',     normalBalance: 'debit'  };
     case '2': return { type: 'liability', normalBalance: 'credit' };
     case '3': return { type: 'equity',    normalBalance: 'credit' };

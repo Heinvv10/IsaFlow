@@ -91,6 +91,12 @@ describe('chart templates', () => {
         .filter(l => (l.type === 'revenue' || l.type === 'expense') && !l.subtype)
         .map(l => `${template}:${l.code}`);
       expect(bare).toEqual([]);
+      // A reserved subtype belongs to the system row auto-posting resolves;
+      // seeding it on a plain row is state the app's own gate refuses to write.
+      const reservedOnPlainRows = getTemplateLines(template)
+        .filter(l => !l.isSystem && l.subtype && SYSTEM_RESERVED_SUBTYPES.includes(l.subtype as never))
+        .map(l => `${template}:${l.code}`);
+      expect(reservedOnPlainRows).toEqual([]);
     }
   });
 });
