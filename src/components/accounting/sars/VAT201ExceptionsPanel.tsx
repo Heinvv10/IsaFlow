@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Loader2, ShieldAlert } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import type { VatExceptionsReport } from '@/modules/accounting/services/reports/vatExceptionsTypes';
+import VatNonSupplySection from './VatNonSupplySection';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
@@ -227,6 +228,14 @@ export function VAT201ExceptionsPanel({ from, to, reloadKey, onLoaded }: Props) 
                 ))}
               </tbody>
             </table>
+          </Section>
+
+          <Section
+            title="VAT where no supply can arise"
+            count={report.vatNonSupplyCount}
+            listed={report.vatNonSupplyLines.length}
+          >
+            <VatNonSupplySection lines={report.vatNonSupplyLines} />
           </Section>
 
           <Section title="Invoices with tax-code issues" count={report.invoiceTaxCodeIssueCount} listed={report.invoiceTaxCodeIssues.length}>

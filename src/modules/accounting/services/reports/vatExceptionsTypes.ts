@@ -65,6 +65,49 @@ export interface VatOnBalanceSheetLine {
   amount: number;
 }
 
+/**
+ * Why an account can never carry VAT. Ordered patterns and the reasoning for
+ * each category live in vatNonSupplyExceptions.ts.
+ */
+export type NonSupplyReason =
+  | 'employment_cost'
+  | 'tax_or_penalty'
+  | 'distribution'
+  | 'depreciation'
+  | 'donation'
+  | 'financial_service';
+
+/**
+ * A posted line claiming VAT against an account on which no supply can arise.
+ * Distinct from VatOnBalanceSheetLine: that rule is about which side of the
+ * statements the contra leg sits on, this one about whether a supply happened.
+ */
+export interface VatNonSupplyLine {
+  journalEntryId: string;
+  entryNumber: string;
+  entryDate: string;
+  accountCode: string;
+  accountName: string;
+  /** Carried so the reader can see WHY it was flagged, not just that it was. */
+  reason: NonSupplyReason | null;
+  vatType: string;
+  description: string;
+  /** The flagged line's own movement — the expense or asset, NOT the tax. */
+  amount: number;
+  /**
+   * VAT-control movement of the whole journal entry this line belongs to.
+   * This is the number at risk: the flagged line carries the contra leg, so
+   * `amount` shows R2 669 254,37 of salary where the defect is the
+   * R400 388,14 of input tax beside it. Journal-level, so it repeats across
+   * rows sharing a journal rather than pretending to split.
+   *
+   * NULL when no VAT leg could be identified — the tax may sit on a control
+   * account with a NULL subtype, as Velocity's `SYS-9 VAT Payable` does. Not
+   * the same fact as 0,00, and the UI must not render it as one.
+   */
+  journalVat: number | null;
+}
+
 export interface VatControlRecon {
   outputVat201: number;
   outputGl: number;
@@ -92,6 +135,8 @@ export interface VatExceptionsReport {
   invoiceGlMismatchCount: number;
   vatOnBalanceSheetLines: VatOnBalanceSheetLine[];
   vatOnBalanceSheetCount: number;
+  vatNonSupplyLines: VatNonSupplyLine[];
+  vatNonSupplyCount: number;
   controlRecon: VatControlRecon;
   totalExceptions: number;
   /** True when generateVAT201 ran on missing sources — recon totals untrustworthy. */

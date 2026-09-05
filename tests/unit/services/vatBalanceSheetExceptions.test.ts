@@ -30,6 +30,7 @@ import {
   BALANCE_SHEET_TYPES,
   VAT_LEGITIMATE_BALANCE_SHEET_SUBTYPES,
   isVatOnBalanceSheetException,
+  isVatOnBalanceSheetReportException,
   mapVatOnBalanceSheetLine,
 } from '@/modules/accounting/services/reports/vatBalanceSheetExceptions';
 
@@ -37,7 +38,50 @@ const line = (
   accountType: string,
   accountSubtype: string | null,
   vatType: string | null = 'standard',
-) => ({ accountType, accountSubtype, vatType });
+  accountName = 'Bank - Primary',
+) => ({ accountName, accountType, accountSubtype, vatType });
+
+describe('isVatOnBalanceSheetReportException — the partition with the non-supply rule', () => {
+  // A line can satisfy both rules. Counting it twice inflates totalExceptions,
+  // which evaluateEfilingGate reads. The non-supply rule owns the overlap
+  // because its reason is the more useful one.
+  it('yields a salary-named liability to the non-supply rule', () => {
+    expect(isVatOnBalanceSheetReportException(
+      line('liability', 'payroll_liability', 'standard', 'Net Salaries Payable'),
+    )).toBe(false);
+  });
+
+  it('yields a loan account to the non-supply rule', () => {
+    expect(isVatOnBalanceSheetReportException(
+      line('liability', 'long_term_liability', 'standard', 'Long-term Loans'),
+    )).toBe(false);
+  });
+
+  it('still flags an exempt-coded line on such an account — the other rule ignores those', () => {
+    // Scoping the yield to a claiming vat_type is what stops this row from
+    // vanishing from BOTH sections.
+    expect(isVatOnBalanceSheetReportException(
+      line('liability', 'payroll_liability', 'exempt', 'Net Salaries Payable'),
+    )).toBe(true);
+  });
+
+  it('keeps flagging a balance-sheet account whose name is a real supply', () => {
+    expect(isVatOnBalanceSheetReportException(
+      line('asset', 'bank', 'standard', 'Bank - Primary'),
+    )).toBe(true);
+  });
+});
+
+describe('isVatOnBalanceSheetException stays partition-blind for vatBoxBasis', () => {
+  // vatBoxBasis calls the BASE predicate to mark a line `unmapped` instead of
+  // taxable `base`. If it yielded to the non-supply rule, a VAT-coded
+  // Net Salaries Payable line would land in the box 1/15 taxable base.
+  it('still flags a salary-named liability, unlike the report predicate', () => {
+    const l = line('liability', 'payroll_liability', 'standard', 'Net Salaries Payable');
+    expect(isVatOnBalanceSheetException(l)).toBe(true);
+    expect(isVatOnBalanceSheetReportException(l)).toBe(false);
+  });
+});
 
 describe('isVatOnBalanceSheetException — what gets flagged', () => {
   it('flags VAT coded against a bank account', () => {

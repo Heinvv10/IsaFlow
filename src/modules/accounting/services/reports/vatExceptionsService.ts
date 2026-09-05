@@ -18,6 +18,10 @@ import {
   mapVatOnBalanceSheetLine,
 } from './vatBalanceSheetExceptions';
 import { findVatControlMovement } from './vatControlMovement';
+import {
+  findVatNonSupplyLines,
+  mapVatNonSupplyLine,
+} from './vatNonSupplyExceptions';
 import type { VatControlRecon, VatExceptionsReport } from './vatExceptionsTypes';
 
 export type {
@@ -32,7 +36,7 @@ const CENT = 0.005;
 
 /**
  * Build the VAT exceptions report for a period.
- * Runs 8 scoped queries plus the invoice-based VAT201 (single source of truth
+ * Runs 9 scoped queries plus the invoice-based VAT201 (single source of truth
  * for box totals so the recon matches what the VAT201 page displays).
  */
 export async function getVatExceptions(
@@ -44,7 +48,7 @@ export async function getVatExceptions(
 
   const [
     uncoded, ciTaxIssues, siTaxIssues, ciMismatches, siMismatches, glControl, unposted,
-    balanceSheetVat, vat201,
+    balanceSheetVat, nonSupplyVat, vat201,
   ] =
     await Promise.all([
       // 1. Posted GL lines on VAT control accounts with no vat_type coding.
@@ -210,11 +214,17 @@ export async function getVatExceptions(
       // reason to carry it. Appended LAST so the existing seven keep their
       // positions — the test helper queues results by index.
       findVatOnBalanceSheetLines(companyId, periodStart, periodEnd),
+      // 9. VAT claimed against an account on which no supply can arise —
+      // salaries, statutory deductions, taxes, distributions, depreciation,
+      // donations, exempt financial services. Appended after 8 for the same
+      // reason 8 was appended after 7: the test helper queues by index.
+      findVatNonSupplyLines(companyId, periodStart, periodEnd),
       generateVAT201(companyId, periodStart, periodEnd),
     ]);
 
   const uncodedGlLines = uncoded.map(mapUncodedLine);
   const vatOnBalanceSheetLines = balanceSheetVat.map(mapVatOnBalanceSheetLine);
+  const vatNonSupplyLines = nonSupplyVat.map(mapVatNonSupplyLine);
 
   const invoiceTaxCodeIssues = [
     ...ciTaxIssues.map(mapTaxIssue('customer')),
@@ -251,6 +261,7 @@ export async function getVatExceptions(
   const invoiceTaxCodeIssueCount = totalCount(ciTaxIssues) + totalCount(siTaxIssues);
   const invoiceGlMismatchCount = totalCount(ciMismatches) + totalCount(siMismatches);
   const vatOnBalanceSheetCount = totalCount(balanceSheetVat);
+  const vatNonSupplyCount = totalCount(nonSupplyVat);
   const reconExceptions =
     (Math.abs(controlRecon.outputVariance) > CENT ? 1 : 0) +
     (Math.abs(controlRecon.inputVariance) > CENT ? 1 : 0);
@@ -266,10 +277,12 @@ export async function getVatExceptions(
     invoiceGlMismatchCount,
     vatOnBalanceSheetLines,
     vatOnBalanceSheetCount,
+    vatNonSupplyLines,
+    vatNonSupplyCount,
     controlRecon,
     totalExceptions:
       uncodedGlLineCount + invoiceTaxCodeIssueCount + invoiceGlMismatchCount
-      + vatOnBalanceSheetCount + reconExceptions,
+      + vatOnBalanceSheetCount + vatNonSupplyCount + reconExceptions,
     degradedData: vat201.degradedSources.length > 0,
     degradedSources: vat201.degradedSources,
   };
