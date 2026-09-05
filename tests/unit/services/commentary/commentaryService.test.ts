@@ -220,6 +220,41 @@ describe('generateDrafts', () => {
     );
   });
 
+  it('does not revive a rejected sentence on a plain generate', async () => {
+    sqlMock.mockResolvedValueOnce([dbRow({ status: 'rejected' })]);
+    sqlMock.mockResolvedValue([{ id: ID }]);
+
+    const result = await generateDrafts({ companyId: COMPANY, userId: 'user-1', params: PARAMS, data: DATA });
+
+    expect(result.skipped).toContain('income_statement:revenue');
+    const written = sqlMock.mock.calls.slice(1).map(c => (c.slice(1) as unknown[]));
+    expect(written.some(v => v.includes('revenue'))).toBe(false);
+  });
+
+  it('revives a rejected sentence only when replace was asked for', async () => {
+    sqlMock.mockResolvedValueOnce([dbRow({ status: 'rejected' })]);
+    sqlMock.mockResolvedValue([{ id: ID }]);
+
+    const result = await generateDrafts({ companyId: COMPANY, userId: 'user-1', params: PARAMS, data: DATA, replace: true });
+
+    expect(result.skipped).toEqual([]);
+    const written = sqlMock.mock.calls.slice(1).map(c => (c.slice(1) as unknown[]));
+    expect(written.some(v => v.includes('revenue'))).toBe(true);
+  });
+
+  it('guards the write on the row being a draft, not merely on it not being approved', async () => {
+    sqlMock.mockResolvedValueOnce([]);
+    sqlMock.mockResolvedValue([{ id: ID }]);
+    await generateDrafts({ companyId: COMPANY, userId: 'user-1', params: PARAMS, data: DATA });
+
+    const stmt = text(1);
+    expect(stmt).toContain("report_commentary.status = 'draft'");
+    expect(stmt).not.toContain("report_commentary.status <> 'approved'");
+    // Withdrawal is decided by the row's state at write time, so a row approved
+    // inside the read-to-write window cannot keep approved_text it never re-earned.
+    expect(stmt).toContain("CASE WHEN report_commentary.status = 'approved' THEN NULL");
+  });
+
   it('counts a row the ON CONFLICT guard refused as skipped, not written', async () => {
     sqlMock.mockResolvedValueOnce([]); // nothing when we read
     sqlMock.mockResolvedValue([]);     // every write matched no row (raced to approved)

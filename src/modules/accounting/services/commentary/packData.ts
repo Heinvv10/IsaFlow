@@ -13,6 +13,7 @@ import {
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { priorPeriod } from '@/modules/accounting/services/reports/priorPeriod';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
+import type { CommentaryPackData } from './commentaryDraft';
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
 
 type IncomeStatement = ManagementPackData['incomeStatement'];
@@ -42,7 +43,7 @@ async function companyName(companyId: string): Promise<string> {
 
 export async function buildManagementPackData(
   companyId: string, params: SharePackParams,
-): Promise<ManagementPackData> {
+): Promise<CommentaryPackData> {
   const prior = priorPeriod(params.from, params.to);
   const [figures, priorFigures, name] = await Promise.all([
     getFinancialFigures(companyId, params.from, params.to),
@@ -63,10 +64,12 @@ export async function buildManagementPackData(
       totalLiabilities: cumulative.totalLiabilities,
       equity: totalEquity(figures),
       currentRatio: ratios.currentRatio,
-      // null means equity is zero or negative, where the ratio is arithmetically
-      // meaningless. Zero suppresses the leverage sentence rather than inventing
-      // a reassuring one; the balance sheet itself still shows the equity.
-      debtEquityRatio: ratios.debtToEquity ?? 0,
+      // NOT `?? 0`. Null means equity is zero or negative and the ratio has no
+      // arithmetic meaning; a 0 here would read as "no gearing" for an
+      // insolvent company. The draft builder turns the null into an explicit
+      // sentence instead, using the reason carried alongside it.
+      debtEquityRatio: ratios.debtToEquity,
+      debtEquityUnavailableReason: ratios.notMeaningful.debtToEquity,
     },
     priorPeriod: hasActivity(priorIs) ? priorIs : undefined,
     ratios: {

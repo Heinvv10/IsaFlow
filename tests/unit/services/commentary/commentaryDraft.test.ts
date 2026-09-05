@@ -12,6 +12,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildDraftSentences } from '@/modules/accounting/services/commentary/commentaryDraft';
+import type { CommentaryPackData } from '@/modules/accounting/services/commentary/commentaryDraft';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 
 const data: ManagementPackData = {
@@ -48,5 +49,61 @@ describe('buildDraftSentences', () => {
     expect(s.every(x => x.text.trim().length > 0)).toBe(true);
     const keys = s.map(x => `${x.sectionRef}:${x.rowRef}`);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe('leverage disclosure', () => {
+  it('says so explicitly when equity is negative, instead of falling silent', () => {
+    const insolvent: CommentaryPackData = {
+      ...data,
+      balanceSheet: {
+        totalAssets: 500_000, totalLiabilities: 900_000, equity: -400_000,
+        currentRatio: 0.4,
+        // The ratio does not exist: dividing by negative equity inverts the ranking.
+        debtEquityRatio: null,
+        debtEquityUnavailableReason:
+          'Equity is negative — liabilities exceed assets, so this ratio inverts and cannot be ranked.',
+      },
+    };
+    const s = buildDraftSentences(insolvent);
+    const equityRow = s.find(x => x.sectionRef === 'balance_sheet' && x.rowRef === 'equity');
+
+    expect(equityRow).toBeDefined();
+    expect(equityRow!.text).toContain('Equity is negative');
+    // The 0 handed to assessRiskAreas silences its branch; it must never surface
+    // as a printed figure.
+    expect(s.every(x => !x.text.includes('Debt-to-equity 0.00'))).toBe(true);
+  });
+
+  it('falls back to the reporting engine wording when no reason travelled with the null', () => {
+    const zeroEquity: CommentaryPackData = {
+      ...data,
+      balanceSheet: { ...data.balanceSheet, equity: 0, debtEquityRatio: null },
+    };
+    const equityRow = buildDraftSentences(zeroEquity)
+      .find(x => x.sectionRef === 'balance_sheet' && x.rowRef === 'equity');
+
+    expect(equityRow!.text).toContain('no equity to divide by');
+  });
+
+  it('emits no equity sentence when the ratio exists', () => {
+    const s = buildDraftSentences(data);
+    expect(s.some(x => x.rowRef === 'equity')).toBe(false);
+  });
+
+  it('reports the worst gearing as a crisis, not merely a risk', () => {
+    const geared: CommentaryPackData = {
+      ...data,
+      balanceSheet: { ...data.balanceSheet, debtEquityRatio: 4.2 },
+    };
+    const texts = buildDraftSentences(geared).map(x => x.text);
+    expect(texts.some(t => t.includes('exceeds 3.0'))).toBe(true);
+    expect(texts.some(t => t.includes('exceeds 2.0'))).toBe(false);
+
+    const moderate: CommentaryPackData = {
+      ...data,
+      balanceSheet: { ...data.balanceSheet, debtEquityRatio: 2.5 },
+    };
+    expect(buildDraftSentences(moderate).map(x => x.text).some(t => t.includes('exceeds 2.0'))).toBe(true);
   });
 });

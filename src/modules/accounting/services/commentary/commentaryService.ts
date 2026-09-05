@@ -13,8 +13,7 @@
 import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { nextStatus, type CommentaryStatus } from './commentaryState';
-import { buildDraftSentences } from './commentaryDraft';
-import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
+import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
 import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/share/shareParams';
 
 export interface CommentaryRow {
@@ -60,11 +59,13 @@ export async function listCommentary(companyId: string, params: SharePackParams)
   return rows.map(toRow);
 }
 
-/** Upserts one draft per sentence. `replace` maps to the regenerate action and
- *  is the ONLY way an approved row is re-drafted; without it an approved row is
- *  left exactly as it stands and reported in `skipped`. */
+/** Upserts one draft per sentence. `replace` is the ONLY way a row a person
+ *  already ruled on is re-drafted: an approved row has its approval withdrawn,
+ *  a rejected one is revived. Without it both are left exactly as they stand
+ *  and reported in `skipped` — a discarded sentence does not come back merely
+ *  because somebody pressed Generate again. */
 export async function generateDrafts(input: {
-  companyId: string; userId: string; params: SharePackParams; data: ManagementPackData; replace?: boolean;
+  companyId: string; userId: string; params: SharePackParams; data: CommentaryPackData; replace?: boolean;
 }): Promise<{ written: number; skipped: string[] }> {
   const hash = canonicalParamsHash(input.params);
   const existing = new Map(
@@ -74,16 +75,28 @@ export async function generateDrafts(input: {
   let written = 0;
   const skipped: string[] = [];
 
+  // The one flag both overwrite cases share, and the one the SQL guard reads.
+  const overwrite = input.replace === true;
+
   for (const s of buildDraftSentences(input.data)) {
     const key = `${s.sectionRef}:${s.rowRef}`;
     const current = existing.get(key) ?? null;
-    const t = nextStatus(current, current === 'approved' && input.replace ? 'regenerate' : 'generate');
+    // `nextStatus` permits rejected -> draft, because that transition is legal.
+    // Whether it happens without anybody asking for it is this function's call,
+    // and the answer is no: a rejection is a person's decision, and undoing it
+    // takes the same explicit intent as withdrawing an approval.
+    if (current === 'rejected' && !overwrite) { skipped.push(key); continue; }
+    const t = nextStatus(current, current === 'approved' && overwrite ? 'regenerate' : 'generate');
     if (!t.ok) { skipped.push(key); continue; }
 
-    // The DO UPDATE ... WHERE repeats the state-machine decision at the write.
-    // Between the read above and this statement another session can approve the
-    // row; without the guard this upsert would quietly demote that approval to
-    // a draft nobody withdrew.
+    // The DO UPDATE ... WHERE repeats the decision at the write. Between the
+    // read above and this statement another session can approve or reject the
+    // row; without the guard this upsert would quietly demote that approval, or
+    // undo that rejection, with nobody having asked for either.
+    //
+    // The approval columns are cleared on the row's ACTUAL state at write time
+    // rather than on the read-time flag, so a row approved inside that window
+    // cannot end up carrying approved_text it never re-earned.
     const rows = (await sql`
       INSERT INTO report_commentary
         (company_id, report_kind, params_hash, period_start, period_end,
@@ -95,12 +108,12 @@ export async function generateDrafts(input: {
       DO UPDATE SET
         draft_text = EXCLUDED.draft_text,
         status = 'draft',
-        approved_text = CASE WHEN ${t.clearsApproval}::boolean THEN NULL ELSE report_commentary.approved_text END,
-        approved_by = CASE WHEN ${t.clearsApproval}::boolean THEN NULL ELSE report_commentary.approved_by END,
-        approved_at = CASE WHEN ${t.clearsApproval}::boolean THEN NULL ELSE report_commentary.approved_at END,
+        approved_text = CASE WHEN report_commentary.status = 'approved' THEN NULL ELSE report_commentary.approved_text END,
+        approved_by = CASE WHEN report_commentary.status = 'approved' THEN NULL ELSE report_commentary.approved_by END,
+        approved_at = CASE WHEN report_commentary.status = 'approved' THEN NULL ELSE report_commentary.approved_at END,
         generated_by = EXCLUDED.generated_by,
         updated_at = NOW()
-      WHERE report_commentary.status <> 'approved' OR ${t.clearsApproval}::boolean
+      WHERE report_commentary.status = 'draft' OR ${overwrite}::boolean
       RETURNING id
     `) as DbRow[];
 

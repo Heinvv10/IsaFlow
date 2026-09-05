@@ -18,8 +18,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const result = await rejectCommentary(companyId, id, user.id);
   if (!result.ok) {
+    // `rejectCommentary` returns not_found or invalid_state only — an empty
+    // draft is still a draft, and discarding one is exactly what reject is for.
     if (result.code === 'not_found') return apiResponse.notFound(res, 'Commentary');
-    if (result.code === 'empty_draft') return apiResponse.badRequest(res, result.reason);
     return apiResponse.conflict(res, result.reason);
   }
   return apiResponse.success(res, { commentary: result.row });
