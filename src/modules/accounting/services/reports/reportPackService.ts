@@ -7,6 +7,7 @@
 import { calculateExtendedRatios, type FinancialData } from './reportingEngineService';
 import { buildKPIScorecard, type KPITargetConfig } from './kpiScorecardService';
 import { buildProfitWaterfall } from './waterfallDataService';
+import { marginPct2dp } from './marginPct';
 
 export interface ReportPackInput {
   companyName: string;
@@ -123,8 +124,10 @@ function buildSectionData(
         operatingProfit,
         otherExpenses,
         netProfit: input.netProfit,
-        grossMargin: input.revenue > 0 ? Math.round((grossProfit / input.revenue) * 10000) / 100 : 0,
-        netMargin: input.revenue > 0 ? Math.round((input.netProfit / input.revenue) * 10000) / 100 : 0,
+        // `?? 0` here, not in marginPct: the pack has always printed 0.00%
+        // on no turnover and this change must not move a single figure.
+        grossMargin: marginPct2dp(grossProfit, input.revenue) ?? 0,
+        netMargin: marginPct2dp(input.netProfit, input.revenue) ?? 0,
       };
     }
 

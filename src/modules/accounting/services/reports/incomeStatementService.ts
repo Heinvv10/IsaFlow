@@ -15,6 +15,7 @@ import {
   buildIncomeStatementSubtypeDisclosure,
   type DisclosureInputRow,
 } from './incomeStatementDisclosure';
+import { marginPct } from './marginPct';
 
 
 interface ReportLineItem {
@@ -126,8 +127,8 @@ async function fetchIncomeStatementRows(
   // built, and a component deriving its own version hides that from every
   // other surface. Null rather than 0 when there is no turnover — a margin on
   // no revenue is undefined, not zero.
-  const grossMarginPct = totalRevenue !== 0 ? (grossProfit / totalRevenue) * 100 : null;
-  const netMarginPct = totalRevenue !== 0 ? (netProfit / totalRevenue) * 100 : null;
+  const grossMarginPct = marginPct(grossProfit, totalRevenue);
+  const netMarginPct = marginPct(netProfit, totalRevenue);
 
   return {
     revenue, otherIncome, costOfSales, operatingExpenses, otherExpenses,

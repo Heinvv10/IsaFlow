@@ -3,6 +3,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { KpiResult, KpiScorecard, FinancialSnapshot, RagThresholds } from './afsTypes';
+import { marginPct } from '../reports/marginPct';
 
 export type { FinancialSnapshot, RagThresholds };
 
@@ -102,9 +103,11 @@ export function calculateKpis(
     currentLiabilities, inventory, tradeReceivables, tradePayables,
     totalDebt, totalEquity, openingCash, closingCash, daysInPeriod } = current;
 
-  const grossMarginPct     = revenue === 0 ? 0 : safeDiv(grossProfit, revenue) * 100;
-  const ebitdaMarginPct    = revenue === 0 ? 0 : safeDiv(ebitda, revenue) * 100;
-  const netProfitMarginPct = revenue === 0 ? 0 : safeDiv(netProfit, revenue) * 100;
+  // `?? 0` at the call site: these KPIs have always reported 0 on no revenue
+  // and the RAG bands are calibrated on that.
+  const grossMarginPct     = marginPct(grossProfit, revenue) ?? 0;
+  const ebitdaMarginPct    = marginPct(ebitda, revenue) ?? 0;
+  const netProfitMarginPct = marginPct(netProfit, revenue) ?? 0;
   const currentRatio       = safeDiv(currentAssets, currentLiabilities);
   const quickRatio         = safeDiv(currentAssets - inventory, currentLiabilities);
   const debtorDays         = revenue === 0 ? 0 : safeDiv(tradeReceivables, revenue) * daysInPeriod;
