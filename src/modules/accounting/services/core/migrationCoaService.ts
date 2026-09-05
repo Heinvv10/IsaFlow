@@ -122,7 +122,10 @@ export async function importChartOfAccounts(
 
       const subtypeEntry = Object.entries(systemAccountMap).find(([, code]) => code === acct.accountCode);
       const isSystem = subtypeEntry != null;
-      let accountSubtype = subtypeEntry ? subtypeEntry[0] : (acct.accountSubtype ?? null);
+      // What the row itself said. Stays NULL when it said nothing, so that a
+      // re-import never overwrites a classification someone made by hand.
+      const explicitSubtype = subtypeEntry ? subtypeEntry[0] : (acct.accountSubtype || null);
+      let accountSubtype = explicitSubtype;
       // A revenue/expense row with no subtype is imported under the type's
       // default and SAID SO, rather than skipped: the alternative strands
       // every income-statement code the opening balances reference.
@@ -131,7 +134,7 @@ export async function importChartOfAccounts(
         if (fallback) {
           accountSubtype = fallback;
           errors.push({ step: 'coa', row: i, field: 'accountSubtype',
-            message: `No subtype given; imported as ${fallback}. Reclassify cost-of-sales accounts before reporting.` });
+            message: `No subtype given; imported as ${fallback} (an existing classification is kept). Reclassify cost-of-sales accounts before reporting.` });
         }
       }
       // A row's own subtype goes through the same gate as every other write
@@ -168,7 +171,7 @@ export async function importChartOfAccounts(
         ON CONFLICT (company_id, account_code) DO UPDATE SET
           account_name      = EXCLUDED.account_name,
           account_type      = EXCLUDED.account_type,
-          account_subtype   = COALESCE(EXCLUDED.account_subtype, gl_accounts.account_subtype),
+          account_subtype   = COALESCE(${explicitSubtype}, gl_accounts.account_subtype, EXCLUDED.account_subtype),
           normal_balance    = EXCLUDED.normal_balance,
           description       = COALESCE(EXCLUDED.description, gl_accounts.description),
           is_system_account = EXCLUDED.is_system_account OR gl_accounts.is_system_account

@@ -23,9 +23,12 @@
 --   ('COS' prefix or a Sage EX2xxx code in the name), so a re-import and this
 --   backfill give one answer.
 --
--- Post-conditions RAISE EXCEPTION (rolling the block back) if any Velocity
--- account named as cost of sales is banded otherwise, or if any non-system
--- revenue/expense row on the three tenants is still NULL.
+-- Post-conditions: RAISE EXCEPTION (rolling the block back) if any non-system
+-- revenue/expense row on the three tenants is still NULL — the state this
+-- file is responsible for. A Velocity cost-of-sales-named account carrying
+-- some OTHER subtype is only a WARNING: this migration never touches a
+-- non-NULL row, so a hand reclassification made before the deploy must not
+-- abort it.
 --
 -- Creation and edit paths gained missingSubtypeError in the same PR, so no
 -- non-system revenue/expense row can be written or cleared to NULL after this.
@@ -80,13 +83,13 @@ BEGIN
 
   RAISE NOTICE 'Migration 608: % revenue/expense accounts subtyped', v_total;
 
-  -- Post-conditions. Both hold on a re-run, so idempotency is preserved.
+  -- Post-conditions. Both hold on a re-run and after a hand reclassification.
   SELECT count(*) INTO v_bad FROM gl_accounts
    WHERE company_id = v_velocity AND is_system_account = false AND account_type = 'expense'
      AND (account_name ~* '^COS\M' OR account_name ~* '\mEX2\d{3}\M')
      AND account_subtype IS DISTINCT FROM 'cost_of_sales';
   IF v_bad > 0 THEN
-    RAISE EXCEPTION 'Migration 608: % Velocity cost-of-sales accounts not banded cost_of_sales', v_bad;
+    RAISE WARNING 'Migration 608: % Velocity cost-of-sales-named accounts carry another subtype (left as found)', v_bad;
   END IF;
 
   SELECT count(*) INTO v_bad FROM gl_accounts

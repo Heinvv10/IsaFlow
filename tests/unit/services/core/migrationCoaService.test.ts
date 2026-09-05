@@ -115,4 +115,20 @@ describe('importChartOfAccounts — income-statement rows never land with a NULL
     // A balance-sheet row without a subtype is still NULL — the default is income-statement only.
     expect(inserts.find((c) => c[2] === '1110')).toContain('bank');
   });
+
+  it('a re-import keeps a hand-made classification: the default never reaches ON CONFLICT', async () => {
+    const rows = [acct('5900', 'expense'), acct('5910', 'expense', { accountSubtype: 'cost_of_sales' })];
+    await importChartOfAccounts(CO, 'sess', [...ACCOUNTS, ...rows], MAP);
+    const upserts = mockSql.mock.calls
+      .filter((c) => (c[0] as TemplateStringsArray).join('').includes('INSERT INTO gl_accounts'))
+      .map((c) => ({ text: (c[0] as TemplateStringsArray).join('?'), params: c.slice(1) }));
+    for (const u of upserts) {
+      // explicit value → existing → default, in that order.
+      expect(u.text).toContain('account_subtype   = COALESCE(?, gl_accounts.account_subtype, EXCLUDED.account_subtype)');
+    }
+    const conflictParam = (u: { text: string; params: unknown[] }) =>
+      u.params[u.text.slice(0, u.text.indexOf('COALESCE(?, gl_accounts.account_subtype')).split('?').length - 1];
+    expect(conflictParam(upserts.find((u) => u.params[1] === '5900')!)).toBeNull();
+    expect(conflictParam(upserts.find((u) => u.params[1] === '5910')!)).toBe('cost_of_sales');
+  });
 });

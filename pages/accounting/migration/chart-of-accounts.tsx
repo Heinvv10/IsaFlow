@@ -3,6 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, Upload, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { CoaImportResult, type CoaImportSummary } from '@/components/accounting/migration/CoaImportResult';
 
 const COA_FIELDS = ['account_code', 'account_name', 'account_type', 'account_subtype', 'normal_balance', 'parent_code', 'description'] as const;
 type CoaField = typeof COA_FIELDS[number];
@@ -39,7 +40,7 @@ export default function ChartOfAccountsPage() {
   const [fieldMapping, setFieldMapping] = useState<FieldMapping>({});
   const [systemMap, setSystemMap] = useState<SystemAccountMap>({});
   const [isImporting, setIsImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ succeeded: number; failed: number } | null>(null);
+  const [importResult, setImportResult] = useState<CoaImportSummary | null>(null);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -170,12 +171,7 @@ export default function ChartOfAccountsPage() {
           </div>
         )}
 
-        {importResult && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-teal-500/10 text-teal-400 text-sm mb-4">
-            <CheckCircle2 className="h-4 w-4" />
-            Imported {importResult.succeeded} accounts{importResult.failed > 0 ? `, ${importResult.failed} failed` : ''}.
-          </div>
-        )}
+        {importResult && <CoaImportResult result={importResult} />}
 
         <div className="space-y-6">
           {/* Download template */}

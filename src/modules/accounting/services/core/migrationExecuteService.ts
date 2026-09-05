@@ -8,7 +8,7 @@ import { log } from '@/lib/logger';
 import { postOpeningBalances } from './migrationOpeningBalanceService';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
-import { missingSubtypeError } from '../gl/accountSubtypeRules';
+import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
 
 
 export interface ExecuteMigrationResult {
@@ -53,14 +53,17 @@ export async function executeMigration(
       errors.push(`Account "${acct.sourceCode} ${acct.sourceName}": unmapped type "${acct.sourceType}" — skipped`);
       return false;
     }
-    // autoMapAccounts sets a subtype on every revenue/expense mapping; this
-    // catches a caller that built the row by hand.
-    const missing = missingSubtypeError(acct.mappedType, acct.mappedSubtype);
-    if (missing) {
-      errors.push(`Account "${acct.sourceCode} ${acct.sourceName}": ${missing} — skipped`);
-      return false;
-    }
     return true;
+  }).map(acct => {
+    // autoMapAccounts sets a subtype on every revenue/expense mapping, but the
+    // mapping table lets the operator re-type a row without one. Default it
+    // and say so — skipping would strand the opening trial balance, which is
+    // posted against the full account list below.
+    if (acct.mappedSubtype) return acct;
+    const fallback = defaultIncomeStatementSubtype(acct.mappedType!);
+    if (!fallback) return acct;
+    errors.push(`Account "${acct.sourceCode} ${acct.sourceName}": no subtype; imported as ${fallback}`);
+    return { ...acct, mappedSubtype: fallback };
   });
 
   if (validAccounts.length > 0) {
