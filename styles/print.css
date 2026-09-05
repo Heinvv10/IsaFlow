@@ -10,9 +10,11 @@
  */
 
 @media print {
-  /* AppLayout chrome: sidebar (desktop + mobile drawer) and top header bar. */
+  /* AppLayout chrome: sidebar (desktop + mobile drawer), top header bar,
+     and the Sage-style horizontal module nav (top nav mode). */
   aside,
-  header {
+  header,
+  nav {
     display: none !important;
   }
 

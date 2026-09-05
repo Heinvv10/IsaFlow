@@ -19,7 +19,7 @@
 
 import { chromium, type Browser } from 'playwright';
 import { mintPrintToken } from './printAuth';
-import { ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from '@/lib/auth/cookies';
+import { ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE } from '@/lib/auth/cookies';
 import { log } from '@/lib/logger';
 
 const PDF_MARGIN = { top: '18mm', bottom: '18mm', left: '14mm', right: '14mm' };
@@ -59,11 +59,22 @@ export async function renderPagePdf(options: RenderPagePdfOptions): Promise<Buff
     await context.addCookies([
       { name: ACCESS_COOKIE, value: token, domain: hostname, path: '/', httpOnly: true, sameSite: 'Lax' },
       { name: ACTIVE_COMPANY_COOKIE, value: companyId, domain: hostname, path: '/', httpOnly: false, sameSite: 'Lax' },
+      // Middleware redirects any authed request without this cookie to
+      // /onboarding, which would navigate away from the report entirely.
+      { name: ONBOARDING_DONE_COOKIE, value: '1', domain: hostname, path: '/', httpOnly: false, sameSite: 'Lax' },
     ]);
 
     const page = await context.newPage();
-    await page.goto(`${appUrl}${path}?print=1`, { waitUntil: 'networkidle' });
+    // 'load' rather than 'networkidle': the app keeps background connections
+    // open (analytics beacon, polling) that never go quiet, so networkidle
+    // would just wait out its own timeout. waitForSelector below is the real
+    // readiness gate.
+    await page.goto(`${appUrl}${path}?print=1`, { waitUntil: 'load' });
     await page.waitForSelector(PRINT_READY_SELECTOR, { timeout: PRINT_READY_TIMEOUT_MS });
+    // page.pdf() does not reliably force print media on its own — without
+    // this, styles/print.css's @media print rules (hiding AppLayout chrome)
+    // never applied and the rendered PDF showed the full app shell.
+    await page.emulateMedia({ media: 'print' });
 
     const pdf = await page.pdf({
       format: 'A4',
@@ -71,6 +82,9 @@ export async function renderPagePdf(options: RenderPagePdfOptions): Promise<Buff
       printBackground: true,
       margin: PDF_MARGIN,
       displayHeaderFooter: true,
+      // Empty headerTemplate suppresses Chromium's default title/date header;
+      // only the page-number footer the brief specifies should render.
+      headerTemplate: '<span></span>',
       footerTemplate:
         '<div style="font-size:9px;width:100%;text-align:center"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
     });
