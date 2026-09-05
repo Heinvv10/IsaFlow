@@ -486,6 +486,10 @@ describe('write-tool manifest invariants', () => {
       // A contra settles a debtor or creditor against a balance-sheet account,
       // so it posts.
       'settle_by_contra',
+      // Voiding a posted receipt or payment writes a reversing journal — the
+      // same authority reverse_bank_allocation asks for.
+      'void_payment',
+      'void_receipt',
       'year_end_close',
     ]);
   });
@@ -620,6 +624,14 @@ describe('write-tool manifest invariants', () => {
       // Refuses on the missing account ids before any query; behaviour in
       // reclassificationTools.test.ts.
       post_reclassification_batch: { ...KEY },
+      // Bulk creates refuse the missing `invoices` array before any query;
+      // behaviour in bulkInvoiceTools.test.ts.
+      bulk_create_supplier_invoices: { ...KEY },
+      bulk_create_customer_invoices: { ...KEY },
+      // Voids refuse the missing document id before any query; behaviour in
+      // voidPaymentTools.test.ts.
+      void_receipt: { ...KEY },
+      void_payment: { ...KEY },
     };
     let corpus = JSON.stringify(MCP_TOOLS.map((t) => ({ n: t.name, s: t.inputSchema })));
     for (const name of WRITE_NAMES) {

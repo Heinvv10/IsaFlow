@@ -19,9 +19,8 @@ import {
 import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceWorkflowService';
 import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import type { SupplierInvoiceItemInput } from '@/modules/accounting/types/ap.types';
-import { UUID_RE } from '@/lib/validation';
 import { mcpPostingOpts } from '../mcpActor';
+import { MAX_LINES, parseSupplierInvoiceInput } from './invoiceCreateArgs';
 import {
   NOT_FOUND,
   guardCastableArgs,
@@ -30,73 +29,6 @@ import {
   strArg,
   toolError,
 } from './toolHelpers';
-
-const MAX_LINES = 200;
-
-interface ParsedLines {
-  items: SupplierInvoiceItemInput[];
-  accountIds: string[];
-}
-
-/**
- * Parse and validate every line BEFORE any ownership query or write.
- *
- * The service rejects a non-positive quantity or a negative unit price, but it
- * does so after opening its transaction — refusing here means the whole call
- * is still pre-write, so a `toolError` leaves nothing behind and the agent
- * gets the offending line INDEX rather than a message it has to bisect a
- * 200-line bill to locate.
- */
-function parseLines(raw: unknown): ParsedLines | string {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return 'lines must be a non-empty array of {description, quantity, unit_price}';
-  }
-  if (raw.length > MAX_LINES) {
-    return `too many lines (${raw.length}); the maximum is ${MAX_LINES}`;
-  }
-
-  const items: SupplierInvoiceItemInput[] = [];
-  const accountIds: string[] = [];
-
-  for (let i = 0; i < raw.length; i++) {
-    const item = raw[i];
-    if (!item || typeof item !== 'object') return `lines[${i}] must be an object`;
-    const o = item as Record<string, unknown>;
-
-    const description = typeof o.description === 'string' ? o.description.trim() : '';
-    if (!description) return `lines[${i}].description is required`;
-
-    const quantity = Number(o.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return `lines[${i}].quantity must be a positive number`;
-    }
-    const unitPrice = Number(o.unit_price);
-    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      return `lines[${i}].unit_price must be a number and cannot be negative`;
-    }
-
-    let taxRate: number | undefined;
-    if (o.tax_rate !== undefined && o.tax_rate !== null) {
-      taxRate = Number(o.tax_rate);
-      if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
-        return `lines[${i}].tax_rate must be between 0 and 100`;
-      }
-    }
-
-    let glAccountId: string | undefined;
-    if (o.gl_account_id !== undefined && o.gl_account_id !== null) {
-      if (typeof o.gl_account_id !== 'string' || !UUID_RE.test(o.gl_account_id)) {
-        return `invalid lines[${i}].gl_account_id`;
-      }
-      glAccountId = o.gl_account_id;
-      accountIds.push(glAccountId);
-    }
-
-    items.push({ description, quantity, unitPrice, taxRate, glAccountId });
-  }
-
-  return { items, accountIds };
-}
 
 export const createSupplierInvoiceTool: McpTool = {
   name: 'create_supplier_invoice',
@@ -140,28 +72,7 @@ export const createSupplierInvoiceTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const supplierId = strArg(args, 'supplier_id');
-    const invoiceNumber = strArg(args, 'invoice_number');
-    const invoiceDate = strArg(args, 'invoice_date');
-    if (!supplierId) return toolError('supplier_id is required');
-    if (!invoiceNumber) return toolError('invoice_number is required');
-    if (!invoiceDate) return toolError('invoice_date is required (YYYY-MM-DD)');
-
-    const bad = guardCastableArgs(args, {
-      uuid: ['supplier_id'],
-      date: ['invoice_date', 'due_date'],
-    });
-    if (bad) return bad;
-
-    let taxRate: number | undefined;
-    if (args.tax_rate !== undefined && args.tax_rate !== null) {
-      taxRate = Number(args.tax_rate);
-      if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
-        return toolError('tax_rate must be between 0 and 100');
-      }
-    }
-
-    const parsed = parseLines(args.lines);
+    const parsed = parseSupplierInvoiceInput(args);
     if (typeof parsed === 'string') return toolError(parsed);
 
     // Ownership, batched, before the first write. Neither the service nor the
@@ -170,7 +81,7 @@ export const createSupplierInvoiceTool: McpTool = {
     // this is the only thing standing between a foreign id and a cross-tenant
     // document. NOT_FOUND for both: a distinct "belongs to another company"
     // reply is an existence oracle.
-    if (!(await supplierBelongsToCompany(ctx.companyId, supplierId))) {
+    if (!(await supplierBelongsToCompany(ctx.companyId, parsed.supplierId))) {
       return toolError(NOT_FOUND);
     }
     if (parsed.accountIds.length > 0 &&
@@ -182,14 +93,14 @@ export const createSupplierInvoiceTool: McpTool = {
       const invoice = await createSupplierInvoice(
         ctx.companyId,
         {
-          supplierId,
-          invoiceNumber,
-          invoiceDate,
-          dueDate: strArg(args, 'due_date'),
-          taxRate,
-          paymentTerms: strArg(args, 'payment_terms'),
-          reference: strArg(args, 'reference'),
-          notes: strArg(args, 'notes'),
+          supplierId: parsed.supplierId,
+          invoiceNumber: parsed.invoiceNumber,
+          invoiceDate: parsed.invoiceDate,
+          dueDate: parsed.dueDate,
+          taxRate: parsed.taxRate,
+          paymentTerms: parsed.paymentTerms,
+          reference: parsed.reference,
+          notes: parsed.notes,
           items: parsed.items,
         },
         ctx.userId,

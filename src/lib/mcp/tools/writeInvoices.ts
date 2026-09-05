@@ -17,6 +17,7 @@ import { createQuote, LineValidationError } from '@/modules/accounting/services/
 import { customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { mcpPostingOpts } from '../mcpActor';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
+import { parseCustomerInvoiceInput } from './invoiceCreateArgs';
 
 interface LineIn {
   description: string;
@@ -76,27 +77,20 @@ export const createDraftInvoiceTool: McpTool = {
     additionalProperties: false,
   },
   handler: async (args, ctx) => {
-    const badArg = guardCastableArgs(args, {
-      uuid: ['customer_id'],
-      date: ['invoice_date', 'due_date'],
-    });
-    if (badArg) return badArg;
-    const customerId = strArg(args, 'customer_id');
-    if (!customerId) return toolError('customer_id is required');
-    const items = parseLines(args.items);
-    if (!items) return toolError('items must be a non-empty array of {description, unit_price, quantity?}');
+    const parsed = parseCustomerInvoiceInput(args);
+    if (typeof parsed === 'string') return toolError(parsed);
     // Ownership: the customer must belong to the token's company (a plain FK
     // would otherwise accept any company's customer id). Generic error — no
     // existence oracle for foreign ids.
-    if (!(await customerBelongsToCompany(ctx.companyId, customerId))) return toolError(NOT_FOUND);
+    if (!(await customerBelongsToCompany(ctx.companyId, parsed.customerId))) return toolError(NOT_FOUND);
     try {
       const result = await createDraftCustomerInvoice(ctx.companyId, ctx.userId, {
-        clientId: customerId,
-        items,
-        invoiceDate: strArg(args, 'invoice_date'),
-        dueDate: strArg(args, 'due_date'),
-        taxRate: typeof args.tax_rate === 'number' ? args.tax_rate : undefined,
-        notes: strArg(args, 'notes'),
+        clientId: parsed.customerId,
+        items: parsed.items,
+        invoiceDate: parsed.invoiceDate,
+        dueDate: parsed.dueDate,
+        taxRate: parsed.taxRate,
+        notes: parsed.notes,
       }, mcpPostingOpts(ctx, 'create_draft_invoice'));
       return ok(result);
     } catch (err) {

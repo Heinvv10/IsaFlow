@@ -14,7 +14,7 @@
  */
 import type { McpToolResult } from '../types';
 import { UUID_RE } from '@/lib/validation';
-import { toolError } from './toolHelpers';
+import { hasWholeCents, toolError } from './toolHelpers';
 
 /** More lines than this in one application is a mistake, not a batch. */
 const MAX_ALLOCATION_LINES = 200;
@@ -85,9 +85,7 @@ export function parseAllocations(
         error: toolError(`allocations[${i}].amount must be a positive number`),
       };
     }
-    // Money is NUMERIC(15,2). A third decimal would be rounded by Postgres, so
-    // the agent's own arithmetic and the ledger's would disagree silently.
-    if (Math.round(amount * 100) !== amount * 100) {
+    if (!hasWholeCents(amount)) {
       return {
         ok: false,
         error: toolError(
