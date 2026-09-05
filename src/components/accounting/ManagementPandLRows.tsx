@@ -9,9 +9,8 @@
  * green.
  */
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
-import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { BalanceSheetDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
-import { toManagementPandLRows } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { toManagementBsRows, toManagementPandLRows } from '@/modules/accounting/services/reports/statementRows/packMappers';
 
 export function KVRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
@@ -35,16 +34,5 @@ export function ManagementPandLRows({ is }: { is: Record<string, number> | undef
  * this — same exception as balanceSheetRows.ts). `detail` copies in the
  * report's own current-assets/cash/AR/AP figures, no arithmetic. */
 export function ManagementBalanceSheetRows({ bs, detail }: { bs: Record<string, number> | undefined; detail?: BalanceSheetDetail }) {
-  const n = (k: string) => bs?.[k] ?? 0;
-  const rows: StatementRow[] = [
-    { id: 'sub:totalAssets', kind: 'subtotal', label: 'Total Assets', depth: 0, actual: n('totalAssets') },
-    ...(detail?.currentAssets !== undefined ? [{ id: 'line:currentAssets', kind: 'line' as const, label: 'Current Assets', depth: 1 as const, actual: detail.currentAssets }] : []),
-    ...(detail?.cash !== undefined ? [{ id: 'line:cash', kind: 'line' as const, label: 'Cash', depth: 1 as const, actual: detail.cash }] : []),
-    ...(detail?.accountsReceivable !== undefined ? [{ id: 'line:accountsReceivable', kind: 'line' as const, label: 'Accounts Receivable', depth: 1 as const, actual: detail.accountsReceivable }] : []),
-    { id: 'sub:totalLiabilities', kind: 'subtotal', label: 'Total Liabilities', depth: 0, actual: n('totalLiabilities') },
-    ...(detail?.accountsPayable !== undefined ? [{ id: 'line:accountsPayable', kind: 'line' as const, label: 'Accounts Payable', depth: 1 as const, actual: detail.accountsPayable }] : []),
-    { id: 'sub:totalEquity', kind: 'subtotal', label: 'Total Equity', depth: 0, actual: n('totalEquity') },
-    { id: 'grand:totalLiabilitiesAndEquity', kind: 'grand', label: 'Total Liabilities and Equity', depth: 0, actual: n('totalLiabilities') + n('totalEquity') },
-  ];
-  return <StatementGrid rows={rows} columns={{ prior: false, budget: false, variance: false, trend: false }} cents />;
+  return <StatementGrid rows={toManagementBsRows(bs, detail)} columns={{ prior: false, budget: false, variance: false, trend: false }} cents />;
 }
