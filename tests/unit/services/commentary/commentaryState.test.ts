@@ -1,52 +1,54 @@
 import { describe, it, expect } from 'vitest';
-import { nextStatus } from '@/modules/accounting/services/commentary/commentaryState';
+import {
+  nextStatus,
+  type CommentaryStatus,
+  type CommentaryAction,
+} from '@/modules/accounting/services/commentary/commentaryState';
+
+type ExpectedOk = { ok: true; next: CommentaryStatus; clearsApproval: boolean };
+
+// Every cell of the 4 states x 4 actions table. `false` means the transition
+// must be refused (Transition.ok === false); anything else pins the exact
+// { next, clearsApproval } the transition must produce.
+const table: Array<[CommentaryStatus | null, CommentaryAction, ExpectedOk | false]> = [
+  // generate: create/re-create a draft, unless a human has already approved it
+  [null, 'generate', { ok: true, next: 'draft', clearsApproval: false }],
+  ['draft', 'generate', { ok: true, next: 'draft', clearsApproval: false }],
+  ['approved', 'generate', false],
+  ['rejected', 'generate', { ok: true, next: 'draft', clearsApproval: false }],
+
+  // regenerate: the only path that withdraws an approval, so it requires one
+  [null, 'regenerate', false],
+  ['draft', 'regenerate', false],
+  ['approved', 'regenerate', { ok: true, next: 'draft', clearsApproval: true }],
+  ['rejected', 'regenerate', false],
+
+  // approve: only a draft can be approved, and only once
+  [null, 'approve', false],
+  ['draft', 'approve', { ok: true, next: 'approved', clearsApproval: false }],
+  ['approved', 'approve', false],
+  ['rejected', 'approve', false],
+
+  // reject: only a draft can be rejected
+  [null, 'reject', false],
+  ['draft', 'reject', { ok: true, next: 'rejected', clearsApproval: false }],
+  ['approved', 'reject', false],
+  ['rejected', 'reject', false],
+];
 
 describe('nextStatus', () => {
-  it('creates a draft when nothing exists', () => {
-    expect(nextStatus(null, 'generate')).toEqual({ ok: true, next: 'draft', clearsApproval: false });
+  it.each(table)('%s x %s', (current, action, expected) => {
+    const result = nextStatus(current, action);
+    if (expected === false) {
+      expect(result.ok).toBe(false);
+    } else {
+      expect(result).toEqual(expected);
+    }
   });
 
-  it('approves a draft', () => {
-    expect(nextStatus('draft', 'approve')).toEqual({ ok: true, next: 'approved', clearsApproval: false });
-  });
-
-  it('rejects a draft', () => {
-    expect(nextStatus('draft', 'reject')).toEqual({ ok: true, next: 'rejected', clearsApproval: false });
-  });
-
-  it('re-drafts a rejected row', () => {
-    expect(nextStatus('rejected', 'generate')).toEqual({ ok: true, next: 'draft', clearsApproval: false });
-  });
-
-  it('refuses to silently overwrite approved text with a new draft', () => {
+  it('refuses to silently overwrite approved text with a new draft, and says why', () => {
     const t = nextStatus('approved', 'generate');
     expect(t.ok).toBe(false);
     if (!t.ok) expect(t.reason).toContain('approved');
-  });
-
-  it('withdraws an approval only under the explicit regenerate action, and says so', () => {
-    expect(nextStatus('approved', 'regenerate')).toEqual({ ok: true, next: 'draft', clearsApproval: true });
-  });
-
-  it('refuses to approve twice, so a second approver cannot overwrite the first', () => {
-    expect(nextStatus('approved', 'approve').ok).toBe(false);
-  });
-
-  it('refuses to approve a rejected row', () => {
-    expect(nextStatus('rejected', 'approve').ok).toBe(false);
-  });
-
-  it('refuses to reject anything that is not a draft', () => {
-    expect(nextStatus('approved', 'reject').ok).toBe(false);
-    expect(nextStatus('rejected', 'reject').ok).toBe(false);
-    expect(nextStatus(null, 'reject').ok).toBe(false);
-  });
-
-  it('refuses to approve a row that does not exist', () => {
-    expect(nextStatus(null, 'approve').ok).toBe(false);
-  });
-
-  it('refuses regenerate on a draft — there is no approval to withdraw', () => {
-    expect(nextStatus('draft', 'regenerate').ok).toBe(false);
   });
 });
