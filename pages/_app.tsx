@@ -9,6 +9,7 @@ import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
 import '../styles/globals.css';
+import '../styles/print.css';
 
 /**
  * Custom App component

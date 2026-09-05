@@ -201,7 +201,7 @@ export default function ManagementAccountsPage() {
 
   return (
     <AppLayout>
-      <div className="min-h-screen bg-[var(--ff-bg-primary)]">
+      <div className="min-h-screen bg-[var(--ff-bg-primary)]" data-print-ready={report ? 'true' : 'false'}>
         {/* Header */}
         <div className="border-b border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]">
           <div className="px-6 py-4">

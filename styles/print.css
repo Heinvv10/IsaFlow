@@ -1,0 +1,38 @@
+/**
+ * print.css — @media print rules for the Playwright PDF pipeline
+ * (src/lib/pdf/renderPagePdf.ts).
+ *
+ * A page opts in by setting `data-print-ready="true"` on its root element
+ * once its data has loaded; the renderer waits for that selector before
+ * calling page.pdf(). These rules apply whenever the page is printed
+ * (browser "Print" and the headless page.pdf() call both use print media),
+ * not only during the pipeline's own render.
+ */
+
+@media print {
+  /* AppLayout chrome: sidebar (desktop + mobile drawer) and top header bar. */
+  aside,
+  header {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  [data-print-ready] {
+    color-scheme: light;
+  }
+
+  /* Explicit page breaks between report sections. */
+  [data-print-break] {
+    break-before: page;
+  }
+
+  /* Never split a table row across a page boundary. */
+  tr {
+    break-inside: avoid;
+  }
+}
