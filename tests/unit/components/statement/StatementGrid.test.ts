@@ -79,6 +79,32 @@ describe('StatementGrid', () => {
     expect(withoutExpanded).not.toContain('data-kind="drill"');
   });
 
+  it('offers the evidence drill only inside an expanded account row', () => {
+    const both = render({
+      rows, columns: { prior: false, variance: false, trend: false },
+      expandedAccount: '4000', onEvidence: () => {},
+      renderDrill: code => React.createElement('div', null, `drill for ${code}`),
+    });
+    const drillRow = both.match(/<tr[^>]*data-kind="drill"[^>]*>[\s\S]*?<\/tr>/)![0];
+    expect(drillRow).toContain('Evidence');
+    expect(drillRow).toContain('drill for 4000');
+
+    // No handler: no button, even expanded.
+    const noHandler = render({
+      rows, columns: { prior: false, variance: false, trend: false },
+      expandedAccount: '4000',
+      renderDrill: code => React.createElement('div', null, `drill for ${code}`),
+    });
+    expect(noHandler).not.toContain('Evidence');
+
+    // Handler but nothing expanded: no drill row at all.
+    const collapsed = render({
+      rows, columns: { prior: false, variance: false, trend: false }, onEvidence: () => {},
+    });
+    expect(collapsed).not.toContain('Evidence');
+    expect(collapsed).not.toContain('data-kind="drill"');
+  });
+
   it('never renders a figure that is not in rows', () => {
     const html = render({ rows, columns: { prior: true, variance: true, trend: false } });
     const digits = html.replace(/[^0-9]/g, '');

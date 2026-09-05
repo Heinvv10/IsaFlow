@@ -51,6 +51,24 @@ describe('toIncomeStatementRows', () => {
     }
   });
 
+  it('pins every named total to the report field it must come from', () => {
+    const rows = toIncomeStatementRows(R, { comparative: true });
+    const at = (id: string) => rows.find(r => r.id === id)!;
+    // Set membership is not enough: wiring Gross Profit to r.operatingProfit
+    // leaves the "copies every figure" test above green.
+    expect(at('sub:revenue').actual).toBe(R.totalRevenue);
+    expect(at('sub:costOfSales').actual).toBe(R.totalCostOfSales);
+    expect(at('total:grossProfit').actual).toBe(R.grossProfit);
+    expect(at('sub:otherIncome').actual).toBe(R.totalOtherIncome);
+    expect(at('sub:operatingExpenses').actual).toBe(R.totalOperatingExpenses);
+    expect(at('total:operatingProfit').actual).toBe(R.operatingProfit);
+    expect(at('sub:otherExpenses').actual).toBe(R.totalOtherExpenses);
+    expect(at('grand:netProfit').actual).toBe(R.netProfit);
+    expect(at('total:grossProfit').prior).toBe(R.priorGrossProfit);
+    expect(at('total:operatingProfit').prior).toBe(R.priorOperatingProfit);
+    expect(at('grand:netProfit').prior).toBe(R.priorNetProfit);
+  });
+
   it('omits Other Income and Other Expenses sections when empty', () => {
     const l = labels(toIncomeStatementRows({ ...R, otherIncome: [], otherExpenses: [], totalOtherIncome: 0, totalOtherExpenses: 0 }, { comparative: false }));
     expect(l).not.toContain('Other Income');
