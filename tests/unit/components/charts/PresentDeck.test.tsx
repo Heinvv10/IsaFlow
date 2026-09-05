@@ -77,4 +77,40 @@ describe('PresentDeck', () => {
     fireEvent.keyDown(input, { key: 'ArrowRight' });
     expect(screen.getByText('Cover')).toBeTruthy();
   });
+
+  it('does not page when focus is in a select', () => {
+    render(
+      <div>
+        <select aria-label="period">
+          <option value="a">a</option>
+        </select>
+        <PresentDeck slides={SLIDES} renderSlide={renderSlide} />
+      </div>,
+    );
+    const select = screen.getByLabelText('period');
+    select.focus();
+    fireEvent.keyDown(select, { key: 'ArrowRight' });
+    expect(screen.getByText('Cover')).toBeTruthy();
+  });
+
+  it('exits fullscreen on Escape when the deck is fullscreen', () => {
+    const exitFullscreen = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(document, 'fullscreenElement', {
+      value: document.documentElement,
+      configurable: true,
+    });
+    Object.defineProperty(document, 'exitFullscreen', {
+      value: exitFullscreen,
+      configurable: true,
+    });
+    const onExit = vi.fn();
+    render(<PresentDeck slides={SLIDES} renderSlide={renderSlide} onExit={onExit} />);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect(exitFullscreen).toHaveBeenCalledTimes(1);
+    // @ts-expect-error -- test-only cleanup of a property defined only above
+    delete document.fullscreenElement;
+    // @ts-expect-error -- test-only cleanup of a property defined only above
+    delete document.exitFullscreen;
+  });
 });

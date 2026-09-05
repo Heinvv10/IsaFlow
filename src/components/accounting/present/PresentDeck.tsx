@@ -9,7 +9,7 @@ import { clampSlide, type Slide } from './presentSlides';
 
 const FORWARD = new Set(['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Spacebar', 'Enter']);
 const BACK = new Set(['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace']);
-const TYPING_ELEMENTS = new Set(['INPUT', 'TEXTAREA']);
+const TYPING_ELEMENTS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -29,7 +29,15 @@ export function PresentDeck({ slides, renderSlide, onExit }: PresentDeckProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTypingTarget(e.target)) return;
-      if (e.key === 'Escape') { onExit?.(); return; }
+      if (e.key === 'Escape') {
+        onExit?.();
+        if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
+          document.exitFullscreen().catch((err: unknown) => {
+            log.debug('Exiting fullscreen failed', { error: err }, 'PresentDeck');
+          });
+        }
+        return;
+      }
       if (FORWARD.has(e.key)) { e.preventDefault(); setIndex((i) => clampSlide(i + 1, count)); return; }
       if (BACK.has(e.key)) { e.preventDefault(); setIndex((i) => clampSlide(i - 1, count)); return; }
       if (e.key === 'Home') { setIndex(clampSlide(0, count)); return; }
