@@ -169,6 +169,52 @@ describe('multi-path print tokens', () => {
     expect(verifyPrintTokenSignature(`${collided}.${sig}`)).toBeNull();
   });
 
+  // M1: the signed string is `company|user|paths|exp`, so a `|` inside a path
+  // makes the tuple re-splittable — one HMAC, two readings.
+  it('rejects a path containing the field separator, on both mint and verify', () => {
+    expect(() => mintPrintToken(COMPANY, USER, ['/api/a|/api/b'])).toThrow(/absolute API path/);
+
+    // Verify side — a genuine signature that reads as two different tuples.
+    // `sign` builds `company|user|paths|exp`, so minting for userId `U|PACK`
+    // with paths [TREND] signs exactly the same string as a payload claiming
+    // userId `U` with paths ['PACK|TREND']. The minter validates paths, not
+    // userId, so the first half of the pair is genuinely mintable — which is
+    // why the guard has to sit in the parser, on the side an attacker reaches.
+    const genuine = mintPrintToken(COMPANY, `${USER}|${PACK}`, [TREND]);
+    const [genuineB64, sig] = genuine.split('.');
+    const { exp } = JSON.parse(Buffer.from(genuineB64!, 'base64url').toString('utf8'));
+    const collided = Buffer.from(
+      JSON.stringify({ companyId: COMPANY, userId: USER, paths: [`${PACK}|${TREND}`], exp }),
+    ).toString('base64url');
+    expect(verifyPrintTokenSignature(`${collided}.${sig}`)).toBeNull();
+  });
+
+  // M2: the mint side accepts only an already-normalised absolute pathname.
+  it('refuses to mint a path that is not already normalised', () => {
+    const rejected = [
+      '/api/accounting/../admin',        // traversal
+      '/api/accounting//reports-pack',   // double slash
+      '/api/accounting/reports%2Fpack',  // percent-encoded separator
+      '/api/accounting/%2e%2e/admin',    // percent-encoded traversal
+      '//evil.example.com/api',          // authority form
+      '/api/accounting/\u200Breports',   // zero-width space, which \s does not match
+      '/api/accounting/\u0000reports',    // NUL
+      'api/accounting/reports-pack',     // relative
+    ];
+    for (const p of rejected) {
+      expect(() => mintPrintToken(COMPANY, USER, [p])).toThrow(/absolute API path/);
+    }
+    // The real pack paths still mint.
+    expect(() => mintPrintToken(COMPANY, USER, [PACK, TREND])).not.toThrow();
+  });
+
+  // M3: variants that must not be treated as the bound path.
+  it('rejects a trailing-slash or case-differing variant of a bound path', () => {
+    const token = mintPrintToken(COMPANY, USER, [PACK]);
+    expect(verifyPrintToken(token, `${PACK}/`)).toBeNull();
+    expect(verifyPrintToken(token, PACK.toUpperCase())).toBeNull();
+  });
+
   it('rejects a payload whose paths field is not an array of strings', () => {
     const token = mintPrintToken(COMPANY, USER, [PACK]);
     const [, sig] = token.split('.');

@@ -38,6 +38,13 @@ const MIN_SECRET_LEN = 32;
 // reach `sign`.
 const PATH_SEP = '\n';
 
+// The signed string is `company|user|paths|exp`, so a path containing `|` would
+// let the same HMAC be re-split into a different tuple — one signature, two
+// payloads. Banned on both sides for the same reason as PATH_SEP. Node's URL
+// parser does NOT percent-encode `|` in a pathname, so the normalisation check
+// below does not cover this; the explicit ban is load-bearing.
+const FIELD_SEP = '|';
+
 /** Returns the configured secret only when it meets the minimum length; a
  *  too-short secret is treated the same as "unset" (both mint and verify
  *  fail closed), but is logged so a misconfiguration is visible. */
@@ -59,14 +66,42 @@ function sign(companyId: string, userId: string, paths: string[], exp: number, s
     .digest('hex');
 }
 
+/**
+ * A mintable path is an absolute, already-normalised API pathname: no query,
+ * no fragment, no wildcard, no whitespace, no field/path separator, no
+ * percent-encoding, and identical to what the URL parser makes of it. The last
+ * clause is what rejects `..` segments, an authority-form `//host`, and
+ * invisible characters such as U+200B that `\s` does not match. Percent-encoding
+ * is banned outright because the URL parser leaves `%2F` and `%2e%2e` untouched,
+ * so normalisation alone would let an encoded separator through.
+ *
+ * Only server code mints today, so this is a floor rather than a hole — but the
+ * floor is what keeps a future caller from binding a token to a path that means
+ * something different to the router than it does to the string comparison.
+ */
 function assertPaths(paths: string[]): void {
   if (!Array.isArray(paths) || paths.length === 0) {
     throw new Error('mintPrintToken: at least one path is required');
   }
   for (const p of paths) {
-    if (typeof p !== 'string' || !p.startsWith('/') || /[?#*\s]/.test(p)) {
+    if (
+      typeof p !== 'string' ||
+      !p.startsWith('/') ||
+      /[?#*\s|%]/.test(p) ||
+      p.includes('//') ||
+      p !== normalisedPathname(p)
+    ) {
       throw new Error(`mintPrintToken: ${String(p)} is not an absolute API path without a query string`);
     }
+  }
+}
+
+/** The pathname the URL parser derives from `p`, or null if it will not parse. */
+function normalisedPathname(p: string): string | null {
+  try {
+    return new URL(p, 'http://x').pathname;
+  } catch {
+    return null;
   }
 }
 
@@ -98,10 +133,12 @@ function parsePayload(raw: string): PrintTokenPayload | null {
     typeof candidate.userId !== 'string' ||
     !Array.isArray(candidate.paths) ||
     candidate.paths.length === 0 ||
-    // The separator guard is what keeps `sign` injective: without it a payload
-    // claiming paths ['/a\n/b'] would hash identically to ['/a', '/b'], so one
-    // set's signature would validate another's payload.
-    !candidate.paths.every((p) => typeof p === 'string' && !p.includes(PATH_SEP)) ||
+    // The separator guards are what keep `sign` injective: without PATH_SEP a
+    // payload claiming paths ['/a\n/b'] would hash identically to ['/a', '/b'],
+    // and without FIELD_SEP the same signed string could be re-split into a
+    // different company/user/paths/exp tuple. Either way one set's signature
+    // would validate another's payload.
+    !candidate.paths.every((p) => typeof p === 'string' && !p.includes(PATH_SEP) && !p.includes(FIELD_SEP)) ||
     typeof candidate.exp !== 'number'
   ) {
     return null;
