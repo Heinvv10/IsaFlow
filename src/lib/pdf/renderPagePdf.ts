@@ -1,8 +1,12 @@
 // src/lib/pdf/renderPagePdf.ts
 //
 // Renders one authenticated app page to a PDF buffer. The browser lives
-// behind PdfTransport (src/lib/pdf/pdfTransport.ts): Gotenberg in Docker when
-// GOTENBERG_URL is set, Playwright's bundled Chromium otherwise.
+// behind PdfTransport (src/lib/pdf/pdfTransport.ts). Today the only
+// registered transport is Playwright's bundled Chromium; a Gotenberg
+// transport registers itself into `transports` below once it exists (see
+// selectTransport.ts for how the choice of NAME is made — that selector
+// already understands "gotenberg", this file just has nothing to hand back
+// for it yet).
 //
 // Auth: mints a print token (printAuth.ts) bound to the exact SET of API
 // paths the target page fetches, and hands it to the browser in the SAME
@@ -10,14 +14,13 @@
 // is present; withAuth is what verifies it.
 //
 // The page is responsible for adding `print-mode` to <html> and dropping
-// `.dark` when it sees ?print=1 — Gotenberg cannot execute a script on our
-// behalf, so the page, not the renderer, owns that.
+// `.dark` when it sees ?print=1 — a future non-Playwright transport cannot
+// execute a script on our behalf, so the page, not the renderer, owns that.
 
 import { mintPrintToken } from './printAuth';
 import { ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE } from '@/lib/auth/cookies';
-import { chooseTransportName } from './selectTransport';
+import { chooseTransportName, type TransportName } from './selectTransport';
 import { playwrightTransport } from './transports/playwrightTransport';
-import { gotenbergTransport } from './transports/gotenbergTransport';
 import type { PdfTransport } from './pdfTransport';
 import { log } from '@/lib/logger';
 
@@ -36,8 +39,18 @@ export interface RenderPagePdfOptions {
   landscape?: boolean;
 }
 
-function transportFor(name: ReturnType<typeof chooseTransportName>): PdfTransport {
-  return name === 'gotenberg' ? gotenbergTransport : playwrightTransport;
+// A small registry rather than a switch: a new transport (Gotenberg) adds
+// one entry here and needs no other change to renderPagePdf.
+const transports: Partial<Record<TransportName, PdfTransport>> = {
+  playwright: playwrightTransport,
+};
+
+function transportFor(name: TransportName): PdfTransport {
+  const transport = transports[name];
+  if (!transport) {
+    throw new Error(`renderPagePdf: no PDF transport registered for "${name}"`);
+  }
+  return transport;
 }
 
 export async function renderPagePdf(options: RenderPagePdfOptions): Promise<Buffer> {
