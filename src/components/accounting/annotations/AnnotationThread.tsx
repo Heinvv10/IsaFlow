@@ -6,7 +6,7 @@
  * its own beyond the unsent draft, so the page owning the list stays the one
  * source of truth after a create or a resolve.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Annotation } from '@/modules/accounting/services/annotations/annotationService';
 
 const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
@@ -19,8 +19,12 @@ function byline(a: Annotation): string {
   return `${who} · ${new Date(a.createdAt).toLocaleDateString('en-ZA')}`;
 }
 
-export function AnnotationThread({ rowId, annotations, onCreate, onResolve, onClose }: {
+export function AnnotationThread({ rowId, rowLabel, annotations, onCreate, onResolve, onClose }: {
   rowId: string;
+  /** The row's own label — what the person reading the statement sees. The
+   * dialog is announced with this, never with `rowId`: "Notes on acc:4000"
+   * names an internal key, not the line the note is about. */
+  rowLabel: string;
   annotations: Annotation[];
   onCreate: (body: string) => void;
   onResolve: (id: string) => void;
@@ -29,9 +33,28 @@ export function AnnotationThread({ rowId, annotations, onCreate, onResolve, onCl
   const [draft, setDraft] = useState('');
   const mine = annotations.filter(a => a.rowId === rowId);
   const trimmed = draft.trim();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // Escape closes, and focus goes back to whatever opened the thread — the
+  // note marker on the row. Without the restore a keyboard user is returned to
+  // the top of the document and has to tab back down the whole statement.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onClose();
+    }
+    const node = dialogRef.current;
+    node?.addEventListener('keydown', onKeyDown);
+    return () => {
+      node?.removeEventListener('keydown', onKeyDown);
+      opener?.focus();
+    };
+  }, [onClose]);
 
   return (
-    <div className={`${CARD} w-80 p-3 shadow-lg`} role="dialog" aria-label={`Notes on ${rowId}`}>
+    <div ref={dialogRef} className={`${CARD} w-80 p-3 shadow-lg`} role="dialog" aria-label={`Notes on ${rowLabel}`}>
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--ff-text-tertiary)]">Notes</h3>
         <button type="button" onClick={onClose} className={BTN} aria-label="Close notes">Close</button>
