@@ -61,6 +61,11 @@ interface StaticRoutes {
     fiscalYear: Awaited<ReturnType<typeof getBudgetVariance>>['fiscalYear'];
     monthKeys: Awaited<ReturnType<typeof getBudgetVariance>>['monthKeys'];
     lines: Awaited<ReturnType<typeof getBudgetVariance>>['rows'];
+    /** `result.rows.length` — how many accounts the SERVICE classified as
+     *  budgeted. Derived in the handler, so it is written out here rather
+     *  than projected off the service type; it is a count of that array and
+     *  moves with it. */
+    budgetedCount: number;
     postedThrough: Awaited<ReturnType<typeof getBudgetVariance>>['postedThrough'];
   };
 }

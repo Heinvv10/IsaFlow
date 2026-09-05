@@ -8,6 +8,8 @@
  * `lines` is budgeted accounts followed by unbudgeted ones, because the
  * statement needs to look an account up by code regardless of which half it
  * fell into, and dropping the unbudgeted half would silently hide accounts.
+ * `budgetedCount` preserves where the split fell, which is the only thing in
+ * the response that says whether a budget was ever captured.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
@@ -45,6 +47,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     fiscalYear: result.fiscalYear,
     monthKeys: result.monthKeys,
     lines: [...result.rows, ...result.unbudgeted],
+    // The service's own split, carried across the wire. Flattening `rows` and
+    // `unbudgeted` into one `lines` array loses the only statement anyone made
+    // about whether a budget EXISTS, and a client left to infer it from
+    // all-zero amounts cannot tell "no budget captured" from "budgeted at
+    // zero on every line".
+    budgetedCount: result.rows.length,
     postedThrough: result.postedThrough,
   });
 }
