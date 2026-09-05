@@ -3,35 +3,16 @@
  * figure arrives already chosen by buildPackDocument.
  */
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
-import { formatMoney, formatPct } from '@/lib/format/money';
 import { waterfallOption, trendOption } from '@/modules/accounting/services/packs/packChartOptions';
-import type { PackBlock, PackDocumentSection, PackKvItem } from '@/modules/accounting/services/packs/packDocument';
+import type { PackBlock, PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
+import { formatPackKv, NO_FIGURE } from '@/modules/accounting/services/packs/packKvFormat';
 import { PackChart } from './PackChart';
 
 const NO_COMPARATORS = { prior: false, budget: false, variance: false, trend: false } as const;
 
-/** The en dash formatMoney prints for a zero, reused for a figure that has no
- *  value at all. Never "0.00": a ratio that could not be computed must not
- *  read as a ratio of zero. */
-const NO_FIGURE = '–';
-
-/**
- * A KV item, as text. Exported so the deck and the PDF cannot drift from the
- * screen on the same document — the unit lives on the item, not in a
- * renderer's guess about the field name.
- */
-export function formatPackKv(item: PackKvItem): string {
-  // Whatever the format, an unavailable figure prints its reason INSTEAD of a
-  // number, exactly as KpiTile.unavailable does on the executive dashboard.
-  if (item.unavailable) return item.unavailable;
-  if (item.value === null) return NO_FIGURE;
-  switch (item.format) {
-    case 'pct': return formatPct(item.value);
-    case 'ratio': return item.value.toFixed(2);
-    case 'days': return `${item.value.toFixed(0)} days`;
-    case 'money': return formatMoney(item.value, { cents: true });
-  }
-}
+// `formatPackKv` is re-exported so the page keeps its existing import path
+// while the one implementation lives in the service layer.
+export { formatPackKv };
 
 function Block({ block }: { block: PackBlock }) {
   switch (block.kind) {

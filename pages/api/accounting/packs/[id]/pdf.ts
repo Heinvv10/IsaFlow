@@ -15,6 +15,7 @@ import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { sql, type DbRow } from '@/lib/neon';
+import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
 import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 
@@ -33,18 +34,9 @@ function hasUsablePrintSecret(): boolean {
   return typeof secret === 'string' && secret.length >= MIN_SECRET_LEN;
 }
 
-/** Lowercase, ASCII-only, dash-separated. Never throws on empty input. */
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
-
-async function getCompanySlug(companyId: string): Promise<string> {
+async function getCompanyName(companyId: string): Promise<string> {
   const rows = (await sql`SELECT name FROM companies WHERE id = ${companyId}::uuid LIMIT 1`) as DbRow[];
-  const name = rows[0]?.name ? String(rows[0].name) : '';
-  return slugify(name) || 'company';
+  return rows[0]?.name ? String(rows[0].name) : '';
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -73,7 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE, 'PDF export is not available right now.');
   }
 
-  const [pdf, companySlug] = await Promise.all([
+  const [pdf, companyName] = await Promise.all([
     renderPagePdf({
       companyId,
       userId: user.id,
@@ -81,12 +73,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       query: { pack: id, from, to },
       apiPaths: packPrintApiPaths(id as PackType),
     }),
-    getCompanySlug(companyId),
+    getCompanyName(companyId),
   ]);
 
   log.info('Pack PDF downloaded', { companyId, userId: user.id, packType: id, from, to, bytes: pdf.length }, 'packs');
 
-  const filename = `${companySlug}-report-pack-${id}-${from}-to-${to}.pdf`;
+  const filename = packDownloadFilename(companyName, id, from, to, 'pdf');
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', pdf.length);
