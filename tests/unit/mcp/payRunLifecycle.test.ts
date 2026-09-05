@@ -131,6 +131,7 @@ describe('calculate_pay_run', () => {
       { run_id: RUN, dry_run: true, ...KEY }, ctx(),
     ));
     expect(out.dryRun).toBe(true);
+    expect(out.wroteNothing).toBe(true);
     expect(calculatePayrollRun).not.toHaveBeenCalled();
   });
 
@@ -154,7 +155,9 @@ describe('approve_pay_run', () => {
     const out = parseOk(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx()));
     expect(out.status).toBe('approved');
     expect(out.journal_entry_id).toBe(JE);
-    expect(approvePayrollRun).toHaveBeenCalledWith(COMPANY, RUN, ctx().userId);
+    expect(approvePayrollRun).toHaveBeenCalledWith(
+      COMPANY, RUN, ctx().userId, { postingAgent: 'mcp:approve_pay_run:v1' },
+    );
   });
 
   it('refuses a status the service would refuse, before posting', async () => {
@@ -177,6 +180,9 @@ describe('approve_pay_run', () => {
       { run_id: RUN, dry_run: true, ...KEY }, ctx(),
     ));
     expect(out.dryRun).toBe(true);
+    // Without wroteNothing the registry stores the preview under the real key
+    // and the live call that follows is served the preview forever.
+    expect(out.wroteNothing).toBe(true);
     expect(String((out.effects as string[])[0])).toContain('POST its journal');
     expect(approvePayrollRun).not.toHaveBeenCalled();
   });
@@ -193,6 +199,33 @@ describe('approve_pay_run', () => {
     vi.mocked(getPayrollRun).mockResolvedValue(null);
     expect(errText(await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx())))
       .toBe('Not found');
+    expect(approvePayrollRun).not.toHaveBeenCalled();
+  });
+});
+
+describe('approve_pay_run — the empty month is refused, not warned', () => {
+  it('REFUSES to approve a run that costed nobody', async () => {
+    // 'approved' is a LOCKED status, calculate_pay_run is refused permanently
+    // afterwards, and there is no MCP tool to reopen a run — so an agent that
+    // approved an empty month would have no connector path back out.
+    vi.clearAllMocks();
+    vi.mocked(getPayrollRun).mockResolvedValue(
+      run({ status: 'calculated', employeeCount: 0, totalGross: 0 }) as never,
+    );
+    const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('costed nobody');
+    expect(approvePayrollRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses an already-approved run rather than passing it to a service throw', async () => {
+    // The service admits 'approved' only when the journal did not post, which
+    // this summary cannot see. post_payroll_journal is the recovery.
+    vi.clearAllMocks();
+    vi.mocked(getPayrollRun).mockResolvedValue(run({ status: 'approved' }) as never);
+    const r = await approvePayRunTool.handler({ run_id: RUN, ...KEY }, ctx());
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toContain('post_payroll_journal');
     expect(approvePayrollRun).not.toHaveBeenCalled();
   });
 });

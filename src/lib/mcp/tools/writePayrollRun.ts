@@ -34,6 +34,13 @@ import { PayrollRunLockedError } from '@/modules/accounting/services/payroll/pay
 import { MUTATION_ARG_SCHEMA } from '../contracts';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
+/**
+ * The stamp that puts this journal in `list_agent_postings`. Without it
+ * `createJournalEntry` falls back to `defaultHumanMeta(userId)` and every
+ * payroll journal an agent posts is indistinguishable from a human's.
+ */
+const APPROVE_TOOL_AGENT = 'mcp:approve_pay_run:v1';
+
 /** The run, as every tool here reports it. */
 function runPayload(run: PayrollRunSummary): Record<string, unknown> {
   return {
@@ -85,6 +92,7 @@ export const calculatePayRunTool: McpTool = {
     if (args.dry_run === true) {
       return ok({
         dryRun: true,
+        wroteNothing: true,
         journals: [],
         effects: [`Recost run ${run.periodMonth}/${run.periodYear} (status '${run.status}') and rebuild its lines.`],
         skipped: [],
@@ -141,16 +149,26 @@ export const approvePayRunTool: McpTool = {
     const run = await getPayrollRun(runId, ctx.companyId);
     if (!run) return toolError(NOT_FOUND);
 
-    // The status rule the service enforces, answered here from the read so the
-    // refusal lands before the write. Mirrors approvePayrollRun's own list.
-    const APPROVABLE = ['draft', 'calculated', 'processed', 'approved'];
+    // EXACTLY the service's list (`payrollApprovalService`), not a superset.
+    // It admits 'approved' only when the journal did not post, which is a
+    // condition this summary cannot see — so an already-approved run is
+    // refused here and recovered with post_payroll_journal, rather than being
+    // waved through to a service throw that the registry flattens into "try
+    // again", advice for a state that can never succeed.
+    const APPROVABLE = ['draft', 'calculated', 'processed'];
     if (!APPROVABLE.includes(run.status)) {
-      return toolError(`Cannot approve a pay run with status '${run.status}'.`);
+      return toolError(
+        `Cannot approve a pay run with status '${run.status}' `
+        + `(approvable from: ${APPROVABLE.join(', ')}). `
+        + 'An approved run whose journal did not post is completed with post_payroll_journal.',
+      );
     }
+
 
     if (args.dry_run === true) {
       return ok({
         dryRun: true,
+        wroteNothing: true,
         journals: [],
         effects: [
           `Approve run ${run.periodMonth}/${run.periodYear} and POST its journal: `
@@ -164,11 +182,27 @@ export const approvePayRunTool: McpTool = {
       });
     }
 
-    // No catch. The status refusal above is the only one answerable from a
+    // REFUSED on the LIVE path, not warned — and after the dry run, so a
+    // preview still previews. Approving sets status 'approved', which is a
+    // LOCKED status: `calculate_pay_run` is refused permanently thereafter and
+    // there is no MCP tool to reopen a run. An agent that approved a run
+    // costing nobody would lock the month with an empty journal and have no
+    // connector path back out.
+    if (run.employeeCount === 0) {
+      return toolError(
+        'This run has costed nobody — approving it would lock the month with an empty journal '
+        + 'and there is no connector tool to reopen a locked run. '
+        + 'Assign pay components and run calculate_pay_run first.',
+      );
+    }
+
+    // No catch. The refusals above are the only ones answerable from a
     // read; a failure during approve-and-post must reach the registry's
     // savepoint, because a returned error there would RELEASE it and commit a
     // run marked approved against a journal that did not post.
-    const approved = await approvePayrollRun(ctx.companyId, runId, ctx.userId);
+    const approved = await approvePayrollRun(ctx.companyId, runId, ctx.userId, {
+      postingAgent: APPROVE_TOOL_AGENT,
+    });
     return ok({
       ...runPayload(approved),
       journal_entry_id: approved.journalEntryId,

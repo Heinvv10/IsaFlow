@@ -11,6 +11,7 @@
  * to read that single record back, which a paged list makes awkward.
  */
 import type { McpTool } from '../types';
+import { fmtDate } from '@/lib/fmtDate';
 import { listComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
 import { listEmployeeComponentAssignments } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { getPayrollEmployee } from '@/modules/accounting/services/payroll/payrollEmployeeService';
@@ -117,9 +118,9 @@ export const getEmployeeTool: McpTool = {
       employment_type: employee.employmentType,
       id_number: employee.idNumber ?? null,
       tax_number: employee.taxNumber ?? null,
-      start_date: employee.startDate.toISOString().slice(0, 10),
-      end_date: employee.endDate ? employee.endDate.toISOString().slice(0, 10) : null,
-      date_of_birth: employee.dateOfBirth ? employee.dateOfBirth.toISOString().slice(0, 10) : null,
+      start_date: fmtDate(employee.startDate),
+      end_date: employee.endDate ? fmtDate(employee.endDate) : null,
+      date_of_birth: employee.dateOfBirth ? fmtDate(employee.dateOfBirth) : null,
       uif_excluded: employee.uifExcluded,
       medical_aid_main_member: employee.medicalAidMainMember,
       medical_aid_dependants_count: employee.medicalAidDependantsCount,

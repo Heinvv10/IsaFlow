@@ -25,6 +25,7 @@
  * `post_payroll_journal`, which is why none of these is `requiresPost`.
  */
 import type { McpTool } from '../types';
+import { fmtDate } from '@/lib/fmtDate';
 import {
   createPayrollEmployee,
   getPayrollEmployee,
@@ -37,6 +38,10 @@ import {
 import { listComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
 import type { EmploymentType } from '@/modules/accounting/services/payroll/payrollTypes';
 import {
+  isValidSaIdNumber,
+  isValidSarsTaxNumber,
+} from '@/modules/accounting/services/payroll/irp5ValidationEngine';
+import {
   NOT_FOUND,
   guardCastableArgs,
   hasWholeCents,
@@ -48,14 +53,28 @@ import {
 
 const EMPLOYMENT_TYPES: readonly EmploymentType[] = ['permanent', 'contract', 'casual', 'director'];
 
-/** A SA ID number is 13 digits. Checked shallowly — SARS owns the real rule. */
-const ID_NUMBER_RE = /^\d{13}$/;
-/** A SARS individual tax reference is 10 digits. */
-const TAX_NUMBER_RE = /^\d{10}$/;
+/*
+ * The repo's OWN rules, not a local approximation. `isValidSarsTaxNumber` is
+ * `/^[01239]\d{9}$/` — ten digits with a constrained leading digit — and a
+ * plain `/^\d{10}$/` here accepted `4123456789`, which `irp5ValidationEngine`
+ * then rejects at IRP5 time. That is exactly the "rejected months later by
+ * someone who cannot tell which employee it came from" this check exists to
+ * prevent, so the check has to be the same one.
+ */
 
-/** `YYYY-MM-DD` from the agent, as a Date the services take. */
-function asDate(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
+/**
+ * `YYYY-MM-DD` from the agent, as a Date the services take.
+ *
+ * LOCAL midnight, not UTC. The services render these back through `fmtDate`,
+ * which uses local calendar getters on purpose — `toISOString()` there reported
+ * the PREVIOUS day on the UTC+2 host and shifted journal dates across VAT
+ * period boundaries (see `src/lib/pgTypes.ts`). A Date built at UTC midnight
+ * survives that on a UTC or UTC-plus host and silently loses a day on a
+ * UTC-minus one, so it is built where it is read instead.
+ */
+export function asDate(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number) as [number, number, number];
+  return new Date(y, m - 1, d);
 }
 
 export const createEmployeeTool: McpTool = {
@@ -113,12 +132,12 @@ export const createEmployeeTool: McpTool = {
     // (EMP201, IRP5) where a malformed number is rejected months later by
     // someone who cannot tell which employee it came from.
     const idNumber = strArg(args, 'id_number');
-    if (idNumber !== undefined && !ID_NUMBER_RE.test(idNumber)) {
+    if (idNumber !== undefined && !isValidSaIdNumber(idNumber)) {
       return toolError('id_number must be 13 digits');
     }
     const taxNumber = strArg(args, 'tax_number');
-    if (taxNumber !== undefined && !TAX_NUMBER_RE.test(taxNumber)) {
-      return toolError('tax_number must be 10 digits');
+    if (taxNumber !== undefined && !isValidSarsTaxNumber(taxNumber)) {
+      return toolError('tax_number must be a valid SARS tax reference (10 digits, starting 0, 1, 2, 3 or 9)');
     }
 
     const dependants = args.medical_aid_dependants_count;
@@ -154,7 +173,7 @@ export const createEmployeeTool: McpTool = {
         first_name: employee.firstName,
         last_name: employee.lastName,
         employment_type: employee.employmentType,
-        start_date: employee.startDate.toISOString().slice(0, 10),
+        start_date: fmtDate(employee.startDate),
         next_step: 'assign_employee_component — until then this employee is paid nothing',
       });
     } catch (err) {
@@ -207,12 +226,12 @@ export const updateEmployeeTool: McpTool = {
       return toolError(`employment_type must be one of: ${EMPLOYMENT_TYPES.join(', ')}`);
     }
     const idNumber = strArg(args, 'id_number');
-    if (idNumber !== undefined && !ID_NUMBER_RE.test(idNumber)) {
+    if (idNumber !== undefined && !isValidSaIdNumber(idNumber)) {
       return toolError('id_number must be 13 digits');
     }
     const taxNumber = strArg(args, 'tax_number');
-    if (taxNumber !== undefined && !TAX_NUMBER_RE.test(taxNumber)) {
-      return toolError('tax_number must be 10 digits');
+    if (taxNumber !== undefined && !isValidSarsTaxNumber(taxNumber)) {
+      return toolError('tax_number must be a valid SARS tax reference (10 digits, starting 0, 1, 2, 3 or 9)');
     }
 
     // Answered from a READ before the write. `updatePayrollEmployee` returns
@@ -223,7 +242,17 @@ export const updateEmployeeTool: McpTool = {
 
     const endDate = strArg(args, 'end_date');
     const dateOfBirth = strArg(args, 'date_of_birth');
+
+    // The same check the create path makes. Without it a fractional count
+    // reaches an INTEGER column, pg raises, and the agent gets the registry's
+    // generic failure instead of the specific refusal create_employee gives.
     const dependants = args.medical_aid_dependants_count;
+    if (dependants !== undefined && dependants !== null) {
+      const n = Number(dependants);
+      if (!Number.isInteger(n) || n < 0) {
+        return toolError('medical_aid_dependants_count must be a whole number of 0 or more');
+      }
+    }
 
     const updated = await updatePayrollEmployee(employeeId, ctx.companyId, {
       ...(strArg(args, 'first_name') === undefined ? {} : { firstName: strArg(args, 'first_name') }),
@@ -247,7 +276,7 @@ export const updateEmployeeTool: McpTool = {
       first_name: updated.firstName,
       last_name: updated.lastName,
       employment_type: updated.employmentType,
-      end_date: updated.endDate ? updated.endDate.toISOString().slice(0, 10) : null,
+      end_date: updated.endDate ? fmtDate(updated.endDate) : null,
     });
   },
 };
@@ -356,10 +385,13 @@ export const endEmployeeComponentTool: McpTool = {
     const bad = guardCastableArgs(args, { uuid: ['assignment_id'], date: ['effective_to'] });
     if (bad) return bad;
 
-    // The service scopes its UPDATE through the employee's company, so a
-    // foreign assignment silently matches no row. Nothing to report but the
-    // generic miss either way.
-    await endEmployeeComponent(ctx.companyId, assignmentId, asDate(effectiveTo));
+    // The service reports whether a row was ACTUALLY closed. It scopes its
+    // UPDATE through the employee's company, so a stale or foreign assignment
+    // matches nothing and the statement succeeds having changed nothing —
+    // answering `ended: true` there would tell an agent an old salary was
+    // stopped while it stayed live, and the next costed run would pay it.
+    const ended = await endEmployeeComponent(ctx.companyId, assignmentId, asDate(effectiveTo));
+    if (!ended) return toolError(NOT_FOUND);
     return ok({ assignment_id: assignmentId, effective_to: effectiveTo, ended: true });
   },
 };

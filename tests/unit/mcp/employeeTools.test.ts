@@ -44,11 +44,13 @@ import {
 } from '@/modules/accounting/services/payroll/payrollEmployeeComponentService';
 import { listComponents } from '@/modules/accounting/services/payroll/payrollComponentService';
 import {
+  asDate,
   assignEmployeeComponentTool,
   createEmployeeTool,
   endEmployeeComponentTool,
   updateEmployeeTool,
 } from '@/lib/mcp/tools/writeEmployees';
+import { fmtDate } from '@/lib/fmtDate';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -83,7 +85,9 @@ const made = {
   firstName: 'Thandi',
   lastName: 'Mokoena',
   employmentType: 'permanent' as const,
-  startDate: new Date('2025-04-01T00:00:00Z'),
+  // LOCAL midnight, like the tools build them — a UTC-constructed fixture
+  // renders as the previous day through fmtDate on any UTC-minus host.
+  startDate: new Date(2025, 3, 1),
   uifExcluded: false,
   medicalAidMainMember: false,
   medicalAidDependantsCount: 0,
@@ -114,7 +118,7 @@ describe('create_employee', () => {
     const [companyId, data] = vi.mocked(createPayrollEmployee).mock.calls[0]!;
     expect(companyId).toBe(COMPANY);
     expect(data.employmentType).toBe('permanent');
-    expect(data.startDate.toISOString().slice(0, 10)).toBe('2025-04-01');
+    expect(fmtDate(data.startDate)).toBe('2025-04-01');
   });
 
   it('tells the agent the employee is paid nothing until a component is assigned', async () => {
@@ -141,7 +145,7 @@ describe('create_employee', () => {
     expect(errText(await createEmployeeTool.handler(newArgs({ id_number: '123' }), ctx())))
       .toBe('id_number must be 13 digits');
     expect(errText(await createEmployeeTool.handler(newArgs({ tax_number: 'ABC' }), ctx())))
-      .toBe('tax_number must be 10 digits');
+      .toContain('valid SARS tax reference');
     expect(createPayrollEmployee).not.toHaveBeenCalled();
   });
 
@@ -177,7 +181,7 @@ describe('update_employee', () => {
     vi.clearAllMocks();
     vi.mocked(getPayrollEmployee).mockResolvedValue(made as never);
     vi.mocked(updatePayrollEmployee).mockResolvedValue({
-      ...made, endDate: new Date('2026-01-31T00:00:00Z'),
+      ...made, endDate: new Date(2026, 0, 31),
     } as never);
   });
 
@@ -202,7 +206,7 @@ describe('update_employee', () => {
       { employee_id: EMPLOYEE, end_date: '2026-01-31', ...KEY }, ctx(),
     ));
     const patch = vi.mocked(updatePayrollEmployee).mock.calls[0]![2];
-    expect(patch.endDate?.toISOString().slice(0, 10)).toBe('2026-01-31');
+    expect(fmtDate(patch.endDate!)).toBe('2026-01-31');
     expect(out.end_date).toBe('2026-01-31');
   });
 
@@ -271,7 +275,7 @@ describe('assign_employee_component', () => {
 describe('end_employee_component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(endEmployeeComponent).mockResolvedValue(undefined as never);
+    vi.mocked(endEmployeeComponent).mockResolvedValue(true as never);
   });
 
   it('closes the assignment at the given date', async () => {
@@ -282,7 +286,7 @@ describe('end_employee_component', () => {
     const [companyId, id, date] = vi.mocked(endEmployeeComponent).mock.calls[0]!;
     expect(companyId).toBe(COMPANY);
     expect(id).toBe(ASSIGNMENT);
-    expect(date.toISOString().slice(0, 10)).toBe('2025-12-31');
+    expect(fmtDate(date)).toBe('2025-12-31');
   });
 
   it('refuses a malformed id or date before the write', async () => {
@@ -293,5 +297,44 @@ describe('end_employee_component', () => {
       { assignment_id: ASSIGNMENT, effective_to: '2025-02-30', ...KEY }, ctx(),
     ))).toBe('invalid effective_to');
     expect(endEmployeeComponent).not.toHaveBeenCalled();
+  });
+});
+
+describe('asDate — local midnight, not UTC', () => {
+  it('round-trips through fmtDate, which reads LOCAL calendar parts', () => {
+    // fmtDate deliberately uses local getters: toISOString() there reported the
+    // previous day on the UTC+2 host and shifted journal dates across VAT
+    // period boundaries. A date built at UTC midnight survives that on a UTC or
+    // UTC-plus host and silently loses a day on a UTC-minus one.
+    for (const iso of ['2025-04-01', '2025-12-31', '2026-02-28', '2024-02-29']) {
+      expect(fmtDate(asDate(iso))).toBe(iso);
+    }
+  });
+
+  it('is midnight in the LOCAL zone', () => {
+    // The discriminator between the two constructions on any host that is not
+    // UTC. Under a UTC test runner both pass, so this pins intent rather than
+    // catching the bug in CI — `fmtDate` above is the assertion that matters.
+    const d = asDate('2025-04-01');
+    expect(d.getHours()).toBe(0);
+    expect(d.getFullYear()).toBe(2025);
+    expect(d.getMonth()).toBe(3);
+    expect(d.getDate()).toBe(1);
+  });
+});
+
+describe('end_employee_component — a miss is not a success', () => {
+  it('refuses when the UPDATE matched NO row', async () => {
+    // The service scopes through the employee's company, so a stale or foreign
+    // assignment matches nothing and the statement succeeds having changed
+    // nothing. Reporting `ended: true` there tells an agent an old salary was
+    // stopped while it stays live, and the next costed run pays it.
+    vi.clearAllMocks();
+    vi.mocked(endEmployeeComponent).mockResolvedValue(false as never);
+    const r = await endEmployeeComponentTool.handler(
+      { assignment_id: ASSIGNMENT, effective_to: '2025-12-31', ...KEY }, ctx(),
+    );
+    expect(r.isError).toBe(true);
+    expect(r.content[0]!.text).toBe('Not found');
   });
 });
