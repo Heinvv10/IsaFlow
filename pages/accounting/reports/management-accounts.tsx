@@ -9,11 +9,12 @@ import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import Link from 'next/link';
 import {
   ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight,
-  Download, Mail, TrendingUp, Scale, Banknote, DollarSign,
+  Download, Mail, TrendingUp, Scale, Banknote,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import { formatCurrency } from '@/utils/formatters';
-import { ManagementPandLRows, KVRow } from '@/components/accounting/ManagementPandLRows';
+import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/components/accounting/ManagementPandLRows';
+import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,28 +61,6 @@ function getDefaultDates() {
     periodStart: start.toISOString().split('T')[0] ?? '',
     periodEnd: now.toISOString().split('T')[0] ?? '',
   };
-}
-
-function fmtPct(n: number) {
-  return `${n.toFixed(1)}%`;
-}
-
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, sub, icon: Icon, color }: {
-  label: string; value: string; sub?: string;
-  icon: React.ElementType; color: string;
-}) {
-  return (
-    <div className={`rounded-lg border border-${color}-500/20 bg-${color}-500/5 p-4`}>
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={`h-4 w-4 text-${color}-400`} />
-        <span className="text-xs text-[var(--ff-text-tertiary)]">{label}</span>
-      </div>
-      <div className={`text-xl font-bold text-${color}-400`}>{value}</div>
-      {sub && <div className="text-xs text-[var(--ff-text-tertiary)] mt-1">{sub}</div>}
-    </div>
-  );
 }
 
 // ─── Collapsible section ─────────────────────────────────────────────────────
@@ -280,12 +259,7 @@ export default function ManagementAccountsPage() {
           {report && (
             <>
               {/* KPI Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <KpiCard label="Revenue" value={formatCurrency(k?.revenue ?? 0)} icon={DollarSign} color="teal" />
-                <KpiCard label="Gross Profit" value={formatCurrency(k?.grossProfit ?? 0)} sub={fmtPct(k?.grossProfitPct ?? 0)} icon={TrendingUp} color="blue" />
-                <KpiCard label="Net Profit" value={formatCurrency(k?.netProfit ?? 0)} sub={fmtPct(k?.netProfitPct ?? 0)} icon={BarChart3} color="purple" />
-                <KpiCard label="Cash Position" value={formatCurrency(k?.cashPosition ?? 0)} icon={Banknote} color="amber" />
-              </div>
+              <ManagementKpiRow k={k} />
 
               {/* The Gross Profit KPI above comes from the same getIncomeStatement
                   call as the income statement page, and carries the same
@@ -302,20 +276,7 @@ export default function ManagementAccountsPage() {
 
               {/* Balance Sheet Section */}
               <Section title="Balance Sheet" icon={Scale} color="blue" defaultOpen>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <h4 className="text-xs font-semibold text-[var(--ff-text-tertiary)] uppercase mb-2">Assets</h4>
-                    <KVRow label="Total Assets" value={formatCurrency(bs?.totalAssets ?? 0)} bold />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-semibold text-[var(--ff-text-tertiary)] uppercase mb-2">Liabilities</h4>
-                    <KVRow label="Total Liabilities" value={formatCurrency(bs?.totalLiabilities ?? 0)} bold />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-semibold text-[var(--ff-text-tertiary)] uppercase mb-2">Equity</h4>
-                    <KVRow label="Total Equity" value={formatCurrency(bs?.totalEquity ?? 0)} bold />
-                  </div>
-                </div>
+                <ManagementBalanceSheetRows bs={bs} />
               </Section>
 
               {/* Cash Flow Section */}

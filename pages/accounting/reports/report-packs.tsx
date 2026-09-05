@@ -13,6 +13,7 @@ import {
   type UnclassifiedWarning,
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
+import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -26,7 +27,14 @@ const PACK_CONFIGS: Array<{ type: PackType; label: string; description: string; 
 ];
 
 const fmt = (n: unknown) => typeof n === 'number' ? `R ${n.toLocaleString('en-ZA', { maximumFractionDigits: 0 })}` : String(n ?? '—');
-const fmtPct = (n: unknown) => typeof n === 'number' ? `${n.toFixed(1)}%` : String(n ?? '—');
+
+/** Maps the pack's income_statement section keys onto the totals shape
+ * ManagementPandLRows reads (see reportPackService.ts for the section keys). */
+const packToTotals = (d: Record<string, unknown>): Record<string, number> => ({
+  totalRevenue: Number(d.revenue ?? 0), totalCostOfSales: Number(d.costOfSales ?? 0), grossProfit: Number(d.grossProfit ?? 0),
+  totalOtherIncome: Number(d.otherIncome ?? 0), totalOperatingExpenses: Number(d.operatingExpenses ?? 0),
+  operatingProfit: Number(d.operatingProfit ?? 0), totalOtherExpenses: Number(d.otherExpenses ?? 0), netProfit: Number(d.netProfit ?? 0),
+});
 
 function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
@@ -44,26 +52,14 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
       {open && (
         <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
           {section.type === 'income_statement' && (
-            <>
-              <KVItem label="Revenue" value={fmt(d.revenue)} />
-              <KVItem label="Cost of Sales" value={fmt(d.costOfSales)} />
-              <KVItem label="Gross Profit" value={fmt(d.grossProfit)} />
-              <KVItem label="Gross Margin" value={fmtPct(d.grossMargin)} />
-              <KVItem label="Operating Expenses" value={fmt(d.operatingExpenses)} />
-              <KVItem label="Net Profit" value={fmt(d.netProfit)} />
-              <KVItem label="Net Margin" value={fmtPct(d.netMargin)} />
-            </>
+            <div className="col-span-3">
+              <ManagementPandLRows is={packToTotals(d)} />
+            </div>
           )}
           {section.type === 'balance_sheet' && (
-            <>
-              <KVItem label="Total Assets" value={fmt(d.totalAssets)} />
-              <KVItem label="Current Assets" value={fmt(d.currentAssets)} />
-              <KVItem label="Cash" value={fmt(d.cash)} />
-              <KVItem label="Accounts Receivable" value={fmt(d.accountsReceivable)} />
-              <KVItem label="Total Liabilities" value={fmt(d.totalLiabilities)} />
-              <KVItem label="Accounts Payable" value={fmt(d.accountsPayable)} />
-              <KVItem label="Total Equity" value={fmt(d.totalEquity)} />
-            </>
+            <div className="col-span-3">
+              <ManagementBalanceSheetRows bs={d as Record<string, number>} />
+            </div>
           )}
           {section.type === 'cash_flow' && (
             <>
