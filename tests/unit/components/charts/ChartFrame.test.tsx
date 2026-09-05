@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, act } from '@testing-library/react';
 import { ChartFrame } from '@/components/accounting/charts/ChartFrame';
 
 vi.mock('@/components/charts/EChartClient', () => ({
@@ -39,5 +39,36 @@ describe('ChartFrame', () => {
     );
     expect(screen.queryByTestId('echart')).toBeNull();
     expect(screen.getByText(/Opening cash is negative/)).toBeTruthy();
+  });
+
+  it('re-resolves the palette when the DOM theme class changes, so a client-side toggle repaints every chart', async () => {
+    const style = document.createElement('style');
+    style.textContent = `
+      :root { --ff-text-primary: #111111; }
+      .dark { --ff-text-primary: #eeeeee; }
+    `;
+    document.head.appendChild(style);
+    const seen: string[] = [];
+
+    render(
+      <ChartFrame title="T" unit="Rand">
+        {(p) => { seen.push(p.ink); return { series: [] }; }}
+      </ChartFrame>,
+    );
+
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    const initialInk = seen[seen.length - 1];
+
+    await act(async () => {
+      document.documentElement.classList.add('dark');
+      // MutationObserver callbacks fire as a microtask, after the mutation
+      // that triggers them — flush the microtask queue before asserting.
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(seen[seen.length - 1]).not.toBe(initialInk));
+
+    document.documentElement.classList.remove('dark');
+    document.head.removeChild(style);
   });
 });

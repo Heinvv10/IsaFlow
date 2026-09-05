@@ -5,15 +5,37 @@ import { buildTheme } from '@/lib/charts/theme';
 import { DEFAULT_PALETTE, paletteFromTheme, type ChartPalette } from './chartTypes';
 
 /**
- * The palette, resolved once after mount. `DEFAULT_PALETTE` is returned on
- * the server and for the first client paint so the markup matches and React
- * does not warn about a hydration mismatch.
+ * The palette, re-resolved whenever `<html>`'s `class`/`data-theme` actually
+ * changes. `DEFAULT_PALETTE` is returned on the server and for the first
+ * client paint so the markup matches and React does not warn about a
+ * hydration mismatch.
+ *
+ * This watches the DOM attribute directly, via `MutationObserver`, rather
+ * than subscribing to `ThemeContext`'s `theme` value: `ThemeContext` flips
+ * the `dark` class from its OWN effect, and that effect is a sibling of
+ * this one, not an ancestor — React fires passive effects bottom-up on
+ * both mount and update, so a `useEffect([theme])` here would still run
+ * BEFORE `ThemeProvider`'s effect had touched the class, and would read
+ * `getComputedStyle` one toggle behind. A `MutationObserver` only fires
+ * once the class attribute has actually mutated, so it can't win that race,
+ * and it repaints every chart no matter what flips the class (the app's
+ * theme toggle, a future preference switch, or a script).
  */
 export function useChartPalette(): ChartPalette {
   const [resolved, setResolved] = useState<ChartPalette | null>(null);
   useEffect(() => {
-    const styles = getComputedStyle(document.documentElement);
-    setResolved(paletteFromTheme(buildTheme((name) => styles.getPropertyValue(name).trim())));
+    const resolve = () => {
+      const styles = getComputedStyle(document.documentElement);
+      setResolved(paletteFromTheme(buildTheme((name) => styles.getPropertyValue(name).trim())));
+    };
+    resolve();
+
+    const observer = new MutationObserver(resolve);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme'],
+    });
+    return () => observer.disconnect();
   }, []);
   return resolved ?? DEFAULT_PALETTE;
 }
