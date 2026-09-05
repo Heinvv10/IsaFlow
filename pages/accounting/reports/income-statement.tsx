@@ -14,6 +14,9 @@ import { IncomeStatementSections } from '@/components/accounting/IncomeStatement
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
+import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
+import { useComparatorColumns } from '@/components/accounting/reportControls/useComparatorColumns';
+import { useStatementComparators } from '@/components/accounting/reportControls/useStatementComparators';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -95,8 +98,15 @@ export default function IncomeStatementPage() {
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
-  const [showComparative, setShowComparative] = useState(false);
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
+  // The Prior-period checkbox IS the comparative fetch: one control, so the
+  // column cannot be on with no comparative period behind it.
+  const { columns, setColumns } = useComparatorColumns();
+  const showComparative = columns.prior;
+  const { apply, budgetAvailable } = useStatementComparators({
+    trend: columns.trend, budget: columns.budget, asOf: periodEnd,
+    basis: 'movement', periodStart, periodEnd,
+  });
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
@@ -200,12 +210,17 @@ export default function IncomeStatementPage() {
                 ))}
               </select>
             </div>
-            <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer select-none pb-1">
-              <input type="checkbox" name="showComparative" checked={showComparative} onChange={e => setShowComparative(e.target.checked)}
-                className="rounded border-[var(--ff-border-light)]" />
-              Compare prior period
-            </label>
+            <div className="pb-2">
+              <ComparatorControls value={columns} onChange={setColumns} />
+            </div>
           </div>
+
+          {columns.budget && budgetAvailable === false && (
+            <p className="text-xs text-[var(--ff-text-tertiary)]">
+              No budget has been captured for this period, so the Budget column is empty.
+              Capture one under Accounting → Budgets.
+            </p>
+          )}
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
@@ -232,6 +247,8 @@ export default function IncomeStatementPage() {
                 expandedAccount={expandedAccount}
                 onToggleAccount={toggleAccount}
                 showComparative={showComparative}
+                columns={columns}
+                applyComparators={apply}
                 onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
               />
             </div>

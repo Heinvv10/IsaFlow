@@ -19,6 +19,8 @@ import {
 import { KpiTile } from '@/components/accounting/kpi/KpiTile';
 import { CashPositionChart } from '@/components/accounting/charts/CashPositionChart';
 import { log } from '@/lib/logger';
+import { DensityToggle } from '@/components/accounting/reportControls/DensityToggle';
+import { useDensity } from '@/components/accounting/reportControls/useDensity';
 
 interface ExecutiveKPIs {
   revenue: number;
@@ -60,6 +62,10 @@ export default function ExecutiveDashboardPage() {
   const [inventory, setInventory] = useState<InventoryWarning | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
+  // Density changes what is SHOWN and never what a figure IS: the owner view
+  // hides the four ratio tiles and the scorecard, and computes nothing
+  // differently.
+  const { density, setDensity } = useDensity();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -108,6 +114,7 @@ export default function ExecutiveDashboardPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <DensityToggle density={density} onChange={setDensity} />
               <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="ff-input text-sm" />
               <span className="text-[var(--ff-text-secondary)]">to</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
@@ -137,15 +144,19 @@ export default function ExecutiveDashboardPage() {
               )}
 
               {/* KPI Cards */}
-              <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <KpiTile label="Revenue" value={summary.kpis.revenue} kind="money" deltaPct={summary.kpis.revenueGrowth} favourable={favourableGrowth(summary.kpis.revenueGrowth)} />
                 <KpiTile label="Net profit" value={summary.kpis.netProfit} kind="money" deltaPct={summary.kpis.profitGrowth} favourable={favourableGrowth(summary.kpis.profitGrowth)} />
-                <KpiTile label="Gross margin" value={summary.kpis.grossProfitMargin} kind="pct" />
-                <KpiTile label="Net margin" value={summary.kpis.netProfitMargin} kind="pct" />
                 <KpiTile label="Cash balance" value={summary.kpis.cashBalance} kind="money" />
-                <KpiTile label="Current ratio" value={summary.kpis.currentRatio} kind="ratio" unavailable={notMeaningful.get('currentRatio') ? 'Not meaningful' : undefined} />
-                <KpiTile label="Debt/equity" value={summary.kpis.debtToEquity} kind="ratio" unavailable={notMeaningful.get('debtToEquity') ? 'Not meaningful' : undefined} />
                 <KpiTile label="NWC" value={summary.cashPosition.netWorkingCapital} kind="money" />
+                {density === 'accountant' && (
+                  <>
+                    <KpiTile label="Gross margin" value={summary.kpis.grossProfitMargin} kind="pct" />
+                    <KpiTile label="Net margin" value={summary.kpis.netProfitMargin} kind="pct" />
+                    <KpiTile label="Current ratio" value={summary.kpis.currentRatio} kind="ratio" unavailable={notMeaningful.get('currentRatio') ? 'Not meaningful' : undefined} />
+                    <KpiTile label="Debt/equity" value={summary.kpis.debtToEquity} kind="ratio" unavailable={notMeaningful.get('debtToEquity') ? 'Not meaningful' : undefined} />
+                  </>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -167,7 +178,7 @@ export default function ExecutiveDashboardPage() {
               </div>
 
               {/* KPI Scorecard */}
-              {scorecard.length > 0 && (
+              {density === 'accountant' && scorecard.length > 0 && (
                 <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
                   <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">KPI Scorecard</h2>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

@@ -16,6 +16,9 @@ import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { BalanceSheetBody } from '@/components/accounting/BalanceSheetBody';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
+import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
+import { useComparatorColumns } from '@/components/accounting/reportControls/useComparatorColumns';
+import { useStatementComparators } from '@/components/accounting/reportControls/useStatementComparators';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -62,8 +65,17 @@ export default function BalanceSheetPage() {
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
-  const [showComparative, setShowComparative] = useState(false);
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
+  // No Budget checkbox here: a budget is a P&L figure, and its account codes
+  // match nothing on a balance sheet. The trend series is `balance`, not
+  // `movement` — a movement series drawn beside a printed balance is a shape
+  // about a different number.
+  const { columns, setColumns } = useComparatorColumns();
+  const showComparative = columns.prior;
+  const { apply } = useStatementComparators({
+    trend: columns.trend, budget: false, asOf: asAtDate,
+    basis: 'balance', periodStart: asAtDate, periodEnd: asAtDate,
+  });
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
@@ -156,11 +168,9 @@ export default function BalanceSheetPage() {
                 ))}
               </select>
             </div>
-            <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer select-none pb-1">
-              <input type="checkbox" checked={showComparative} onChange={e => setShowComparative(e.target.checked)}
-                className="rounded border-[var(--ff-border-light)]" />
-              Compare prior year
-            </label>
+            <div className="pb-2">
+              <ComparatorControls value={columns} onChange={setColumns} comparators={['prior']} />
+            </div>
           </div>
 
           {error && (
@@ -177,6 +187,8 @@ export default function BalanceSheetPage() {
             <BalanceSheetBody
               report={report}
               showComparative={showComparative}
+              columns={columns}
+              applyComparators={apply}
               expandedAccount={expandedAccount}
               onToggleAccount={toggleAccount}
               drillDownStart={drillDownStart}

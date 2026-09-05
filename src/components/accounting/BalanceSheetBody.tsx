@@ -9,6 +9,7 @@ import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { BalanceCheckBanner } from '@/components/accounting/statement/BalanceCheckBanner';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
+import type { StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 
 interface BalanceSheetBodyProps {
   report: BalanceSheetReport;
@@ -18,10 +19,16 @@ interface BalanceSheetBodyProps {
   drillDownStart: string;
   drillDownEnd: string;
   onEvidence: (accountId: string, accountName: string) => void;
+  /** Which comparator columns to print. Omitted, the prior-year checkbox alone
+   *  decides, which is what every caller did before the trend column existed. */
+  columns?: StatementColumns;
+  /** Decorates the rows with the fetched comparators. Identity by default. */
+  applyComparators?: (rows: StatementRow[]) => StatementRow[];
 }
 
 export function BalanceSheetBody({
   report, showComparative, expandedAccount, onToggleAccount, drillDownStart, drillDownEnd, onEvidence,
+  columns: columnsProp, applyComparators = rows => rows,
 }: BalanceSheetBodyProps) {
   // The account-detail route master's BalanceSheetRow linked every account
   // name to. The migration to StatementGrid dropped it; the row model now
@@ -29,8 +36,11 @@ export function BalanceSheetBody({
   const detailHref = (code: string) =>
     `/accounting/reports/account-detail/${encodeURIComponent(code)}` +
     `?from=${encodeURIComponent(drillDownStart)}&to=${encodeURIComponent(drillDownEnd)}&source=bs`;
-  const { assets, liabilitiesAndEquity } = toBalanceSheetRows(report, { comparative: showComparative, detailHref });
-  const columns = { prior: showComparative, budget: false, variance: showComparative, trend: false };
+  const built = toBalanceSheetRows(report, { comparative: showComparative, detailHref });
+  const assets = applyComparators(built.assets);
+  const liabilitiesAndEquity = applyComparators(built.liabilitiesAndEquity);
+  const columns = columnsProp
+    ?? { prior: showComparative, budget: false, variance: showComparative, trend: false };
   const nameOf = (code: string) =>
     [...report.assets, ...report.liabilities, ...report.equity].find(a => a.accountCode === code)?.accountName ?? code;
   const evidence = (code: string) => onEvidence(code, nameOf(code));
