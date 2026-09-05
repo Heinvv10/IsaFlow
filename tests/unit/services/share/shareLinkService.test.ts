@@ -19,6 +19,8 @@ import {
   createShareLink,
   listShareLinks,
   revokeShareLink,
+  ShareLinkLimitError,
+  MAX_LIVE_LINKS,
 } from '@/modules/accounting/services/share/shareLinkService';
 import { hashShareToken } from '@/modules/accounting/services/share/shareToken';
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
@@ -118,6 +120,27 @@ describe('createShareLink', () => {
     expect(link.viewCount).toBe(0);
   });
 
+  it('refuses to mint past the live-link cap, and says so distinguishably', async () => {
+    // The guarded INSERT ... SELECT returns no row when the company is already
+    // at the cap, which is the only signal the service gets.
+    sqlMock.mockResolvedValue([]);
+    await expect(
+      createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS }),
+    ).rejects.toBeInstanceOf(ShareLinkLimitError);
+
+    expect(text()).toContain('revoked_at IS NULL');
+    expect(text()).toContain('expires_at > NOW()');
+    expect(values()).toContain(MAX_LIVE_LINKS);
+  });
+
+  it('counts only this company towards the cap', async () => {
+    sqlMock.mockResolvedValue([dbRow()]);
+    await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
+    expect(values()).not.toContain(OTHER_COMPANY);
+    // The guard subquery and the inserted row are scoped to the same company.
+    expect(values().filter(v => v === COMPANY).length).toBeGreaterThanOrEqual(2);
+  });
+
   it('carries a null label through rather than the string "null"', async () => {
     sqlMock.mockResolvedValue([dbRow()]);
     const { link } = await createShareLink({ companyId: COMPANY, userId: 'user-1', params: PARAMS });
@@ -127,6 +150,14 @@ describe('createShareLink', () => {
 });
 
 describe('listShareLinks', () => {
+  it('lists only live links, so a revoked or expired one cannot fill the page', async () => {
+    sqlMock.mockResolvedValue([]);
+    await listShareLinks(COMPANY);
+    expect(text()).toContain('revoked_at IS NULL');
+    expect(text()).toContain('expires_at > NOW()');
+    expect(text()).toContain('created_at DESC');
+  });
+
   it('filters by company and does not select the token hash', async () => {
     sqlMock.mockResolvedValue([dbRow(), dbRow({ id: 'b', revoked_at: new Date('2026-02-01T00:00:00Z') })]);
     const rows = await listShareLinks(COMPANY);

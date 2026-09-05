@@ -27,6 +27,20 @@ export interface ShareLinkRow {
 const MAX_TTL_DAYS = 90;
 const DEFAULT_TTL_DAYS = 30;
 
+/** Live links a company may hold at once. The list below reads at most 200
+ *  rows, so a cap under that is what stops a company minting links it can no
+ *  longer see in order to revoke them. */
+export const MAX_LIVE_LINKS = 100;
+
+/** Thrown by createShareLink when the company is already at MAX_LIVE_LINKS.
+ *  Distinguishable so the route can answer 409 rather than a blanket 500. */
+export class ShareLinkLimitError extends Error {
+  constructor() {
+    super(`This company already has ${MAX_LIVE_LINKS} live share links. Revoke one before creating another.`);
+    this.name = 'ShareLinkLimitError';
+  }
+}
+
 function toRow(r: DbRow): ShareLinkRow {
   return {
     id: String(r.id),
@@ -59,15 +73,24 @@ export async function createShareLink(input: {
 }): Promise<{ link: ShareLinkRow; token: string }> {
   const token = mintShareToken();
   const ttl = clampTtlDays(input.ttlDays);
+  // The cap is enforced INSIDE the insert rather than by a preceding SELECT:
+  // one statement, so two concurrent creates cannot both read a count of 99
+  // and both write. No row back means the guard rejected it.
   const rows = (await sql`
     INSERT INTO share_links (company_id, report_kind, params, token_hash, label, expires_at, created_by)
-    VALUES (
+    SELECT
       ${input.companyId}::uuid, 'pack', ${JSON.stringify(input.params)}::jsonb,
       ${hashShareToken(token)}, ${input.label ?? null},
       NOW() + (${ttl} || ' days')::interval, ${input.userId}
-    )
+    WHERE (
+      SELECT COUNT(*) FROM share_links
+      WHERE company_id = ${input.companyId}::uuid
+        AND revoked_at IS NULL
+        AND expires_at > NOW()
+    ) < ${MAX_LIVE_LINKS}
     RETURNING *
   `) as DbRow[];
+  if (rows.length === 0) throw new ShareLinkLimitError();
   const link = toRow(rows[0]!);
   log.info('Share link created', {
     companyId: input.companyId, userId: input.userId, shareLinkId: link.id,
@@ -76,11 +99,16 @@ export async function createShareLink(input: {
   return { link, token };
 }
 
+/** Live links only — a revoked or expired link is history, and listing it
+ *  would let dead rows crowd live ones out of the 200-row page, leaving a live
+ *  link past row 200 visible nowhere and therefore revocable nowhere. */
 export async function listShareLinks(companyId: string): Promise<ShareLinkRow[]> {
   const rows = (await sql`
     SELECT id, params, label, expires_at, revoked_at, created_by, created_at, view_count, last_viewed_at
     FROM share_links
     WHERE company_id = ${companyId}::uuid
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
     ORDER BY created_at DESC
     LIMIT 200
   `) as DbRow[];

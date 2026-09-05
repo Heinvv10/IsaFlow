@@ -18,15 +18,31 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 const createMock = vi.fn();
 const listMock = vi.fn();
 const revokeMock = vi.fn();
+const rateLimitMock = vi.fn();
+const warnMock = vi.fn();
+const infoMock = vi.fn();
 
-vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+// Hoisted: vi.mock factories run before module scope, and the service mock
+// below has to hand back this exact class for `instanceof` to mean anything.
+const { ShareLinkLimitError } = vi.hoisted(() => ({
+  ShareLinkLimitError: class extends Error {
+    constructor() { super('cap reached'); this.name = 'ShareLinkLimitError'; }
+  },
+}));
+
+vi.mock('@/lib/logger', () => ({
+  log: { info: (...a: unknown[]) => infoMock(...a), warn: (...a: unknown[]) => warnMock(...a), error: vi.fn() },
+}));
+vi.mock('@/lib/rateLimit', () => ({
+  checkReportRateLimit: (...a: unknown[]) => rateLimitMock(...a),
+}));
 // withAuth and withWriteAccess are stubbed — they need a database and a real
 // session. withCsrf is NOT: it is the real wrapper, so the tests below run
 // through the same double-submit check production runs, and every request
 // fixture must carry a matching cookie and header to get past it.
 vi.mock('@/lib/auth', async () => ({
   withAuth: (h: unknown) => h,
-  withWriteAccess: (h: unknown) => h,
+  withWriteAccess: (await vi.importActual<typeof import('@/lib/auth/withWriteAccess')>('@/lib/auth/withWriteAccess')).withWriteAccess,
   withCsrf: (await vi.importActual<typeof import('@/lib/auth/withCsrf')>('@/lib/auth/withCsrf')).withCsrf,
 }));
 vi.mock('@/lib/api-error-handler', () => ({ withErrorHandler: (h: unknown) => h }));
@@ -34,6 +50,7 @@ vi.mock('@/modules/accounting/services/share/shareLinkService', () => ({
   createShareLink: (...a: unknown[]) => createMock(...a),
   listShareLinks: (...a: unknown[]) => listMock(...a),
   revokeShareLink: (...a: unknown[]) => revokeMock(...a),
+  ShareLinkLimitError,
 }));
 
 import linksHandler from '../../../pages/api/accounting/share/links';
@@ -74,6 +91,9 @@ const link = { id: LINK_ID, reportKind: 'pack' as const, params: PARAMS, label: 
   createdAt: '2026-01-02T09:00:00.000Z', viewCount: 0, lastViewedAt: null };
 
 beforeEach(() => {
+  rateLimitMock.mockReset().mockResolvedValue(true);
+  warnMock.mockReset();
+  infoMock.mockReset();
   createMock.mockReset().mockResolvedValue({ link, token: 'T'.repeat(43) });
   listMock.mockReset().mockResolvedValue([link]);
   revokeMock.mockReset().mockResolvedValue(true);
@@ -125,6 +145,86 @@ describe('POST /api/accounting/share/links', () => {
     const payload = res.sent as { data: { token: string; url: string } };
     expect(payload.data.token).toBe('T'.repeat(43));
     expect(payload.data.url).toContain(`/share/${'T'.repeat(43)}`);
+  });
+
+  it('builds the url on the production origin, never localhost, when the env var is unset', async () => {
+    const prev = process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    try {
+      const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS } });
+      await linksHandler(req, res);
+      const payload = res.sent as { data: { url: string } };
+      expect(payload.data.url).toBe(`https://app.isaflow.co.za/share/${'T'.repeat(43)}`);
+      expect(payload.data.url).not.toContain('localhost');
+    } finally {
+      if (prev === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = prev;
+    }
+  });
+
+  it('answers 409 rather than 500 when the company is at its live-link cap', async () => {
+    createMock.mockRejectedValue(new ShareLinkLimitError());
+    const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS } });
+    await linksHandler(req, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toContain('cap reached');
+  });
+
+  it('lets any other service failure reach the error handler untouched', async () => {
+    createMock.mockRejectedValue(new Error('database on fire'));
+    const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS } });
+    await expect(linksHandler(req, res)).rejects.toThrow('database on fire');
+  });
+
+  it('rate-limits creation per company and never reaches the service', async () => {
+    rateLimitMock.mockResolvedValue(false);
+    const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS } });
+    await linksHandler(req, res);
+
+    expect(res.statusCode).toBe(429);
+    expect(rateLimitMock).toHaveBeenCalledWith(COMPANY, 'share-link-create');
+    expect(createMock).not.toHaveBeenCalled();
+    expect(warnMock).toHaveBeenCalled();
+  });
+
+  it('logs the creation once — in the service, not again in the route', async () => {
+    const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS } });
+    await linksHandler(req, res);
+    expect(res.statusCode).toBe(200);
+    expect(infoMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('role gate', () => {
+  it('refuses a manager the right to mint a link', async () => {
+    const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS }, companyRole: 'manager' });
+    await linksHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a manager the right to revoke one', async () => {
+    const { req, res } = mockReqRes({ method: 'POST', query: { id: LINK_ID }, companyRole: 'manager' });
+    await revokeHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(revokeMock).not.toHaveBeenCalled();
+  });
+
+  it('still lets a viewer read the list', async () => {
+    const { req, res } = mockReqRes({ method: 'GET', companyRole: 'viewer' });
+    await linksHandler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(listMock).toHaveBeenCalledWith(COMPANY);
+  });
+
+  it('allows an owner to mint', async () => {
+    const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS }, companyRole: 'owner' });
+    await linksHandler(req, res);
+    expect(res.statusCode).toBe(200);
   });
 });
 
