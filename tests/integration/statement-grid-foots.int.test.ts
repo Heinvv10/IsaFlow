@@ -11,8 +11,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
-import { toIncomeStatementRows } from '@/components/accounting/statement/incomeStatementRows';
-import { toBalanceSheetRows } from '@/components/accounting/statement/balanceSheetRows';
+import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
+import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 import { IncomeStatementBlock } from '@/components/accounting/afs/AfsStatementsTab';
 import { formatMoney } from '@/lib/format/money';
 

@@ -8,7 +8,7 @@ import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { BalanceCheckBanner } from '@/components/accounting/statement/BalanceCheckBanner';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
-import { toBalanceSheetRows } from '@/components/accounting/statement/balanceSheetRows';
+import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 
 interface BalanceSheetBodyProps {
   report: BalanceSheetReport;

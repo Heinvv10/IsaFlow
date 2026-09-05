@@ -14,7 +14,7 @@ import { AccountDrillDown } from '@/components/accounting/AccountDrillDown';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import { formatCurrency } from '@/utils/formatters';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
-import { toIncomeStatementRows } from '@/components/accounting/statement/incomeStatementRows';
+import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 
 /**
  * The statement body — every band, in the order a reader reconciles them:

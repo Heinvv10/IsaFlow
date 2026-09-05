@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toBalanceSheetRows } from '@/components/accounting/statement/balanceSheetRows';
+import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.report.types';
 
 /**

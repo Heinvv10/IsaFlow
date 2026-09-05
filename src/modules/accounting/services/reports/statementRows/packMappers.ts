@@ -5,7 +5,17 @@
  * zeros with no compile error, which is why these live here, importable by a
  * unit test, rather than inline in the page.
  */
-import type { BalanceSheetDetail } from '@/components/accounting/ManagementPandLRows';
+/**
+ * The pack's balance-sheet detail figures. Declared here rather than in
+ * `ManagementPandLRows.tsx`: it is a data shape, and a service-layer mapper
+ * must not type-import from a component.
+ */
+export interface BalanceSheetDetail {
+  currentAssets?: number;
+  cash?: number;
+  accountsReceivable?: number;
+  accountsPayable?: number;
+}
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 

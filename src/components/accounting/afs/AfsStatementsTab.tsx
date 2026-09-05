@@ -8,8 +8,8 @@ import type { BalanceSheetReport, IncomeStatementReport } from '@/modules/accoun
 import { AlertCircle } from 'lucide-react';
 import { BalanceCheckBanner } from '@/components/accounting/statement/BalanceCheckBanner';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
-import { toIncomeStatementRows } from '@/components/accounting/statement/incomeStatementRows';
-import { toBalanceSheetRows } from '@/components/accounting/statement/balanceSheetRows';
+import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
+import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 
 interface Props {
   periodStart: string;

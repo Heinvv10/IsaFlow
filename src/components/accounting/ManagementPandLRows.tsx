@@ -9,7 +9,8 @@
  * green.
  */
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
-import type { StatementRow } from '@/components/accounting/statement/statementModel';
+import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
+import type { BalanceSheetDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 
 export function KVRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
@@ -36,13 +37,6 @@ export function ManagementPandLRows({ is }: { is: Record<string, number> | undef
     { id: 'grand:netProfit', kind: 'grand', label: 'Net Profit / (Loss)', depth: 0, actual: n('netProfit') },
   ];
   return <StatementGrid rows={rows} columns={{ prior: false, variance: false, trend: false }} cents />;
-}
-
-export interface BalanceSheetDetail {
-  currentAssets?: number;
-  cash?: number;
-  accountsReceivable?: number;
-  accountsPayable?: number;
 }
 
 /** The management pack's balance-sheet summary — three subtotals plus the

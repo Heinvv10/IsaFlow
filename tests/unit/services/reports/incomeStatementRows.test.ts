@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toIncomeStatementRows } from '@/components/accounting/statement/incomeStatementRows';
+import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
 
 const line = (accountCode: string, accountName: string, amount: number, priorAmount?: number) =>

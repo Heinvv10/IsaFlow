@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
-import type { StatementRow } from '@/components/accounting/statement/statementModel';
+import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 
 const rows: StatementRow[] = [
   { id: 'sec:revenue', kind: 'section', label: 'Turnover', depth: 0, actual: 5000000 },

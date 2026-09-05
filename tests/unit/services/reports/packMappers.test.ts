@@ -8,7 +8,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
-import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/components/accounting/packMappers';
+import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 
 /** Brightsphere, all-time — the tenant whose pack was short by R341,712.00. */
 const INPUT: ReportPackInput = {

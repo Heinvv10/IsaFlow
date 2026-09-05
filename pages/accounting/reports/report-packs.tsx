@@ -14,7 +14,7 @@ import {
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
 import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
-import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/components/accounting/packMappers';
+import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 
 type PackType = 'board' | 'management' | 'monthly';
 
