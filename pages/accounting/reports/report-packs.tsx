@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -160,12 +160,8 @@ function ReportPacksScreen() {
   const downloadPdf = async () => {
     setPdfLoading(true);
     try {
-      const res = await apiFetch('/api/accounting/reports-pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: selectedType, from, to }),
-      });
-      if (!res.ok) throw new Error('PDF generation failed');
+      const res = await apiFetch(`/api/accounting/packs/${selectedType}/pdf?from=${from}&to=${to}`);
+      await assertOk(res, 'PDF generation failed');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
