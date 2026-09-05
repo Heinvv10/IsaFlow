@@ -13,7 +13,7 @@ import {
   type UnclassifiedWarning,
 } from '@/components/accounting/DataQualityNotice';
 import { log } from '@/lib/logger';
-import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
+import { ManagementPandLRows, ManagementBalanceSheetRows, type BalanceSheetDetail } from '@/components/accounting/ManagementPandLRows';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -34,6 +34,13 @@ const packToTotals = (d: Record<string, unknown>): Record<string, number> => ({
   totalRevenue: Number(d.revenue ?? 0), totalCostOfSales: Number(d.costOfSales ?? 0), grossProfit: Number(d.grossProfit ?? 0),
   totalOtherIncome: Number(d.otherIncome ?? 0), totalOperatingExpenses: Number(d.operatingExpenses ?? 0),
   operatingProfit: Number(d.operatingProfit ?? 0), totalOtherExpenses: Number(d.otherExpenses ?? 0), netProfit: Number(d.netProfit ?? 0),
+});
+
+/** Copies the pack's balance_sheet section detail figures straight through —
+ * no arithmetic (see reportPackService.ts for the section keys). */
+const packToBsDetail = (d: Record<string, unknown>): BalanceSheetDetail => ({
+  currentAssets: Number(d.currentAssets ?? 0), cash: Number(d.cash ?? 0),
+  accountsReceivable: Number(d.accountsReceivable ?? 0), accountsPayable: Number(d.accountsPayable ?? 0),
 });
 
 function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOpen?: boolean }) {
@@ -58,7 +65,7 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
           )}
           {section.type === 'balance_sheet' && (
             <div className="col-span-3">
-              <ManagementBalanceSheetRows bs={d as Record<string, number>} />
+              <ManagementBalanceSheetRows bs={d as Record<string, number>} detail={packToBsDetail(d)} />
             </div>
           )}
           {section.type === 'cash_flow' && (

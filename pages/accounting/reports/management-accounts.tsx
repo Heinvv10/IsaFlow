@@ -270,14 +270,10 @@ export default function ManagementAccountsPage() {
               )}
 
               {/* P&L Section */}
-              <Section title="Income Statement (P&L)" icon={TrendingUp} color="teal" defaultOpen>
-                <ManagementPandLRows is={is} />
-              </Section>
+              <Section title="Income Statement (P&L)" icon={TrendingUp} color="teal" defaultOpen><ManagementPandLRows is={is} /></Section>
 
               {/* Balance Sheet Section */}
-              <Section title="Balance Sheet" icon={Scale} color="blue" defaultOpen>
-                <ManagementBalanceSheetRows bs={bs} />
-              </Section>
+              <Section title="Balance Sheet" icon={Scale} color="blue" defaultOpen><ManagementBalanceSheetRows bs={bs} /></Section>
 
               {/* Cash Flow Section */}
               <Section title="Cash Flow" icon={Banknote} color="amber" defaultOpen>

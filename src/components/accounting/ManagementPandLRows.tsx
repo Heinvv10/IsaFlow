@@ -35,14 +35,26 @@ export function ManagementPandLRows({ is }: { is: Record<string, number> | undef
   return <StatementGrid rows={rows} columns={{ prior: false, variance: false, trend: false }} cents />;
 }
 
+export interface BalanceSheetDetail {
+  currentAssets?: number;
+  cash?: number;
+  accountsReceivable?: number;
+  accountsPayable?: number;
+}
+
 /** The management pack's balance-sheet summary — three subtotals plus the
  * derived Total Liabilities and Equity line (the report has no field for
- * this — same exception as balanceSheetRows.ts). */
-export function ManagementBalanceSheetRows({ bs }: { bs: Record<string, number> | undefined }) {
+ * this — same exception as balanceSheetRows.ts). `detail` copies in the
+ * report's own current-assets/cash/AR/AP figures, no arithmetic. */
+export function ManagementBalanceSheetRows({ bs, detail }: { bs: Record<string, number> | undefined; detail?: BalanceSheetDetail }) {
   const n = (k: string) => bs?.[k] ?? 0;
   const rows: StatementRow[] = [
     { id: 'sub:totalAssets', kind: 'subtotal', label: 'Total Assets', depth: 0, actual: n('totalAssets') },
+    ...(detail?.currentAssets !== undefined ? [{ id: 'line:currentAssets', kind: 'line' as const, label: 'Current Assets', depth: 1 as const, actual: detail.currentAssets }] : []),
+    ...(detail?.cash !== undefined ? [{ id: 'line:cash', kind: 'line' as const, label: 'Cash', depth: 1 as const, actual: detail.cash }] : []),
+    ...(detail?.accountsReceivable !== undefined ? [{ id: 'line:accountsReceivable', kind: 'line' as const, label: 'Accounts Receivable', depth: 1 as const, actual: detail.accountsReceivable }] : []),
     { id: 'sub:totalLiabilities', kind: 'subtotal', label: 'Total Liabilities', depth: 0, actual: n('totalLiabilities') },
+    ...(detail?.accountsPayable !== undefined ? [{ id: 'line:accountsPayable', kind: 'line' as const, label: 'Accounts Payable', depth: 1 as const, actual: detail.accountsPayable }] : []),
     { id: 'sub:totalEquity', kind: 'subtotal', label: 'Total Equity', depth: 0, actual: n('totalEquity') },
     { id: 'grand:totalLiabAndEquity', kind: 'grand', label: 'Total Liabilities and Equity', depth: 0, actual: n('totalLiabilities') + n('totalEquity') },
   ];
