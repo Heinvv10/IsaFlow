@@ -2597,3 +2597,16 @@ git commit -m "feat(share): the public share page is not tracked"
 - [ ] Move the helper; apply it at each site; nothing else changes in those files (diff must be ≤ 3 lines each).
 - [ ] Run the tests, `bun run type-check`, `bun run lint`; run the pre-existing tests for those three files if any (`grep -rl api-error-handler tests/unit`).
 - [ ] Commit: `fix(observability): share tokens never reach request logs or Sentry` with the trailer.
+
+---
+
+### Task 18: Scope the pack figures' account join to the company (controller-added)
+
+**Why:** `getFinancialFigures` (in `src/modules/accounting/services/reports/reportPackDataService.ts` or wherever it lives; find it) joins `gl_accounts` without `ga.company_id = je.company_id`. Under RLS (authenticated page) the foreign account is invisible, so the page is R450 out; on the share path (pool superuser, no RLS) the line is classified through another tenant's account, so the shared pack disagrees with the owner's page by R450 (Brightsphere JE-2026-00002 → Dotbiz account 1140). Granted to WS3 as a one-predicate change plus a test.
+
+**Files:** the file holding `getFinancialFigures` (additive predicate only), `tests/unit/services/reports/getFinancialFiguresScoping.test.ts`.
+
+- [ ] Failing test: with `sql` mocked, assert the query text for the figures aggregation contains a `gl_accounts`…`company_id` predicate bound to the company parameter (assert on the bound params and the SQL text both), and a second test using the repo's integration harness (non-skipping without `DATABASE_URL`) that Brightsphere's `getFinancialFigures` for 2026-03-01..2026-08-31 excludes the R450 line: total assets minus (liabilities + equity) equals the SAME value the authenticated balance-sheet page shows (fetch via `getBalanceSheet` under a `set_config('app.current_company_id', …, true)` in the test transaction) — i.e. the two paths agree.
+- [ ] Add `AND ga.company_id = je.company_id` (or the equivalent parameter predicate) to every `gl_accounts` join in that function; nothing else changes.
+- [ ] Run the tests, `bun run type-check`, `bun run lint`; commit `fix(reports): pack figures classify only through the company's own accounts` with the trailer.
+- [ ] In the report, record the agreed figure for Brightsphere before and after.
