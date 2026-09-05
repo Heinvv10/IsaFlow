@@ -14,7 +14,7 @@
  * inserts always commit together or not at all.
  */
 
-import { sql } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { recordEmployeeChange } from './payrollEmployeeHistoryService';
@@ -154,11 +154,19 @@ export async function applyBulkEmployeeUpdate(
     'payrollBulkEmployeeService',
   );
 
-  await sql`BEGIN`;
-  try {
+  // withTransaction, NEVER raw BEGIN/COMMIT. A raw `sql`COMMIT`` routes onto
+  // the ALS request client (`neon.ts` LazyQuery.run), which is the transaction
+  // `withAuth` opens for every request — so it commits the WHOLE request and
+  // destroys any enclosing savepoint.
+  //
+  // `recordEmployeeChange` below still writes through the module-level `sql`.
+  // That is correct and not an oversight: on a request connection
+  // `withTransaction` nests a SAVEPOINT on that SAME ALS client, so the nested
+  // service's writes are inside this unit of work and roll back with it.
+  return withTransaction(async (tx) => {
     for (const r of rows) {
       const id = String(r.id);
-      await sql`
+      await tx`
         UPDATE payroll_employees SET
           department      = COALESCE(${update.department ?? null}::text, department),
           cost_centre_id  = CASE
@@ -207,10 +215,6 @@ export async function applyBulkEmployeeUpdate(
         });
       }
     }
-    await sql`COMMIT`;
     return { updated: rows.length };
-  } catch (err) {
-    await sql`ROLLBACK`;
-    throw err;
-  }
+  });
 }

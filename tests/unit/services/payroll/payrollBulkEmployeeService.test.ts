@@ -5,6 +5,17 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
+  // withTransaction is what the services now use instead of raw BEGIN/COMMIT.
+  // The `tx` handed to the callback records into the SAME sqlCalls log, so the
+  // statement assertions below are unchanged; what is gone is the BEGIN/COMMIT
+  // pair, which never belonged to the service in the first place — `sql` routes
+  // onto the request's ALS client, so that COMMIT committed the whole request.
+  withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(
+    (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqlCalls.push({ sql: strings.join('?'), values });
+      return mockImpl(strings, ...values);
+    },
+  ),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
@@ -104,7 +115,7 @@ describe('applyBulkEmployeeUpdate', () => {
     };
   }
 
-  it('wraps changes in BEGIN/COMMIT and writes a history row per tracked field change', async () => {
+  it('writes the updates and a history row per tracked field change, in one unit of work', async () => {
     happy();
     const result = await applyBulkEmployeeUpdate(
       COMPANY_ID,
@@ -115,11 +126,14 @@ describe('applyBulkEmployeeUpdate', () => {
     );
 
     expect(result.updated).toBe(1);
-    expect(sqlCalls.some(c => c.sql.trim() === 'BEGIN')).toBe(true);
+    // No BEGIN/COMMIT: the service no longer emits them. `sql` routes onto the
+    // request's ALS client, so a raw COMMIT committed the WHOLE request;
+    // withTransaction nests a SAVEPOINT, which is not a statement in this log.
+    expect(sqlCalls.some(c => c.sql.trim() === 'BEGIN')).toBe(false);
     expect(sqlCalls.some(c => c.sql.includes('UPDATE payroll_employees'))).toBe(true);
     const hist = sqlCalls.filter(c => c.sql.includes('INSERT INTO payroll_employee_history'));
     expect(hist.length).toBe(2);
-    expect(sqlCalls.some(c => c.sql.trim() === 'COMMIT')).toBe(true);
+    expect(sqlCalls.some(c => c.sql.trim() === 'COMMIT')).toBe(false);
   });
 
   it('does not insert history for a field that was already equal to the new value', async () => {
@@ -150,7 +164,7 @@ describe('applyBulkEmployeeUpdate', () => {
     expect(hist.length).toBe(0);
   });
 
-  it('rolls back on update failure', async () => {
+  it('propagates an update failure so the surrounding transaction unwinds', async () => {
     mockImpl = (strings) => {
       const q = strings.join('?');
       if (q.includes('FROM payroll_employees')) {
@@ -167,10 +181,12 @@ describe('applyBulkEmployeeUpdate', () => {
     await expect(
       applyBulkEmployeeUpdate(COMPANY_ID, { department: 'OPS-OLD' }, { department: 'OPS' }, USER_ID),
     ).rejects.toThrow(/boom/);
-    expect(sqlCalls.some(c => c.sql.trim() === 'ROLLBACK')).toBe(true);
+    // Rollback is withTransaction's savepoint, not a statement this service
+    // emits. What the service owes its caller is that the error PROPAGATES.
+    expect(sqlCalls.some(c => c.sql.trim() === 'ROLLBACK')).toBe(false);
   });
 
-  it('returns 0 when nothing matches (no transaction opened)', async () => {
+  it('returns 0 and writes nothing when nothing matches', async () => {
     mockImpl = () => Promise.resolve([]);
     const result = await applyBulkEmployeeUpdate(
       COMPANY_ID,
@@ -179,6 +195,13 @@ describe('applyBulkEmployeeUpdate', () => {
       USER_ID,
     );
     expect(result.updated).toBe(0);
-    expect(sqlCalls.some(c => c.sql.trim() === 'BEGIN')).toBe(false);
+    // Asserts the OUTCOME, not the early return. Two things this does not prove,
+    // stated so nobody reads more into it: the service emits no BEGIN on any
+    // path now, so the old `BEGIN === false` check could not fail; and deleting
+    // the `rows.length === 0` early return does not turn this red either, since
+    // an empty loop writes nothing regardless. What it does catch is a
+    // regression that writes on a no-match.
+    expect(sqlCalls.some(c => c.sql.includes('UPDATE payroll_employees'))).toBe(false);
+    expect(sqlCalls.some(c => c.sql.includes('INSERT INTO'))).toBe(false);
   });
 });

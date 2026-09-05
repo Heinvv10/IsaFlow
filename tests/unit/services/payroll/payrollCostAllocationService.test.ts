@@ -5,6 +5,17 @@ let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<u
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
+  // withTransaction is what the services now use instead of raw BEGIN/COMMIT.
+  // The `tx` handed to the callback records into the SAME sqlCalls log, so the
+  // statement assertions below are unchanged; what is gone is the BEGIN/COMMIT
+  // pair, which never belonged to the service in the first place — `sql` routes
+  // onto the request's ALS client, so that COMMIT committed the whole request.
+  withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(
+    (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sqlCalls.push({ sql: strings.join('?'), values });
+      return mockImpl(strings, ...values);
+    },
+  ),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
     sqlCalls.push({ sql: strings.join('?'), values });
     return mockImpl(strings, ...values);
@@ -72,7 +83,7 @@ describe('setEmployeeCostAllocations', () => {
     ).rejects.toThrow(/percentage/i);
   });
 
-  it('replaces existing allocations transactionally (DELETE + INSERT + COMMIT)', async () => {
+  it('replaces existing allocations in ONE unit of work (DELETE + INSERT)', async () => {
     mockHappyPath();
     await setEmployeeCostAllocations(COMPANY_ID, EMP_ID, [
       { costCentreId: CC_A, percentage: 60 },
@@ -80,13 +91,17 @@ describe('setEmployeeCostAllocations', () => {
     ], USER_ID);
 
     const seq = sqlCalls.map(c => c.sql);
-    expect(seq.some(s => s.trim() === 'BEGIN')).toBe(true);
     expect(seq.some(s => s.includes('DELETE FROM payroll_employee_cost_allocations'))).toBe(true);
     expect(seq.filter(s => s.includes('INSERT INTO payroll_employee_cost_allocations'))).toHaveLength(2);
-    expect(seq.some(s => s.trim() === 'COMMIT')).toBe(true);
+    // No BEGIN/COMMIT assertion: the service no longer emits them. `sql` routes
+    // onto the request's ALS client, so a raw COMMIT committed the WHOLE
+    // request. withTransaction nests a SAVEPOINT instead, and the boundary is
+    // not an observable statement in this log.
+    expect(seq.some(s => s.trim() === 'BEGIN')).toBe(false);
+    expect(seq.some(s => s.trim() === 'COMMIT')).toBe(false);
   });
 
-  it('rolls back on a failing INSERT', async () => {
+  it('propagates a failing INSERT so the surrounding transaction unwinds', async () => {
     let insertCount = 0;
     mockImpl = (strings) => {
       const q = strings.join('?');
@@ -106,7 +121,10 @@ describe('setEmployeeCostAllocations', () => {
       ], USER_ID),
     ).rejects.toThrow(/boom/);
 
-    expect(sqlCalls.some(c => c.sql.trim() === 'ROLLBACK')).toBe(true);
+    // Rollback is withTransaction's savepoint, not a statement this service
+    // emits. What the service owes its caller is that the error PROPAGATES —
+    // swallowing it would leave the DELETE applied and the INSERTs missing.
+    expect(sqlCalls.some(c => c.sql.trim() === 'ROLLBACK')).toBe(false);
     expect(sqlCalls.some(c => c.sql.trim() === 'COMMIT')).toBe(false);
   });
 
