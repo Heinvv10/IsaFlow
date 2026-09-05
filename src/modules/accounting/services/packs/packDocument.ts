@@ -24,8 +24,16 @@ import { isLandscapeSection, isPackSectionType, packSectionTitle, type PackSecti
 
 export interface PackKvItem {
   label: string;
-  value: number;
-  format: 'money' | 'ratio' | 'pct';
+  /** null when the figure could not be computed — see `unavailable`. */
+  value: number | null;
+  format: 'money' | 'ratio' | 'pct' | 'days';
+  /**
+   * When set, the surface prints this text INSTEAD of the figure, exactly as
+   * `KpiTile.unavailable` does on the executive dashboard. A ratio dividing by
+   * non-positive equity is arithmetically meaningless (AN-07), and a pack that
+   * silently omitted the row disagreed with the dashboard on the same company.
+   */
+  unavailable?: string;
 }
 
 export type PackBlock =
@@ -86,8 +94,8 @@ export const RATIO_FORMATS = {
   debtToEquity: 'ratio',
   returnOnAssets: 'pct',
   returnOnEquity: 'pct',
-  debtorDays: 'ratio',
-  creditorDays: 'ratio',
+  debtorDays: 'days',
+  creditorDays: 'days',
   inventoryTurnover: 'ratio',
   // Profitability
   ebitda: 'money',
@@ -107,8 +115,8 @@ export const RATIO_FORMATS = {
   assetTurnover: 'ratio',
   receivablesTurnover: 'ratio',
   payablesTurnover: 'ratio',
-  inventoryDays: 'ratio',
-  cashConversionCycle: 'ratio',
+  inventoryDays: 'days',
+  cashConversionCycle: 'days',
   netOperatingAssetTurnover: 'ratio',
   // Cash flow
   freeCashFlow: 'money',
@@ -132,8 +140,13 @@ export const RATIO_FORMATS = {
   dupontLeverage: 'ratio',
 } as const satisfies Record<RatioKey, PackKvItem['format']>;
 
-const isRatioEntry = (e: [string, unknown]): e is [RatioKey, number] =>
-  e[0] in RATIO_FORMATS && typeof e[1] === 'number';
+/** A ratio field the map knows, whether or not the service could compute it.
+ *  `null` is kept: it is a row the pack must still print, with its reason. */
+const isRatioEntry = (e: [string, unknown]): e is [RatioKey, number | null] =>
+  e[0] in RATIO_FORMATS && (typeof e[1] === 'number' || e[1] === null);
+
+/** Reached only if the service nulls a ratio without recording why. */
+const NOT_MEANINGFUL = 'Not meaningful';
 
 function humanise(key: string): string {
   return key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
@@ -176,13 +189,22 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
         items: CASH_FLOW_LINES.map(([label, key]) => ({ label, value: num(d[key]), format: 'money' as const })),
       }];
 
-    case 'ratios':
+    case 'ratios': {
+      // The service's own reason, copied through — the dashboard prints this
+      // same string, and a pack that dropped the row instead disagreed with it.
+      const reasons = (d.notMeaningful as Record<string, string> | undefined) ?? {};
       return [{
         kind: 'kv',
         items: Object.entries(d)
           .filter(isRatioEntry)
-          .map(([k, v]) => ({ label: humanise(k), value: v, format: RATIO_FORMATS[k] })),
+          .map(([k, v]) => {
+            const reason = reasons[k];
+            return v === null || reason !== undefined
+              ? { label: humanise(k), value: null, format: RATIO_FORMATS[k], unavailable: reason ?? NOT_MEANINGFUL }
+              : { label: humanise(k), value: v, format: RATIO_FORMATS[k] };
+          }),
       }];
+    }
 
     case 'kpis': {
       const items = (d.scorecard as KPIScorecardItem[] | undefined) ?? [];

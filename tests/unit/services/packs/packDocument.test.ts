@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
-import { buildPackDocument, RATIO_FORMATS, UnknownPackSectionError } from '@/modules/accounting/services/packs/packDocument';
+import { buildPackDocument, RATIO_FORMATS, UnknownPackSectionError, type PackKvItem } from '@/modules/accounting/services/packs/packDocument';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
@@ -90,7 +90,7 @@ describe('buildPackDocument', () => {
     expect(items.find((i) => i.label === 'Roce')!.format).toBe('pct');
     expect(items.find((i) => i.label === 'Current Ratio')!.format).toBe('ratio');
     expect(items.find((i) => i.label === 'Debt Ratio')!.format).toBe('ratio');
-    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'pct', 'ratio']));
+    expect(new Set(items.map((i) => i.format))).toEqual(new Set(['money', 'pct', 'ratio', 'days']));
   });
 
   it('has a format for every numeric field calculateExtendedRatios returns', () => {
@@ -116,5 +116,43 @@ describe('buildPackDocument', () => {
     const withStranger = { ...pack, sections: [...pack.sections, { type: 'segments', title: 'Segments', data: {} }] };
     expect(() => buildPackDocument(withStranger, TREND)).toThrow(UnknownPackSectionError);
     expect(() => buildPackDocument(withStranger, TREND)).toThrow(/segments/);
+  });
+
+  it('tags the day counts as days, not as ratios', () => {
+    const doc = buildPackDocument(pack, TREND);
+    const ratios = doc.sections.find((s) => s.type === 'ratios')!;
+    const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: Array<{ label: string; format: string }> }).items;
+    for (const label of ['Debtor Days', 'Creditor Days', 'Inventory Days', 'Cash Conversion Cycle']) {
+      expect(items.find((i) => i.label === label)!.format).toBe('days');
+    }
+  });
+
+  it('prints a not-meaningful ratio with its reason rather than dropping the row', () => {
+    // Negative equity: every equity-divided ratio is arithmetically meaningless
+    // (AN-07). The dashboard shows the reason; the pack must not show nothing.
+    const insolvent = buildReportPack('management', { ...INPUT, totalEquity: -250000 }, '2026-01-01', '2026-09-05');
+    const doc = buildPackDocument(insolvent, TREND);
+    const ratios = doc.sections.find((s) => s.type === 'ratios')!;
+    const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
+
+    for (const label of ['Debt To Equity', 'Return On Equity', 'Equity Multiplier', 'Dupont Leverage']) {
+      const item = items.find((i) => i.label === label);
+      expect(item, `${label} must still appear`).toBeDefined();
+      expect(item!.value).toBeNull();
+      expect(item!.unavailable).toMatch(/liabilities exceed assets/);
+    }
+
+    // A ratio that IS computable keeps its figure and carries no reason.
+    const current = items.find((i) => i.label === 'Current Ratio')!;
+    expect(typeof current.value).toBe('number');
+    expect(current.unavailable).toBeUndefined();
+  });
+
+  it('carries no unavailable reason when equity is sound', () => {
+    const doc = buildPackDocument(pack, TREND);
+    const ratios = doc.sections.find((s) => s.type === 'ratios')!;
+    const items = (ratios.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
+    expect(items.filter((i) => i.unavailable !== undefined)).toEqual([]);
+    expect(items.filter((i) => i.value === null)).toEqual([]);
   });
 });
