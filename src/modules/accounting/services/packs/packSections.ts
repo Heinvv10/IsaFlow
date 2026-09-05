@@ -54,7 +54,10 @@ export function isLandscapeSection(sectionType: string): boolean {
 
 export const PACK_DATA_API = '/api/accounting/reports-pack';
 
-export function packTrendApiPath(packType: PackType): string {
+/** Typed as the literal path rather than `string` so `apiJson` can resolve it
+ *  against the route registry — a bare `string` would resolve to `unknown` and
+ *  the print page would be back to hand-writing the trend payload's shape. */
+export function packTrendApiPath(packType: PackType): `/api/accounting/packs/${PackType}/trend` {
   return `/api/accounting/packs/${packType}/trend`;
 }
 

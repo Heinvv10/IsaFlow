@@ -41,4 +41,30 @@
   html.print-mode tr {
     break-inside: avoid;
   }
+
+  /* Pack pagination. The cover and the contents each own a page; every
+     section already starts a new one via [data-print-break] above. */
+  html.print-mode [data-pack-cover],
+  html.print-mode [data-pack-toc] {
+    break-after: page;
+  }
+
+  /* Sections whose content is a chart wide enough to need the page turned.
+     A named page needs Chromium 111+; both transports ship a newer one. The
+     `page` property is what puts THIS section on a landscape sheet while the
+     rest of the pack stays portrait — page.pdf()'s own `landscape` flag would
+     turn the whole document. */
+  @page landscape-page {
+    size: A4 landscape;
+  }
+
+  html.print-mode [data-print-landscape] {
+    page: landscape-page;
+  }
+
+  /* A chart split across a page boundary is unreadable. */
+  html.print-mode svg,
+  html.print-mode [data-pack-chart] {
+    break-inside: avoid;
+  }
 }

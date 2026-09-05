@@ -15,6 +15,8 @@ import {
 import { log } from '@/lib/logger';
 import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
 import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { useRouter } from 'next/router';
+import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 
@@ -111,7 +113,30 @@ function KVItem({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * The page has two entirely separate lives: the interactive screen below, and
+ * the printed pack the PDF renderer photographs. They are sibling components
+ * rather than one component with an early return — each owns its own hooks,
+ * and an early return above `ReportPacksScreen`'s hooks would break the rules
+ * of hooks the moment the branch changed.
+ */
 export default function ReportPacksPage() {
+  const router = useRouter();
+
+  if (router.query.print === '1') {
+    return (
+      <PackPrintPage
+        packType={String(router.query.pack ?? 'management') as PackType}
+        from={String(router.query.from ?? '')}
+        to={String(router.query.to ?? '')}
+      />
+    );
+  }
+
+  return <ReportPacksScreen />;
+}
+
+function ReportPacksScreen() {
   const [selectedType, setSelectedType] = useState<PackType>('board');
   const [pack, setPack] = useState<ReportPack | null>(null);
   const [loading, setLoading] = useState(false);
