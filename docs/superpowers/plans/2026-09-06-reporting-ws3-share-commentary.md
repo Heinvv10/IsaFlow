@@ -2582,3 +2582,18 @@ In `pages/_app.tsx`, where `TrackerScript` is mounted, read `useRouter().pathnam
 git add src/modules/analytics/isTrackedPath.ts pages/_app.tsx tests/unit/components/trackerExclusion.test.ts
 git commit -m "feat(share): the public share page is not tracked"
 ```
+
+---
+
+### Task 17: Redact share tokens in request logging and Sentry tags (controller-added)
+
+**Why:** `src/lib/api-error-handler.ts` logs `req.url` and `req.query` verbatim; `src/lib/observability/requestLogger.ts` logs the path; `src/lib/sentry/tags.ts` sends the path to Sentry. A share link `/share/<token>` would put a working credential into journalctl and a third-party service. Granted to WS3 as additive one-line changes in each file (no other edits there).
+
+**Files:**
+- Modify: `src/lib/api-error-handler.ts` (wrap the logged URL and, if `req.query` carries a `token` key, redact it), `src/lib/observability/requestLogger.ts`, `src/lib/sentry/tags.ts` — each through `redactShareToken` from `src/modules/accounting/services/share/shareResolver.ts` (move `redactShareToken` to `src/lib/observability/redactShareToken.ts` so `src/lib` does not import from a module; re-export from the service).
+- Test: `tests/unit/lib/observability/redactShareToken.test.ts` plus one test per logging site that the logged/tagged value for `/share/<43-char token>?x=1` contains `[token]` and never the token.
+
+- [ ] Write the failing tests (three sites + helper).
+- [ ] Move the helper; apply it at each site; nothing else changes in those files (diff must be ≤ 3 lines each).
+- [ ] Run the tests, `bun run type-check`, `bun run lint`; run the pre-existing tests for those three files if any (`grep -rl api-error-handler tests/unit`).
+- [ ] Commit: `fix(observability): share tokens never reach request logs or Sentry` with the trailer.
