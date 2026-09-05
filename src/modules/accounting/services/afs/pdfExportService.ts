@@ -5,6 +5,7 @@ import type { AfsDocument, AfsSection, SectionType, SectionStatus, DocumentType,
 import { getBrandProfile } from './brandProfileService';
 import { runPreExportChecks } from './afsPreExportChecks';
 import { renderAfsToHtml } from './afsHtmlRendererService';
+import { buildAfsCharts } from '@/modules/accounting/services/packs/serverChartSvg';
 import { htmlToPdf } from './weasyprintService';
 import { checkPublicUrl } from '@/lib/safeFetch';
 
@@ -144,8 +145,12 @@ export async function exportToPdf(
     }
   }
 
+  // Charts for the statement pages. Additive: a section with no builder
+  // registered renders exactly as it does today.
+  const charts = buildAfsCharts(sections);
+
   const html = renderAfsToHtml(
-    { document, sections, brandProfile: safeBrandProfile, companyName, registrationNumber },
+    { document, sections, brandProfile: safeBrandProfile, companyName, registrationNumber, charts },
     { watermark: options?.watermark },
   );
 
