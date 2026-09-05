@@ -4,9 +4,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
-import type { BalanceSheetReport, BalanceSheetLineItem, IncomeStatementReport, IncomeStatementLineItem } from '@/modules/accounting/types/gl.report.types';
-import { formatCurrency } from '@/utils/formatters';
-import { AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import type { BalanceSheetReport, IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
+import { AlertCircle } from 'lucide-react';
+import { BalanceCheckBanner } from '@/components/accounting/statement/BalanceCheckBanner';
+import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
+import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
+import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 
 interface Props {
   periodStart: string;
@@ -33,63 +36,24 @@ function SectionErr({ message }: { message: string }) {
 
 // ── Balance Sheet ─────────────────────────────────────────────────────────────
 
-function AccountRow({ code, name, balance }: { code: string; name: string; balance: number; }) {
-  return (
-    <div className="px-4 py-2 flex justify-between text-sm">
-      <span className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
-        <span className="font-mono text-xs text-slate-400">{code}</span>
-        {name}
-      </span>
-      <span className="font-mono text-slate-800 dark:text-slate-200">{formatCurrency(balance)}</span>
-    </div>
-  );
-}
-
-function BSSection({ label, color, items, total }: {
-  label: string;
-  color: 'blue' | 'amber' | 'purple';
-  items: BalanceSheetLineItem[];
-  total: number;
-}) {
-  const colorMap = {
-    blue:   { header: 'bg-blue-500/10 text-blue-500',   total: 'text-blue-400' },
-    amber:  { header: 'bg-amber-500/10 text-amber-500', total: 'text-amber-400' },
-    purple: { header: 'bg-purple-500/10 text-purple-500', total: 'text-purple-400' },
-  };
-  const c = colorMap[color];
-  return (
-    <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden mb-4">
-      <div className={`px-4 py-2 font-semibold text-sm ${c.header}`}>{label}</div>
-      <div className="divide-y divide-slate-100 dark:divide-slate-800">
-        {items.map(a => <AccountRow key={a.accountCode} code={a.accountCode} name={a.accountName} balance={a.balance} />)}
-        {items.length === 0 && <div className="px-4 py-2 text-xs text-slate-400">No balances</div>}
-      </div>
-      <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex justify-between bg-slate-50 dark:bg-slate-800">
-        <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">Total {label}</span>
-        <span className={`font-mono font-bold ${c.total}`}>{formatCurrency(total)}</span>
-      </div>
-    </div>
-  );
-}
-
 function BalanceSheetBlock({ report }: { report: BalanceSheetReport }) {
-  const balanced = Math.abs(report.totalAssets - (report.totalLiabilities + report.totalEquity)) < 0.02;
+  const { assets, liabilitiesAndEquity } = toBalanceSheetRows(report, { comparative: false });
+  const columns = { prior: false, budget: false, variance: false, trend: false };
   return (
     <section className="mb-10">
-      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide mb-3 border-b border-slate-300 dark:border-slate-700 pb-1">
-        Statement of Financial Position (Balance Sheet)
+      <h3 className="text-sm font-bold uppercase tracking-wide mb-3 text-[var(--ff-text-primary)]">
+        Statement of Financial Position
       </h3>
-      {balanced ? (
-        <p className="text-xs text-green-500 mb-3">Balanced — Assets = Liabilities + Equity</p>
-      ) : (
-        <p className="text-xs text-red-400 mb-3">Out of balance by {formatCurrency(Math.abs(report.totalAssets - (report.totalLiabilities + report.totalEquity)))}</p>
-      )}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <BSSection label="Assets" color="blue" items={report.assets} total={report.totalAssets} />
-        <div className="space-y-4">
-          <BSSection label="Liabilities" color="amber" items={report.liabilities} total={report.totalLiabilities} />
-          <BSSection label="Equity" color="purple" items={report.equity} total={report.totalEquity} />
-        </div>
+      <div className="space-y-4">
+        {/* The statutory statement is the one whose output goes to a
+            regulator: it must never render silently out of balance. */}
+        <BalanceCheckBanner
+          totalAssets={report.totalAssets}
+          totalLiabilities={report.totalLiabilities}
+          totalEquity={report.totalEquity}
+        />
+        <StatementGrid rows={assets} columns={columns} title="Assets" cents />
+        <StatementGrid rows={liabilitiesAndEquity} columns={columns} title="Liabilities and Equity" cents />
       </div>
     </section>
   );
@@ -97,81 +61,17 @@ function BalanceSheetBlock({ report }: { report: BalanceSheetReport }) {
 
 // ── Income Statement ──────────────────────────────────────────────────────────
 
-function ISSection({ label, items, total }: { label: string; items: IncomeStatementLineItem[]; total: number }) {
-  const [expanded, setExpanded] = useState(true);
-  return (
-    <div className="border-b border-slate-100 dark:border-slate-800 last:border-0">
-      <button
-        type="button"
-        onClick={() => setExpanded(p => !p)}
-        className="w-full px-4 py-2 flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-      >
-        <span className="text-sm font-semibold text-slate-700 dark:text-slate-300">{label}</span>
-        <span className="flex items-center gap-2">
-          <span className="font-mono text-sm text-slate-800 dark:text-slate-200">{formatCurrency(total)}</span>
-          {expanded ? <ChevronDown className="w-3 h-3 text-slate-400" /> : <ChevronRight className="w-3 h-3 text-slate-400" />}
-        </span>
-      </button>
-      {expanded && items.map(item => (
-        <div key={item.accountCode} className="px-4 py-1.5 flex justify-between text-sm">
-          <span className="flex items-center gap-2 text-slate-600 dark:text-slate-400 pl-4">
-            <span className="font-mono text-xs text-slate-400">{item.accountCode}</span>
-            {item.accountName}
-          </span>
-          <span className="font-mono text-slate-700 dark:text-slate-300">{formatCurrency(item.amount)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function IncomeStatementBlock({ report, periodStart, periodEnd }: {
   report: IncomeStatementReport;
   periodStart: string;
   periodEnd: string;
 }) {
+  const rows = toIncomeStatementRows(report, { comparative: false });
   return (
     <section>
-      <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wide mb-3 border-b border-slate-300 dark:border-slate-700 pb-1">
-        Income Statement (Profit &amp; Loss)
-      </h3>
-      <p className="text-xs text-slate-500 mb-3">{periodStart} to {periodEnd}</p>
-      <div className="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
-        <ISSection label="Turnover" items={report.revenue} total={report.totalRevenue} />
-        {report.costOfSales.length > 0 && (
-          <ISSection label="Cost of Sales" items={report.costOfSales} total={report.totalCostOfSales} />
-        )}
-        <div className="px-4 py-2 flex justify-between bg-teal-500/5">
-          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">Gross Profit</span>
-          <span className={`font-mono font-bold text-sm ${report.grossProfit >= 0 ? 'text-teal-500' : 'text-red-400'}`}>
-            {formatCurrency(report.grossProfit)}
-          </span>
-        </div>
-        {report.otherIncome.length > 0 && (
-          <ISSection label="Other Income" items={report.otherIncome} total={report.totalOtherIncome} />
-        )}
-        <ISSection label="Operating Expenses" items={report.operatingExpenses} total={report.totalOperatingExpenses} />
-        {/* Operating Profit, Other Expenses: without these the statement does
-            not FOOT. Gross Profit less Operating Expenses stopped equalling Net
-            Profit the moment other income and finance cost/tax got their own
-            bands, and the reconciling amount would be invisible on a statutory
-            statement — R341,712.00 on Brightsphere. */}
-        <div className="px-4 py-2 flex justify-between bg-blue-500/5">
-          <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">Operating Profit</span>
-          <span className={`font-mono font-bold text-sm ${report.operatingProfit >= 0 ? 'text-blue-500' : 'text-red-400'}`}>
-            {formatCurrency(report.operatingProfit)}
-          </span>
-        </div>
-        {report.otherExpenses.length > 0 && (
-          <ISSection label="Other Expenses" items={report.otherExpenses} total={report.totalOtherExpenses} />
-        )}
-        <div className="px-4 py-3 flex justify-between bg-slate-100 dark:bg-slate-800">
-          <span className="text-base font-bold text-slate-900 dark:text-white">Net Profit / (Loss)</span>
-          <span className={`font-mono font-bold text-base ${report.netProfit >= 0 ? 'text-teal-500' : 'text-red-400'}`}>
-            {formatCurrency(report.netProfit)}
-          </span>
-        </div>
-      </div>
+      <h3 className="text-sm font-bold uppercase tracking-wide mb-1 text-[var(--ff-text-primary)]">Statement of Comprehensive Income</h3>
+      <p className="text-xs text-[var(--ff-text-tertiary)] mb-3">{periodStart} to {periodEnd}</p>
+      <StatementGrid rows={rows} columns={{ prior: false, budget: false, variance: false, trend: false }} cents />
     </section>
   );
 }

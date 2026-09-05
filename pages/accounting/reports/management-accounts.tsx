@@ -8,12 +8,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import Link from 'next/link';
 import {
-  ArrowLeft, BarChart3, Loader2, AlertCircle, ChevronDown, ChevronRight,
-  Download, Mail, TrendingUp, Scale, Banknote, DollarSign,
+  ArrowLeft, BarChart3, Loader2, AlertCircle,
+  Download, Mail, TrendingUp, Scale, Banknote,
 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
-import { formatCurrency } from '@/utils/formatters';
-import { ManagementPandLRows, KVRow } from '@/components/accounting/ManagementPandLRows';
+import { formatMoney } from '@/lib/format/money';
+import { ManagementPandLRows, ManagementBalanceSheetRows, KVRow } from '@/components/accounting/ManagementPandLRows';
+import { ManagementKpiRow } from '@/components/accounting/ManagementKpiRow';
+import { ManagementSection } from '@/components/accounting/ManagementSection';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,54 +62,6 @@ function getDefaultDates() {
     periodStart: start.toISOString().split('T')[0] ?? '',
     periodEnd: now.toISOString().split('T')[0] ?? '',
   };
-}
-
-function fmtPct(n: number) {
-  return `${n.toFixed(1)}%`;
-}
-
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
-
-function KpiCard({ label, value, sub, icon: Icon, color }: {
-  label: string; value: string; sub?: string;
-  icon: React.ElementType; color: string;
-}) {
-  return (
-    <div className={`rounded-lg border border-${color}-500/20 bg-${color}-500/5 p-4`}>
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={`h-4 w-4 text-${color}-400`} />
-        <span className="text-xs text-[var(--ff-text-tertiary)]">{label}</span>
-      </div>
-      <div className={`text-xl font-bold text-${color}-400`}>{value}</div>
-      {sub && <div className="text-xs text-[var(--ff-text-tertiary)] mt-1">{sub}</div>}
-    </div>
-  );
-}
-
-// ─── Collapsible section ─────────────────────────────────────────────────────
-
-function Section({ title, icon: Icon, color, defaultOpen, children }: {
-  title: string; icon: React.ElementType; color: string;
-  defaultOpen?: boolean; children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen ?? true);
-  return (
-    <div className="border border-[var(--ff-border-light)] rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-4 py-3 bg-[var(--ff-bg-tertiary)] hover:bg-[var(--ff-bg-secondary)] text-left"
-      >
-        <div className="flex items-center gap-2">
-          <Icon className={`h-4 w-4 text-${color}-400`} />
-          <span className="text-sm font-medium text-[var(--ff-text-primary)]">{title}</span>
-        </div>
-        {open
-          ? <ChevronDown className="h-4 w-4 text-[var(--ff-text-tertiary)]" />
-          : <ChevronRight className="h-4 w-4 text-[var(--ff-text-tertiary)]" />}
-      </button>
-      {open && <div className="p-4">{children}</div>}
-    </div>
-  );
 }
 
 // ─── Simple KV row ───────────────────────────────────────────────────────────
@@ -280,12 +234,7 @@ export default function ManagementAccountsPage() {
           {report && (
             <>
               {/* KPI Summary Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <KpiCard label="Revenue" value={formatCurrency(k?.revenue ?? 0)} icon={DollarSign} color="teal" />
-                <KpiCard label="Gross Profit" value={formatCurrency(k?.grossProfit ?? 0)} sub={fmtPct(k?.grossProfitPct ?? 0)} icon={TrendingUp} color="blue" />
-                <KpiCard label="Net Profit" value={formatCurrency(k?.netProfit ?? 0)} sub={fmtPct(k?.netProfitPct ?? 0)} icon={BarChart3} color="purple" />
-                <KpiCard label="Cash Position" value={formatCurrency(k?.cashPosition ?? 0)} icon={Banknote} color="amber" />
-              </div>
+              <ManagementKpiRow k={k} />
 
               {/* The Gross Profit KPI above comes from the same getIncomeStatement
                   call as the income statement page, and carries the same
@@ -296,37 +245,20 @@ export default function ManagementAccountsPage() {
               )}
 
               {/* P&L Section */}
-              <Section title="Income Statement (P&L)" icon={TrendingUp} color="teal" defaultOpen>
-                <ManagementPandLRows is={is} />
-              </Section>
+              <ManagementSection title="Income Statement (P&L)" icon={TrendingUp} color="teal" defaultOpen><ManagementPandLRows is={is} /></ManagementSection>
 
               {/* Balance Sheet Section */}
-              <Section title="Balance Sheet" icon={Scale} color="blue" defaultOpen>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <h4 className="text-xs font-semibold text-[var(--ff-text-tertiary)] uppercase mb-2">Assets</h4>
-                    <KVRow label="Total Assets" value={formatCurrency(bs?.totalAssets ?? 0)} bold />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-semibold text-[var(--ff-text-tertiary)] uppercase mb-2">Liabilities</h4>
-                    <KVRow label="Total Liabilities" value={formatCurrency(bs?.totalLiabilities ?? 0)} bold />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-semibold text-[var(--ff-text-tertiary)] uppercase mb-2">Equity</h4>
-                    <KVRow label="Total Equity" value={formatCurrency(bs?.totalEquity ?? 0)} bold />
-                  </div>
-                </div>
-              </Section>
+              <ManagementSection title="Balance Sheet" icon={Scale} color="blue" defaultOpen><ManagementBalanceSheetRows bs={bs} /></ManagementSection>
 
               {/* Cash Flow Section */}
-              <Section title="Cash Flow" icon={Banknote} color="amber" defaultOpen>
-                <KVRow label="Opening Cash" value={formatCurrency(cf?.openingCash ?? 0)} />
-                <KVRow label="Operating Activities" value={formatCurrency(cf?.operatingCashFlow ?? 0)} />
-                <KVRow label="Investing Activities" value={formatCurrency(cf?.investingCashFlow ?? 0)} />
-                <KVRow label="Financing Activities" value={formatCurrency(cf?.financingCashFlow ?? 0)} />
-                <KVRow label="Net Cash Flow" value={formatCurrency(cf?.netCashFlow ?? 0)} bold />
-                <KVRow label="Closing Cash" value={formatCurrency(cf?.closingCash ?? 0)} bold />
-              </Section>
+              <ManagementSection title="Cash Flow" icon={Banknote} color="amber" defaultOpen>
+                <KVRow label="Opening Cash" value={formatMoney(cf?.openingCash ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Operating Activities" value={formatMoney(cf?.operatingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Investing Activities" value={formatMoney(cf?.investingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Financing Activities" value={formatMoney(cf?.financingCashFlow ?? 0, { cents: true, symbol: true })} />
+                <KVRow label="Net Cash Flow" value={formatMoney(cf?.netCashFlow ?? 0, { cents: true, symbol: true })} bold />
+                <KVRow label="Closing Cash" value={formatMoney(cf?.closingCash ?? 0, { cents: true, symbol: true })} bold />
+              </ManagementSection>
 
               <p className="text-xs text-[var(--ff-text-tertiary)] text-right">
                 Generated {new Date(report.generatedAt).toLocaleString('en-ZA')}

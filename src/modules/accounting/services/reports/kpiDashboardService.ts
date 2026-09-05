@@ -7,6 +7,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { AR_OPEN_STATUSES, AP_OPEN_STATUSES } from '@/lib/constants/invoiceStatuses';
+import { marginPct } from './marginPct';
 
 
 export interface DashboardKPIs {
@@ -184,7 +185,7 @@ export async function getDashboardKPIs(companyId: string,
     const cashTotal = Number((cashRows as DbRow[])[0]?.total || 0);
     const priorCash = Number((priorCashRows as DbRow[])[0]?.total || 0);
     const grossProfit = totalRevenue - totalExpenses;
-    const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+    const grossMargin = marginPct(grossProfit, totalRevenue) ?? 0;
     const revenueChange = priorRevenue > 0
       ? ((totalRevenue - priorRevenue) / priorRevenue) * 100
       : totalRevenue > 0 ? 100 : 0;
