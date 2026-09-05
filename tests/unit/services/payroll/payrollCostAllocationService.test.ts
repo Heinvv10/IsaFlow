@@ -1,18 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const sqlCalls: Array<{ sql: string; values: unknown[] }> = [];
+const sqlCalls: Array<{ sql: string; values: unknown[]; viaTx?: boolean }> = [];
 let mockImpl: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]> =
   () => Promise.resolve([]);
 
 vi.mock('@/lib/neon', () => ({
-  // withTransaction is what the services now use instead of raw BEGIN/COMMIT.
-  // The `tx` handed to the callback records into the SAME sqlCalls log, so the
-  // statement assertions below are unchanged; what is gone is the BEGIN/COMMIT
-  // pair, which never belonged to the service in the first place — `sql` routes
-  // onto the request's ALS client, so that COMMIT committed the whole request.
+  // withTransaction replaces the raw BEGIN/COMMIT the services used to emit.
+  //
+  // The `tx` handed to the callback records with `viaTx: true` so a statement
+  // issued INSIDE the transaction is distinguishable from one issued bare
+  // through `sql`. Without that marker the two are identical in this log, and a
+  // regression that dropped withTransaction entirely — leaving a mid-loop
+  // failure to strand a DELETE with no INSERTs — would pass every test here.
   withTransaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(
     (strings: TemplateStringsArray, ...values: unknown[]) => {
-      sqlCalls.push({ sql: strings.join('?'), values });
+      sqlCalls.push({ sql: strings.join('?'), values, viaTx: true });
       return mockImpl(strings, ...values);
     },
   ),
@@ -99,6 +101,13 @@ describe('setEmployeeCostAllocations', () => {
     // not an observable statement in this log.
     expect(seq.some(s => s.trim() === 'BEGIN')).toBe(false);
     expect(seq.some(s => s.trim() === 'COMMIT')).toBe(false);
+    // The writes went through the TRANSACTION, not bare `sql`. Without this the
+    // suite cannot tell withTransaction from no transaction at all, and a
+    // regression that dropped it would leave a mid-loop failure stranding the
+    // DELETE with no INSERTs.
+    const writes = sqlCalls.filter(c => /DELETE FROM payroll_employee_cost_allocations|INSERT INTO payroll_employee_cost_allocations/.test(c.sql));
+    expect(writes).toHaveLength(3);
+    expect(writes.every(c => c.viaTx === true)).toBe(true);
   });
 
   it('propagates a failing INSERT so the surrounding transaction unwinds', async () => {
