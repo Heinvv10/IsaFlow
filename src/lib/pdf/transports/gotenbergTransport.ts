@@ -10,7 +10,13 @@
 //     -p 5002:3000 \
 //     --add-host host.docker.internal:host-gateway \
 //     gotenberg/gotenberg:8 gotenberg \
+//       --api-timeout=60s \
 //       --chromium-allow-list='^https?://(app\.isaflow\.co\.za|host\.docker\.internal:3200)/'
+//
+// --api-timeout must stay >= GOTENBERG_TIMEOUT_MS (gotenbergForm.ts, currently
+// 60s) — Gotenberg's own default (30s) is shorter than the client's wait, so
+// a slow pack would hit the server-side abort before the client's and 503 in
+// a way that looks like a client timeout.
 //
 // Set GOTENBERG_URL=http://localhost:5002 in the systemd service environment
 // (production) and in .env.local for a local container. Unset, renderPagePdf
@@ -41,6 +47,7 @@ import { FOOTER_HTML, HEADER_HTML, type PdfRenderRequest, type PdfTransport } fr
 import { log } from '@/lib/logger';
 
 const CONVERT_PATH = '/forms/chromium/convert/url';
+const PDF_MAGIC = '%PDF';
 
 function htmlPart(html: string): Blob {
   return new Blob([`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>${html}</body></html>`], {
@@ -63,19 +70,31 @@ export const gotenbergTransport: PdfTransport = {
     form.append('files', htmlPart(HEADER_HTML), 'header.html');
     form.append('files', htmlPart(FOOTER_HTML), 'footer.html');
 
-    const response = await fetch(`${base}${CONVERT_PATH}`, {
+    // new URL(..., base) rather than string concatenation, so a trailing
+    // slash on GOTENBERG_URL cannot build a double-slash path.
+    const endpoint = new URL(CONVERT_PATH, base).toString();
+    const response = await fetch(endpoint, {
       method: 'POST',
       body: form,
       signal: AbortSignal.timeout(GOTENBERG_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      log.error('gotenbergTransport: render failed', { status: response.status, body }, 'pdf');
-      throw new Error(`Gotenberg error: ${response.status} ${body}`);
+      // Never log or interpolate the response body: a 400 on a malformed
+      // form field can echo that field's value back, and the `cookies`
+      // field is where the print token lives. Status alone identifies the
+      // failure class without any risk of leaking it.
+      log.error('gotenbergTransport: render failed', { status: response.status }, 'pdf');
+      throw new Error(`Gotenberg error: ${response.status}`);
     }
 
     const bytes = Buffer.from(await response.arrayBuffer());
+    const magic = bytes.subarray(0, 4).toString('latin1');
+    if (magic !== PDF_MAGIC) {
+      log.error('gotenbergTransport: response is not a PDF', { url: request.url }, 'pdf');
+      throw new Error('Gotenberg error: response was not a PDF');
+    }
+
     log.info('gotenbergTransport: rendered', { url: request.url, bytes: bytes.length }, 'pdf');
     return bytes;
   },
