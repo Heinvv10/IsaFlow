@@ -131,7 +131,7 @@ export async function generateDrafts(input: {
 
     if (!rows[0]) { skipped.push(key); continue; }
     written += 1;
-    if (t.clearsApproval) {
+    if (t.withdrawsApproval) {
       log.info('Commentary approval withdrawn by regeneration', {
         companyId: input.companyId, userId: input.userId, sectionRef: s.sectionRef, rowRef: s.rowRef,
       }, 'commentary');
