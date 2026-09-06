@@ -141,7 +141,7 @@ export const NON_SUPPLY_ADVICE: Record<NonSupplyReason, string> = {
 };
 
 /** True when this code actually claims something, so a guard can bite on it. */
-function claimsVat(vatCode: string | null | undefined): boolean {
+export function claimsVat(vatCode: string | null | undefined): boolean {
   const code = vatCode || VAT_CODE_NONE;
   return code !== VAT_CODE_NONE && !NON_CLAIMING_VAT_TYPES.includes(code);
 }

@@ -45,7 +45,7 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { VAT_CODE_NONE, shouldWarnOnNonSupply } from './nonSupplyAccounts';
+import { VAT_CODE_NONE, claimsVat, shouldWarnOnNonSupply } from './nonSupplyAccounts';
 import type { NonSupplyReason } from './nonSupplyAccounts';
 
 // The advisory half lives in the pure module so the bank screens can import it
@@ -136,7 +136,12 @@ export async function resolveNonSupplyForAccount(
   context: Omit<NonSupplyContext, 'companyId'> = {},
 ): Promise<NonSupplyResolution> {
   const requested = requestedVatCode || VAT_CODE_NONE;
-  if (!glAccountId) return { vatCode: requested, coerced: false, reason: null };
+  // No id, or nothing being claimed: there is no defect to find and no reason
+  // to spend a SELECT. Callers rely on this — the auto-post gate resolves
+  // every row it posts, and most of them carry no VAT code at all.
+  if (!glAccountId || !claimsVat(requested)) {
+    return { vatCode: requested, coerced: false, reason: null };
+  }
 
   const rows = (await sql`
     SELECT account_name FROM gl_accounts

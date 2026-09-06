@@ -105,10 +105,19 @@ export async function allocateTransaction(
   const isSpent = Number(tx.amount) < 0;
 
   // This is the ATTENDED path: the screen (and the MCP tools behind it) warned
-  // whoever chose this vat code that an entertainment account normally denies
-  // input tax, and s17(2)(a)(i) means only they know whether the proviso applies
-  // to their business. So the caller's choice stands here — nothing is coerced.
-  // The unattended rule sweep is the one path that coerces; see autoPostRuleLine.
+  // whoever chose this vat code — that an entertainment account normally denies
+  // input tax (s17(2)(a)(i) means only they know whether the proviso applies to
+  // their business), and that no supply can arise at all on a salary, tax,
+  // distribution, depreciation, donation or exempt-financial account. So the
+  // caller's choice stands here — nothing is coerced.
+  //
+  // THE UNATTENDED CALLERS GUARD BEFORE THEY CALL THIS, and there are two of
+  // them, not one: `autoPostRuleLine` (the rule sweep) and
+  // `autoPostGateService.sweep` (the confidence gate, both its LLM and
+  // categorisation tiers). Both route through `gl/ruleVatResolution`. If a
+  // third unattended poster appears, it guards itself the same way — do not
+  // move the coercion in here, or the attended path starts silently
+  // overriding a user who was shown a warning and chose anyway.
   //
   // The account row is still read up front because the branch below needs it.
   const contraRows = (allocType === 'account' && contraAccountId)
