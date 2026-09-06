@@ -150,6 +150,18 @@ describe('buildPackFigureSet', () => {
     expect(set.prior?.totalAssets).toBe(1_000);
   });
 
+  it('keeps a prior whose only movement is other income', async () => {
+    getFinancialFigures
+      .mockResolvedValueOnce(figures(100))
+      .mockResolvedValueOnce({
+        ...emptyLedger(),
+        period: classified({ otherIncome: 250, netProfit: 0 }),
+      });
+    const set = await buildPackFigureSet('c1', 'Demo', '2026-03-01', '2026-03-31');
+    // `carriesLedger` claims to check every P&L line; other income is one.
+    expect(set.prior?.otherIncome).toBe(250);
+  });
+
   it('carries a null budget where the company has none', async () => {
     getFinancialFigures.mockResolvedValue(figures(100));
     // The real service never returns null — a company with no budget gets a

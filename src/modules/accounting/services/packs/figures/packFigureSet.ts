@@ -78,10 +78,15 @@ export interface PackFigureSet {
  * assets on the books is NOT this case and is kept: it is a real comparative.
  */
 function carriesLedger(figures: ReportPackFigures): boolean {
+  // `otherIncome` and `otherExpenses` are optional on `ReportPackInput`, so
+  // they are coalesced: `undefined !== 0` is true and would report a ledger
+  // that is not there.
   return (
     figures.revenue !== 0 ||
     figures.costOfSales !== 0 ||
     figures.operatingExpenses !== 0 ||
+    (figures.otherIncome ?? 0) !== 0 ||
+    (figures.otherExpenses ?? 0) !== 0 ||
     figures.netProfit !== 0 ||
     figures.totalAssets !== 0 ||
     figures.totalLiabilities !== 0 ||
@@ -116,8 +121,8 @@ async function fetchPrior(
   return figures;
 }
 
-function toPackBudget(result: BudgetVarianceResult | null): PackBudgetFigures | null {
-  if (!result || result.rows.length === 0) return null;
+function toPackBudget(result: BudgetVarianceResult): PackBudgetFigures | null {
+  if (result.rows.length === 0) return null;
   return {
     fiscalYear: result.fiscalYear,
     totals: result.totals,
@@ -160,9 +165,12 @@ export async function buildPackFigureSet(
   const currentWindow: PeriodWindow = { start: from, end: to };
   const priorWindow = priorPeriod(from, to);
 
-  // Sequential, not Promise.all: the tests pin call ORDER (current first, prior
-  // second) because that is what proves the prior window is the calendar one,
-  // and every call here is company-scoped by its own service.
+  // Sequential, not Promise.all. Under `withAuth` a request-scoped transaction
+  // is in flight and `sql` routes every query through the ONE pg client held in
+  // the async-local store (see the `als.getStore()?.client` branch in
+  // lib/neon.ts). Concurrent queries on a single pg connection are a known
+  // hazard in this repo, so these must not be raced. The call order the tests
+  // assert is a consequence of this, not the reason for it.
   const current = await getReportPackInput(companyId, companyName, from, to);
   const prior = await fetchPrior(companyId, companyName, priorWindow);
   const budget = await fetchBudget(companyId, currentWindow);
