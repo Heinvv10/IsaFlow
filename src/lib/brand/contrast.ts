@@ -16,8 +16,11 @@ export const NEUTRAL_BRAND_PRIMARY = '#1a3a5c';
 export const DARK_INK = '#1a1a1a';
 
 /** WCAG 2.1 AA, SC 1.4.3 (contrast minimum). The primary must carry white OR
- *  near-black text at this ratio; whichever wins becomes `primaryInk`. */
-const MIN_TEXT_CONTRAST = 4.5;
+ *  near-black text at this ratio; whichever wins becomes `primaryInk`.
+ *  Exported because the renderer chooses between the two inks with the same
+ *  number — restating it there would let a raised threshold reject a colour at
+ *  save while the renderer still put white text on it. */
+export const MIN_TEXT_CONTRAST = 4.5;
 
 /** WCAG 2.1 AA, SC 1.4.11 (non-text contrast). The primary must be
  *  distinguishable from the white page at this ratio, or the cover band,

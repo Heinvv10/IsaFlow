@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertUsableBrandPrimary, brandPrimaryProblem, contrastRatio, isUsableBrandPrimary,
-  relativeLuminance, BrandPrimaryError, NEUTRAL_BRAND_PRIMARY,
+  relativeLuminance, BrandPrimaryError, DARK_INK, MIN_TEXT_CONTRAST, NEUTRAL_BRAND_PRIMARY,
 } from '@/lib/brand/contrast';
 import { resolvePackBrand } from '@/modules/accounting/services/packs/packBrand';
 import type { BrandProfile } from '@/modules/accounting/services/afs/afsTypes';
@@ -106,5 +106,18 @@ describe('the save gate and the render gate agree', () => {
   it('the mid tone that exposed the disagreement is accepted by both', () => {
     expect(isUsableBrandPrimary('#8c8c8c')).toBe(true);
     expect(resolvePackBrand(profile('#8c8c8c')).primaryColour).toBe('#8c8c8c');
+  });
+
+  it('the renderer chooses its ink at the SAME threshold the gate reads', () => {
+    // packBrand used to restate 4.5 for the ink choice, so raising the
+    // threshold in contrast.ts would have left the renderer putting white text
+    // on a colour the gate had just started refusing. Both sides now read
+    // MIN_TEXT_CONTRAST, and this asserts against the constant rather than the
+    // number so moving it moves the test with it.
+    expect(contrastRatio('#767676', '#ffffff')).toBeGreaterThanOrEqual(MIN_TEXT_CONTRAST);
+    expect(resolvePackBrand(profile('#767676')).primaryInk).toBe('#ffffff');
+
+    expect(contrastRatio('#8c8c8c', '#ffffff')).toBeLessThan(MIN_TEXT_CONTRAST);
+    expect(resolvePackBrand(profile('#8c8c8c')).primaryInk).toBe(DARK_INK);
   });
 });

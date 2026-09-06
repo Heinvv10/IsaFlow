@@ -8,7 +8,9 @@
  * the stored value.
  */
 import type { BrandProfile } from '@/modules/accounting/services/afs/afsTypes';
-import { DARK_INK, NEUTRAL_BRAND_PRIMARY, contrastRatio, isUsableBrandPrimary } from '@/lib/brand/contrast';
+import {
+  DARK_INK, MIN_TEXT_CONTRAST, NEUTRAL_BRAND_PRIMARY, contrastRatio, isUsableBrandPrimary,
+} from '@/lib/brand/contrast';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -20,11 +22,6 @@ export interface PackBrand {
   /** '#ffffff' or '#1a1a1a', whichever reads on primaryColour. */
   primaryInk: string;
 }
-
-/** WCAG 2.1 AA, SC 1.4.3. Only used to choose between the two inks here — the
- *  acceptance rule itself lives in isUsableBrandPrimary (src/lib/brand/contrast.ts),
- *  which the SAVE gate uses too, so the two cannot drift apart. */
-const MIN_TEXT_CONTRAST = 4.5;
 
 /** The RENDER gate. A legacy row written before the save gate can still hold a
  *  colour that prints an unreadable cover, so the resolver re-checks and
