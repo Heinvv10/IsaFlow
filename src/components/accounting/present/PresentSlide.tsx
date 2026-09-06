@@ -16,6 +16,21 @@ import type { Slide } from './presentSlides';
 
 const COLUMNS = { prior: false, budget: true, variance: true, trend: true } as const;
 
+/**
+ * A slide whose body is a sentence rather than a figure. It still carries the
+ * slide's own title: a presenter paging onto a bare line of grey text has no
+ * way to tell which section of the pack failed, or was skipped, and the
+ * audience sees a slide that looks like a rendering fault.
+ */
+function SlideNote({ title, children }: { title: string; children: string }) {
+  return (
+    <>
+      <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{title}</h2>
+      <p className="text-sm text-[var(--ff-text-secondary)]">{children}</p>
+    </>
+  );
+}
+
 export function PresentSlide({
   slide, income, trends, trendsFailed, budget, budgetedCount, budgetFailed,
 }: {
@@ -46,9 +61,9 @@ export function PresentSlide({
   if (slide.kind === 'income_statement') {
     if (!income) {
       return (
-        <p className="text-sm text-[var(--ff-text-secondary)]">
+        <SlideNote title={slide.title}>
           The income statement for this period could not be loaded.
-        </p>
+        </SlideNote>
       );
     }
     const base = toIncomeStatementRows(income, { comparative: false });
@@ -86,9 +101,9 @@ export function PresentSlide({
     }
     if (trendsFailed) {
       return (
-        <p className="text-sm text-[var(--ff-text-secondary)]">
+        <SlideNote title={slide.title}>
           The trend data for this period could not be loaded.
-        </p>
+        </SlideNote>
       );
     }
   }
@@ -104,9 +119,9 @@ export function PresentSlide({
     }
     if (budgetFailed) {
       return (
-        <p className="text-sm text-[var(--ff-text-secondary)]">
+        <SlideNote title={slide.title}>
           The budget data for this period could not be loaded.
-        </p>
+        </SlideNote>
       );
     }
     // budgetedCount === 0 means no budget was captured for this tenant, not
@@ -114,18 +129,15 @@ export function PresentSlide({
     // unfavourable against a zero target is an artefact of the missing
     // budget, not a finding — say so instead of drawing it.
     return (
-      <p className="text-sm text-[var(--ff-text-secondary)]">
+      <SlideNote title={slide.title}>
         No budget was captured for this period.
-      </p>
+      </SlideNote>
     );
   }
 
   return (
-    <>
-      <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
-      <p className="text-sm text-[var(--ff-text-secondary)]">
-        This section has no presentation renderer yet. Open the pack page for its detail.
-      </p>
-    </>
+    <SlideNote title={slide.title}>
+      This section has no presentation renderer yet. Open the pack page for its detail.
+    </SlideNote>
   );
 }

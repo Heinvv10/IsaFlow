@@ -33,7 +33,10 @@ backspace go back; Home and End jump; Escape exits.
 - `presentSlides.ts` — `buildSlides`, `clampSlide`. Unknown section types are
   dropped, never paged to as a blank slide.
 - `PresentDeck.tsx` — the shell and the keyboard map.
-- `PresentSlide.tsx` — section kind → component. Maps, never computes. The
+- `PresentSlide.tsx` — section kind → component. Every slide that shows a
+  sentence instead of a figure goes through `SlideNote`, which carries the
+  section title: a presenter paging onto a bare grey line cannot tell which
+  section of the pack it is, and the room reads it as a rendering fault. Maps, never computes. The
   income-statement slide is the one exception: it fetches
   `reports-income-statement` and maps it with `toIncomeStatementRows` rather
   than reading the pack section, because the pack's income-statement section

@@ -57,6 +57,25 @@ describe('PresentSlide distinguishes a failed fetch from no renderer', () => {
     expect(container.textContent).not.toContain('no presentation renderer');
   });
 
+  it('gives every message slide the section heading, so a presenter can tell which one it is', () => {
+    // A bare grey sentence on a boardroom screen reads as a rendering fault.
+    // Each of these is a handled slide with a reason to show.
+    const cases = [
+      { slide: RATIOS_SLIDE, props: {}, heading: 'Ratios' },
+      { slide: RATIOS_SLIDE, props: { budgetFailed: true }, heading: 'Ratios' },
+      { slide: TRENDS_SLIDE, props: { trendsFailed: true }, heading: 'Trends' },
+      {
+        slide: { id: 'is:0', kind: 'income_statement', title: 'Income Statement', data: {} } as Slide,
+        props: {}, heading: 'Income Statement',
+      },
+    ];
+    for (const c of cases) {
+      const { getByRole } = render(<PresentSlide slide={c.slide} {...BASE_PROPS} {...c.props} />);
+      expect(getByRole('heading', { level: 2 }).textContent).toBe(c.heading);
+      cleanup();
+    }
+  });
+
   it('still shows the generic message for a slide kind with no renderer at all', () => {
     const { container } = render(
       <PresentSlide slide={{ id: 'kpis:0', kind: 'kpis', title: 'KPIs', data: {} }} {...BASE_PROPS} />,
