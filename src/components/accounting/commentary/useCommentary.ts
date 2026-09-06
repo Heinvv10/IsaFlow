@@ -13,7 +13,7 @@
  * still takes one, because `CommentaryBlock` needs it to render.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiJson, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
+import { apiJson, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
@@ -29,14 +29,6 @@ export interface UseCommentaryResult {
   approve: (id: string) => Promise<void>;
   reject: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
-}
-
-/** `ApiEnvelopeError` carries its own message too: a 2xx whose body is not the
- *  shape this route promised is a real failure, and saying so beats a generic
- *  line the reader cannot act on. */
-function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiRequestError || err instanceof ApiEnvelopeError) return err.message;
-  return fallback;
 }
 
 export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResult {
@@ -72,7 +64,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       setRows(r.commentary);
     } catch (err) {
       if (requestId.current !== id) return;
-      setError(errorMessage(err, 'Could not load commentary.'));
+      setError(apiErrorMessage(err, 'Could not load commentary.'));
     } finally {
       if (requestId.current === id) setLoading(false);
     }
@@ -94,7 +86,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       });
       await refresh();
     } catch (err) {
-      setError(errorMessage(err, 'Could not generate commentary.'));
+      setError(apiErrorMessage(err, 'Could not generate commentary.'));
     }
   }, [type, from, to, refresh]);
 
@@ -104,7 +96,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' });
       await refresh();
     } catch (err) {
-      setError(errorMessage(err, 'Could not approve that commentary.'));
+      setError(apiErrorMessage(err, 'Could not approve that commentary.'));
     }
   }, [refresh]);
 
@@ -114,7 +106,7 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       await apiJson(`/api/accounting/commentary/${id}/reject`, { method: 'POST' });
       await refresh();
     } catch (err) {
-      setError(errorMessage(err, 'Could not reject that commentary.'));
+      setError(apiErrorMessage(err, 'Could not reject that commentary.'));
     }
   }, [refresh]);
 

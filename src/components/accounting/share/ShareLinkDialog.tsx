@@ -5,7 +5,7 @@
  * right after Create succeeds. Copy it now; it cannot be shown again.
  */
 import { useEffect, useRef, useState } from 'react';
-import { apiJson, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
+import { apiJson, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import type { ShareLinkRow } from '@/modules/accounting/services/share/shareLinkService';
 import { clampTtlDays } from '@/modules/accounting/services/share/shareTtl';
 import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
@@ -13,14 +13,6 @@ import type { SharePackParams } from '@/modules/accounting/services/reports/pack
 const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-1 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
 const INPUT = 'w-full rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-2 text-sm text-[var(--ff-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
-
-/** `ApiEnvelopeError` carries its own message too: a 2xx whose body is not the
- *  shape this route promised is a real failure, and saying so beats a generic
- *  line the reader cannot act on. */
-function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiRequestError || err instanceof ApiEnvelopeError) return err.message;
-  return fallback;
-}
 
 export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; onClose: () => void }) {
   const [links, setLinks] = useState<ShareLinkRow[]>([]);
@@ -47,7 +39,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
       if (!('links' in r)) throw new ApiEnvelopeError('The share links response did not contain a list of links.');
       setLinks(r.links);
     } catch (err) {
-      setListError(errorMessage(err, 'Could not load share links.'));
+      setListError(apiErrorMessage(err, 'Could not load share links.'));
     } finally {
       setLoading(false);
     }
@@ -92,7 +84,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
       setLabel('');
       await refresh();
     } catch (err) {
-      setCreateError(errorMessage(err, 'Could not create the share link.'));
+      setCreateError(apiErrorMessage(err, 'Could not create the share link.'));
     } finally {
       setCreating(false);
     }
@@ -103,7 +95,7 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
       await apiJson(`/api/accounting/share/links/${id}/revoke`, { method: 'POST' });
       await refresh();
     } catch (err) {
-      setListError(errorMessage(err, 'Could not revoke that link.'));
+      setListError(apiErrorMessage(err, 'Could not revoke that link.'));
     }
   }
 
