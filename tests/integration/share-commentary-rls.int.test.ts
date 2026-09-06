@@ -21,7 +21,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Pool } from 'pg';
 import { createShareLink } from '@/modules/accounting/services/share/shareLinkService';
-import { resolveShareLink } from '@/modules/accounting/services/share/shareResolver';
+import { resolveShareLink, commitShareView } from '@/modules/accounting/services/share/shareResolver';
 import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
 import { canonicalParamsHash } from '@/modules/accounting/services/share/shareParams';
 
@@ -45,8 +45,13 @@ beforeAll(async () => {
   await admin.query(`INSERT INTO company_users (company_id,user_id,role) VALUES ($1,$3,'admin'),($2,$4,'admin') ON CONFLICT DO NOTHING`, [CA, CB, UA, UB]);
 
   const hash = canonicalParamsHash(PARAMS);
-  // Tenant B: one link, one approved commentary, one annotation.
-  await createShareLink({ companyId: CB, userId: UB, params: PARAMS });
+  // Tenant B: one link, one approved commentary, one annotation, and one
+  // recorded view — without a view row here, the share_link_views leg of the
+  // read-isolation loop below is vacuous (COUNT is 0 for tenant B regardless
+  // of RLS, since tenant B never has any row to leak). commitShareView is the
+  // real function the public page calls after a successful resolve.
+  const { link: linkB } = await createShareLink({ companyId: CB, userId: UB, params: PARAMS });
+  await commitShareView({ id: linkB.id, companyId: CB }, { ip: '203.0.113.20', userAgent: 'vitest-setup' });
   await admin.query(
     `INSERT INTO report_commentary (company_id, report_kind, params_hash, period_start, period_end, section_ref, row_ref, draft_text, approved_text, status, generated_by, approved_by, approved_at)
      VALUES ($1,'pack',$2,'2026-03-01','2026-08-31','income_statement','revenue','B DRAFT','B APPROVED','approved',$3,$3,NOW())`,
@@ -69,8 +74,10 @@ afterAll(async () => {
 describe('RLS on the WS3 tables', () => {
   it('tenant A reads none of tenant B rows on any of the four tables', async () => {
     const client = await admin.connect();
+    let inTx = false;
     try {
       await client.query('BEGIN');
+      inTx = true;
       await client.query('SET LOCAL ROLE app_user');
       await client.query(`SELECT set_config('request.jwt.claims',$1,true)`, [JSON.stringify({ sub: UA })]);
       await client.query(`SELECT set_config('app.current_company_id',$1,true)`, [CA]);
@@ -79,24 +86,31 @@ describe('RLS on the WS3 tables', () => {
           `SELECT COUNT(*)::int AS c FROM public."${t}" WHERE company_id = $1::uuid`, [CB]);
         expect(r.rows[0]!.c, `${t} leaked tenant B rows to tenant A`).toBe(0);
       }
-      await client.query('ROLLBACK');
     } finally {
+      // ROLLBACK must run even when an assertion above throws — otherwise the
+      // client is released back to the pool with the transaction still open
+      // (holding SET LOCAL ROLE app_user and the GUCs), and afterAll's DELETEs,
+      // run over a DIFFERENT connection, never see this one's uncommitted work
+      // and appear to silently lose the fixture cleanup.
+      if (inTx) await client.query('ROLLBACK').catch(() => {});
       client.release();
     }
   });
 
   it('tenant A cannot INSERT a share link for tenant B', async () => {
     const client = await admin.connect();
+    let inTx = false;
     try {
       await client.query('BEGIN');
+      inTx = true;
       await client.query('SET LOCAL ROLE app_user');
       await client.query(`SELECT set_config('request.jwt.claims',$1,true)`, [JSON.stringify({ sub: UA })]);
       await client.query(`SELECT set_config('app.current_company_id',$1,true)`, [CA]);
       await expect(client.query(
         `INSERT INTO share_links (company_id, report_kind, params, token_hash, created_by)
          VALUES ($1,'pack','{}'::jsonb,'deadbeef',$2)`, [CB, UA])).rejects.toThrow();
-      await client.query('ROLLBACK');
     } finally {
+      if (inTx) await client.query('ROLLBACK').catch(() => {});
       client.release();
     }
   });
