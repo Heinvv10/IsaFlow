@@ -3,6 +3,7 @@ import { act, render, screen } from '@testing-library/react';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { countPageModelCharts } from '@/components/accounting/packs/usePrintMode';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
+import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 const doc = {
@@ -10,6 +11,12 @@ const doc = {
   period: '2026', generatedAt: '2026-09-07T00:00:00Z', draft: false,
   brand: { primaryColour: '#1a3a5c', secondaryColour: '#c8a86b', logoUrl: null,
            footerText: null, primaryInk: '#ffffff' },
+  // Task 18: the view now formats figures, so it needs the document's scale
+  // and refuses to render without one it recognises.
+  numberConvention: { scale: "R'000", currency: 'ZAR' },
+  basisOfPreparation: { standard: 'IFRS for SMEs', sourceSystem: 'IsaFlow general ledger',
+                        extractedAt: '2026-09-07T00:00:00Z', ledgerVersion: 'v1' },
+  provenance: new PackFigureProvenance(),
   pages: [],
 };
 
@@ -33,34 +40,25 @@ describe('PackPagesView', () => {
     expect(container.querySelector('[data-print-ready="true"]')).not.toBeNull();
   });
 
-  it('stays not ready with a chart pending, then flips once the expected SVGs are actually drawn', () => {
-    // expectedCharts > 0: this is the polling branch of usePrintReady, the
+  it('draws the declared chart and becomes ready only once its SVG is in the DOM', () => {
+    // The polling branch of usePrintReady (expectedCharts > 0), which is the
     // one a real board pack always exercises — the early-return shortcut
-    // (expectedCharts === 0) is a different path, covered separately above,
-    // and proves nothing about this one.
-    vi.useFakeTimers();
-    const pages: PackPage[] = [{ number: 1, title: 'Revenue up 12%', section: 'Performance',
+    // (expectedCharts === 0) is a different path, covered separately above.
+    //
+    // Task 18 changed what this proves. Before it, PackPageFrame rendered no
+    // block content, so the chart had to be faked into the DOM by hand and
+    // the test could only show the gate NOTICING one. Now the block renderer
+    // draws it, so what is checked is the real pair: the model declares one
+    // chart, the DOM holds exactly one `[data-pack-chart] svg`, and the pack
+    // is ready. A renderer that dropped the chart would leave the count at 0
+    // and the pack permanently not-ready, which is the failure that matters.
+    const pages: PackPage[] = [{ number: 3, title: 'Revenue up 12%', section: 'Performance',
       orientation: 'portrait', density: 'high', footnotes: [],
       blocks: [{ kind: 'chart', chart: { id: 'c1', title: 'Revenue up 12%', kind: 'line', svg: svg(), heightMm: 48 } }] }];
     const { container } = render(<PackPagesView document={{ ...doc, pages }} />);
 
-    // PackPageFrame renders no block content (a later task's job), so
-    // nothing satisfies `[data-pack-chart] svg` yet — the pack must not
-    // claim to be ready with its one expected chart missing.
-    act(() => { vi.advanceTimersByTime(500); });
-    expect(container.querySelector('[data-print-ready="true"]')).toBeNull();
-    expect(container.querySelector('[data-print-ready="false"]')).not.toBeNull();
-
-    // Simulate the future block renderer drawing the expected chart.
-    const chartHost = document.createElement('div');
-    chartHost.setAttribute('data-pack-chart', '');
-    chartHost.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'svg'));
-    container.querySelector('.pack-page')!.appendChild(chartHost);
-
-    act(() => { vi.advanceTimersByTime(100); });
+    expect(container.querySelectorAll('[data-pack-chart] svg')).toHaveLength(1);
     expect(container.querySelector('[data-print-ready="true"]')).not.toBeNull();
-
-    chartHost.remove();
   });
 
   it('injects the brand style block', () => {
@@ -78,7 +76,9 @@ describe('PackPagesView', () => {
   });
 
   it('renders the page title so a deleted header is not invisible to the suite', () => {
-    const pages: PackPage[] = [{ number: 1, title: 'Revenue up 12% against budget',
+    // Page 3, not page 1: page 1 is the COVER, whose headline is the company's
+    // legal name (PackCoverV2), not `page.title`.
+    const pages: PackPage[] = [{ number: 3, title: 'Revenue up 12% against budget',
       section: 'Performance', orientation: 'portrait', density: 'high', blocks: [], footnotes: [] }];
     render(<PackPagesView document={{ ...doc, pages }} />);
     expect(screen.getByText('Revenue up 12% against budget')).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe('PackPagesView', () => {
   });
 
   it('does not mark a portrait page with the named-page attribute', () => {
-    const pages = [{ number: 1, title: 'Highlights', section: 'Performance' as const,
+    const pages = [{ number: 3, title: 'Highlights up 4%', section: 'Performance' as const,
       orientation: 'portrait' as const, density: 'high' as const, blocks: [], footnotes: [] }];
     const { container } = render(<PackPagesView document={{ ...doc, pages }} />);
     expect(container.querySelector('[data-print-landscape]')).toBeNull();

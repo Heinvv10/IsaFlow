@@ -38,9 +38,20 @@ export const disclose = (heading: string, notes: PackDisclosureNote[]): PackPage
   disclosure: { heading, notes },
 });
 
-/** A deterministic caption. See `boardPackPages.ts`'s header for why this is
- *  not a narrative block. */
-export const commentary = (body: string): PackPageBlock => disclose('Commentary', [note('This period', body)]);
+/**
+ * A deterministic caption, carried as a DERIVED narrative — R-P49.
+ *
+ * It used to ride in a `disclosure` block: `PackNarrative.status` had no
+ * 'derived' member and `NarrativeColumns` printed a body only for
+ * 'approved', so the only way to make a machine-written caption render was
+ * to claim a human had signed it — a false statement on every page of the
+ * pack. The status now exists and the renderer LABELS it as derived, so the
+ * workaround is gone and the caption says what it is.
+ */
+export const commentary = (body: string): PackPageBlock => ({
+  kind: 'narrative',
+  narrative: { status: 'derived', body, actions: [] },
+});
 
 /** Page 3's one footnote — spec §4.A page 3's multi-year note under each
  *  tile. Referenced by `PackKpiTile.trendFootnote`, which the tile model

@@ -8,14 +8,19 @@
  * it is the company's legal name, not a conclusion about the period, and
  * that is what this component prints as the headline.
  */
+import type { ReactNode } from 'react';
 import { PACK_LABELS } from '@/modules/accounting/services/packs/packSections';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface PackCoverV2Props {
   document: PackPagesDocument;
+  /** Page 1's own blocks — spec §5.4 puts the confidentiality mark and the
+   *  preparer on the cover, and those are model content, not layout this
+   *  component may invent. */
+  children?: ReactNode;
 }
 
-export function PackCoverV2({ document }: PackCoverV2Props) {
+export function PackCoverV2({ document, children }: PackCoverV2Props) {
   // Date only, same reasoning as the legacy cover: the pack is a period
   // document, and a UTC generation timestamp on an SAST page invites a wrong
   // reading of the day.
@@ -34,6 +39,7 @@ export function PackCoverV2({ document }: PackCoverV2Props) {
       <p className="pack-cover-label">{PACK_LABELS[document.packType]}</p>
       <p className="pack-cover-period">{document.period}</p>
       <p className="pack-cover-meta">Generated {generated}</p>
+      {children}
     </section>
   );
 }

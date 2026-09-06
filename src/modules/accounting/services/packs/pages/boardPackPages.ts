@@ -16,22 +16,18 @@
  * where they would silently decay to `string` and lose the compile-time
  * guarantee that only `renderChartSvg` produced them.
  *
- * WHY DERIVED CAPTIONS ARE `disclosure` BLOCKS AND NOT `narrative` ONES.
- * R7 admits two kinds of commentary: approved (a human signed it) and
- * derived (deterministic code). `PackNarrative.status` has neither a
- * 'derived' member nor a renderer for one — `NarrativeColumns` prints a body
- * ONLY when the status is 'approved'. Marking a machine-written caption
- * 'approved' to make it render would put a false claim of human sign-off on
- * every page of the pack, so the derived captions ride in `disclosure`
- * blocks, which have no approval semantics to lie about. The two genuinely
- * human pages — 4 and 11 — carry real `narrative` blocks, and where the
- * commentary has not been approved they carry a 'pending' one, which renders
- * a visible "Commentary pending approval" placeholder rather than dropping
- * the page's requirement or leaking unapproved text.
+ * HOW COMMENTARY IS LABELLED. R7 admits two kinds: approved (a human signed
+ * it) and derived (deterministic code). Both are `narrative` blocks and
+ * `PackNarrative.status` says which, so a reader of the printed page can
+ * tell them apart — `NarrativeColumns` prints a source label for each. The
+ * two genuinely human pages — 4 and 11 — carry an 'approved' narrative, and
+ * where the commentary has not been approved they carry a 'pending' one,
+ * which renders a visible "Commentary pending approval" placeholder rather
+ * than dropping the page's requirement or leaking unapproved text. A
+ * 'draft' narrative renders nothing at all.
  */
 
 import { PACK_LABELS } from '@/modules/accounting/services/packs/packSections';
-import { formatMoney } from '@/lib/format/money';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -153,12 +149,6 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set), set);
   const trendBlocks = buildTrendBlocks(panels);
 
-  const matterNotes = input.matters.map((matter) => note(matter.issue, [
-    matter.quantum === null ? 'Quantum: not a single amount.' : `Quantum: ${formatMoney(matter.quantum)}.`,
-    `Owner: ${matter.owner}.`, `Movement: ${matter.movement}`,
-    `Decision required: ${matter.decisionRequired}`,
-  ].join(' ')));
-
   const pages: PackPage[] = [
     page(1, input.companyLegalName, 'Front', 'low', [
       disclose('Confidential — for board use', [
@@ -199,7 +189,11 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // document-level flag, which would turn the whole pack sideways.
     page(10, trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Performance', 'high', trendBlocks, 'landscape'),
     page(11, 'Matters requiring board attention', 'Governance', 'medium', [
-      disclose('Matters', matterNotes),
+      // Spec §4.A page 11 asks for a TABLE — issue, quantum, owner, movement,
+      // decision required. Prose notes carried the same five facts but a
+      // director scanning for "which of these needs me" had to read every
+      // paragraph to find the owner column.
+      { kind: 'matters', matters: input.matters },
       { kind: 'narrative', narrative: input.mattersCommentary ?? pending },
       disclose('What was checked', [
         note('Sources', 'Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A source that fails appears as a named matter, never as a silent omission.'),

@@ -28,207 +28,16 @@ import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { TRENDS_PANELS_SPECIFIED } from '@/modules/accounting/services/packs/pages/packPageCharts';
-
-function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
-  return {
-    companyName: 'ISAFlow Demo (Pty) Ltd',
-    period: '2026-03-01 to 2026-08-31',
-    revenue: 4_200_000,
-    costOfSales: 2_310_000,
-    operatingExpenses: 1_180_000,
-    otherIncome: 40_000,
-    otherExpenses: 15_000,
-    operatingProfit: 735_000,
-    netProfit: 512_000,
-    totalAssets: 3_900_000,
-    totalLiabilities: 1_640_000,
-    totalEquity: 2_260_000,
-    currentAssets: 1_850_000,
-    currentLiabilities: 940_000,
-    cash: 610_000,
-    accountsReceivable: 720_000,
-    accountsPayable: 430_000,
-    inventory: 310_000,
-    operatingCashFlow: 690_000,
-    capitalExpenditure: 180_000,
-    financingCashFlow: -120_000,
-    inventoryCaveat: null,
-    classificationCaveat: null,
-    ...overrides,
-  };
-}
-
-const trend: PackTrendPoint[] = Array.from({ length: 13 }, (_, i) => {
-  const revenue = 600_000 + i * 12_000;
-  const costOfSales = 330_000 + i * 6_000;
-  return {
-    month: `2025-${String(i + 1).padStart(2, '0')}`,
-    label: `M${i + 1}`,
-    revenue,
-    expenses: 520_000 + i * 9_000,
-    netProfit: 80_000 + i * 3_000,
-    costOfSales,
-    operatingExpenses: 190_000 + i * 3_000,
-    grossMarginPct: Math.round(((revenue - costOfSales) / revenue) * 10000) / 100,
-    cash: 590_000 + i * 5_000,
-    accountsReceivable: 700_000 + i * 4_000,
-    debtorDays: Math.round(((700_000 + i * 4_000) / revenue) * 30 * 100) / 100,
-  };
-});
-
-/**
- * Every month has zero revenue, so `grossMarginPct` and `debtorDays` are both
- * not-meaningful (R-P44/R-P45) throughout — the only fixture in this file
- * that genuinely produces FEWER than the six specified panels. Money panels
- * (revenue, operating expenses, net profit, cash) still draw fine: none of
- * them needs a positive revenue.
- */
-const zeroRevenueTrend: PackTrendPoint[] = trend.map((point) => ({
-  ...point,
-  revenue: 0,
-  grossMarginPct: null,
-  debtorDays: null,
-}));
-
-const brand: PackBrand = {
-  primaryColour: '#1f4e79',
-  secondaryColour: '#c8a86b',
-  logoUrl: null,
-  footerText: null,
-  primaryInk: '#ffffff',
-};
-
-const matters: PackMatter[] = [
-  {
-    issue: 'Aged debtor concentration: Acme Holdings is 34.0% of total debtors owed',
-    quantum: 244_800,
-    owner: 'Credit control',
-    movement: 'Not tracked — no prior board pack is stored to compare against.',
-    decisionRequired: 'Approve escalation, a credit hold, or a write-off review for this account.',
-  },
-];
-
-const demoSet: PackFigureSet = {
-  current: figures({}),
-  currentWindow: { start: '2026-03-01', end: '2026-08-31' },
-  prior: figures({
-    revenue: 3_750_000,
-    costOfSales: 2_100_000,
-    operatingExpenses: 1_090_000,
-    operatingProfit: 560_000,
-    netProfit: 388_000,
-    totalAssets: 3_540_000,
-    totalLiabilities: 1_580_000,
-    totalEquity: 1_960_000,
-    currentAssets: 1_690_000,
-    currentLiabilities: 900_000,
-    cash: 486_000,
-    accountsReceivable: 660_000,
-    accountsPayable: 410_000,
-    inventory: 295_000,
-    operatingCashFlow: 540_000,
-    capitalExpenditure: 150_000,
-    financingCashFlow: -90_000,
-  }),
-  priorWindow: { start: '2025-09-01', end: '2026-02-28' },
-  budget: {
-    fiscalYear: 2026,
-    totals: { budget: 4_000_000, actual: 4_200_000, variance: 200_000 },
-    rows: [
-      {
-        accountCode: '1000',
-        accountName: 'Sales',
-        accountType: 'revenue',
-        budget: 4_000_000,
-        actual: 4_200_000,
-        variance: 200_000,
-        variancePct: 5,
-      },
-    ],
-    postedThrough: '2026-08-31',
-  },
-};
-
-const demoInput: BoardPackInput = {
-  companyLegalName: 'ISAFlow Demo (Pty) Ltd',
-  period: '1 March 2026 to 31 August 2026',
-  generatedAt: '2026-09-07T06:00:00.000Z',
-  draft: false,
-  preparedBy: 'Finance',
-  brand,
-  set: demoSet,
+import {
+  brightsphereInput,
+  brightsphereSet,
+  demoInput,
+  demoSet,
+  figures,
+  noRatioPanelsInput,
   trend,
-  matters,
-  commentary: {
-    status: 'approved',
-    body: 'Trading held up through the winter and the operating line improved.',
-    actions: ['Approve the revised debtor policy.'],
-  },
-  mattersCommentary: {
-    status: 'approved',
-    body: 'One concentration matter carries forward from the last meeting.',
-    actions: [],
-  },
-  ledgerVersion: 'posted-through 2026-08-31',
-};
+} from './fixtures/boardPackInputs';
 
-/** Same as `demoInput` in every other respect, but its trend genuinely draws
- *  fewer than the six specified panels — see `zeroRevenueTrend`. */
-const noRatioPanelsInput: BoardPackInput = { ...demoInput, trend: zeroRevenueTrend };
-
-/**
- * Brightsphere: negative revenue, negative equity, no prior, no budget, and
- * no approved commentary on either narrative page.
- */
-const brightsphereSet: PackFigureSet = {
-  current: figures({
-    companyName: 'Brightsphere (Pty) Ltd',
-    revenue: -5_535_000,
-    costOfSales: 0,
-    operatingExpenses: -3_717_000,
-    otherIncome: 0,
-    otherExpenses: 0,
-    operatingProfit: -1_818_000,
-    netProfit: -1_818_000,
-    totalAssets: 200_000,
-    totalLiabilities: 450_000,
-    totalEquity: -250_000,
-    currentAssets: 100_000,
-    currentLiabilities: 380_000,
-    cash: 12_000,
-    accountsReceivable: 64_000,
-    accountsPayable: 210_000,
-    inventory: 0,
-    operatingCashFlow: -95_000,
-    capitalExpenditure: 0,
-    financingCashFlow: 0,
-    inventoryCaveat: 'No inventory accounts are classified, so a quick ratio has not excluded any.',
-    classificationCaveat: null,
-  }),
-  currentWindow: { start: '2026-03-01', end: '2026-08-31' },
-  prior: null,
-  priorWindow: { start: '2025-09-01', end: '2026-02-28' },
-  budget: null,
-};
-
-const brightsphereInput: BoardPackInput = {
-  ...demoInput,
-  companyLegalName: 'Brightsphere (Pty) Ltd',
-  set: brightsphereSet,
-  trend: [],
-  matters: [
-    {
-      issue: 'No matters require board attention this period — every check ran clean.',
-      quantum: null,
-      owner: 'Finance',
-      movement: 'Not tracked — no prior board pack is stored to compare against.',
-      decisionRequired: 'None. Note for the record.',
-    },
-  ],
-  commentary: null,
-  mattersCommentary: null,
-  ledgerVersion: null,
-};
 
 /** Whether a block puts anything on the page. Counting blocks is not enough. */
 function blockHasContent(block: PackPageBlock): boolean {
@@ -248,14 +57,22 @@ function blockHasContent(block: PackPageBlock): boolean {
     case 'narrative':
       // A 'pending' narrative renders a visible placeholder (NarrativeColumns);
       // a 'draft' one renders literally nothing and is never page content.
+      // 'derived' renders its body under a "derived" source label — R-P49 —
+      // so it is content on exactly the same terms as 'approved'.
       return block.narrative.status === 'pending'
         ? true
-        : block.narrative.status === 'approved' && (block.narrative.body ?? '').trim() !== '';
+        : (block.narrative.status === 'approved' || block.narrative.status === 'derived')
+          && (block.narrative.body ?? '').trim() !== '';
     case 'disclosure':
       return block.disclosure.notes.length > 0
         && block.disclosure.notes.every((n) => n.body.trim() !== '');
     case 'definitions':
       return block.entries.length > 0;
+    case 'matters':
+      // `buildMatters` never returns an empty list — an empty result is an
+      // explicit "no matters" item, so an empty block here means the page
+      // lost its content rather than that the checks came back clean.
+      return block.matters.length > 0 && block.matters.every((m) => m.issue.trim() !== '');
   }
 }
 
@@ -462,9 +279,15 @@ describe('buildBoardPackPages', () => {
   });
 
   it('tells the reader the cash bridge carries an unexplained movement', () => {
-    const notes = doc.pages.find((p) => p.number === 8)!.blocks
-      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []));
-    expect(notes.some((n) => /not explained/i.test(n.body))).toBe(true);
+    // The caption is a DERIVED narrative since R-P49, not a disclosure note.
+    // Both are read here so the assertion holds wherever the caption is
+    // carried and cannot pass by finding the sentence in the wrong block.
+    const prose = doc.pages.find((p) => p.number === 8)!.blocks.flatMap((b) => {
+      if (b.kind === 'disclosure') return b.disclosure.notes.map((n) => n.body);
+      if (b.kind === 'narrative') return [b.narrative.body ?? ''];
+      return [];
+    });
+    expect(prose.some((text) => /not explained/i.test(text))).toBe(true);
   });
 
   it('draws the trends page as LINE panels at the half height', () => {
@@ -524,9 +347,13 @@ describe('buildBoardPackPages', () => {
     for (const source of [doc, buildBoardPackPages(brightsphereInput)]) {
       for (const page of source.pages) {
         for (const block of page.blocks) {
-          if (block.kind !== 'disclosure') continue;
-          for (const item of block.disclosure.notes) {
-            expect(item.body.trim(), `page ${page.number}`).not.toBe(page.title.trim());
+          // Derived captions are narrative blocks since R-P49; scanning only
+          // disclosures would have quietly stopped covering them.
+          const bodies = block.kind === 'disclosure'
+            ? block.disclosure.notes.map((n) => n.body)
+            : block.kind === 'narrative' ? [block.narrative.body ?? ''] : [];
+          for (const body of bodies) {
+            expect(body.trim(), `page ${page.number}`).not.toBe(page.title.trim());
           }
         }
       }

@@ -206,6 +206,72 @@ html.print-mode {
 .pack-stat-value { font-family: var(--pack-font-mono); font-size: 13pt; line-height: 16pt; font-weight: 500; }
 .pack-stat-value.is-unavailable { font-size: 10pt; font-style: italic; font-weight: 400; color: var(--pack-grey-mid); }
 
+/* Task 18 — the block layer. Every page below the cover is a column of
+ * blocks, so the page's own vertical rhythm (spec §5.1, a 6mm baseline) is
+ * set once here rather than by each block kind. */
+.pack-block + .pack-block { margin-top: var(--pack-baseline); }
+
+/* Tile rows — spec §5.1's 4+4+4 and 3+3+3+3 columns. Page 3 carries eight
+ * KPI tiles and page 5 five, so the row wraps rather than fixing a count. */
+.pack-kpi-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--pack-gutter);
+}
+.pack-stat-groups { display: flex; flex-direction: column; gap: 4mm; }
+.pack-stat-group { display: flex; flex-direction: column; gap: 1.5mm; }
+.pack-stat-group-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0; }
+.pack-stat-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--pack-gutter); }
+
+/* Charts. The height comes from the model (spec §5.6's 48/72/110mm grid
+ * multiples) as an inline style, so only the inner SVG's fit is set here. */
+.pack-chart { margin: 0; display: flex; flex-direction: column; }
+.pack-chart-title { font-size: 10pt; line-height: 14pt; font-weight: 500; margin-bottom: 1.5mm; }
+.pack-chart-svg { flex: 1; min-height: 0; }
+.pack-chart-svg svg { display: block; width: 100%; height: 100%; }
+/* Spec §4.A page 10: six panels, shared y-scale within a row, so the row
+ * count is fixed at three across and the panels pair off vertically. */
+.pack-small-multiples {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--pack-gutter);
+}
+
+/* The commentary source line — R7's visible difference between a human
+ * sign-off and a derived caption. A label, so it reads as one: small, caps,
+ * on its own line above the prose. */
+.pack-narrative-source {
+  display: block;
+  font-size: 7.5pt; line-height: 11pt; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--pack-grey-mid);
+}
+.pack-narrative-columns.is-derived .pack-narrative-body {
+  border-left: 1pt solid var(--pack-rule);
+  padding-left: 3mm;
+}
+
+/* A disclosure note's own lead-in — the heading of the note, inline with its
+ * body so a five-note block does not become five headed sections. */
+.pack-disclosure-note-heading { font-weight: 600; }
+
+/* Page 12's definitions, each with its optional reconciliation bridge. */
+.pack-definitions { margin: 0; font-size: 9.5pt; line-height: 14pt; }
+.pack-definition + .pack-definition { margin-top: 2mm; }
+.pack-definition-term { font-weight: 600; }
+.pack-definition-body { margin: 0 0 0 4mm; }
+.pack-definition-bridge { margin-top: 1mm; width: auto; min-width: 60mm; }
+
+/* Page 11's matters table. Four of its five columns are prose, so they are
+ * left-aligned and proportional — the default `.pack-table td` rule right-
+ * aligns in the mono face, which is correct for a figure and unreadable for
+ * a sentence. Quantum keeps it. */
+.pack-matters td { text-align: left; font-family: var(--pack-font-sans); vertical-align: top; }
+.pack-matters th { text-align: left; }
+.pack-matters td:nth-child(2), .pack-matters th:nth-child(2) {
+  text-align: right; font-family: var(--pack-font-mono); white-space: nowrap;
+}
+.pack-matters-row td { border-bottom: 0.5pt solid var(--pack-rule); }
+
 [data-pack-draft] .pack-page::before {
   content: 'DRAFT';
   position: absolute;

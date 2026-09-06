@@ -8,13 +8,18 @@
  * cover/contents page-break rule off; reused rather than inventing a second
  * one for the same purpose.
  */
+import type { ReactNode } from 'react';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface PackContentsProps {
   pages: Pick<PackPage, 'number' | 'title'>[];
+  /** Page 2's own blocks — spec §4.A page 2 puts a one-line basis-of-
+   *  preparation note at the foot of the contents, and that note is model
+   *  content rather than something this component may compose. */
+  children?: ReactNode;
 }
 
-export function PackContents({ pages }: PackContentsProps) {
+export function PackContents({ pages, children }: PackContentsProps) {
   return (
     <section data-pack-toc className="pack-page">
       <h2 className="pack-title">Contents</h2>
@@ -26,6 +31,7 @@ export function PackContents({ pages }: PackContentsProps) {
           </li>
         ))}
       </ol>
+      {children}
     </section>
   );
 }

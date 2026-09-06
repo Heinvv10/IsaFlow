@@ -17,6 +17,7 @@ import { PackFigureProvenance, type PackFigure } from '@/modules/accounting/serv
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import type { TrustedChartSvg } from '@/lib/charts/ssrSvg';
+import type { PackMatter } from './packMatters';
 
 /** A footnote referenced from a page's body, numbered within that page. */
 export interface PackFootnote {
@@ -139,8 +140,10 @@ export interface PackChartSpec {
 }
 
 export interface PackNarrative {
-  status: 'approved' | 'pending' | 'draft';
-  /** A component renders this ONLY when `status === 'approved'` — an
+  status: 'approved' | 'derived' | 'pending' | 'draft';
+  /** A component renders this ONLY when `status` is 'approved' (a human
+   *  signed it off) or 'derived' (deterministic code, and LABELLED as such
+   *  on the page so the two cannot be mistaken for one another — R7). An
    *  unapproved narrative must not leak into a board pack. */
   body: string | null;
   actions: string[];
@@ -183,6 +186,12 @@ export type PackPageBlock =
   | { kind: 'chart'; chart: PackChartSpec }
   | { kind: 'smallMultiples'; panels: PackChartSpec[] }
   | { kind: 'narrative'; narrative: PackNarrative }
+  // Spec §4.A page 11 is a TABLE — issue, quantum, owner, movement, decision
+  // — and `PackTable`'s column keys are financial (actual/prior/change/…),
+  // so a matter cannot be expressed as one. `PackMatter` already carries
+  // exactly those five fields; a second shape would be one more thing to
+  // keep in step with `buildMatters`.
+  | { kind: 'matters'; matters: PackMatter[] }
   | { kind: 'disclosure'; disclosure: PackDisclosure }
   | { kind: 'definitions'; entries: PackDefinition[] };
 
@@ -242,59 +251,7 @@ export interface PackPagesDocument {
   pages: PackPage[];
 }
 
-/**
- * Page titles that are navigation, not a conclusion about the period, and so
- * are exempt from the message rule by exact match. Page 1's title (the
- * company's legal name) is exempt separately, by page NUMBER — see below.
- */
-const EXEMPT_NAVIGATION_TITLES = new Set([
-  'Contents',
-  'Basis of preparation and definitions',
-  'Matters requiring board attention',
-]);
-
-/** A verb of movement — the heuristic's other admission besides a digit. */
-const MOVEMENT_VERBS = [
-  'up', 'down', 'widened', 'narrowed', 'met', 'missed', 'improved', 'fell', 'rose', 'held',
-];
-
-/**
- * Reject a bare label in place of a title that states a conclusion.
- *
- * This is a heuristic, deliberately: it allows a title through when it
- * contains a digit or one of a small set of movement verbs, and rejects it
- * otherwise. Its job is to fail the exact class of title the rejected pack
- * shipped ('Financial Ratios', 'Commentary', 'KPI Scorecard') — it cannot
- * judge whether an admitted title is actually a good conclusion. That
- * judgement is the visual gate's, applied to the rendered page, not this
- * function's.
- */
-export function assertPageTitleIsAMessage(title: string, pageNumber: number): void {
-  // Page 1's title is the company's legal name — arbitrary data we do not
-  // choose, exempt by page number rather than by matching its text.
-  if (pageNumber === 1) return;
-  if (EXEMPT_NAVIGATION_TITLES.has(title)) return;
-
-  const hasDigit = /\d/.test(title);
-  const lower = title.toLowerCase();
-  const hasMovementVerb = MOVEMENT_VERBS.some((verb) => new RegExp(`\\b${verb}\\b`).test(lower));
-
-  if (!hasDigit && !hasMovementVerb) {
-    throw new Error(
-      `Page ${pageNumber} title '${title}' is a bare label, not a conclusion ` +
-        `about the period. A title must contain a digit or one of: ` +
-        `${MOVEMENT_VERBS.join(', ')}. This is a cheap guard in front of the ` +
-        `real judge, which is the visual gate applied to the rendered page.`,
-    );
-  }
-}
-
-/**
- * Whether a page number falls under the "content page" density rule.
- *
- * The cover (1) and contents (2) are excluded — neither carries the tables
- * and scorecards the density rule governs.
- */
-export function isContentPage(pageNumber: number): boolean {
-  return pageNumber > 2;
-}
+/** The page-level rules, moved to a sibling so this file could stay under the
+ *  300-line cap while gaining the `matters` block kind. Re-exported here
+ *  because every existing caller imports them from this module. */
+export { assertPageTitleIsAMessage, isContentPage } from './packPageRules';

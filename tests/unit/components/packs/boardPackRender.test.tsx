@@ -1,0 +1,227 @@
+/**
+ * The twelve-page board pack, RENDERED — the first test in this workstream
+ * that puts a composed `PackPagesDocument` through the actual components.
+ *
+ * It drives the same two fixtures the composer test does
+ * (tests/unit/services/packs/fixtures/boardPackInputs.ts) rather than a
+ * hand-built document: a fixture written for the renderer would be written to
+ * the shape the renderer already handles, which is how a suite ends up green
+ * against a pack nothing composes.
+ *
+ * WHAT EACH FIXTURE CANNOT REACH, since that is what decides the assertions:
+ *   - `demoInput` has APPROVED commentary on pages 4 and 11, so on its own it
+ *     can never show what a draft or a derived narrative does. Draft
+ *     suppression and the derived label therefore get their own documents.
+ *   - `brightsphereInput` has NO commentary at all (both pages pending), no
+ *     prior, no budget and no trend — it is the only fixture that reaches the
+ *     pending placeholder and the empty-page risk.
+ *   - Neither fixture can reach the unknown-scale refusal, because
+ *     `buildBasis` always states R'000. That branch is driven by overriding
+ *     the composed document's own convention.
+ */
+import { describe, expect, it } from 'vitest';
+import { render, within } from '@testing-library/react';
+import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
+import { PackBlockView } from '@/components/accounting/packs/pages/PackBlocks';
+import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import {
+  brightsphereInput,
+  demoInput,
+} from '../../services/packs/fixtures/boardPackInputs';
+
+const demoDoc = () => buildBoardPackPages(demoInput);
+
+describe('board pack, rendered', () => {
+  it('renders twelve pages and becomes print-ready', () => {
+    const { container } = render(<PackPagesView document={demoDoc()} />);
+    expect(container.querySelectorAll('.pack-page')).toHaveLength(12);
+    expect(container.querySelector('[data-print-ready="true"]')).not.toBeNull();
+  });
+
+  it('renders an <svg> for every chart block the model declares', () => {
+    const doc = demoDoc();
+    // Panels are counted one by one, not one per block: `usePrintReady` waits
+    // on `countPageModelCharts`, which does the same, so a small-multiples
+    // page that drew one panel of six would otherwise read as satisfied.
+    const declared = doc.pages.flatMap((p) => p.blocks).reduce((total, block) => {
+      if (block.kind === 'chart') return total + 1;
+      if (block.kind === 'smallMultiples') return total + block.panels.length;
+      return total;
+    }, 0);
+    expect(declared).toBeGreaterThan(0);
+
+    const { container } = render(<PackPagesView document={doc} />);
+    expect(container.querySelectorAll('[data-pack-chart] svg').length).toBe(declared);
+  });
+
+  it('renders the Brightsphere shape without a zero column or an empty page', () => {
+    const { container } = render(<PackPagesView document={buildBoardPackPages(brightsphereInput)} />);
+    const pages = container.querySelectorAll('.pack-page');
+    expect(pages).toHaveLength(12);
+    for (const page of pages) {
+      expect(page.textContent?.trim().length ?? 0, page.id).toBeGreaterThan(80);
+    }
+  });
+
+  it('draws the one landscape page as a named page and leaves the other eleven portrait', () => {
+    const { container } = render(<PackPagesView document={demoDoc()} />);
+    expect(container.querySelectorAll('[data-print-landscape]')).toHaveLength(1);
+    expect(container.querySelector('#pack-page-10')?.hasAttribute('data-print-landscape')).toBe(true);
+  });
+});
+
+describe('board pack commentary, R7', () => {
+  /** `demoInput` with page 4's commentary replaced. */
+  const withCommentary = (commentary: (typeof demoInput)['commentary']) =>
+    buildBoardPackPages({ ...demoInput, commentary });
+
+  it('keeps a DRAFT narrative body out of the DOM entirely, not merely hidden', () => {
+    const doc = withCommentary({
+      status: 'draft',
+      body: 'UNAPPROVED-MODEL-SENTENCE',
+      actions: ['UNAPPROVED-MODEL-ACTION'],
+    });
+    const { container } = render(<PackPagesView document={doc} />);
+
+    // Not `toBeVisible`: a hidden node is still a node, and a stylesheet edit
+    // or a "print backgrounds" setting brings it back. The text must not be
+    // in the markup at all.
+    expect(container.innerHTML).not.toContain('UNAPPROVED-MODEL-SENTENCE');
+    expect(container.innerHTML).not.toContain('UNAPPROVED-MODEL-ACTION');
+    // And the page did not silently vanish with it.
+    expect(container.querySelectorAll('.pack-page')).toHaveLength(12);
+  });
+
+  it('renders an APPROVED narrative body and its actions', () => {
+    const doc = withCommentary({
+      status: 'approved',
+      body: 'APPROVED-SENTENCE',
+      actions: ['APPROVED-ACTION'],
+    });
+    const { container } = render(<PackPagesView document={doc} />);
+    const page4 = container.querySelector('#pack-page-4')!;
+    expect(page4.textContent).toContain('APPROVED-SENTENCE');
+    expect(page4.textContent).toContain('APPROVED-ACTION');
+  });
+
+  it('labels a DERIVED caption apart from an approved one, in text and not only in colour', () => {
+    // Page 4 is human-approved; page 5's caption is derived (`commentary()`
+    // in packPageBlocks.ts). A reader of the printed page must be able to
+    // tell which is which — R7 admits derived text because it is
+    // deterministic, not because anyone signed it.
+    const { container } = render(<PackPagesView document={demoDoc()} />);
+    const page4 = within(container.querySelector('#pack-page-4') as HTMLElement);
+    const page5 = within(container.querySelector('#pack-page-5') as HTMLElement);
+
+    expect(page4.getByText(/Approved commentary/)).toBeInTheDocument();
+    expect(page4.queryByText(/Derived from the figures/)).toBeNull();
+    expect(page5.getByText(/Derived from the figures/)).toBeInTheDocument();
+    expect(page5.queryByText(/Approved commentary/)).toBeNull();
+  });
+
+  it('shows the pending placeholder, and no body, where nothing has been approved', () => {
+    const { container } = render(<PackPagesView document={buildBoardPackPages(brightsphereInput)} />);
+    const page4 = container.querySelector('#pack-page-4')!;
+    expect(page4.textContent).toContain('Commentary pending approval');
+    expect(page4.querySelector('.pack-narrative-body')).toBeNull();
+  });
+});
+
+describe('board pack page 11, the matters table', () => {
+  it('renders all five spec §4.A columns and a matter in every one of them', () => {
+    const { container } = render(<PackPagesView document={demoDoc()} />);
+    const table = container.querySelector('#pack-page-11 .pack-matters') as HTMLElement;
+    expect(table).not.toBeNull();
+
+    const headers = [...table.querySelectorAll('thead th')].map((th) => th.textContent);
+    expect(headers).toEqual(['Issue', 'Quantum', 'Owner', 'Movement', 'Decision required']);
+
+    const cells = [...table.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')]
+      .map((td) => td.textContent ?? '');
+    expect(cells).toHaveLength(5);
+    const matter = demoInput.matters[0]!;
+    expect(cells[0]).toBe(matter.issue);
+    // R'000, the document's own scale — not the raw 244 800.
+    expect(cells[1]).toBe('245');
+    expect(cells[2]).toBe(matter.owner);
+    expect(cells[3]).toBe(matter.movement);
+    expect(cells[4]).toBe(matter.decisionRequired);
+  });
+
+  it('prints an en dash, never a zero, for a matter with no single amount', () => {
+    // Brightsphere's only matter is the explicit "no matters" item, whose
+    // quantum is null. "R0" would say the exposure was measured at nothing.
+    const { container } = render(<PackPagesView document={buildBoardPackPages(brightsphereInput)} />);
+    const cells = [...container.querySelectorAll('#pack-page-11 .pack-matters tbody td')]
+      .map((td) => td.textContent);
+    expect(cells[1]).toBe('–');
+  });
+});
+
+describe('board pack figures, R-P52', () => {
+  it('formats every money cell at the DOCUMENT scale, not at raw rands', () => {
+    const doc = demoDoc();
+    expect(doc.numberConvention.scale).toBe("R'000");
+    const { container } = render(<PackPagesView document={doc} />);
+    const page5 = container.querySelector('#pack-page-5')!;
+
+    // Revenue is 4 200 000 in the ledger. Under R'000 the cell reads 4 200,
+    // and the caption above it says so. Scoped to the TABLE, not the page:
+    // page 5's derived title quotes figures in full rands as prose, which is
+    // a separate house-style question already deferred to the visual gate.
+    const table = page5.querySelector('.pack-table') as HTMLElement;
+    expect(table.querySelector('caption')?.textContent).toBe("R'000");
+    expect(table.textContent).toContain('4 200');
+    expect(table.textContent).not.toContain('4 200 000');
+  });
+
+  it('changes what every cell prints when the document changes its scale', () => {
+    // The pair is what proves the scale is WIRED rather than coincidental: a
+    // renderer with a hardcoded R'000 would pass the assertion above and fail
+    // this one.
+    const doc = buildBoardPackPages(demoInput);
+    const { container } = render(
+      <PackPagesView document={{ ...doc, numberConvention: { scale: 'R', currency: 'ZAR' } }} />,
+    );
+    const table = container.querySelector('#pack-page-5 .pack-table') as HTMLElement;
+    expect(table.textContent).toContain('4 200 000');
+  });
+
+  it('refuses to print at a scale no formatter knows, rather than printing unscaled', () => {
+    const doc = buildBoardPackPages(demoInput);
+    expect(() => render(
+      <PackPagesView document={{ ...doc, numberConvention: { scale: 'thousands', currency: 'ZAR' } }} />,
+    )).toThrow(/not a scale any formatter knows/);
+  });
+});
+
+describe('the block kinds the board pack does not currently emit', () => {
+  /**
+   * `statTiles` is in the model and therefore in the dispatcher's exhaustive
+   * switch, but no page of the BOARD pack carries one today — the management
+   * pack's key-statistics strip (WS4c) is its first caller. Driving it from
+   * a board pack document is impossible, so it is driven directly. Without
+   * this the branch would ship untested and its first real use would be its
+   * first render.
+   */
+  it('renders a stat-tile group at the document scale', () => {
+    const { container } = render(
+      <PackBlockView
+        scale="R'000"
+        block={{
+          kind: 'statTiles',
+          groups: [{
+            heading: 'Key statistics',
+            stats: [{
+              label: 'Cash',
+              figure: { value: 610_000, format: 'money', source: 'ledger', unavailable: null },
+            }],
+          }],
+        }}
+      />,
+    );
+    expect(container.querySelector('.pack-stat-group-heading')?.textContent).toBe('Key statistics');
+    expect(container.querySelector('.pack-stat-label')?.textContent).toBe('Cash');
+    expect(container.querySelector('.pack-stat-value')?.textContent).toBe('610');
+  });
+});
