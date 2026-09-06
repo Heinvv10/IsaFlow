@@ -14,6 +14,15 @@
  * The number PRINTED on the bar is `step.value`, the service's own signed
  * figure — never the bar's derived height. That separation is the whole
  * reason this builder is allowed to do arithmetic at all.
+ *
+ * NARROW SCREENS. At 375px a seven-step bridge has about 45px per category.
+ * Inline value labels then overlap each other into an unreadable smear, and
+ * `hideOverlap` silently drops five of the seven category names — a chart
+ * whose bars are unlabelled is not a chart, it is a shape. Below
+ * `NARROW_WIDTH` the value labels are dropped in favour of the tooltip (IBCS
+ * asks that a figure be legible, not that it be printed on the bar) and the
+ * category labels rotate rather than disappear. The value axis still carries
+ * the scale, and the unit note above the frame still states it.
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type {
@@ -37,6 +46,11 @@ function barColor(step: WaterfallStep, palette: ChartPalette): string {
   return varianceColor(favourable, palette) ?? roleStyle('actual', palette).color;
 }
 
+/** Below this the bars are too close for an inline figure to sit above one
+ *  without colliding with its neighbour. 375px is the narrowest phone the
+ *  app supports; a seven-step bridge there is ~45px per category. */
+export const NARROW_WIDTH = 520;
+
 export function makeWaterfallRenderItem(
   steps: WaterfallStep[],
   palette: ChartPalette,
@@ -49,6 +63,11 @@ export function makeWaterfallRenderItem(
     const step = steps[params.dataIndex];
     if (!step) return undefined;
 
+    // Asked of the live chart, not of a prop: the same option is used at
+    // every width, and this is the width it is actually being drawn at.
+    const chartWidth = typeof api.getWidth === 'function' ? api.getWidth() : Infinity;
+    const showValueLabel = chartWidth >= NARROW_WIDTH;
+
     const p1 = api.coord([params.dataIndex, step.start]);
     const p2 = api.coord([params.dataIndex, step.end]);
     const [x1 = 0, y1 = 0] = p1;
@@ -60,14 +79,17 @@ export function makeWaterfallRenderItem(
     const y = Math.min(y1, y2);
     const height = Math.abs(y1 - y2);
 
+    const bar = {
+      type: 'rect' as const,
+      shape: { x, y, width, height },
+      style: { fill: barColor(step, palette) },
+    };
+    if (!showValueLabel) return { type: 'group', children: [bar] };
+
     return {
       type: 'group',
       children: [
-        {
-          type: 'rect',
-          shape: { x, y, width, height },
-          style: { fill: barColor(step, palette) },
-        },
+        bar,
         {
           type: 'text',
           style: {
@@ -92,6 +114,27 @@ export function buildWaterfallOption(
   opts: { cents?: boolean } = {},
 ): EChartsCoreOption {
   return {
+    // ECharts applies `media` from the chart's own rendered size, so one
+    // option serves every width without the component measuring anything.
+    media: [
+      {
+        query: { maxWidth: NARROW_WIDTH },
+        option: {
+          grid: { left: 8, right: 8, top: 28, bottom: 56, containLabel: true },
+          xAxis: {
+            axisLabel: {
+              // Every category named, rotated to fit. `hideOverlap` here was
+              // dropping five of seven names on a 375px screen.
+              interval: 0,
+              hideOverlap: false,
+              rotate: 45,
+              fontSize: 9,
+              color: palette.axisLabel,
+            },
+          },
+        },
+      },
+    ],
     grid: { left: 8, right: 8, top: 28, bottom: 24, containLabel: true },
     tooltip: {
       trigger: 'item',

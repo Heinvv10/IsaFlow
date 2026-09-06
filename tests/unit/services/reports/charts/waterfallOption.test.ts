@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildProfitWaterfall } from '@/modules/accounting/services/reports/waterfallDataService';
-import { buildWaterfallOption, makeWaterfallRenderItem } from '@/components/accounting/charts/waterfallOption';
+import {
+  buildWaterfallOption, makeWaterfallRenderItem, NARROW_WIDTH,
+} from '@/components/accounting/charts/waterfallOption';
 import { DEFAULT_PALETTE } from '@/components/accounting/charts/chartTypes';
 import { formatMoney } from '@/lib/format/money';
 
@@ -35,10 +37,11 @@ const valAxis = (o: Record<string, unknown>) => o['yAxis'] as { min: number; max
 /** A minimal `api` stand-in: `coord` maps [categoryIndex, value] straight
  * through to `[categoryIndex * 10, value]` (no pixel inversion), so a rect's
  * shape can be asserted directly against the step's own start/end. */
-function fakeApi() {
+function fakeApi(width = 900) {
   return {
     coord: (d: [number, number]) => [d[0] * 10, d[1]],
     size: () => [10, 0],
+    getWidth: () => width,
   };
 }
 
@@ -138,5 +141,53 @@ describe('buildWaterfallOption', () => {
     const group = renderStep(LOSS_STEPS, LOSS_STEPS.length - 1);
     expect(group.children[0].shape.y).toBe(netLoss.end);
     expect(group.children[0].shape.height).toBe(Math.abs(netLoss.end - netLoss.start));
+  });
+});
+
+
+describe('the waterfall on a narrow screen', () => {
+  const renderAt = (width: number) => {
+    const renderItem = makeWaterfallRenderItem(STEPS, DEFAULT_PALETTE);
+    return renderItem(
+      { dataIndex: 0 } as unknown as Parameters<typeof renderItem>[0],
+      fakeApi(width) as unknown as Parameters<typeof renderItem>[1],
+    ) as unknown as { children: Array<{ type: string }> };
+  };
+
+  it('drops the inline value label, which at 375px collides with its neighbour', () => {
+    const children = renderAt(375).children;
+    expect(children.map(c => c.type)).toEqual(['rect']);
+  });
+
+  it('still prints the value label at a width that has room for it', () => {
+    const children = renderAt(NARROW_WIDTH).children;
+    expect(children.map(c => c.type)).toEqual(['rect', 'text']);
+  });
+
+  it('names every category rather than letting hideOverlap drop five of seven', () => {
+    const opt = buildWaterfallOption(STEPS, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
+    const media = opt['media'] as Array<{
+      query: { maxWidth: number };
+      option: { xAxis: { axisLabel: Record<string, unknown> } };
+    }>;
+    const narrow = media.find(m => m.query.maxWidth === NARROW_WIDTH);
+    expect(narrow, 'no narrow media rule').toBeDefined();
+    expect(narrow!.option.xAxis.axisLabel['hideOverlap']).toBe(false);
+    expect(narrow!.option.xAxis.axisLabel['interval']).toBe(0);
+    expect(narrow!.option.xAxis.axisLabel['rotate']).toBeGreaterThan(0);
+  });
+
+  it('leaves room under the rotated labels', () => {
+    const opt = buildWaterfallOption(STEPS, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
+    const media = opt['media'] as Array<{ option: { grid: { bottom: number } } }>;
+    const wide = opt['grid'] as { bottom: number };
+    expect(media[0]!.option.grid.bottom).toBeGreaterThan(wide.bottom);
+  });
+
+  it('keeps hideOverlap on at full width, where every name fits without rotation', () => {
+    const opt = buildWaterfallOption(STEPS, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
+    const axisLabel = (opt['xAxis'] as { axisLabel: Record<string, unknown> }).axisLabel;
+    expect(axisLabel['hideOverlap']).toBe(true);
+    expect(axisLabel['rotate']).toBeUndefined();
   });
 });
