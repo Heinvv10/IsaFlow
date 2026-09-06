@@ -33,14 +33,23 @@ export interface PdfRenderRequest {
   allowedApiPaths: string[];
   /** Per-pack footer. Falls back to FOOTER_HTML when absent. */
   footerHtml?: string;
-  /** Written into the PDF's document information dictionary. Gotenberg only —
-   *  Playwright's page.pdf() supports no metadata at all, which is exactly why
-   *  spec §8 decision 5 declines to make PDF/A a requirement. */
+  /** Written into the PDF's document information dictionary. Honoured only by
+   *  a transport whose `capabilities.metadata` is true — Playwright's
+   *  page.pdf() supports no metadata at all, which is exactly why spec §8
+   *  decision 5 declines to make PDF/A a requirement. */
   metadata?: PdfMetadata;
 }
 
 export interface PdfTransport {
   name: 'playwright' | 'gotenberg';
+  /** What this transport can actually honour. The two are NOT interchangeable:
+   *  Gotenberg writes PDF metadata, Playwright's page.pdf() supports none —
+   *  and PDF_TRANSPORT=playwright is the production incident fallback, so a
+   *  guarantee that holds in steady state silently stops holding the day the
+   *  switch is flipped. A requirement that is genuinely load-bearing (PDF/A
+   *  for archival retention) must be enforced at the CALL SITE by reading
+   *  this, rather than assumed. */
+  readonly capabilities: { readonly metadata: boolean };
   render(request: PdfRenderRequest): Promise<Buffer>;
 }
 
