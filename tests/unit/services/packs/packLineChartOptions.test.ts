@@ -8,13 +8,27 @@
  * frame all satisfy equally. These read the option instead.
  */
 import { describe, expect, it } from 'vitest';
-import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packPageCharts';
+import { buildCashTrendChart, buildTrendPanels } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
+import { formatMoney } from '@/lib/format/money';
 import {
   sharedDomain,
   smallMultipleOption,
   sparklineOption,
 } from '@/modules/accounting/services/packs/packLineChartOptions';
+
+/** The line series' own path — distinguished from grid/axis lines by the
+ *  ink stroke and width `smallMultipleOption` gives it. */
+function seriesPath(svg: string): string {
+  const match = svg.match(/<path d="([^"]+)"[^>]*stroke="#15202b" stroke-width="2"/);
+  if (!match) throw new Error('no series path found in SVG');
+  return match[1]!;
+}
+
+/** Number of plotted points in a line series path — an M plus N-1 Ls. */
+function pointCount(path: string): number {
+  return path.split(/[ML]/).filter((s) => s.trim() !== '').length;
+}
 
 interface AxisLike { show?: boolean; min?: number; max?: number }
 interface SeriesLike { type?: string; endLabel?: { show?: boolean }; showSymbol?: boolean; data?: unknown[] }
@@ -117,5 +131,45 @@ describe('buildTrendPanels — the row actually shares one scale', () => {
 
   it('draws every panel as a line spec', () => {
     expect(buildTrendPanels(trend).every((p) => p.kind === 'line')).toBe(true);
+  });
+});
+
+/**
+ * Page 8's closing-cash line — the deliverable this task exists to make
+ * possible. Asserted structurally: point count, the closing value the chart
+ * itself labels, and that a different series draws a different path — not
+ * `svg.length > 0`, which a bar chart, a line chart and an empty frame all
+ * satisfy equally (the exact defect this test file's header exists to stop).
+ */
+describe('buildCashTrendChart', () => {
+  const makeTrend = (cash: number[]): PackTrendPoint[] => cash.map((v, i) => ({
+    month: `2026-0${i + 1}`,
+    label: `M${i + 1}`,
+    revenue: 100_000, expenses: 60_000, netProfit: 40_000,
+    costOfSales: 30_000, operatingExpenses: 30_000, grossMarginPct: 70,
+    cash: v, accountsReceivable: 20_000, debtorDays: 6,
+  }));
+
+  it('returns null when there is no trend series to plot', () => {
+    expect(buildCashTrendChart([])).toBeNull();
+  });
+
+  it('is a line chart with one point per trend period', () => {
+    const trend = makeTrend([500_000, 520_000, 480_000, 610_000]);
+    const chart = buildCashTrendChart(trend)!;
+    expect(chart.kind).toBe('line');
+    expect(pointCount(seriesPath(chart.svg))).toBe(trend.length);
+  });
+
+  it('labels the closing value the chart actually draws', () => {
+    const trend = makeTrend([500_000, 520_000, 480_000, 610_000]);
+    const chart = buildCashTrendChart(trend)!;
+    expect(chart.svg).toContain(formatMoney(610_000));
+  });
+
+  it('draws a different path when the cash series is different', () => {
+    const rising = buildCashTrendChart(makeTrend([500_000, 520_000, 480_000, 610_000]))!;
+    const falling = buildCashTrendChart(makeTrend([610_000, 480_000, 520_000, 500_000]))!;
+    expect(seriesPath(rising.svg)).not.toBe(seriesPath(falling.svg));
   });
 });

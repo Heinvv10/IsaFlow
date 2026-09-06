@@ -27,6 +27,7 @@ import { formatMoney, formatPctMagnitude, toMoneyScale } from '@/lib/format/mone
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
+import { TRENDS_PANELS_SPECIFIED } from '@/modules/accounting/services/packs/pages/packPageCharts';
 
 function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
   return {
@@ -74,6 +75,20 @@ const trend: PackTrendPoint[] = Array.from({ length: 13 }, (_, i) => {
     debtorDays: Math.round(((700_000 + i * 4_000) / revenue) * 30 * 100) / 100,
   };
 });
+
+/**
+ * Every month has zero revenue, so `grossMarginPct` and `debtorDays` are both
+ * not-meaningful (R-P44/R-P45) throughout — the only fixture in this file
+ * that genuinely produces FEWER than the six specified panels. Money panels
+ * (revenue, operating expenses, net profit, cash) still draw fine: none of
+ * them needs a positive revenue.
+ */
+const zeroRevenueTrend: PackTrendPoint[] = trend.map((point) => ({
+  ...point,
+  revenue: 0,
+  grossMarginPct: null,
+  debtorDays: null,
+}));
 
 const brand: PackBrand = {
   primaryColour: '#1f4e79',
@@ -156,6 +171,10 @@ const demoInput: BoardPackInput = {
   },
   ledgerVersion: 'posted-through 2026-08-31',
 };
+
+/** Same as `demoInput` in every other respect, but its trend genuinely draws
+ *  fewer than the six specified panels — see `zeroRevenueTrend`. */
+const noRatioPanelsInput: BoardPackInput = { ...demoInput, trend: zeroRevenueTrend };
 
 /**
  * Brightsphere: negative revenue, negative equity, no prior, no budget, and
@@ -454,6 +473,51 @@ describe('buildBoardPackPages', () => {
     expect(panels.length).toBeGreaterThan(0);
     expect(panels.every((p) => p.kind === 'line')).toBe(true);
     expect(panels.every((p) => p.heightMm === CHART_HEIGHT_MM.half)).toBe(true);
+  });
+
+  function disclosureHeadings(page: (typeof doc)['pages'][number]): string[] {
+    return page.blocks.flatMap((b) => (b.kind === 'disclosure' ? [b.disclosure.heading] : []));
+  }
+
+  it('draws all six specified panels when every metric is meaningful, and says nothing about panels not drawn', () => {
+    const panels = doc.pages.find((p) => p.number === 10)!.blocks
+      .flatMap((b) => (b.kind === 'smallMultiples' ? b.panels : []));
+    expect(panels.length).toBe(TRENDS_PANELS_SPECIFIED);
+    expect(disclosureHeadings(doc.pages.find((p) => p.number === 10)!)).not.toContain('Panels not drawn');
+  });
+
+  it('draws fewer than six panels when a metric is not meaningful all period, and discloses which count is short', () => {
+    const shortDoc = buildBoardPackPages(noRatioPanelsInput);
+    const page10 = shortDoc.pages.find((p) => p.number === 10)!;
+    const panels = page10.blocks.flatMap((b) => (b.kind === 'smallMultiples' ? b.panels : []));
+    expect(panels.length).toBeLessThan(TRENDS_PANELS_SPECIFIED);
+    expect(disclosureHeadings(page10)).toContain('Panels not drawn');
+  });
+
+  it('draws the page-8 closing-cash line from the trend, and it foots on the closing cash figure', () => {
+    const chart = doc.pages.find((p) => p.number === 8)!.blocks
+      .flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))
+      .find((c) => c.id === 'cash-trend')!;
+    expect(chart).toBeDefined();
+    expect(chart.kind).toBe('line');
+    // One vertex per trend period — a structural count, not `svg.length > 0`.
+    const seriesPath = chart.svg.match(/stroke="#15202b" stroke-width="2"[^>]*d="([^"]+)"/)
+      ?? chart.svg.match(/d="([^"]+)"[^>]*stroke="#15202b" stroke-width="2"/);
+    const points = seriesPath![1]!.split(/[ML]/).filter((s) => s.trim() !== '');
+    expect(points).toHaveLength(trend.length);
+    // The closing value is labelled directly on the chart (spec §4.A's
+    // end-labelled small multiple), so the figure itself is checkable in the
+    // SVG, not just in the title string.
+    expect(chart.svg).toContain(formatMoney(trend[trend.length - 1]!.cash));
+    expect(disclosureHeadings(doc.pages.find((p) => p.number === 8)!)).not.toContain('No closing-cash series');
+  });
+
+  it('discloses why there is no closing-cash line when there is no trend series at all', () => {
+    const doc2 = buildBoardPackPages(brightsphereInput);
+    const page8 = doc2.pages.find((p) => p.number === 8)!;
+    const chartIds = page8.blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart.id] : []));
+    expect(chartIds).not.toContain('cash-trend');
+    expect(disclosureHeadings(page8)).toContain('No closing-cash series');
   });
 
   it('never restates a page title as that page\'s commentary', () => {
