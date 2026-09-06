@@ -31,6 +31,7 @@ import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackS
 import { stripOmittedSections } from '@/modules/accounting/services/share/sharedSections';
 import { SharedPackView, type SharedPackProps } from '@/components/accounting/share/SharedPackView';
 import { getClientIp } from '@/lib/rateLimit';
+import { buildSharePageCsp } from '../../config/securityHeaders';
 import { log } from '@/lib/logger';
 
 type PageProps =
@@ -85,6 +86,13 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
   // proxy cache keyed on a URL that carries its own credential.
   ctx.res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   ctx.res.setHeader('Cache-Control', 'no-store, private');
+  // Overrides the site-wide policy from next.config.js for THIS route only, by
+  // subtracting Cloudflare Web Analytics from it. If the zone has Web Analytics
+  // on, the edge injects a beacon that reports location.href — and here the URL
+  // is the credential. Set after the framework's own headers, so this wins.
+  // Partial: Cloudflare terminates TLS and has the URL regardless; what this
+  // stops is its collection as analytics data. See config/securityHeaders.js.
+  ctx.res.setHeader('Content-Security-Policy', buildSharePageCsp(process.env.NODE_ENV));
 
   const ua = ctx.req.headers['user-agent'];
   const viewCtx = {

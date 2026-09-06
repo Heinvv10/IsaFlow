@@ -81,6 +81,43 @@ function buildCsp(nodeEnv) {
 }
 
 /**
+ * The Content-Security-Policy for the PUBLIC SHARE PAGE (`/share/<token>`).
+ *
+ * Derived from `buildCsp` by SUBTRACTION rather than written out again, so the
+ * share page can never quietly fall behind the policy every other route gets.
+ * What it removes is Cloudflare Web Analytics: the beacon script host and the
+ * host it reports to.
+ *
+ * Why only here: on `/share/<token>` the pathname IS the credential. If the
+ * Cloudflare zone has Web Analytics switched on, the edge injects the beacon
+ * into the HTML of every page it serves, and the beacon reports
+ * `location.href` — a live share token — into an analytics product with its own
+ * retention and its own dashboard readers. Nothing in this repository asks for
+ * that beacon; it is a zone setting, so the origin cannot remove the injection,
+ * but it CAN refuse to let the browser run it.
+ *
+ * This is a partial mitigation and should not be described as more. Cloudflare
+ * terminates TLS for this origin, so the edge has the URL either way; what this
+ * stops is the URL being collected, retained and displayed as analytics data.
+ * The complete fix is the zone setting — Web Analytics off, or `/share/*`
+ * excluded — and that is not a change this repository can make.
+ *
+ * @param {string} [nodeEnv] - process.env.NODE_ENV.
+ * @returns {string}
+ */
+function buildSharePageCsp(nodeEnv) {
+  return buildCsp(nodeEnv)
+    .split('; ')
+    .map((directive) =>
+      directive
+        .split(' ')
+        .filter((token) => token !== CLOUDFLARE_INSIGHTS && token !== CLOUDFLARE_INSIGHTS_SCRIPT)
+        .join(' '),
+    )
+    .join('; ');
+}
+
+/**
  * Build the full security header set applied to every route.
  * @param {string} [nodeEnv] - process.env.NODE_ENV.
  * @returns {{key: string, value: string}[]}
@@ -99,4 +136,4 @@ function securityHeaders(nodeEnv) {
   ];
 }
 
-module.exports = { buildCsp, securityHeaders };
+module.exports = { buildCsp, buildSharePageCsp, securityHeaders };

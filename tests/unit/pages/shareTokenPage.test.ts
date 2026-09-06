@@ -116,6 +116,26 @@ describe('/share/[token] getServerSideProps', () => {
     expect(headers['X-Robots-Tag']).toContain('noindex');
   });
 
+  it('serves a CSP that cannot load or reach Cloudflare Web Analytics', async () => {
+    // On this route the pathname IS the credential. If the Cloudflare zone has
+    // Web Analytics on, the edge injects a beacon reporting location.href into
+    // an analytics product with its own retention and its own readers. The
+    // origin cannot stop the injection; it can refuse to let the browser run
+    // it. Partial by nature — Cloudflare terminates TLS and has the URL either
+    // way — and the zone setting is the complete fix.
+    resolveShareLink.mockResolvedValue({ status: 'not_found' });
+    const { ctx, headers } = makeCtx();
+
+    await getServerSideProps(ctx);
+
+    const csp = headers['Content-Security-Policy'];
+    expect(csp).toBeTruthy();
+    expect(csp).not.toContain('cloudflareinsights.com');
+    // Still a real policy, not an empty string that happens to pass the above.
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("frame-ancestors 'none'");
+  });
+
   it('answers unknown, expired and revoked identically, with a 404', async () => {
     const results: unknown[] = [];
     for (const status of ['not_found', 'expired', 'revoked'] as const) {
