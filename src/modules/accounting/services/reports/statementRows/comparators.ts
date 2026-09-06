@@ -1,42 +1,47 @@
 /**
  * Fills the `trend` and `budget` fields the row model reserved for this
  * workstream. Same contract as the other adapters in this directory: every
- * figure is COPIED from a service, nothing is derived.
+ * figure is COPIED from a service, nothing is derived — with two exceptions,
+ * both inside `priorComparison` and both covered by
+ * `tests/unit/services/reports/statementRows/comparators.test.ts`:
  *
- * One subtraction happens here and it is deliberate: `budget.variance` is
- * `actual − budget`, the MOVEMENT, because that is what `prior.variance`
- * means on every existing row and what `StatementRowView` prints. The
- * service's own `line.variance` cannot be used for that field — it is signed
- * FAVOURABLY (revenue: actual − budget; expense: budget − actual), so on an
- * expense it has the opposite sign to the movement. It is used for the
- * POLARITY and nothing else.
+ *   1. `variance` (the MOVEMENT, `actual − base`). `prior.variance` already
+ *      arrives from the services pre-signed this way. `budget.variance`
+ *      cannot use the service's own `line.variance` for this field — it is
+ *      signed FAVOURABLY (revenue: actual − budget; expense: budget −
+ *      actual), so on an expense it has the opposite sign to the movement.
+ *      `applyBudgetComparator` computes it itself as `actual − budget`.
+ *   2. `variancePct`, computed HERE from that same `variance` and `value`
+ *      (`variance / |value| * 100`) so prior and budget cannot diverge: a
+ *      caller-supplied percentage on a different sign convention (as
+ *      `budgetVsActualLines`'s favourably-signed `variance_pct` is) can never
+ *      leak through. `favourable` alone carries the judgement of whether a
+ *      movement is good news; the sign of `variance`/`variancePct` is always
+ *      "up is positive", never "good is positive".
  */
 import type { BudgetVsActualLine } from '../budgetVsActualLines';
 import type { AccountTrends } from '../trendRowsService';
 import type { Comparison, StatementRow } from './statementModel';
 
 /**
- * Build the prior-period comparison for one row.
+ * Build a comparison (prior or budget) for one row.
  *
- * A prior of EXACTLY ZERO is a real comparator, and the movement against it is
+ * A base of EXACTLY ZERO is a real comparator, and the movement against it is
  * a real figure: an account that went from nothing to R5.5m moved by R5.5m,
- * and that is worth printing. What does NOT exist is the percentage — there is
- * nothing to divide by — and the services return 0 as the placeholder, which
- * the grid then prints as "0.0%": a claim of no change beside the largest
- * movement on the statement. So the amount and its polarity are kept and only
- * `variancePct` is dropped, leaving that one cell empty.
+ * and that is worth printing. What does NOT exist is the percentage — there
+ * is nothing to divide by — so `variancePct` is left undefined, leaving that
+ * one cell empty rather than printing a claim of "0.0%" (no change) beside
+ * the largest movement on the statement.
  */
 export function priorComparison(
   value: number,
   variance: number | undefined,
-  variancePct: number | undefined,
   favourable: (v: number) => boolean,
 ): Comparison {
-  // No denominator, no percentage. The services' 0 is a placeholder for a
-  // figure that does not exist, not a measurement of one.
-  const prior: Comparison = value === 0
-    ? { value, variance }
-    : { value, variance, variancePct };
+  const variancePct = variance !== undefined && value !== 0
+    ? (variance / Math.abs(value)) * 100
+    : undefined;
+  const prior: Comparison = { value, variance, variancePct };
   if (variance !== undefined) prior.favourable = favourable(variance);
   return prior;
 }
@@ -70,7 +75,6 @@ export function applyBudgetComparator(
     const budget = priorComparison(
       line.budget_amount,
       round2(line.actual_amount - line.budget_amount),
-      line.variance_pct,
       () => line.variance >= 0,
     );
     return { ...row, budget };

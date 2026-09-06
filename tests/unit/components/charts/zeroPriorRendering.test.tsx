@@ -20,7 +20,7 @@ const rowWithZeroPrior = (): StatementRow[] => ([
   {
     id: 'acc:4100', kind: 'line', label: 'Sales Revenue', depth: 1,
     accountCode: '4100', actual: 5_535_000,
-    prior: priorComparison(0, 5_535_000, 0, v => v >= 0),
+    prior: priorComparison(0, 5_535_000, v => v >= 0),
   },
 ]);
 
@@ -46,7 +46,7 @@ describe('a zero prior in the grid', () => {
     const rows: StatementRow[] = [{
       id: 'acc:4100', kind: 'line', label: 'Sales Revenue', depth: 1,
       accountCode: '4100', actual: 5_535_000,
-      prior: priorComparison(4_000_000, 1_535_000, 38.4, v => v >= 0),
+      prior: priorComparison(4_000_000, 1_535_000, v => v >= 0),
     }];
     const { container } = render(<StatementGrid rows={rows} columns={COLUMNS} title="P&L" />);
     const cells = container.querySelector('tbody tr')!.querySelectorAll('td');

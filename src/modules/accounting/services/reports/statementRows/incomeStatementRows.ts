@@ -18,7 +18,7 @@ function lineRows(items: IncomeStatementLineItem[], polarity: Polarity, comparat
       accountCode: it.accountCode, actual: it.amount,
     };
     if (comparative && it.priorAmount !== undefined) {
-      row.prior = priorComparison(it.priorAmount, it.variance, it.variancePct,
+      row.prior = priorComparison(it.priorAmount, it.variance,
         v => (polarity === 'income' ? v >= 0 : v <= 0));
     }
     return row;

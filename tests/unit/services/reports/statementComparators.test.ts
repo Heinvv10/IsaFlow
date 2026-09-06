@@ -91,9 +91,31 @@ describe('applyBudgetComparator', () => {
     expect(out[2]!.budget?.variance).toBe(-10_000);
   });
 
-  it('copies the service percentage rather than recomputing one', () => {
-    const out = applyBudgetComparator(ROWS, lines);
-    expect(out[1]!.budget?.variancePct).toBe(lines.find((l) => l.account_code === '1000')!.variance_pct);
+  it('signs variancePct the same way as variance (actual − budget), never the service favourable-signed one', () => {
+    // Rent: budget 100, actual 150. The service's own `variance_pct` is
+    // favourably signed for an expense (budget − actual → -50%), which would
+    // print alongside a +R50 movement. variancePct must share variance's
+    // sign convention — up is positive — so it reads +50.0% here, with
+    // `favourable: false` carrying the judgement instead.
+    const expenseLines = buildBudgetVsActualLines(
+      [{ id: 'b', account_code: '6000', account_name: 'Rent', account_type: 'expense', actual_amount: 150 }],
+      { '6000': 100 },
+    );
+    const [, , expenseOut] = applyBudgetComparator(ROWS, expenseLines);
+    expect(expenseOut!.budget?.variance).toBe(50);
+    expect(expenseOut!.budget?.variancePct).toBe(50);
+    expect(expenseOut!.budget?.favourable).toBe(false);
+
+    // Same numbers on a revenue line: up is favourable, so the sign and the
+    // judgement agree.
+    const revenueLines = buildBudgetVsActualLines(
+      [{ id: 'a', account_code: '1000', account_name: 'Sales', account_type: 'revenue', actual_amount: 150 }],
+      { '1000': 100 },
+    );
+    const [, revenueOut] = applyBudgetComparator(ROWS, revenueLines);
+    expect(revenueOut!.budget?.variance).toBe(50);
+    expect(revenueOut!.budget?.variancePct).toBe(50);
+    expect(revenueOut!.budget?.favourable).toBe(true);
   });
 
   it('leaves an unbudgeted row without a budget comparison', () => {
@@ -116,7 +138,7 @@ describe('priorComparison', () => {
     // not exist — no denominator — and the services' 0 is a placeholder for
     // it, which the grid would otherwise print as "0.0%": a claim of no change
     // beside the largest movement on the statement.
-    const c = priorComparison(0, 500_000, 0, fav);
+    const c = priorComparison(0, 500_000, fav);
     expect(c.value).toBe(0);
     expect(c.variance).toBe(500_000);
     expect(c.favourable).toBe(true);
@@ -124,20 +146,22 @@ describe('priorComparison', () => {
   });
 
   it('still judges polarity against a zero prior', () => {
-    expect(priorComparison(0, -500_000, 0, fav).favourable).toBe(false);
+    expect(priorComparison(0, -500_000, fav).favourable).toBe(false);
   });
 
-  it('keeps the movement when the prior is a real figure', () => {
-    expect(priorComparison(400_000, 100_000, 25, fav))
+  it('computes the movement as a percentage of the base when the prior is a real figure', () => {
+    expect(priorComparison(400_000, 100_000, fav))
       .toEqual({ value: 400_000, variance: 100_000, variancePct: 25, favourable: true });
   });
 
   it('judges polarity from the movement, not from the value', () => {
-    expect(priorComparison(400_000, -100_000, -25, fav).favourable).toBe(false);
+    expect(priorComparison(400_000, -100_000, fav).favourable).toBe(false);
   });
 
-  it('leaves favourable undefined when the service reported no variance', () => {
-    expect(priorComparison(400_000, undefined, undefined, fav).favourable).toBeUndefined();
+  it('leaves favourable and variancePct undefined when the service reported no variance', () => {
+    const c = priorComparison(400_000, undefined, fav);
+    expect(c.favourable).toBeUndefined();
+    expect(c.variancePct).toBeUndefined();
   });
 });
 

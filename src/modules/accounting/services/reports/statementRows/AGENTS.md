@@ -13,10 +13,22 @@ rounding or ratio happens here — a figure the grid shows must be a figure a
 service returned, or the screen and the export disagree and neither is wrong
 in a traceable way.
 
-**The single exception**, documented at its call site: `Total Liabilities and
-Equity` in `balanceSheetRows.ts`, which is `totalLiabilities + totalEquity`
-because `BalanceSheetReport` has no field for it. Adding a second exception
-needs a reason in the file and a test that pins it.
+**Three exceptions**, each documented at its call site and pinned by a test:
+
+1. `Total Liabilities and Equity` in `balanceSheetRows.ts`, which is
+   `totalLiabilities + totalEquity` because `BalanceSheetReport` has no field
+   for it.
+2. `comparators.ts`'s `budget.variance` (`actual − budget`, the movement),
+   because the service's own `variance` is signed favourably and cannot be
+   used for that field. Tested in
+   `tests/unit/services/reports/statementRows/comparators.test.ts`.
+3. `comparators.ts`'s `variancePct` (`variance / |value| * 100`), computed
+   from that same variance and value rather than passed through from a
+   service, so prior and budget cannot diverge onto different sign
+   conventions. Tested in the same file and in
+   `tests/unit/services/reports/statementComparators.test.ts`.
+
+Adding a fourth exception needs a reason in the file and a test that pins it.
 
 ## Files
 - `statementModel.ts` — `StatementRow`, `Comparison`, `StatementColumns`.
@@ -25,11 +37,10 @@ needs a reason in the file and a test that pins it.
 - `packMappers.ts` — report-pack section blobs → the pack surfaces' shapes,
   including `toManagementPandLRows`, which builds its bands from
   `incomeStatementPackRows` so screen and pack share ONE band list.
-- `comparators.ts` — `applyTrend` and `applyBudgetComparator`, which fill the
-  `trend` and `budget` fields. `budget.variance` is the movement
-  (`actual − budget`); the service's own favourably-signed `variance` is used
-  only for `favourable`. Adding a third comparator goes here, not into the
-  report adapters.
+- `comparators.ts` — `priorComparison` (shared by both row adapters and by
+  `applyBudgetComparator`), `applyTrend` and `applyBudgetComparator`. See the
+  exceptions above for the sign rules on `variance` and `variancePct`. Adding
+  a third comparator goes here, not into the report adapters.
 
 ## Layer
 

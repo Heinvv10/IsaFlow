@@ -29,7 +29,7 @@ function lines(items: BalanceSheetLineItem[], polarity: Polarity, opts: RowOptio
     const href = opts.detailHref?.(it.accountCode);
     if (href !== undefined) row.href = href;
     if (comparative && it.priorBalance !== undefined) {
-      row.prior = priorComparison(it.priorBalance, it.variance, it.variancePct,
+      row.prior = priorComparison(it.priorBalance, it.variance,
         v => (polarity === 'asset' ? v >= 0 : v <= 0));
     }
     return row;

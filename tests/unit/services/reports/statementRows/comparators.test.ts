@@ -36,8 +36,12 @@ describe('applyBudgetComparator', () => {
     expect(result.budget!.variancePct).toBeUndefined();
   });
 
-  it('keeps variancePct when the budget base is nonzero', () => {
+  it('keeps variancePct when the budget base is nonzero, signed like variance not like the service', () => {
     const rows = [line({ id: '1', label: 'Salaries', accountCode: '6000', actual: 5500 })];
+    // Salaries is an expense over budget: the service's own `variance` /
+    // `variance_pct` are favourably signed (budget − actual → negative), but
+    // the movement is +500 / +10% and variancePct must match that sign —
+    // `favourable` alone carries the "this is bad" judgement.
     const lines = [
       budgetLine({ account_code: '6000', budget_amount: 5000, actual_amount: 5500, variance: -500, variance_pct: -10 }),
     ];
@@ -46,7 +50,7 @@ describe('applyBudgetComparator', () => {
 
     expect(result.budget!.value).toBe(5000);
     expect(result.budget!.variance).toBe(500);
-    expect(result.budget!.variancePct).toBe(-10);
+    expect(result.budget!.variancePct).toBe(10);
     expect(result.budget!.favourable).toBe(false);
   });
 
