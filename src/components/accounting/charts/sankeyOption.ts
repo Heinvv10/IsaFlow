@@ -25,8 +25,18 @@ const CASH = 'Cash';
 const OPENING = 'Opening cash';
 const CLOSING = 'Closing cash';
 
+/** True when the period actually moved cash. An all-zero period passes the
+ *  sign test but produces no links at all, and ECharts draws that as an empty
+ *  panel under a "Cash flow" caption — which reads as a chart that failed,
+ *  not as a period in which nothing happened. */
+function hasFlows(report: CashFlowReport): boolean {
+  if (report.opening_cash > 0 || report.closing_cash > 0) return true;
+  return report.sections.some((s) => s.items.some((i) => i.amount !== 0));
+}
+
 export function canRenderSankey(report: CashFlowReport): boolean {
-  return report.opening_cash >= 0 && report.closing_cash >= 0;
+  if (report.opening_cash < 0 || report.closing_cash < 0) return false;
+  return hasFlows(report);
 }
 
 export function buildCashFlowSankeyOption(

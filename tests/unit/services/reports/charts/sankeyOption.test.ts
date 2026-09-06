@@ -89,4 +89,39 @@ describe('canRenderSankey', () => {
   it('refuses an overdrawn opening balance', () => {
     expect(canRenderSankey({ ...REPORT, opening_cash: -1 })).toBe(false);
   });
+  it('refuses a period that moved no cash rather than drawing an empty sankey', () => {
+    const nothingHappened: CashFlowReport = {
+      ...REPORT,
+      opening_cash: 0,
+      closing_cash: 0,
+      net_change: 0,
+      sections: [
+        { section: 'Operating Activities', total: 0, items: [{ label: 'Net Income', amount: 0 }] },
+      ],
+    };
+    // Every sign test passes; the builder would still return a series with
+    // no links, which ECharts renders as a blank panel.
+    expect(nothingHappened.opening_cash >= 0 && nothingHappened.closing_cash >= 0).toBe(true);
+    const links = linksOf(
+      buildCashFlowSankeyOption(nothingHappened, DEFAULT_PALETTE) as unknown as Record<string, unknown>,
+    );
+    expect(links).toHaveLength(0);
+
+    expect(canRenderSankey(nothingHappened)).toBe(false);
+  });
+  it('still draws a zero-balance period that moved cash within it', () => {
+    const movedAndReturned: CashFlowReport = {
+      ...REPORT,
+      opening_cash: 0,
+      closing_cash: 0,
+      net_change: 0,
+      sections: [
+        { section: 'Operating Activities', total: 0, items: [
+          { label: 'Net Income', amount: 50_000 },
+          { label: 'Fixed Asset Changes', amount: -50_000 },
+        ] },
+      ],
+    };
+    expect(canRenderSankey(movedAndReturned)).toBe(true);
+  });
 });

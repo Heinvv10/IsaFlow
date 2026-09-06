@@ -34,7 +34,11 @@ source of `--ff-fav` / `--ff-unfav`. A category is never coloured by name —
 - `ibcs.ts` — `roleStyle`, `varianceColor`, `axisDomain`.
 - `ChartFrame.tsx` — palette resolution, title, unit note, `unavailable` copy.
 - `waterfallOption.ts` / `ProfitWaterfall.tsx` — profit bridge.
-- `sankeyOption.ts` / `CashFlowSankey.tsx` — cash flows; refuses a negative balance.
+- `sankeyOption.ts` / `CashFlowSankey.tsx` — cash flows. `canRenderSankey`
+  refuses two cases: a negative opening or closing balance (a sankey link
+  cannot be negative), and a period with no non-zero link at all (an empty
+  panel under a caption reads as a broken chart). The component picks the
+  copy that matches which one it is.
 - `bulletOption.ts` / `BudgetBulletRow.tsx` — budget bullets. Polarity from
   the service's favourably-signed `variance`, never from bar length.
 - `smallMultiplesOption.ts` / `SmallMultiples.tsx` — 12 months per account.
