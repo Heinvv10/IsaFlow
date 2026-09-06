@@ -191,6 +191,41 @@ describe('renderChartSvg', () => {
     expect([...aIds].filter((name) => idsAndClasses(b).has(name))).toEqual([]);
   });
 
+  it('leaves a url(#...) label alone — `url(#` needs no quote to match', () => {
+    // ADVERSARIAL: the rewrite matched `url(#` anywhere, including inside text
+    // content, and HTML escaping cannot keep it out — there is no quote to
+    // escape. A label is ledger data: an account name, a cost centre, a
+    // project code. This one came back as `>url(#zrc3a6ab0c-1)<`: the label
+    // the client reads was not the label in their ledger.
+    const label = 'url(#zr0-cls-0)';
+    const svg = renderChartSvg(
+      buildWaterfallOption(
+        LOSS_STEPS.map((step, i) => (i === 0 ? { ...step, label } : step)),
+        DEFAULT_PALETTE,
+      ),
+      SIZE,
+    );
+    expect(svg).toContain(`>${label}<`);
+  });
+
+  it('does not let a url(#...) label steer the id hash into a collision', () => {
+    // The other half of the same defect. A label token entered the `order`
+    // map, so it was normalised into the canonical form the hash is taken
+    // over — two charts differing ONLY in such a label canonicalised
+    // identically, hashed identically, and emitted the SAME id set. That is
+    // exactly the collision stableIds exists to prevent.
+    const relabel = (label: string) =>
+      buildWaterfallOption(
+        LOSS_STEPS.map((step, i) => (i === 0 ? { ...step, label } : step)),
+        DEFAULT_PALETTE,
+      );
+    const a = renderChartSvg(relabel('url(#zr0-cls-0)'), SIZE);
+    const b = renderChartSvg(relabel('url(#zr7-abc-9)'), SIZE);
+    const aIds = idsAndClasses(a);
+    expect(aIds.size).toBeGreaterThan(0);
+    expect([...aIds].filter((name) => idsAndClasses(b).has(name))).toEqual([]);
+  });
+
   it('leaves label text alone — a label is data, not a generated name', () => {
     // Account names, cost centres and project codes come through as labels.
     // A rewrite that reaches into text content prints the wrong figure's name.

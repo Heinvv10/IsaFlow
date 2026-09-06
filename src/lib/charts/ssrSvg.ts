@@ -42,36 +42,63 @@ export const CHART_HEIGHT_MM = { inline: 48, half: 72, full: 110 } as const;
  * are identical too.
  */
 function stableIds(svg: string): string {
-  // Only where a generated name can legitimately appear. A bare document-wide
-  // replace also rewrites label TEXT — and a label here is data: an account
-  // name, a cost centre, a project code. It corrupts the printed label, and
-  // because the canonical form is normalised the same way, two charts
-  // differing only in a token-shaped label would hash identically and get
-  // colliding ids — the very defect this function exists to prevent.
-  const ATTRIBUTE = /(\bid="|\bclass="|url\(#)([^"')]*)/g;
+  // Driven by the ids the document DEFINES, in two passes. The earlier version
+  // rewrote whatever a context regex matched, and one of its alternatives —
+  // `url(#` — needs no quote, so it matched inside TEXT content. A label here
+  // is ledger data (an account name, a cost centre, a project code), so a
+  // label of `url(#zr0-cls-0)` was rewritten in the output and the client read
+  // a name that was not in their ledger. Worse, that label token entered the
+  // order map and was normalised into the canonical form the hash is taken
+  // over, so two charts differing ONLY in such a label hashed identically and
+  // emitted the same id set — the exact collision this function prevents.
+  //
+  // A token typed into a label is never DECLARED, so collecting the declared
+  // set first makes the hash a function of what the document declares rather
+  // than of a regex's judgement about context.
+  const ID_ATTRIBUTE = /\bid="([^"]*)"/g;
   // zrender also emits a `<style>` block of `.zr0-cls-0:hover` rules. Those
-  // selectors are generated names too, and leaving them out of the canonical
-  // form would leave the hash dependent on the instance counter.
+  // selectors declare the generated class names, and leaving them out would
+  // leave the hash — and the class attributes — dependent on the instance
+  // counter this function exists to remove.
   const STYLE_BLOCK = /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/g;
+  // Any attribute VALUE. Every legitimate use of a generated name is one:
+  // `id`, `class`, and `clip-path="url(#…)"`. Text content has no `name="`
+  // to match, and zrender escapes a `"` in a label to `&quot;`, so a label
+  // cannot manufacture one.
+  const ATTRIBUTE_VALUE = /(\s[A-Za-z_:][\w.:-]*=")([^"]*)/g;
   const ZR_TOKEN = /zr\d+-[A-Za-z]+-?\d+/g;
-  const order = new Map<string, number>();
 
-  const rewrite = (source: string, name: (index: number) => string): string => {
+  // Pass 1 — what this document declares, numbered in declaration order.
+  // Ordinals come from here rather than from wherever a name happens to be
+  // used first, so no use site can renumber the set.
+  const order = new Map<string, number>();
+  const declarations: Array<[number, string]> = [];
+  for (const m of svg.matchAll(ID_ATTRIBUTE)) declarations.push([m.index, m[1] ?? '']);
+  for (const m of svg.matchAll(STYLE_BLOCK)) declarations.push([m.index, m[2] ?? '']);
+  declarations.sort((a, b) => a[0] - b[0]);
+  for (const [, text] of declarations) {
+    for (const token of text.match(ZR_TOKEN) ?? []) {
+      if (!order.has(token)) order.set(token, order.size);
+    }
+  }
+
+  // Pass 2 — rename only declared tokens, and only where a name can be used.
+  const rewrite = (name: (index: number) => string): string => {
     const rename = (value: string): string =>
       value.replace(ZR_TOKEN, (token) => {
-        if (!order.has(token)) order.set(token, order.size);
-        return name(order.get(token) ?? 0);
+        const index = order.get(token);
+        return index === undefined ? token : name(index);
       });
-    return source
-      .replace(ATTRIBUTE, (_whole, lead: string, value: string) => lead + rename(value))
+    return svg
+      .replace(ATTRIBUTE_VALUE, (_whole, lead: string, value: string) => lead + rename(value))
       .replace(STYLE_BLOCK, (_whole, open: string, css: string, close: string) =>
         open + rename(css) + close,
       );
   };
 
-  const canonical = rewrite(svg, (index) => `zrid-${index}`);
+  const canonical = rewrite((index) => `zrid-${index}`);
   const hash = createHash('sha1').update(canonical).digest('hex').slice(0, 8);
-  return rewrite(svg, (index) => `zr${hash}-${index}`);
+  return rewrite((index) => `zr${hash}-${index}`);
 }
 
 export function renderChartSvg(
