@@ -134,6 +134,75 @@ describe('GET /api/accounting/packs/[id]/pdf', () => {
     expect(renderPagePdfMock).not.toHaveBeenCalled();
   });
 
+  /**
+   * ADVERSARIAL MEDIUM-1. Each render holds this request's withAuth pool
+   * connection for its whole duration and the headless browser re-enters the
+   * API for the report, so unbounded concurrency exhausts the pool for every
+   * tenant. Over the wait bound the route answers a retryable 503 rather than
+   * queueing indefinitely or 500ing.
+   */
+  describe('concurrent render bound', () => {
+    const ORIGINAL = {
+      max: process.env.PDF_MAX_CONCURRENT_RENDERS,
+      wait: process.env.PDF_RENDER_QUEUE_TIMEOUT_MS,
+    };
+    afterEach(() => {
+      if (ORIGINAL.max === undefined) delete process.env.PDF_MAX_CONCURRENT_RENDERS;
+      else process.env.PDF_MAX_CONCURRENT_RENDERS = ORIGINAL.max;
+      if (ORIGINAL.wait === undefined) delete process.env.PDF_RENDER_QUEUE_TIMEOUT_MS;
+      else process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = ORIGINAL.wait;
+    });
+
+    const download = () => pdfRoute(req({ id: 'board', from: '2026-01-01', to: '2026-09-05' }), mockRes());
+
+    it('makes the request past the bound wait, then answers 503 rather than rendering', async () => {
+      process.env.PDF_MAX_CONCURRENT_RENDERS = '1';
+      process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '25';
+
+      let finishFirst!: () => void;
+      renderPagePdfMock.mockImplementationOnce(async () => {
+        await new Promise<void>((r) => { finishFirst = r; });
+        return Buffer.from('%PDF-1.7 fake');
+      });
+
+      const first = download();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(renderPagePdfMock).toHaveBeenCalledTimes(1);
+
+      const refusedRes = mockRes();
+      await pdfRoute(req({ id: 'board', from: '2026-01-01', to: '2026-09-05' }), refusedRes);
+      expect(refusedRes.statusCode).toBe(503);
+      // Refused, not queued forever, and no second render was ever started.
+      expect(renderPagePdfMock).toHaveBeenCalledTimes(1);
+
+      finishFirst();
+      await first;
+    });
+
+    it('lets a queued request through once a slot frees, rather than failing it', async () => {
+      process.env.PDF_MAX_CONCURRENT_RENDERS = '1';
+      process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '5000';
+
+      let finishFirst!: () => void;
+      renderPagePdfMock.mockImplementationOnce(async () => {
+        await new Promise<void>((r) => { finishFirst = r; });
+        return Buffer.from('%PDF-1.7 fake');
+      });
+
+      const first = download();
+      await new Promise((r) => setTimeout(r, 0));
+      const queuedRes = mockRes();
+      const queued = pdfRoute(req({ id: 'board', from: '2026-01-01', to: '2026-09-05' }), queuedRes);
+      await new Promise((r) => setTimeout(r, 0));
+      expect(renderPagePdfMock).toHaveBeenCalledTimes(1);
+
+      finishFirst();
+      await Promise.all([first, queued]);
+      expect(renderPagePdfMock).toHaveBeenCalledTimes(2);
+      expect(queuedRes.statusCode).toBe(200);
+    });
+  });
+
   it('audits every download with company, user, type, period and byte count', async () => {
     const res = mockRes();
     await pdfRoute(req({ id: 'monthly', from: '2026-01-01', to: '2026-09-05' }), res);

@@ -5,6 +5,16 @@
  * photographs the page), this assembles the pack in-process through the SAME
  * pack service and the SAME PackDocument the page renders, so the two
  * downloads cannot disagree on a figure.
+ *
+ * NOT gated on the PDF render semaphore (src/lib/pdf/renderSemaphore.ts).
+ * That bound exists because a PDF render drives a headless browser which
+ * re-enters this API over the wire, so each render occupies a second pool
+ * connection for tens of seconds on top of its own. This route launches no
+ * browser and makes no inbound call: it runs two queries and builds a deck in
+ * memory, finishing in the time an ordinary report takes. Putting it behind
+ * the same three-slot gate would make deck exports queue behind PDF renders
+ * for no pool benefit. Its exposure is the per-company export rate limit
+ * below, the same as every other synchronous report route.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
