@@ -9,6 +9,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
+import type { StatementColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 
 import { formatDisplayDate } from '@/utils/dateFormat';
@@ -102,7 +103,17 @@ export default function IncomeStatementPage() {
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
   // column cannot be on with no comparative period behind it.
-  const { columns, setColumns } = useComparatorColumns();
+  const { columns: chosen, setColumns } = useComparatorColumns();
+  // The trend and the budget are COMPANY-WIDE: `trendRowsService` applies no
+  // cost-centre filter and `getBudgetVariance` takes no cost centre. With one
+  // selected, those two columns would print a company figure in the same row
+  // as a departmental one. They are switched off, not fetched, and
+  // `ComparatorNotices` says why. The user's own checkbox state is left
+  // untouched in `columns` so clearing the filter restores it.
+  const companyWideUnavailable = costCentreId !== '';
+  const columns: StatementColumns = companyWideUnavailable
+    ? { ...chosen, budget: false, trend: false, variance: chosen.variance && chosen.prior }
+    : chosen;
   const showComparative = columns.prior;
   const anyColumn = columns.prior || columns.budget || columns.trend;
   const { apply, budgetState, trendFailed } = useStatementComparators({
@@ -217,11 +228,13 @@ export default function IncomeStatementPage() {
               </select>
             </div>
             <div className="pb-2">
-              <ComparatorControls value={columns} onChange={setColumns} />
+              <ComparatorControls value={columns} onChange={setColumns}
+                companyWideUnavailable={companyWideUnavailable} />
             </div>
           </div>
 
-          <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed} />
+          <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
+            companyWideUnavailable={companyWideUnavailable} />
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">

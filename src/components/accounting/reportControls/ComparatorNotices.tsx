@@ -18,23 +18,36 @@ export const BUDGET_NONE =
   'No budget has been captured for this period, so the Budget column is empty. Capture one under Accounting → Budgets.';
 export const BUDGET_FAILED =
   'The budget could not be loaded, so the Budget column is empty. This is a loading failure, not a statement about the period — reload to try again.';
+export const COMPANY_WIDE_UNAVAILABLE =
+  'A cost centre is selected. The 12-month trend and the budget are company-wide figures — neither is filtered by cost centre — so those columns are switched off rather than printed beside a departmental figure. Clear the cost centre to use them.';
 export const TREND_FAILED =
   'The 12-month trend could not be loaded, so the trend column is empty. This is a loading failure, not a statement about these accounts — reload to try again.';
 
 export interface ComparatorNotice { tone: 'error' | 'info'; text: string }
 
+export interface ComparatorNoticeState {
+  budgetState: BudgetState;
+  trendFailed: boolean;
+  /** A cost centre is selected, so the company-wide comparators are withheld
+   *  rather than drawn beside a departmental figure. */
+  companyWideUnavailable?: boolean;
+}
+
 /** Pure: the notices a given comparator state warrants, in reading order. */
 export function comparatorNotices(
-  { budgetState, trendFailed }: { budgetState: BudgetState; trendFailed: boolean },
+  { budgetState, trendFailed, companyWideUnavailable = false }: ComparatorNoticeState,
 ): ComparatorNotice[] {
   const out: ComparatorNotice[] = [];
+  // First: it explains why the two checkboxes below are greyed out, and it is
+  // the reason the other two notices cannot apply.
+  if (companyWideUnavailable) out.push({ tone: 'info', text: COMPANY_WIDE_UNAVAILABLE });
   if (trendFailed) out.push({ tone: 'error', text: TREND_FAILED });
   if (budgetState === 'failed') out.push({ tone: 'error', text: BUDGET_FAILED });
   if (budgetState === 'none') out.push({ tone: 'info', text: BUDGET_NONE });
   return out;
 }
 
-export function ComparatorNotices(props: { budgetState: BudgetState; trendFailed: boolean }) {
+export function ComparatorNotices(props: ComparatorNoticeState) {
   const notices = comparatorNotices(props);
   if (notices.length === 0) return null;
   return (

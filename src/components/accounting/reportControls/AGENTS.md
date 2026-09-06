@@ -40,6 +40,14 @@ changed an amount would make two screens disagree about the same period.
   Four empty cells per row read as a broken report, not as an off switch.
 - **The trend column is independent of any comparator** — it is the account's
   own twelve months, not a comparison.
+- **The trend and the budget are COMPANY-WIDE, and a selected cost centre
+  withholds them.** `trendRowsService` applies no cost-centre filter and
+  `getBudgetVariance` takes no cost centre, while both statement pages do pass
+  `cost_centre_id` to the statement fetch. Drawn together, a company-wide
+  sparkline sits in the same row as a departmental figure. With a cost centre
+  selected both checkboxes are disabled (`companyWideUnavailable`), the
+  comparators are NOT fetched, and `ComparatorNotices` says why. The reader's
+  own checkbox state is kept untouched so clearing the filter restores it.
 - **`basis` is not a preference.** `movement` for P&L accounts, `balance` for
   balance-sheet accounts. The wrong one draws a shape about a different number
   than the one printed beside it.

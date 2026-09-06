@@ -26,6 +26,16 @@ describe('ComparatorControls', () => {
     expect((screen.getByLabelText('Variance') as HTMLInputElement).disabled).toBe(true);
   });
 
+  it('disables the two company-wide columns when the surface says they are unavailable', () => {
+    // Neither the trend series nor the budget is filtered by cost centre, so
+    // a filtered statement must not be able to switch them on.
+    render(<ComparatorControls value={OFF} onChange={vi.fn()} companyWideUnavailable />);
+    expect((screen.getByLabelText('12-month trend') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Budget') as HTMLInputElement).disabled).toBe(true);
+    // Prior period IS filtered with the statement, so it stays available.
+    expect((screen.getByLabelText('Prior period') as HTMLInputElement).disabled).toBe(false);
+  });
+
   it('offers the trend column independently of any comparator', () => {
     const onChange = vi.fn();
     render(<ComparatorControls value={OFF} onChange={onChange} />);

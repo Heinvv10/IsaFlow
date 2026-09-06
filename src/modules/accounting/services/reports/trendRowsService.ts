@@ -40,7 +40,11 @@
  * THE SERIES IS UNFILTERED. Both statements accept a cost centre (and the
  * income statement a project); neither dimension is applied here, so a trend is
  * the whole company. Rendering one beside a cost-centre-filtered statement
- * would put a company-wide shape next to a departmental figure.
+ * would put a company-wide shape next to a departmental figure. That is now
+ * ENFORCED at the surface, not merely warned about here: with a cost centre
+ * selected both statement pages disable the trend and budget checkboxes, fetch
+ * neither, and say why (`reportControls/ComparatorControls`'s
+ * `companyWideUnavailable` and `ComparatorNotices`).
  */
 import { sql } from '@/lib/neon';
 import { getSystemAccount } from '../gl/systemAccountResolver';

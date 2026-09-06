@@ -18,9 +18,19 @@ export interface ComparatorControlsProps {
   onChange: (next: StatementColumns) => void;
   /** Comparators this surface can actually supply. Defaults to all of them. */
   comparators?: ReadonlyArray<ComparatorKey>;
+  /**
+   * The trend and budget columns are COMPANY-WIDE. Neither
+   * `useStatementComparators` nor `getBudgetVariance` takes a cost centre, so
+   * when the statement itself is filtered to one, these two are not merely
+   * unhelpful — they put a company figure in the same row as a departmental
+   * one. The page passes true then, and `ComparatorNotices` says why.
+   */
+  companyWideUnavailable?: boolean;
 }
 
-export function ComparatorControls({ value, onChange, comparators = ALL }: ComparatorControlsProps) {
+export function ComparatorControls({
+  value, onChange, comparators = ALL, companyWideUnavailable = false,
+}: ComparatorControlsProps) {
   const offered = (key: ComparatorKey) => comparators.includes(key);
   const anyComparator = (offered('prior') && value.prior) || (offered('budget') && value.budget);
 
@@ -45,8 +55,9 @@ export function ComparatorControls({ value, onChange, comparators = ALL }: Compa
       {offered('budget') && (
         <label className="inline-flex items-center gap-1.5">
           <input id="cmp-budget" type="checkbox" className={BOX} checked={value.budget}
+            disabled={companyWideUnavailable}
             onChange={(e) => set({ budget: e.target.checked })} />
-          <span>Budget</span>
+          <span className={companyWideUnavailable ? 'opacity-50' : ''}>Budget</span>
         </label>
       )}
       <label className="inline-flex items-center gap-1.5">
@@ -57,8 +68,9 @@ export function ComparatorControls({ value, onChange, comparators = ALL }: Compa
       </label>
       <label className="inline-flex items-center gap-1.5">
         <input id="cmp-trend" type="checkbox" className={BOX} checked={value.trend}
+          disabled={companyWideUnavailable}
           onChange={(e) => set({ trend: e.target.checked })} />
-        <span>12-month trend</span>
+        <span className={companyWideUnavailable ? 'opacity-50' : ''}>12-month trend</span>
       </label>
     </fieldset>
   );

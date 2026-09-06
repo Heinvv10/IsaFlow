@@ -13,6 +13,7 @@ import {
   Download, FileSpreadsheet,
 } from 'lucide-react';
 import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
+import type { StatementColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { BalanceSheetBody } from '@/components/accounting/BalanceSheetBody';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
@@ -71,7 +72,17 @@ export default function BalanceSheetPage() {
   // match nothing on a balance sheet. The trend series is `balance`, not
   // `movement` — a movement series drawn beside a printed balance is a shape
   // about a different number.
-  const { columns, setColumns } = useComparatorColumns();
+  const { columns: chosen, setColumns } = useComparatorColumns();
+  // The trend and the budget are COMPANY-WIDE: `trendRowsService` applies no
+  // cost-centre filter and `getBudgetVariance` takes no cost centre. With one
+  // selected, those two columns would print a company figure in the same row
+  // as a departmental one. They are switched off, not fetched, and
+  // `ComparatorNotices` says why. The user's own checkbox state is left
+  // untouched in `columns` so clearing the filter restores it.
+  const companyWideUnavailable = costCentreId !== '';
+  const columns: StatementColumns = companyWideUnavailable
+    ? { ...chosen, budget: false, trend: false, variance: chosen.variance && chosen.prior }
+    : chosen;
   const showComparative = columns.prior;
   const anyColumn = columns.prior || columns.trend;
   const { apply, budgetState, trendFailed } = useStatementComparators({
@@ -172,11 +183,13 @@ export default function BalanceSheetPage() {
               </select>
             </div>
             <div className="pb-2">
-              <ComparatorControls value={columns} onChange={setColumns} comparators={['prior']} />
+              <ComparatorControls value={columns} onChange={setColumns} comparators={['prior']}
+                companyWideUnavailable={companyWideUnavailable} />
             </div>
           </div>
 
-          <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed} />
+          <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
+            companyWideUnavailable={companyWideUnavailable} />
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">

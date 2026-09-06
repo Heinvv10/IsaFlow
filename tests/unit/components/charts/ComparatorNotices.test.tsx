@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import {
   ComparatorNotices, comparatorNotices, BUDGET_NONE, BUDGET_FAILED, TREND_FAILED,
+  COMPANY_WIDE_UNAVAILABLE,
 } from '@/components/accounting/reportControls/ComparatorNotices';
 
 afterEach(cleanup);
@@ -26,6 +27,18 @@ describe('comparatorNotices', () => {
   it('reports a failed trend fetch, which otherwise looks like an account with no series', () => {
     expect(comparatorNotices({ budgetState: 'unknown', trendFailed: true }))
       .toEqual([{ tone: 'error', text: TREND_FAILED }]);
+  });
+
+  it('explains the withheld company-wide columns first, before any other notice', () => {
+    const notices = comparatorNotices({
+      budgetState: 'unknown', trendFailed: false, companyWideUnavailable: true,
+    });
+    expect(notices).toEqual([{ tone: 'info', text: COMPANY_WIDE_UNAVAILABLE }]);
+  });
+
+  it('does not mention a cost centre when none is selected', () => {
+    expect(comparatorNotices({ budgetState: 'unknown', trendFailed: false }))
+      .not.toContainEqual({ tone: 'info', text: COMPANY_WIDE_UNAVAILABLE });
   });
 
   it('reports both failures at once rather than only the first', () => {
