@@ -67,12 +67,12 @@ export function applyBudgetComparator(
     if (!isAccountLine(row)) return row;
     const line = byCode.get(row.accountCode!);
     if (line === undefined) return row;
-    const budget: Comparison = {
-      value: line.budget_amount,
-      variance: round2(line.actual_amount - line.budget_amount),
-      variancePct: line.variance_pct,
-      favourable: line.variance >= 0,
-    };
+    const budget = priorComparison(
+      line.budget_amount,
+      round2(line.actual_amount - line.budget_amount),
+      line.variance_pct,
+      () => line.variance >= 0,
+    );
     return { ...row, budget };
   });
 }
