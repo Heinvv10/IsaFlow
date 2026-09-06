@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderOptionToSvg, afsIncomeChartOption, buildAfsCharts } from '@/modules/accounting/services/packs/serverChartSvg';
+import { renderOptionToSvg, afsIncomeChartOption, buildAfsCharts } from '@/modules/accounting/services/afs/serverChartSvg';
 import type { SectionLine } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers';
 import type { AfsSection } from '@/modules/accounting/services/afs/afsTypes';
 

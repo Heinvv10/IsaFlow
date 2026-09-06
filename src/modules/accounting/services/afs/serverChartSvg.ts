@@ -7,9 +7,13 @@
  * renderer and the chart types a statement needs are registered, so this file
  * is safe to import in a Node request handler.
  *
- * It lives under services/packs/ rather than services/afs/ or src/lib/charts/
- * because those directories belong to other owners; the module is generic and
- * moves the day the AFS module wants it.
+ * It lives here, beside its only consumer (pdfExportService.ts). It was
+ * written under services/packs/ while this workstream owned both halves, but
+ * it imports three afs/ modules and no pack surface renders through it — the
+ * screen and the PDF draw their charts in the browser from packChartOptions.ts,
+ * and the deck uses native PowerPoint charts. The one thing it still borrows
+ * from packs/ is the default palette, so an AFS chart and a pack chart are the
+ * same colours.
  */
 import * as echarts from 'echarts/core';
 import { BarChart } from 'echarts/charts';
@@ -17,10 +21,10 @@ import { GridComponent, LegendComponent } from 'echarts/components';
 import { SVGRenderer } from 'echarts/renderers';
 import type { EChartsCoreOption } from 'echarts/core';
 import { log } from '@/lib/logger';
-import type { AfsSection, SectionType } from '@/modules/accounting/services/afs/afsTypes';
-import { flipSign, type SectionLine } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/_helpers';
-import { isRevenueLine } from '@/modules/accounting/services/afs/noteGenerators/primaryStatements/incomeStatement';
-import { DEFAULT_CHART_PALETTE, type ChartPalette } from './packChartOptions';
+import type { AfsSection, SectionType } from './afsTypes';
+import { flipSign, type SectionLine } from './noteGenerators/primaryStatements/_helpers';
+import { isRevenueLine } from './noteGenerators/primaryStatements/incomeStatement';
+import { DEFAULT_CHART_PALETTE, type ChartPalette } from '../packs/packChartOptions';
 
 echarts.use([BarChart, GridComponent, LegendComponent, SVGRenderer]);
 
