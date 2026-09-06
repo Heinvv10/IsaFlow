@@ -66,6 +66,9 @@ function htmlPart(html: string): Blob {
 
 export const gotenbergTransport: PdfTransport = {
   name: 'gotenberg',
+  // Gotenberg's Chromium route takes the document information dictionary as a
+  // form field (see gotenbergForm.ts), so metadata survives the render.
+  capabilities: { metadata: true },
   async render(request: PdfRenderRequest): Promise<Buffer> {
     const base = process.env.GOTENBERG_URL;
     if (!base) throw new Error('GOTENBERG_URL is not set');
@@ -77,7 +80,7 @@ export const gotenbergTransport: PdfTransport = {
     // Chromium renders these two as the running header and footer. The header
     // is empty so Chromium's default title/date line is suppressed.
     form.append('files', htmlPart(HEADER_HTML), 'header.html');
-    form.append('files', htmlPart(FOOTER_HTML), 'footer.html');
+    form.append('files', htmlPart(request.footerHtml ?? FOOTER_HTML), 'footer.html');
 
     // new URL(..., base) rather than string concatenation, so a trailing
     // slash on GOTENBERG_URL cannot build a double-slash path.

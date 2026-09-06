@@ -86,6 +86,19 @@ export function buildGotenbergFields(
     // this were ever false.
     skipNetworkIdleEvent: 'true',
     cookies: JSON.stringify(cookies),
+    // Playwright's page.pdf() has no metadata equivalent, so this field is
+    // Gotenberg-only and optional — omitted entirely rather than sent empty,
+    // so a form snapshot without it never implies "metadata cleared".
+    ...(request.metadata
+      ? {
+          metadata: JSON.stringify({
+            Title: request.metadata.title,
+            Author: request.metadata.author,
+            Subject: request.metadata.subject,
+            Creator: request.metadata.creator,
+          }),
+        }
+      : {}),
   };
 }
 

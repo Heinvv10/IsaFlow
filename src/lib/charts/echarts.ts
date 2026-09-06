@@ -4,8 +4,11 @@
  * the bundle to only the chart types and renderers this app needs, instead
  * of the full echarts bundle.
  *
- * Client-only: importing this module pulls in DOM/canvas code, so callers
+ * Loading: in the BROWSER this pulls in DOM/canvas code, so React callers
  * must load it through `next/dynamic` with `ssr: false` (see `EChart.tsx`).
+ * It is nonetheless importable in plain Node for headless SVG rendering —
+ * `echarts.init(null, null, { renderer: 'svg', ssr: true })` touches no DOM.
+ * That is the print path; see `src/lib/charts/ssrSvg.ts`.
  */
 import * as echarts from 'echarts/core';
 import { BarChart, LineChart, CustomChart, SankeyChart } from 'echarts/charts';
