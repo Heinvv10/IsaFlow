@@ -42,12 +42,10 @@ const pack: SharedPackProps = {
           currentAssets: 2_200_000, cash: 750_000, accountsReceivable: 900_000, accountsPayable: 400_000,
         },
       },
-      {
-        type: 'cash_flow',
-        title: 'Cash Flow',
-        data: { operatingCashFlow: 640_000, investingCashFlow: -120_000, note: 'not a number' },
-      },
-      // As the page builds them: named, with no data at all.
+      // As the page builds them: named, with no data at all. `cash_flow` is
+      // among them because `buildSectionData` synthesizes that section from the
+      // income statement rather than the ledger.
+      { type: 'cash_flow', title: 'Cash Flow' },
       { type: 'ratios', title: 'Financial Ratios' },
       { type: 'kpis', title: 'KPI Scorecard' },
       { type: 'waterfall', title: 'Profit Waterfall' },
@@ -100,11 +98,46 @@ describe('SharedPackView', () => {
     expect(marginNote).toBeLessThan(bsIndex);
   });
 
-  it('renders a generic section as numeric key/value pairs, skipping non-numbers', () => {
-    expect(html).toContain('Operating Cash Flow');
-    expect(html).toContain('Investing Cash Flow');
-    expect(html).toContain('640 000');
-    expect(html).not.toContain('not a number');
+  it('renders a section it has no bespoke shape for as numeric key/value pairs', () => {
+    // The fallback branch, exercised on a section type this view does not know:
+    // every section a real pack carries today is either drawn by name or
+    // omitted, and this keeps the fallback honest for the next one added.
+    const future = renderToStaticMarkup(React.createElement(SharedPackView, {
+      data: {
+        ...pack,
+        pack: {
+          ...pack.pack,
+          sections: [{ type: 'segments', title: 'Segments', data: { northRegion: 640_000, note: 'not a number' } }],
+        },
+      },
+    }));
+    expect(future).toContain('North Region');
+    expect(future).toContain('640 000');
+    expect(future).not.toContain('not a number');
+  });
+
+  it('never draws a rand figure under the synthesized cash flow heading', () => {
+    // `buildSectionData` sets operating cash flow to net profit and investing
+    // and financing to zero, because no caller supplies the three optional
+    // inputs. That is a placeholder on the owner's own screen and a false
+    // statement of cash movement on a document sent to a bank.
+    const smuggled = renderToStaticMarkup(React.createElement(SharedPackView, {
+      data: {
+        ...pack,
+        pack: {
+          ...pack.pack,
+          sections: pack.pack.sections.map(sec => sec.type === 'cash_flow'
+            ? { ...sec, data: { operatingCashFlow: 333_111, investingCashFlow: 0, closingCash: 222_444 } }
+            : sec),
+        },
+      },
+    }));
+    expect(smuggled).not.toContain('Operating Cash Flow');
+    expect(smuggled).not.toContain('333 111');
+    expect(smuggled).not.toContain('222 444');
+    const at = smuggled.indexOf('data-section="cash_flow"');
+    const next = smuggled.indexOf('data-section="', at + 1);
+    expect(smuggled.slice(at, next)).toContain('Not included on shared links.');
   });
 
   it('contains no link back into the application and no nav', () => {
@@ -118,8 +151,8 @@ describe('SharedPackView', () => {
     // An empty heading on a document sent to a client reads as a rendering
     // failure. Three headings did exactly that before this.
     const notes = html.match(/Not included on shared links\./g) ?? [];
-    expect(notes).toHaveLength(4);
-    for (const t of ['kpis', 'waterfall', 'trends', 'ratios']) {
+    expect(notes).toHaveLength(5);
+    for (const t of ['kpis', 'waterfall', 'trends', 'ratios', 'cash_flow']) {
       const at = html.indexOf(`data-section="${t}"`);
       const nextSection = html.indexOf('data-section="', at + 1);
       const body = nextSection === -1 ? html.slice(at) : html.slice(at, nextSection);

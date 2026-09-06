@@ -23,8 +23,20 @@ import type { PackSection, ReportPack } from '@/modules/accounting/services/repo
  * owner's own pack page has the same defect. WS2's PackDocument carries typed
  * format tags per figure; this view consumes it after merge and all four
  * sections come back then.
+ *
+ * `cash_flow` is here for a third reason, and it is the strongest of the three:
+ * the section is not a cash flow statement. `buildSectionData` synthesizes it —
+ * operating cash flow IS net profit, investing and financing are zero, and
+ * opening cash is closing cash less that number — because no caller supplies
+ * `operatingCashFlow`, `capitalExpenditure` or `financingCashFlow`. On the
+ * owner's own screen that is a placeholder the owner can recognise. Rendered as
+ * money to a bank or an investor who cannot see the ledger behind it, it is a
+ * statement of cash movement that the ledger never produced. It comes back when
+ * the section is built from the ledger, not before.
  */
-export const OMITTED_SECTIONS: ReadonlySet<string> = new Set(['kpis', 'waterfall', 'trends', 'ratios']);
+export const OMITTED_SECTIONS: ReadonlySet<string> = new Set([
+  'kpis', 'waterfall', 'trends', 'ratios', 'cash_flow',
+]);
 
 /** The pack's own `commentary` section holds a GENERATED summary. A shared link
  *  shows approved text only, so that blob is stripped too — it is simply not
