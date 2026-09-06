@@ -8,7 +8,7 @@
  * the stored value.
  */
 import type { BrandProfile } from '@/modules/accounting/services/afs/afsTypes';
-import { NEUTRAL_BRAND_PRIMARY, contrastRatio } from '@/lib/brand/contrast';
+import { DARK_INK, NEUTRAL_BRAND_PRIMARY, contrastRatio, isUsableBrandPrimary } from '@/lib/brand/contrast';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -21,25 +21,19 @@ export interface PackBrand {
   primaryInk: string;
 }
 
-/** WCAG 2.1 AA, success criterion 1.4.3 (contrast minimum). The primary must
- *  carry white OR near-black text at this ratio; `primaryInk` picks whichever
- *  of the two wins. */
+/** WCAG 2.1 AA, SC 1.4.3. Only used to choose between the two inks here — the
+ *  acceptance rule itself lives in isUsableBrandPrimary (src/lib/brand/contrast.ts),
+ *  which the SAVE gate uses too, so the two cannot drift apart. */
 const MIN_TEXT_CONTRAST = 4.5;
 
-/** WCAG 2.1 AA, success criterion 1.4.11 (non-text contrast). The primary
- *  must be distinguishable from the white page at this ratio, or the cover
- *  band, divider bands and table header rows are invisible on paper — a
- *  colour can clear MIN_TEXT_CONTRAST against dark ink while still failing
- *  this (e.g. a near-white primary reads fine in black text, but the band
- *  itself vanishes into the page). */
-const MIN_BAND_CONTRAST = 3;
-
+/** The RENDER gate. A legacy row written before the save gate can still hold a
+ *  colour that prints an unreadable cover, so the resolver re-checks and
+ *  substitutes rather than trusting the stored value. It substitutes rather
+ *  than throwing on purpose: at render time there is no UI to warn against, and
+ *  refusing to render is worse than rendering in the neutral brand. */
 function safePrimary(value: string): string {
   if (!HEX.test(value)) return NEUTRAL_BRAND_PRIMARY;
-  const contrastToWhite = contrastRatio(value, '#ffffff');
-  const carriesText = contrastToWhite >= MIN_TEXT_CONTRAST || contrastRatio(value, '#1a1a1a') >= MIN_TEXT_CONTRAST;
-  const visibleOnPage = contrastToWhite >= MIN_BAND_CONTRAST;
-  return carriesText && visibleOnPage ? value : NEUTRAL_BRAND_PRIMARY;
+  return isUsableBrandPrimary(value) ? value : NEUTRAL_BRAND_PRIMARY;
 }
 
 export function resolvePackBrand(profile: BrandProfile | null): PackBrand {
@@ -50,7 +44,7 @@ export function resolvePackBrand(profile: BrandProfile | null): PackBrand {
     secondaryColour,
     logoUrl: profile?.logoUrl ?? null,
     footerText: profile?.reportFooterText ?? null,
-    primaryInk: contrastRatio(primaryColour, '#ffffff') >= MIN_TEXT_CONTRAST ? '#ffffff' : '#1a1a1a',
+    primaryInk: contrastRatio(primaryColour, '#ffffff') >= MIN_TEXT_CONTRAST ? '#ffffff' : DARK_INK,
   };
 }
 
