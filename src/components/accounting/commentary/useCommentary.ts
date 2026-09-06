@@ -5,9 +5,12 @@
  * `rows` is the FULL, unfiltered set for the pack — `CommentaryBlock` already
  * knows how to pick out one section's rows for each of its two render modes,
  * and duplicating that filter here would just be a second copy that can drift
- * from the first. `sectionRef` is accepted anyway, purely to key the effect
- * one instance to one section and to keep this hook's shape matched to
- * `CommentaryPanel`, which needs both to render.
+ * from the first.
+ *
+ * There is therefore no `sectionRef` parameter. The list route takes type,
+ * from and to and nothing else, so a section-shaped argument here could only
+ * ever have been decoration — it was, and it was ignored. `CommentaryPanel`
+ * still takes one, because `CommentaryBlock` needs it to render.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiJson, ApiRequestError } from '@/lib/apiFetch';
@@ -15,7 +18,6 @@ import type { CommentaryRow } from '@/modules/accounting/services/commentary/com
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
 
 export interface UseCommentaryInput {
-  sectionRef: string;
   params: SharePackParams;
 }
 

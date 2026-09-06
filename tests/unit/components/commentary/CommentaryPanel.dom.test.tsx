@@ -32,7 +32,7 @@ const PARAMS = { type: 'management' as const, from: '2026-08-01', to: '2026-08-3
 const ROW: CommentaryRow = {
   id: 'row-1', sectionRef: 'income_statement', rowRef: 'revenue',
   draftText: 'DRAFT REVENUE SENTENCE', approvedText: null, status: 'draft',
-  approvedBy: null, approvedAt: null,
+  approvedBy: null, approvedAt: null, withdrawnBy: null, withdrawnAt: null,
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -56,6 +56,30 @@ describe('CommentaryPanel', () => {
     const [url] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain('/api/accounting/commentary?');
     expect(String(url)).toContain('type=management');
+  });
+
+  it('asks the route for the whole pack, not for one section', async () => {
+    // The list route takes type, from and to and nothing else, so there is no
+    // section to send. The hook used to accept a sectionRef and drop it on the
+    // floor, which read as a filter that was never applied.
+    const otherSection: CommentaryRow = {
+      ...ROW, id: 'row-2', sectionRef: 'balance_sheet', rowRef: 'cash',
+      draftText: 'DRAFT CASH SENTENCE',
+    };
+    fetchMock.mockResolvedValue(envelope({ commentary: [ROW, otherSection] }));
+
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={PARAMS} />);
+    await waitFor(() => expect(screen.getByText('DRAFT REVENUE SENTENCE')).toBeTruthy());
+
+    // One request, carrying no section of any kind.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const url = String(fetchMock.mock.calls[0]![0]);
+    expect(url).not.toContain('section');
+    expect(url).not.toContain('income_statement');
+
+    // The filtering happens in CommentaryBlock, on the rows already fetched:
+    // the other section's sentence is in the response and not on the screen.
+    expect(screen.queryByText('DRAFT CASH SENTENCE')).toBeNull();
   });
 
   it('approves and refreshes when an approver clicks Approve', async () => {
