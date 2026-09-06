@@ -14,10 +14,16 @@
  *     makes a non-interactive container focusable at all, and is the caller's
  *     job because it belongs in the JSX next to `role="dialog"`.
  *   - a Tab trap: Tab off the last control wraps to the first, Shift+Tab off
- *     the first wraps to the last. Without it Tab walks out into the page
- *     behind the dialog, which for a keyboard user is the dialog silently
+ *     the first wraps to the last, and a Tab pressed while focus has ended up
+ *     OUTSIDE the dialog pulls it back in. Without it Tab walks out into the
+ *     page behind the dialog, which for a keyboard user is the dialog silently
  *     ceasing to be modal while it still covers the screen.
- *   - Escape closes.
+ *   - Escape closes, from anywhere, for as long as the dialog is mounted. The
+ *     listener is on `document` rather than on the dialog for a reason found in
+ *     a browser: clicking Revoke removes the button that had focus, the browser
+ *     drops focus to `<body>`, and a listener bound to the dialog stops hearing
+ *     the key — Escape would work, then quietly stop working after an action
+ *     that re-rendered the list.
  *   - focus back on whatever opened it when it unmounts. Without the restore a
  *     keyboard user is returned to the top of the document and has to tab back
  *     down the whole page.
@@ -64,12 +70,19 @@ export function useModalDialog<T extends HTMLElement>(onClose: () => void) {
         // Nothing to move to; keep focus in the dialog rather than letting Tab
         // walk into the page behind it.
         e.preventDefault();
+        node.focus();
         return;
       }
       const first = items[0]!;
       const last = items[items.length - 1]!;
       const active = document.activeElement;
-      if (e.shiftKey && (active === first || active === node)) {
+      if (!(active instanceof Node) || !node.contains(active)) {
+        // Focus has ended up outside — usually because the control that had it
+        // was removed by a re-render. Pull it back in rather than tabbing off
+        // into the page the dialog is covering.
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && (active === first || active === node)) {
         e.preventDefault();
         last.focus();
       } else if (!e.shiftKey && active === last) {
@@ -78,9 +91,9 @@ export function useModalDialog<T extends HTMLElement>(onClose: () => void) {
       }
     }
 
-    node?.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onKeyDown);
     return () => {
-      node?.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onKeyDown);
       opener?.focus();
     };
   }, [onClose]);

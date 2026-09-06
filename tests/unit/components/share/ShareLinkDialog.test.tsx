@@ -267,4 +267,39 @@ describe('ShareLinkDialog', () => {
     expect(document.activeElement).toBe(opener);
     opener.remove();
   });
+
+  it('still closes on Escape after the control that had focus was removed', async () => {
+    // Found in a browser: clicking Revoke re-renders the list, the focused
+    // button disappears, and the browser drops focus to <body>. A listener
+    // bound to the dialog stops hearing the key from there, so Escape worked
+    // and then quietly stopped working after an action.
+    fetchMock
+      .mockResolvedValueOnce(envelope({ links: [LINK] }))
+      .mockResolvedValueOnce(envelope({ revoked: true }))
+      .mockResolvedValueOnce(envelope({ links: [] }));
+
+    const onClose = vi.fn();
+    render(<ShareLinkDialog params={PARAMS} onClose={onClose} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Revoke' })).toBeTruthy());
+
+    const revoke = screen.getByRole('button', { name: 'Revoke' });
+    revoke.focus();
+    fireEvent.click(revoke);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('pulls focus back into the dialog when Tab is pressed from outside it', async () => {
+    fetchMock.mockResolvedValue(envelope({ links: [] }));
+    render(<ShareLinkDialog params={PARAMS} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    const dialog = screen.getByRole('dialog', { name: 'Share links' });
+    document.body.focus();
+    fireEvent.keyDown(document.body, { key: 'Tab' });
+
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
 });
