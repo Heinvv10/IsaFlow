@@ -258,3 +258,21 @@ function ReportPacksScreen() {
     </AppLayout>
   );
 }
+
+/**
+ * Opts this page out of Next's automatic static optimisation, which is what
+ * populates `router.query` on the SERVER render too.
+ *
+ * Without it the server renders with an empty query and picks
+ * `ReportPacksScreen`, while the client's first pass reads `?print=1` off
+ * `window.location` and picks `PackPrintPage` — two different trees, so React
+ * fails hydration. In dev that paints the error overlay across every page of
+ * the rendered PDF; in production it silently discards the server tree. It
+ * also made `PackPrintPage` mount once with empty `from`/`to` props, firing a
+ * wasted pack fetch and a 400 on the trend endpoint before the real query
+ * arrived. Server-rendering the page removes the ambiguous window entirely:
+ * `router.isReady` is true from the first client render.
+ */
+export async function getServerSideProps() {
+  return { props: {} };
+}

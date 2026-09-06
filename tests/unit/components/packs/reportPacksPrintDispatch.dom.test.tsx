@@ -36,7 +36,7 @@ vi.mock('@/lib/apiFetch', () => ({
   assertOk: vi.fn(() => Promise.resolve({})),
 }));
 
-import ReportPacksPage from '../../../../pages/accounting/reports/report-packs';
+import ReportPacksPage, { getServerSideProps } from '../../../../pages/accounting/reports/report-packs';
 
 const originalSearch = window.location.search;
 
@@ -84,5 +84,19 @@ describe('ReportPacksPage print dispatch', () => {
 
     expect(screen.getByTestId('interactive-screen')).toBeInTheDocument();
     expect(screen.queryByTestId('print-page')).toBeNull();
+  });
+});
+
+describe('ReportPacksPage server rendering', () => {
+  /**
+   * The page must be server-rendered, not statically optimised. Static
+   * optimisation is what leaves `router.query` empty on the server pass: the
+   * server then picks the interactive screen while the client's first pass
+   * picks the print page, React fails hydration, and the dev overlay is drawn
+   * across every page of the rendered PDF.
+   */
+  it('exports getServerSideProps so router.query is populated on the server pass', async () => {
+    expect(getServerSideProps).toBeTypeOf('function');
+    await expect(getServerSideProps()).resolves.toEqual({ props: {} });
   });
 });
