@@ -40,4 +40,13 @@ describe('buildCashPositionOption', () => {
     expect(fmt(1_250_000)).not.toMatch(/K/);
     expect(fmt(1_250_000)).toContain('250');
   });
+
+  it('escapes a point name before it reaches the tooltip HTML', () => {
+    type TooltipOption = { tooltip: { formatter: (p: Array<{ name: string; value: number }>) => string } };
+    const malicious: CashPositionPoint[] = [{ name: '<img src=x onerror=1>', value: 480_000 }];
+    const withXss = asRec(buildCashPositionOption(malicious, DEFAULT_PALETTE)) as unknown as TooltipOption;
+    const html = withXss.tooltip.formatter([{ name: malicious[0]!.name, value: malicious[0]!.value }]);
+    expect(html).toContain('&lt;img');
+    expect(html).not.toContain('<img src=x onerror=1>');
+  });
 });

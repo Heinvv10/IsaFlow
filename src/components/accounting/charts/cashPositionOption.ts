@@ -6,7 +6,7 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import { formatMoney } from '@/lib/format/money';
-import type { ChartPalette } from './chartTypes';
+import { escapeHtml, type ChartPalette } from './chartTypes';
 import { axisDomain, roleStyle } from './ibcs';
 
 export interface CashPositionPoint {
@@ -25,7 +25,7 @@ export function buildCashPositionOption(
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       formatter: (params: Array<{ name: string; value: number }>) =>
-        params.map((p) => `${p.name}<br/>${formatMoney(p.value, { symbol: true })}`).join('<br/>'),
+        params.map((p) => `${escapeHtml(p.name)}<br/>${formatMoney(p.value, { symbol: true })}`).join('<br/>'),
     },
     xAxis: {
       type: 'category',
