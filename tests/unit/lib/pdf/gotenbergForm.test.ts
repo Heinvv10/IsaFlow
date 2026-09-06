@@ -48,6 +48,25 @@ describe('buildGotenbergFields', () => {
     expect(cookies[1]).toMatchObject({ name: 'active_company_id', value: 'c-1', domain: 'app.isaflow.co.za' });
   });
 
+  /**
+   * The residual documented in gotenbergForm.ts and src/lib/pdf/.claude.md:
+   * Gotenberg's cookie object requires `domain` and exposes no host-only or
+   * `url` form, so a bare hostname is the tightest scope expressible. What
+   * this pins is that it stays the tightest one — a leading dot or a wildcard
+   * would widen the print token to every subdomain, and the container's
+   * --chromium-allow-list is what keeps the bare form contained.
+   */
+  it('never widens the cookie scope with a leading dot or a wildcard', () => {
+    const f = buildGotenbergFields(request, env);
+    const cookies = JSON.parse(f.cookies) as Array<{ domain: string }>;
+    expect(cookies.length).toBeGreaterThan(0);
+    for (const c of cookies) {
+      expect(c.domain).toBe('app.isaflow.co.za');
+      expect(c.domain.startsWith('.')).toBe(false);
+      expect(c.domain).not.toContain('*');
+    }
+  });
+
   it('scopes every cookie to the app host from APP_URL, not a wildcard', () => {
     const f = buildGotenbergFields(request, env);
     const cookies = JSON.parse(f.cookies) as Array<{ domain: string }>;

@@ -9,6 +9,19 @@
 // loads, including any cross-origin one, so a Cookie header there would leak
 // the print token off-domain. `cookies` is scoped per-cookie to `domain`,
 // which we pin to the app host.
+//
+// RESIDUAL, accepted: `domain` is a bare hostname, and in the Chrome DevTools
+// cookie shape Gotenberg forwards to, a domain attribute matches that host AND
+// its subdomains — a host-only cookie needs the `url` form, which Gotenberg's
+// schema does not expose. Its cookie object is documented as
+// `{name, value, domain, path, secure, httpOnly, sameSite}` with the first
+// three REQUIRED and no host-only or url variant, so a bare hostname is the
+// tightest form expressible here.
+//
+// What contains it is the container's own `--chromium-allow-list`
+// (gotenbergTransport.ts): Chromium may only navigate to the app host itself,
+// so there is no subdomain for the widened cookie to be sent to. Narrowing the
+// allow-list is the lever if that ever stops holding — not this field.
 
 import {
   PAPER_A4_IN, PDF_MARGIN_MM, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
