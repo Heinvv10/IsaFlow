@@ -72,6 +72,62 @@ describe('the <style> CDATA is allow-listed', () => {
 });
 
 /**
+ * zrender stringifies a gradient object into the hover rule as
+ * `fill:[object Object]`, and `[`/`]` are in no CSS-value charset worth
+ * writing. A gradient area fill is idiomatic for exactly the trend charts the
+ * next workstream builds, and sankey link gradients are a documented ECharts
+ * setting on a chart type this repo registers — so an allow-list that refuses
+ * them would fire on legitimate data with a message pointing nowhere near the
+ * gradient.
+ */
+describe('the allow-list admits a gradient', () => {
+  const GRADIENT = {
+    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+    colorStops: [{ offset: 0, color: '#587bf3' }, { offset: 1, color: '#ffffff' }],
+  };
+  const AXES = { xAxis: { type: 'category', data: ['a', 'b'] }, yAxis: { type: 'value' } };
+
+  const CASES: Array<[string, unknown]> = [
+    ['line with a gradient areaStyle',
+      { ...AXES, series: [{ type: 'line', data: [1, 2], areaStyle: { color: GRADIENT } }] }],
+    ['bar with a gradient itemStyle',
+      { ...AXES, series: [{ type: 'bar', data: [1, 2], itemStyle: { color: GRADIENT } }] }],
+    ['bar with a gradient emphasis',
+      { ...AXES, series: [{ type: 'bar', data: [1, 2], emphasis: { itemStyle: { color: GRADIENT } } }] }],
+    ['sankey with gradient links', {
+      series: [{
+        type: 'sankey',
+        data: [{ name: 'Opening' }, { name: 'Cash' }, { name: 'Closing' }],
+        links: [
+          { source: 'Opening', target: 'Cash', value: 5 },
+          { source: 'Cash', target: 'Closing', value: 3 },
+        ],
+        lineStyle: { color: 'gradient' },
+      }],
+    }],
+  ];
+
+  for (const [name, option] of CASES) {
+    it(`renders a ${name}`, () => {
+      expect(() => renderChartSvg(option, SIZE)).not.toThrow();
+    });
+  }
+
+  it('admits the literal only as a whole value, not as a prefix to smuggle behind', () => {
+    // The exception is one exact string, not a licence for brackets.
+    expect(() => renderChartSvg(withEmphasis('[object Object] } * { display:none'), SIZE))
+      .toThrow(/style/i);
+    expect(() => renderChartSvg(withEmphasis('[object Object] url(https://evil.example/x)'), SIZE))
+      .toThrow(/style/i);
+  });
+
+  it('names what it saw, so whoever hits it does not look in the wrong place', () => {
+    expect(() => renderChartSvg(withEmphasis('#f00; } * { display:none } .z:hover { fill:#000'), SIZE))
+      .toThrow(/unexpected selector: "\*"/);
+  });
+});
+
+/**
  * The allow-list is only worth having if it admits everything this repo
  * actually draws. Every builder in src/components/accounting/charts is
  * rendered here, plus a plain bar and line.

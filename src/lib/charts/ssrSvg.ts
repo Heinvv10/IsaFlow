@@ -183,10 +183,25 @@ const HOVER_SELECTOR = /^\.zr[0-9a-z]+-\d+:hover$/;
  *  `{`, `}`, `/`, or quote can appear, so neither a nested rule nor a
  *  `url(https://…)` can hide in a declaration. */
 const DECLARATION = /^[a-z-]+:[A-Za-z0-9#.,%()\s-]+$/;
+/** zrender stringifies a GRADIENT object straight into the hover rule, so a
+ *  legitimate gradient fill arrives as `fill:[object Object]`. Admitted as
+ *  this exact literal rather than by adding `[` and `]` to the charset above:
+ *  the alternative is refusing a real chart — a gradient area fill, or sankey
+ *  links, which is a documented ECharts setting — and widening the charset
+ *  would admit brackets in every value for the sake of one known artefact.
+ *  The literal carries no CSS-active character, so admitting it costs
+ *  nothing. */
+const GRADIENT_LITERAL = /^[a-z-]+:\[object Object\]$/;
 
 export function assertStyleBlockIsOurs(svg: string): void {
-  const refuse = (why: string): never => {
-    throw new Error(`renderChartSvg: refusing a chart whose <style> block is not the shape zrender emits (${why})`);
+  // The message names what it saw. This guard can fire on legitimate data —
+  // it already did, on a gradient — and "unexpected declaration" alone sends
+  // whoever hits it looking in the wrong place.
+  const refuse = (why: string, found?: string): never => {
+    const seen = found === undefined ? '' : `: ${JSON.stringify(found.slice(0, 80))}`;
+    throw new Error(
+      `renderChartSvg: refusing a chart whose <style> block is not the shape zrender emits (${why}${seen})`,
+    );
   };
 
   for (const block of svg.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)) {
@@ -195,16 +210,20 @@ export function assertStyleBlockIsOurs(svg: string): void {
     for (const rule of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
       // Anything BETWEEN two rules is not a rule at all — a bare declaration,
       // a stray at-rule, or the tail of an injected one.
-      if (css.slice(cursor, rule.index).trim() !== '') refuse('content outside a rule');
+      const between = css.slice(cursor, rule.index).trim();
+      if (between !== '') refuse('content outside a rule', between);
       cursor = rule.index + rule[0].length;
 
-      if (!HOVER_SELECTOR.test((rule[1] ?? '').trim())) refuse(`unexpected selector "${(rule[1] ?? '').trim()}"`);
+      const selector = (rule[1] ?? '').trim();
+      if (!HOVER_SELECTOR.test(selector)) refuse('unexpected selector', selector);
       for (const declaration of (rule[2] ?? '').split(';')) {
         const text = declaration.trim();
-        if (text !== '' && !DECLARATION.test(text)) refuse('unexpected declaration');
+        if (text === '') continue;
+        if (!DECLARATION.test(text) && !GRADIENT_LITERAL.test(text)) refuse('unexpected declaration', text);
       }
     }
-    if (css.slice(cursor).trim() !== '') refuse('trailing content after the last rule');
+    const tail = css.slice(cursor).trim();
+    if (tail !== '') refuse('trailing content after the last rule', tail);
   }
 }
 
