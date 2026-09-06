@@ -12,6 +12,7 @@
 // text and this string is parsed as HTML by the renderer.
 
 import { escapeHtml } from '@/modules/accounting/services/packs/escapeHtml';
+import type { PdfMetadata } from './pdfTransport';
 
 export interface PackFurniture {
   companyName: string;
@@ -21,12 +22,7 @@ export interface PackFurniture {
   draft: boolean;
 }
 
-export interface PdfMetadata {
-  title: string;
-  author: string;
-  subject: string;
-  creator: string;
-}
+export type { PdfMetadata };
 
 export function buildFooterHtml(f: PackFurniture): string {
   const left = [f.companyName, f.packLabel, f.period].map(escapeHtml).join(' · ');
