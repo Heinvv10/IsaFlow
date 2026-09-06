@@ -229,15 +229,37 @@ describe('/share/[token] getServerSideProps', () => {
     expect(JSON.stringify(logError.mock.calls)).not.toContain(token);
   });
 
-  it('takes the first x-forwarded-for hop and truncates the user agent', async () => {
+  it('takes the LAST x-forwarded-for hop, not the client-supplied first', async () => {
+    // pentest H8. The first entry is whatever the caller wrote in the header;
+    // the last is appended by the closest trusted proxy. Taking the first hands
+    // an unauthenticated caller a fresh per-IP rate bucket per fabricated
+    // value, and writes that fabrication into share_link_views.
     resolveShareLink.mockResolvedValue({ status: 'not_found' });
     const { ctx } = makeCtx({
-      reqHeaders: { 'x-forwarded-for': '203.0.113.7, 10.0.0.1', 'user-agent': 'U'.repeat(900) },
+      reqHeaders: { 'x-forwarded-for': '1.1.1.1, 10.0.0.5', 'user-agent': 'U'.repeat(900) },
     });
     await getServerSideProps(ctx);
     const [, viewCtx] = resolveShareLink.mock.calls[0] as [unknown, { ip: string | null; userAgent: string | null }];
-    expect(viewCtx.ip).toBe('203.0.113.7');
+    expect(viewCtx.ip).toBe('10.0.0.5');
     expect(viewCtx.userAgent).toHaveLength(400);
+  });
+
+  it('takes the last header when the proxy sent x-forwarded-for more than once', async () => {
+    // Node hands a repeated header through as an array; the last element is
+    // the one the closest proxy appended.
+    resolveShareLink.mockResolvedValue({ status: 'not_found' });
+    const { ctx } = makeCtx({ reqHeaders: { 'x-forwarded-for': ['1.1.1.1', '203.0.113.7, 10.0.0.5'] } });
+    await getServerSideProps(ctx);
+    const [, viewCtx] = resolveShareLink.mock.calls[0] as [unknown, { ip: string | null }];
+    expect(viewCtx.ip).toBe('10.0.0.5');
+  });
+
+  it('records NULL rather than the literal "unknown" when there is no address', async () => {
+    resolveShareLink.mockResolvedValue({ status: 'not_found' });
+    const { ctx } = makeCtx({ remoteAddress: '' });
+    await getServerSideProps(ctx);
+    const [, viewCtx] = resolveShareLink.mock.calls[0] as [unknown, { ip: string | null }];
+    expect(viewCtx.ip).toBeNull();
   });
 
   it('falls back to the socket address when there is no forwarding header', async () => {

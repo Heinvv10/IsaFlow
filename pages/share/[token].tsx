@@ -18,12 +18,13 @@
  * separate answer, because it says nothing about any link and a recipient who
  * refreshed too fast has to be told to wait rather than to give up.
  */
-import type { GetServerSideProps } from 'next';
+import type { GetServerSideProps, NextApiRequest } from 'next';
 import Head from 'next/head';
 import { commitShareView, resolveShareLink } from '@/modules/accounting/services/share/shareResolver';
 import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
 import { stripOmittedSections, type SharedReportPack } from '@/modules/accounting/services/share/sharedSections';
 import { SharedPackView, type SharedPackProps } from '@/components/accounting/share/SharedPackView';
+import { getClientIp } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
 
 type PageProps =
@@ -60,19 +61,18 @@ export default function SharePage(props: PageProps) {
   );
 }
 
-interface IpSource {
-  headers: Record<string, string | string[] | undefined>;
-  socket: { remoteAddress?: string | undefined };
-}
-
-/** First hop of x-forwarded-for, else the socket. The resolver clips the value
- *  before it reaches the audit table; this only picks it. */
-function clientIp(req: IpSource): string | null {
-  const xf = req.headers['x-forwarded-for'];
-  const raw = typeof xf === 'string' ? xf : Array.isArray(xf) ? xf[0] : undefined;
-  const first = raw?.split(',')[0]?.trim();
-  if (first) return first;
-  return req.socket.remoteAddress ?? null;
+/** The platform's one IP extractor (pentest H8): it takes the LAST hop of
+ *  x-forwarded-for, appended by the closest trusted proxy, not the first, which
+ *  the client sends and can therefore forge. This page had its own copy taking
+ *  the first hop, which handed an unauthenticated caller a free per-IP rate
+ *  bucket per fabricated header and a fabricated address in the audit trail.
+ *
+ *  `getClientIp` answers the string 'unknown' when it has nothing; the audit
+ *  column takes NULL for that rather than a literal that reads like an address.
+ */
+function clientIp(req: NextApiRequest): string | null {
+  const ip = getClientIp(req);
+  return ip === 'unknown' ? null : ip;
 }
 
 export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => {
@@ -84,7 +84,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
 
   const ua = ctx.req.headers['user-agent'];
   const viewCtx = {
-    ip: clientIp(ctx.req as unknown as IpSource),
+    ip: clientIp(ctx.req as unknown as NextApiRequest),
     userAgent: typeof ua === 'string' ? ua.slice(0, UA_MAX_CHARS) : null,
   };
   const resolution = await resolveShareLink(ctx.params?.token, viewCtx);
