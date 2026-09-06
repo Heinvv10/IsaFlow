@@ -36,3 +36,17 @@ export function formatPct(n: number, dp = 1): string {
   if (s === 'zero') return `0.${'0'.repeat(dp)}%`;
   return s === 'neg' ? `${MINUS}${body}` : `+${body}`;
 }
+
+/**
+ * `formatPct` without the leading sign, for prose that already carries
+ * direction in a word ("up 12.0%", not "up +12.0%"). Same rounding
+ * convention as `formatPct` (1dp by default) so a caption and the table
+ * beside it never disagree on precision for the same underlying change —
+ * that mismatch is what spec §7.1 criterion 8's one-number-convention rule
+ * exists to stop. Callers must not strip the sign off `formatPct`'s own
+ * output themselves; that would be a second, undeclared formatter.
+ */
+export function formatPctMagnitude(n: number, dp = 1): string {
+  if (!Number.isFinite(n)) return ZERO_DASH;
+  return `${Math.abs(n).toFixed(dp)}%`;
+}

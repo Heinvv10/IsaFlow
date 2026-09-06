@@ -13,11 +13,16 @@
  * not just for margins — a change measured off a negative or zero comparative
  * is exactly as meaningless as a margin on non-positive turnover, for the same
  * reason: the sign of the result stops tracking the sign of the story.
+ *
+ * Every percentage is rendered through `formatPctMagnitude`, the same
+ * rounding convention `formatPct` uses for the tables beside these captions
+ * — a hand-rolled `Math.round(...)+'%'` here would print "12%" in prose
+ * against "+12.0%" in the table for the same change, which is the mixed
+ * number-convention failure spec §7.1 criterion 8 exists to stop.
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { NO_MARGIN_SENTENCE } from '@/modules/accounting/services/reports/reportPackService';
-import { formatMoney } from '@/lib/format/money';
+import { formatMoney, formatPctMagnitude } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type {
   PackChartSpec,
@@ -25,12 +30,23 @@ import type {
   PackTableRow,
 } from '@/modules/accounting/services/packs/pages/packPageModel';
 
-/** "up 12%" / "down 7%", or null when the base is not usable. */
+/**
+ * The no-margin wording for THIS page's margin line, which reads operating
+ * profit — not `reportPackService.ts`'s `NO_MARGIN_SENTENCE`, which names
+ * net profit verbatim and has its own live caller there. Naming the wrong
+ * line in a fallback sentence is the same false-statement defect this pack
+ * was rejected for; the two constants must not be merged just because they
+ * share a guard.
+ */
+const NO_OPERATING_MARGIN_SENTENCE =
+  'There is no meaningful operating margin on non-positive turnover.';
+
+/** "up 12.0%" / "down 7.0%", or null when the base is not usable. */
 function pctChangeClause(current: number, prior: number): string | null {
   const pct = marginPct(current - prior, prior);
   if (pct === null) return null;
   const direction = pct >= 0 ? 'up' : 'down';
-  return `${direction} ${Math.round(Math.abs(pct))}%`;
+  return `${direction} ${formatPctMagnitude(pct)}`;
 }
 
 /**
@@ -57,10 +73,10 @@ export function highlightsTitle(set: PackFigureSet): string {
       : `Revenue ${change} against the prior period.`;
   }
 
-  const margin = marginPct(current.netProfit, current.revenue);
+  const margin = marginPct(current.operatingProfit ?? 0, current.revenue);
   const marginClause = margin === null
-    ? NO_MARGIN_SENTENCE
-    : `Net profit margin is ${Math.round(margin)}%.`;
+    ? NO_OPERATING_MARGIN_SENTENCE
+    : `Operating margin is ${formatPctMagnitude(margin)}.`;
 
   return `${revenueClause} ${marginClause}`;
 }
@@ -119,7 +135,7 @@ export function largestMoverCaption(rows: PackTableRow[]): string {
 
   const largest = movers.reduce((a, b) => (Math.abs(b.pct) > Math.abs(a.pct) ? b : a));
   const direction = largest.pct >= 0 ? 'up' : 'down';
-  return `${largest.label} moved the most, ${direction} ${Math.round(Math.abs(largest.pct))}%.`;
+  return `${largest.label} moved the most, ${direction} ${formatPctMagnitude(largest.pct)}.`;
 }
 
 export function trendsCaption(panels: PackChartSpec[]): string {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoney, formatPct, signOf } from '@/lib/format/money';
+import { formatMoney, formatPct, formatPctMagnitude, signOf } from '@/lib/format/money';
 
 describe('formatMoney', () => {
   it('uses thousands separators and no decimals by default', () => {
@@ -29,6 +29,18 @@ describe('formatPct', () => {
     expect(formatPct(6.94)).toBe('+6.9%');
     expect(formatPct(-8.1)).toBe('−8.1%');
     expect(formatPct(0)).toBe('0.0%');
+  });
+});
+
+describe('formatPctMagnitude', () => {
+  it('matches formatPct rounding with no sign', () => {
+    expect(formatPctMagnitude(6.94)).toBe('6.9%');
+    expect(formatPctMagnitude(-8.1)).toBe('8.1%');
+    expect(formatPctMagnitude(0)).toBe('0.0%');
+  });
+  it('renders a dash for a non-finite figure, never 0.0%', () => {
+    expect(formatPctMagnitude(NaN)).toBe('–');
+    expect(formatPctMagnitude(Infinity)).toBe('–');
   });
 });
 

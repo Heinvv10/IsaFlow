@@ -42,6 +42,21 @@ describe('highlightsTitle', () => {
     expect(highlightsTitle(set(900_000, 1_000_000, 50_000)))
       .toMatch(/Revenue down 10(\.0)?%/);
   });
+
+  it('prints the margin off OPERATING profit, not net profit (spec §4.A p3)', () => {
+    // R-P37: the fixture's `netProfit` is always undefined; only
+    // `operatingProfit` is real here, so this pins the branch that a
+    // reversion to `netProfit` would silently fall through to null on.
+    const title = highlightsTitle(set(1_120_000, 1_000_000, 50_000));
+    // 50,000 / 1,120,000 = 4.4642...% -> 4.5% at 1dp.
+    expect(title).toMatch(/Operating margin is 4\.5%/);
+  });
+
+  it('no-margin fallback names the operating line, not net profit', () => {
+    const title = highlightsTitle(set(0, 0, 0));
+    expect(title).toMatch(/operating margin/i);
+    expect(title).not.toMatch(/net profit margin/i);
+  });
 });
 
 describe('positionTitle', () => {
@@ -130,7 +145,7 @@ describe('largestMoverCaption', () => {
 
   it('names the row with the largest absolute movement', () => {
     const rows = [line('Revenue', 5), line('Cost of sales', -40), line('Other income', 12)];
-    expect(largestMoverCaption(rows)).toMatch(/Cost of sales moved the most, down 40%/);
+    expect(largestMoverCaption(rows)).toMatch(/Cost of sales moved the most, down 40(\.0)?%/);
   });
 
   it('ignores subtotal rows and rows with no comparative', () => {
@@ -139,7 +154,7 @@ describe('largestMoverCaption', () => {
       line('Revenue', null),
       line('Rent', 3),
     ];
-    expect(largestMoverCaption(rows)).toMatch(/Rent moved the most, up 3%/);
+    expect(largestMoverCaption(rows)).toMatch(/Rent moved the most, up 3(\.0)?%/);
   });
 
   it('says so plainly when no line has a comparative', () => {
