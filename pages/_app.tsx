@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
+import { useRouter } from 'next/router';
 import type { AppProps } from 'next/app';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
+import { isPrintRenderQuery } from '@/lib/pdf/printRenderQuery';
 import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -18,6 +20,16 @@ import '../styles/print.css';
  * SW caching breaks HMR in dev by pinning old webpack bundles).
  */
 export default function App({ Component, pageProps }: AppProps) {
+  const router = useRouter();
+  // A print render (Gotenberg/Playwright photographing report-packs.tsx's
+  // ?print=1 branch) needs no company context, and Gotenberg cannot stub
+  // out CompanyProvider's own /api/accounting/companies call the way the
+  // Playwright transport does — that call 401s under the print token, and
+  // apiFetch's global refresh-then-redirect (src/lib/apiFetch.ts) then
+  // navigates the whole render to /login before it can finish. See
+  // printRenderQuery.ts.
+  const isPrintRender = isPrintRenderQuery(router.query);
+
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
@@ -38,7 +50,7 @@ export default function App({ Component, pageProps }: AppProps) {
     <div>
     <ThemeProvider>
       <AuthProvider>
-        <CompanyProvider>
+        <CompanyProvider skipFetch={isPrintRender}>
         <ThemeModeProvider>
         <TableDensityProvider>
         <ErrorBoundary>

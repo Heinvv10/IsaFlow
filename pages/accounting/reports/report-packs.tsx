@@ -16,6 +16,7 @@ import { log } from '@/lib/logger';
 import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
 import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 import { useRouter } from 'next/router';
+import { isPrintRenderQuery } from '@/lib/pdf/printRenderQuery';
 import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
@@ -123,7 +124,7 @@ function KVItem({ label, value }: { label: string; value: string }) {
 export default function ReportPacksPage() {
   const router = useRouter();
 
-  if (router.query.print === '1') {
+  if (isPrintRenderQuery(router.query)) {
     return (
       <PackPrintPage
         packType={String(router.query.pack ?? 'management') as PackType}

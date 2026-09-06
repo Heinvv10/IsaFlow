@@ -64,7 +64,21 @@ interface CompanyContextType {
 
 const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 
-export function CompanyProvider({ children }: { children: ReactNode }) {
+interface CompanyProviderProps {
+  children: ReactNode;
+  /**
+   * Skip every fetch this provider would otherwise make and leave it in its
+   * empty state (no active company, no memberships, not loading). For a PDF
+   * print render (see printRenderQuery.ts): the print page needs no company
+   * context, and under a transport that cannot stub network calls
+   * (Gotenberg), the unauthorised `/api/accounting/companies` fetch this
+   * provider makes 401s and apiFetch's global redirect (src/lib/apiFetch.ts)
+   * navigates the whole render to /login before it can finish.
+   */
+  skipFetch?: boolean;
+}
+
+export function CompanyProvider({ children, skipFetch = false }: CompanyProviderProps) {
   const { isAuthenticated, user, loading: authLoading } = useAuth();
   const userRole = user?.role ?? null;
   const userId = user?.id ?? null;
@@ -227,8 +241,12 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   }, [authLoading, isAuthenticated, userRole, loadCompanyDetails]);
 
   useEffect(() => {
+    if (skipFetch) {
+      setLoading(false);
+      return;
+    }
     void loadUserCompanies();
-  }, [loadUserCompanies]);
+  }, [loadUserCompanies, skipFetch]);
 
   // Cross-tenant safety: when the authenticated user identity changes inside
   // the same provider instance (a soft-nav login after logout, or any future
