@@ -126,5 +126,51 @@ describe('CommentaryPanel', () => {
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3));
     const lastCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!;
     expect(JSON.parse((lastCall[1] as RequestInit).body as string)).toMatchObject({ replace: true });
+
+    // A spent confirmation is spent: once the replace generate has completed,
+    // the checkbox must reset, so a second Generate click cannot resend
+    // `replace: true` on the strength of a tick the user gave once already.
+    await waitFor(() => expect(confirm.checked).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(4));
+    const finalCall = fetchMock.mock.calls[fetchMock.mock.calls.length - 1]!;
+    expect(JSON.parse((finalCall[1] as RequestInit).body as string)).toMatchObject({ replace: false });
+  });
+
+  it('keeps the later params result when an earlier request resolves after it (stale-response guard)', async () => {
+    const paramsA = { type: 'board' as const, from: '2026-08-01', to: '2026-08-31' };
+    const paramsB = { type: 'management' as const, from: '2026-08-01', to: '2026-08-31' };
+    const rowA: CommentaryRow = { ...ROW, id: 'row-a', draftText: 'ROW A TEXT — SLOW, STALE' };
+    const rowB: CommentaryRow = { ...ROW, id: 'row-b', draftText: 'ROW B TEXT — FAST, CURRENT' };
+
+    let resolveA!: (res: Response) => void;
+    let resolveB!: (res: Response) => void;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('type=board')) return new Promise<Response>(res => { resolveA = res; });
+      if (url.includes('type=management')) return new Promise<Response>(res => { resolveB = res; });
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const { rerender } = render(
+      <CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={paramsA} />,
+    );
+    await waitFor(() => expect(resolveA).toBeDefined());
+
+    // Params change (e.g. the caller flips the report period) before A's slow
+    // request has returned — this fires a second, independent request for B.
+    rerender(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={paramsB} />);
+    await waitFor(() => expect(resolveB).toBeDefined());
+
+    // B — the LATER request — resolves first.
+    resolveB(envelope({ commentary: [rowB] }));
+    await waitFor(() => expect(screen.getByText('ROW B TEXT — FAST, CURRENT')).toBeTruthy());
+
+    // A — the EARLIER request — resolves late. Its stale result must never
+    // overwrite B's, which is the one that actually matches current params.
+    resolveA(envelope({ commentary: [rowA] }));
+    await new Promise(r => setTimeout(r, 0));
+
+    expect(screen.getByText('ROW B TEXT — FAST, CURRENT')).toBeTruthy();
+    expect(screen.queryByText('ROW A TEXT — SLOW, STALE')).toBeNull();
   });
 });

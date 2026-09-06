@@ -9,7 +9,7 @@
  * one instance to one section and to keep this hook's shape matched to
  * `CommentaryPanel`, which needs both to render.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiJson, ApiRequestError } from '@/lib/apiFetch';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
@@ -40,17 +40,31 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
   const [error, setError] = useState<string | null>(null);
   const { type, from, to } = params;
 
+  // A later `refresh()` (a params change, or approve/reject/generate calling
+  // it again) can resolve before an earlier one that is still in flight. Each
+  // call claims the next sequence number; a response only reaches `setRows`/
+  // `setError` if its number is still the latest one issued — otherwise it is
+  // a stale response for params (or a moment) this hook has already moved
+  // past, and applying it would overwrite the current, correct state with an
+  // older one. Bumped past on unmount too, so a response that resolves after
+  // the component is gone updates nothing.
+  const requestId = useRef(0);
+  useEffect(() => () => { requestId.current += 1; }, []);
+
   const refresh = useCallback(async () => {
+    const id = ++requestId.current;
     setLoading(true);
     setError(null);
     try {
       const qs = new URLSearchParams({ type, from, to });
       const r = await apiJson(`/api/accounting/commentary?${qs.toString()}`);
+      if (requestId.current !== id) return;
       setRows('commentary' in r ? r.commentary : []);
     } catch (err) {
+      if (requestId.current !== id) return;
       setError(errorMessage(err, 'Could not load commentary.'));
     } finally {
-      setLoading(false);
+      if (requestId.current === id) setLoading(false);
     }
   }, [type, from, to]);
 

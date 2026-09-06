@@ -34,11 +34,17 @@ export function CommentaryPanel({ sectionRef, mode, canApprove, params }: Commen
     setReplaceConfirmed(false);
   }
 
-  // Deliberately does not close the confirm panel on success: a second
-  // Generate immediately after (e.g. retrying a rate-limited request) must
-  // not silently drop back to the un-confirmed state.
+  // Deliberately does not close the confirm panel: a second Generate
+  // immediately after (e.g. retrying a rate-limited request) should not have
+  // to reopen it. The checkbox itself DOES reset, on every completion whether
+  // it succeeded or failed — a spent confirmation is spent; a second click on
+  // Generate must never resend `replace: true` without a fresh, explicit tick.
   async function handleGenerate() {
-    await generate(replaceConfirmed);
+    try {
+      await generate(replaceConfirmed);
+    } finally {
+      setReplaceConfirmed(false);
+    }
   }
 
   return (
