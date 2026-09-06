@@ -43,6 +43,14 @@ export default function App({ Component, pageProps }: AppProps) {
   // the analytics module is derived from it, and public/sw.js keeps the only
   // other copy because a worker cannot import from src.
   const sharePage = isSharePath(router.pathname);
+  // Neither route has a session to fetch. The print render carries a print
+  // token these providers' own fetches reject (see printRenderQuery.ts); the
+  // share page is opened by a third party with no cookie at all, where
+  // /api/auth/me and /api/accounting/companies can only 401 — and apiFetch's
+  // refresh-then-redirect turns that into a navigation to /login, replacing
+  // the pack the recipient was sent with a login screen they have no account
+  // for. One name for the two, because it is one reason.
+  const skipProviders = printRender || sharePage;
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -75,8 +83,8 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <div>
     <ThemeProvider>
-      <AuthProvider skipFetch={printRender}>
-        <CompanyProvider skipFetch={printRender}>
+      <AuthProvider skipFetch={skipProviders}>
+        <CompanyProvider skipFetch={skipProviders}>
         <ThemeModeProvider>
         <TableDensityProvider>
         <ErrorBoundary>
