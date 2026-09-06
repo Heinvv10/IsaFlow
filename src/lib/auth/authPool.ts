@@ -15,7 +15,7 @@ import { log } from '@/lib/logger';
 // for the coupling.
 import {
   AUTH_POOL_CONNECTION_TIMEOUT_MS, AUTH_POOL_IDLE_TIMEOUT_MS, authPoolMax,
-} from './poolLimits';
+} from '@/lib/limits/poolLimits';
 
 let _pool: pg.Pool | null = null;
 

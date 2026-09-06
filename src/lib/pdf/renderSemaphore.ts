@@ -20,7 +20,7 @@
 // never started, so nothing is half-done.
 
 import { log } from '@/lib/logger';
-import { AUTH_POOL_CONNECTION_TIMEOUT_MS, authPoolMax } from '@/lib/auth/poolLimits';
+import { AUTH_POOL_CONNECTION_TIMEOUT_MS, authPoolMax } from '@/lib/limits/poolLimits';
 
 /** Thrown when a render could not get a slot inside the wait bound. Routes
  *  translate this to a 503 with a retry message — never a 500. */
@@ -34,7 +34,7 @@ export class RenderCapacityError extends Error {
 const DEFAULT_MAX_CONCURRENT = 3;
 const DEFAULT_WAIT_MS = 10_000;
 
-// ── Coupled with src/lib/auth/poolLimits.ts ──────────────────────────────────
+// ── Coupled with src/lib/limits/poolLimits.ts ──────────────────────────────────
 // Both bounds below are DERIVED from the pool's own constants, never restated,
 // because the three numbers only make sense together and used to sit in two
 // files with nothing tying them: an operator raising

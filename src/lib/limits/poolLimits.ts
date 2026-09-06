@@ -1,10 +1,16 @@
-// src/lib/auth/poolLimits.ts
+// src/lib/limits/poolLimits.ts
 //
 // The auth pool's size and acquire timeout, as plain numbers with no runtime
 // behind them. Deliberately its OWN module rather than exports on
 // authPool.ts: src/lib/pdf/renderSemaphore.ts derives its ceilings from these,
 // and importing them from authPool.ts would pull `pg` (and the pgTypes
 // side-effect import) into the PDF library's module graph for two constants.
+//
+// It sits under lib/limits/ rather than lib/auth/ because both sides read it.
+// While it lived in lib/auth/, `lib/auth` imported `lib/pdf` (withAuth's print
+// fallback) and `lib/pdf` imported `lib/auth` (this file) — a directory-level
+// cycle carried by two constants that belong to neither owner. A neutral
+// directory removes it without moving any behaviour.
 //
 // ── Coupled with src/lib/pdf/renderSemaphore.ts ──────────────────────────────
 // A pack PDF render holds one auth-pool connection for its whole duration AND

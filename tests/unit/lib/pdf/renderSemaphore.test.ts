@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 import { withRenderSlot, RenderCapacityError, renderSlotStats, renderSlotCeilings } from '@/lib/pdf/renderSemaphore';
-import { AUTH_POOL_CONNECTION_TIMEOUT_MS, DEFAULT_AUTH_POOL_MAX } from '@/lib/auth/poolLimits';
+import { AUTH_POOL_CONNECTION_TIMEOUT_MS, DEFAULT_AUTH_POOL_MAX } from '@/lib/limits/poolLimits';
 import { log } from '@/lib/logger';
 
 const ORIGINAL = {
