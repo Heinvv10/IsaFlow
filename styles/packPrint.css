@@ -140,6 +140,61 @@ html.print-mode {
 [data-pack-draft] .pack-page {
   position: relative;
 }
+/* Task 14 — scorecard table (spec §4.A page 9). Each lettered group is its
+ * own `.pack-table`, so the existing table rules (header row, mono figures)
+ * apply unchanged; only the group heading and the status/trend cells are new. */
+.pack-scorecard { display: flex; flex-direction: column; gap: 4mm; }
+.pack-scorecard-heading {
+  caption-side: top; text-align: left; font-size: 11pt; line-height: 15pt;
+  font-weight: 600; padding-bottom: 1.5mm; color: var(--pack-ink);
+}
+.pack-scorecard-trend-svg svg { display: block; width: 100%; height: auto; }
+.pack-scorecard-status { font-size: 8pt; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+.pack-scorecard-status.is-met { color: var(--pack-favourable, #1a7a4a); }
+.pack-scorecard-status.is-missed { color: var(--pack-unfavourable, #b3261e); }
+.pack-scorecard-status.is-notMeaningful,
+.pack-scorecard-status.is-unscored { color: var(--pack-grey-mid); }
+
+/* Task 14 — narrative columns: prose beside the action panel. */
+.pack-narrative-columns { display: grid; grid-template-columns: 2fr 1fr; gap: var(--pack-gutter); }
+.pack-narrative-body { font-size: 10pt; line-height: 15pt; }
+.pack-narrative-actions { font-size: 9.5pt; line-height: 14pt; padding-left: 4mm; }
+.pack-narrative-pending { font-size: 10pt; line-height: 15pt; font-style: italic; color: var(--pack-grey-mid); }
+
+/* Task 14 — a disclosure block (e.g. negative equity, spec §3.5). */
+.pack-disclosure { display: flex; flex-direction: column; gap: 1.5mm; }
+.pack-disclosure-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0; }
+.pack-disclosure-body { font-size: 9.5pt; line-height: 14pt; margin: 0; }
+
+/* Task 14 — cover, contents, section divider and the stand-alone stat tile. */
+.pack-cover {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4mm; min-height: 255mm; text-align: center;
+}
+.pack-cover-eyebrow { font-size: 9pt; letter-spacing: 0.3em; text-transform: uppercase; color: var(--pack-grey-strong); }
+.pack-cover-company { font-size: 26pt; line-height: 30pt; font-weight: 600; margin: 0; }
+.pack-cover-label { font-size: 16pt; line-height: 20pt; color: var(--pack-grey-strong); }
+.pack-cover-period { font-size: 11pt; }
+.pack-cover-meta { font-size: 8pt; color: var(--pack-grey-mid); }
+.pack-cover-logo { max-height: 18mm; max-width: 60mm; }
+
+.pack-contents-list { list-style: none; margin: 4mm 0 0; padding: 0; font-size: 10pt; line-height: 16pt; }
+.pack-contents-item { display: flex; justify-content: space-between; border-bottom: 0.5pt solid var(--pack-rule); padding: 1mm 0; }
+.pack-contents-number { font-family: var(--pack-font-mono); color: var(--pack-grey-mid); margin-right: 3mm; }
+.pack-contents-title { flex: 1; }
+
+.pack-section-divider {
+  display: flex; flex-direction: column; justify-content: center; min-height: 255mm; gap: 3mm;
+}
+.pack-section-divider-eyebrow { font-size: 10pt; letter-spacing: 0.2em; text-transform: uppercase; color: var(--pack-brand); }
+.pack-section-divider-title { font-size: 22pt; line-height: 26pt; font-weight: 600; margin: 0; }
+
+.pack-stat-tile { display: flex; flex-direction: column; gap: 0.5mm; }
+.pack-stat-label { font-size: 8pt; line-height: 11pt; color: var(--pack-grey-strong); }
+.pack-stat-value { font-family: var(--pack-font-mono); font-size: 13pt; line-height: 16pt; font-weight: 500; }
+.pack-stat-value.is-unavailable { font-size: 10pt; font-style: italic; font-weight: 400; color: var(--pack-grey-mid); }
+.pack-stat-group-heading { font-size: 9pt; font-weight: 600; margin: 0 0 1.5mm; }
+
 [data-pack-draft] .pack-page::before {
   content: 'DRAFT';
   position: absolute;
