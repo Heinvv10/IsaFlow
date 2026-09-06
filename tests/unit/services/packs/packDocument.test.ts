@@ -15,8 +15,16 @@ const INPUT: ReportPackInput = {
 };
 
 const TREND: PackTrendPoint[] = [
-  { month: '2026-08', label: 'Aug 2026', revenue: 400000, expenses: 300000, netProfit: 100000 },
-  { month: '2026-09', label: 'Sep 2026', revenue: 420000, expenses: 310000, netProfit: 110000 },
+  {
+    month: '2026-08', label: 'Aug 2026', revenue: 400000, expenses: 300000, netProfit: 100000,
+    costOfSales: 180000, operatingExpenses: 120000, grossMarginPct: 55,
+    cash: 250000, accountsReceivable: 90000, debtorDays: 6.75,
+  },
+  {
+    month: '2026-09', label: 'Sep 2026', revenue: 420000, expenses: 310000, netProfit: 110000,
+    costOfSales: 185000, operatingExpenses: 125000, grossMarginPct: 55.95,
+    cash: 260000, accountsReceivable: 95000, debtorDays: 6.79,
+  },
 ];
 
 const pack = buildReportPack('management', INPUT, '2026-01-01', '2026-09-05');

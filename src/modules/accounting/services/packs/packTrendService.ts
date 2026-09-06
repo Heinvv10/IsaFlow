@@ -1,5 +1,6 @@
 /**
- * The pack's twelve-month revenue / expense / profit series.
+ * The pack's twelve-month revenue / expense / profit / margin / cash /
+ * debtor-days series.
  *
  * One definition, because the printed PDF fetches it over HTTP while the PPTX
  * exporter calls it in-process; two queries would be two chances to disagree
@@ -8,9 +9,25 @@
  * Dates are built from local calendar parts, never through toISOString(): on
  * this UTC+2 host `new Date('2026-01-01').toISOString()` is the previous day,
  * which silently drops a month off the front of the series.
+ *
+ * `cash` and `accountsReceivable` are balance-sheet POSITIONS, not period
+ * movement — a month's revenue is what happened IN that month, but a bank
+ * balance is what stands at the END of it. Getting that requires everything
+ * posted since inception up to each month-end, so the query carries no lower
+ * bound on `entry_date` at all; it is the same open-ended "cumulative" shape
+ * `financialFiguresService.getFinancialFigures` already uses for its balance
+ * sheet, not a new pattern. One query still does it: a CASE bucket folds
+ * every posting before the trend window into a single opening balance, and
+ * the running total carries forward from there, month by month, in JS.
  */
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { marginPct, marginPct2dp } from '@/modules/accounting/services/reports/marginPct';
+import {
+  CASH_SUBTYPES,
+  RECEIVABLE_SUBTYPES,
+  rawSubtypesFor,
+} from '@/modules/accounting/services/gl/accountSubtypes';
 
 export interface PackTrendPoint {
   /** YYYY-MM */
@@ -18,8 +35,40 @@ export interface PackTrendPoint {
   /** 'Mar 2026' */
   label: string;
   revenue: number;
+  /** Total expense-type movement — cost of sales, operating and below-the-line
+   *  combined. Unchanged by this series' extension; see `operatingExpenses`
+   *  for the narrower band spec §4.A's panel actually names. */
   expenses: number;
   netProfit: number;
+  costOfSales: number;
+  /** Everything `expenseBand` puts above the operating line: total expenses
+   *  less cost of sales and less finance cost / tax / other expense. Same
+   *  partition `accountClassification.expenseBand` uses, so this line and the
+   *  classifier can never disagree about what counts as "operating". */
+  operatingExpenses: number;
+  /** Gross margin %, to 2dp, through `marginPct2dp` — the repo's one
+   *  definition. Null when revenue is not positive: a margin on no turnover,
+   *  or on a net-credit month, is not a measurement (R-P44). */
+  grossMarginPct: number | null;
+  /** Cash + bank balance at month end. A balance-sheet position: it is a real
+   *  number for every month, including one with no posted movement at all —
+   *  the balance simply carries forward unchanged. Never null, never reset
+   *  to zero for an inactive month. */
+  cash: number;
+  /** Trade receivables balance at month end. Same carry-forward rule as cash. */
+  accountsReceivable: number;
+  /**
+   * Days of sales outstanding for the month: `accountsReceivable ÷ that
+   * month's revenue × days in that month` — the days-in-month multiplier
+   * matches a MONTHLY revenue base, unlike `calculateExtendedRatios.debtorDays`
+   * which multiplies by 365 against a period revenue and would overstate a
+   * month's figure roughly twelvefold if reused here unchanged.
+   *
+   * Null when the month has no revenue — the R-P45 case: a debtor book that
+   * collected nothing that month does not mean zero days outstanding, it
+   * means the ratio has no denominator to be measured against.
+   */
+  debtorDays: number | null;
 }
 
 interface MonthSlot { month: string; label: string; from: string; to: string }
@@ -53,6 +102,18 @@ const num = (v: unknown): number => {
   const n = typeof v === 'number' ? v : Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
 };
+const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+/** Expense subtypes reported below the operating line — mirrors
+ *  `accountClassification`'s `OTHER_EXPENSE` set, so "operating expenses"
+ *  here means exactly what the classifier's `expenseBand` means by it. */
+const COST_OF_SALES_SUBTYPES = rawSubtypesFor('cost_of_sales');
+const BELOW_OPERATING_LINE_SUBTYPES = rawSubtypesFor('finance_cost', 'tax_expense', 'other_expense');
+
+/** Sentinel month bucket for every posting strictly before the trend window
+ *  — sorts before every real 'YYYY-MM' key, though nothing here relies on
+ *  sort order; it is only ever looked up by this literal key. */
+const OPENING_BUCKET = '__opening__';
 
 export async function getPackTrend(companyId: string, to: string, months = 12): Promise<PackTrendPoint[]> {
   const slots = monthSlots(to, months);
@@ -60,9 +121,15 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
   const last = slots[slots.length - 1]!;
 
   const rows = (await sql`
-    SELECT to_char(je.entry_date, 'YYYY-MM')                                                        AS month,
-           COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
-           COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit ELSE 0 END), 0) AS expenses
+    SELECT
+      CASE WHEN je.entry_date < ${first.from}::date THEN ${OPENING_BUCKET}
+           ELSE to_char(je.entry_date, 'YYYY-MM') END AS month,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' AND je.entry_date >= ${first.from}::date THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'expense' AND je.entry_date >= ${first.from}::date THEN jl.debit - jl.credit ELSE 0 END), 0) AS expenses,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'expense' AND ga.account_subtype = ANY(${COST_OF_SALES_SUBTYPES as string[]}::TEXT[]) AND je.entry_date >= ${first.from}::date THEN jl.debit - jl.credit ELSE 0 END), 0) AS cost_of_sales,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'expense' AND ga.account_subtype = ANY(${BELOW_OPERATING_LINE_SUBTYPES as string[]}::TEXT[]) AND je.entry_date >= ${first.from}::date THEN jl.debit - jl.credit ELSE 0 END), 0) AS below_operating_line,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = ANY(${CASH_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS cash_movement,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'asset' AND ga.account_subtype = ANY(${RECEIVABLE_SUBTYPES as string[]}::TEXT[]) THEN jl.debit - jl.credit ELSE 0 END), 0) AS receivable_movement
     FROM   gl_journal_lines  jl
     JOIN   gl_journal_entries je ON je.id = jl.journal_entry_id
     JOIN   gl_accounts        ga ON ga.id = jl.gl_account_id
@@ -70,17 +137,37 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
       AND  jl.company_id = ${companyId}::UUID
       AND  ga.company_id = ${companyId}::UUID
       AND  je.status     = 'posted'
-      AND  je.entry_date >= ${first.from}::date
       AND  je.entry_date <= ${last.to}::date
     GROUP  BY 1
   `) as Row[];
 
   const byMonth = new Map(rows.map((r) => [String(r.month), r]));
+  const opening = byMonth.get(OPENING_BUCKET);
+  // Seeded from everything before the window, then carried forward month by
+  // month below — the real month-end balance, not just movement inside the
+  // window the trend happens to cover.
+  let cashRunning = num(opening?.cash_movement);
+  let receivableRunning = num(opening?.receivable_movement);
 
   const points = slots.map((slot) => {
     const row = byMonth.get(slot.month);
     const revenue = num(row?.revenue);
     const expenses = num(row?.expenses);
+    const costOfSales = num(row?.cost_of_sales);
+    const operatingExpenses = round2(expenses - costOfSales - num(row?.below_operating_line));
+
+    // Balances carry forward: a month with no posted movement (no row at
+    // all) adds zero and keeps the prior month's real closing position,
+    // never a reset to zero.
+    cashRunning = round2(cashRunning + num(row?.cash_movement));
+    receivableRunning = round2(receivableRunning + num(row?.receivable_movement));
+
+    const grossMarginPct = marginPct2dp(revenue - costOfSales, revenue);
+
+    const debtorPct = marginPct(receivableRunning, revenue);
+    const daysInMonth = Number(slot.to.slice(-2));
+    const debtorDays = debtorPct === null ? null : round2((debtorPct / 100) * daysInMonth);
+
     return {
       month: slot.month,
       label: slot.label,
@@ -88,7 +175,13 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
       expenses,
       // The only arithmetic in this workstream, and it is the definition of
       // the series itself, not a restatement of a service figure.
-      netProfit: Math.round((revenue - expenses) * 100) / 100,
+      netProfit: round2(revenue - expenses),
+      costOfSales: round2(costOfSales),
+      operatingExpenses,
+      grossMarginPct,
+      cash: cashRunning,
+      accountsReceivable: receivableRunning,
+      debtorDays,
     };
   });
 

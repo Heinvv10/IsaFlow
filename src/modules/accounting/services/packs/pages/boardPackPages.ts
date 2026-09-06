@@ -58,6 +58,7 @@ import { buildBasis, ROUNDING_FOOTNOTES, ROUNDING_NOTE } from './packBasis';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
+  buildCashTrendChart,
   buildCashWaterfallChart,
   buildPositionCompositionChart,
   buildProfitWaterfallChart,
@@ -181,9 +182,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       note('Why', 'Opening cash is the prior period\'s closing balance, and there is no prior period. A bridge opening at zero would assert the business started the period with an empty bank account.'),
     ]));
   }
+  const cashTrend = buildCashTrendChart(trend);
+  if (cashTrend) cashBlocks.push({ kind: 'chart', chart: cashTrend });
+  else {
+    cashBlocks.push(disclose('No closing-cash series', [
+      note('Why', 'No monthly trend series covers this period, so no closing-cash line can be drawn.'),
+    ]));
+  }
   cashBlocks.push(disclose('Commentary', [
     note('This period', cashCaption(set, cashBridge?.residual ?? null)),
-    note('Closing-cash series', 'The 13-period closing-cash line spec §4.A page 8 asks for is not drawn: the pack trend series carries revenue, expenses and net profit only, and no monthly cash position exists to plot.'),
   ]));
 
   const positionBlocks: PackPageBlock[] = [
@@ -207,9 +214,14 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     ]));
   }
   trendBlocks.push(commentary(trendsCaption(panels)));
-  trendBlocks.push(disclose('Panels not drawn', [
-    note('Gross margin, cash and debtor days', `Spec §4.A asks for ${TRENDS_PANELS_SPECIFIED} panels and ${panels.length} are drawn. Gross margin needs a monthly cost-of-sales split, and cash and debtor days need monthly balance-sheet positions; none is in the trend query, and deriving one from what is would be an invented series.`),
+  trendBlocks.push(disclose('Reading these panels', [
+    note('Scale', 'Revenue, operating expenses, net profit and cash share one y-scale, so a metric ten times the size of another cannot be mistaken for moving the same amount. Gross margin % and debtor days are different units, so each keeps its own scale.'),
   ]));
+  if (panels.length < TRENDS_PANELS_SPECIFIED) {
+    trendBlocks.push(disclose('Panels not drawn', [
+      note('Why', `Spec §4.A asks for ${TRENDS_PANELS_SPECIFIED} panels and ${panels.length} are drawn. A panel is omitted only when its figure is not meaningful for every period in the window — gross margin % and debtor days both require positive revenue, and no period here had any. Nothing is inferred from the period totals in its place.`),
+    ]));
+  }
 
   const matterNotes = input.matters.map((matter) => note(matter.issue, [
     matter.quantum === null ? 'Quantum: not a single amount.' : `Quantum: ${formatMoney(matter.quantum)}.`,

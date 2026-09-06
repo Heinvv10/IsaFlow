@@ -98,6 +98,12 @@ describe('buildTrendPanels — the row actually shares one scale', () => {
     revenue: v * 100_000,
     expenses: v * 10_000,
     netProfit: v * 10_000,
+    costOfSales: v * 50_000,
+    operatingExpenses: v * 10_000,
+    grossMarginPct: 50,
+    cash: v * 20_000,
+    accountsReceivable: v * 5_000,
+    debtorDays: 30,
   }));
 
   it('draws two same-shaped series at different heights', () => {

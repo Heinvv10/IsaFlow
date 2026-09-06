@@ -34,8 +34,16 @@ function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
 }
 
 const trend: PackTrendPoint[] = [
-  { month: '2025-12', label: 'Dec 2025', revenue: 900_000, expenses: 810_000, netProfit: 90_000 },
-  { month: '2026-01', label: 'Jan 2026', revenue: 1_000_000, expenses: 850_000, netProfit: 120_000 },
+  {
+    month: '2025-12', label: 'Dec 2025', revenue: 900_000, expenses: 810_000, netProfit: 90_000,
+    costOfSales: 560_000, operatingExpenses: 250_000, grossMarginPct: 37.78,
+    cash: 130_000, accountsReceivable: 200_000, debtorDays: 6.67,
+  },
+  {
+    month: '2026-01', label: 'Jan 2026', revenue: 1_000_000, expenses: 850_000, netProfit: 120_000,
+    costOfSales: 600_000, operatingExpenses: 250_000, grossMarginPct: 40,
+    cash: 150_000, accountsReceivable: 220_000, debtorDays: 6.82,
+  },
 ];
 
 const setWithPrior: PackFigureSet = {

@@ -57,13 +57,23 @@ function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
   };
 }
 
-const trend: PackTrendPoint[] = Array.from({ length: 13 }, (_, i) => ({
-  month: `2025-${String(i + 1).padStart(2, '0')}`,
-  label: `M${i + 1}`,
-  revenue: 600_000 + i * 12_000,
-  expenses: 520_000 + i * 9_000,
-  netProfit: 80_000 + i * 3_000,
-}));
+const trend: PackTrendPoint[] = Array.from({ length: 13 }, (_, i) => {
+  const revenue = 600_000 + i * 12_000;
+  const costOfSales = 330_000 + i * 6_000;
+  return {
+    month: `2025-${String(i + 1).padStart(2, '0')}`,
+    label: `M${i + 1}`,
+    revenue,
+    expenses: 520_000 + i * 9_000,
+    netProfit: 80_000 + i * 3_000,
+    costOfSales,
+    operatingExpenses: 190_000 + i * 3_000,
+    grossMarginPct: Math.round(((revenue - costOfSales) / revenue) * 10000) / 100,
+    cash: 590_000 + i * 5_000,
+    accountsReceivable: 700_000 + i * 4_000,
+    debtorDays: Math.round(((700_000 + i * 4_000) / revenue) * 30 * 100) / 100,
+  };
+});
 
 const brand: PackBrand = {
   primaryColour: '#1f4e79',
