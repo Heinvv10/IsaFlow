@@ -1,0 +1,88 @@
+/**
+ * The print dispatcher in pages/accounting/reports/report-packs.tsx must pick
+ * PackPrintPage on the VERY FIRST client render of `?print=1`, while
+ * `router.isReady` is still false and `router.query` is still `{}`.
+ *
+ * Mounting the interactive screen even once during a print render is not a
+ * cosmetic flash: `_app.tsx` branches on the same signal, so the same
+ * mistaken pass mounts AuthProvider ungated, its effect fires
+ * `/api/auth/me`, and that handler clears the `sb-access-token` cookie
+ * carrying the print token — killing every later request in the render.
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
+
+const useRouterMock = vi.fn();
+vi.mock('next/router', () => ({
+  useRouter: () => useRouterMock(),
+}));
+
+vi.mock('@/components/accounting/packs/PackPrintPage', () => ({
+  PackPrintPage: ({ packType }: { packType: string }) => (
+    <div data-testid="print-page">{packType}</div>
+  ),
+}));
+
+// The interactive screen is the only consumer of AppLayout on this page, so a
+// sentinel here is an unambiguous "the wrong branch mounted" signal.
+vi.mock('@/components/layout/AppLayout', () => ({
+  AppLayout: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="interactive-screen">{children}</div>
+  ),
+}));
+
+vi.mock('@/lib/apiFetch', () => ({
+  apiFetch: vi.fn(() => Promise.resolve(new Response('{}'))),
+  assertOk: vi.fn(() => Promise.resolve({})),
+}));
+
+import ReportPacksPage from '../../../../pages/accounting/reports/report-packs';
+
+const originalSearch = window.location.search;
+
+function setSearch(search: string) {
+  Object.defineProperty(window, 'location', {
+    configurable: true,
+    value: { ...window.location, search },
+  });
+}
+
+beforeEach(() => {
+  useRouterMock.mockReset();
+});
+
+afterEach(() => {
+  setSearch(originalSearch);
+});
+
+describe('ReportPacksPage print dispatch', () => {
+  it('mounts the print page, not the interactive screen, on the first render when the router is not ready', () => {
+    setSearch('?pack=management&from=2026-01-01&to=2026-08-31&print=1');
+    useRouterMock.mockReturnValue({ isReady: false, query: {} });
+
+    render(<ReportPacksPage />);
+
+    expect(screen.getByTestId('print-page')).toHaveTextContent('management');
+    expect(screen.queryByTestId('interactive-screen')).toBeNull();
+  });
+
+  it('still mounts the print page once the router becomes ready', () => {
+    setSearch('?pack=management&print=1');
+    useRouterMock.mockReturnValue({ isReady: true, query: { pack: 'management', print: '1' } });
+
+    render(<ReportPacksPage />);
+
+    expect(screen.getByTestId('print-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('interactive-screen')).toBeNull();
+  });
+
+  it('mounts the interactive screen for a normal, non-print visit', () => {
+    setSearch('');
+    useRouterMock.mockReturnValue({ isReady: true, query: {} });
+
+    render(<ReportPacksPage />);
+
+    expect(screen.getByTestId('interactive-screen')).toBeInTheDocument();
+    expect(screen.queryByTestId('print-page')).toBeNull();
+  });
+});

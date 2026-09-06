@@ -5,7 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
-import { isPrintRenderQuery } from '@/lib/pdf/printRenderQuery';
+import { isPrintRender } from '@/lib/pdf/printRenderQuery';
 import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -28,9 +28,12 @@ export default function App({ Component, pageProps }: AppProps) {
   // print token and its handler clears the sb-access-token cookie (the same
   // cookie carrying the print token), and CompanyProvider's own fetch 401s
   // under the print token, whose refresh-then-redirect (apiFetch.ts)
-  // navigates the whole render to /login before it can finish. See
-  // printRenderQuery.ts.
-  const isPrintRender = isPrintRenderQuery(router.query);
+  // navigates the whole render to /login before it can finish. The check
+  // takes the whole router, not router.query: on a page with no
+  // getServerSideProps, query is {} until router.isReady, and one mistaken
+  // "not a print render" pass is enough for AuthProvider's mount effect to
+  // fire and clear the cookie. See printRenderQuery.ts.
+  const printRender = isPrintRender(router);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -51,8 +54,8 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <div>
     <ThemeProvider>
-      <AuthProvider skipFetch={isPrintRender}>
-        <CompanyProvider skipFetch={isPrintRender}>
+      <AuthProvider skipFetch={printRender}>
+        <CompanyProvider skipFetch={printRender}>
         <ThemeModeProvider>
         <TableDensityProvider>
         <ErrorBoundary>
