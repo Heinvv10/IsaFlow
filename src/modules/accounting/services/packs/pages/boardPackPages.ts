@@ -29,6 +29,7 @@
 
 import { PACK_LABELS } from '@/modules/accounting/services/packs/packSections';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
@@ -217,7 +218,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     ]),
   ];
 
-  return {
+  const document: PackPagesDocument = {
     packType: 'board',
     packLabel: PACK_LABELS.board,
     companyName: input.companyLegalName,
@@ -230,4 +231,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     provenance: p,
     pages,
   };
+
+  // Spec §7.2, and the last thing this function does: a pack whose figures do
+  // not reconcile never becomes a document. The gate THROWS rather than
+  // warning, because a warning on a pack a director forwards to their bank is
+  // a warning nobody reads. Every caller of this function inherits it, which
+  // is the only way the check cannot be forgotten at one call site.
+  assertPackIntegrity(document);
+  return document;
 }

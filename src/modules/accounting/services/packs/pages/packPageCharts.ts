@@ -6,15 +6,28 @@
  * the page (R-P41), so no SVG string ever crosses a JSON boundary and loses
  * that guarantee.
  *
- * The waterfall geometry is `buildProfitWaterfall`'s, unchanged. `waterfallBars`
- * mirrors what is DRAWN, `start` and `end` copied from each step, so the
- * integrity gate can check the bridge without re-parsing the SVG. One thing
- * that mirroring cannot express: `PackWaterfallBar.kind` has no 'subtotal'
- * member, while a statement bridge resets its mid-statement subtotals (Gross
- * Profit, Net Profit) to `start: 0`. Those bars are reported by their drawn
- * direction, which is true of the rectangle but is NOT a link in a single
- * arithmetic chain — a gate that walks kinds must know a bar starting at zero
- * restarts the bridge.
+ * The waterfall geometry is `buildProfitWaterfall`'s. `waterfallBars` mirrors
+ * what is DRAWN, `start` and `end` copied from each step, so the integrity
+ * gate can check the bridge without re-parsing the SVG. A step drawn from the
+ * axis mid-statement (Gross Profit, Net Profit — `isSubtotal`) is reported as
+ * kind 'subtotal' rather than by its drawn direction (R-P50): the direction is
+ * true of the rectangle but false of the arithmetic, and a gate walking kinds
+ * has to know that such a bar RESTARTS the chain rather than continuing it.
+ *
+ * BOTH BRIDGES CARRY A NAMED PLUG, and neither is cosmetic. The three cash
+ * categories the figure set captures do not reconcile opening to closing cash;
+ * revenue less cost of sales less operating expenses does not reach net profit
+ * either, because interest and tax sit between operating profit and the bottom
+ * line and no field carries them. Before this, page 6's bridge drew its Net
+ * Profit bar floating clear of the chain — the demo figures miss by R223,000 —
+ * under a title claiming revenue "bridges to" net profit. Each gap is now its
+ * own labelled bar, which is the same choice page 8 already made: a plug a
+ * director can see and ask about beats a discrepancy they cannot.
+ *
+ * Page 10's small multiples and page 8's closing-cash line moved to
+ * `packTrendCharts.ts` and are re-exported below — a trend draws a level over
+ * time and asserts no arithmetic, so it has nothing in common with these two
+ * beyond being a chart.
  */
 
 import { formatMoney } from '@/lib/format/money';
@@ -25,25 +38,67 @@ import {
   waterfallOption,
   type CompositionSeries,
 } from '@/modules/accounting/services/packs/packChartOptions';
-import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackChartSpec, PackWaterfallBar } from './packPageModel';
 
+/** Page 10's panels and page 8's cash line, re-exported so every existing
+ *  `packPageCharts` import path still resolves after the split. */
+export {
+  buildCashTrendChart,
+  buildTrendPanels,
+  TRENDS_PANELS_SPECIFIED,
+} from './packTrendCharts';
+
 const FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.full };
-const PANEL = { widthMm: 82, heightMm: CHART_HEIGHT_MM.half };
+
+function barKind(step: WaterfallStep, index: number, count: number): PackWaterfallBar['kind'] {
+  if (index === 0) return 'open';
+  if (index === count - 1) return 'close';
+  // A mid-statement rest point, drawn from the axis. Reporting it as an
+  // increase or a decrease would tell the gate to walk `start` against the
+  // previous bar's `end` — which is 0 against the running chain, i.e. a
+  // break in a bridge that is in fact correct.
+  if (step.isSubtotal) return 'subtotal';
+  return step.end >= step.start ? 'increase' : 'decrease';
+}
 
 function toBars(steps: WaterfallStep[]): PackWaterfallBar[] {
   return steps.map((step, index) => ({
     label: step.label,
     start: step.start,
     end: step.end,
-    kind:
-      index === 0 ? 'open'
-      : index === steps.length - 1 ? 'close'
-      : step.end >= step.start ? 'increase'
-      : 'decrease',
+    kind: barKind(step, index, steps.length),
   }));
+}
+
+/**
+ * The gap between where the P&L steps land and the net profit the ledger
+ * reports — interest, tax, and anything else no field on `ReportPackFigures`
+ * breaks out — inserted as its own bar before the closing one.
+ *
+ * Named for what is KNOWN about it, which is that the pack did not capture it
+ * separately. Calling it "Interest and tax" would classify a residual nobody
+ * measured, which is the kind of confident guess this pack exists to stop.
+ */
+const UNCAPTURED_LABEL = 'Other, not separately captured';
+
+function withUncapturedStep(steps: WaterfallStep[], netProfit: number): WaterfallStep[] {
+  const closing = steps[steps.length - 1];
+  const lastMovement = steps[steps.length - 2];
+  if (closing === undefined || lastMovement === undefined) return steps;
+
+  const gap = netProfit - lastMovement.end;
+  if (gap === 0) return steps;
+
+  const step: WaterfallStep = {
+    label: UNCAPTURED_LABEL,
+    start: lastMovement.end,
+    end: lastMovement.end + gap,
+    value: gap,
+    isSubtotal: false,
+    color: gap >= 0 ? 'green' : 'red',
+  };
+  return [...steps.slice(0, -1), step, closing];
 }
 
 /** Page 6 — revenue to net profit, IBCS notation. */
@@ -58,13 +113,14 @@ export function buildProfitWaterfallChart(set: PackFigureSet): PackChartSpec {
     otherExpenses: f.otherExpenses ?? 0,
     netProfit: f.netProfit,
   });
+  const bridged = withUncapturedStep(steps, f.netProfit);
   return {
     id: 'profit-bridge',
     title: `Revenue of ${formatMoney(f.revenue)} bridges to net profit of ${formatMoney(f.netProfit)}.`,
     kind: 'waterfall',
-    svg: renderChartSvg(waterfallOption(steps), FULL),
+    svg: renderChartSvg(waterfallOption(bridged), FULL),
     heightMm: FULL.heightMm,
-    waterfallBars: toBars(steps),
+    waterfallBars: toBars(bridged),
   };
 }
 
@@ -159,138 +215,3 @@ export function buildPositionCompositionChart(set: PackFigureSet): PackChartSpec
   };
 }
 
-/**
- * Page 10 — the small multiples.
- *
- * Spec §4.A names six panels: revenue, gross margin %, operating expenses,
- * net profit, cash and debtor days. All six are drawn from `PackTrendPoint`'s
- * series.
- *
- * They do NOT all share one y-domain: gross margin % and debtor days are
- * different UNITS from the four money series (Rand vs a percentage, Rand vs
- * a day count), and a shared scale across units is not a wider view of the
- * same row, it is nonsense — a 45% gross margin plotted against a R4.2m
- * revenue axis is indistinguishable from zero. Grouped instead:
- *   - money:  revenue, operating expenses, net profit, cash — one domain.
- *   - each ratio panel (gross margin %, debtor days) keeps its OWN domain,
- *     because the two are themselves different units from each other.
- * Within the money group the shared-scale rule from spec §4.A still holds in
- * full: per-panel autoscaling there would draw a flat metric and a
- * collapsing one with the same apparent slope, which is the failure the rule
- * exists to stop.
- */
-export const TRENDS_PANELS_SPECIFIED = 6;
-
-interface MoneyPanel { id: string; name: string; pick: (p: PackTrendPoint) => number }
-interface RatioPanel {
-  id: string;
-  name: string;
-  pick: (p: PackTrendPoint) => number | null;
-  /** How the panel's own end-label formats a value — a percentage and a day
-   *  count are not printed through `formatMoney`. */
-  format: (n: number) => string;
-}
-
-const MONEY_PANELS: MoneyPanel[] = [
-  { id: 'trend-revenue', name: 'Revenue', pick: (p) => p.revenue },
-  { id: 'trend-operating-expenses', name: 'Operating expenses', pick: (p) => p.operatingExpenses },
-  { id: 'trend-net-profit', name: 'Net profit', pick: (p) => p.netProfit },
-  { id: 'trend-cash', name: 'Cash', pick: (p) => p.cash },
-];
-
-const RATIO_PANELS: RatioPanel[] = [
-  { id: 'trend-gross-margin', name: 'Gross margin', pick: (p) => p.grossMarginPct, format: (n) => `${n.toFixed(1)}%` },
-  { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => `${n.toFixed(1)} days` },
-];
-
-function moneyPanel(panel: MoneyPanel, trend: PackTrendPoint[], domain: { min: number; max: number }): PackChartSpec {
-  const points = trend.map((point) => ({ label: point.label, value: panel.pick(point) }));
-  const first = points[0]!.value;
-  const last = points[points.length - 1]!.value;
-  const direction = last >= first ? 'rose' : 'fell';
-  return {
-    id: panel.id,
-    title: `${panel.name} ${direction} from ${formatMoney(first)} to ${formatMoney(last)} over ${points.length} periods.`,
-    kind: 'line',
-    svg: renderChartSvg(smallMultipleOption(points, domain), PANEL),
-    heightMm: PANEL.heightMm,
-  };
-}
-
-/**
- * A ratio panel, or null when no month in the window has a meaningful value
- * — e.g. a company with no revenue at all across the whole trend. Months
- * where the ratio is not meaningful (R-P44/R-P45: no revenue that month) are
- * dropped from the line rather than plotted as a false zero; a gap in the
- * series is honest, a zero is a claim about a debtor book that collected
- * nothing.
- */
-function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[]): PackChartSpec | null {
-  const points = trend
-    .filter((point) => panel.pick(point) !== null)
-    .map((point) => ({ label: point.label, value: panel.pick(point) as number }));
-  if (points.length === 0) return null;
-
-  const domain = sharedDomain([points.map((p) => p.value)]);
-  const first = points[0]!.value;
-  const last = points[points.length - 1]!.value;
-  const direction = last >= first ? 'rose' : 'fell';
-  return {
-    id: panel.id,
-    title: `${panel.name} ${direction} from ${panel.format(first)} to ${panel.format(last)} over ${points.length} periods.`,
-    kind: 'line',
-    svg: renderChartSvg(smallMultipleOption(points, domain), PANEL),
-    heightMm: PANEL.heightMm,
-  };
-}
-
-export function buildTrendPanels(trend: PackTrendPoint[]): PackChartSpec[] {
-  if (trend.length === 0) return [];
-
-  // One row of panels, so ONE y-domain across the money panels (spec §4.A
-  // page 10). Per-panel scales would draw a flat metric and a collapsing one
-  // with the same apparent slope, which is a chart that misreports direction.
-  const moneyDomain = sharedDomain(MONEY_PANELS.map((panel) => trend.map(panel.pick)));
-  const money = MONEY_PANELS.map((panel) => moneyPanel(panel, trend, moneyDomain));
-
-  // Spec order: revenue, gross margin %, operating expenses, net profit,
-  // cash, debtor days.
-  const panels: PackChartSpec[] = [
-    money[0]!,
-    ratioPanel(RATIO_PANELS[0]!, trend),
-    money[1]!,
-    money[2]!,
-    money[3]!,
-    ratioPanel(RATIO_PANELS[1]!, trend),
-  ].filter((p): p is PackChartSpec => p !== null);
-
-  return panels;
-}
-
-const CASH_TREND_FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
-
-/**
- * Page 8 — the closing-cash line spec §4.A page 8 asks for, drawn from the
- * trend's month-end cash positions. Distinct from `buildCashWaterfallChart`
- * above, which bridges opening to closing cash for the CURRENT period only;
- * this is the multi-period LEVEL, which is a different question ("where has
- * cash been standing") from the bridge's ("what moved it this period").
- *
- * Null when there is no trend series to plot — the same "say why, don't
- * invent" rule the rest of this file follows rather than opening at zero.
- */
-export function buildCashTrendChart(trend: PackTrendPoint[]): PackChartSpec | null {
-  if (trend.length === 0) return null;
-  const points = trend.map((p) => ({ label: p.label, value: p.cash }));
-  const domain = sharedDomain([points.map((p) => p.value)]);
-  const first = points[0]!.value;
-  const last = points[points.length - 1]!.value;
-  const direction = last >= first ? 'rose' : 'fell';
-  return {
-    id: 'cash-trend',
-    title: `Closing cash ${direction} from ${formatMoney(first)} to ${formatMoney(last)} over ${points.length} periods.`,
-    kind: 'line',
-    svg: renderChartSvg(smallMultipleOption(points, domain), CASH_TREND_FULL),
-    heightMm: CASH_TREND_FULL.heightMm,
-  };
-}

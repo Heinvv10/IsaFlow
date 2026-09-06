@@ -122,7 +122,16 @@ export interface PackWaterfallBar {
   label: string;
   start: number;
   end: number;
-  kind: 'open' | 'increase' | 'decrease' | 'close';
+  /**
+   * 'subtotal' is a MID-statement rest point — Gross Profit, Operating Profit
+   * — drawn from the axis rather than from the bar before it, so the chain
+   * restarts there (R-P50). The integrity gate checks it by its `end` against
+   * what the chain accumulated to, never by its `start`; without the member
+   * those bars had to be reported by their drawn direction, which is true of
+   * the rectangle and false of the arithmetic, and the gate would have failed
+   * an honest bridge.
+   */
+  kind: 'open' | 'increase' | 'decrease' | 'subtotal' | 'close';
 }
 
 export interface PackChartSpec {
