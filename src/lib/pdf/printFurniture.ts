@@ -1,0 +1,50 @@
+// src/lib/pdf/printFurniture.ts
+//
+// The footer Chromium draws in the page margin, and the PDF's own metadata.
+//
+// The footer cannot be CSS: `@bottom-center` margin boxes and
+// `position: running()` are not implemented in Blink, and would silently draw
+// nothing. Chromium substitutes `.pageNumber` / `.totalPages` inside the
+// template it is handed, which is the only mechanism that works on both
+// transports.
+//
+// Everything interpolated here is escaped: a company name is user-controlled
+// text and this string is parsed as HTML by the renderer.
+
+import { escapeHtml } from '@/modules/accounting/services/packs/escapeHtml';
+
+export interface PackFurniture {
+  companyName: string;
+  packLabel: string;
+  period: string;
+  confidentiality: string;
+  draft: boolean;
+}
+
+export interface PdfMetadata {
+  title: string;
+  author: string;
+  subject: string;
+  creator: string;
+}
+
+export function buildFooterHtml(f: PackFurniture): string {
+  const left = [f.companyName, f.packLabel, f.period].map(escapeHtml).join(' · ');
+  const centre = escapeHtml(f.draft ? `${f.confidentiality} · DRAFT` : f.confidentiality);
+  return (
+    '<div style="font-family:sans-serif;font-size:7.5pt;color:#8a8a8a;width:100%;' +
+    'padding:0 18mm;border-top:0.5pt solid #d8d8d8;display:flex;justify-content:space-between">' +
+    `<span>${left}</span><span>${centre}</span>` +
+    '<span><span class="pageNumber"></span> / <span class="totalPages"></span></span>' +
+    '</div>'
+  );
+}
+
+export function buildPdfMetadata(f: PackFurniture): PdfMetadata {
+  return {
+    title: `${f.companyName} — ${f.packLabel} — ${f.period}`,
+    author: f.companyName,
+    subject: f.draft ? `${f.packLabel} (draft) for ${f.period}` : `${f.packLabel} for ${f.period}`,
+    creator: 'IsaFlow',
+  };
+}

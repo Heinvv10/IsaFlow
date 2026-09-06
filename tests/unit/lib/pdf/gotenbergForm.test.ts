@@ -119,3 +119,18 @@ describe('GOTENBERG_TIMEOUT_MS', () => {
     expect(GOTENBERG_TIMEOUT_MS).toBeGreaterThan(PRINT_READY_TIMEOUT_MS);
   });
 });
+
+describe('buildGotenbergFields metadata', () => {
+  it("sends PDF metadata as Gotenberg's JSON metadata field when present", () => {
+    const f = buildGotenbergFields(
+      { ...request, metadata: { title: 'T', author: 'A', subject: 'S', creator: 'IsaFlow' } },
+      env,
+    );
+    expect(JSON.parse(f.metadata as string)).toMatchObject({ Title: 'T', Creator: 'IsaFlow' });
+  });
+
+  it('omits the metadata field entirely when none is supplied', () => {
+    const f = buildGotenbergFields(request, env);
+    expect(f).not.toHaveProperty('metadata');
+  });
+});

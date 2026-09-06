@@ -12,6 +12,13 @@ export interface PrintCookie {
   httpOnly: boolean;
 }
 
+export interface PdfMetadata {
+  title: string;
+  author: string;
+  subject: string;
+  creator: string;
+}
+
 export interface PdfRenderRequest {
   /** Absolute URL including the ?print=1 query. */
   url: string;
@@ -24,6 +31,12 @@ export interface PdfRenderRequest {
    * (an unauthorised call 401s and withAuth leaves the cookies alone).
    */
   allowedApiPaths: string[];
+  /** Per-pack footer. Falls back to FOOTER_HTML when absent. */
+  footerHtml?: string;
+  /** Written into the PDF's document information dictionary. Gotenberg only —
+   *  Playwright's page.pdf() supports no metadata at all, which is exactly why
+   *  spec §8 decision 5 declines to make PDF/A a requirement. */
+  metadata?: PdfMetadata;
 }
 
 export interface PdfTransport {

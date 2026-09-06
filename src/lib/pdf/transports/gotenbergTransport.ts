@@ -77,7 +77,7 @@ export const gotenbergTransport: PdfTransport = {
     // Chromium renders these two as the running header and footer. The header
     // is empty so Chromium's default title/date line is suppressed.
     form.append('files', htmlPart(HEADER_HTML), 'header.html');
-    form.append('files', htmlPart(FOOTER_HTML), 'footer.html');
+    form.append('files', htmlPart(request.footerHtml ?? FOOTER_HTML), 'footer.html');
 
     // new URL(..., base) rather than string concatenation, so a trailing
     // slash on GOTENBERG_URL cannot build a double-slash path.

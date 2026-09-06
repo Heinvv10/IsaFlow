@@ -80,7 +80,7 @@ export const playwrightTransport: PdfTransport = {
         },
         displayHeaderFooter: true,
         headerTemplate: HEADER_HTML,
-        footerTemplate: FOOTER_HTML,
+        footerTemplate: request.footerHtml ?? FOOTER_HTML,
       });
       log.info('playwrightTransport: rendered', { url: request.url, bytes: pdf.length }, 'pdf');
       return pdf;
