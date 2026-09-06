@@ -8,6 +8,7 @@ import { sql, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { fetchVatDenialFlags } from '../gl/inputVatDenial';
+import { fetchAccountNames } from '../gl/nonSupplyVatGuard';
 import type { RuleApplyResult } from '../../types/bank.types';
 import {
   toSqlPattern, findMatchingTxs, MAX_RULE_CANDIDATES, type RuleAllocType,
@@ -159,16 +160,24 @@ export async function applyRules(
     // an account flagged s17(2)(a). Reported, not silent: a rule set to claim on
     // an entertainment account is a configuration mistake the user must see.
     let autoPostVatDenied = 0;
+    // Same shape as the line above: a rule that would have claimed VAT on an
+    // account where no supply can arise is a configuration mistake the user
+    // must see, not something to fix silently every sweep.
+    let autoPostNonSupply = 0;
 
     // One query for every rule's target account. A sweep posts hundreds of
     // lines against a handful of accounts, so resolving the s17(2)(a) denial
     // inside autoPostRuleLine would be one redundant SELECT per transaction.
-    const ruleAccountVatDenied = await fetchVatDenialFlags(
-      companyId,
-      autoCreateRules
-        .map((r) => (r.gl_account_id ? String(r.gl_account_id) : ''))
-        .filter(Boolean),
-    );
+    const ruleAccountIds = autoCreateRules
+      .map((r) => (r.gl_account_id ? String(r.gl_account_id) : ''))
+      .filter(Boolean);
+    const [ruleAccountVatDenied, ruleAccountNames] = await Promise.all([
+      fetchVatDenialFlags(companyId, ruleAccountIds),
+      // The non-supply guard classifies on account NAME, so the batched branch
+      // needs these for the same reason and on the same one-query-per-sweep
+      // budget as the denial flags beside them.
+      fetchAccountNames(companyId, ruleAccountIds),
+    ]);
 
     for (const rule of (bankGlAccountId ? autoCreateRules : [])) {
       const pattern = toSqlPattern(String(rule.match_type), String(rule.match_pattern));
@@ -235,6 +244,12 @@ export async function applyRules(
             companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
             ruleGlAccountVatDenied: ruleGlAccountId
               ? ruleAccountVatDenied.get(ruleGlAccountId) ?? false : false,
+            // `?? null` and never undefined: autoPostRuleLine reads undefined
+            // as "the caller did not resolve this" and falls back to a
+            // per-line lookup, which is the safe reading but not the one we
+            // want when the sweep DID resolve it and the account has no name.
+            ruleGlAccountName: ruleGlAccountId
+              ? ruleAccountNames.get(ruleGlAccountId) ?? null : null,
             bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
             supplierName, customerName,
           }));
@@ -253,6 +268,7 @@ export async function applyRules(
 
         entries.push({ bankTxId: String(tx.id), ruleName, journalEntryId: outcome.journalEntryId });
         if (outcome.vatDenied) autoPostVatDenied++;
+        if (outcome.nonSupplyCoerced) autoPostNonSupply++;
         totalApplied++;
       }
     }
@@ -282,6 +298,7 @@ export async function applyRules(
         autoPostSkippedLocked,
         autoPostTruncatedRules,
         autoPostVatDenied,
+        autoPostNonSupply,
       },
       'accounting',
     );
@@ -296,6 +313,7 @@ export async function applyRules(
       autoPostSkippedLocked,
       autoPostTruncatedRules,
       autoPostVatDenied,
+      autoPostNonSupply,
     };
   } catch (err) {
     log.error('Failed to apply bank rules', { error: err }, 'accounting');

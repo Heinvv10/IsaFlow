@@ -307,6 +307,38 @@ describe('postProvisional', () => {
     expect(vi.mocked(createJournalEntry)).not.toHaveBeenCalled();
   });
 
+  it('refuses to repeat a wrong claim its own history taught it', async () => {
+    // The prediction is the most frequent vat_code on that supplier's prior
+    // lines, so a ledger already carrying the defect trains this path to
+    // reproduce it — Velocity's salary account has 34 historical lines at
+    // 'standard'. Nobody is watching here, so the claim is dropped.
+    vi.mocked(sqlMock).mockResolvedValueOnce([
+      { id: BANK_TX_ID, amount: -1150, description: 'PAYROLL SERVICES EFT', status: 'imported', bank_account_id: 'ba-1', transaction_date: '2026-04-25' },
+    ] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Payroll Services' }] as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
+    vi.mocked(sqlMock).mockResolvedValueOnce(
+      [{ vat_input_denied: false, account_code: '49784360', account_name: 'Salaries & Wages - EX4000' }] as never,
+    );
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Salaries & Wages - EX4000' }] as never);
+    vi.mocked(createJournalEntry).mockResolvedValue({ id: 'je-ns' } as never);
+    vi.mocked(postJournalEntry).mockResolvedValue(undefined as never);
+    vi.mocked(sqlMock).mockResolvedValue([] as never);
+
+    await postProvisional(COMPANY_ID, BANK_TX_ID, USER_ID);
+
+    const lines = vi.mocked(createJournalEntry).mock.calls[0]![1].lines as
+      Array<{ debit: number; credit: number; vatType?: string; description: string }>;
+    // No VAT leg, and the expense carries the gross rather than 1150/1.15.
+    expect(lines.some((l) => /VAT @/.test(l.description)),
+      'the guard must not let a VAT leg be posted').toBe(false);
+    expect(lines.some((l) => l.vatType === 'standard')).toBe(false);
+    expect(lines[0]!.debit).toBe(1150);
+    // vat_input is never even resolved, because there is no VAT leg to post.
+    expect(vi.mocked(getSystemAccountId).mock.calls.map((c) => c[0]))
+      .not.toContain('vat_input');
+  });
+
   it('throws an error when the bank transaction is not found', async () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([] as never); // no rows
 
@@ -322,6 +354,13 @@ describe('postProvisional', () => {
     vi.mocked(sqlMock).mockResolvedValueOnce([{ id: SUPPLIER_ID, name: 'Eskom Holdings' }] as never);
     // vat_code 'standard' → hasVat path; 4 consistent rows → confidence 0.9
     vi.mocked(sqlMock).mockResolvedValueOnce(makeHistoryRows(GL_ACC_ID, 'standard', 4) as never);
+    // The unattended VAT guard reads the predicted account before the lines
+    // are built — twice, once per statute. A real supply name, so it passes
+    // the claim through unchanged and the vat_input lookup below still runs.
+    vi.mocked(sqlMock).mockResolvedValueOnce(
+      [{ vat_input_denied: false, account_code: '5700', account_name: 'Electricity & Water' }] as never,
+    );
+    vi.mocked(sqlMock).mockResolvedValueOnce([{ account_name: 'Electricity & Water' }] as never);
     // vat_input lookup fails — system account not configured
     vi.mocked(getSystemAccountId).mockRejectedValueOnce(
       new Error('system account vat_input not configured'),

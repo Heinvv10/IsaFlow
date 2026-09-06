@@ -11,6 +11,7 @@ import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { allocateTransaction } from './bankAllocationService';
+import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 import { postProvisional } from '../capture/provisionalPostingService';
 
 type Row = DbRow;
@@ -40,6 +41,10 @@ export interface SweepResult {
   runId: string | null;
   posted: number;
   skipped: Array<{ txId: string; reason: string }>;
+  /** Lines posted gross because s17(2)(a) denied the input tax. */
+  vatDenied?: number;
+  /** Lines posted gross because no supply can arise on the account. */
+  nonSupplyCoerced?: number;
 }
 
 export const AUTO_POST_AGENT = 'ai:auto-post:v1';
@@ -247,6 +252,11 @@ export async function sweep(
   let runId: string | null = null;
   let posted = 0;
   let totalAmount = 0;
+  // Counted, never silent — the same discipline as the rule sweep's
+  // autoPostVatDenied/autoPostNonSupply. A gate that quietly drops a claim
+  // every run is how a misconfiguration survives unnoticed.
+  let vatDenied = 0;
+  let nonSupplyCoerced = 0;
 
   async function ensureRun(strategy: string | null): Promise<string> {
     if (runId) return runId;
@@ -289,13 +299,38 @@ export async function sweep(
         }
         jePosted = true;
       } else {
+        // THE UNATTENDED POSTING BOUNDARY. `allocateTransaction` is the
+        // ATTENDED path and deliberately coerces nothing — the screen warned
+        // and the user's choice stands. Nobody is watching here, so the two
+        // VAT guards run before the call rather than inside it: s17(2)(a)
+        // entertainment denial, and the accounts on which no supply can arise
+        // at all. Without this the gate posts `suggested_vat_code` verbatim,
+        // and a high-confidence LLM suggestion of 'standard' on a salary
+        // account is exactly the R237,021.60 shape this feature exists to
+        // stop — just arriving through a different door than the rule sweep.
+        const requestedVat = row.suggested_vat_code ?? undefined;
+        const guarded = await resolveRuleVatCode({
+          allocType: 'account',
+          companyId,
+          requestedVatCode: requestedVat ?? 'none',
+          glAccountId: row.suggested_gl_account_id,
+          denialContext: { bankTxId: row.id, source: 'auto_post_gate' },
+          guardContext: { bankTxId: row.id, ruleName: 'auto-post gate' },
+        });
+        // Only substitute when a guard actually fired. Otherwise pass the
+        // original value through untouched, `undefined` included, so a row
+        // nobody objected to posts exactly as it did before this guard existed.
+        const effectiveVat = guarded.denied || guarded.nonSupplyCoerced
+          ? guarded.vatCode : requestedVat;
         await allocateTransaction(
           companyId, row.id, row.suggested_gl_account_id, userId,
           row.description ?? undefined, 'account', undefined,
-          row.suggested_vat_code ?? undefined,
+          effectiveVat,
           undefined, undefined, undefined, undefined,
           { postingAgent: AUTO_POST_AGENT },
         );
+        if (guarded.denied) vatDenied += 1;
+        if (guarded.nonSupplyCoerced) nonSupplyCoerced += 1;
         jePosted = true;
       }
       const id = await ensureRun(isImport ? null : (row.suggested_strategy ?? null));
@@ -325,5 +360,12 @@ export async function sweep(
   }
 
   log.info('Auto-post sweep complete', { companyId, source, posted, skipped: skipped.length, runId }, 'auto-post-gate');
-  return { runId, posted, skipped };
+  if (vatDenied > 0 || nonSupplyCoerced > 0) {
+    log.warn(
+      'Auto-post gate dropped VAT claims before posting',
+      { companyId, vatDenied, nonSupplyCoerced },
+      'autoPostGateService',
+    );
+  }
+  return { runId, posted, skipped, vatDenied, nonSupplyCoerced };
 }
