@@ -12,17 +12,36 @@ import {
 } from '../pdfTransport';
 import { log } from '@/lib/logger';
 
-async function launchChromium(): Promise<Browser> {
-  return chromium.launch({ headless: true });
+// One Chromium for the life of the process, not one per render. A launch is
+// ~300-800ms of CPU and ~80MB before a single byte is rendered, and the render
+// bound (../renderSemaphore.ts) already caps how many contexts exist at once —
+// so the browser is the expensive thing to keep and the CONTEXT is the thing
+// that must be per-render. Contexts are isolated: cookies, storage and the
+// /api/** route stub all live on the context, so two renders never see each
+// other's print token.
+let shared: Browser | null = null;
+
+async function getBrowser(): Promise<Browser> {
+  // isConnected() is false after a crash or an external kill; a stale handle
+  // would fail every later render for the life of the process.
+  if (shared?.isConnected()) return shared;
+  if (shared) {
+    log.warn('playwrightTransport: browser was disconnected, relaunching', {}, 'pdf');
+    shared = null;
+  }
+  shared = await chromium.launch({ headless: true });
+  // A crash between renders must not leave a dead handle cached.
+  shared.on('disconnected', () => { shared = null; });
+  return shared;
 }
 
 export const playwrightTransport: PdfTransport = {
   name: 'playwright',
   async render(request: PdfRenderRequest): Promise<Buffer> {
     const { hostname } = new URL(request.url);
-    const browser = await launchChromium();
+    const browser = await getBrowser();
+    const context = await browser.newContext();
     try {
-      const context = await browser.newContext();
       await context.addCookies(
         request.cookies.map((c) => ({
           name: c.name, value: c.value, domain: hostname, path: '/',
@@ -66,7 +85,18 @@ export const playwrightTransport: PdfTransport = {
       log.info('playwrightTransport: rendered', { url: request.url, bytes: pdf.length }, 'pdf');
       return pdf;
     } finally {
-      await browser.close();
+      // The context goes, the browser stays. Closing the context releases the
+      // page, its cookies and its route handlers; leaking one would keep this
+      // render's print token alive in memory.
+      await context.close().catch(() => { /* a crashed browser takes its contexts with it */ });
     }
   },
 };
+
+/** Close the shared browser. For test teardown and a future graceful shutdown;
+ *  the next render relaunches on demand. */
+export async function closeSharedBrowser(): Promise<void> {
+  const browser = shared;
+  shared = null;
+  if (browser) await browser.close().catch(() => { /* already gone */ });
+}
