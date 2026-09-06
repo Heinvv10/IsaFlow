@@ -8,19 +8,18 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
+import { isUuidParam } from '@/lib/validation';
 import { withAuth, withCsrf, withWriteAccess, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { resolveAnnotation } from '@/modules/accounting/services/annotations/annotationService';
 import { annotationRateLimitKey } from '@/modules/accounting/services/annotations/rateLimitKey';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['POST']);
   const { companyId, user } = req as CompanyAuthedRequest;
   const id = req.query.id;
-  if (typeof id !== 'string' || !UUID.test(id)) return apiResponse.notFound(res, 'Annotation');
+  if (!isUuidParam(id)) return apiResponse.notFound(res, 'Annotation');
 
   // Same per-user bucket as create. Resolve writes to the ledger of who
   // settled what, so it is as much a write worth bounding as the note itself.

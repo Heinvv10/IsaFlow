@@ -14,6 +14,7 @@ import {
 import {
   buildReportPack, type ReportPack, type ReportPackInput,
 } from '@/modules/accounting/services/reports/reportPackService';
+import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 import { canonicalParamsHash } from './shareParams';
 import type { ResolvedShareLink } from './shareResolver';
 
@@ -50,11 +51,6 @@ async function loadApprovedCommentary(companyId: string, paramsHash: string): Pr
     rowRef: String(r.row_ref),
     text: String(r.approved_text),
   }));
-}
-
-async function getCompanyName(companyId: string): Promise<string> {
-  const rows = (await sql`SELECT name FROM companies WHERE id = ${companyId}::uuid LIMIT 1`) as DbRow[];
-  return rows[0] ? String(rows[0]!.name) : 'Company';
 }
 
 export async function buildSharedPack(link: ResolvedShareLink): Promise<SharedPack> {

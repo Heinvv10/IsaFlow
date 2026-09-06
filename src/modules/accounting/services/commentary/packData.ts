@@ -6,12 +6,12 @@
  * above it does not show. The prior period comes from `priorPeriod`, which maps
  * a whole-calendar-month window onto the same number of months before it.
  */
-import { sql, type DbRow } from '@/lib/neon';
 import {
   getFinancialFigures, toFinancialData, totalEquity, type PeriodFigures,
 } from '@/modules/accounting/services/gl/financialFiguresService';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { priorPeriod } from '@/modules/accounting/services/reports/priorPeriod';
+import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 import type { CommentaryPackData } from './commentaryDraft';
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
@@ -36,11 +36,6 @@ function hasActivity(is: IncomeStatement): boolean {
   return is.revenue !== 0 || is.costOfSales !== 0 || is.operatingExpenses !== 0 || is.netProfit !== 0;
 }
 
-async function companyName(companyId: string): Promise<string> {
-  const rows = (await sql`SELECT name FROM companies WHERE id = ${companyId}::uuid LIMIT 1`) as DbRow[];
-  return rows[0] ? String(rows[0]!.name) : 'Company';
-}
-
 export async function buildManagementPackData(
   companyId: string, params: SharePackParams,
 ): Promise<CommentaryPackData> {
@@ -48,7 +43,7 @@ export async function buildManagementPackData(
   const [figures, priorFigures, name] = await Promise.all([
     getFinancialFigures(companyId, params.from, params.to),
     getFinancialFigures(companyId, prior.start, prior.end),
-    companyName(companyId),
+    getCompanyName(companyId),
   ]);
 
   const ratios = calculateExtendedRatios(toFinancialData(figures));
