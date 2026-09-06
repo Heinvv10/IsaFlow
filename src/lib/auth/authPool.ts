@@ -10,6 +10,26 @@ import pg from 'pg';
 import '@/lib/pgTypes';
 import { log } from '@/lib/logger';
 
+// ── Coupled with src/lib/pdf/renderSemaphore.ts ──────────────────────────────
+// A pack PDF render holds one of these connections for its whole duration AND
+// the headless browser re-enters the API for the report, taking a second. The
+// render semaphore therefore derives BOTH of its bounds from the two constants
+// below rather than carrying its own copies:
+//   - its queue wait must expire before a caller's connection acquire does,
+//     or a request refused for capacity has already failed on the pool;
+//   - its concurrency ceiling is a fraction of the pool size, so renders and
+//     their inbound fetches cannot take every connection.
+// Change either constant and the semaphore's bounds move with it. Do not
+// restate these numbers anywhere else.
+export const AUTH_POOL_CONNECTION_TIMEOUT_MS = 15_000;
+export const DEFAULT_AUTH_POOL_MAX = 20;
+
+/** The pool's configured size. Read per call, the same way the pool itself
+ *  reads it, so the semaphore and the pool can never disagree. */
+export function authPoolMax(): number {
+  return Number(process.env.AUTH_POOL_MAX ?? DEFAULT_AUTH_POOL_MAX);
+}
+
 let _pool: pg.Pool | null = null;
 
 export function getAuthPool(): pg.Pool {
@@ -18,8 +38,8 @@ export function getAuthPool(): pg.Pool {
   if (!url) throw new Error('DATABASE_URL required');
   _pool = new pg.Pool({
     connectionString: url,
-    max: Number(process.env.AUTH_POOL_MAX ?? 20),
-    connectionTimeoutMillis: 15000,
+    max: authPoolMax(),
+    connectionTimeoutMillis: AUTH_POOL_CONNECTION_TIMEOUT_MS,
     idleTimeoutMillis: 30000,
     ssl:
       process.env.DATABASE_SSL === 'strict'
