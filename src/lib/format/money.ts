@@ -6,6 +6,35 @@
 const ZERO_DASH = '–';
 const MINUS = '−';
 
+/**
+ * The scales a statement may be stated in. `formatMoney` divides by the
+ * scale's divisor before formatting, so "R'000" prints 4 200 000 as `4 200`
+ * under a thousands header instead of the full rand amount, which a reader
+ * takes as a thousand times the real figure.
+ *
+ * SCALING IS A DISPLAY CONCERN AND LIVES HERE (R-P52). Model figures stay
+ * RAW — a page or a model that divided would put arithmetic where no service
+ * owns it, and the integrity gate compares raw values, so a display
+ * transform must never reach them. Callers pass the document's own
+ * `numberConvention.scale`; omitting it is exactly today's behaviour, which
+ * is why every existing caller outside the pack is byte-identical.
+ */
+export const MONEY_SCALES = {
+  R: 1,
+  "R'000": 1_000,
+  "R'm": 1_000_000,
+} as const;
+
+export type MoneyScale = keyof typeof MONEY_SCALES;
+
+/** The document's scale string, narrowed. `null` for anything unrecognised —
+ *  a caller must decide what to do about that rather than silently printing
+ *  unscaled figures under a scaled header, which is the 1000× misread this
+ *  whole mechanism exists to stop. */
+export function toMoneyScale(value: string): MoneyScale | null {
+  return Object.prototype.hasOwnProperty.call(MONEY_SCALES, value) ? (value as MoneyScale) : null;
+}
+
 const whole = new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 });
 const cents = new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -16,11 +45,19 @@ export function signOf(n: number): 'pos' | 'neg' | 'zero' {
   return n < 0 ? 'neg' : 'pos';
 }
 
-export function formatMoney(n: number, opts: { cents?: boolean; symbol?: boolean } = {}): string {
-  const s = signOf(n);
+export function formatMoney(
+  n: number,
+  opts: { cents?: boolean; symbol?: boolean; scale?: MoneyScale } = {},
+): string {
+  // Scaled BEFORE the sign is read, so the sign and the zero test both apply
+  // to the number actually printed. A figure smaller than half a unit of its
+  // scale prints `0` (rounds to nothing at this scale); an actual zero still
+  // prints the dash, so the two stay distinguishable.
+  const scaled = opts.scale ? n / MONEY_SCALES[opts.scale] : n;
+  const s = signOf(scaled);
   if (s === 'zero') return ZERO_DASH;
   const body = (opts.cents ? cents : whole)
-    .format(Math.abs(n))
+    .format(Math.abs(scaled))
     .replace(/[\xa0\u202f]/g, ' ')
     .replace(/,/g, '.');
   const withSymbol = opts.symbol ? `R ${body}` : body;

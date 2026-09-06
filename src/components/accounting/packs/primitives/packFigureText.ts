@@ -12,10 +12,15 @@
  * (`src/modules/accounting/services/packs/packKvFormat.ts`) rather than
  * inventing a new one here.
  */
-import { formatMoney, formatPct } from '@/lib/format/money';
+import { formatMoney, formatPct, type MoneyScale } from '@/lib/format/money';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 
-export function formatFigureText(figure: PackFigure): string {
+/**
+ * @param scale The document's `numberConvention.scale`. Applies to money
+ *   only — a percentage, a ratio and a day count are not stated in rands and
+ *   so are not scaled. Omitted, every figure prints exactly as before.
+ */
+export function formatFigureText(figure: PackFigure, scale?: MoneyScale): string {
   if (figure.value === null) {
     // `PackFigureProvenance.figure()` refuses to construct a null value
     // without a reason, so this is always populated in practice — the
@@ -24,7 +29,7 @@ export function formatFigureText(figure: PackFigure): string {
     return figure.unavailable ?? '–';
   }
   switch (figure.format) {
-    case 'money': return formatMoney(figure.value);
+    case 'money': return formatMoney(figure.value, scale ? { scale } : {});
     case 'pct': return formatPct(figure.value);
     case 'ratio': return figure.value.toFixed(2);
     case 'days': return `${figure.value.toFixed(0)} days`;

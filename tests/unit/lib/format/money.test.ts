@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoney, formatPct, formatPctMagnitude, signOf } from '@/lib/format/money';
+import { formatMoney, formatPct, formatPctMagnitude, signOf, MONEY_SCALES, toMoneyScale } from '@/lib/format/money';
 
 describe('formatMoney', () => {
   it('uses thousands separators and no decimals by default', () => {
@@ -72,5 +72,46 @@ describe('non-finite figures', () => {
     expect(formatPct(NaN)).toBe('–');
     expect(formatPct(Infinity)).toBe('–');
     expect(formatPct(0)).toBe('0.0%');
+  });
+});
+
+
+describe('formatMoney scaling', () => {
+  // The defect this pins: a table headed "R'000" whose cells were formatted
+  // unscaled printed R4 200 000 as `4 200 000`, which a director reads as
+  // R4.2bn. Nothing caught it because no assertion read a cell against its
+  // own header.
+  it("prints a thousands-scaled figure under an R'000 header", () => {
+    expect(formatMoney(4_200_000, { scale: "R'000" })).toBe('4 200');
+  });
+
+  it('leaves every existing caller byte-identical when no scale is given', () => {
+    for (const n of [4_200_000, -1_234, 0, 999.4]) {
+      expect(formatMoney(n, { scale: undefined })).toBe(formatMoney(n));
+    }
+  });
+
+  it('keeps the sign convention after scaling', () => {
+    expect(formatMoney(-4_200_000, { scale: "R'000" })).toBe('(4 200)');
+  });
+
+  it('distinguishes a figure that rounds to nothing from an actual zero', () => {
+    // R400 is less than half a thousand, so under an R'000 header it rounds
+    // to `0` — the same thing an unscaled sub-rand figure already does. An
+    // ACTUAL zero still prints the dash, so the two readings stay distinct:
+    // "too small to show at this scale" is not "nothing".
+    expect(formatMoney(400, { scale: "R'000" })).toBe('0');
+    expect(formatMoney(0.4)).toBe('0');
+    expect(formatMoney(0, { scale: "R'000" })).toBe('–');
+  });
+
+  it('scales millions too', () => {
+    expect(formatMoney(4_200_000, { scale: "R'm" })).toBe('4');
+    expect(MONEY_SCALES["R'm"]).toBe(1_000_000);
+  });
+
+  it('narrows a known scale string and refuses an unknown one', () => {
+    expect(toMoneyScale("R'000")).toBe("R'000");
+    expect(toMoneyScale('thousands')).toBeNull();
   });
 });

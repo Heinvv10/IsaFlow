@@ -27,10 +27,19 @@ import { PackFigureProvenance } from '@/modules/accounting/services/packs/figure
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
 import { toFinancialData } from './packScorecard';
+import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
+import { PACK_SCALE } from './packBasis';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 
-/** Spec §7.1 criterion 8's one scale, stated in every table header. */
-const SCALE = "R'000";
+/**
+ * Spec §7.1 criterion 8's one scale, stated in every table header — the same
+ * constant the document's `numberConvention` carries.
+ *
+ * FIGURES BELOW ARE RAW (R-P52). The scale is a header, and dividing by it is
+ * the RENDERER's job through `formatMoney`'s `scale` option. A model that
+ * divided would put arithmetic where no service owns it, and would hand the
+ * integrity gate a display transform to compare against the ledger.
+ */
 
 /** One statement line, before the comparative columns are worked out. */
 interface RowInput {
@@ -128,7 +137,7 @@ function buildTable(
   const usableBase = withPctOfRevenue && marginPct(set.current.revenue, revenue) !== null;
   const opts: TableOptions = { revenue: usableBase ? revenue : null };
   return {
-    scale: SCALE,
+    scale: PACK_SCALE,
     columns: columnsFor(set.prior !== null, usableBase),
     rows: inputs.map((input) => buildRow(p, input, opts)),
   };
@@ -136,7 +145,7 @@ function buildTable(
 
 const grossProfitOf = (f: ReportPackFigures): number => f.revenue - f.costOfSales;
 const ebitdaOf = (f: ReportPackFigures): number => calculateExtendedRatios(toFinancialData(f)).ebitda;
-const operatingOf = (f: ReportPackFigures): number => f.operatingProfit ?? f.revenue - f.costOfSales + (f.otherIncome ?? 0) - f.operatingExpenses;
+
 
 /** Page 5 — the one table every later number traces back to. */
 export function buildResultsTable(set: PackFigureSet, p: PackFigureProvenance): PackTable {
@@ -144,7 +153,7 @@ export function buildResultsTable(set: PackFigureSet, p: PackFigureProvenance): 
   return buildTable(p, [
     { label: 'Revenue', key: 'results.revenue', source: 'packFigureSet.current.revenue', actual: current.revenue, prior: prior?.revenue ?? null },
     { label: 'Gross profit', key: 'results.grossProfit', source: 'packStatementTables.grossProfit', role: 'subtotal', actual: grossProfitOf(current), prior: prior ? grossProfitOf(prior) : null },
-    { label: 'Operating profit', key: 'results.operatingProfit', source: 'packFigureSet.current.operatingProfit', role: 'subtotal', actual: operatingOf(current), prior: prior ? operatingOf(prior) : null },
+    { label: 'Operating profit', key: 'results.operatingProfit', source: OPERATING_PROFIT_SOURCE, role: 'subtotal', actual: operatingProfitOf(current), prior: prior ? operatingProfitOf(prior) : null },
     { label: 'EBITDA', key: 'results.ebitda', source: 'calculateExtendedRatios.ebitda', role: 'subtotal', actual: ebitdaOf(current), prior: prior ? ebitdaOf(prior) : null },
     { label: 'Net profit', key: 'results.netProfit', source: 'packFigureSet.current.netProfit', role: 'total', actual: current.netProfit, prior: prior?.netProfit ?? null },
   ], set, false);
@@ -160,7 +169,7 @@ export function buildIncomeStatementTable(set: PackFigureSet, p: PackFigureProve
     { label: 'Operating expenses', key: 'is.operatingExpenses', source: 'packFigureSet.current.operatingExpenses', level: 1, actual: current.operatingExpenses, prior: prior?.operatingExpenses ?? null },
     { label: 'Other income', key: 'is.otherIncome', source: 'packFigureSet.current.otherIncome', level: 1, actual: current.otherIncome ?? 0, prior: prior?.otherIncome ?? null },
     { label: 'Other expenses', key: 'is.otherExpenses', source: 'packFigureSet.current.otherExpenses', level: 1, actual: current.otherExpenses ?? 0, prior: prior?.otherExpenses ?? null },
-    { label: 'Operating profit', key: 'is.operatingProfit', source: 'packFigureSet.current.operatingProfit', role: 'subtotal', actual: operatingOf(current), prior: prior ? operatingOf(prior) : null },
+    { label: 'Operating profit', key: 'is.operatingProfit', source: OPERATING_PROFIT_SOURCE, role: 'subtotal', actual: operatingProfitOf(current), prior: prior ? operatingProfitOf(prior) : null },
     { label: 'Net profit', key: 'is.netProfit', source: 'packFigureSet.current.netProfit', role: 'total', actual: current.netProfit, prior: prior?.netProfit ?? null },
   ], set, true);
 }
@@ -190,7 +199,13 @@ export function buildPositionTable(set: PackFigureSet, p: PackFigureProvenance):
  */
 export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): PackTable {
   const { current, prior } = set;
-  const investing = (f: ReportPackFigures): number => -(f.capitalExpenditure ?? 0);
+  // Not `?? 0`: a missing capex figure is an ARTEFACT, not a period with no
+  // investing activity, and the two other cash rows already say "not
+  // captured" when their figure is absent. R-P44/R-P45's doctrine, applied
+  // consistently — a silent zero here would report a company that bought
+  // nothing.
+  const investing = (f: ReportPackFigures): number | null =>
+    f.capitalExpenditure === undefined ? null : -f.capitalExpenditure;
   return buildTable(p, [
     {
       label: 'Opening cash',
@@ -202,7 +217,7 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
       unavailable: 'There is no prior period, so no opening cash balance carries forward into this one.',
     },
     { label: 'Operating cash flow', key: 'cash.operating', source: 'packFigureSet.current.operatingCashFlow', actual: current.operatingCashFlow ?? null, prior: prior?.operatingCashFlow ?? null, unavailable: 'No operating cash flow figure was captured for this period.' },
-    { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null },
+    { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null, unavailable: 'No capital expenditure figure was captured for this period.' },
     { label: 'Financing cash flow', key: 'cash.financing', source: 'packFigureSet.current.financingCashFlow', actual: current.financingCashFlow ?? null, prior: prior?.financingCashFlow ?? null, unavailable: 'No financing cash flow figure was captured for this period.' },
     { label: 'Closing cash', key: 'cash.closing', source: 'packFigureSet.current.cash', role: 'total', actual: current.cash, prior: prior?.cash ?? null },
   ], set, false);

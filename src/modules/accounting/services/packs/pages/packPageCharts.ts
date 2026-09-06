@@ -22,10 +22,10 @@ import { buildProfitWaterfall, type WaterfallStep } from '@/modules/accounting/s
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import {
   compositionBarOption,
-  trendOption,
   waterfallOption,
   type CompositionSeries,
 } from '@/modules/accounting/services/packs/packChartOptions';
+import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackChartSpec, PackWaterfallBar } from './packPageModel';
@@ -82,7 +82,14 @@ export function buildProfitWaterfallChart(set: PackFigureSet): PackChartSpec {
  * would be a chart that contradicts the table above it; a bridge with an
  * unexplained-movement bar foots, and says what it does not know.
  */
-export function buildCashWaterfallChart(set: PackFigureSet): PackChartSpec | null {
+export interface PackCashBridge {
+  chart: PackChartSpec;
+  /** The movement in cash the three captured categories do not account for.
+   *  Drawn as its own named bar, and the page must say what it is. */
+  residual: number;
+}
+
+export function buildCashWaterfallChart(set: PackFigureSet): PackCashBridge | null {
   const { current, prior } = set;
   if (prior === null) return null;
 
@@ -114,12 +121,15 @@ export function buildCashWaterfallChart(set: PackFigureSet): PackChartSpec | nul
   steps.push({ label: 'Closing cash', start: 0, end: current.cash, value: current.cash, isSubtotal: true, color: 'teal' });
 
   return {
-    id: 'cash-bridge',
-    title: `Cash moved from ${formatMoney(opening)} to ${formatMoney(current.cash)} over the period.`,
-    kind: 'waterfall',
-    svg: renderChartSvg(waterfallOption(steps), FULL),
-    heightMm: FULL.heightMm,
-    waterfallBars: toBars(steps),
+    residual,
+    chart: {
+      id: 'cash-bridge',
+      title: `Cash moved from ${formatMoney(opening)} to ${formatMoney(current.cash)} over the period.`,
+      kind: 'waterfall',
+      svg: renderChartSvg(waterfallOption(steps), FULL),
+      heightMm: FULL.heightMm,
+      waterfallBars: toBars(steps),
+    },
   };
 }
 
@@ -166,6 +176,11 @@ export function buildTrendPanels(trend: PackTrendPoint[]): PackChartSpec[] {
     { id: 'trend-net-profit', name: 'Net profit', pick: (p) => p.netProfit },
   ];
 
+  // One row of panels, so ONE y-domain across all of them (spec §4.A page 10).
+  // Per-panel scales would draw a flat metric and a collapsing one with the
+  // same apparent slope, which is a chart that misreports direction.
+  const domain = sharedDomain(series.map((panel) => trend.map(panel.pick)));
+
   return series.map((panel) => {
     const points = trend.map((point) => ({ label: point.label, value: panel.pick(point) }));
     const first = points[0]!.value;
@@ -175,7 +190,7 @@ export function buildTrendPanels(trend: PackTrendPoint[]): PackChartSpec[] {
       id: panel.id,
       title: `${panel.name} ${direction} from ${formatMoney(first)} to ${formatMoney(last)} over ${points.length} periods.`,
       kind: 'line',
-      svg: renderChartSvg(trendOption(points), PANEL),
+      svg: renderChartSvg(smallMultipleOption(points, domain), PANEL),
       heightMm: PANEL.heightMm,
     };
   });

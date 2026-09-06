@@ -30,6 +30,14 @@ import {
 } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
+import {
+  DEBTOR_DAYS_SOURCE,
+  DEBT_TO_EQUITY_SOURCE,
+  operatingProfitOf,
+  readDebtToEquity,
+  readDebtorDays,
+  type PackMetricRead,
+} from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackScorecardGroup, PackScorecardRow, PackScorecardStatus } from './packPageModel';
 
 /** No turnover-basis reason exists in `calculateExtendedRatios.notMeaningful`
@@ -60,16 +68,9 @@ export function toFinancialData(f: ReportPackFigures): FinancialData {
   };
 }
 
-/** Mirrors `reportingEngineService`'s own (unexported) operating-line fallback. */
-function operatingProfitOf(f: ReportPackFigures): number {
-  return f.operatingProfit ?? f.revenue - f.costOfSales + (f.otherIncome ?? 0) - f.operatingExpenses;
-}
-
-interface MetricRead {
-  value: number | null;
-  unavailable?: string;
-  basis?: { numerator: number; denominator: number };
-}
+/** Shared with the highlights strip, which shows two of these same metrics:
+ *  one source must have ONE reading or `assertConsistent` throws. */
+type MetricRead = PackMetricRead;
 
 interface MetricSpec {
   metric: string;
@@ -144,10 +145,10 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
       {
         metric: 'Debtor days',
         format: 'days',
-        source: 'calculateExtendedRatios.debtorDays',
+        source: DEBTOR_DAYS_SOURCE,
         targetKey: 'debtorDays',
         lowerIsBetter: true,
-        read: (r) => ({ value: r.debtorDays }),
+        read: readDebtorDays,
       },
       {
         metric: 'Creditor days',
@@ -165,17 +166,10 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
       {
         metric: 'Debt-to-equity',
         format: 'ratio',
-        source: 'calculateExtendedRatios.debtToEquity',
+        source: DEBT_TO_EQUITY_SOURCE,
         targetKey: 'debtToEquity',
         lowerIsBetter: true,
-        read: (r) =>
-          r.debtToEquity === null
-            ? {
-                value: null,
-                unavailable:
-                  r.notMeaningful.debtToEquity ?? 'Equity is not positive, so this ratio has no meaning.',
-              }
-            : { value: r.debtToEquity },
+        read: readDebtToEquity,
       },
       {
         // R-P44: the pack captures no interest expense at all, so

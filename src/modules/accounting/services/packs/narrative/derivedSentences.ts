@@ -27,6 +27,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type {
   PackChartSpec,
+  PackKpiTile,
   PackScorecardGroup,
   PackTableRow,
 } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -214,4 +215,70 @@ export function scorecardScore(groups: PackScorecardGroup[]): { met: number; tot
     .flatMap((g) => g.rows)
     .filter((r) => r.status === 'met' || r.status === 'missed');
   return { met: scored.filter((r) => r.status === 'met').length, total: scored.length };
+}
+
+/**
+ * One derived line per highlight tile — spec §4.A page 3's "derived one-liner
+ * per tile".
+ *
+ * It carries no formatted figure on purpose: the tile prints the value itself
+ * three centimetres away, and a second rendering of the same number here is
+ * how a pack ends up disagreeing with itself over rounding. What the tile
+ * cannot say is the DIRECTION's meaning, which is what this adds.
+ */
+export function tileCaption(tile: PackKpiTile): string {
+  if (tile.figure.value === null) {
+    return `Not available. ${tile.figure.unavailable ?? ''}`.trim();
+  }
+  if (tile.delta === null) {
+    return 'No comparative period, so no movement is shown against this figure.';
+  }
+  const direction = tile.delta.value >= 0 ? 'Up' : 'Down';
+  const judgement = tile.delta.favourable ? 'a favourable' : 'an unfavourable';
+  return `${direction} ${formatPctMagnitude(tile.delta.value)} on the ${tile.delta.basis} — ${judgement} movement.`;
+}
+
+/**
+ * Page 7's caption. Deliberately NOT `positionTitle`, which is the page's own
+ * heading: a commentary block that restates the title pads the page's density
+ * with an echo, which is the opposite of what spec §5.7's three-block rule is
+ * for. This says what the title does not — how the near-term obligations are
+ * covered.
+ */
+export function positionCaption(set: PackFigureSet): string {
+  const { currentAssets, currentLiabilities } = set.current;
+  const workingCapital = currentAssets - currentLiabilities;
+  const cover = marginPct(currentAssets, currentLiabilities);
+  const coverClause = cover === null
+    ? 'Current liabilities are not a positive base, so no cover percentage is meaningful'
+    : `Current assets cover current liabilities ${formatPctMagnitude(cover)}`;
+  return `${coverClause}; working capital stands at ${formatMoney(workingCapital)}.`;
+}
+
+/**
+ * Page 8's caption, and the place the cash bridge's plug is explained.
+ *
+ * `residual` is the movement in cash the three captured categories do not
+ * account for. The bridge draws it as a named bar so the chart foots; a
+ * reader must be told it is unexplained rather than left to assume it is
+ * something we measured.
+ */
+export function cashCaption(set: PackFigureSet, residual: number | null): string {
+  const ocf = set.current.operatingCashFlow;
+  const lead = ocf === undefined
+    ? 'No operating cash flow figure was captured for this period.'
+    : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${formatMoney(Math.abs(ocf))}.`;
+  if (residual === null || residual === 0) return lead;
+  return `${lead} ${formatMoney(Math.abs(residual))} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
+}
+
+/**
+ * Spec §3.5's mandatory negative-equity disclosure, in one place.
+ *
+ * `NegativeEquityBlock.tsx` renders this and the page model carries it, and a
+ * second copy of a MANDATORY disclosure is how the two drift until one of
+ * them stops matching what the pack actually shows.
+ */
+export function negativeEquitySentence(equity: number): string {
+  return `Total equity is ${formatMoney(equity)}. Liabilities exceed assets by this amount, which may affect covenant compliance and the going-concern assessment.`;
 }

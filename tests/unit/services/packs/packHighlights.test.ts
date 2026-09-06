@@ -63,6 +63,12 @@ const negativeRevenueSet: PackFigureSet = {
   budget: null,
 };
 
+/** `setWithPrior` with the prior period overridden — the prior is what these
+ *  polarity fixtures need to move. */
+function withPrior(overrides: Partial<ReportPackFigures>): PackFigureSet {
+  return { ...setWithPrior, prior: figures({ revenue: 900_000, costOfSales: 560_000, netProfit: 90_000, cash: 130_000, ...overrides }) };
+}
+
 describe('buildHighlightTiles', () => {
   // Spec §4.A page 3 names eight tiles, in this order. The original four were
   // half the page: the model built a highlights strip the composer could not
@@ -80,13 +86,52 @@ describe('buildHighlightTiles', () => {
   // A rising debtor book and rising gearing are WORSE periods. Marking either
   // favourable because the percentage is positive flatters the reading in the
   // one direction a board would not question.
-  it('marks a rise in debtor days and gearing unfavourable, not favourable', () => {
-    const tiles = buildHighlightTiles(setWithPrior, trend, new PackFigureProvenance());
+  //
+  // Both metrics are moved in BOTH directions here on purpose. An earlier
+  // version of this test ran against `setWithPrior`, whose prior override
+  // leaves liabilities, equity and receivables untouched — so debt-to-equity's
+  // delta was exactly zero and that half of the assertion could not fail.
+  const gearingRose = withPrior({ totalLiabilities: 200_000, totalEquity: 700_000, accountsReceivable: 60_000 });
+  const gearingFell = withPrior({ totalLiabilities: 500_000, totalEquity: 400_000, accountsReceivable: 150_000 });
+
+  it('marks a RISE in debtor days and gearing unfavourable', () => {
+    const tiles = buildHighlightTiles(gearingRose, trend, new PackFigureProvenance());
     for (const label of ['Debtor days', 'Debt-to-equity']) {
       const delta = tiles.find((t) => t.label === label)?.delta;
-      if (delta && delta.value > 0) expect(delta.favourable, label).toBe(false);
-      if (delta && delta.value < 0) expect(delta.favourable, label).toBe(true);
+      expect(delta, label).not.toBeNull();
+      expect(delta!.value, label).toBeGreaterThan(0);
+      expect(delta!.favourable, label).toBe(false);
     }
+  });
+
+  it('marks a FALL in debtor days and gearing favourable', () => {
+    const tiles = buildHighlightTiles(gearingFell, trend, new PackFigureProvenance());
+    for (const label of ['Debtor days', 'Debt-to-equity']) {
+      const delta = tiles.find((t) => t.label === label)?.delta;
+      expect(delta, label).not.toBeNull();
+      expect(delta!.value, label).toBeLessThan(0);
+      expect(delta!.favourable, label).toBe(true);
+    }
+  });
+
+  // Revenue is the control: it is not lower-is-better, so the same rise that
+  // is unfavourable above must stay favourable here. Without it, a mutant that
+  // simply inverted every tile's polarity would pass both tests above.
+  it('leaves a rise in revenue favourable', () => {
+    const tiles = buildHighlightTiles(gearingRose, trend, new PackFigureProvenance());
+    const delta = tiles.find((t) => t.label === 'Revenue')?.delta;
+    expect(delta!.value).toBeGreaterThan(0);
+    expect(delta!.favourable).toBe(true);
+  });
+
+  // Brightsphere reaches this: `debtorDays` is receivables over revenue, and a
+  // net-debit revenue printed "−4 days" — a debtor book collected before the
+  // sale. Nothing inspected a tile VALUE, which is why it shipped.
+  it('marks debtor days notMeaningful on non-positive revenue rather than printing a negative day count', () => {
+    const tiles = buildHighlightTiles(negativeRevenueSet, [], new PackFigureProvenance());
+    const debtorDays = tiles.find((t) => t.label === 'Debtor days');
+    expect(debtorDays?.figure.value).toBeNull();
+    expect(debtorDays?.figure.unavailable).toMatch(/revenue is not positive/i);
   });
 
   it('states a delta against the prior period when one exists', () => {

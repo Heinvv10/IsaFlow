@@ -23,6 +23,9 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
+import { toMoneyScale } from '@/lib/format/money';
+import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
+import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 
 function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
   return {
@@ -348,6 +351,161 @@ describe('buildBoardPackPages', () => {
       expect(narratives.some((x) => x.status === 'pending'), `page ${n}`).toBe(true);
       expect(narratives.every((x) => x.status !== 'draft'), `page ${n}`).toBe(true);
     }
+  });
+
+  // The 1000x defect: `PackTable.scale` said "R'000" while `formatMoney` had
+  // no scale handling at all, so R4 200 000 printed as `4 200 000` under a
+  // thousands header. Eighteen tests passed because not one read a formatted
+  // cell against the header above it. This is that assertion.
+  it('formats a statement cell at the scale its own header states', () => {
+    const scale = toMoneyScale(doc.numberConvention.scale);
+    expect(scale, doc.numberConvention.scale).not.toBeNull();
+
+    const table = doc.pages.find((p) => p.number === 5)!.blocks
+      .flatMap((b) => (b.kind === 'table' ? [b.table] : []))[0]!;
+    expect(table.scale).toBe(doc.numberConvention.scale);
+
+    const revenue = table.rows.find((r) => r.label === 'Revenue')!.figures.actual!;
+    expect(revenue.value).toBe(4_200_000);
+    expect(formatFigureText(revenue, scale!)).toBe('4 200');
+  });
+
+  it('keeps every model figure RAW, so no display scale reaches the integrity gate', () => {
+    const recorded = doc.provenance.all().get('packFigureSet.current.revenue')!;
+    expect(recorded.length).toBeGreaterThan(0);
+    expect(recorded.every((f) => f.value === 4_200_000)).toBe(true);
+  });
+
+  it('states its scale in every table header', () => {
+    for (const page of doc.pages) {
+      for (const block of page.blocks) {
+        if (block.kind === 'table') expect(block.table.scale, `page ${page.number}`).toBe(doc.numberConvention.scale);
+      }
+    }
+  });
+
+  // Brightsphere's net-debit revenue drove `debtorDays` negative and printed
+  // "-4 days". Nothing inspected a tile VALUE, only counts and nullness of
+  // deltas, which is why it shipped.
+  it('prints no figure whose value is an artefact of an impossible base', () => {
+    const doc2 = buildBoardPackPages(brightsphereInput);
+    const tiles = doc2.pages.find((p) => p.number === 3)!.blocks
+      .flatMap((b) => (b.kind === 'kpiTiles' ? b.tiles : []));
+    for (const label of ['Debtor days', 'Debt-to-equity', 'Gross margin']) {
+      const tile = tiles.find((t) => t.label === label)!;
+      expect(tile.figure.value, label).toBeNull();
+      expect(tile.figure.unavailable, label).toBeTruthy();
+    }
+    // And nothing anywhere in the pack reports a negative day count.
+    for (const list of doc2.provenance.all().values()) {
+      for (const figure of list) {
+        if (figure.format === 'days' && figure.value !== null) {
+          expect(figure.value, figure.source).toBeGreaterThanOrEqual(0);
+        }
+      }
+    }
+  });
+
+  it('foots the profit bridge on its own endpoints', () => {
+    const chart = doc.pages.find((p) => p.number === 6)!.blocks
+      .flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
+    const bars = chart.waterfallBars!;
+    expect(bars.length).toBeGreaterThan(3);
+    expect(bars[0]!.kind).toBe('open');
+    expect(bars[bars.length - 1]!.kind).toBe('close');
+    expect(bars[bars.length - 1]!.end).toBe(demoSet.current.netProfit);
+    // Every bar that is not a subtotal reset continues from the previous end.
+    for (let i = 1; i < bars.length; i += 1) {
+      if (bars[i]!.start !== 0) expect(bars[i]!.start, bars[i]!.label).toBe(bars[i - 1]!.end);
+    }
+  });
+
+  it('closes the cash bridge on the closing balance, plug included', () => {
+    const chart = doc.pages.find((p) => p.number === 8)!.blocks
+      .flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
+    const bars = chart.waterfallBars!;
+    expect(bars[0]!.end).toBe(demoSet.prior!.cash);
+    expect(bars[bars.length - 1]!.end).toBe(demoSet.current.cash);
+    // The last MOVEMENT bar must land exactly on the closing bar — that is
+    // what the named "Unexplained movement" plug is for.
+    expect(bars[bars.length - 2]!.end).toBe(demoSet.current.cash);
+  });
+
+  it('tells the reader the cash bridge carries an unexplained movement', () => {
+    const notes = doc.pages.find((p) => p.number === 8)!.blocks
+      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []));
+    expect(notes.some((n) => /not explained/i.test(n.body))).toBe(true);
+  });
+
+  it('draws the trends page as LINE panels at the half height', () => {
+    const panels = doc.pages.find((p) => p.number === 10)!.blocks
+      .flatMap((b) => (b.kind === 'smallMultiples' ? b.panels : []));
+    expect(panels.length).toBeGreaterThan(0);
+    expect(panels.every((p) => p.kind === 'line')).toBe(true);
+    expect(panels.every((p) => p.heightMm === CHART_HEIGHT_MM.half)).toBe(true);
+  });
+
+  it('never restates a page title as that page\'s commentary', () => {
+    for (const source of [doc, buildBoardPackPages(brightsphereInput)]) {
+      for (const page of source.pages) {
+        for (const block of page.blocks) {
+          if (block.kind !== 'disclosure') continue;
+          for (const item of block.disclosure.notes) {
+            expect(item.body.trim(), `page ${page.number}`).not.toBe(page.title.trim());
+          }
+        }
+      }
+    }
+  });
+
+  it('points every sparkline tile at a real footnote on its own page', () => {
+    const highlights = doc.pages.find((p) => p.number === 3)!;
+    const numbers = new Set(highlights.footnotes.map((f) => f.number));
+    expect(numbers.size).toBeGreaterThan(0);
+    const tiles = highlights.blocks.flatMap((b) => (b.kind === 'kpiTiles' ? b.tiles : []));
+    for (const tile of tiles) {
+      if (tile.sparklineSvg !== null) expect(numbers.has(tile.trendFootnote!), tile.label).toBe(true);
+      else expect(tile.trendFootnote, tile.label).toBeNull();
+    }
+  });
+
+  // `ReportPackInput.operatingProfit` is OPTIONAL, so undefined is
+  // type-reachable. Page 3 read it as null-with-a-reason and the statement
+  // tables read the classifier's documented fallback — against the SAME
+  // provenance source. Two readings of one source throws in
+  // `assertConsistent`, which takes the whole render with it: the pack does
+  // not fail a cell, it fails to exist.
+  it('renders when the classifier supplied no operating profit line', () => {
+    const noOperatingLine = buildBoardPackPages({
+      ...demoInput,
+      set: {
+        ...demoSet,
+        current: figures({ operatingProfit: undefined }),
+        prior: figures({ revenue: 3_750_000, netProfit: 388_000, operatingProfit: undefined }),
+      },
+    });
+    expect(() => noOperatingLine.provenance.assertConsistent()).not.toThrow();
+    expect(noOperatingLine.pages).toHaveLength(12);
+    const readings = noOperatingLine.provenance.all().get('packMetricReads.operatingProfit')!;
+    expect(readings.length).toBeGreaterThan(1);
+    expect(new Set(readings.map((f) => f.value)).size).toBe(1);
+    expect(readings[0]!.value).not.toBeNull();
+  });
+
+  // Capital expenditure is optional on `ReportPackInput`. Zeroing it reports
+  // a company that bought nothing, which is a statement about the business
+  // rather than about our data — and the two cash rows beside it already say
+  // "not captured" when their own figure is absent (R-P44/R-P45).
+  it('says capital expenditure was not captured rather than reporting zero investing', () => {
+    const noCapex = buildBoardPackPages({
+      ...demoInput,
+      set: { ...demoSet, current: figures({ capitalExpenditure: undefined }) },
+    });
+    const table = noCapex.pages.find((p) => p.number === 8)!.blocks
+      .flatMap((b) => (b.kind === 'table' ? [b.table] : []))[0]!;
+    const investing = table.rows.find((r) => r.label === 'Investing cash flow')!.figures.actual!;
+    expect(investing.value).toBeNull();
+    expect(investing.unavailable).toMatch(/capital expenditure/i);
   });
 
   it('records every figure it renders in the provenance map', () => {

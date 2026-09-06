@@ -32,6 +32,7 @@ import type {
   PackPagesDocument,
 } from './packPageModel';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import type { MoneyScale } from '@/lib/format/money';
 
 export interface PackBasis {
   basisOfPreparation: PackBasisOfPreparation;
@@ -46,7 +47,15 @@ export interface PackBasis {
 const STANDARD = 'IFRS for SMEs';
 const SOURCE_SYSTEM = 'IsaFlow general ledger';
 const CURRENCY = 'ZAR';
-const SCALE = "R'000";
+
+/**
+ * The pack's ONE scale, exported so a statement table's own header and the
+ * document's `numberConvention` cannot state different ones — two constants
+ * spelling "R'000" is one edit away from a table headed in thousands whose
+ * cells are formatted in rands. Typed `MoneyScale` so `formatMoney` accepts
+ * it without a cast at the render boundary.
+ */
+export const PACK_SCALE: MoneyScale = "R'000";
 
 const LEDGER_VERSION_UNAVAILABLE =
   'unavailable — no ledger watermark was supplied for this pack render';
@@ -95,7 +104,7 @@ export function buildBasis(
       extractedAt: doc.generatedAt,
       ledgerVersion: ledgerVersion ?? LEDGER_VERSION_UNAVAILABLE,
     },
-    numberConvention: { scale: SCALE, currency: CURRENCY },
+    numberConvention: { scale: PACK_SCALE, currency: CURRENCY },
     definitions: RATIO_DEFINITIONS,
     caveats,
   };

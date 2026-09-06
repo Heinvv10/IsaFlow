@@ -14,6 +14,16 @@
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
+import {
+  DEBTOR_DAYS_SOURCE,
+  DEBT_TO_EQUITY_SOURCE,
+  OPERATING_PROFIT_SOURCE,
+  operatingProfitOf,
+  readDebtToEquity,
+  readDebtorDays,
+  type PackMetricRead,
+} from '@/modules/accounting/services/packs/figures/packMetricReads';
+import type { PackFigureFormat } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { toFinancialData } from './packScorecard';
 import {
   PackFigureProvenance,
@@ -21,7 +31,7 @@ import {
 } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
-import { trendOption } from '@/modules/accounting/services/packs/packChartOptions';
+import { sparklineOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { PackKpiDelta, PackKpiTile } from './packPageModel';
 
@@ -29,12 +39,21 @@ import type { PackKpiDelta, PackKpiTile } from './packPageModel';
  *  chart heights (`CHART_HEIGHT_MM`), at a KPI-tile width. */
 const SPARKLINE_SIZE = { widthMm: 60, heightMm: CHART_HEIGHT_MM.inline };
 
-/** Percentage change of `current` against `prior`. Null when `prior` is zero
- *  — "changed by -100%… from what?" is as meaningless as dividing by it. */
+/**
+ * Percentage change of `current` against `prior`, through `marginPct` — the
+ * repo's ONE percentage definition.
+ *
+ * This used to divide by `Math.abs(prior)`, which reports a movement off a
+ * NEGATIVE base. The statement tables and every derived caption go through
+ * `marginPct`, which refuses that base for the reason its own doc gives: the
+ * sign of the result stops tracking the sign of the story. Two conventions in
+ * one pack meant a tile and the table under it could describe the same
+ * movement in opposite directions the moment a prior period ran at a loss —
+ * this codebase already has a documented history of four competing margin
+ * definitions, and this was a fifth.
+ */
 function pctChange(current: number, prior: number): number | null {
-  if (prior === 0) return null;
-  const value = ((current - prior) / Math.abs(prior)) * 100;
-  return Number.isFinite(value) ? Math.round(value * 10) / 10 : null;
+  return marginPct(current - prior, prior);
 }
 
 /** `lowerIsBetter` is why this cannot be `value > 0` for every tile: debtor
@@ -51,7 +70,7 @@ function deltaFor(current: number, prior: number | null, lowerIsBetter: boolean)
 function sparklineFor(points: PackTrendPoint[], series: (p: PackTrendPoint) => number): PackKpiTile['sparklineSvg'] {
   if (points.length === 0) return null;
   const trendPoints = points.map((point) => ({ label: point.label, value: series(point) }));
-  return renderChartSvg(trendOption(trendPoints), SPARKLINE_SIZE);
+  return renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE);
 }
 
 function buildTile(
@@ -72,18 +91,18 @@ function buildTile(
   };
 }
 
-/** A ratio the engine may report as not meaningful — the reason is read from
- *  its own `notMeaningful` map, never invented here. */
-function ratioFigure(
+/** Records a shared metric reading. The reading itself lives in
+ *  `packMetricReads` because the scorecard shows two of these same metrics
+ *  against the same provenance sources. */
+function recordRead(
   p: PackFigureProvenance,
   source: string,
-  value: number | null,
-  format: 'ratio',
-  reason: string | undefined,
+  read: PackMetricRead,
+  format: PackFigureFormat,
 ): PackFigure {
-  return value === null
-    ? p.figure(source, null, format, reason ?? 'This ratio has no meaning on the current equity base.')
-    : p.figure(source, value, format);
+  return read.value === null
+    ? p.figure(source, null, format, read.unavailable ?? 'This metric could not be computed from the available figures.')
+    : p.figure(source, read.value, format, undefined, read.basis);
 }
 
 export function buildHighlightTiles(
@@ -115,32 +134,23 @@ export function buildHighlightTiles(
   const ratios = calculateExtendedRatios(toFinancialData(current));
   const priorRatios = prior ? calculateExtendedRatios(toFinancialData(prior)) : null;
 
-  const operatingProfit =
-    current.operatingProfit === undefined
-      ? p.figure(
-          'packFigureSet.current.operatingProfit',
-          null,
-          'money',
-          'No operating profit line was classified for this period.',
-        )
-      : p.figure('packFigureSet.current.operatingProfit', current.operatingProfit, 'money');
-
-  // Same source string the scorecard reads these two from, deliberately: one
+  // Same sources and the same readings the scorecard uses, deliberately: one
   // source issued twice with the SAME value is what `assertConsistent` is for,
-  // and a second source name for the same field is how the headline tile and
-  // the scorecard row start disagreeing without anything noticing.
-  const leverage = ratioFigure(p, 'calculateExtendedRatios.debtToEquity', ratios.debtToEquity, 'ratio', ratios.notMeaningful.debtToEquity);
-  const debtorDays = p.figure('calculateExtendedRatios.debtorDays', ratios.debtorDays, 'days');
+  // and a second reading of one source is how the headline tile and the
+  // scorecard row start disagreeing — which throws, taking the render with it.
+  const operatingProfit = p.figure(OPERATING_PROFIT_SOURCE, operatingProfitOf(current), 'money');
+  const leverage = recordRead(p, DEBT_TO_EQUITY_SOURCE, readDebtToEquity(ratios), 'ratio');
+  const debtorDays = recordRead(p, DEBTOR_DAYS_SOURCE, readDebtorDays(ratios, current), 'days');
   const workingCapital = p.figure('calculateExtendedRatios.workingCapital', ratios.workingCapital, 'money');
 
   return [
     buildTile('Revenue', revenue, prior?.revenue ?? null, sparklineFor(trend, (t) => t.revenue)),
     buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, null),
-    buildTile('Operating profit', operatingProfit, prior?.operatingProfit ?? null, null),
+    buildTile('Operating profit', operatingProfit, prior ? operatingProfitOf(prior) : null, null),
     buildTile('Net profit', netProfit, prior?.netProfit ?? null, sparklineFor(trend, (t) => t.netProfit)),
     buildTile('Cash', cash, prior?.cash ?? null, null),
     buildTile('Debt-to-equity', leverage, priorRatios?.debtToEquity ?? null, null, true),
-    buildTile('Debtor days', debtorDays, priorRatios?.debtorDays ?? null, null, true),
+    buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, null, true),
     buildTile('Working capital', workingCapital, priorRatios?.workingCapital ?? null, null),
   ];
 }

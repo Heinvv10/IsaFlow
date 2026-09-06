@@ -9,7 +9,7 @@
  * carry the negative-equity disclosure, so a non-negative figure has nothing
  * for it to say.
  */
-import { formatMoney } from '@/lib/format/money';
+import { negativeEquitySentence } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 
 export interface NegativeEquityBlockProps {
   equity: number;
@@ -21,10 +21,7 @@ export function NegativeEquityBlock({ equity }: NegativeEquityBlockProps) {
   return (
     <div className="pack-disclosure pack-disclosure-negative-equity">
       <h3 className="pack-disclosure-heading">Negative equity</h3>
-      <p className="pack-disclosure-body">
-        Total equity is {formatMoney(equity)}. Liabilities exceed assets by this amount, which
-        may affect covenant compliance and the going-concern assessment.
-      </p>
+      <p className="pack-disclosure-body">{negativeEquitySentence(equity)}</p>
     </div>
   );
 }
