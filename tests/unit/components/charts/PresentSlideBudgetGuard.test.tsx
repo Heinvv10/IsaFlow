@@ -77,3 +77,17 @@ describe('PresentSlide ratios slide budget guard', () => {
     expect(container.textContent).toContain('Budget variance');
   });
 });
+
+describe('PresentSlide ratios slide with a budget but no returned lines', () => {
+  it('does not claim "no budget was captured" when budgetedCount says one was', () => {
+    // budgetedCount is the tenant fact; the line list is the payload. When
+    // they disagree the chart frame's own empty-list copy is the honest one.
+    const { container } = render(
+      <PresentSlide
+        slide={RATIOS_SLIDE} income={null} trends={null} trendsFailed={false}
+        budget={[]} budgetedCount={3} budgetFailed={false}
+      />,
+    );
+    expect(container.textContent).not.toContain('No budget was captured');
+  });
+});

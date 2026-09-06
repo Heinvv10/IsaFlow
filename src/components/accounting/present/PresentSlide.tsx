@@ -125,7 +125,11 @@ export function PresentSlide({
   }
 
   if (slide.kind === 'ratios') {
-    if (hasBudgetData(budgetedCount) && budget.length > 0) {
+    // `hasBudgetData` alone. A second `budget.length > 0` here would send a
+    // tenant that HAS a budget but no returned line to the "No budget was
+    // captured" note, which is then untrue; `BudgetBulletRow` already draws
+    // its own "no account carries a budget" copy for an empty list.
+    if (hasBudgetData(budgetedCount)) {
       return (
         <>
           <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
