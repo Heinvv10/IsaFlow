@@ -17,6 +17,7 @@ import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
 import { useComparatorColumns } from '@/components/accounting/reportControls/useComparatorColumns';
+import { useDensity } from '@/components/accounting/reportControls/useDensity';
 import { useStatementComparators } from '@/components/accounting/reportControls/useStatementComparators';
 import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 
@@ -103,7 +104,8 @@ export default function IncomeStatementPage() {
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
   // column cannot be on with no comparative period behind it.
-  const { columns: chosen, setColumns } = useComparatorColumns();
+  const density = useDensity();
+  const { columns: chosen, setColumns } = useComparatorColumns(density);
   // The trend and the budget are COMPANY-WIDE: `trendRowsService` applies no
   // cost-centre filter and `getBudgetVariance` takes no cost centre. With one
   // selected, those two columns would print a company figure in the same row

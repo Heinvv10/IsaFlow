@@ -38,6 +38,10 @@ changed an amount would make two screens disagree about the same period.
 - **Variance needs something to vary against.** Turning off the last
   comparator turns Variance off too; the box is disabled while none is on.
   Four empty cells per row read as a broken report, not as an off switch.
+- **One `useDensity` per page.** It owns a preference GET and a PUT, so a
+  second instance means two reads on mount and a toggle whose change the other
+  copy never sees. `useComparatorColumns` takes the density as an argument;
+  the page holds the single instance and threads it wherever it is needed.
 - **The trend column is independent of any comparator** — it is the account's
   own twelve months, not a comparison.
 - **The trend and the budget are COMPANY-WIDE, and a selected cost centre

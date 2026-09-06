@@ -10,18 +10,26 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StatementColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
-import { useDensity, type Density } from './useDensity';
+import type { Density } from './useDensity';
 
 export const DENSITY_COLUMNS: Record<Density, StatementColumns> = {
   owner: { prior: false, budget: false, variance: false, trend: false },
   accountant: { prior: true, budget: false, variance: true, trend: false },
 };
 
-export function useComparatorColumns(): {
+/**
+ * The density is PASSED IN rather than read with a second `useDensity()`.
+ * That hook owns a fetch and a save; a page that also renders a
+ * `DensityToggle` would otherwise hold two independent copies of the same
+ * preference — two GETs on mount, and a toggle whose change the seeding copy
+ * never sees. One instance per page, threaded through.
+ */
+export function useComparatorColumns(
+  { density, loading }: { density: Density; loading: boolean },
+): {
   columns: StatementColumns;
   setColumns: (next: StatementColumns) => void;
 } {
-  const { density, loading } = useDensity();
   const [columns, setState] = useState<StatementColumns>(DENSITY_COLUMNS.owner);
   const touched = useRef(false);
 
