@@ -17,13 +17,39 @@ describe('buildCashPositionOption', () => {
   const opt = asRec(buildCashPositionOption(POINTS, DEFAULT_PALETTE));
 
   it('plots the values it was given, in order', () => {
-    expect((opt['series'] as Array<{ data: number[] }>)[0]!.data).toEqual(POINTS.map((p) => p.value));
+    expect((opt['series'] as Array<{ data: Array<{ value: number }> }>)[0]!.data.map((d) => d.value))
+      .toEqual(POINTS.map((p) => p.value));
     expect((opt['xAxis'] as { data: string[] }).data).toEqual(['Cash', 'AR', 'AP', 'NWC']);
   });
 
-  it('draws every bar in one ink, so no category is emphasised by colour', () => {
-    expect((opt['series'] as Array<{ itemStyle: { color: string } }>)[0]!.itemStyle.color)
-      .toBe(DEFAULT_PALETTE.ink);
+  const inks = (o: Record<string, unknown>) =>
+    (o['series'] as Array<{ data: Array<{ itemStyle: { color: string } }> }>)[0]!
+      .data.map((d) => d.itemStyle.color);
+
+  it('draws every non-negative bar in actual ink, emphasising no category', () => {
+    expect(inks(opt)).toEqual(Array(POINTS.length).fill(DEFAULT_PALETTE.ink));
+  });
+
+  it('marks a bar below zero unfavourable, so an overdraft is not invisible', () => {
+    // The two readings on this chart a reader must not miss are an overdrawn
+    // bank balance and negative working capital. In one ink they pointed down
+    // and said nothing else.
+    const mixed = asRec(buildCashPositionOption([
+      { name: 'Cash', value: -120_000 },
+      { name: 'AR', value: 1_250_000 },
+      { name: 'NWC', value: -300_000 },
+    ], DEFAULT_PALETTE));
+    expect(inks(mixed)).toEqual([
+      DEFAULT_PALETTE.unfav, DEFAULT_PALETTE.ink, DEFAULT_PALETTE.unfav,
+    ]);
+  });
+
+  it('never paints a positive bar favourable, because these are measures not variances', () => {
+    // A large payables balance is a normal liability. Green on it would claim
+    // good news the figure does not carry.
+    const ap = asRec(buildCashPositionOption([{ name: 'AP', value: 690_000 }], DEFAULT_PALETTE));
+    expect(inks(ap)).toEqual([DEFAULT_PALETTE.ink]);
+    expect(inks(ap)).not.toContain(DEFAULT_PALETTE.fav);
   });
 
   it('anchors the axis at zero', () => {

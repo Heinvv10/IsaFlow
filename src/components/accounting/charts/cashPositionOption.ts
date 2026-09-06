@@ -1,14 +1,21 @@
 /**
  * Cash, receivables, payables and net working capital, side by side.
- * One ink for every bar: these are four measures of the same position, and
- * colouring one of them differently would claim a distinction the figures
- * do not make.
+ *
+ * Colour carries ONE fact here: whether the figure is below zero. An
+ * overdrawn bank balance and negative working capital are the two readings
+ * on this chart a reader must not miss, and drawn in the same ink as a
+ * healthy one they were invisible — the bar simply pointed down.
+ *
+ * A non-negative bar stays actual ink; it is NOT painted favourable. These
+ * are four different measures, not four variances: a large payables balance
+ * is a normal liability, and green on it would claim good news the figure
+ * does not carry. Only `varianceColor` issues red, as everywhere else.
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import { formatMoney } from '@/lib/format/money';
 import type { ChartPalette } from './chartTypes';
 import { escapeHtml } from './escapeHtml';
-import { axisDomain, roleStyle } from './ibcs';
+import { axisDomain, roleStyle, varianceColor } from './ibcs';
 
 export interface CashPositionPoint {
   name: string;
@@ -20,6 +27,9 @@ export function buildCashPositionOption(
   palette: ChartPalette,
 ): EChartsCoreOption {
   const actual = roleStyle('actual', palette);
+  // `varianceColor(false)` is the one source of unfavourable ink in the app.
+  const belowZero = varianceColor(false, palette) ?? actual.color;
+  const inkFor = (value: number) => (value < 0 ? belowZero : actual.color);
   return {
     grid: { left: 8, right: 8, top: 16, bottom: 8, containLabel: true },
     tooltip: {
@@ -43,8 +53,7 @@ export function buildCashPositionOption(
     series: [
       {
         type: 'bar',
-        data: points.map((p) => p.value),
-        itemStyle: { color: actual.color },
+        data: points.map((p) => ({ value: p.value, itemStyle: { color: inkFor(p.value) } })),
         barMaxWidth: 48,
       },
     ],

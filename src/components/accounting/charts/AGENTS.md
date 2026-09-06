@@ -42,4 +42,7 @@ source of `--ff-fav` / `--ff-unfav`. A category is never coloured by name —
 - `bulletOption.ts` / `BudgetBulletRow.tsx` — budget bullets. Polarity from
   the service's favourably-signed `variance`, never from bar length.
 - `smallMultiplesOption.ts` / `SmallMultiples.tsx` — 12 months per account.
-- `cashPositionOption.ts` / `CashPositionChart.tsx` — the executive dashboard bar.
+- `cashPositionOption.ts` / `CashPositionChart.tsx` — the executive dashboard
+  bar. Colour says one thing: below zero is unfavourable. A non-negative bar
+  stays actual ink and is never painted favourable — these are four measures,
+  not four variances, and green on a payables balance would claim good news.
