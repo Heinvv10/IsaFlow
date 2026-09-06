@@ -1,3 +1,5 @@
+@import './packPrint.css';
+
 /**
  * print.css — rules for the Playwright PDF pipeline
  * (src/lib/pdf/renderPagePdf.ts).
