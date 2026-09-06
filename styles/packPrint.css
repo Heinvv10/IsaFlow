@@ -57,3 +57,57 @@ html.print-mode tr,
 html.print-mode [data-pack-block] {
   break-inside: avoid;
 }
+
+html.print-mode {
+  --pack-gutter: 8mm;
+  --pack-baseline: 6mm;
+  --pack-ink: #1a1a1a;
+  --pack-grey-strong: #4a4a4a;
+  --pack-grey-mid: #8a8a8a;
+  --pack-rule: #d8d8d8;
+  --pack-tint: #f5f5f5;
+  /* Overridden per-request by the brand style block — Task 5. */
+  --pack-brand: #1a3a5c;
+  --pack-brand-ink: #ffffff;
+}
+
+.pack-page {
+  break-after: page;
+  /* 297mm less the 20/22mm page margins. Fixed so density is measurable
+   * rather than a matter of opinion at review time. */
+  min-height: 255mm;
+  display: flex;
+  flex-direction: column;
+  color: var(--pack-ink);
+}
+.pack-page:last-child { break-after: auto; }
+
+.pack-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--pack-gutter);
+  align-items: start;
+}
+
+.pack-title {
+  font-size: 20pt; line-height: 24pt; font-weight: 600;
+  margin: 0 0 3mm; padding-bottom: 2mm;
+  border-bottom: 2pt solid var(--pack-brand);
+}
+.pack-section-heading { font-size: 13pt; line-height: 18pt; font-weight: 600; margin: 0 0 2mm; }
+.pack-kpi-value { font-family: var(--pack-font-mono); font-size: 28pt; line-height: 30pt; font-weight: 500; }
+.pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: auto; padding-top: 3mm; }
+
+.pack-table { width: 100%; border-collapse: collapse; font-size: 9pt; line-height: 13pt; }
+.pack-table th {
+  font-size: 8pt; line-height: 12pt; text-transform: uppercase; letter-spacing: 0.06em;
+  font-weight: 500; text-align: right; padding: 1.5mm 2mm;
+  border-bottom: 1pt solid var(--pack-ink);
+}
+.pack-table th:first-child, .pack-table td:first-child { text-align: left; }
+.pack-table td { padding: 1.2mm 2mm; text-align: right; font-family: var(--pack-font-mono); }
+.pack-table td:first-child { font-family: var(--pack-font-sans); }
+.pack-table tbody tr.is-subtotal td { font-weight: 500; border-top: 1pt solid var(--pack-rule); }
+.pack-table tbody tr.is-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); }
+.pack-table tbody tr.is-grand-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); border-bottom: 3pt double var(--pack-ink); }
+.pack-table.is-long tbody tr:nth-child(even) td { background: var(--pack-tint); }

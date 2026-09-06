@@ -35,3 +35,26 @@ describe('pack print CSS', () => {
     expect(pageBlock).not.toMatch(/margin/);
   });
 });
+
+describe('pack print grid and scale', () => {
+  const REQUIRED_CLASSES = [
+    '.pack-page', '.pack-grid', '.pack-title', '.pack-section-heading',
+    '.pack-table', '.pack-footnotes', '.pack-kpi-value',
+  ];
+
+  it('defines every class the page components rely on', () => {
+    for (const cls of REQUIRED_CLASSES) {
+      expect(RULES, cls).toContain(cls);
+    }
+  });
+
+  it('uses a 12-column grid with an 8mm gutter', () => {
+    expect(RULES).toMatch(/--pack-gutter:\s*8mm/);
+    expect(RULES).toMatch(/grid-template-columns:\s*repeat\(12,/);
+  });
+
+  it('has no vertical table rules', () => {
+    // IBCS: horizontal rules only. A border-left/right on a cell is the failure.
+    expect(RULES).not.toMatch(/\.pack-table[^{]*\{[^}]*border-(left|right):/);
+  });
+});
