@@ -74,7 +74,7 @@ interface Captured {
   setCookies: string[];
 }
 
-async function callWithAuth(url: string, token: string, companyId = COMPANY): Promise<Captured> {
+async function callWithAuth(url: string, token: string, companyId = COMPANY, method = 'GET'): Promise<Captured> {
   const captured: Captured = { status: null, body: null, setCookies: [] };
   const res = {
     setHeader: (name: string, value: string | string[]) => {
@@ -96,7 +96,7 @@ async function callWithAuth(url: string, token: string, companyId = COMPANY): Pr
 
   const req = {
     url,
-    method: 'GET',
+    method,
     headers: { cookie: `${ACCESS_COOKIE}=${token}; ${ACTIVE_COMPANY_COOKIE}=${companyId}` },
   } as unknown as NextApiRequest;
 
@@ -171,5 +171,30 @@ describe('withAuth — the bound-path check runs through verifyPrintToken', () =
     const captured = await callWithAuth(PACK, forged);
     expect(captured.status).toBe(401);
     expect(captured.setCookies.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * ADVERSARIAL LOW-1: the token bound a path SET but no verb, so it authorised
+ * any method on a bound path. Every bound path is a read today, but a token is
+ * replay-bounded by its 120-second TTL alone — no nonce, no revocation — so a
+ * captured one would become a write credential the day a bound route grew a
+ * write method. The verb is bound as tightly as the path.
+ */
+describe('withAuth — a print token authorises GETs only', () => {
+  it('refuses every non-GET method on a path the token IS bound to', async () => {
+    const token = mintPrintToken(COMPANY, USER, [PACK]);
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']) {
+      const captured = await callWithAuth(PACK, token, COMPANY, method);
+      expect(captured.status, method).toBe(401);
+      // A genuine token on a write is not a dead session: a render may still
+      // be in flight on the same cookie, so it must not be cleared.
+      expect(captured.setCookies, method).toEqual([]);
+    }
+  });
+
+  it('still accepts the GET the renderer actually issues', async () => {
+    const token = mintPrintToken(COMPANY, USER, [PACK]);
+    await expect(callWithAuth(PACK, token, COMPANY, 'GET')).rejects.toThrow(CONNECT_SENTINEL);
   });
 });

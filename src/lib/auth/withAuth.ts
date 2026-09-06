@@ -67,8 +67,11 @@ export function withAuth(handler: Handler): NextApiHandler {
       // inline copy of that check is how the exact-match rule ended up with
       // no production caller. It is a no-op (always rejected) unless
       // PRINT_TOKEN_SECRET is set, so the branch is disabled by default.
+      // The method goes in too: a print token authorises GETs only, so a
+      // captured one cannot become a write credential if a bound route ever
+      // grows a write method.
       const requestPath = req.url?.split('?')[0] ?? '';
-      const outcome = authenticatePrintToken(token, requestPath, activeCompanyId);
+      const outcome = authenticatePrintToken(token, requestPath, activeCompanyId, req.method);
       if (outcome.kind === 'rejected') {
         if (outcome.clearCookies) {
           log.warn('withAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');

@@ -33,17 +33,33 @@ export type PrintTokenOutcome =
   /** `clearCookies` is true only for a token that is not genuine at all. */
   | { kind: 'rejected'; clearCookies: boolean };
 
+/** The only method a print token can authorise. Every path a token can be
+ *  bound to is a read, and the renderer only ever issues GETs. */
+const PRINT_METHOD = 'GET';
+
 /**
  * Decide whether a print token authorises this request.
  *
  * `requestPath` must already have the query string stripped — the token binds
  * pathnames, and printAuth matches them with `===`, never by prefix.
+ *
+ * `method` is bound as tightly as the path. A token binds a path SET, not a
+ * verb, so if a bound route ever grew a write method a captured token would
+ * become a write credential for its remaining TTL — and the token is
+ * replay-bounded by that TTL alone, with no nonce and no revocation. Every
+ * bound path is a read today; this is what keeps that a property of the code
+ * rather than of the current route table.
  */
 export function authenticatePrintToken(
   token: string,
   requestPath: string,
   activeCompanyId: string,
+  method: string | undefined,
 ): PrintTokenOutcome {
+  // Before the signature is even checked: a genuine token used on a write is
+  // not a dead session, so the cookies stay (the render may still be running).
+  if (method !== PRINT_METHOD) return { kind: 'rejected', clearCookies: false };
+
   const payload = verifyPrintToken(token, requestPath);
   if (payload) {
     // A token is bound to a company as well as a path set: the active-company
