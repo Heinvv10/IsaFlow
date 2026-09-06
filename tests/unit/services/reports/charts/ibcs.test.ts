@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_PALETTE, escapeHtml, paletteFromTheme } from '@/components/accounting/charts/chartTypes';
+import { DEFAULT_PALETTE, paletteFromTheme } from '@/components/accounting/charts/chartTypes';
+import { escapeHtml } from '@/components/accounting/charts/escapeHtml';
 import { roleStyle, varianceColor, axisDomain } from '@/components/accounting/charts/ibcs';
 import { buildTheme } from '@/lib/charts/theme';
 

@@ -23,7 +23,8 @@ import type {
 } from 'echarts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { formatMoney } from '@/lib/format/money';
-import { escapeHtml, type ChartPalette } from './chartTypes';
+import type { ChartPalette } from './chartTypes';
+import { escapeHtml } from './escapeHtml';
 import { axisDomain, roleStyle, varianceColor } from './ibcs';
 
 /** A movement's colour is the variance of the movement itself — favourable

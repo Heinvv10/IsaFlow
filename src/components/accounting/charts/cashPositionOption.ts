@@ -6,7 +6,8 @@
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import { formatMoney } from '@/lib/format/money';
-import { escapeHtml, type ChartPalette } from './chartTypes';
+import type { ChartPalette } from './chartTypes';
+import { escapeHtml } from './escapeHtml';
 import { axisDomain, roleStyle } from './ibcs';
 
 export interface CashPositionPoint {

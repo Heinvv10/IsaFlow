@@ -28,6 +28,9 @@ source of `--ff-fav` / `--ff-unfav`. A category is never coloured by name —
 
 ## Files
 - `chartTypes.ts` — `ChartPalette`, `DEFAULT_PALETTE`, `paletteFromTheme`.
+- `escapeHtml.ts` — the escaping EVERY tooltip/label formatter must apply
+  before interpolating a ledger-sourced string. ECharts renders a formatter's
+  return value as HTML, so an unescaped account name is stored XSS.
 - `ibcs.ts` — `roleStyle`, `varianceColor`, `axisDomain`.
 - `ChartFrame.tsx` — palette resolution, title, unit note, `unavailable` copy.
 - `waterfallOption.ts` / `ProfitWaterfall.tsx` — profit bridge.
