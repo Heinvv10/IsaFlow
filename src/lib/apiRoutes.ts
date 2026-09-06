@@ -39,6 +39,7 @@ import type { MigrationSession } from '@/modules/accounting/services/core/migrat
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
 import type { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
+import type { serialisePackPagesDocument } from '@/modules/accounting/services/packs/pages/packDocumentWire';
 import type { createShareLink, listShareLinks } from '@/modules/accounting/services/share/shareLinkService';
 import type { CommentaryRow, generateDrafts, listCommentary } from '@/modules/accounting/services/commentary/commentaryService';
 import type { createAnnotation, listAnnotations } from '@/modules/accounting/services/annotations/annotationService';
@@ -127,6 +128,14 @@ interface StaticRoutes {
 interface DynamicRoutes {
   '/api/admin/users/{}/impersonate': { redirect: string };
   '/api/accounting/packs/{}/trend': Awaited<ReturnType<typeof getPackTrend>>;
+  // The board pack document, composed server-side. Projected off the
+  // SERIALISER rather than off `PackPagesDocument`, which is the point: the
+  // wire shape differs from the model in exactly two ways (the chart brand is
+  // widened to `string`, the provenance class to an array of figures), and
+  // taking the type from the function that performs that transformation is
+  // what stops the client's `adopt` walk being written against a shape the
+  // server does not send.
+  '/api/accounting/packs/{}/pages': ReturnType<typeof serialisePackPagesDocument>;
   // WS3. Each of these serves POST only, so each has one payload and needs no
   // union. The two commentary verbs return the same row shape by design: an
   // approval and a rejection differ in `status`, not in envelope.

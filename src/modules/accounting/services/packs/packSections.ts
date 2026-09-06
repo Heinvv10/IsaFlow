@@ -74,12 +74,35 @@ export function packTrendApiPath(packType: PackType): `/api/accounting/packs/${P
   return `/api/accounting/packs/${packType}/trend`;
 }
 
+/** The composed twelve-page board pack. Same literal-path typing as
+ *  `packTrendApiPath` above, and for the same reason: `apiJson` resolves the
+ *  document's shape off the route registry rather than off a hand-written
+ *  interface at the call site. */
+export function packPagesApiPath(packType: PackType): `/api/accounting/packs/${PackType}/pages` {
+  return `/api/accounting/packs/${packType}/pages`;
+}
+
 /**
  * The exact API pathnames the printed pack page fetches — and therefore the
  * exact set the print token authorises. One list, read by the page (to build
  * its URLs) and by the download route (to mint the token), so the two cannot
  * drift into a 401 that shows up as an empty chart.
+ *
+ * The two branches are two different printed pages. `pack=board` renders
+ * `PackPagesView` off ONE fetch — the whole document, composed server-side,
+ * because its charts cannot be rendered in a browser — so `reports-pack` and
+ * the trend series are not merely unnecessary there, they are unauthorised,
+ * which is what keeps this list honest. Every other pack still renders the
+ * legacy `PackPrintPage`, which fetches both.
+ *
+ * Getting this wrong does not 401: the renderer STUBS every unlisted /api/*
+ * call with an empty envelope, so an unauthorised fetch returns nothing and
+ * the PDF ships showing a loading state. `packPrintFetchParity.dom.test.tsx`
+ * renders each printed page and pins what it actually fetched to what this
+ * returns.
  */
 export function packPrintApiPaths(packType: PackType): string[] {
-  return [PACK_DATA_API, packTrendApiPath(packType)];
+  return packType === 'board'
+    ? [packPagesApiPath(packType)]
+    : [PACK_DATA_API, packTrendApiPath(packType)];
 }

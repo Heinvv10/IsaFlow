@@ -14,10 +14,13 @@
  * The switch is exhaustive over the union, and the `never` assignment below
  * is what enforces it: a block kind added to the model without a renderer
  * here is a compile error, not a silently blank region of a board pack.
- * There is deliberately no runtime "unknown kind" branch — a `PackPageBlock`
- * is only ever constructed by `buildBoardPackPages` in this same process
- * (R-P41), never parsed from JSON, so an unknown kind cannot reach here at
- * runtime without first failing `tsc`.
+ * There is still deliberately no runtime "unknown kind" branch, but the
+ * reason has changed: R-P41's "composed in the same process" guarantee is
+ * gone — the board pack is now composed server-side and PARSED FROM JSON by
+ * the print page, because `renderChartSvg` cannot run in a browser. What
+ * takes its place is `adoptBlock` in `packDocumentWire.ts`, the single
+ * deserialisation boundary, which refuses an unknown kind (and re-brands
+ * every chart through the guards) before a block can reach this switch.
  */
 import { KpiTileWithSparkline } from '../primitives/KpiTileWithSparkline';
 import { ComparativeTable } from '../primitives/ComparativeTable';

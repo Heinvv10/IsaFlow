@@ -17,6 +17,7 @@ import { useRouter } from 'next/router';
 import { isPrintRender } from '@/lib/pdf/printRenderQuery';
 import { isPackType } from '@/modules/accounting/services/packs/packSections';
 import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
+import { PackPagesPrintPage } from '@/components/accounting/packs/PackPagesPrintPage';
 import { SectionCard, type PackSection } from '@/components/accounting/packs/PackSectionCard';
 import { PackShareButton, PackCommentary } from '@/components/accounting/packs/PackOwnerTools';
 import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
@@ -84,13 +85,18 @@ export default function ReportPacksPage() {
         </p>
       );
     }
-    return (
-      <PackPrintPage
-        packType={requested}
-        from={String(router.query.from ?? '')}
-        to={String(router.query.to ?? '')}
-      />
-    );
+    const from = String(router.query.from ?? '');
+    const to = String(router.query.to ?? '');
+    // BOARD ONLY. The board pack is the one pack composed as the twelve-page
+    // fixed model (`PackPagesView`, off a single server-composed document);
+    // management and monthly still render the legacy section-list pack, and
+    // routing them here would print a board pack under another pack's name.
+    // The branch sits below the pack-type guard so an unknown type is still
+    // refused rather than falling into either renderer.
+    if (requested === 'board') {
+      return <PackPagesPrintPage packType={requested} from={from} to={to} />;
+    }
+    return <PackPrintPage packType={requested} from={from} to={to} />;
   }
 
   return <ReportPacksScreen />;
