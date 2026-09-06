@@ -36,8 +36,6 @@ const MESSAGES: Record<'unavailable' | 'rate_limited', string> = {
   rate_limited: 'Too many requests. Try again in a few minutes.',
 };
 
-const UA_MAX_CHARS = 400;
-
 export default function SharePage(props: PageProps) {
   if (props.state !== 'ok') {
     return (
@@ -85,7 +83,11 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
   const ua = ctx.req.headers['user-agent'];
   const viewCtx = {
     ip: clientIp(ctx.req as unknown as NextApiRequest),
-    userAgent: typeof ua === 'string' ? ua.slice(0, UA_MAX_CHARS) : null,
+    // Raw. `recordShareView` is the only function that writes user_agent and
+    // it clips to 512 there, so the bound lives once, next to the column it
+    // protects. A second, shorter cap here made the effective limit whichever
+    // call site a reader happened to look at.
+    userAgent: typeof ua === 'string' ? ua : null,
   };
   const resolution = await resolveShareLink(ctx.params?.token, viewCtx);
 

@@ -241,7 +241,10 @@ describe('/share/[token] getServerSideProps', () => {
     await getServerSideProps(ctx);
     const [, viewCtx] = resolveShareLink.mock.calls[0] as [unknown, { ip: string | null; userAgent: string | null }];
     expect(viewCtx.ip).toBe('10.0.0.5');
-    expect(viewCtx.userAgent).toHaveLength(400);
+    // Handed on RAW: the only bound is in recordShareView, next to the TEXT
+    // column it protects (512, pinned in shareResolver.test.ts). Two caps meant
+    // the real limit was whichever call site you read.
+    expect(viewCtx.userAgent).toHaveLength(900);
   });
 
   it('takes the last header when the proxy sent x-forwarded-for more than once', async () => {
