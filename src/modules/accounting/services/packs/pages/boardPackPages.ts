@@ -37,21 +37,16 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import {
-  cashCaption,
   cashTitle,
   highlightsTitle,
   incomeStatementTitle,
   largestMoverCaption,
   narrativeTitle,
-  positionCaption,
   positionTitle,
-  negativeEquitySentence,
   resultsTitle,
   scorecardCaption,
   scorecardScore,
   scorecardTitle,
-  tileCaption,
-  trendsCaption,
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { buildBasis, ROUNDING_FOOTNOTES, ROUNDING_NOTE } from './packBasis';
@@ -71,9 +66,17 @@ import {
   buildPositionTable,
   buildResultsTable,
 } from './packStatementTables';
+import {
+  buildCashBlocks,
+  buildHighlightsBlocks,
+  buildPositionBlocks,
+  buildTrendBlocks,
+  commentary,
+  disclose,
+  note,
+} from './packPageBlocks';
 import type { PackMatter } from './packMatters';
 import type {
-  PackDisclosureNote,
   PackFootnote,
   PackNarrative,
   PackPage,
@@ -101,16 +104,6 @@ export interface BoardPackInput {
   ledgerVersion: string | null;
 }
 
-const note = (heading: string, body: string): PackDisclosureNote => ({ heading, body });
-
-const disclose = (heading: string, notes: PackDisclosureNote[]): PackPageBlock => ({
-  kind: 'disclosure',
-  disclosure: { heading, notes },
-});
-
-/** A deterministic caption. See the file header for why this is not a narrative block. */
-const commentary = (body: string): PackPageBlock => disclose('Commentary', [note('This period', body)]);
-
 const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
 
 function page(
@@ -124,11 +117,6 @@ function page(
 ): PackPage {
   return { number, title, section, orientation, density, blocks, footnotes };
 }
-
-/** Page 3's one footnote — spec §4.A page 3's multi-year note under each
- *  tile. Referenced by `PackKpiTile.trendFootnote`, which the tile model
- *  leaves null because the PAGE owns its footnote numbering. */
-const SPARKLINE_FOOTNOTE = 1;
 
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, draft, generatedAt } = input;
@@ -144,27 +132,13 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const scorecard = buildScorecardGroups(set, p);
   const score = scorecardScore(scorecard);
   const cashBridge = buildCashWaterfallChart(set);
+  const cashTrend = buildCashTrendChart(trend);
   const panels = buildTrendPanels(trend);
-  const equity = set.current.totalEquity;
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
-  const highlightTiles = tiles.map((tile) =>
-    tile.sparklineSvg === null ? tile : { ...tile, trendFootnote: SPARKLINE_FOOTNOTE },
-  );
-  const sparklineCount = highlightTiles.filter((t) => t.sparklineSvg !== null).length;
-  const highlights = page(3, highlightsTitle(set), 'Performance', 'high', [
-    { kind: 'kpiTiles', tiles: highlightTiles },
-    // One derived line PER TILE, not a restatement of the page title — a
-    // commentary block echoing the heading pads the page's density with
-    // repetition, which is the opposite of what spec §5.7 asks for.
-    disclose('Commentary', highlightTiles.map((tile) => note(tile.label, tileCaption(tile)))),
-    disclose('Reading these tiles', [
-      note('Comparison basis', 'Each movement is measured against the prior calendar period, stated on the tile itself.'),
-      note('Absent comparatives', 'A tile with no movement shown has no comparative period to measure against; it is never shown as a move from zero.'),
-      note('Scale', `Figures are in ${scale} (${currency}). ${ROUNDING_NOTE}`),
-    ]),
-  ], 'portrait', [{ number: SPARKLINE_FOOTNOTE, text: `Sparklines run over the pack's monthly trend series. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest have no monthly series behind them and show none rather than a line drawn from a single point.` }]);
+  const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency);
+  const highlights = page(3, highlightsTitle(set), 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
 
   // Page 5 — the table every later number traces back to, and the five
   // headline tiles beneath it. The tiles are the SAME objects page 3 carries,
@@ -175,53 +149,9 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     commentary(largestMoverCaption(results.rows)),
   ], 'portrait', ROUNDING_FOOTNOTES);
 
-  const cashBlocks: PackPageBlock[] = [{ kind: 'table', table: cash }];
-  if (cashBridge) cashBlocks.push({ kind: 'chart', chart: cashBridge.chart });
-  else {
-    cashBlocks.push(disclose('No cash bridge', [
-      note('Why', 'Opening cash is the prior period\'s closing balance, and there is no prior period. A bridge opening at zero would assert the business started the period with an empty bank account.'),
-    ]));
-  }
-  const cashTrend = buildCashTrendChart(trend);
-  if (cashTrend) cashBlocks.push({ kind: 'chart', chart: cashTrend });
-  else {
-    cashBlocks.push(disclose('No closing-cash series', [
-      note('Why', 'No monthly trend series covers this period, so no closing-cash line can be drawn.'),
-    ]));
-  }
-  cashBlocks.push(disclose('Commentary', [
-    note('This period', cashCaption(set, cashBridge?.residual ?? null)),
-  ]));
-
-  const positionBlocks: PackPageBlock[] = [
-    { kind: 'table', table: position },
-    { kind: 'chart', chart: buildPositionCompositionChart(set) },
-    commentary(positionCaption(set)),
-  ];
-  if (equity < 0) {
-    positionBlocks.push(disclose('Negative equity', [
-      // One sentence, shared with `NegativeEquityBlock` — a second copy of a
-      // MANDATORY §3.5 disclosure is how the two drift apart.
-      note('Consequence', negativeEquitySentence(equity)),
-    ]));
-  }
-
-  const trendBlocks: PackPageBlock[] = [];
-  if (panels.length > 0) trendBlocks.push({ kind: 'smallMultiples', panels });
-  else {
-    trendBlocks.push(disclose('No trend series', [
-      note('Why', 'No monthly series covers this period, so no panel can be drawn. Nothing is inferred from the period totals in its place.'),
-    ]));
-  }
-  trendBlocks.push(commentary(trendsCaption(panels)));
-  trendBlocks.push(disclose('Reading these panels', [
-    note('Scale', 'Revenue, operating expenses, net profit and cash share one y-scale, so a metric ten times the size of another cannot be mistaken for moving the same amount. Gross margin % and debtor days are different units, so each keeps its own scale.'),
-  ]));
-  if (panels.length < TRENDS_PANELS_SPECIFIED) {
-    trendBlocks.push(disclose('Panels not drawn', [
-      note('Why', `Spec §4.A asks for ${TRENDS_PANELS_SPECIFIED} panels and ${panels.length} are drawn. A panel is omitted only when its figure is not meaningful for every period in the window — gross margin % and debtor days both require positive revenue, and no period here had any. Nothing is inferred from the period totals in its place.`),
-    ]));
-  }
+  const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set);
+  const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set), set);
+  const trendBlocks = buildTrendBlocks(panels);
 
   const matterNotes = input.matters.map((matter) => note(matter.issue, [
     matter.quantum === null ? 'Quantum: not a single amount.' : `Quantum: ${formatMoney(matter.quantum)}.`,
