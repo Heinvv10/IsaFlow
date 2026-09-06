@@ -10,7 +10,7 @@ import {
   ArrowLeft, LayoutDashboard, TrendingUp, TrendingDown, Minus,
   AlertTriangle, AlertCircle, CheckCircle, Loader2,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -58,6 +58,7 @@ export default function ExecutiveDashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [scorecard, setScorecard] = useState<Array<{ ratioKey: string; name: string; value: number | null; target: number; status: 'green' | 'amber' | 'red' | 'not_meaningful'; reason?: string }>>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [inventory, setInventory] = useState<InventoryWarning | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
@@ -69,17 +70,30 @@ export default function ExecutiveDashboardPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
-      const [sumRes, scRes] = await Promise.all([
-        apiFetch(`/api/accounting/reports-executive-summary?from=${from}&to=${to}`).then(r => r.json()),
-        apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`).then(r => r.json()),
+      const [sumRawRes, scRawRes] = await Promise.all([
+        apiFetch(`/api/accounting/reports-executive-summary?from=${from}&to=${to}`),
+        apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`),
       ]);
+      // apiFetch resolves on a 4xx/5xx status — a rejected promise here would
+      // only ever be a network failure. Without this check, a failed request
+      // (e.g. an expired session) reads .json() on an error body and renders
+      // "No financial data available for the selected period", which claims
+      // the ledger has nothing for the range instead of reporting the
+      // failure that actually happened.
+      await assertOk(sumRawRes, 'Failed to load the executive summary');
+      await assertOk(scRawRes, 'Failed to load the KPI scorecard');
+      const sumRes = await sumRawRes.json();
+      const scRes = await scRawRes.json();
       if (sumRes.data?.summary) setSummary(sumRes.data.summary);
       if (sumRes.data) setUnclassified(sumRes.data.unclassifiedAccounts ?? null);
       if (scRes.data?.scorecard) setScorecard(scRes.data.scorecard);
       if (scRes.data) setInventory(scRes.data.inventory ?? null);
-    } catch (err) { log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) }); }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load the executive dashboard');
+      log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) });
+    } finally { setLoading(false); }
   }, [from, to]);
 
   useEffect(() => { void loadData(); }, [loadData]);
@@ -131,6 +145,11 @@ export default function ExecutiveDashboardPage() {
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} inventory={inventory} />
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4" /> {error}
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : summary ? (
@@ -214,7 +233,7 @@ export default function ExecutiveDashboardPage() {
                 </div>
               )}
             </>
-          ) : (
+          ) : error ? null : (
             <div className="flex flex-col items-center justify-center py-20 text-[var(--ff-text-secondary)]">
               <LayoutDashboard className="h-12 w-12 mb-3 opacity-30" />
               <p>No financial data available for the selected period.</p>
