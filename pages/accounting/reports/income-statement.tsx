@@ -15,6 +15,7 @@ import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
+import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
 import { useStatementComparatorState } from '@/components/accounting/reportControls/useStatementComparatorState';
 import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 
@@ -177,6 +178,7 @@ export default function IncomeStatementPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Income Statement</h1>
               </div>
               <div className="flex items-center gap-2">
+                <PresentLink from={periodStart} to={periodEnd} />
                 <button onClick={handleXlsxExport} disabled={!report}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
                   <FileSpreadsheet className="h-4 w-4" /> Export Excel
