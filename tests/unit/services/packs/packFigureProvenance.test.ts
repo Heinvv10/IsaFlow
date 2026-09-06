@@ -148,6 +148,44 @@ describe('PackFigureProvenance', () => {
     expect(run).toThrow(/c\.d/);
   });
 
+  it('freezes the figure it returns, so a page cannot edit the record behind the gate', () => {
+    // The leak this closes: `figure()` used to hand back the live object that
+    // was pushed into the internal list — the same object `assertConsistent`
+    // reads. A page that re-derived its figure in place would have changed the
+    // recording along with the rendering, and the gate would have compared a
+    // value against itself and called the pack consistent.
+    const p = new PackFigureProvenance();
+    const f = p.figure('a.b', 1, 'money');
+    expect(() => {
+      (f as { value: number | null }).value = 999;
+    }).toThrow();
+    expect(p.all().get('a.b')?.[0]?.value).toBe(1);
+  });
+
+  it('scans every recording of a source, not just the first few', () => {
+    // The across-sources case is covered above; this is the within-one-source
+    // case. The first two recordings AGREE and the third differs, so a scan
+    // that stopped early would find nothing to report. Three DISTINCT values
+    // would not prove this: the thrown message is built from the whole list,
+    // so a truncated scan still throws and still names all three.
+    const p = new PackFigureProvenance();
+    p.figure('a.b', 1, 'money');
+    p.figure('a.b', 1, 'money');
+    p.figure('a.b', 2, 'money');
+    expect(() => p.assertConsistent()).toThrow(/a\.b/);
+  });
+
+  it('names every distinct rendering of a source in the error', () => {
+    const p = new PackFigureProvenance();
+    p.figure('a.b', 1, 'money');
+    p.figure('a.b', 2, 'money');
+    p.figure('a.b', 3, 'money');
+    const run = () => p.assertConsistent();
+    expect(run).toThrow(/1/);
+    expect(run).toThrow(/2/);
+    expect(run).toThrow(/3/);
+  });
+
   it('hands out a copy, so a page cannot edit the record behind the gate', () => {
     // `ReadonlyMap` is a compile-time guarantee only — `.set` on the returned
     // object still runs. What has to hold at runtime is that it cannot reach

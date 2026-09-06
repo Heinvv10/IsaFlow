@@ -62,6 +62,14 @@ export class PackFigureProvenance {
    * Returns the same object it stored, so a page renders exactly what was
    * recorded — a page that could render one value and record another would
    * make this whole class decorative.
+   *
+   * That identity is why the object is FROZEN. Handing back the live object
+   * gives every page a handle into the data `assertConsistent` later reads: a
+   * page that reformats or re-derives its figure in place rather than building
+   * a new one would change the recording along with the rendering, and the gate
+   * would compare a value against itself and find the pack consistent. Freezing
+   * makes that throw where someone writes it, rather than returning a copy and
+   * leaving a page to mutate its own handle and wonder why the gate disagrees.
    */
   figure(
     source: string,
@@ -96,10 +104,11 @@ export class PackFigureProvenance {
     // Built without an `unavailable` key when there is none, rather than with
     // an explicit undefined: a page testing `'unavailable' in figure` would
     // otherwise render a caveat for a figure that has one.
-    const recorded: PackFigure =
+    const recorded: PackFigure = Object.freeze(
       unavailable === undefined
         ? { value, format, source }
-        : { value, format, source, unavailable };
+        : { value, format, source, unavailable },
+    );
 
     const existing = this.figures.get(source);
     if (existing) existing.push(recorded);
