@@ -47,9 +47,19 @@ describe('PresentSlide distinguishes a failed fetch from no renderer', () => {
     expect(container.textContent).not.toContain('no presentation renderer');
   });
 
-  it('still shows the generic message for ratios when nothing failed and no budget was captured', () => {
+  it('shows the honest "no budget captured" message for ratios when nothing failed and no budget was captured', () => {
+    // Distinct from the generic fallback below — a slide kind PresentSlide
+    // does handle, with a specific reason to show, is not "no renderer".
     const { container } = render(
       <PresentSlide slide={RATIOS_SLIDE} {...BASE_PROPS} />,
+    );
+    expect(container.textContent).toContain('No budget was captured');
+    expect(container.textContent).not.toContain('no presentation renderer');
+  });
+
+  it('still shows the generic message for a slide kind with no renderer at all', () => {
+    const { container } = render(
+      <PresentSlide slide={{ id: 'kpis:0', kind: 'kpis', title: 'KPIs', data: {} }} {...BASE_PROPS} />,
     );
     expect(container.textContent).toContain('no presentation renderer');
   });

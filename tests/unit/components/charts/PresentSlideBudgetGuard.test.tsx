@@ -49,3 +49,31 @@ describe('PresentSlide income statement budget guard', () => {
     expect(container.textContent).toContain('1 000 000');
   });
 });
+
+const RATIOS_SLIDE: Slide = { id: 'ratios:0', kind: 'ratios', title: 'Ratios', data: {} };
+
+describe('PresentSlide ratios slide budget guard', () => {
+  it('does not draw the bullet chart when budgetedCount is 0, even with a budget line present', () => {
+    const { container } = render(
+      <PresentSlide
+        slide={RATIOS_SLIDE} income={null} trends={null} trendsFailed={false}
+        budget={BUDGET} budgetedCount={0} budgetFailed={false}
+      />,
+    );
+    // "Budget variance" is BudgetBulletRow/ChartFrame's title — its absence
+    // means no chart of every account plotted as unfavourable against a
+    // budget of zero was drawn.
+    expect(container.textContent).not.toContain('Budget variance');
+    expect(container.textContent).toContain('No budget was captured');
+  });
+
+  it('draws the bullet chart when budgetedCount is greater than 0', () => {
+    const { container } = render(
+      <PresentSlide
+        slide={RATIOS_SLIDE} income={null} trends={null} trendsFailed={false}
+        budget={BUDGET} budgetedCount={1} budgetFailed={false}
+      />,
+    );
+    expect(container.textContent).toContain('Budget variance');
+  });
+});

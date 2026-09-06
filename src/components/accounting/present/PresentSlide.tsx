@@ -94,7 +94,7 @@ export function PresentSlide({
   }
 
   if (slide.kind === 'ratios') {
-    if (budget.length > 0) {
+    if (hasBudgetData(budgetedCount) && budget.length > 0) {
       return (
         <>
           <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
@@ -109,6 +109,15 @@ export function PresentSlide({
         </p>
       );
     }
+    // budgetedCount === 0 means no budget was captured for this tenant, not
+    // that the fetch failed. A bullet chart of every account plotted as
+    // unfavourable against a zero target is an artefact of the missing
+    // budget, not a finding — say so instead of drawing it.
+    return (
+      <p className="text-sm text-[var(--ff-text-secondary)]">
+        No budget was captured for this period.
+      </p>
+    );
   }
 
   return (
