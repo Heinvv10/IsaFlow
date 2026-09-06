@@ -15,6 +15,19 @@ export const PACK_LABELS: Record<PackType, string> = {
   monthly: 'Monthly Pack',
 };
 
+/**
+ * The pack types, as a runtime guard over the SAME map the labels come from.
+ * `router.query.pack` is attacker-controllable text, and it was cast straight
+ * to `PackType`: an unknown value then reached `packTrendApiPath`, which built
+ * `/api/accounting/packs/<anything>/trend` and fetched it. The API route
+ * validates its own `id`, so the answer was a 400 rather than a leak — but the
+ * page's job is to know the value is a pack type, not to find out from a
+ * failed request.
+ */
+export function isPackType(value: unknown): value is PackType {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(PACK_LABELS, value);
+}
+
 const IFRS_TITLES = {
   income_statement: 'Statement of Comprehensive Income',
   balance_sheet: 'Statement of Financial Position',

@@ -71,6 +71,42 @@ describe('ReportPacksPage print dispatch', () => {
   });
 
   /**
+   * ADVERSARIAL LOW-2: `router.query.pack` is attacker-controllable text and
+   * was cast straight to PackType, so an unknown value reached
+   * `packTrendApiPath` and was fetched as `/api/accounting/packs/<x>/trend`.
+   * Like the data-error state, the refusal never becomes print-ready: the
+   * renderer times out loudly rather than photographing the wrong document.
+   */
+  it.each([['segments'], [''], ['MANAGEMENT'], ['../admin']])(
+    'refuses to print an unknown pack type %j rather than casting it through',
+    (pack) => {
+      useRouterMock.mockReturnValue({
+        isReady: true, pathname: PRINT_RENDER_PATH, query: { pack, print: '1' },
+      });
+
+      render(<ReportPacksPage />);
+
+      expect(screen.queryByTestId('print-page')).toBeNull();
+      expect(screen.getByText(/Unknown pack type/)).toBeInTheDocument();
+    },
+  );
+
+  it('refuses when the pack is missing entirely, rather than defaulting to one', () => {
+    useRouterMock.mockReturnValue({ isReady: true, pathname: PRINT_RENDER_PATH, query: { print: '1' } });
+    render(<ReportPacksPage />);
+    expect(screen.queryByTestId('print-page')).toBeNull();
+    expect(screen.getByText(/Unknown pack type/)).toBeInTheDocument();
+  });
+
+  it.each([['board'], ['management'], ['monthly']])('prints the %s pack', (pack) => {
+    useRouterMock.mockReturnValue({
+      isReady: true, pathname: PRINT_RENDER_PATH, query: { pack, print: '1' },
+    });
+    render(<ReportPacksPage />);
+    expect(screen.getByTestId('print-page')).toHaveTextContent(pack);
+  });
+
+  /**
    * The URL is no longer a second source of truth. A not-ready router means
    * "the query is not the authority yet" and nothing else is consulted — on
    * this page it cannot happen, because getServerSideProps is exported.

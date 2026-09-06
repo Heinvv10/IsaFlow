@@ -17,6 +17,7 @@ import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/ac
 import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
 import { useRouter } from 'next/router';
 import { isPrintRender } from '@/lib/pdf/printRenderQuery';
+import { isPackType } from '@/modules/accounting/services/packs/packSections';
 import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
@@ -125,9 +126,24 @@ export default function ReportPacksPage() {
   const router = useRouter();
 
   if (isPrintRender(router)) {
+    const pack = router.query.pack;
+    // Validated, not cast. `pack` is whatever the URL says; it used to be
+    // `String(...) as PackType`, which typed a lie and sent an unknown value
+    // on to build a trend URL. Like the data-error state in PackPrintPage,
+    // this deliberately never becomes print-ready: the renderer times out
+    // loudly rather than photographing a page that is not the pack asked for.
+    // The download route validates its own `id` first, so this is reachable
+    // only by a person typing the URL — which is who the sentence is for.
+    if (!isPackType(pack)) {
+      return (
+        <p className="p-8 text-sm text-[var(--ff-text-secondary)]">
+          Unknown pack type. Choose board, management or monthly.
+        </p>
+      );
+    }
     return (
       <PackPrintPage
-        packType={String(router.query.pack ?? 'management') as PackType}
+        packType={pack}
         from={String(router.query.from ?? '')}
         to={String(router.query.to ?? '')}
       />
