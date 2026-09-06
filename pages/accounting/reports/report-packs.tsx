@@ -19,6 +19,7 @@ import { isPackType } from '@/modules/accounting/services/packs/packSections';
 import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
 import { SectionCard, type PackSection } from '@/components/accounting/packs/PackSectionCard';
 import { PackShareButton, PackCommentary } from '@/components/accounting/packs/PackOwnerTools';
+import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -222,6 +223,9 @@ function ReportPacksScreen() {
                 {downloading === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4" />}
                 PowerPoint
               </button>
+              {/* The deck for the pack ON SCREEN, over the period on screen:
+                  the same values the downloads and the share link carry. */}
+              <PresentLink pack={selectedType} from={from} to={to} />
               <PackShareButton params={packParams} />
             </div>
           </div>
