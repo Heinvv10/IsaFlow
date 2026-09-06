@@ -46,14 +46,13 @@ export interface ChartFrameProps {
    *  has to guess whether a bar is thousands or millions will guess wrong. */
   unit: string;
   height?: number;
-  renderer?: 'canvas' | 'svg';
   /** Shown in place of the chart when the builder returns null. */
   unavailable?: string;
   children: (palette: ChartPalette) => EChartsCoreOption | null;
 }
 
 export function ChartFrame({
-  title, unit, height = 280, renderer = 'canvas', unavailable, children,
+  title, unit, height = 280, unavailable, children,
 }: ChartFrameProps): ReactElement {
   const palette = useChartPalette();
   const option = useMemo(() => children(palette), [children, palette]);
@@ -69,7 +68,7 @@ export function ChartFrame({
           {unavailable ?? 'Not meaningful for this period.'}
         </p>
       ) : (
-        <EChartClient option={option} height={height} renderer={renderer} />
+        <EChartClient option={option} height={height} />
       )}
     </figure>
   );
