@@ -4,7 +4,8 @@
  * a link is created — so the only place a URL is ever visible is the moment
  * right after Create succeeds. Copy it now; it cannot be shown again.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useModalDialog } from '@/components/useModalDialog';
 import { apiJson, apiErrorMessage, ApiEnvelopeError } from '@/lib/apiFetch';
 import type { ShareLinkRow } from '@/modules/accounting/services/share/shareLinkService';
 import { clampTtlDays } from '@/modules/accounting/services/share/shareTtl';
@@ -15,6 +16,9 @@ const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-1 text-xs te
 const INPUT = 'w-full rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-2 text-sm text-[var(--ff-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
 
 export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; onClose: () => void }) {
+  // Focus on open, Tab trapped inside, Escape closes, focus back on the Share
+  // button that opened it — same contract as AnnotationThread.
+  const dialogRef = useModalDialog<HTMLDivElement>(onClose);
   const [links, setLinks] = useState<ShareLinkRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -24,7 +28,6 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
   const [createError, setCreateError] = useState<string | null>(null);
   const [newLink, setNewLink] = useState<{ url: string } | null>(null);
   const [copied, setCopied] = useState(false);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   async function refresh() {
     setLoading(true);
@@ -49,22 +52,6 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
     void refresh();
   }, []);
 
-  // Escape closes, and focus returns to whatever opened the dialog — same
-  // contract as AnnotationThread.
-  useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      onClose();
-    }
-    const node = dialogRef.current;
-    node?.addEventListener('keydown', onKeyDown);
-    return () => {
-      node?.removeEventListener('keydown', onKeyDown);
-      opener?.focus();
-    };
-  }, [onClose]);
 
   async function handleCreate() {
     setCreating(true);
@@ -114,8 +101,10 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
   return (
     <div
       ref={dialogRef}
-      className={`${CARD} w-96 max-w-full p-4 shadow-lg`}
+      tabIndex={-1}
+      className={`${CARD} w-96 max-w-full p-4 shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]`}
       role="dialog"
+      aria-modal="true"
       aria-label="Share links"
     >
       <div className="flex items-start justify-between gap-2">

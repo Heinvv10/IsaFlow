@@ -1,11 +1,15 @@
 /**
  * The note thread popover.
  *
- * Two things here are accessibility rather than decoration and are pinned as
- * behaviour: the dialog is announced with the row's LABEL, not its internal id
- * ("Notes on acc:4000" names a key, not a line), and Escape closes while focus
- * returns to whatever opened it — without the restore a keyboard user lands at
- * the top of the document and tabs back down the whole statement.
+ * The accessibility behaviour here is pinned, not decorated: the dialog is
+ * announced with the row's LABEL, not its internal id ("Notes on acc:4000"
+ * names a key, not a line); it takes focus when it opens; Tab is trapped
+ * inside it; Escape closes; and focus returns to whatever opened it.
+ *
+ * The keyboard tests drive REAL focus. Dispatching keydown on the container
+ * was what let the original bug through: the listener sat on a `<div>` nothing
+ * ever focused, so a real Escape went to `<body>` and did nothing, while a
+ * test that aimed the event at the container passed.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -90,18 +94,62 @@ describe('AnnotationThread', () => {
     expect(box.value).toBe('');
   });
 
-  it('closes on Escape', () => {
+  it('takes focus when it opens, and announces itself as modal', () => {
+    renderThread();
+    const dialog = screen.getByRole('dialog');
+
+    expect(document.activeElement).toBe(dialog);
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('closes on a REAL Escape — the key pressed where focus actually is', () => {
     const { props } = renderThread();
-    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    // No element named here: whatever has focus after opening is what a person
+    // would be pressing Escape on. Aiming the event at the container instead is
+    // what hid the original bug.
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
 
     expect(props.onClose).toHaveBeenCalledTimes(1);
   });
 
   it('ignores other keys', () => {
     const { props } = renderThread();
-    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter' });
+    fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
 
     expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  it('still closes on Escape pressed from a control inside it', () => {
+    const { props } = renderThread();
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement;
+    box.focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('traps Tab inside the dialog rather than letting it walk into the page', () => {
+    const outside = document.createElement('button');
+    outside.textContent = 'behind the dialog';
+    document.body.appendChild(outside);
+
+    renderThread();
+    const dialog = screen.getByRole('dialog');
+    // Same rule the trap uses: a disabled control is not a tab stop, and Save
+    // is disabled until the draft has text.
+    const controls = Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), textarea'));
+    const first = controls[0]!;
+    const last = controls[controls.length - 1]!;
+
+    last.focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+
+    expect(document.activeElement).not.toBe(outside);
+    outside.remove();
   });
 
   it('returns focus to the element that opened it when it unmounts', () => {
@@ -115,8 +163,8 @@ describe('AnnotationThread', () => {
       <AnnotationThread rowId="acc:4000" rowLabel="Sales" annotations={[ann()]}
         onCreate={vi.fn()} onResolve={vi.fn()} onClose={vi.fn()} />,
     );
-    // Something inside the popover takes focus while it is open.
-    (screen.getByRole('textbox') as HTMLTextAreaElement).focus();
+    // No hand-focus here any more: the dialog takes focus itself on open, and
+    // a test that had to move focus for it was hiding the missing behaviour.
     expect(document.activeElement).not.toBe(opener);
 
     unmount();

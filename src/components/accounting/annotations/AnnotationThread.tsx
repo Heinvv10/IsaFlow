@@ -6,7 +6,8 @@
  * its own beyond the unsent draft, so the page owning the list stays the one
  * source of truth after a create or a resolve.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import { useModalDialog } from '@/components/useModalDialog';
 import type { Annotation } from '@/modules/accounting/services/annotations/annotationService';
 
 const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
@@ -33,28 +34,20 @@ export function AnnotationThread({ rowId, rowLabel, annotations, onCreate, onRes
   const [draft, setDraft] = useState('');
   const mine = annotations.filter(a => a.rowId === rowId);
   const trimmed = draft.trim();
-  const dialogRef = useRef<HTMLDivElement | null>(null);
-
-  // Escape closes, and focus goes back to whatever opened the thread — the
-  // note marker on the row. Without the restore a keyboard user is returned to
-  // the top of the document and has to tab back down the whole statement.
-  useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      onClose();
-    }
-    const node = dialogRef.current;
-    node?.addEventListener('keydown', onKeyDown);
-    return () => {
-      node?.removeEventListener('keydown', onKeyDown);
-      opener?.focus();
-    };
-  }, [onClose]);
+  // Focus on open, Tab trapped inside, Escape closes, focus back on the note
+  // marker that opened it. See useModalDialog for why the container itself is
+  // what takes focus.
+  const dialogRef = useModalDialog<HTMLDivElement>(onClose);
 
   return (
-    <div ref={dialogRef} className={`${CARD} w-80 p-3 shadow-lg`} role="dialog" aria-label={`Notes on ${rowLabel}`}>
+    <div
+      ref={dialogRef}
+      tabIndex={-1}
+      className={`${CARD} w-80 p-3 shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Notes on ${rowLabel}`}
+    >
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-xs font-medium uppercase tracking-wide text-[var(--ff-text-tertiary)]">Notes</h3>
         <button type="button" onClick={onClose} className={BTN} aria-label="Close notes">Close</button>

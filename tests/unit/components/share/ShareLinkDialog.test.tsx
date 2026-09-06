@@ -187,4 +187,84 @@ describe('ShareLinkDialog', () => {
     await waitFor(() => expect(screen.getByText('bad params')).toBeTruthy());
     expect(screen.queryByDisplayValue(/^https?:\/\//)).toBeNull();
   });
+
+  it('takes focus when it opens, and announces itself as modal', async () => {
+    fetchMock.mockResolvedValue(envelope({ links: [] }));
+    render(<ShareLinkDialog params={PARAMS} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    const dialog = screen.getByRole('dialog', { name: 'Share links' });
+    expect(document.activeElement).toBe(dialog);
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('closes on a REAL Escape pressed where focus actually is', async () => {
+    // The regression: the listener sat on a <div> nothing ever focused, so a
+    // person who clicked Share and pressed Escape got nothing, while a test
+    // that dispatched keydown on the container passed. No element is named
+    // here on purpose.
+    fetchMock.mockResolvedValue(envelope({ links: [] }));
+    const onClose = vi.fn();
+    render(<ShareLinkDialog params={PARAMS} onClose={onClose} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes on Escape from a control inside it, and ignores other keys', async () => {
+    fetchMock.mockResolvedValue(envelope({ links: [] }));
+    const onClose = vi.fn();
+    render(<ShareLinkDialog params={PARAMS} onClose={onClose} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    (screen.getByLabelText('Days') as HTMLInputElement).focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Enter' });
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('traps Tab inside the dialog instead of letting it reach the page behind', async () => {
+    const behind = document.createElement('button');
+    behind.textContent = 'behind the dialog';
+    document.body.appendChild(behind);
+
+    fetchMock.mockResolvedValue(envelope({ links: [] }));
+    render(<ShareLinkDialog params={PARAMS} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    const dialog = screen.getByRole('dialog', { name: 'Share links' });
+    const stops = Array.from(dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled])'));
+    const first = stops[0]!;
+    const last = stops[stops.length - 1]!;
+
+    last.focus();
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.keyDown(document.activeElement!, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    expect(document.activeElement).not.toBe(behind);
+
+    behind.remove();
+  });
+
+  it('returns focus to the button that opened it when it closes', async () => {
+    const opener = document.createElement('button');
+    opener.textContent = 'Share';
+    document.body.appendChild(opener);
+    opener.focus();
+
+    fetchMock.mockResolvedValue(envelope({ links: [] }));
+    const { unmount } = render(<ShareLinkDialog params={PARAMS} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+    expect(document.activeElement).not.toBe(opener);
+
+    unmount();
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+  });
 });
