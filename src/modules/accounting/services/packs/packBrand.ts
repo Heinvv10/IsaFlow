@@ -21,20 +21,25 @@ export interface PackBrand {
   primaryInk: string;
 }
 
-/**
- * Below this, a colour reads as indistinguishable from the white page itself
- * — the cover band vanishes even though the ink-contrast check below would
- * still pass (dark ink on near-white is high-contrast text on an invisible
- * band). This is a visibility floor, not a text-contrast rule, so it uses a
- * much lower bar than the 4.5:1 WCAG AA minimum.
- */
-const MIN_CONTRAST_FROM_PAGE = 1.2;
+/** WCAG 2.1 AA, success criterion 1.4.3 (contrast minimum). The primary must
+ *  carry white OR near-black text at this ratio; `primaryInk` picks whichever
+ *  of the two wins. */
+const MIN_TEXT_CONTRAST = 4.5;
+
+/** WCAG 2.1 AA, success criterion 1.4.11 (non-text contrast). The primary
+ *  must be distinguishable from the white page at this ratio, or the cover
+ *  band, divider bands and table header rows are invisible on paper — a
+ *  colour can clear MIN_TEXT_CONTRAST against dark ink while still failing
+ *  this (e.g. a near-white primary reads fine in black text, but the band
+ *  itself vanishes into the page). */
+const MIN_BAND_CONTRAST = 3;
 
 function safePrimary(value: string): string {
   if (!HEX.test(value)) return NEUTRAL_BRAND_PRIMARY;
   const contrastToWhite = contrastRatio(value, '#ffffff');
-  const carriesSomeInk = contrastToWhite >= 4.5 || contrastRatio(value, '#1a1a1a') >= 4.5;
-  return carriesSomeInk && contrastToWhite >= MIN_CONTRAST_FROM_PAGE ? value : NEUTRAL_BRAND_PRIMARY;
+  const carriesText = contrastToWhite >= MIN_TEXT_CONTRAST || contrastRatio(value, '#1a1a1a') >= MIN_TEXT_CONTRAST;
+  const visibleOnPage = contrastToWhite >= MIN_BAND_CONTRAST;
+  return carriesText && visibleOnPage ? value : NEUTRAL_BRAND_PRIMARY;
 }
 
 export function resolvePackBrand(profile: BrandProfile | null): PackBrand {
@@ -45,7 +50,7 @@ export function resolvePackBrand(profile: BrandProfile | null): PackBrand {
     secondaryColour,
     logoUrl: profile?.logoUrl ?? null,
     footerText: profile?.reportFooterText ?? null,
-    primaryInk: contrastRatio(primaryColour, '#ffffff') >= 4.5 ? '#ffffff' : '#1a1a1a',
+    primaryInk: contrastRatio(primaryColour, '#ffffff') >= MIN_TEXT_CONTRAST ? '#ffffff' : '#1a1a1a',
   };
 }
 

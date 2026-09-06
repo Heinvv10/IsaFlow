@@ -18,12 +18,31 @@ describe('resolvePackBrand', () => {
 
   it('picks white ink on a dark primary and dark ink on a light one', () => {
     expect(resolvePackBrand({ ...profile, primaryColour: '#1a3a5c' }).primaryInk).toBe('#ffffff');
-    expect(resolvePackBrand({ ...profile, primaryColour: '#e8c86b' }).primaryInk).toBe('#1a1a1a');
+    // #8c8c8c: relative luminance 0.2623 (in the (0.183, 0.30] band where
+    // white text fails 4.5:1 but dark ink and the page-band floor both
+    // clear). Measured: contrast to #ffffff = 3.363 (< 4.5, so white ink is
+    // rejected; still >= 3, so the band itself stays visible on the page),
+    // contrast to #1a1a1a = 5.176 (>= 4.5, so dark ink is chosen).
+    const brand = resolvePackBrand({ ...profile, primaryColour: '#8c8c8c' });
+    expect(brand.primaryInk).toBe('#1a1a1a');
+    expect(brand.primaryColour).toBe('#8c8c8c');
+  });
+
+  it('keeps a mid-dark primary that clears both thresholds, unchanged, with white ink', () => {
+    // #3d5a80: contrast to #ffffff = 7.065 (>= 4.5, clears MIN_TEXT_CONTRAST
+    // and, since 7.065 >= 3, MIN_BAND_CONTRAST too) — the ordinary case of a
+    // primary that needed no substitution at all.
+    const brand = resolvePackBrand({ ...profile, primaryColour: '#3d5a80' });
+    expect(brand.primaryColour).toBe('#3d5a80');
+    expect(brand.primaryInk).toBe('#ffffff');
   });
 
   it('substitutes the neutral default for a legacy row that predates the contrast gate', () => {
-    // Rows written before Task 4 were never validated. A render must not
-    // reproduce an unreadable cover just because the row exists.
+    // Rows written before Task 4 were never validated. #fafafa passes the
+    // text-contrast OR-check (dark ink on it is ~19:1) but fails
+    // MIN_BAND_CONTRAST (contrast to #ffffff = 1.044) — the band itself
+    // would be invisible on the printed page even though black text on it
+    // would technically read fine.
     expect(resolvePackBrand({ ...profile, primaryColour: '#fafafa' }).primaryColour)
       .toBe(NEUTRAL_BRAND_PRIMARY);
   });
