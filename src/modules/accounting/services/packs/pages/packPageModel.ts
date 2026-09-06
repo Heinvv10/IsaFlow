@@ -9,9 +9,8 @@
  * `assertPageTitleIsAMessage` is the cheap guard, not the judge. The pack was
  * rejected for titles like 'Financial Ratios' and 'KPI Scorecard' — bare
  * labels, not conclusions about the period — and the real judge of whether a
- * title actually reads as a message is the visual gate a human or a later
- * task applies. This function only catches the exact class of failure the
- * rejected pack shipped: a title with no digit and no verb of movement.
+ * title reads as a message is the visual gate applied to the rendered page.
+ * This function only catches the exact failure class the rejected pack shipped.
  */
 
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -86,6 +85,11 @@ export interface PackTable {
 
 export type PackScorecardStatus = 'met' | 'missed' | 'notMeaningful' | 'unscored';
 
+/** Spec §4.A page 9's own Trend column — distinct from Status and from
+ *  `bulletSvg` (an actual-vs-target gauge, a different visual). Read from
+ *  the service that computed it; never derived from `actual` vs `prior`. */
+export type PackTrendDirection = 'up' | 'down' | 'flat';
+
 export interface PackScorecardRow {
   metric: string;
   actual: PackFigure;
@@ -94,6 +98,9 @@ export interface PackScorecardRow {
   target: number | null;
   prior: PackFigure;
   status: PackScorecardStatus;
+  trend: PackTrendDirection;
+  /** Pre-rendered trend sparkline/arrow markup, null if none beyond `trend`. */
+  trendSvg: string | null;
   /** Index into the page's `footnotes`. */
   footnote?: number;
   /** Pre-rendered bullet-chart markup, or null when the metric has none. */
@@ -150,9 +157,22 @@ export interface PackDisclosure {
   notes: PackDisclosureNote[];
 }
 
+/** One line of the IFRS-to-adjusted-measure bridge, each with its own figure
+ *  — 'IFRS net profit', 'Add back: restructuring costs', 'Adjusted net
+ *  profit'. Prose cannot carry this. */
+export interface PackReconciliationStep {
+  label: string;
+  figure: PackFigure;
+}
+
 export interface PackDefinition {
   term: string;
   definition: string;
+  /** Required by spec §4.A whenever `term` names a non-IFRS measure — §7.1
+   *  criterion 12 fails a pack where an adjusted measure has no bridge on
+   *  the page or in a footnote. Absent for a definition of a plain IFRS term
+   *  with nothing to reconcile. */
+  reconciliation?: PackReconciliationStep[];
 }
 
 export type PackPageBlock =
@@ -178,6 +198,33 @@ export interface PackPage {
   footnotes: PackFootnote[];
 }
 
+/** Spec §7.1 criterion 8's ONE number convention for the whole pack.
+ *  `PackTable.scale` still states its own scale in its header (§5.5 — a
+ *  table must read alone), but this is the authority a later gate checks
+ *  every table's `scale` against, so R'000 and R cannot both pass silently.
+ *  Currency lives here, not again on `PackBasisOfPreparation`. */
+export interface PackNumberConvention {
+  /** e.g. "R'000". */
+  scale: string;
+  /** e.g. 'ZAR'. */
+  currency: string;
+}
+
+/** Spec §4.A page 12's basis-of-preparation metadata — standard, source
+ *  system, extract timestamp, and the ledger version rendered against, i.e.
+ *  the traceability anchor for reproducing this render. (`period` and
+ *  `numberConvention.currency` already cover those two, so not repeated.) */
+export interface PackBasisOfPreparation {
+  /** e.g. 'IFRS for SMEs'. */
+  standard: string;
+  /** e.g. 'IsaFlow general ledger'. */
+  sourceSystem: string;
+  /** When the ledger was read to build this pack. */
+  extractedAt: string;
+  /** Which ledger state the pack was rendered against. */
+  ledgerVersion: string;
+}
+
 export interface PackPagesDocument {
   packType: PackType;
   packLabel: string;
@@ -186,6 +233,8 @@ export interface PackPagesDocument {
   generatedAt: string;
   draft: boolean;
   brand: PackBrand;
+  numberConvention: PackNumberConvention;
+  basisOfPreparation: PackBasisOfPreparation;
   /** Every figure issued while building the twelve pages, so a later task can
    *  call `doc.provenance.assertConsistent()` against the whole document
    *  rather than one page at a time. */

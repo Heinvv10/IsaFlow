@@ -34,6 +34,13 @@ export interface PackFigure {
    * from one we failed to fetch, so a null value without a reason is refused.
    */
   unavailable?: string;
+  /**
+   * Optional for now: the numerator and denominator a `pct` figure was
+   * computed from, so a later gate (spec §7.2) can recompute the percentage
+   * and confirm it. Absent for a figure that is not itself a ratio of two
+   * other figures — a plain money or days value has nothing to recompute.
+   */
+  basis?: { numerator: number; denominator: number };
 }
 
 /** A source names a service and a field: every segment must be non-empty. */
@@ -76,6 +83,7 @@ export class PackFigureProvenance {
     value: number | null,
     format: PackFigureFormat,
     unavailable?: string,
+    basis?: { numerator: number; denominator: number },
   ): PackFigure {
     assertSourceNamesAService(source);
 
@@ -101,14 +109,17 @@ export class PackFigureProvenance {
       );
     }
 
-    // Built without an `unavailable` key when there is none, rather than with
-    // an explicit undefined: a page testing `'unavailable' in figure` would
-    // otherwise render a caveat for a figure that has one.
-    const recorded: PackFigure = Object.freeze(
-      unavailable === undefined
-        ? { value, format, source }
-        : { value, format, source, unavailable },
-    );
+    // Built without an `unavailable` or `basis` key when there is none,
+    // rather than with an explicit undefined: a page testing
+    // `'unavailable' in figure` would otherwise render a caveat for a figure
+    // that has one, and the same goes for a page checking for a basis.
+    const recorded: PackFigure = Object.freeze({
+      value,
+      format,
+      source,
+      ...(unavailable !== undefined ? { unavailable } : {}),
+      ...(basis !== undefined ? { basis } : {}),
+    });
 
     const existing = this.figures.get(source);
     if (existing) existing.push(recorded);

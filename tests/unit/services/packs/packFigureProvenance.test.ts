@@ -206,4 +206,21 @@ describe('PackFigureProvenance', () => {
     expect(() => list.push({ value: 2, format: 'money', source: 'a.b' })).toThrow();
     expect(p.all().get('a.b')).toHaveLength(1);
   });
+
+  // R-P35: `basis` lets spec §7.2's recompute-the-percentage gate exist at
+  // all — without a stated numerator/denominator, a percentage has nothing
+  // for that gate to recompute from.
+  it('carries an optional numerator/denominator basis for a pct figure', () => {
+    const p = new PackFigureProvenance();
+    const f = p.figure('r.grossMargin', 42.5, 'pct', undefined, { numerator: 425, denominator: 1000 });
+    expect(f.basis).toEqual({ numerator: 425, denominator: 1000 });
+  });
+
+  it('omits the basis key entirely when none is given', () => {
+    const p = new PackFigureProvenance();
+    const f = p.figure('a.b', 1, 'money');
+    // Same reasoning as the `unavailable` check above: an explicit
+    // `undefined` would still satisfy `'basis' in f`.
+    expect('basis' in f).toBe(false);
+  });
 });
