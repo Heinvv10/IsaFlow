@@ -20,6 +20,8 @@ import { isPrintRender } from '@/lib/pdf/printRenderQuery';
 import { isPackType } from '@/modules/accounting/services/packs/packSections';
 import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
 import { formatPackKv } from '@/components/accounting/packs/PackSectionView';
+import { scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
+import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import { marginKvItem } from '@/modules/accounting/services/packs/packDocument';
 
 type PackType = 'board' | 'management' | 'monthly';
@@ -83,12 +85,8 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
           ))}
           {section.type === 'kpis' && Array.isArray((d as { scorecard?: unknown[] }).scorecard) && (
             <div className="col-span-full min-w-0 grid grid-cols-3 gap-2">
-              {((d as { scorecard: Array<{ name: string; value: number; target: number; status: string }> }).scorecard).map((item, i) => (
-                <div key={i} className={`rounded p-2 text-xs border ${item.status === 'green' ? 'border-teal-500/30 text-teal-400' : item.status === 'amber' ? 'border-amber-500/30 text-amber-400' : 'border-red-500/30 text-red-400'}`}>
-                  <span className="block opacity-70 mb-0.5">{item.name}</span>
-                  <span className="font-bold">{item.value.toFixed(2)}</span>
-                  <span className="opacity-60 ml-1">/ {item.target}</span>
-                </div>
+              {((d as { scorecard: KPIScorecardItem[] }).scorecard).map((item) => (
+                <ScorecardTile key={item.ratioKey} item={item} />
               ))}
             </div>
           )}
@@ -101,6 +99,42 @@ function SectionCard({ section, defaultOpen }: { section: PackSection; defaultOp
             </div>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One KPI tile.
+ *
+ * `KPIScorecardItem.value` is `number | null` — null whenever the engine could
+ * not compute the ratio, which is the NORMAL state for an insolvent company
+ * (AN-07: every equity-divided ratio is meaningless there). This tile was
+ * typed `value: number` and called `.toFixed(2)` on it, so expanding "KPI
+ * Scorecard" on such a company threw and took the whole page to the error
+ * boundary. The decision now comes from `scorecardFigure`, the one the deck
+ * and the printed page already used.
+ *
+ * `not_meaningful` gets its own neutral colour rather than falling through to
+ * red: an unscorable ratio is not a failing one, and red says it failed.
+ */
+function ScorecardTile({ item }: { item: KPIScorecardItem }) {
+  const figure = scorecardFigure(item);
+  const tone = item.status === 'green' ? 'border-teal-500/30 text-teal-400'
+    : item.status === 'amber' ? 'border-amber-500/30 text-amber-400'
+    : item.status === 'red' ? 'border-red-500/30 text-red-400'
+    : 'border-[var(--ff-border-light)] text-[var(--ff-text-tertiary)]';
+
+  return (
+    <div className={`rounded p-2 text-xs border ${tone}`}>
+      <span className="block opacity-70 mb-0.5">{item.name}</span>
+      {figure.scored ? (
+        <>
+          <span className="font-bold">{figure.value}</span>
+          <span className="opacity-60 ml-1">/ {figure.target}</span>
+        </>
+      ) : (
+        <span className="opacity-80">{figure.reason}</span>
       )}
     </div>
   );

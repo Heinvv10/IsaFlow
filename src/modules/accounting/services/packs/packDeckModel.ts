@@ -14,9 +14,8 @@
  */
 import { formatMoney } from '@/lib/format/money';
 import { NON_FIGURE_KINDS } from '@/modules/accounting/services/reports/statementRows/statementModel';
-import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import type { PackBlock, PackDocument } from './packDocument';
-import { formatPackKv, NO_FIGURE } from './packKvFormat';
+import { formatPackKv, formatScorecardValue } from './packKvFormat';
 import { PACK_LABELS } from './packSections';
 
 export interface DeckTitleSlide { kind: 'title'; title: string; subtitle: string; footnote: string }
@@ -29,13 +28,6 @@ export type DeckSlide = DeckTitleSlide | DeckTableSlide | DeckChartSlide | DeckT
 
 /** The rows a reader's eye stops on. Bolded, not recalculated. */
 const EMPHASIS_KINDS: ReadonlySet<string> = new Set(['total', 'grand']);
-
-/** A scored ratio reads "<value> / <target>"; one that could not be scored
- *  prints the service's own reason INSTEAD, as the screen's scorecard does. */
-function scorecardValue(item: KPIScorecardItem): string {
-  if (item.value === null) return item.reason ?? NO_FIGURE;
-  return `${item.value.toFixed(2)} / ${item.target}`;
-}
 
 function slidesForBlock(title: string, block: PackBlock): DeckSlide[] {
   switch (block.kind) {
@@ -65,7 +57,7 @@ function slidesForBlock(title: string, block: PackBlock): DeckSlide[] {
       return [{
         kind: 'table',
         title,
-        rows: block.items.map((item) => ({ label: item.name, value: scorecardValue(item), emphasis: false })),
+        rows: block.items.map((item) => ({ label: item.name, value: formatScorecardValue(item), emphasis: false })),
       }];
 
     case 'waterfall':

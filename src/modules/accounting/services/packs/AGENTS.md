@@ -13,6 +13,7 @@ Turns a `ReportPack` (from `reports/reportPackService.ts`) into the ONE document
 - `buildPackDocument(pack: ReportPack, trend: PackTrendPoint[]): PackDocument` (`packDocument.ts`)
 - `buildPackDeck(document: PackDocument): DeckSlide[]` (`packDeckModel.ts`) · `renderPackPptx(slides: DeckSlide[]): Promise<Buffer>`
 - `marginKvItem(label, value: number | null): PackKvItem` · `NO_MARGIN_REASON` · `RATIO_FORMATS`
+- `formatPackKv(item)` · `scorecardFigure(item)` · `formatScorecardValue(item)` · `NO_FIGURE` (`packKvFormat.ts`)
 - `packToCashFlow(d)` · `packToScorecard(d)` · `packToWaterfallSteps(d)` · `packToCommentary(d)` · `packToRatioReasons(d)` · `MissingPackFieldError` (`packSectionData.ts`)
 - `getPackTrend(companyId, to, months): Promise<PackTrendPoint[]>` (the one DB reader here)
 - `packPrintApiPaths(type): string[]` · `packDownloadFilename(company, type, from, to, ext)`
@@ -21,6 +22,7 @@ Turns a `ReportPack` (from `reports/reportPackService.ts`) into the ONE document
 
 ## Business rules
 - **Figures are COPIED, never derived.** These mappers read the section blob the pack service produced and translate keys; they compute no totals, no margins and no ratios. A figure that needs computing belongs in `reports/`, so the packs and the statements agree by construction rather than by coincidence.
+- **A KPI's `value` is `number | null`, and null is the NORMAL case for an insolvent company.** AN-07: every equity-divided ratio is meaningless on non-positive equity, and scoring them 0 once rated such a company green. Every surface goes through `scorecardFigure` (or `formatScorecardValue` for the deck) — the screen wrote its own tile, typed the value `number`, and called `.toFixed(2)`, so expanding "KPI Scorecard" on Brightsphere threw and took the whole page to the error boundary. An unscored ratio also gets a NEUTRAL colour, never red: it did not fail, it could not be computed.
 - `null` survives the mappers rather than defaulting to 0. A total of zero is a real total; a MARGIN of zero on no turnover is a percentage nothing on the page supports. `marginKvItem` prints `NO_MARGIN_REASON` ("No margin on non-positive turnover") instead. Every surface uses that one helper — two call sites formatting a nullable margin their own way is how one of them printed "0.0%" again.
 - A section type with no blocks THROWS (`UnknownPackSectionError`). A titled, blank page in a document a director forwards to a bank is worse than a failed render.
 - **A section blob missing a field THROWS too** (`MissingPackFieldError`, `packSectionData.ts`). `PackSection.data` is `Record<string, unknown>`, so the non-statement sections — cash flow, KPIs, the profit bridge, the ratio reasons, the commentary — used to be read by string key with a `num()` / `?? []` / `?? ''` fallback. Rename `operatingCashFlow` upstream and the cash-flow statement became six labelled zeros: plausible, uncompilable-against, and invisible to the "invents no figure" test, because 0 is already in the pack's own number set. A zero the ledger produced is a real figure; a zero a rename produced is a lie, and once a default has been applied nothing can tell them apart.

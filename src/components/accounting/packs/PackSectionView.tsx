@@ -5,7 +5,7 @@
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { waterfallOption, trendOption } from '@/modules/accounting/services/packs/packChartOptions';
 import type { PackBlock, PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
-import { formatPackKv, NO_FIGURE } from '@/modules/accounting/services/packs/packKvFormat';
+import { formatPackKv, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { PackChart } from './PackChart';
 
 const NO_COMPARATORS = { prior: false, budget: false, variance: false, trend: false } as const;
@@ -34,19 +34,25 @@ function Block({ block }: { block: PackBlock }) {
     case 'scorecard':
       return (
         <div className="grid grid-cols-3 gap-2">
-          {block.items.map((item) => (
-            <div key={item.ratioKey} className="rounded border border-[var(--ff-border-light)] p-2 text-xs">
-              <span className="block text-[var(--ff-text-tertiary)]">{item.name}</span>
-              {item.value === null ? (
-                <span className="text-[var(--ff-text-tertiary)]">{item.reason ?? NO_FIGURE}</span>
-              ) : (
-                <>
-                  <span className="font-bold tabular-nums text-[var(--ff-text-primary)]">{item.value.toFixed(2)}</span>
-                  <span className="ml-1 text-[var(--ff-text-tertiary)]">/ {item.target}</span>
-                </>
-              )}
-            </div>
-          ))}
+          {block.items.map((item) => {
+            // The scored/unscored decision is `scorecardFigure`'s, not this
+            // renderer's — the screen wrote its own and called .toFixed(2) on
+            // a null value.
+            const figure = scorecardFigure(item);
+            return (
+              <div key={item.ratioKey} className="rounded border border-[var(--ff-border-light)] p-2 text-xs">
+                <span className="block text-[var(--ff-text-tertiary)]">{item.name}</span>
+                {figure.scored ? (
+                  <>
+                    <span className="font-bold tabular-nums text-[var(--ff-text-primary)]">{figure.value}</span>
+                    <span className="ml-1 text-[var(--ff-text-tertiary)]">/ {figure.target}</span>
+                  </>
+                ) : (
+                  <span className="text-[var(--ff-text-tertiary)]">{figure.reason}</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       );
 

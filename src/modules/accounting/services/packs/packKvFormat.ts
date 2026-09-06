@@ -8,6 +8,7 @@
  * can reuse it without pulling React and ECharts into an API bundle.
  */
 import { formatMoney, formatPct } from '@/lib/format/money';
+import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import type { PackKvItem } from './packDocument';
 
 /** The en dash formatMoney prints for a zero, reused for a figure that has no
@@ -26,4 +27,38 @@ export function formatPackKv(item: PackKvItem): string {
     case 'days': return `${item.value.toFixed(0)} days`;
     case 'money': return formatMoney(item.value, { cents: true });
   }
+}
+
+/**
+ * A scorecard tile's figure, decided ONCE for all three surfaces.
+ *
+ * `KPIScorecardItem.value` is `number | null` — null whenever the engine could
+ * not compute the ratio, which is the normal state for an insolvent company
+ * (AN-07: every equity-divided ratio is meaningless, and coercing them to 0
+ * scored one of them green). The deck handled that; the screen and the print
+ * page each wrote their own tile, and the screen's called `.toFixed(2)` on the
+ * null and took the whole page to the error boundary the moment a reader
+ * expanded "KPI Scorecard" on Brightsphere.
+ *
+ * The decision is returned as a shape rather than a string because the two
+ * React surfaces style the value and the target differently; the deck wants
+ * one string and gets it from `formatScorecardValue` below. Both are built
+ * here, so a fourth surface cannot invent a fourth answer.
+ */
+export type ScorecardFigure =
+  | { scored: false; reason: string }
+  | { scored: true; value: string; target: number };
+
+export function scorecardFigure(item: KPIScorecardItem): ScorecardFigure {
+  // The service's own reason, printed INSTEAD of a figure — the same rule
+  // `formatPackKv` applies to an unavailable KV item, and the same string the
+  // executive dashboard's KpiTile shows for the same ratio.
+  if (item.value === null) return { scored: false, reason: item.reason ?? NO_FIGURE };
+  return { scored: true, value: item.value.toFixed(2), target: item.target };
+}
+
+/** The same decision as one line of text, for the deck. */
+export function formatScorecardValue(item: KPIScorecardItem): string {
+  const figure = scorecardFigure(item);
+  return figure.scored ? `${figure.value} / ${figure.target}` : figure.reason;
 }
