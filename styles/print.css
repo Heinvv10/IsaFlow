@@ -4,12 +4,19 @@
  * print.css — rules for the Playwright PDF pipeline
  * (src/lib/pdf/renderPagePdf.ts).
  *
- * Scoped to `html.print-mode`. The PAGE adds that class, not the renderer:
- * `usePrintMode` (src/components/accounting/packs/usePrintMode.ts) sets it in
- * a layout effect when it sees ?print=1. It has to be the page's job, because
- * the Gotenberg transport cannot execute a script on our behalf the way
- * Playwright's page.evaluate could. An ordinary user's browser Ctrl+P never
- * sets it and is unaffected by anything below.
+ * Scoped to `html.print-mode`, with ONE deliberate exception. The PAGE adds
+ * that class, not the renderer: `usePrintMode`
+ * (src/components/accounting/packs/usePrintMode.ts) sets it in a layout effect
+ * when it sees ?print=1. It has to be the page's job, because the Gotenberg
+ * transport cannot execute a script on our behalf the way Playwright's
+ * page.evaluate could. An ordinary user's browser Ctrl+P never sets the class,
+ * so every rule below leaves that user alone.
+ *
+ * The exception is page SIZE. `@page` cannot be scoped to a class, and the
+ * import above brings packPrint.css's `@page { size: A4 }` into the global
+ * stylesheet — so Ctrl+P on ANY IsaFlow page gets A4. That is intended:
+ * IsaFlow is a South African product and A4 is the correct default for
+ * anything printed from it.
  *
  * A page opts in by setting `data-print-ready="true"` on its root element
  * once its data has loaded; both transports wait for that selector before

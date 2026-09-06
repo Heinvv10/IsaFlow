@@ -58,3 +58,33 @@ describe('pack print grid and scale', () => {
     expect(RULES).not.toMatch(/\.pack-table[^{]*\{[^}]*border-(left|right):/);
   });
 });
+
+/**
+ * The page height and the PDF margin are two numbers in two files that must
+ * add up. `.pack-page { min-height }` is what makes pack density measurable
+ * rather than a matter of opinion — and it is A4's 297mm less the margin the
+ * transport passes. Change PDF_MARGIN_MM alone and every pack silently gains
+ * or loses page overflow, with no test to say so. Both numbers are parsed from
+ * source here so neither can move without the other.
+ */
+describe('page height tracks the PDF margin', () => {
+  const A4_HEIGHT_MM = 297;
+  const TRANSPORT = readFileSync(join(process.cwd(), 'src/lib/pdf/pdfTransport.ts'), 'utf8');
+
+  function marginMm(edge: 'top' | 'bottom'): number {
+    const block = TRANSPORT.match(/PDF_MARGIN_MM\s*=\s*\{([^}]*)\}/);
+    expect(block, 'PDF_MARGIN_MM must exist in src/lib/pdf/pdfTransport.ts').not.toBeNull();
+    const found = block![1].match(new RegExp(`${edge}:\\s*(\\d+(?:\\.\\d+)?)`));
+    expect(found, `PDF_MARGIN_MM.${edge} must be declared`).not.toBeNull();
+    return Number(found![1]);
+  }
+
+  it('.pack-page min-height is A4 less the top and bottom margins', () => {
+    const packPage = RULES.match(/\.pack-page\s*\{([^}]*)\}/);
+    expect(packPage, '.pack-page rule must exist').not.toBeNull();
+    const minHeight = packPage![1].match(/min-height:\s*(\d+(?:\.\d+)?)mm/);
+    expect(minHeight, '.pack-page must set min-height in mm').not.toBeNull();
+
+    expect(Number(minHeight![1])).toBe(A4_HEIGHT_MM - marginMm('top') - marginMm('bottom'));
+  });
+});

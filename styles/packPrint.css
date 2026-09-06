@@ -40,7 +40,13 @@ html.print-mode * {
  * transport, so Chromium ignores a CSS @page margin and uses whatever the
  * transport passes instead (PDF_MARGIN_MM in src/lib/pdf/pdfTransport.ts,
  * the single source of truth for the page margin). A margin declared here
- * would be silently dropped and would mislead the next reader. */
+ * would be silently dropped and would mislead the next reader.
+ *
+ * This rule is GLOBAL, deliberately. @page cannot be scoped to a class, and
+ * styles/print.css — which imports this file — is a global import in
+ * pages/_app.tsx, so a user pressing Ctrl+P on any IsaFlow page gets A4.
+ * That is the right default for a South African product. Nothing else in
+ * either file escapes `html.print-mode`. */
 @page {
   size: A4;
 }
