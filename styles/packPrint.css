@@ -144,10 +144,15 @@ html.print-mode {
  * own `.pack-table`, so the existing table rules (header row, mono figures)
  * apply unchanged; only the group heading and the status/trend cells are new. */
 .pack-scorecard { display: flex; flex-direction: column; gap: 4mm; }
+/* The metric name carries the most words in the row; a fixed share keeps the
+ * Actual/Target/Prior/Trend/Status columns aligned across every group's table. */
+.pack-scorecard-group th:first-child, .pack-scorecard-group td:first-child { width: 34%; }
 .pack-scorecard-heading {
   caption-side: top; text-align: left; font-size: 11pt; line-height: 15pt;
   font-weight: 600; padding-bottom: 1.5mm; color: var(--pack-ink);
 }
+.pack-scorecard-row td { border-bottom: 0.5pt solid var(--pack-rule); }
+.pack-scorecard-trend { width: 18mm; text-align: center; }
 .pack-scorecard-trend-svg svg { display: block; width: 100%; height: auto; }
 .pack-scorecard-status { font-size: 8pt; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
 .pack-scorecard-status.is-met { color: var(--pack-favourable, #1a7a4a); }
@@ -165,6 +170,13 @@ html.print-mode {
 .pack-disclosure { display: flex; flex-direction: column; gap: 1.5mm; }
 .pack-disclosure-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0; }
 .pack-disclosure-body { font-size: 9.5pt; line-height: 14pt; margin: 0; }
+/* Negative equity (spec §3.5) is the one disclosure the pack cannot let a
+ * reader skim past — a left rule in the unfavourable colour, same token the
+ * scorecard's own "missed" status uses, so the two failure cues agree. */
+.pack-disclosure-negative-equity {
+  border-left: 2pt solid var(--pack-unfavourable, #b3261e);
+  padding-left: 3mm;
+}
 
 /* Task 14 — cover, contents, section divider and the stand-alone stat tile. */
 .pack-cover {
@@ -193,7 +205,6 @@ html.print-mode {
 .pack-stat-label { font-size: 8pt; line-height: 11pt; color: var(--pack-grey-strong); }
 .pack-stat-value { font-family: var(--pack-font-mono); font-size: 13pt; line-height: 16pt; font-weight: 500; }
 .pack-stat-value.is-unavailable { font-size: 10pt; font-style: italic; font-weight: 400; color: var(--pack-grey-mid); }
-.pack-stat-group-heading { font-size: 9pt; font-weight: 600; margin: 0 0 1.5mm; }
 
 [data-pack-draft] .pack-page::before {
   content: 'DRAFT';

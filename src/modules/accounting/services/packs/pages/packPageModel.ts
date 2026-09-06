@@ -96,7 +96,7 @@ export interface PackScorecardRow {
   /** Raw target, not a PackFigure — a target is a fixed goal, not a value
    *  read from the ledger, so it carries no `source` to trace. */
   target: number | null;
-  prior: PackFigure;
+  prior: PackFigure | null; // Null when there is no prior period (R-P42) — an absent comparative, never a zero.
   status: PackScorecardStatus;
   trend: PackTrendDirection;
   /** Pre-rendered trend sparkline/arrow markup, null if none beyond `trend`. */

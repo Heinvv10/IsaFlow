@@ -41,6 +41,15 @@ describe('ScorecardTable', () => {
     const many = [{ letter: 'A', name: 'X', rows: Array.from({ length: 21 }, () => groups[0]!.rows[0]!) }];
     expect(() => render(<ScorecardTable groups={many} />)).toThrow(/20/);
   });
+
+  it('refuses more than 5 rows in one group, even when the total is well under 20', () => {
+    // 6 rows in one group, nothing else — total is 6, nowhere near the
+    // 20-row cap, so only the PER-GROUP check can be what throws here.
+    const oneBigGroup = [
+      { letter: 'A', name: 'X', rows: Array.from({ length: 6 }, () => groups[0]!.rows[0]!) },
+    ];
+    expect(() => render(<ScorecardTable groups={oneBigGroup} />)).toThrow(/5/);
+  });
 });
 
 describe('NegativeEquityBlock', () => {
