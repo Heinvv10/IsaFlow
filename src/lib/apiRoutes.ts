@@ -61,6 +61,16 @@ import type { createAnnotation, listAnnotations } from '@/modules/accounting/ser
  * the handler onto its own path remains the better fix where the two payloads
  * have nothing to do with each other; a union is right when they are the list
  * and the item of one resource.
+ *
+ * THE CONDITION ON A UNION: its arms must stay DISJOINT on the key callers
+ * narrow by. `'commentary' in r` only tells a caller which arm it holds while
+ * exactly one arm has a `commentary` key. The day the other arm gains one,
+ * every `in` check across the codebase silently stops discriminating and the
+ * caller is back to a confirmed-but-wrong guess — with no compile error at the
+ * call site, because both arms would then satisfy the narrowing. That is a
+ * property of the SERVICE return types, which live in another module and are
+ * changed by people who never read this file, so it is pinned by typeproof
+ * cases 15-17 rather than by this comment.
  */
 interface StaticRoutes {
   '/api/accounting/currencies': Currency[];

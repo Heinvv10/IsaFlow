@@ -16,6 +16,7 @@
  */
 
 import { apiJson } from '@/lib/apiFetch';
+import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import type { Currency } from '@/modules/accounting/services/core/currencyService';
 
 // 1. Registered static route infers the real service type.
@@ -121,4 +122,36 @@ export async function p14(id: string) {
   const r = await apiJson(`/api/accounting/commentary/${id}/approve`, { method: 'POST' });
   // @ts-expect-error the row is camelCase `approvedText`, never `approved_text`
   return [r.commentary.approvedText, r.commentary.approved_text];
+}
+
+// 15. A union's arms must stay DISJOINT on the key callers narrow by. After
+//     `'commentary' in r` the caller must hold the LIST arm and nothing else.
+//     If `generateDrafts` ever returns a `commentary` key, this assignment
+//     stops compiling — which is the alarm, since every `in` check on this
+//     route would otherwise keep compiling while no longer discriminating.
+export async function p15() {
+  const r = await apiJson('/api/accounting/commentary?type=board&from=a&to=b');
+  if (!('commentary' in r)) return null;
+  const rows: CommentaryRow[] = r.commentary;
+  return rows[0]?.sectionRef ?? null;
+}
+
+// 16. Same pin from the other side: narrowing AWAY from the list arm must
+//     leave the generate arm alone, with its own two fields and no third.
+export async function p16() {
+  const r = await apiJson('/api/accounting/commentary?type=board&from=a&to=b');
+  if ('commentary' in r) return null;
+  const written: number = r.written;
+  const skipped: string[] = r.skipped;
+  return [written, skipped.length] as const;
+}
+
+// 17. And the same condition on the share-links union, whose arms are the one
+//     that carries the raw token and the one that must never be able to.
+export async function p17() {
+  const r = await apiJson('/api/accounting/share/links');
+  if (!('links' in r)) return null;
+  // @ts-expect-error the LIST arm has no token — if it ever gains one, this
+  // line starts compiling and the expect-error itself fails the build.
+  return r.token;
 }
