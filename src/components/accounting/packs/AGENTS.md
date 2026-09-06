@@ -7,10 +7,11 @@
 Renders a `PackDocument` (from `services/packs/packDocument.ts`) as React — both the interactive preview and the `?print=1` page the PDF pipeline photographs. No figures are computed here; the component tree only lays out what the document model already holds.
 
 ## Caller contract
-`pages/accounting/reports/report-packs.tsx` is a dispatcher: `isPrintRender(router)` decides between the interactive screen and `PackPrintPage`. The print page renders WITHOUT `AppLayout` and fetches exactly the two paths `packPrintApiPaths` authorises.
+`pages/accounting/reports/report-packs.tsx` is a dispatcher: `isPrintRender(router)` decides between the interactive screen and `PackPrintPage`. The interactive screen renders `SectionCard` from here; the print path renders a `PackDocument` through `PackSectionView`. **The two share their FORMATTERS, not their markup** — `packMappers`, `formatPackKv` and `scorecardFigure` — which is what keeps a figure reading the same on both without pinning them to one layout. The print page renders WITHOUT `AppLayout` and fetches exactly the two paths `packPrintApiPaths` authorises.
 
 ## Main signatures
 - `PackPrintPage({ packType, from, to })` — the whole of `?print=1`
+- `SectionCard({ section, defaultOpen })` (`PackSectionCard.tsx`) — the INTERACTIVE preview of one section, not the printed one
 - `PackPrintView({ document })` · `PackSectionView` · `PackCover` · `PackToc` · `PackChart`
 - `usePackPrintData(packType, from, to)` — the print page's two fetches
 - `usePrintMode(enabled)` · `usePrintReady(dataReady, expectedCharts)` · `countCharts(sections)`
