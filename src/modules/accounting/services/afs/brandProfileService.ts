@@ -1,6 +1,7 @@
 // src/modules/accounting/services/afs/brandProfileService.ts
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertCarriesWhiteText } from '@/lib/brand/contrast';
 import type { BrandProfile, UpsertBrandProfileInput } from './afsTypes';
 
 const HEX_COLOUR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -46,6 +47,11 @@ export async function upsertBrandProfile(
 ): Promise<BrandProfile> {
   validateHex(input.primaryColour);
   validateHex(input.secondaryColour);
+  // Only the primary is gated: it is the colour that carries white text on
+  // the cover band and table header rows. The secondary is an accent that
+  // never carries reversed text, so gating it would reject legitimate light
+  // accents.
+  assertCarriesWhiteText(input.primaryColour, 'primaryColour');
 
   log.info('brandProfileService.upsertBrandProfile', { companyId });
 
