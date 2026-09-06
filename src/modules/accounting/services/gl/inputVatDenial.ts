@@ -114,8 +114,10 @@ export async function resolveVatCodeForAccount(
   // plain "No VAT" with no hint that anything was decided for them. That is
   // the "silently strip a legitimate claim" failure the split exists to avoid.
   // The unattended POSTERS call that guard themselves, through
-  // `gl/ruleVatResolution`: `autoPostRuleLine` (rule sweep) and
-  // `autoPostGateService.sweep` (confidence gate). Two of them, not one.
+  // `gl/ruleVatResolution`: `autoPostRuleLine` (rule sweep),
+  // `autoPostGateService.sweep` (confidence gate) and
+  // `provisionalPostingService.postProvisional` (the gate's import branch,
+  // which predicts its own code from history). Three of them, not one.
   return applyVatDenial(Boolean(account?.vat_input_denied), requested, {
     companyId,
     glAccountId,
