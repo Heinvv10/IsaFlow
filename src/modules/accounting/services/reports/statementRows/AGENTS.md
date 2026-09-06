@@ -13,13 +13,35 @@ rounding or ratio happens here — a figure the grid shows must be a figure a
 service returned, or the screen and the export disagree and neither is wrong
 in a traceable way.
 
-**The single exception**, documented at its call site: `Total Liabilities and
-Equity` in `balanceSheetRows.ts`, which is `totalLiabilities + totalEquity`
-because `BalanceSheetReport` has no field for it. Adding a second exception
-needs a reason in the file and a test that pins it.
+**Three exceptions**, each documented at its call site and pinned by a test:
+
+1. `Total Liabilities and Equity` in `balanceSheetRows.ts`, which is
+   `totalLiabilities + totalEquity` because `BalanceSheetReport` has no field
+   for it.
+2. `comparators.ts`'s `budget.variance` (`actual − budget`, the movement),
+   because the service's own `variance` is signed favourably and cannot be
+   used for that field. The subtraction is rounded to two decimals: both
+   operands are already rands to the cent, so the rounding removes IEEE-754
+   noise (`130000.10 − 120000.20` is `9999.899999999994`) and can never move
+   a real cent. Tested in
+   `tests/unit/services/reports/statementRows/comparators.test.ts`.
+3. `comparators.ts`'s `variancePct` (`variance / |value| * 100`), computed
+   from that same variance and value rather than passed through from a
+   service, so prior and budget cannot diverge onto different sign
+   conventions. Tested in the same file.
+
+`tests/unit/services/reports/statementRows/comparators.test.ts` is the ONE
+file for this module. It was two, asserting the same rules with different
+fixtures; a rule can then change in the service with only one of them
+noticing. Add a case there rather than starting a second file.
+
+Adding a fourth exception needs a reason in the file and a test that pins it.
 
 ## Files
-- `statementModel.ts` — `StatementRow`, `Comparison`, `StatementColumns`.
+- `statementModel.ts` — `StatementRow`, `Comparison`, `StatementColumns`, and
+  `comparativeOnlyColumns(showComparative)`: the columns a surface with no
+  comparator controls prints. Both statement bodies fall back to it, so
+  "no columns chosen" means one thing rather than two copies of a literal.
 - `incomeStatementRows.ts` — `toIncomeStatementRows(report, opts)`.
 - `balanceSheetRows.ts` — `toBalanceSheetRows(report, opts)` → assets / L+E.
 - `attachNotes.ts` — `attachNotes(rows, annotations)` merges internal-note
@@ -29,6 +51,12 @@ needs a reason in the file and a test that pins it.
 - `packMappers.ts` — report-pack section blobs → the pack surfaces' shapes,
   including `toManagementPandLRows`, which builds its bands from
   `incomeStatementPackRows` so screen and pack share ONE band list.
+- `comparators.ts` — `baseComparison` (one comparison against a BASE figure,
+  shared by both row adapters for `prior` and by `applyBudgetComparator` for
+  `budget` — it is not a prior-period helper), `applyTrend` and
+  `applyBudgetComparator`. See the
+  exceptions above for the sign rules on `variance` and `variancePct`. Adding
+  a third comparator goes here, not into the report adapters.
 
 ## Layer
 

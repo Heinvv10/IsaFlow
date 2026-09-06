@@ -14,6 +14,10 @@ import { IncomeStatementSections } from '@/components/accounting/IncomeStatement
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
+import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
+import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
+import { useStatementComparatorState } from '@/components/accounting/reportControls/useStatementComparatorState';
+import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -95,8 +99,16 @@ export default function IncomeStatementPage() {
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
-  const [showComparative, setShowComparative] = useState(false);
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
+  // The Prior-period checkbox IS the comparative fetch: one control, so the
+  // column cannot be on with no comparative period behind it.
+  const { columns, setColumns, companyWideUnavailable, apply, budgetState, trendFailed } =
+    useStatementComparatorState({
+      costCentreSelected: costCentreId !== '',
+      asOf: periodEnd, basis: 'movement', periodStart, periodEnd,
+    });
+  const showComparative = columns.prior;
+  const anyColumn = columns.prior || columns.budget || columns.trend;
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
@@ -166,6 +178,7 @@ export default function IncomeStatementPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Income Statement</h1>
               </div>
               <div className="flex items-center gap-2">
+                <PresentLink from={periodStart} to={periodEnd} />
                 <button onClick={handleXlsxExport} disabled={!report}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
                   <FileSpreadsheet className="h-4 w-4" /> Export Excel
@@ -179,7 +192,11 @@ export default function IncomeStatementPage() {
           </div>
         </div>
 
-        <div className="p-6 max-w-4xl space-y-6">
+        {/* The statement is a narrow column until a comparator is on. With
+            prior, budget and trend all showing, eleven columns inside
+            max-w-4xl push the trend off the right edge of a container the
+            reader has no reason to suspect scrolls. */}
+        <div className={`p-6 space-y-6 ${anyColumn ? 'max-w-7xl' : 'max-w-4xl'}`}>
           {/* Date Range + Filters */}
           <div className="flex flex-wrap items-end gap-4">
             <div>
@@ -200,12 +217,14 @@ export default function IncomeStatementPage() {
                 ))}
               </select>
             </div>
-            <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer select-none pb-1">
-              <input type="checkbox" name="showComparative" checked={showComparative} onChange={e => setShowComparative(e.target.checked)}
-                className="rounded border-[var(--ff-border-light)]" />
-              Compare prior period
-            </label>
+            <div className="pb-2">
+              <ComparatorControls value={columns} onChange={setColumns}
+                companyWideUnavailable={companyWideUnavailable} />
+            </div>
           </div>
+
+          <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
+            companyWideUnavailable={companyWideUnavailable} />
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
@@ -232,6 +251,8 @@ export default function IncomeStatementPage() {
                 expandedAccount={expandedAccount}
                 onToggleAccount={toggleAccount}
                 showComparative={showComparative}
+                columns={columns}
+                applyComparators={apply}
                 onEvidence={(id, name) => setEvidenceTarget({ accountId: id, accountName: name })}
               />
             </div>

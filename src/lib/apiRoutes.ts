@@ -41,6 +41,11 @@ import type { findVatAllocationMismatches } from '@/modules/accounting/services/
 import type { createShareLink, listShareLinks } from '@/modules/accounting/services/share/shareLinkService';
 import type { CommentaryRow, generateDrafts, listCommentary } from '@/modules/accounting/services/commentary/commentaryService';
 import type { createAnnotation, listAnnotations } from '@/modules/accounting/services/annotations/annotationService';
+import type { getMonthlyMovements } from '@/modules/accounting/services/reports/trendRowsService';
+import type { getBudgetVariance } from '@/modules/accounting/services/reports/budgetVarianceService';
+import type { getIncomeStatement } from '@/modules/accounting/services/reports/financialReportingService';
+import type { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
+import type { unclassifiedWarning } from '@/modules/accounting/services/gl/financialFiguresService';
 
 /**
  * ONE TYPE PER URL, REGARDLESS OF METHOD.
@@ -88,6 +93,24 @@ interface StaticRoutes {
   '/api/accounting/annotations':
     | { annotations: Awaited<ReturnType<typeof listAnnotations>> }
     | { annotation: Awaited<ReturnType<typeof createAnnotation>> };
+  '/api/accounting/reports-account-trends': Awaited<ReturnType<typeof getMonthlyMovements>>;
+  '/api/accounting/reports-budget-comparator': {
+    fiscalYear: Awaited<ReturnType<typeof getBudgetVariance>>['fiscalYear'];
+    monthKeys: Awaited<ReturnType<typeof getBudgetVariance>>['monthKeys'];
+    lines: Awaited<ReturnType<typeof getBudgetVariance>>['rows'];
+    /** `result.rows.length` — how many accounts the SERVICE classified as
+     *  budgeted. Derived in the handler, so it is written out here rather
+     *  than projected off the service type; it is a count of that array and
+     *  moves with it. */
+    budgetedCount: number;
+    postedThrough: Awaited<ReturnType<typeof getBudgetVariance>>['postedThrough'];
+  };
+  '/api/accounting/reports-income-statement': Awaited<ReturnType<typeof getIncomeStatement>>;
+  '/api/accounting/reports-pack': {
+    pack: ReturnType<typeof buildReportPack>;
+    period: { from: string; to: string };
+    unclassifiedAccounts: ReturnType<typeof unclassifiedWarning>;
+  };
 }
 
 /**
