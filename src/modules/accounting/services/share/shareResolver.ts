@@ -25,17 +25,15 @@
  *
  * Nothing in this file logs the raw token, the token hash, or a request URL.
  * The token travels in the URL of the public route, so a log line carrying a
- * URL hands a reader of the logs a working link; `redactShareToken` below is
- * what a caller must put around any URL it logs.
+ * URL hands a reader of the logs a working link; `redactShareToken` in
+ * `@/lib/observability/redactShareToken` is what a caller must put around any
+ * URL it logs.
  */
 import { sql, withTransaction, type DbRow, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { redactShareToken } from '@/lib/observability/redactShareToken';
 import { hashShareToken, isShareTokenShape } from './shareToken';
 import { parseSharePackParams, type SharePackParams } from './shareParams';
-
-export { redactShareToken };
 
 export interface ResolvedShareLink {
   id: string;

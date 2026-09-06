@@ -7,7 +7,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiJson, ApiRequestError } from '@/lib/apiFetch';
 import type { ShareLinkRow } from '@/modules/accounting/services/share/shareLinkService';
-import { clampTtlDays, type SharePackParams } from '@/modules/accounting/services/share/shareParams';
+import { clampTtlDays } from '@/modules/accounting/services/share/shareTtl';
+import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
 
 const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-secondary)]';
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-1 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';

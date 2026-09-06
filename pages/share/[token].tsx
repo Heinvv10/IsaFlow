@@ -22,7 +22,7 @@ import type { GetServerSideProps, NextApiRequest } from 'next';
 import Head from 'next/head';
 import { commitShareView, resolveShareLink } from '@/modules/accounting/services/share/shareResolver';
 import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
-import { stripOmittedSections, type SharedReportPack } from '@/modules/accounting/services/share/sharedSections';
+import { stripOmittedSections } from '@/modules/accounting/services/share/sharedSections';
 import { SharedPackView, type SharedPackProps } from '@/components/accounting/share/SharedPackView';
 import { getClientIp } from '@/lib/rateLimit';
 import { log } from '@/lib/logger';
@@ -134,7 +134,3 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
     return { props: { state: 'unavailable' } };
   }
 };
-
-// `SharedReportPack` is re-exported for the view's prop type; naming it here
-// keeps the page's contract with the component visible in one place.
-export type { SharedReportPack };

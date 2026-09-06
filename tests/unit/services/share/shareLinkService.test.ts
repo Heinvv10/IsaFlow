@@ -21,7 +21,6 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
 import {
-  clampTtlDays,
   createShareLink,
   listShareLinks,
   revokeShareLink,
@@ -29,6 +28,9 @@ import {
   MAX_LIVE_LINKS,
 } from '@/modules/accounting/services/share/shareLinkService';
 import { hashShareToken } from '@/modules/accounting/services/share/shareToken';
+// Imported from the module that DEFINES it. shareLinkService re-exported it
+// for this test alone, which is not a reason for a public export to exist.
+import { clampTtlDays } from '@/modules/accounting/services/share/shareTtl';
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';

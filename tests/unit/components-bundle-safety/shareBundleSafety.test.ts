@@ -19,6 +19,13 @@ import path from 'node:path';
 
 const SRC_ROOT = path.resolve(__dirname, '../../../src');
 const FORBIDDEN = path.resolve(SRC_ROOT, 'lib/neon.ts');
+// `ShareLinkDialog.tsx` shipped a second instance of this same defect class:
+// it value-imported `clampTtlDays` from `shareParams.ts`, which also defines
+// `canonicalParamsHash` via `node:crypto` — webpack cannot bundle the `node:`
+// URI scheme for the browser and the build fails. Bare specifiers can't be
+// resolved to a file path (see resolveSpecifier below), so they're matched by
+// name directly in reachesForbidden.
+const FORBIDDEN_BARE_SPECIFIERS = ['node:crypto', 'crypto'];
 
 const GUARDED_DIRS = [
   'components/accounting/share',
@@ -97,26 +104,27 @@ function resolveSpecifier(spec: string, fromFile: string): string | null {
   return null;
 }
 
-function reachesNeon(entry: string, visited: Set<string>): boolean {
+function reachesForbidden(entry: string, visited: Set<string>): boolean {
   if (entry === FORBIDDEN) return true;
   if (visited.has(entry)) return false;
   visited.add(entry);
 
   const source = fs.readFileSync(entry, 'utf8');
   for (const spec of valueImportSpecifiers(source)) {
+    if (FORBIDDEN_BARE_SPECIFIERS.includes(spec)) return true;
     const resolved = resolveSpecifier(spec, entry);
-    if (resolved && reachesNeon(resolved, visited)) return true;
+    if (resolved && reachesForbidden(resolved, visited)) return true;
   }
   return false;
 }
 
-describe('WS3 client components never bundle @/lib/neon', () => {
+describe('WS3 client components never bundle @/lib/neon or node:crypto', () => {
   for (const dir of GUARDED_DIRS) {
     const absDir = path.join(SRC_ROOT, dir);
     for (const file of listSourceFiles(absDir)) {
       const label = path.relative(SRC_ROOT, file);
-      it(`${label} has no value-import path to @/lib/neon`, () => {
-        expect(reachesNeon(file, new Set())).toBe(false);
+      it(`${label} has no value-import path to @/lib/neon or node:crypto`, () => {
+        expect(reachesForbidden(file, new Set())).toBe(false);
       });
     }
   }

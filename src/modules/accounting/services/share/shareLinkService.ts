@@ -11,11 +11,6 @@ import { log } from '@/lib/logger';
 import { mintShareToken, hashShareToken } from './shareToken';
 import { clampTtlDays, type SharePackParams } from './shareParams';
 
-// Re-exported for existing callers/tests — the function itself now lives in
-// shareParams.ts, which is db-free, so a browser component can import it
-// without pulling `@/lib/neon` into its bundle.
-export { clampTtlDays };
-
 export interface ShareLinkRow {
   id: string;
   reportKind: 'pack';

@@ -10,6 +10,14 @@
  * at read time, never from params.
  */
 import { createHash } from 'node:crypto';
+import { clampTtlDays } from './shareTtl';
+
+// Re-exported for existing server-side callers (shareLinkService.ts). A
+// browser component MUST import clampTtlDays from './shareTtl' directly —
+// this file also defines canonicalParamsHash below, which pulls in
+// node:crypto, and any client-component VALUE import of this module drags
+// that import into the browser bundle and fails the webpack build.
+export { clampTtlDays };
 
 const PACK_TYPES = ['board', 'management', 'monthly'] as const;
 export type SharePackType = (typeof PACK_TYPES)[number];
@@ -42,20 +50,4 @@ export function parseSharePackParams(raw: unknown): SharePackParams | null {
  *  so the same pack for the same period always resolves the same commentary. */
 export function canonicalParamsHash(p: SharePackParams): string {
   return createHash('sha256').update(`${p.type}|${p.from}|${p.to}`).digest('hex');
-}
-
-const MAX_TTL_DAYS = 90;
-const DEFAULT_TTL_DAYS = 30;
-
-/** Clamp to [1, 90] days. A caller-supplied ttl is a convenience, not a way to
- *  mint a link that outlives the engagement.
- *
- *  Lives here rather than in `shareLinkService.ts` — that module value-imports
- *  `sql`/`withTransaction` from `@/lib/neon`, and a browser component (the
- *  Days field on `ShareLinkDialog`) needs this pure function without dragging
- *  the pg client into its bundle. `shareParams.ts` stays db-free by design. */
-export function clampTtlDays(days: number | undefined): number {
-  const n = Math.trunc(days ?? DEFAULT_TTL_DAYS);
-  if (!Number.isFinite(n) || n < 1) return DEFAULT_TTL_DAYS;
-  return Math.min(n, MAX_TTL_DAYS);
 }
