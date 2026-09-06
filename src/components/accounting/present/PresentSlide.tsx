@@ -31,6 +31,20 @@ function SlideNote({ title, children }: { title: string; children: string }) {
   );
 }
 
+/** Account code → account name, from the income statement the deck fetched.
+ *  Every band of it, because a trend series is keyed on the code alone. */
+function accountNames(income: IncomeStatementReport | null): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!income) return out;
+  for (const line of [
+    ...income.revenue, ...income.otherIncome, ...income.costOfSales,
+    ...income.operatingExpenses, ...income.otherExpenses,
+  ]) {
+    if (line.accountCode) out.set(line.accountCode, line.accountName);
+  }
+  return out;
+}
+
 export function PresentSlide({
   slide, income, incomeLoading = false,
   trends, trendsFailed, trendsLoading = false,
@@ -102,13 +116,21 @@ export function PresentSlide({
 
   if (slide.kind === 'trends') {
     if (trends) {
+      // A bare account code names nothing to a room that is not the finance
+      // team. The names come off the income statement this deck already
+      // fetched; a code with no line there keeps the code alone rather than
+      // borrowing a name from somewhere it might not belong.
+      const names = accountNames(income);
       const panels = Object.entries(trends.byAccountCode)
         .slice(0, 6)
-        .map(([key, values]) => ({ key, label: key, values }));
+        .map(([key, values]) => {
+          const name = names.get(key);
+          return { key, label: name === undefined ? key : `${key} · ${name}`, values };
+        });
       return (
         <>
           <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
-          <SmallMultiples panels={panels} months={trends.months} columns={3} />
+          <SmallMultiples panels={panels} months={trends.months} columns={3} height={480} />
         </>
       );
     }

@@ -51,6 +51,10 @@ backspace go back; Home and End jump; Escape exits.
   sentence instead of a figure goes through `SlideNote`, which carries the
   section title: a presenter paging onto a bare grey line cannot tell which
   section of the pack it is, and the room reads it as a rendering fault. Maps, never computes. The
+  The trends slide titles each panel `code · name`, taking the name from the
+  income statement the deck already fetched and keeping the bare code when no
+  line names that account. It also passes an explicit `height` so the grid
+  fills the slide instead of sizing itself to the panel count. The
   income-statement slide is the one exception: it fetches
   `reports-income-statement` and maps it with `toIncomeStatementRows` rather
   than reading the pack section, because the pack's income-statement section
