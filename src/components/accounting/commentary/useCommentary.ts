@@ -13,7 +13,7 @@
  * still takes one, because `CommentaryBlock` needs it to render.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiJson, ApiRequestError } from '@/lib/apiFetch';
+import { apiJson, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
 
@@ -31,8 +31,11 @@ export interface UseCommentaryResult {
   refresh: () => Promise<void>;
 }
 
+/** `ApiEnvelopeError` carries its own message too: a 2xx whose body is not the
+ *  shape this route promised is a real failure, and saying so beats a generic
+ *  line the reader cannot act on. */
 function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiRequestError) return err.message;
+  if (err instanceof ApiRequestError || err instanceof ApiEnvelopeError) return err.message;
   return fallback;
 }
 
@@ -61,7 +64,12 @@ export function useCommentary({ params }: UseCommentaryInput): UseCommentaryResu
       const qs = new URLSearchParams({ type, from, to });
       const r = await apiJson(`/api/accounting/commentary?${qs.toString()}`);
       if (requestId.current !== id) return;
-      setRows('commentary' in r ? r.commentary : []);
+      // NOT `: []`. The route's type is a union of the GET and POST envelopes,
+      // and an empty array for the wrong arm renders as "no commentary yet" —
+      // so a broken response invites somebody to regenerate over sentences a
+      // named person already approved.
+      if (!('commentary' in r)) throw new ApiEnvelopeError('The commentary response did not contain any commentary rows.');
+      setRows(r.commentary);
     } catch (err) {
       if (requestId.current !== id) return;
       setError(errorMessage(err, 'Could not load commentary.'));

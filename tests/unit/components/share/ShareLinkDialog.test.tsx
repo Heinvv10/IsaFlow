@@ -101,6 +101,38 @@ describe('ShareLinkDialog', () => {
     expect(screen.queryByDisplayValue(/^https?:\/\//)).toBeNull();
   });
 
+  it('says the list response was wrong rather than showing "no share links yet"', async () => {
+    // A 200 carrying the wrong arm of the route's union. Falling back to []
+    // rendered the empty state, which is indistinguishable from a company that
+    // has never shared anything — so the owner is told the pack is private and
+    // invited to mint a second link for one that is already out.
+    fetchMock.mockResolvedValue(envelope({ somethingElse: true }));
+    render(<ShareLinkDialog params={PARAMS} onClose={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(screen.getByText('The share links response did not contain a list of links.')).toBeTruthy());
+    expect(screen.queryByText('No share links yet.')).toBeNull();
+  });
+
+  it('says so when create succeeds without returning the URL, instead of doing nothing', async () => {
+    // The raw token is returned once and never again. Silently ignoring the
+    // wrong arm left a live link minted against the company's cap whose URL
+    // nobody could ever recover, with the button simply appearing to do
+    // nothing.
+    fetchMock
+      .mockResolvedValueOnce(envelope({ links: [] }))
+      .mockResolvedValueOnce(envelope({ link: LINK }));
+
+    render(<ShareLinkDialog params={PARAMS} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('No share links yet.')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(screen.getByText(
+      'The link was created but its URL was not returned. Revoke it and try again.')).toBeTruthy());
+    expect(screen.queryByDisplayValue(/^https?:\/\//)).toBeNull();
+  });
+
   it('revokes a link and re-fetches the list', async () => {
     fetchMock
       .mockResolvedValueOnce(envelope({ links: [LINK] }))

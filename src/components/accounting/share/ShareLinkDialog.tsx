@@ -5,7 +5,7 @@
  * right after Create succeeds. Copy it now; it cannot be shown again.
  */
 import { useEffect, useRef, useState } from 'react';
-import { apiJson, ApiRequestError } from '@/lib/apiFetch';
+import { apiJson, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
 import type { ShareLinkRow } from '@/modules/accounting/services/share/shareLinkService';
 import { clampTtlDays } from '@/modules/accounting/services/share/shareTtl';
 import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
@@ -14,8 +14,11 @@ const CARD = 'rounded-lg border border-[var(--ff-border-light)] bg-[var(--ff-bg-
 const BTN = 'rounded border border-[var(--ff-border-light)] px-2 py-1 text-xs text-[var(--ff-text-secondary)] hover:border-[var(--ff-brand-500)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
 const INPUT = 'w-full rounded border border-[var(--ff-border-light)] bg-[var(--ff-bg-primary)] p-2 text-sm text-[var(--ff-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ff-brand-500)]';
 
+/** `ApiEnvelopeError` carries its own message too: a 2xx whose body is not the
+ *  shape this route promised is a real failure, and saying so beats a generic
+ *  line the reader cannot act on. */
 function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiRequestError) return err.message;
+  if (err instanceof ApiRequestError || err instanceof ApiEnvelopeError) return err.message;
   return fallback;
 }
 
@@ -36,7 +39,13 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
     setListError(null);
     try {
       const r = await apiJson('/api/accounting/share/links');
-      setLinks('links' in r ? r.links : []);
+      // NOT `: []`. The route's type is a union of the GET and POST envelopes,
+      // and an empty array for the wrong arm is indistinguishable from a
+      // company with no live links — so a broken response would show a person
+      // "no share links" for a pack they had already shared, and invite them
+      // to mint a second one.
+      if (!('links' in r)) throw new ApiEnvelopeError('The share links response did not contain a list of links.');
+      setLinks(r.links);
     } catch (err) {
       setListError(errorMessage(err, 'Could not load share links.'));
     } finally {
@@ -74,11 +83,13 @@ export function ShareLinkDialog({ params, onClose }: { params: SharePackParams; 
         method: 'POST',
         body: JSON.stringify({ params, label: label.trim() || undefined, ttlDays }),
       });
-      if ('url' in r) {
-        setNewLink({ url: r.url });
-        setCopied(false);
-        setLabel('');
-      }
+      // The raw token is returned ONCE and never again. Silently skipping this
+      // block on the wrong arm would leave a live link minted against the
+      // company's cap with a URL nobody can ever recover.
+      if (!('url' in r)) throw new ApiEnvelopeError('The link was created but its URL was not returned. Revoke it and try again.');
+      setNewLink({ url: r.url });
+      setCopied(false);
+      setLabel('');
       await refresh();
     } catch (err) {
       setCreateError(errorMessage(err, 'Could not create the share link.'));

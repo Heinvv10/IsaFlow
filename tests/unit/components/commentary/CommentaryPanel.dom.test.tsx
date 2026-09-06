@@ -82,6 +82,17 @@ describe('CommentaryPanel', () => {
     expect(screen.queryByText('DRAFT CASH SENTENCE')).toBeNull();
   });
 
+  it('says the response was wrong rather than rendering an empty section', async () => {
+    // A 200 carrying the wrong arm of the route's union. Falling back to []
+    // rendered as "no commentary yet", which invites somebody to regenerate
+    // over sentences a named person had already approved.
+    fetchMock.mockResolvedValue(envelope({ written: 3, skipped: [] }));
+    render(<CommentaryPanel sectionRef="income_statement" mode="internal" canApprove params={PARAMS} />);
+
+    await waitFor(() => expect(
+      screen.getByText('The commentary response did not contain any commentary rows.')).toBeTruthy());
+  });
+
   it('approves and refreshes when an approver clicks Approve', async () => {
     fetchMock
       .mockResolvedValueOnce(envelope({ commentary: [ROW] })) // initial load
