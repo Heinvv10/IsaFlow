@@ -6,14 +6,16 @@
  * data hook.
  *
  * No AppLayout — the chrome is hidden by print.css anyway, and its sidebar,
- * setup-guide and preferences fetches are gone. What is NOT gone is _app.tsx:
- * measured against the dev server, the print page still fires /api/auth/me,
- * /api/accounting/companies and /api/track/event from the app-level
- * providers. The Playwright transport stubs those (it intercepts every path
- * the print token does not authorise); a transport that cannot intercept
- * would see them 401 instead. They are background calls with no bearing on
- * [data-print-ready], so the pack still renders — but the claim that this
- * page fetches nothing beyond its own two paths would be false.
+ * setup-guide and preferences fetches are gone.
+ *
+ * _app.tsx used to fire three more regardless: /api/auth/me,
+ * /api/accounting/companies and /api/track/event, from the app-level
+ * providers and the analytics tracker. Under the Playwright transport those
+ * were merely stubbed; under Gotenberg, which cannot intercept, /api/auth/me
+ * CLEARED the cookie carrying the print token. All three are now gated off a
+ * print render (see printRenderQuery.ts and the tests in
+ * tests/unit/components/packs/appPrint*.dom.test.tsx), so this page fetches
+ * exactly the two paths its print token authorises and nothing else.
  */
 import { PackPrintView } from './PackPrintView';
 import { usePackPrintData } from './usePackPrintData';

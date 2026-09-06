@@ -12,8 +12,8 @@
 // is present; withAuth is what verifies it.
 //
 // The page is responsible for adding `print-mode` to <html> and dropping
-// `.dark` when it sees ?print=1 — a future non-Playwright transport cannot
-// execute a script on our behalf, so the page, not the renderer, owns that.
+// `.dark` when it sees ?print=1 — the Gotenberg transport cannot execute a
+// script on our behalf, so the page, not the renderer, owns that.
 
 import { mintPrintToken } from './printAuth';
 import { ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE } from '@/lib/auth/cookies';
