@@ -22,10 +22,12 @@ import '../styles/print.css';
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
   // A print render (Gotenberg/Playwright photographing report-packs.tsx's
-  // ?print=1 branch) needs no company context, and Gotenberg cannot stub
-  // out CompanyProvider's own /api/accounting/companies call the way the
-  // Playwright transport does — that call 401s under the print token, and
-  // apiFetch's global refresh-then-redirect (src/lib/apiFetch.ts) then
+  // ?print=1 branch) needs no auth or company context, and Gotenberg cannot
+  // stub these providers' own background fetches the way the Playwright
+  // transport does: AuthProvider's /api/auth/me fails JWT verification on a
+  // print token and its handler clears the sb-access-token cookie (the same
+  // cookie carrying the print token), and CompanyProvider's own fetch 401s
+  // under the print token, whose refresh-then-redirect (apiFetch.ts)
   // navigates the whole render to /login before it can finish. See
   // printRenderQuery.ts.
   const isPrintRender = isPrintRenderQuery(router.query);
@@ -49,7 +51,7 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <div>
     <ThemeProvider>
-      <AuthProvider>
+      <AuthProvider skipFetch={isPrintRender}>
         <CompanyProvider skipFetch={isPrintRender}>
         <ThemeModeProvider>
         <TableDensityProvider>
