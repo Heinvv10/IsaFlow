@@ -92,6 +92,15 @@ export function incomeStatementPackRows(d: Record<string, unknown>): PackPandLRo
     { key: 'operatingExpenses', label: 'Operating Expenses', amount: operatingExpenses },
     { key: 'operatingProfit', label: 'Operating Profit', amount: operatingProfit },
     ...(otherExpenses !== 0 ? [{ key: 'otherExpenses' as const, label: 'Other Expenses', amount: otherExpenses }] : []),
+    // COPIED, never re-derived. Operating Profit above has a fallback because
+    // it is a presentation subtotal the caller may not carry; the bottom line
+    // has none, and must not grow one. It is the classifier's own figure
+    // (gl/accountClassification#aggregateFigures, through
+    // financialFiguresService), and every surface that shows a net profit
+    // shows THAT number — the convergence the income statement, the packs and
+    // the MCP figure registry all rest on. Recomputing it here from the bands,
+    // even in a way that looks equivalent, is how two surfaces come to print
+    // different bottom lines for the same period.
     { key: 'netProfit', label: 'Net Profit', amount: num(d['netProfit']), margin: marginOrNull(d['netMargin']) },
   ];
 }
