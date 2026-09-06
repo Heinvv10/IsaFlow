@@ -183,11 +183,22 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
             : { value: r.debtToEquity },
       },
       {
+        // R-P44: `ReportPackFigures`/`ReportPackInput` carry no interest-expense
+        // field at all, so `calculateExtendedRatios.interestCoverage`'s
+        // `interestExp > 0 ? ... : 0` branch can NEVER fire here — the 0 it
+        // always returns is an artefact of a field this pack never captures,
+        // not a measurement. Printing it would tell a director "this company
+        // cannot service its debt from earnings", the opposite of the true
+        // story ("we don't know"). Always notMeaningful; never read through
+        // to the service's number.
         metric: 'Interest cover',
         format: 'ratio',
         source: 'calculateExtendedRatios.interestCoverage',
         lowerIsBetter: false,
-        read: (r) => ({ value: r.interestCoverage }),
+        read: () => ({
+          value: null,
+          unavailable: 'Interest expense is not captured in the pack figure set.',
+        }),
       },
     ],
   },
