@@ -8,7 +8,7 @@
  * written out twice. A rule that lives in two pages is a rule that will hold
  * in one of them.
  */
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import type {
   StatementColumns, StatementRow,
 } from '@/modules/accounting/services/reports/statementRows/statementModel';
@@ -57,7 +57,7 @@ export function useStatementComparatorState(
   } = opts;
 
   const densityState = useDensity();
-  const { columns: chosen, setColumns } = useComparatorColumns(densityState);
+  const { columns: chosen, setColumns: setChosen } = useComparatorColumns(densityState);
 
   // The trend and the budget are COMPANY-WIDE: `trendRowsService` applies no
   // cost-centre filter and `getBudgetVariance` takes no cost centre. With one
@@ -70,6 +70,21 @@ export function useStatementComparatorState(
       : chosen),
     [costCentreSelected, chosen],
   );
+
+  /**
+   * `ComparatorControls` is handed the GATED columns and sends back a whole
+   * `StatementColumns`, not a patch — `{ ...value, ...patch }`. Written
+   * straight through, the first checkbox the reader touches under a cost
+   * centre would carry the gate's own `budget: false, trend: false` into
+   * `chosen`, and clearing the filter would restore nothing. The two fields
+   * the gate forces are therefore taken from `chosen` rather than from the
+   * value that was on screen; every other field is the reader's actual click.
+   */
+  const setColumns = useCallback((next: StatementColumns) => {
+    setChosen(costCentreSelected
+      ? { ...next, budget: chosen.budget, trend: chosen.trend }
+      : next);
+  }, [costCentreSelected, chosen.budget, chosen.trend, setChosen]);
 
   const { apply, budgetState, trendFailed } = useStatementComparators({
     trend: columns.trend,

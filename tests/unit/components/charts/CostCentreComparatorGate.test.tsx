@@ -101,6 +101,36 @@ describe('the income statement with a cost centre selected', () => {
   });
 });
 
+describe('touching a live checkbox while the gate is on', () => {
+  it('does not write the gate own zeros back over the reader choice', async () => {
+    // `ComparatorControls` is handed the GATED columns and sends back a whole
+    // StatementColumns. Written straight through, this first click would
+    // carry `budget: false, trend: false` into the stored choice and clearing
+    // the filter would restore nothing.
+    stubFetches();
+    render(<IncomeStatementPage />);
+
+    fireEvent.click(await screen.findByLabelText('12-month trend'));
+    fireEvent.click(screen.getByLabelText('Budget'));
+
+    const select = await screen.findByDisplayValue('All Cost Centres');
+    fireEvent.change(select, { target: { value: 'cc-1' } });
+    expect(await screen.findByText(COMPANY_WIDE_UNAVAILABLE)).toBeInTheDocument();
+
+    // Prior period stays live under the gate — it is filtered with the
+    // statement — so this is a click the reader can really make here.
+    fireEvent.click(screen.getByLabelText('Prior period'));
+
+    fireEvent.change(screen.getByDisplayValue('OPS — Operations'), { target: { value: '' } });
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('12-month trend') as HTMLInputElement).checked).toBe(true));
+    expect((screen.getByLabelText('Budget') as HTMLInputElement).checked).toBe(true);
+    // And the click made under the gate was kept.
+    expect((screen.getByLabelText('Prior period') as HTMLInputElement).checked).toBe(true);
+  });
+});
+
 describe('the balance sheet with a cost centre selected', () => {
   it('switches the trend off, fetches none, and says why', async () => {
     stubFetches();
