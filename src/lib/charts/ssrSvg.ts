@@ -30,6 +30,19 @@ export const CHART_HEIGHT_MM = { inline: 48, half: 72, full: 110 } as const;
  * a silent path onto a board pack page inlined via
  * `dangerouslySetInnerHTML`. The brand does not re-run the guards — it
  * marks that they already ran.
+ *
+ * R-P41: the brand is sound ONLY because the page model is composed in the
+ * SAME process that renders it — `usePackPrintData` calls `renderChartSvg`
+ * (indirectly, via whatever builds the page model) in the browser Chromium
+ * is photographing, so a `TrustedChartSvg` never has to survive a trip
+ * anywhere. If a future task serialises a `PackPage`/`PackPagesDocument` to
+ * JSON (an API response, a cache, a queued job), `TrustedChartSvg` reduces
+ * to `any` on `JSON.parse` the moment it crosses that boundary — the brand
+ * does not survive serialisation, and a value that merely LOOKS branded on
+ * the other side has not been through either guard. Do not paper over that
+ * with a cast at the deserialising end; add a guarded `adopt(svg: string):
+ * TrustedChartSvg` there that re-runs `assertNoExternalReferences` and
+ * `assertStyleBlockIsOurs` before handing back the brand.
  */
 export type TrustedChartSvg = string & { readonly __trustedChartSvg: unique symbol };
 

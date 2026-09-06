@@ -117,3 +117,25 @@ html.print-mode {
 .pack-table tbody tr.is-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); }
 .pack-table tbody tr.is-grand-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); border-bottom: 3pt double var(--pack-ink); }
 .pack-table.is-long tbody tr:nth-child(even) td { background: var(--pack-tint); }
+
+/* Draft watermark — spec §5.4: a 45deg DRAFT mark at 6% opacity on every
+ * page of an unapproved pack. The word DRAFT already reaches the printed
+ * footer margin box via printFurniture.ts (Task 6); this is the page body's
+ * own mark, keyed off data-pack-draft rather than a class so the wrapper
+ * (PackPagesView) needs no page-by-page knowledge of it. */
+[data-pack-draft] .pack-page {
+  position: relative;
+}
+[data-pack-draft] .pack-page::before {
+  content: 'DRAFT';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  font-size: 96pt;
+  font-weight: 600;
+  color: var(--pack-ink);
+  opacity: 0.06;
+  pointer-events: none;
+  white-space: nowrap;
+}
