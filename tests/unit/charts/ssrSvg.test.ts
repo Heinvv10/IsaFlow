@@ -4,11 +4,17 @@
  * This repo has shipped a broken waterfall twice. Both implementations were
  * a transparent base bar plus a stacked movement bar; ECharts stacks
  * positive and negative values independently, so a movement from +400,000 to
- * −400,000 drew as an 800,000 bar entirely ABOVE the axis and a net-loss
- * subtotal drew above the zero line. Every fixture in both suites was
+ * −400,000 drew as a single oversized bar sitting entirely ABOVE the axis
+ * instead of a bar that crosses it. Every fixture in both suites was
  * profit-positive, so both suites were green. The only thing that caught it
  * was rendering through SSR and reading the rect coordinates — which is what
  * these tests do, permanently.
+ *
+ * Of the geometry assertions below, exactly ONE catches that bug: `spans a
+ * zero-crossing movement from its start to its end`. Reproduced against a
+ * stacked-bar build, the count, subtotal and opex assertions all pass. They
+ * are worth keeping as a description of the shape, but if these tests are
+ * ever trimmed, the zero-crossing one is the one that must survive.
  */
 import { describe, expect, it } from 'vitest';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
@@ -73,6 +79,30 @@ function pathPoints(d: string): Array<{ x: number; y: number }> {
 }
 
 /**
+ * The y of the value axis's ZERO tick, read from the axis label rather than
+ * from any bar. Anchoring the zero line to a bar's own edge makes the
+ * "revenue is above zero" assertion circular — it reduces to "this rect has
+ * positive height" and cannot fail. `formatMoney(0)` renders as an en dash,
+ * and the axis label carries its baseline in a `translate()`.
+ */
+function zeroLineY(svg: string): number {
+  const match = /<text\b[^>]*\btransform="translate\([\d.]+ ([\d.]+)\)"[^>]*>\u2013<\/text>/.exec(svg);
+  expect(match, 'no zero tick label found on the value axis').not.toBeNull();
+  return Number(match![1]);
+}
+
+/**
+ * Every generated id and class name in the SVG. zrender namespaces these per
+ * chart; a pack page inlines several charts into one document, so two charts
+ * sharing an id means one `url(#...)` clip resolves to the wrong rect.
+ */
+function idsAndClasses(svg: string): Set<string> {
+  const names = new Set<string>();
+  for (const m of svg.matchAll(/(?:\bid="|\bclass="|url\(#)([^")]+)/g)) names.add(m[1]!);
+  return names;
+}
+
+/**
  * The bars, left to right, from the rendered SVG.
  *
  * zrender emits a custom-series `rect` as a `<path>` filled with the bar
@@ -131,26 +161,37 @@ describe('renderChartSvg', () => {
     expect(svg).toMatch(/height="272(\.\d+)?"/);
   });
 
+  it('gives two different charts disjoint id and class names', () => {
+    // A pack page inlines several charts into ONE document. If both emit
+    // `<clipPath id="zr-1">`, `url(#zr-1)` resolves to whichever came first
+    // and the taller chart's plot area is clipped to the shorter one's box.
+    const opt = buildWaterfallOption(LOSS_STEPS, DEFAULT_PALETTE);
+    const short = renderChartSvg(opt, { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline });
+    const tall = renderChartSvg(opt, { widthMm: 170, heightMm: CHART_HEIGHT_MM.full });
+    const shortIds = idsAndClasses(short);
+    const tallIds = idsAndClasses(tall);
+    expect(shortIds.size).toBeGreaterThan(0);
+    expect([...shortIds].filter((name) => tallIds.has(name))).toEqual([]);
+  });
+
   describe('waterfall geometry (SVG y grows DOWNWARD — larger y is lower)', () => {
     const svg = renderChartSvg(buildWaterfallOption(LOSS_STEPS, DEFAULT_PALETTE), SIZE);
     const bars = parseBars(svg);
+    const zeroY = zeroLineY(svg);
 
     it('draws one bar per step', () => {
       expect(bars).toHaveLength(LOSS_STEPS.length);
     });
 
-    it('draws the revenue bar above the zero line', () => {
-      const [revenue] = bars;
-      const zeroY = revenue!.bottom; // Revenue runs 0 → +1,000,000, so its foot IS zero.
-      expect(revenue!.top).toBeLessThan(zeroY);
-      expect(revenue!.height).toBeGreaterThan(0);
+    it('draws the revenue bar above the zero line, standing on it', () => {
+      const revenue = bars[0]!;
+      expect(revenue.top).toBeLessThan(zeroY);
+      expect(revenue.bottom).toBeCloseTo(zeroY, 0); // runs 0 → +1,000,000
     });
 
     it('draws the loss subtotals BELOW the zero line', () => {
-      const zeroY = bars[0]!.bottom;
       const grossLoss = bars[2]!;
       const netLoss = bars[4]!;
-      // A stacked-bar waterfall drew both of these ABOVE the axis.
       expect(grossLoss.top).toBeCloseTo(zeroY, 0);
       expect(grossLoss.bottom).toBeGreaterThan(zeroY);
       expect(netLoss.top).toBeCloseTo(zeroY, 0);
@@ -159,8 +200,10 @@ describe('renderChartSvg', () => {
       expect(netLoss.height / grossLoss.height).toBeCloseTo(1.5, 1);
     });
 
+    // LOAD-BEARING. This is the ONLY assertion in the file that fails against
+    // the stacked-bar waterfall this repo shipped twice; every other test here
+    // passes against it. If these tests are ever trimmed, keep this one.
     it('spans a zero-crossing movement from its start to its end', () => {
-      const zeroY = bars[0]!.bottom;
       const costOfSales = bars[1]!;
       // Starts at +1,000,000 — level with the top of the revenue bar…
       expect(costOfSales.top).toBeCloseTo(bars[0]!.top, 0);
@@ -171,7 +214,6 @@ describe('renderChartSvg', () => {
     });
 
     it('draws the operating-expense step entirely below zero, hanging off the gross loss', () => {
-      const zeroY = bars[0]!.bottom;
       const opex = bars[3]!;
       expect(opex.top).toBeGreaterThan(zeroY);
       expect(opex.top).toBeCloseTo(bars[2]!.bottom, 0); // starts where gross loss ends

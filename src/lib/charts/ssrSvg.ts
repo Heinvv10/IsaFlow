@@ -10,6 +10,8 @@
  * than reading `document` themselves: that is what makes them callable here.
  * Keep it that way.
  */
+import { createHash } from 'node:crypto';
+
 import { echarts } from '@/lib/charts/echarts';
 
 const PX_PER_MM = 96 / 25.4;
@@ -26,20 +28,28 @@ export const CHART_HEIGHT_MM = { inline: 48, half: 72, full: 110 } as const;
  * process has drawn before, which makes a rendered pack undiffable and
  * uncacheable.
  *
- * Renumbering them by order of first appearance makes the output a pure
- * function of the option and the size. The names stay unique WITHIN one SVG,
- * which is all they have to be — each chart is its own fragment on the page,
- * and its styles are scoped to it.
+ * But that per-instance prefix is also the ONLY thing keeping two charts'
+ * ids apart, and a pack page inlines several SVGs into one document — the
+ * board pack's highlights page carries eight sparklines. Dropping the prefix
+ * for a fixed one makes every chart emit `<clipPath id="zr-1">`, `url(#zr-1)`
+ * resolves to whichever came first, and a tall chart's plot area is silently
+ * clipped to a short chart's box in the printed PDF.
+ *
+ * So the prefix is replaced rather than removed: a short hash of the
+ * canonicalised markup. Same option and size -> same hash (deterministic);
+ * different chart -> different hash (unique on the page). Two charts that
+ * render byte-identically do share ids, which is harmless — their clip rects
+ * are identical too.
  */
 function stableIds(svg: string): string {
-  const seen = new Map<string, string>();
-  return svg.replace(/zr\d+-[A-Za-z]+-?\d+/g, (token) => {
-    const existing = seen.get(token);
-    if (existing) return existing;
-    const stable = `zr-${seen.size}`;
-    seen.set(token, stable);
-    return stable;
+  const ZR_TOKEN = /zr\d+-[A-Za-z]+-?\d+/g;
+  const order = new Map<string, number>();
+  const canonical = svg.replace(ZR_TOKEN, (token) => {
+    if (!order.has(token)) order.set(token, order.size);
+    return `zrid-${order.get(token)}`;
   });
+  const hash = createHash('sha1').update(canonical).digest('hex').slice(0, 8);
+  return svg.replace(ZR_TOKEN, (token) => `zr${hash}-${order.get(token)}`);
 }
 
 export function renderChartSvg(
@@ -50,9 +60,11 @@ export function renderChartSvg(
   const height = Math.round(opts.heightMm * PX_PER_MM);
   const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width, height });
   try {
-    // `animation: false` is not cosmetic. An animating option renders its
-    // FIRST FRAME, which for a bar series is zero height — the chart would
-    // print as an empty axis. It also keeps the output deterministic.
+    // `animation: false` is defensive, not load-bearing. Under `ssr: true`
+    // zrender draws a complete frame regardless — measured: bar heights are
+    // identical with the flag true, false, or absent. It is kept because the
+    // option is handed to a headless renderer that must never be asked for a
+    // partial frame, but do not believe it is what makes the chart appear.
     chart.setOption({ ...(option as Record<string, unknown>), animation: false });
     return stableIds(chart.renderToSVGString());
   } finally {
