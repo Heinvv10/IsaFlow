@@ -19,16 +19,17 @@
 // CLEARS the `sb-access-token` cookie — the same cookie carrying that print
 // token — so every later request in the render 401s.
 //
-// Why this takes the router rather than the query: on a page with no
-// `getServerSideProps`, Next.js Pages Router leaves `router.query` as `{}`
-// on the first CLIENT-side render pass, until the router finishes parsing
-// the URL and flips `router.isReady`. Branching on `query` alone therefore
-// evaluates "not a print render" once, which is long enough for
-// `AuthProvider`'s mount effect to fire `/api/auth/me` and destroy the print
-// token's cookie. During that window we read the URL directly instead —
-// `window.location.search` is correct from the very first client render.
-// On the server there is no `window`; the server pass mounts no effects and
-// the client pass corrects the branch, so `false` is safe there.
+// Why this takes the router rather than the query: `router.query` is the
+// authority once the router is ready, and `router.isReady` is the only thing
+// that says whether it is. There used to be a `window.location` fallback for
+// the not-ready window, because a page with no `getServerSideProps` leaves
+// `query` as `{}` on the first CLIENT pass — long enough for `AuthProvider`'s
+// mount effect to fire and destroy the print token's cookie. The pack page now
+// has `getServerSideProps` (see its own docstring: without it the server and
+// client rendered different trees and hydration failed), so `isReady` is true
+// from the very first client render and that window does not exist. Reading
+// `window.location` for a state that cannot occur is a second source of truth
+// that nothing exercises, so it is gone: not ready means not a print render.
 
 import type { NextRouter } from 'next/router';
 
@@ -42,13 +43,6 @@ import type { NextRouter } from 'next/router';
 export const PRINT_RENDER_PATH = '/accounting/reports/report-packs';
 
 export function isPrintRender(router: Pick<NextRouter, 'isReady' | 'query' | 'pathname'>): boolean {
-  if (router.isReady) {
-    return router.pathname === PRINT_RENDER_PATH && router.query.print === '1';
-  }
-  if (typeof window === 'undefined') return false;
-  // Before the router is ready `pathname` is the route pattern and is already
-  // correct, but the URL is read here for both halves so the not-ready branch
-  // cannot disagree with itself about which page it is on.
-  const { pathname, search } = window.location;
-  return pathname === PRINT_RENDER_PATH && new URLSearchParams(search).get('print') === '1';
+  if (!router.isReady) return false;
+  return router.pathname === PRINT_RENDER_PATH && router.query.print === '1';
 }

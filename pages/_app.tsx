@@ -29,10 +29,11 @@ export default function App({ Component, pageProps }: AppProps) {
   // cookie carrying the print token), and CompanyProvider's own fetch 401s
   // under the print token, whose refresh-then-redirect (apiFetch.ts)
   // navigates the whole render to /login before it can finish. The check
-  // takes the whole router, not router.query: on a page with no
-  // getServerSideProps, query is {} until router.isReady, and one mistaken
-  // "not a print render" pass is enough for AuthProvider's mount effect to
-  // fire and clear the cookie. See printRenderQuery.ts.
+  // takes the whole router, not router.query: query only means anything once
+  // router.isReady says it does. The pack page has getServerSideProps, so it
+  // is ready from the first client render and there is no window in which a
+  // mistaken "not a print render" could let AuthProvider's mount effect fire.
+  // See printRenderQuery.ts.
   const printRender = isPrintRender(router);
 
   useEffect(() => {
