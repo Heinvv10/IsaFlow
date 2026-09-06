@@ -30,17 +30,42 @@ export type PackPandLBand =
  * differently — HTML did `fmtPct(Number(r.margin))`, the PDF `pct(r.margin)` —
  * so typing it properly at source would have kept one working and made the
  * other print `NaN%`, on surfaces neither of which has a render test.
+ *
+ * Three states, not two. `undefined` is a band that HAS no margin (Operating
+ * Expenses); `null` is a band that has one in principle but not on this
+ * period's figures — `marginPct2dp` returns null on zero or negative turnover,
+ * because a margin needs turnover to be a margin OF. Coercing that null to 0
+ * here is what had both legacy routes print "Gross margin 0.0%" on a loss
+ * period: a figure nothing else on the page supports, on a document a director
+ * forwards to a bank.
  */
 export interface PackPandLRow {
   key: PackPandLBand;
   label: string;
   amount: number;
-  margin?: number;
+  margin?: number | null;
 }
+
+/**
+ * What both legacy pack renderers print in a margin cell whose margin is not
+ * meaningful. An en dash rather than the pack's full sentence
+ * (`NO_MARGIN_REASON` in packs/packDocument.ts) because this is a narrow
+ * third column in a table, not a labelled key/value row — same meaning, the
+ * format the cell can carry. Exported so the two routes cannot drift.
+ */
+export const NO_MARGIN_CELL = '–';
 
 const num = (v: unknown): number => {
   const n = typeof v === 'number' ? v : Number(v ?? 0);
   return Number.isFinite(n) ? n : 0;
+};
+
+/** A margin, or null when there is none to print. Unlike `num`, an absent or
+ *  non-finite value is NOT 0 — see the three states on `PackPandLRow.margin`. */
+const marginOrNull = (v: unknown): number | null => {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
 };
 
 /**
@@ -62,11 +87,11 @@ export function incomeStatementPackRows(d: Record<string, unknown>): PackPandLRo
   return [
     { key: 'revenue', label: 'Turnover', amount: num(d['revenue']) },
     { key: 'costOfSales', label: 'Cost of Sales', amount: num(d['costOfSales']) },
-    { key: 'grossProfit', label: 'Gross Profit', amount: grossProfit, margin: num(d['grossMargin']) },
+    { key: 'grossProfit', label: 'Gross Profit', amount: grossProfit, margin: marginOrNull(d['grossMargin']) },
     ...(otherIncome !== 0 ? [{ key: 'otherIncome' as const, label: 'Other Income', amount: otherIncome }] : []),
     { key: 'operatingExpenses', label: 'Operating Expenses', amount: operatingExpenses },
     { key: 'operatingProfit', label: 'Operating Profit', amount: operatingProfit },
     ...(otherExpenses !== 0 ? [{ key: 'otherExpenses' as const, label: 'Other Expenses', amount: otherExpenses }] : []),
-    { key: 'netProfit', label: 'Net Profit', amount: num(d['netProfit']), margin: num(d['netMargin']) },
+    { key: 'netProfit', label: 'Net Profit', amount: num(d['netProfit']), margin: marginOrNull(d['netMargin']) },
   ];
 }

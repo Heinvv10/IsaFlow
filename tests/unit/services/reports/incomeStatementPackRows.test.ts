@@ -87,3 +87,36 @@ describe('incomeStatementPackRows', () => {
     expect(r.every(x => Number.isFinite(x.amount))).toBe(true);
   });
 });
+
+/**
+ * Three margin states, not two. The legacy HTML and PDF packs read this
+ * builder's `margin` field directly, and coercing a null margin to 0 here is
+ * what printed "Gross margin 0.0%" on a period whose turnover was negative.
+ */
+describe('incomeStatementPackRows — margin states', () => {
+  it('carries a null margin through as null, never 0', () => {
+    const r = incomeStatementPackRows({
+      revenue: -1000, costOfSales: 0, grossProfit: -1000, operatingExpenses: 500,
+      netProfit: -1500, grossMargin: null, netMargin: null,
+    });
+    expect(by(r, 'Gross Profit')!.margin).toBeNull();
+    expect(by(r, 'Net Profit')!.margin).toBeNull();
+  });
+
+  it('treats an absent margin key as "none to print", not as zero', () => {
+    const r = incomeStatementPackRows({ revenue: 100, netProfit: 10 });
+    expect(by(r, 'Gross Profit')!.margin).toBeNull();
+    expect(by(r, 'Net Profit')!.margin).toBeNull();
+  });
+
+  it('keeps undefined for a band that never carries a margin', () => {
+    const r = incomeStatementPackRows({ revenue: 100, grossMargin: 40, netMargin: 10, netProfit: 10 });
+    expect(by(r, 'Operating Expenses')!.margin).toBeUndefined();
+    expect(by(r, 'Gross Profit')!.margin).toBe(40);
+  });
+
+  it('does not turn a non-numeric margin into 0', () => {
+    const r = incomeStatementPackRows({ revenue: 100, grossMargin: 'x', netProfit: 10, netMargin: 10 });
+    expect(by(r, 'Gross Profit')!.margin).toBeNull();
+  });
+});

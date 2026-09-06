@@ -6,7 +6,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { incomeStatementPackRows } from '@/modules/accounting/services/reports/incomeStatementPackRows';
+import { incomeStatementPackRows, NO_MARGIN_CELL } from '@/modules/accounting/services/reports/incomeStatementPackRows';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
@@ -130,6 +130,11 @@ const fmtPct = (v: unknown): string => {
   return `${n.toFixed(1)}%`;
 };
 
+/** The Margin column for one P&L row. Blank when the band has no margin,
+ *  NO_MARGIN_CELL when turnover is not positive so there is none to take. */
+const marginCell = (margin: number | null | undefined): string =>
+  margin === undefined ? '' : margin === null ? NO_MARGIN_CELL : fmtPct(margin);
+
 /**
  * Exported so the WIRING is testable. The row list it renders is tested, but a
  * future edit here — a `.filter()` on the rows, a dropped `<td>` — would not be
@@ -143,8 +148,11 @@ export function renderSectionHtml(section: PackSection): string {
   switch (section.type) {
     case 'income_statement':
       // One row list, shared with the PDF pack — see incomeStatementPackRows.
+      // undefined = this band has no margin (blank cell); null = it has one in
+      // principle but turnover is not positive, so there is no margin to
+      // print. Coercing null to 0 here printed "0.0%" on a loss period.
       rows = incomeStatementPackRows(d as Record<string, unknown>)
-        .map(r => `<tr><td>${r.label}</td><td class="num">${fmtZAR(r.amount)}</td><td class="num muted">${r.margin === undefined ? '' : fmtPct(r.margin)}</td></tr>`)
+        .map(r => `<tr><td>${r.label}</td><td class="num">${fmtZAR(r.amount)}</td><td class="num muted">${marginCell(r.margin)}</td></tr>`)
         .join('');
       return tableHtml(['Item', 'Amount', 'Margin'], rows);
 
