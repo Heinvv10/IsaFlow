@@ -31,37 +31,17 @@ import { resolvePackBrand } from '@/modules/accounting/services/packs/packBrand'
 import { buildPackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
 import { buildMatters } from './packMatters';
+import { formatPackPeriod } from './packPeriodLabel';
 import { buildBoardPackPages } from './boardPackPages';
 import type { PackNarrative, PackPagesDocument } from './packPageModel';
 
+/** Re-exported: both formatters moved to `packPeriodLabel.ts` so
+ *  `boardPackPages.ts` can head its comparative column with the same words
+ *  page 1 heads the current period with, without importing this module and
+ *  closing a cycle. Every existing import path still resolves. */
+export { formatPackDate, formatPackPeriod } from './packPeriodLabel';
+
 const TREND_MONTHS = 12;
-
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
-/**
- * '2026-03-01' -> '1 March 2026', from the ISO STRING PARTS.
- *
- * No `Date` is constructed. This host is UTC+2 and the repo has a live
- * UTC-rollback defect class: `new Date('2026-03-01')` is 28 February locally,
- * which would print a board pack covering a period it does not cover.
- */
-export function formatPackDate(iso: string): string {
-  const [year, month, day] = iso.split('-');
-  const monthName = MONTH_NAMES[Number(month) - 1];
-  // An unparseable date is echoed rather than guessed at. The route validates
-  // `from`/`to` against an ISO pattern before this is reached, so this branch
-  // is unreachable from the API — it exists so a bad direct call prints the
-  // string it was given instead of 'NaN undefined NaN'.
-  if (monthName === undefined || day === undefined || year === undefined) return iso;
-  return `${Number(day)} ${monthName} ${year}`;
-}
-
-export function formatPackPeriod(from: string, to: string): string {
-  return `${formatPackDate(from)} to ${formatPackDate(to)}`;
-}
 
 /**
  * Page 4's commentary, from the rows a human actually approved for THIS pack.

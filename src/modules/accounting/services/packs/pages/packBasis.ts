@@ -27,6 +27,7 @@
 
 import type {
   PackBasisOfPreparation,
+  PackComparativePeriod,
   PackFootnote,
   PackDefinition,
   PackNumberConvention,
@@ -69,6 +70,24 @@ export const ROUNDING_NOTE =
 
 /** The same statement as a page footnote, for the statement pages. */
 export const ROUNDING_FOOTNOTES: PackFootnote[] = [{ number: 1, text: ROUNDING_NOTE }];
+
+/**
+ * A statement page's footnotes: the rounding note, and — when the page shows a
+ * prior column — WHICH period that column is.
+ *
+ * Spec §7.2 asks that the comparative be the period claimed in the header, and
+ * a column headed only "Prior" claims nothing a reader can check. The text is
+ * built from `comparative.label` rather than re-formatted here, so the printed
+ * claim and the one the integrity gate checks are the same string; a second
+ * formatting of the same dates is how the page and the gate start disagreeing.
+ */
+export function statementFootnotes(comparative: PackComparativePeriod | null): PackFootnote[] {
+  if (comparative === null) return ROUNDING_FOOTNOTES;
+  return [
+    ...ROUNDING_FOOTNOTES,
+    { number: 2, text: `The prior column is the period ${comparative.label}.` },
+  ];
+}
 
 const LEDGER_VERSION_UNAVAILABLE =
   'unavailable — no ledger watermark was supplied for this pack render';

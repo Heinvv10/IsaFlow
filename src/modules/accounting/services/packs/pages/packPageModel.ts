@@ -243,6 +243,32 @@ export interface PackBasisOfPreparation {
   ledgerVersion: string;
 }
 
+/**
+ * The comparative period, as a claim and as a fact.
+ *
+ * `label` is what a reader sees under the prior column and on page 12; `start`
+ * and `end` are the window those figures were actually read over, copied from
+ * `PackFigureSet.priorWindow`. Both, because they fail DIFFERENTLY: a
+ * provenance check proves the cells came from prior-period readings and can
+ * still be satisfied by a document that heads them with the wrong dates, and
+ * right data under a wrong label is a lie the reader has no way to see. The
+ * integrity gate re-derives `label` from the window and refuses a pack where
+ * the two have drifted apart (R-P55).
+ *
+ * `null` on the document means there is NO comparative — a first-period
+ * company (R3: an absent comparative is an absent column, never zeros). A pack
+ * whose statements show a prior column while this is null, or which states a
+ * period no statement compares against, is refused either way.
+ */
+export interface PackComparativePeriod {
+  /** e.g. '1 September 2025 to 28 February 2026' — `formatPackPeriod`'s words. */
+  label: string;
+  /** ISO date, inclusive. */
+  start: string;
+  /** ISO date, inclusive. */
+  end: string;
+}
+
 export interface PackPagesDocument {
   packType: PackType;
   packLabel: string;
@@ -253,6 +279,10 @@ export interface PackPagesDocument {
   brand: PackBrand;
   numberConvention: PackNumberConvention;
   basisOfPreparation: PackBasisOfPreparation;
+  /** The period the prior column compares against, or null where there is
+   *  none. See `PackComparativePeriod` — it is both the printed claim and the
+   *  window behind it, so the gate can tell them apart. */
+  comparativePeriod: PackComparativePeriod | null;
   /** Every figure issued while building the twelve pages, so a later task can
    *  call `doc.provenance.assertConsistent()` against the whole document
    *  rather than one page at a time. */

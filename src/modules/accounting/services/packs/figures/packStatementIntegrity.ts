@@ -18,6 +18,7 @@
  */
 
 import type { PackPagesDocument, PackTable, PackTableColumnKey } from '../pages/packPageModel';
+import { formatPackPeriod } from '../pages/packPeriodLabel';
 import { MONEY_TOLERANCE } from './packWaterfallIntegrity';
 
 /** The one value a source was issued with, or null when it was never issued
@@ -213,6 +214,61 @@ export function checkCashBridgeEndpoints(doc: PackPagesDocument): string[] {
       `The cash bridge closes at ${last.end.toFixed(2)} but the cash ` +
         `statement's closing balance is ${closing.toFixed(2)}. The cash flow ` +
         `does not reconcile opening cash to closing cash.`,
+    );
+  }
+  return failures;
+}
+
+/**
+ * The comparative is the period the pack CLAIMS it is — R-P55.
+ *
+ * `checkColumns` above proves each prior cell came from a prior-period
+ * reading. That is the provenance half, and it is satisfied by a document
+ * whose data is right and whose HEADING is wrong: a director reads
+ * "1 September 2025 to 28 February 2026" and takes the column as read. Right
+ * data under a wrong label is a lie a provenance check cannot see, which is
+ * why the label is re-derived here from the window the figures were read over
+ * and compared.
+ *
+ * The other two failures are the pair that must not come apart: a statement
+ * showing a comparative column while the pack states no comparative period,
+ * and a pack stating one that no statement compares against. Page 12 prints
+ * that period in the basis of preparation, so the second is not academic —
+ * it is a period claimed to a reader that nothing in the pack used.
+ */
+export function checkComparativePeriod(doc: PackPagesDocument): string[] {
+  const failures: string[] = [];
+  const showsComparative = doc.pages.some((page) =>
+    page.blocks.some((block) => block.kind === 'table' && block.table.columns.includes('prior')),
+  );
+  const comparative = doc.comparativePeriod;
+
+  if (comparative === null) {
+    if (showsComparative) {
+      failures.push(
+        `A statement shows a comparative column, but the pack states no ` +
+          `comparative period. The column would be headed with nothing a ` +
+          `reader could check it against.`,
+      );
+    }
+    return failures;
+  }
+
+  if (!showsComparative) {
+    failures.push(
+      `The pack states a comparative period of ${comparative.label}, which ` +
+        `page 12 prints, but no statement carries a comparative column. It ` +
+        `claims a comparison the pack does not make.`,
+    );
+  }
+
+  const expected = formatPackPeriod(comparative.start, comparative.end);
+  if (comparative.label !== expected) {
+    failures.push(
+      `The comparative column is headed '${comparative.label}' but the ` +
+        `comparative figures were read over ${comparative.start} to ` +
+        `${comparative.end}, which is ${expected}. The pack's data and its ` +
+        `heading describe different periods.`,
     );
   }
   return failures;

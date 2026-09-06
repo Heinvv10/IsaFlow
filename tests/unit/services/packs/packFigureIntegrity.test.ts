@@ -20,6 +20,7 @@ import { PackFigureProvenance } from '@/modules/accounting/services/packs/figure
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type {
   PackChartSpec,
+  PackComparativePeriod,
   PackPage,
   PackPageBlock,
   PackPagesDocument,
@@ -57,8 +58,26 @@ function page(blocks: PackPageBlock[]): PackPage {
   return { number: 7, title: 'Cash rose to 610', section: 'Financials', orientation: 'portrait', density: 'high', blocks, footnotes: [] };
 }
 
-function docOf(p: PackFigureProvenance, blocks: PackPageBlock[] = []): PackPagesDocument {
-  return { ...template, provenance: p, pages: [page(blocks)] };
+/** The demo pack's real comparative window, and the label that describes it. */
+const comparative: PackComparativePeriod = {
+  label: '1 September 2025 to 28 February 2026',
+  start: '2025-09-01',
+  end: '2026-02-28',
+};
+
+/**
+ * A hand-built document. `comparativePeriod` defaults to NULL because the
+ * pages built here carry no comparative column — a document claiming a
+ * comparative period nothing compares against is itself a failure (R-P55), so
+ * inheriting the demo pack's period would make every case below fail for a
+ * reason it is not testing.
+ */
+function docOf(
+  p: PackFigureProvenance,
+  blocks: PackPageBlock[] = [],
+  comparativePeriod: PackComparativePeriod | null = null,
+): PackPagesDocument {
+  return { ...template, provenance: p, pages: [page(blocks)], comparativePeriod };
 }
 
 function tableOf(columns: PackTableColumnKey[], figures: PackTable['rows'][number]['figures']): PackPageBlock {
@@ -229,8 +248,8 @@ describe('assertPackIntegrity', () => {
     const prior = p.figure('packFigureSet.current.revenue.prior', 3_750_000, 'money');
     const wrong = tableOf(['actual', 'prior'], { actual, prior: actual });
     const right = tableOf(['actual', 'prior'], { actual, prior });
-    expect(() => assertPackIntegrity(docOf(p, [wrong]))).toThrow(/comparative/i);
-    expect(() => assertPackIntegrity(docOf(p, [right]))).not.toThrow();
+    expect(() => assertPackIntegrity(docOf(p, [wrong], comparative))).toThrow(/not a prior-period reading/i);
+    expect(() => assertPackIntegrity(docOf(p, [right], comparative))).not.toThrow();
   });
 
   it('fails a table declaring a column no row carries', () => {
@@ -275,6 +294,47 @@ describe('assertPackIntegrity', () => {
       .not.toThrow();
   });
 
+  it('fails when the comparative column is headed a period other than the one it holds (R-P55)', () => {
+    // The half a provenance check cannot see. Every cell below IS a
+    // prior-period reading — `checkColumns` is satisfied — and the heading
+    // names the wrong six months, which is what the director reads.
+    const p = new PackFigureProvenance();
+    balanced(p);
+    const actual = p.figure('packFigureSet.current.revenue', 4_200_000, 'money');
+    const prior = p.figure('packFigureSet.current.revenue.prior', 3_750_000, 'money');
+    const table = tableOf(['actual', 'prior'], { actual, prior });
+    const mislabelled: PackComparativePeriod = { ...comparative, label: '1 March 2026 to 31 August 2026' };
+    expect(() => assertPackIntegrity(docOf(p, [table], mislabelled)))
+      .toThrow(/headed '1 March 2026 to 31 August 2026'/);
+  });
+
+  it('accepts the same comparative column when the header describes its window', () => {
+    const p = new PackFigureProvenance();
+    balanced(p);
+    const actual = p.figure('packFigureSet.current.revenue', 4_200_000, 'money');
+    const prior = p.figure('packFigureSet.current.revenue.prior', 3_750_000, 'money');
+    expect(() => assertPackIntegrity(docOf(p, [tableOf(['actual', 'prior'], { actual, prior })], comparative)))
+      .not.toThrow();
+  });
+
+  it('fails a comparative column the pack states no period for', () => {
+    const p = new PackFigureProvenance();
+    balanced(p);
+    const actual = p.figure('packFigureSet.current.revenue', 4_200_000, 'money');
+    const prior = p.figure('packFigureSet.current.revenue.prior', 3_750_000, 'money');
+    expect(() => assertPackIntegrity(docOf(p, [tableOf(['actual', 'prior'], { actual, prior })], null)))
+      .toThrow(/states no comparative period/i);
+  });
+
+  it('fails a stated comparative period no statement compares against', () => {
+    // Page 12 prints this period in the basis of preparation, so it is a
+    // claim made to a reader that nothing in the pack used.
+    const p = new PackFigureProvenance();
+    balanced(p);
+    expect(() => assertPackIntegrity(docOf(p, [], comparative)))
+      .toThrow(/claims a comparison the pack does not make/i);
+  });
+
   it('fails the render rather than warning', () => {
     // The whole point. A warning on a document a director forwards to a bank
     // is a warning nobody reads.
@@ -292,6 +352,37 @@ describe('buildBoardPackPages calls the gate', () => {
     // test above would still pass with the call site deleted.
     const broken = { ...demoInput, set: { ...demoSet, current: figures({ totalEquity: 2_000_000 }) } };
     expect(() => buildBoardPackPages(broken)).toThrow(/integrity/i);
+  });
+
+  it('heads the comparative column with the window the prior figures were read over', () => {
+    // The label the composer prints and the window it read must agree, and
+    // both must reach the reader: page 12's basis, and a footnote under every
+    // statement that carries a prior column.
+    expect(template.comparativePeriod).toEqual({
+      label: '1 September 2025 to 28 February 2026',
+      start: demoSet.priorWindow.start,
+      end: demoSet.priorWindow.end,
+    });
+    for (const number of [5, 6, 7, 8]) {
+      const notes = template.pages.find((pg) => pg.number === number)!.footnotes;
+      expect(notes.some((f) => f.text.includes('1 September 2025 to 28 February 2026')), `page ${number}`).toBe(true);
+    }
+    const basisNotes = template.pages.find((pg) => pg.number === 12)!.blocks
+      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []));
+    expect(basisNotes.some((n) => n.heading === 'Comparative period' && n.body.includes('1 September 2025'))).toBe(true);
+  });
+
+  it('states no comparative period, and shows no comparative column, without a prior period', () => {
+    // Brightsphere. The absent half of R-P55, and the one a symmetric check
+    // would otherwise fail on an honest pack.
+    const doc = buildBoardPackPages(brightsphereInput);
+    expect(doc.comparativePeriod).toBeNull();
+    const columns = doc.pages.flatMap((pg) => pg.blocks)
+      .flatMap((b) => (b.kind === 'table' ? [...b.table.columns] : []));
+    expect(columns).not.toContain('prior');
+    const basisNotes = doc.pages.find((pg) => pg.number === 12)!.blocks
+      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []));
+    expect(basisNotes.some((n) => n.heading === 'Comparative period' && /None\./.test(n.body))).toBe(true);
   });
 
   it('bridges revenue to net profit through a named uncaptured step', () => {

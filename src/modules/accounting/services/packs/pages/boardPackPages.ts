@@ -46,7 +46,7 @@ import {
   scorecardTitle,
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { buildBasis, ROUNDING_FOOTNOTES, ROUNDING_NOTE } from './packBasis';
+import { buildBasis, ROUNDING_NOTE, statementFootnotes } from './packBasis';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
@@ -73,7 +73,9 @@ import {
   note,
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
+import { formatPackPeriod } from './packPeriodLabel';
 import type {
+  PackComparativePeriod,
   PackFootnote,
   PackNarrative,
   PackPage,
@@ -121,6 +123,22 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const basis = buildBasis(set, { draft, generatedAt }, input.ledgerVersion);
   const { scale, currency } = basis.numberConvention;
 
+  // The comparative is the window the PRIOR FIGURES were read over, and it
+  // exists only where those figures do: `priorWindow` is computed for every
+  // pack, but a first-period company has no prior ledger in it (R3), and
+  // heading an absent column with a period would claim a comparison this pack
+  // does not make. Label and window together, deliberately — see
+  // `PackComparativePeriod`, and R-P55.
+  const comparativePeriod: PackComparativePeriod | null =
+    set.prior === null
+      ? null
+      : {
+          label: formatPackPeriod(set.priorWindow.start, set.priorWindow.end),
+          start: set.priorWindow.start,
+          end: set.priorWindow.end,
+        };
+  const statementNotes = statementFootnotes(comparativePeriod);
+
   const tiles = buildHighlightTiles(set, trend, p);
   const results = buildResultsTable(set, p);
   const income = buildIncomeStatementTable(set, p);
@@ -144,7 +162,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     { kind: 'table', table: results },
     { kind: 'kpiTiles', tiles: tiles.slice(0, 5) },
     commentary(largestMoverCaption(results.rows)),
-  ], 'portrait', ROUNDING_FOOTNOTES);
+  ], 'portrait', statementNotes);
 
   const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set);
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set), set);
@@ -174,9 +192,9 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       { kind: 'table', table: income },
       { kind: 'chart', chart: buildProfitWaterfallChart(set) },
       commentary(largestMoverCaption(income.rows)),
-    ], 'portrait', ROUNDING_FOOTNOTES),
-    page(7, positionTitle(set), 'Financials', 'high', positionBlocks, 'portrait', ROUNDING_FOOTNOTES),
-    page(8, cashTitle(set), 'Financials', 'high', cashBlocks, 'portrait', ROUNDING_FOOTNOTES),
+    ], 'portrait', statementNotes),
+    page(7, positionTitle(set), 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
+    page(8, cashTitle(set), 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
     page(9, scorecardTitle(score.met, score.total), 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
       commentary(scorecardCaption(scorecard)),
@@ -205,6 +223,9 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       disclose('Basis of preparation', [
         note('Standard', basis.basisOfPreparation.standard),
         note('Period', input.period),
+        note('Comparative period', comparativePeriod === null
+          ? 'None. There is no prior period with a ledger to compare against, so no statement carries a comparative column.'
+          : comparativePeriod.label),
         note('Currency and rounding', `${currency}, figures in ${scale}.`),
         note('Source system', basis.basisOfPreparation.sourceSystem),
         note('Rounding', ROUNDING_NOTE),
@@ -228,6 +249,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     brand: input.brand,
     numberConvention: basis.numberConvention,
     basisOfPreparation: basis.basisOfPreparation,
+    comparativePeriod,
     provenance: p,
     pages,
   };

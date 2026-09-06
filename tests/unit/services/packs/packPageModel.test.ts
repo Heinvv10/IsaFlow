@@ -75,10 +75,15 @@ describe('type pins — fix round 1 Criticals', () => {
         extractedAt: '2026-09-06T23:50:00.000Z',
         ledgerVersion: 'gl@969758b4',
       },
+      comparativePeriod: { label: '1 July 2026 to 31 July 2026', start: '2026-07-01', end: '2026-07-31' },
       provenance: new PackFigureProvenance(),
       pages: [],
     };
     expect(doc.numberConvention.scale).toBe("R'000");
+    // R-P55: the claim a reader sees, and the window behind it, together —
+    // dropping either field from the interface fails `bun run type-check`.
+    expect(doc.comparativePeriod?.label).toBe('1 July 2026 to 31 July 2026');
+    expect(doc.comparativePeriod?.start).toBe('2026-07-01');
     expect(doc.numberConvention.currency).toBe('ZAR');
     expect(doc.basisOfPreparation.standard).toBe('IFRS for SMEs');
     expect(doc.basisOfPreparation.ledgerVersion).toBe('gl@969758b4');

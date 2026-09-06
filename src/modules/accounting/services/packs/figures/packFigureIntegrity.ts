@@ -22,7 +22,10 @@
  *   5. Every percentage recomputes from its own stated numerator and
  *      denominator, to within a basis point.
  *   6. A column headed `prior` is filled from prior-period readings, and the
- *      actual column is not.
+ *      actual column is not — and the period that column CLAIMS in its header
+ *      is the period those figures were read over (R-P55). The two fail
+ *      differently: right data under a wrong label is a lie no provenance
+ *      check can see.
  *
  * A NULL FIGURE IS NOT A FAILED CHECK. `unavailable` carries the reason a
  * figure is not meaningful (R-P44/R-P45) — a margin on nil turnover, an
@@ -39,7 +42,12 @@
 import type { PackFigure } from './packFigureProvenance';
 import type { PackPagesDocument } from '../pages/packPageModel';
 import { checkWaterfall } from './packWaterfallIntegrity';
-import { checkCashBridgeEndpoints, checkColumns, checkStatements } from './packStatementIntegrity';
+import {
+  checkCashBridgeEndpoints,
+  checkColumns,
+  checkComparativePeriod,
+  checkStatements,
+} from './packStatementIntegrity';
 
 /** One basis point, in the percentage POINTS a `pct` figure is stated in. */
 const PCT_TOLERANCE = 0.01;
@@ -201,6 +209,7 @@ export function assertPackIntegrity(doc: PackPagesDocument): void {
   failures.push(...checkStatements(doc));
   failures.push(...checkQuotients(located));
   failures.push(...checkCashBridgeEndpoints(doc));
+  failures.push(...checkComparativePeriod(doc));
   failures.push(...checkBlocks(doc));
 
   if (failures.length > 0) {
