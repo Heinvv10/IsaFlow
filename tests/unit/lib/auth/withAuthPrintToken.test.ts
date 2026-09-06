@@ -136,3 +136,40 @@ describe('withAuth — print token, query-string strip', () => {
     expect((await callWithAuth(PACK, token, otherCompany)).status).toBe(401);
   });
 });
+
+/**
+ * IMPORTANT-2: the bound-path decision used to be an inline
+ * `candidate.paths.includes(...)` here, against verifyPrintTokenSignature.
+ * `verifyPrintToken` — the function carrying the exact-match and
+ * prefix-widening tests — had no production caller, so those tests protected
+ * nothing that ran. withAuth now goes through authenticatePrintToken, which
+ * calls verifyPrintToken and nothing else; these cases exercise that path
+ * end to end through the middleware, not through printAuth directly.
+ */
+describe('withAuth — the bound-path check runs through verifyPrintToken', () => {
+  it('rejects every prefix-widened variant of a bound path', async () => {
+    const token = mintPrintToken(COMPANY, USER, [PACK]);
+    for (const widened of [`${PACK}-secret`, `${PACK}/sub`, '/api/accounting/reports', `${PACK}/`]) {
+      const captured = await callWithAuth(widened, token);
+      expect(captured.status, widened).toBe(401);
+      // Genuine token, wrong path: the render's own cookies must survive.
+      expect(captured.setCookies, widened).toEqual([]);
+    }
+  });
+
+  it('accepts the exact bound path — the same token, one character shorter', async () => {
+    const token = mintPrintToken(COMPANY, USER, [PACK]);
+    await expect(callWithAuth(PACK, token)).rejects.toThrow(CONNECT_SENTINEL);
+  });
+
+  it('clears cookies for a forged token, but never for a genuine one bound elsewhere', async () => {
+    const genuine = mintPrintToken(COMPANY, USER, [PACK]);
+    expect((await callWithAuth('/api/accounting/customers', genuine)).setCookies).toEqual([]);
+
+    const [payload] = genuine.split('.');
+    const forged = `${payload}.${'0'.repeat(64)}`;
+    const captured = await callWithAuth(PACK, forged);
+    expect(captured.status).toBe(401);
+    expect(captured.setCookies.length).toBeGreaterThan(0);
+  });
+});
