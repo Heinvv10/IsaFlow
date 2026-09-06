@@ -50,6 +50,22 @@ describe('ScorecardTable', () => {
     ];
     expect(() => render(<ScorecardTable groups={oneBigGroup} />)).toThrow(/5/);
   });
+
+  it('never infers a direction for a row with no trend and no trendSvg (R-P43)', () => {
+    // actual (40) > prior (30) here on purpose — if the component ever
+    // derived a direction from actual vs prior, this fixture would produce
+    // an 'up' arrow. It must not: trend is null, so the model states it
+    // does not know, and the Trend cell must render nothing.
+    const noTrendGroups = [{ letter: 'B', name: 'Efficiency', rows: [
+      { metric: 'Cash conversion', actual: { value: 40, format: 'days' as const, source: 'r.cc' },
+        target: null, prior: { value: 30, format: 'days' as const, source: 'r.pcc' },
+        status: 'unscored' as const, trend: null, trendSvg: null, bulletSvg: null },
+    ] }];
+    const { container } = render(<ScorecardTable groups={noTrendGroups} />);
+    const trendCell = container.querySelector('.pack-scorecard-trend');
+    expect(trendCell).not.toBeNull();
+    expect(trendCell!.textContent).toBe('');
+  });
 });
 
 describe('NegativeEquityBlock', () => {

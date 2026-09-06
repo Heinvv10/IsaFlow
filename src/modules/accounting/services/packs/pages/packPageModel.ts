@@ -98,7 +98,7 @@ export interface PackScorecardRow {
   target: number | null;
   prior: PackFigure | null; // Null when there is no prior period (R-P42) — an absent comparative, never a zero.
   status: PackScorecardStatus;
-  trend: PackTrendDirection;
+  trend: PackTrendDirection | null; // Null when there's no series to compute a direction from (R-P43) — consistent with trendSvg below, also nullable.
   /** Pre-rendered trend sparkline/arrow markup, null if none beyond `trend`. */
   trendSvg: TrustedChartSvg | null;
   /** Index into the page's `footnotes`. */
