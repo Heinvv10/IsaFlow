@@ -21,6 +21,8 @@ export interface AfsRenderContext {
   coverPhotoUrl?: string;
   /** Entity type for terminology — defaults to 'pty' */
   entityType?: 'pty' | 'cc' | 'trust';
+  /** Server-rendered SVG per section type — see serverChartSvg.buildAfsCharts. */
+  charts?: Partial<Record<AfsSection['sectionType'], string>>;
 }
 
 // ── Font pairs ────────────────────────────────────────────────────────────────
@@ -75,6 +77,7 @@ function buildCss(bp: BrandProfile): string {
     .section-start { break-before: right; }
     @page landscape { size: A4 landscape; }
     .wide-table { page: landscape; }
+    .section-chart { margin: 1.2em 0; break-inside: avoid; }
 
     /* Watermark */
     .watermark {
@@ -176,7 +179,7 @@ export function renderAfsToHtml(
   context: AfsRenderContext,
   options?: RenderOptions,
 ): string {
-  const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl, entityType } = context;
+  const { document, sections, brandProfile, companyName, registrationNumber, coverPhotoUrl, entityType, charts } = context;
 
   // Entity-aware document title
   const statementsTitle = entityType === 'trust'
@@ -196,7 +199,9 @@ export function renderAfsToHtml(
     coverPhotoUrl,
   });
 
-  const sectionsHtml = sections.map(renderSectionContent).join('\n');
+  const sectionsHtml = sections
+    .map((s) => renderSectionContent(s, charts?.[s.sectionType]))
+    .join('\n');
 
   const watermarkHtml = options?.watermark
     ? buildWatermark(options.watermark)

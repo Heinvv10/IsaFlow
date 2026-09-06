@@ -12,7 +12,14 @@
  * colours if `getVar` can't resolve a property.
  */
 
-const FALLBACK = {
+/**
+ * The chart colours as literal values, used when `getVar` cannot resolve a
+ * `--ff-*` custom property. Exported because a chart built in NODE has no
+ * custom properties to read at all — `packChartOptions.ts` renders in the
+ * headless browser and on the server, so its default palette is THESE values
+ * rather than a second set that looked the same until one of them changed.
+ */
+export const FALLBACK = {
   ink: '#15202b',
   textTertiary: '#9ca3af',
   borderLight: '#e5e7eb',

@@ -2,16 +2,16 @@
 //
 // Short-lived print token used by the Playwright PDF renderer
 // (src/lib/pdf/renderPagePdf.ts) to authenticate its own headless-browser
-// request against a specific, already-known API path — never a general
-// login session. HMAC-SHA256 over `company_id|user_id|path|exp`, no
-// external JWT library: the payload is small, fixed-shape, and the
+// requests against a specific, already-known SET of API paths — never a
+// general login session. HMAC-SHA256 over `company_id|user_id|paths|exp`,
+// no external JWT library: the payload is small, fixed-shape, and the
 // signature is checked in constant time below.
 //
 // `withAuth` (src/lib/auth/withAuth.ts) accepts this token as a fallback
 // when GoTrue verification fails, ONLY when PRINT_TOKEN_SECRET is set and
-// the token's bound path matches the incoming request's pathname exactly.
-// If PRINT_TOKEN_SECRET is unset, verifyPrintToken always returns null and
-// the branch is fully disabled.
+// the incoming request's pathname is one of the token's bound paths,
+// matched exactly. If PRINT_TOKEN_SECRET is unset, verifyPrintToken always
+// returns null and the branch is fully disabled.
 
 import { createHmac, timingSafeEqual } from 'crypto';
 import { log } from '@/lib/logger';
@@ -19,7 +19,8 @@ import { log } from '@/lib/logger';
 export interface PrintTokenPayload {
   companyId: string;
   userId: string;
-  path: string;
+  /** Exact API pathnames this token authorises. Matched with ===, never by prefix. */
+  paths: string[];
   exp: number; // unix seconds
 }
 
@@ -28,6 +29,46 @@ export interface PrintTokenPayload {
 // because validateEnv only runs at boot in production — this also protects
 // dev/test against an operator pasting a short secret.
 const MIN_SECRET_LEN = 32;
+
+// A newline cannot appear in a URL pathname, so joining on it makes the
+// signature unambiguous: ['/a', '/b'] and ['/a,/b'] hash differently. A comma
+// would not — a comma is legal in a pathname, and two different sets sharing a
+// signature is a forged token.
+const PATH_SEP = '\n';
+
+// The signed string is `company|user|paths|exp`, so a `|` ANYWHERE in the
+// first three fields lets the same HMAC be re-split into a different tuple —
+// one signature, two payloads. Node's URL parser does NOT percent-encode `|`
+// in a pathname, so the normalisation check below does not cover it; the
+// explicit ban is load-bearing.
+const FIELD_SEP = '|';
+
+// ── Canonical encodings ──────────────────────────────────────────────────────
+// A token has exactly ONE valid spelling. Both decoders below are forgiving in
+// ways the signature check cannot see: `Buffer.from(x, 'hex')` accepts
+// UPPERCASE hex, and `Buffer.from(x, 'base64url')` accepts standard base64
+// (`+`, `/`), `=` padding, and trailing bits that do not round-trip. Each of
+// those is a DIFFERENT string that verifies against the same secret, so the
+// same authority arrives wearing several faces — and anything upstream that
+// reasons about a token as a string (a rate-limit key, a replay cache, a log
+// line an operator greps for a leaked token) sees several tokens where there
+// is one. The token has no nonce and no revocation, so string identity is the
+// only handle there is on it. Non-canonical spellings are rejected outright.
+const CANONICAL_SIGNATURE = /^[0-9a-f]+$/;
+const CANONICAL_PAYLOAD = /^[A-Za-z0-9_-]+$/;
+/** sha256 as hex. */
+const SIGNATURE_HEX_LEN = 64;
+
+// Banning the separators in `paths` alone left `sign` non-injective, because
+// the same separators are unescaped in the other two fields: company `c|u`
+// with user `x` signs the identical string as company `c` with user `u|x`, so
+// one genuine signature verified a payload naming a different company. Both
+// separators are therefore rejected in ALL THREE variable-length fields, on
+// both sides — the minter throws, the parser returns null — which is what
+// makes the join injective for every tuple that can reach `sign`.
+function hasSeparator(value: string): boolean {
+  return value.includes(PATH_SEP) || value.includes(FIELD_SEP);
+}
 
 /** Returns the configured secret only when it meets the minimum length; a
  *  too-short secret is treated the same as "unset" (both mint and verify
@@ -44,44 +85,113 @@ function getSecret(): string | undefined {
   return secret;
 }
 
-function sign(companyId: string, userId: string, path: string, exp: number, secret: string): string {
-  return createHmac('sha256', secret).update(`${companyId}|${userId}|${path}|${exp}`).digest('hex');
+function sign(companyId: string, userId: string, paths: string[], exp: number, secret: string): string {
+  return createHmac('sha256', secret)
+    .update(`${companyId}|${userId}|${paths.join(PATH_SEP)}|${exp}`)
+    .digest('hex');
 }
 
-/** Mint a print token bound to one exact API path, expiring in `ttlSeconds`. */
-export function mintPrintToken(companyId: string, userId: string, path: string, ttlSeconds = 120): string {
+/**
+ * A mintable path is an absolute, already-normalised API pathname: no query,
+ * no fragment, no wildcard, no whitespace, no field/path separator, no
+ * percent-encoding, and identical to what the URL parser makes of it. The last
+ * clause is what rejects `..` segments, an authority-form `//host`, and
+ * invisible characters such as U+200B that `\s` does not match. Percent-encoding
+ * is banned outright because the URL parser leaves `%2F` and `%2e%2e` untouched,
+ * so normalisation alone would let an encoded separator through.
+ *
+ * Only server code mints today, so this is a floor rather than a hole — but the
+ * floor is what keeps a future caller from binding a token to a path that means
+ * something different to the router than it does to the string comparison.
+ */
+function assertPaths(paths: string[]): void {
+  if (!Array.isArray(paths) || paths.length === 0) {
+    throw new Error('mintPrintToken: at least one path is required');
+  }
+  for (const p of paths) {
+    if (
+      typeof p !== 'string' ||
+      !p.startsWith('/') ||
+      /[?#*\s|%]/.test(p) ||
+      p.includes('//') ||
+      p !== normalisedPathname(p)
+    ) {
+      throw new Error(`mintPrintToken: ${String(p)} is not an absolute API path without a query string`);
+    }
+  }
+}
+
+/** The pathname the URL parser derives from `p`, or null if it will not parse. */
+function normalisedPathname(p: string): string | null {
+  try {
+    return new URL(p, 'http://x').pathname;
+  } catch {
+    return null;
+  }
+}
+
+/** Mint a print token bound to an exact set of API paths, expiring in `ttlSeconds`. */
+export function mintPrintToken(companyId: string, userId: string, paths: string[], ttlSeconds = 120): string {
+  assertPaths(paths);
+  // Not only `paths`: see hasSeparator. A mintable company or user id carrying
+  // a separator is half of a signature collision, and the minter is the side
+  // we control.
+  for (const [field, value] of [['companyId', companyId], ['userId', userId]] as const) {
+    if (typeof value !== 'string' || hasSeparator(value)) {
+      throw new Error(`mintPrintToken: ${field} must not contain the signing separators`);
+    }
+  }
   const raw = process.env.PRINT_TOKEN_SECRET;
   if (!raw) throw new Error('PRINT_TOKEN_SECRET is not set');
   const secret = getSecret();
   if (!secret) throw new Error(`PRINT_TOKEN_SECRET must be at least ${MIN_SECRET_LEN} characters`);
 
   const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const signature = sign(companyId, userId, path, exp, secret);
-  const payload = Buffer.from(JSON.stringify({ companyId, userId, path, exp })).toString('base64url');
+  const signature = sign(companyId, userId, paths, exp, secret);
+  const payload = Buffer.from(JSON.stringify({ companyId, userId, paths, exp })).toString('base64url');
   return `${payload}.${signature}`;
 }
 
 function parsePayload(raw: string): PrintTokenPayload | null {
+  // Charset first, then round-trip: the charset check rejects `+`, `/` and
+  // `=`, and the re-encode rejects a trailing-bit variant that decodes to the
+  // same bytes from a different string.
+  if (!CANONICAL_PAYLOAD.test(raw)) return null;
+  const decoded = Buffer.from(raw, 'base64url');
+  if (decoded.toString('base64url') !== raw) return null;
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    parsed = JSON.parse(decoded.toString('utf8'));
   } catch {
     return null;
   }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const candidate = parsed as Record<string, unknown>;
   if (
-    typeof parsed !== 'object' || parsed === null ||
-    typeof (parsed as Record<string, unknown>).companyId !== 'string' ||
-    typeof (parsed as Record<string, unknown>).userId !== 'string' ||
-    typeof (parsed as Record<string, unknown>).path !== 'string' ||
-    typeof (parsed as Record<string, unknown>).exp !== 'number'
+    typeof candidate.companyId !== 'string' ||
+    typeof candidate.userId !== 'string' ||
+    !Array.isArray(candidate.paths) ||
+    candidate.paths.length === 0 ||
+    // The separator guards are what keep `sign` injective, and they have to
+    // cover every variable-length field, not just paths: without PATH_SEP a
+    // payload claiming paths ['/a\n/b'] hashes identically to ['/a', '/b'],
+    // and without FIELD_SEP on companyId/userId/paths the same signed string
+    // re-splits into a different company/user/paths/exp tuple. Either way one
+    // payload's signature validates another's. This is the side an attacker
+    // reaches, so the guard has to sit here as well as in the minter.
+    hasSeparator(candidate.companyId) ||
+    hasSeparator(candidate.userId) ||
+    !candidate.paths.every((p) => typeof p === 'string' && !hasSeparator(p)) ||
+    typeof candidate.exp !== 'number'
   ) {
     return null;
   }
-  return parsed as PrintTokenPayload;
+  return candidate as unknown as PrintTokenPayload;
 }
 
 /**
- * Verify a print token's signature and expiry only — NOT its bound path.
+ * Verify a print token's signature and expiry only — NOT its bound paths.
  * Returns the payload when: PRINT_TOKEN_SECRET is set (and long enough),
  * the token is well-formed, the signature matches, and it has not expired.
  *
@@ -89,7 +199,7 @@ function parsePayload(raw: string): PrintTokenPayload | null {
  * is a garbage/forged/expired token" (clear cookies, 401 as normal) apart
  * from "this is a genuine print token, just not valid for this request"
  * (401 WITHOUT clearing cookies — an unrelated background call presenting
- * a token minted for a different path must not wipe out a render in
+ * a token minted for different paths must not wipe out a render in
  * progress).
  */
 export function verifyPrintTokenSignature(token: string): PrintTokenPayload | null {
@@ -101,19 +211,24 @@ export function verifyPrintTokenSignature(token: string): PrintTokenPayload | nu
   const [payloadB64, signatureHex] = parts;
   if (!payloadB64 || !signatureHex) return null;
 
+  // Exactly 64 lowercase hex characters. Without the length check
+  // `Buffer.from(hex)` truncates at the first invalid pair, and without the
+  // charset check the SAME signature is also valid in uppercase.
+  if (signatureHex.length !== SIGNATURE_HEX_LEN || !CANONICAL_SIGNATURE.test(signatureHex)) return null;
+
   const payload = parsePayload(payloadB64);
   if (!payload) return null;
 
-  const expected = sign(payload.companyId, payload.userId, payload.path, payload.exp, secret);
+  const expected = sign(payload.companyId, payload.userId, payload.paths, payload.exp, secret);
   const expectedBuf = Buffer.from(expected, 'hex');
   const actualBuf = Buffer.from(signatureHex, 'hex');
   if (expectedBuf.length !== actualBuf.length || !timingSafeEqual(expectedBuf, actualBuf)) {
-    log.warn('printAuth: signature mismatch', { path: payload.path }, 'printAuth');
+    log.warn('printAuth: signature mismatch', { paths: payload.paths }, 'printAuth');
     return null;
   }
 
   if (payload.exp <= Math.floor(Date.now() / 1000)) {
-    log.warn('printAuth: token expired', { companyId: payload.companyId, path: payload.path }, 'printAuth');
+    log.warn('printAuth: token expired', { companyId: payload.companyId, paths: payload.paths }, 'printAuth');
     return null;
   }
 
@@ -123,15 +238,17 @@ export function verifyPrintTokenSignature(token: string): PrintTokenPayload | nu
 /**
  * Verify a print token against the path of the request presenting it.
  * Returns the payload only when: PRINT_TOKEN_SECRET is set, the token is
- * well-formed, the signature matches, it has not expired, and its bound
- * path is exactly `requestPath` (query string excluded by the caller).
+ * well-formed, the signature matches, it has not expired, and `requestPath`
+ * is exactly one of its bound paths (query string excluded by the caller).
  */
 export function verifyPrintToken(token: string, requestPath: string): PrintTokenPayload | null {
   const payload = verifyPrintTokenSignature(token);
   if (!payload) return null;
 
-  if (payload.path !== requestPath) {
-    log.warn('printAuth: path mismatch', { tokenPath: payload.path, requestPath }, 'printAuth');
+  // Exact match per path. `startsWith` here would authorise every route under
+  // the bound prefix; see the prefix test in printAuth.test.ts.
+  if (!payload.paths.includes(requestPath)) {
+    log.warn('printAuth: path not authorised', { tokenPaths: payload.paths, requestPath }, 'printAuth');
     return null;
   }
 

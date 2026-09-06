@@ -10,6 +10,7 @@ import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/ac
 import {
   packToTotals, packToMargins, packToBsTotals, packToBsDetail,
 } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { NO_MARGIN_REASON } from '@/modules/accounting/services/packs/packDocument';
 import type { PublishedCommentary, SharedPack } from '@/modules/accounting/services/share/sharedPackService';
 import { OMITTED_SECTIONS, type SharedReportPack } from '@/modules/accounting/services/share/sharedSections';
 
@@ -50,6 +51,31 @@ function Note({ children }: { children: string }) {
   return <p className="text-sm italic text-[var(--ff-text-tertiary)]">{children}</p>;
 }
 
+/**
+ * The two margins.
+ *
+ * `packToMargins` became nullable when WS2 landed: turnover of zero or less
+ * has no margin, because dividing by a negative prints a healthy-looking
+ * POSITIVE percentage. This line called `.toFixed(1)` on the result, so a link
+ * shared on a loss-making period would have thrown the whole page to its error
+ * boundary — for a recipient with no session, no nav and no way back.
+ *
+ * The reason string is the owner-side one (`NO_MARGIN_REASON`, printed by
+ * `formatPackKv` on the screen and in the PDF) rather than a second wording
+ * for the same fact. The percentage keeps this page's own unsigned form: the
+ * shared pack has read that way since it shipped, and the crash is what needed
+ * fixing.
+ */
+function MarginLine({ data }: { data: Record<string, unknown> }) {
+  const { grossMargin, netMargin } = packToMargins(data);
+  const pct = (m: number | null) => (m === null ? NO_MARGIN_REASON : `${m.toFixed(1)}%`);
+  return (
+    <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
+      Gross margin {pct(grossMargin)} · Net margin {pct(netMargin)}
+    </p>
+  );
+}
+
 export function SharedPackView({ data }: { data: SharedPackProps }) {
   const published = toPublishedRows(data.commentary);
   return (
@@ -69,10 +95,7 @@ export function SharedPackView({ data }: { data: SharedPackProps }) {
           {section.type === 'income_statement' && (
             <Fragment>
               <ManagementPandLRows is={packToTotals(section.data ?? {})} />
-              <p className="mt-2 text-xs text-[var(--ff-text-tertiary)]">
-                Gross margin {packToMargins(section.data ?? {}).grossMargin.toFixed(1)}% ·
-                {' '}Net margin {packToMargins(section.data ?? {}).netMargin.toFixed(1)}%
-              </p>
+              <MarginLine data={section.data ?? {}} />
             </Fragment>
           )}
           {section.type === 'balance_sheet' && (

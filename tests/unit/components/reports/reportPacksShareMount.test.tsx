@@ -18,6 +18,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 let companyRole: string | null = 'owner';
 
 vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole }) }));
+// The page's first act is the print dispatch (`isPrintRender(useRouter())`),
+// which needs a router. A ready router with an empty query is the interactive
+// screen — the branch every test below is about.
+vi.mock('next/router', () => ({
+  useRouter: () => ({ isReady: true, query: {}, pathname: '/accounting/reports/report-packs' }),
+}));
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));

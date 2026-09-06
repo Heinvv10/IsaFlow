@@ -92,7 +92,22 @@ const ROLE_HIERARCHY: Record<AuthRole, number> = {
   viewer: 1,
 };
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+interface AuthProviderProps {
+  children: ReactNode;
+  /**
+   * Skip the /api/auth/me fetch (and the focus/interval re-checks) and leave
+   * the context in its unauthenticated/empty state. For a PDF print render
+   * (see printRenderQuery.ts): under a transport that cannot stub network
+   * calls (Gotenberg), a print token fed to /api/auth/me fails JWT
+   * verification and its handler (withUserAuth) clears the sb-access-token
+   * cookie — the SAME cookie carrying the print token — poisoning every
+   * later request in the render. The print page needs no auth context, so
+   * this call should not happen at all during a print render.
+   */
+  skipFetch?: boolean;
+}
+
+export function AuthProvider({ children, skipFetch = false }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +139,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (skipFetch) {
+      setLoading(false);
+      return;
+    }
+
     void checkAuth();
 
     // Re-fetch user when tab regains focus (picks up RBAC changes)
@@ -137,7 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('focus', onFocus);
       clearInterval(interval);
     };
-  }, [checkAuth]);
+  }, [checkAuth, skipFetch]);
 
   /**
    * Sign in with email/password credentials.

@@ -200,4 +200,29 @@ describe('SharedPackView', () => {
     expect(withNote).toContain('Approved closing note.');
     expect(withNote).not.toContain('No approved commentary for this period.');
   });
+  /**
+   * WS2 made `packToMargins` nullable — a margin on non-positive turnover is
+   * no margin, not a margin of zero — while this view still called
+   * `.toFixed(1)` on the result. A link shared on a loss-making period would
+   * have thrown for its recipient, who has no session and no way back.
+   */
+  it('prints the reason, not a crash, when turnover leaves no margin', () => {
+    const lossMaking = () => renderToStaticMarkup(React.createElement(SharedPackView, {
+      data: {
+        ...pack,
+        pack: {
+          ...pack.pack,
+          sections: pack.pack.sections.map(sec =>
+            sec.type === 'income_statement'
+              ? { ...sec, data: { ...sec.data, revenue: -100, grossMargin: null, netMargin: null } }
+              : sec),
+        },
+      },
+    }));
+
+    expect(lossMaking).not.toThrow();
+    const html = lossMaking();
+    expect(html).toContain('No margin on non-positive turnover');
+    expect(html).not.toContain('0.0%');
+  });
 });

@@ -63,7 +63,7 @@ function buildCsp(nodeEnv) {
     ? `connect-src 'self' ${SAGE} ${ISAFLOW_APP} ${ISAFLOW_ADMIN} ${ISAFLOW_ERRORS} ${CLOUDFLARE} ${CLOUDFLARE_INSIGHTS} ${CLOUDFLARE_INSIGHTS_SCRIPT}`
     : `connect-src 'self' ${SAGE} ${ISAFLOW_APP} ${ISAFLOW_ADMIN} ${ISAFLOW_ERRORS} ${CLOUDFLARE} ${CLOUDFLARE_INSIGHTS} http://localhost:3101 http://localhost:3004`;
 
-  return [
+  const directives = [
     "default-src 'self'",
     scriptSrc,
     // style-src 'unsafe-inline' is required by dynamic inline style attributes — see header note above.
@@ -76,8 +76,20 @@ function buildCsp(nodeEnv) {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    'upgrade-insecure-requests',
-  ].join('; ');
+  ];
+
+  // Task 12 fix round 1: this directive tells the browser to upgrade every
+  // same-origin http:// subresource request to https:// on this page. Applied
+  // unconditionally, it broke dev: the dev server (plain HTTP) sent it too, so
+  // Chromium (including Gotenberg's, rendering a report pack for the PDF
+  // export) upgraded /_next/static/*, fonts, etc. to https://<host>:3200,
+  // which nothing answers — the page never hydrates. Production is HTTPS end
+  // to end, so the directive is a genuine hardening there and only there.
+  if (isProd) {
+    directives.push('upgrade-insecure-requests');
+  }
+
+  return directives.join('; ');
 }
 
 /**
