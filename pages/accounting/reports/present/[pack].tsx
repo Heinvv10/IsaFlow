@@ -115,7 +115,10 @@ export default function PresentPackPage() {
   if (error) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[var(--ff-bg-primary)]">
-        <p className="text-sm text-[var(--ff-unfav)]">This pack could not be loaded: {error}</p>
+        {/* `text-red-400`, the app's error colour — never `--ff-unfav`, which
+            means "this variance moved the wrong way". Borrowing the variance
+            token for a load failure makes one colour say two things. */}
+        <p role="alert" className="text-sm text-red-400">This pack could not be loaded: {error}</p>
       </main>
     );
   }

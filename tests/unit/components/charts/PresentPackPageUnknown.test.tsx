@@ -41,6 +41,19 @@ describe('the present pack page with an unrecognised pack type', () => {
   });
 });
 
+describe('the error banner colour', () => {
+  it('uses the app error colour, not the variance token', async () => {
+    apiJson.mockRejectedValue(new Error('should not be called'));
+    query = { pack: 'nonsense', from: '2026-01-01', to: '2026-01-31' };
+    render(<PresentPackPage />);
+    const banner = await screen.findByText(/Unknown pack/i);
+    // `--ff-unfav` means "this variance moved the wrong way". A failed load
+    // is not a variance, and one colour must not say both things.
+    expect(banner.className).toContain('text-red-400');
+    expect(banner.className).not.toContain('ff-unfav');
+  });
+});
+
 describe('navigating from an unknown pack to a valid one', () => {
   it('clears the "Unknown pack" banner once the params become valid (residual 2)', async () => {
     apiJson.mockRejectedValue(new Error('should not be called'));
