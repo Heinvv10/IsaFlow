@@ -261,6 +261,17 @@ export interface RuleApplyResult {
    */
   autoPostVatDenied?: number;
   /**
+   * Number of lines this sweep posted GROSS because the rule asked to claim
+   * VAT against an account on which NO SUPPLY CAN ARISE — salaries, statutory
+   * deductions, taxes, distributions, depreciation, donations, exempt
+   * financial services. A different statute from `autoPostVatDenied` above:
+   * there a supply happened and the claim is refused, here nothing was
+   * supplied at all. Reported for the same reason: R400,388.14 of input tax
+   * accumulated on Velocity's salary account unnoticed, and R237,021.60 again
+   * when the ledger was rebuilt.
+   */
+  autoPostNonSupply?: number;
+  /**
    * Number of auto-post attempts skipped because another request held the
    * transaction's row lock for longer than the 5s timeout. Retryable: nothing
    * was posted for these, and a re-run picks them up.
