@@ -153,7 +153,7 @@ export function buildResultsTable(set: PackFigureSet, p: PackFigureProvenance): 
   return buildTable(p, [
     { label: 'Revenue', key: 'results.revenue', source: 'packFigureSet.current.revenue', actual: current.revenue, prior: prior?.revenue ?? null },
     { label: 'Gross profit', key: 'results.grossProfit', source: 'packStatementTables.grossProfit', role: 'subtotal', actual: grossProfitOf(current), prior: prior ? grossProfitOf(prior) : null },
-    { label: 'Operating profit', key: 'results.operatingProfit', source: OPERATING_PROFIT_SOURCE, role: 'subtotal', actual: operatingProfitOf(current), prior: prior ? operatingProfitOf(prior) : null },
+    { label: 'Operating profit', key: 'results.operating', source: OPERATING_PROFIT_SOURCE, role: 'subtotal', actual: operatingProfitOf(current), prior: prior ? operatingProfitOf(prior) : null },
     { label: 'EBITDA', key: 'results.ebitda', source: 'calculateExtendedRatios.ebitda', role: 'subtotal', actual: ebitdaOf(current), prior: prior ? ebitdaOf(prior) : null },
     { label: 'Net profit', key: 'results.netProfit', source: 'packFigureSet.current.netProfit', role: 'total', actual: current.netProfit, prior: prior?.netProfit ?? null },
   ], set, false);
@@ -169,7 +169,7 @@ export function buildIncomeStatementTable(set: PackFigureSet, p: PackFigureProve
     { label: 'Operating expenses', key: 'is.operatingExpenses', source: 'packFigureSet.current.operatingExpenses', level: 1, actual: current.operatingExpenses, prior: prior?.operatingExpenses ?? null },
     { label: 'Other income', key: 'is.otherIncome', source: 'packFigureSet.current.otherIncome', level: 1, actual: current.otherIncome ?? 0, prior: prior?.otherIncome ?? null },
     { label: 'Other expenses', key: 'is.otherExpenses', source: 'packFigureSet.current.otherExpenses', level: 1, actual: current.otherExpenses ?? 0, prior: prior?.otherExpenses ?? null },
-    { label: 'Operating profit', key: 'is.operatingProfit', source: OPERATING_PROFIT_SOURCE, role: 'subtotal', actual: operatingProfitOf(current), prior: prior ? operatingProfitOf(prior) : null },
+    { label: 'Operating profit', key: 'is.operating', source: OPERATING_PROFIT_SOURCE, role: 'subtotal', actual: operatingProfitOf(current), prior: prior ? operatingProfitOf(prior) : null },
     { label: 'Net profit', key: 'is.netProfit', source: 'packFigureSet.current.netProfit', role: 'total', actual: current.netProfit, prior: prior?.netProfit ?? null },
   ], set, true);
 }

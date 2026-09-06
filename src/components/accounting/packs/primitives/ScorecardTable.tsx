@@ -11,6 +11,7 @@
  * in every affected cell.
  */
 import { formatFigureText } from './packFigureText';
+import type { MoneyScale } from '@/lib/format/money';
 import { FootnoteMarker } from './FootnoteMarker';
 import { formatMoney, formatPct } from '@/lib/format/money';
 import type {
@@ -59,17 +60,20 @@ function assertRowCaps(groups: PackScorecardGroup[]): void {
 /** `target` is a raw number, not a `PackFigure` (§ packPageModel), so it has
  *  no `format` of its own — it prints in the SAME unit as `actual`, the
  *  figure it is a goal for. */
-function formatTarget(target: number | null, format: PackFigureFormat): string {
+function formatTarget(target: number | null, format: PackFigureFormat, scale: MoneyScale): string {
   if (target === null) return '–';
   switch (format) {
-    case 'money': return formatMoney(target);
+    // Scaled with the actual it is a goal for: a target printed in rands
+    // beside an actual printed in thousands is the same 1000x contradiction,
+    // in the one column a reader uses to judge whether the actual passed.
+    case 'money': return formatMoney(target, { scale });
     case 'pct': return formatPct(target);
     case 'ratio': return target.toFixed(2);
     case 'days': return `${target.toFixed(0)} days`;
   }
 }
 
-function ScorecardRowView({ row }: { row: PackScorecardRow }) {
+function ScorecardRowView({ row, scale }: { row: PackScorecardRow; scale: MoneyScale }) {
   return (
     <tr className="pack-scorecard-row">
       <td>
@@ -79,9 +83,9 @@ function ScorecardRowView({ row }: { row: PackScorecardRow }) {
       {/* Rubric criterion 9: a not-meaningful row's Actual cell prints an en
        *  dash, not `actual.unavailable` — that reason is stated ONCE, in the
        *  page-foot footnote the marker above points to, never repeated here. */}
-      <td>{row.actual.value === null ? '–' : formatFigureText(row.actual)}</td>
-      <td>{formatTarget(row.target, row.actual.format)}</td>
-      <td>{row.prior ? formatFigureText(row.prior) : null}</td>
+      <td>{row.actual.value === null ? '–' : formatFigureText(row.actual, scale)}</td>
+      <td>{formatTarget(row.target, row.actual.format, scale)}</td>
+      <td>{row.prior ? formatFigureText(row.prior, scale) : null}</td>
       <td className="pack-scorecard-trend">
         {row.bulletSvg ? (
           <span
@@ -104,9 +108,11 @@ function ScorecardRowView({ row }: { row: PackScorecardRow }) {
 
 export interface ScorecardTableProps {
   groups: PackScorecardGroup[];
+  /** The document's `numberConvention.scale` — see `formatFigureText`. */
+  scale: MoneyScale;
 }
 
-export function ScorecardTable({ groups }: ScorecardTableProps) {
+export function ScorecardTable({ groups, scale }: ScorecardTableProps) {
   assertRowCaps(groups);
 
   return (
@@ -126,7 +132,7 @@ export function ScorecardTable({ groups }: ScorecardTableProps) {
           </thead>
           <tbody>
             {group.rows.map((row, index) => (
-              <ScorecardRowView key={`${row.metric}-${index}`} row={row} />
+              <ScorecardRowView key={`${row.metric}-${index}`} row={row} scale={scale} />
             ))}
           </tbody>
         </table>

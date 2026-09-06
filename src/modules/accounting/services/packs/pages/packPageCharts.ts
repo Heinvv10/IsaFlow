@@ -94,11 +94,15 @@ export function buildCashWaterfallChart(set: PackFigureSet): PackCashBridge | nu
   if (prior === null) return null;
 
   const opening = prior.cash;
-  const movements: Array<{ label: string; value: number }> = [
-    { label: 'Operating', value: current.operatingCashFlow ?? 0 },
-    { label: 'Investing', value: -(current.capitalExpenditure ?? 0) },
-    { label: 'Financing', value: current.financingCashFlow ?? 0 },
-  ];
+  // Only categories the figure set actually CAPTURED get a bar. `?? 0` drew
+  // a flat "Investing" bar for a company whose cash table one block above
+  // said capital expenditure was not captured — the same figure telling two
+  // stories on one page. An uncaptured category is absorbed by the named
+  // residual below, which is honest about not knowing.
+  const movements: Array<{ label: string; value: number }> = [];
+  if (current.operatingCashFlow !== undefined) movements.push({ label: 'Operating', value: current.operatingCashFlow });
+  if (current.capitalExpenditure !== undefined) movements.push({ label: 'Investing', value: -current.capitalExpenditure });
+  if (current.financingCashFlow !== undefined) movements.push({ label: 'Financing', value: current.financingCashFlow });
   const explained = movements.reduce((sum, m) => sum + m.value, 0);
   const residual = current.cash - opening - explained;
   if (residual !== 0) movements.push({ label: 'Unexplained movement', value: residual });

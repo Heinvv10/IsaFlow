@@ -24,12 +24,12 @@ describe('ScorecardTable', () => {
   ];
 
   it('groups rows under a lettered heading', () => {
-    render(<ScorecardTable groups={groups} />);
+    render(<ScorecardTable scale="R" groups={groups} />);
     expect(screen.getByText(/A\.\s*Profitability/)).toBeInTheDocument();
   });
 
   it('shows an en dash and a footnote marker for a not-meaningful row', () => {
-    render(<ScorecardTable groups={groups} />);
+    render(<ScorecardTable scale="R" groups={groups} />);
     expect(screen.getByText('–')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();
     // Rubric criterion 9: the explanation belongs in ONE page-foot footnote,
@@ -39,7 +39,7 @@ describe('ScorecardTable', () => {
 
   it('refuses more than 20 rows', () => {
     const many = [{ letter: 'A', name: 'X', rows: Array.from({ length: 21 }, () => groups[0]!.rows[0]!) }];
-    expect(() => render(<ScorecardTable groups={many} />)).toThrow(/20/);
+    expect(() => render(<ScorecardTable scale="R" groups={many} />)).toThrow(/20/);
   });
 
   it('refuses more than 5 rows in one group, even when the total is well under 20', () => {
@@ -48,7 +48,7 @@ describe('ScorecardTable', () => {
     const oneBigGroup = [
       { letter: 'A', name: 'X', rows: Array.from({ length: 6 }, () => groups[0]!.rows[0]!) },
     ];
-    expect(() => render(<ScorecardTable groups={oneBigGroup} />)).toThrow(/5/);
+    expect(() => render(<ScorecardTable scale="R" groups={oneBigGroup} />)).toThrow(/5/);
   });
 
   it('never infers a direction for a row with no trend and no trendSvg (R-P43)', () => {
@@ -61,7 +61,7 @@ describe('ScorecardTable', () => {
         target: null, prior: { value: 30, format: 'days' as const, source: 'r.pcc' },
         status: 'unscored' as const, trend: null, trendSvg: null, bulletSvg: null },
     ] }];
-    const { container } = render(<ScorecardTable groups={noTrendGroups} />);
+    const { container } = render(<ScorecardTable scale="R" groups={noTrendGroups} />);
     const trendCell = container.querySelector('.pack-scorecard-trend');
     expect(trendCell).not.toBeNull();
     expect(trendCell!.textContent).toBe('');

@@ -27,6 +27,7 @@
 
 import type {
   PackBasisOfPreparation,
+  PackFootnote,
   PackDefinition,
   PackNumberConvention,
   PackPagesDocument,
@@ -56,6 +57,18 @@ const CURRENCY = 'ZAR';
  * it without a cast at the render boundary.
  */
 export const PACK_SCALE: MoneyScale = "R'000";
+
+/**
+ * Every statement stated in a scale needs this, and none of the pack's pages
+ * carried it. Rounded components genuinely do not always sum to a rounded
+ * total — a reader who adds a column and finds it a thousand out is entitled
+ * to know that is the rounding rather than an error in the pack.
+ */
+export const ROUNDING_NOTE =
+  "Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.";
+
+/** The same statement as a page footnote, for the statement pages. */
+export const ROUNDING_FOOTNOTES: PackFootnote[] = [{ number: 1, text: ROUNDING_NOTE }];
 
 const LEDGER_VERSION_UNAVAILABLE =
   'unavailable — no ledger watermark was supplied for this pack render';

@@ -10,6 +10,7 @@
  * in when they are present.
  */
 import { formatFigureText } from './packFigureText';
+import type { MoneyScale } from '@/lib/format/money';
 import type {
   PackTable,
   PackTableColumnKey,
@@ -42,9 +43,13 @@ const ZEBRA_ROW_THRESHOLD = 12;
 
 export interface ComparativeTableProps {
   table: PackTable;
+  /** The document's `numberConvention.scale`. Required: this table prints
+   *  `table.scale` as its caption, so cells formatted at any other scale
+   *  contradict the header above them by a factor of a thousand. */
+  scale: MoneyScale;
 }
 
-export function ComparativeTable({ table }: ComparativeTableProps) {
+export function ComparativeTable({ table, scale }: ComparativeTableProps) {
   const columns = table.columns.filter((col) =>
     table.rows.some((row) => row.figures[col] !== undefined),
   );
@@ -67,7 +72,7 @@ export function ComparativeTable({ table }: ComparativeTableProps) {
             <td style={{ paddingLeft: `${row.level * INDENT_MM_PER_LEVEL}mm` }}>{row.label}</td>
             {columns.map((col) => {
               const figure = row.figures[col];
-              return <td key={col}>{figure ? formatFigureText(figure) : '–'}</td>;
+              return <td key={col}>{figure ? formatFigureText(figure, scale) : '–'}</td>;
             })}
           </tr>
         ))}

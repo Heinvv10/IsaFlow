@@ -19,12 +19,15 @@
  * spec's own rubric criterion 7: colour alone fails a deuteranopic reader.
  */
 import { formatFigureText } from './packFigureText';
+import type { MoneyScale } from '@/lib/format/money';
 import { formatPctMagnitude } from '@/lib/format/money';
 import { FootnoteMarker } from './FootnoteMarker';
 import type { PackKpiTile } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface KpiTileWithSparklineProps {
   tile: PackKpiTile;
+  /** The document's `numberConvention.scale` — see `formatFigureText`. */
+  scale: MoneyScale;
 }
 
 type DeltaDirection = 'up' | 'down' | 'flat';
@@ -40,7 +43,7 @@ function deltaDirection(value: number): DeltaDirection {
 
 const DELTA_GLYPH: Record<DeltaDirection, string> = { up: '▲', down: '▼', flat: '■' };
 
-export function KpiTileWithSparkline({ tile }: KpiTileWithSparklineProps) {
+export function KpiTileWithSparkline({ tile, scale }: KpiTileWithSparklineProps) {
   const { label, figure, delta, trendFootnote, sparklineSvg } = tile;
   const direction = delta ? deltaDirection(delta.value) : null;
 
@@ -51,7 +54,7 @@ export function KpiTileWithSparkline({ tile }: KpiTileWithSparklineProps) {
         <FootnoteMarker number={trendFootnote} />
       </span>
       <span className={figure.value === null ? 'pack-kpi-unavailable' : 'pack-kpi-value'}>
-        {formatFigureText(figure)}
+        {formatFigureText(figure, scale)}
       </span>
       {delta && direction && (
         <span className={`pack-kpi-delta is-${delta.favourable ? 'favourable' : 'unfavourable'}`}>

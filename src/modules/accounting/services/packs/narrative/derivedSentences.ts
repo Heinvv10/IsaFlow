@@ -25,6 +25,7 @@ import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { formatMoney, formatPctMagnitude } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
+import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type {
   PackChartSpec,
   PackKpiTile,
@@ -75,7 +76,13 @@ export function highlightsTitle(set: PackFigureSet): string {
       : `Revenue ${change} against the prior period.`;
   }
 
-  const margin = marginPct(current.operatingProfit ?? 0, current.revenue);
+  // `?? 0` here printed "Operating margin is 0.0%" on a page whose own tile
+  // showed 750 000, because `operatingProfit` is OPTIONAL and a defaulted
+  // zero is not the classifier saying the company broke even. One reading of
+  // the operating line, `packMetricReads.operatingProfitOf`, for every page
+  // and every sentence — a title that contradicts the figure beside it ships
+  // silently, which is worse than the render failure it replaced.
+  const margin = marginPct(operatingProfitOf(current), current.revenue);
   const marginClause = margin === null
     ? NO_OPERATING_MARGIN_SENTENCE
     : `Operating margin is ${formatPctMagnitude(margin)}.`;
@@ -166,7 +173,10 @@ export function narrativeTitle(set: PackFigureSet): string {
 /** Page 5's title. Spec §4.A fixes the "Group results | …" prefix. */
 export function resultsTitle(set: PackFigureSet): string {
   const { current } = set;
-  const operating = current.operatingProfit ?? current.netProfit;
+  // Was `?? current.netProfit`, which titled the page "operating profit of
+  // 512 000" above a table row reading 750 000. Same defect as above: net
+  // profit is a DIFFERENT line, not a fallback for this one.
+  const operating = operatingProfitOf(current);
   const noun = operating < 0 ? 'operating loss' : 'operating profit';
   return `Group results | ${noun} of ${formatMoney(operating)} on revenue of ${formatMoney(current.revenue)}.`;
 }

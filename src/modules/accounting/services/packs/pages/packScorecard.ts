@@ -51,7 +51,7 @@ export function toFinancialData(f: ReportPackFigures): FinancialData {
     revenue: f.revenue,
     costOfSales: f.costOfSales,
     operatingExpenses: f.operatingExpenses,
-    operatingProfit: f.operatingProfit,
+    operatingProfit: operatingProfitOf(f),
     otherIncome: f.otherIncome,
     netProfit: f.netProfit,
     totalAssets: f.totalAssets,

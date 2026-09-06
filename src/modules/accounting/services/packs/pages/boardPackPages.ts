@@ -54,7 +54,7 @@ import {
   trendsCaption,
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { buildBasis } from './packBasis';
+import { buildBasis, ROUNDING_FOOTNOTES, ROUNDING_NOTE } from './packBasis';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
@@ -161,7 +161,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     disclose('Reading these tiles', [
       note('Comparison basis', 'Each movement is measured against the prior calendar period, stated on the tile itself.'),
       note('Absent comparatives', 'A tile with no movement shown has no comparative period to measure against; it is never shown as a move from zero.'),
-      note('Scale', `Figures are in ${scale} (${currency}).`),
+      note('Scale', `Figures are in ${scale} (${currency}). ${ROUNDING_NOTE}`),
     ]),
   ], 'portrait', [{ number: SPARKLINE_FOOTNOTE, text: `Sparklines run over the pack's monthly trend series. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest have no monthly series behind them and show none rather than a line drawn from a single point.` }]);
 
@@ -172,7 +172,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     { kind: 'table', table: results },
     { kind: 'kpiTiles', tiles: tiles.slice(0, 5) },
     commentary(largestMoverCaption(results.rows)),
-  ]);
+  ], 'portrait', ROUNDING_FOOTNOTES);
 
   const cashBlocks: PackPageBlock[] = [{ kind: 'table', table: cash }];
   if (cashBridge) cashBlocks.push({ kind: 'chart', chart: cashBridge.chart });
@@ -211,14 +211,11 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     note('Gross margin, cash and debtor days', `Spec §4.A asks for ${TRENDS_PANELS_SPECIFIED} panels and ${panels.length} are drawn. Gross margin needs a monthly cost-of-sales split, and cash and debtor days need monthly balance-sheet positions; none is in the trend query, and deriving one from what is would be an invented series.`),
   ]));
 
-  const matterNotes = input.matters.map((matter) =>
-    note(matter.issue, [
-      matter.quantum === null ? 'Quantum: not a single amount.' : `Quantum: ${formatMoney(matter.quantum)}.`,
-      `Owner: ${matter.owner}.`,
-      `Movement: ${matter.movement}`,
-      `Decision required: ${matter.decisionRequired}`,
-    ].join(' ')),
-  );
+  const matterNotes = input.matters.map((matter) => note(matter.issue, [
+    matter.quantum === null ? 'Quantum: not a single amount.' : `Quantum: ${formatMoney(matter.quantum)}.`,
+    `Owner: ${matter.owner}.`, `Movement: ${matter.movement}`,
+    `Decision required: ${matter.decisionRequired}`,
+  ].join(' ')));
 
   const pages: PackPage[] = [
     page(1, input.companyLegalName, 'Front', 'low', [
@@ -244,9 +241,9 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       { kind: 'table', table: income },
       { kind: 'chart', chart: buildProfitWaterfallChart(set) },
       commentary(largestMoverCaption(income.rows)),
-    ]),
-    page(7, positionTitle(set), 'Financials', 'high', positionBlocks),
-    page(8, cashTitle(set), 'Financials', 'high', cashBlocks),
+    ], 'portrait', ROUNDING_FOOTNOTES),
+    page(7, positionTitle(set), 'Financials', 'high', positionBlocks, 'portrait', ROUNDING_FOOTNOTES),
+    page(8, cashTitle(set), 'Financials', 'high', cashBlocks, 'portrait', ROUNDING_FOOTNOTES),
     page(9, scorecardTitle(score.met, score.total), 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
       commentary(scorecardCaption(scorecard)),
@@ -273,6 +270,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         note('Period', input.period),
         note('Currency and rounding', `${currency}, figures in ${scale}.`),
         note('Source system', basis.basisOfPreparation.sourceSystem),
+        note('Rounding', ROUNDING_NOTE),
         note('Extracted at', basis.basisOfPreparation.extractedAt),
         note('Ledger version', basis.basisOfPreparation.ledgerVersion),
       ]),

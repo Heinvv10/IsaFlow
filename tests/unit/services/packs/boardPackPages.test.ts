@@ -23,7 +23,8 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
-import { toMoneyScale } from '@/lib/format/money';
+import { formatMoney, formatPctMagnitude, toMoneyScale } from '@/lib/format/money';
+import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 
@@ -506,6 +507,64 @@ describe('buildBoardPackPages', () => {
     const investing = table.rows.find((r) => r.label === 'Investing cash flow')!.figures.actual!;
     expect(investing.value).toBeNull();
     expect(investing.unavailable).toMatch(/capital expenditure/i);
+  });
+
+  // THE ASSERTION SHAPE NOTHING HAD: a page title read against the figure
+  // printed beside it. The first fix for the operating-line defect turned a
+  // loud render failure into a silent contradiction — page 3's title said
+  // "Operating margin is 0.0%" beside a tile showing 750 000, and page 5's
+  // said "operating profit of 512 000" above a row showing 750 000, because
+  // two sentences still read the raw optional field with their own fallbacks.
+  it('agrees with the figure beside it in the titles of pages 3 and 5', () => {
+    const noOperatingLine = buildBoardPackPages({
+      ...demoInput,
+      set: { ...demoSet, current: figures({ operatingProfit: undefined }) },
+    });
+    const tile = noOperatingLine.pages.find((p) => p.number === 3)!.blocks
+      .flatMap((b) => (b.kind === 'kpiTiles' ? b.tiles : []))
+      .find((t) => t.label === 'Operating profit')!;
+    const row = noOperatingLine.pages.find((p) => p.number === 5)!.blocks
+      .flatMap((b) => (b.kind === 'table' ? b.table.rows : []))
+      .find((r) => r.label === 'Operating profit')!;
+
+    expect(tile.figure.value).not.toBeNull();
+    expect(row.figures.actual!.value).toBe(tile.figure.value);
+
+    // Page 5's title states the operating profit. It must be THAT number.
+    expect(noOperatingLine.pages.find((p) => p.number === 5)!.title)
+      .toContain(formatMoney(tile.figure.value!));
+
+    // Page 3's title states the operating margin. It must be THAT number over
+    // this period's revenue, not a margin taken on a defaulted zero.
+    const margin = marginPct(tile.figure.value!, demoSet.current.revenue)!;
+    expect(noOperatingLine.pages.find((p) => p.number === 3)!.title)
+      .toContain(formatPctMagnitude(margin));
+  });
+
+  it('tells the reader that rounded components may not add to the totals', () => {
+    for (const number of [5, 6, 7, 8]) {
+      const page = doc.pages.find((p) => p.number === number)!;
+      expect(page.footnotes.some((f) => /may not add/i.test(f.text)), `page ${number}`).toBe(true);
+    }
+    const basis = doc.pages.find((p) => p.number === 12)!.blocks
+      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []));
+    expect(basis.some((n) => /may not add/i.test(n.body))).toBe(true);
+  });
+
+  it('draws no cash-bridge bar for a category the figure set never captured', () => {
+    const noCapex = buildBoardPackPages({
+      ...demoInput,
+      set: { ...demoSet, current: figures({ capitalExpenditure: undefined }) },
+    });
+    const chart = noCapex.pages.find((p) => p.number === 8)!.blocks
+      .flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
+    const labels = chart.waterfallBars!.map((b) => b.label);
+    // The table one block above says capital expenditure was not captured;
+    // a flat Investing bar here would be the same figure telling two stories.
+    expect(labels).not.toContain('Investing');
+    expect(labels).toContain('Unexplained movement');
+    // And the bridge still foots on the closing balance.
+    expect(chart.waterfallBars![chart.waterfallBars!.length - 1]!.end).toBe(demoSet.current.cash);
   });
 
   it('records every figure it renders in the provenance map', () => {

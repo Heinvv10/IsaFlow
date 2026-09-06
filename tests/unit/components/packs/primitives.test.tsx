@@ -25,6 +25,7 @@ import { FootnoteMarker } from '@/components/accounting/packs/primitives/Footnot
 import { FootnoteList } from '@/components/accounting/packs/primitives/FootnoteList';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { PackTable } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { ScorecardTable } from '@/components/accounting/packs/primitives/ScorecardTable';
 
 const sparklineSvg = renderChartSvg({}, { widthMm: 10, heightMm: 10 });
 
@@ -36,36 +37,36 @@ describe('KpiTileWithSparkline', () => {
   };
 
   it('states the basis of the delta beside it', () => {
-    render(<KpiTileWithSparkline tile={tile} />);
+    render(<KpiTileWithSparkline scale="R" tile={tile} />);
     // A delta with no stated basis is the "up 12%… against what?" failure.
     expect(screen.getByText(/vs prior period/)).toBeInTheDocument();
   });
 
   it('carries a shape cue alongside the variance colour', () => {
-    const { container } = render(<KpiTileWithSparkline tile={tile} />);
+    const { container } = render(<KpiTileWithSparkline scale="R" tile={tile} />);
     // Rubric criterion 7: colour alone fails a deuteranopic reader.
     expect(container.querySelector('[data-variance-cue]')).not.toBeNull();
   });
 
   it('renders the unavailable reason instead of a figure, never 0', () => {
-    render(<KpiTileWithSparkline tile={{ ...tile,
+    render(<KpiTileWithSparkline scale="R" tile={{ ...tile,
       figure: { value: null, format: 'pct', source: 'r.roe', unavailable: 'Equity is not positive' } }} />);
     expect(screen.getByText('Equity is not positive')).toBeInTheDocument();
     expect(screen.queryByText('0.0%')).toBeNull();
   });
 
   it('omits the delta entirely when there is no comparative', () => {
-    render(<KpiTileWithSparkline tile={{ ...tile, delta: null }} />);
+    render(<KpiTileWithSparkline scale="R" tile={{ ...tile, delta: null }} />);
     expect(screen.queryByText(/vs prior/)).toBeNull();
   });
 
   it('renders the trusted sparkline markup via the sink, unmodified', () => {
-    const { container } = render(<KpiTileWithSparkline tile={tile} />);
+    const { container } = render(<KpiTileWithSparkline scale="R" tile={tile} />);
     expect(container.querySelector('.pack-kpi-sparkline svg')).not.toBeNull();
   });
 
   it('renders no sparkline element when there is no series', () => {
-    const { container } = render(<KpiTileWithSparkline tile={{ ...tile, sparklineSvg: null }} />);
+    const { container } = render(<KpiTileWithSparkline scale="R" tile={{ ...tile, sparklineSvg: null }} />);
     expect(container.querySelector('.pack-kpi-sparkline')).toBeNull();
   });
 });
@@ -88,12 +89,12 @@ describe('ComparativeTable', () => {
   };
 
   it('states the scale once, in the header', () => {
-    render(<ComparativeTable table={table} />);
+    render(<ComparativeTable scale="R" table={table} />);
     expect(within(screen.getByRole('table')).getByText(/R'000/)).toBeInTheDocument();
   });
 
   it('prints a negative in parentheses and a zero as an en dash', () => {
-    render(<ComparativeTable table={{ ...table, rows: [
+    render(<ComparativeTable scale="R" table={{ ...table, rows: [
       { label: 'Loss', level: 0, role: 'line',
         figures: {
           actual: { value: -1_000, format: 'money', source: 's.x' },
@@ -106,24 +107,24 @@ describe('ComparativeTable', () => {
 
   it('drops the prior and change columns when no row has a prior', () => {
     // Not a column of dashes: an absent comparative is an absent column.
-    const { container } = render(<ComparativeTable table={{ ...table, rows: table.rows.map(
+    const { container } = render(<ComparativeTable scale="R" table={{ ...table, rows: table.rows.map(
       (r) => ({ ...r, figures: { actual: r.figures.actual } }),
     ) }} />);
     expect(container.querySelectorAll('thead th')).toHaveLength(2);
   });
 
   it('marks subtotal and total rows for the rule styling', () => {
-    const { container } = render(<ComparativeTable table={table} />);
+    const { container } = render(<ComparativeTable scale="R" table={table} />);
     expect(container.querySelector('tr.is-subtotal')).not.toBeNull();
   });
 
   it('renders a repeating header group so a long table paginates', () => {
-    const { container } = render(<ComparativeTable table={table} />);
+    const { container } = render(<ComparativeTable scale="R" table={table} />);
     expect(container.querySelector('thead')).not.toBeNull();
   });
 
   it('marks a grand total row for the double-rule styling', () => {
-    const { container } = render(<ComparativeTable table={{ ...table, rows: [
+    const { container } = render(<ComparativeTable scale="R" table={{ ...table, rows: [
       ...table.rows,
       { label: 'Net profit', level: 0, role: 'grandTotal',
         figures: { actual: { value: 500_000, format: 'money', source: 's.np' } } },
@@ -132,7 +133,7 @@ describe('ComparativeTable', () => {
   });
 
   it('indents a level-2 row further than a level-0 row', () => {
-    const { container } = render(<ComparativeTable table={{ ...table, rows: [
+    const { container } = render(<ComparativeTable scale="R" table={{ ...table, rows: [
       { label: 'Section', level: 0, role: 'line', figures: { actual: table.rows[0]!.figures.actual } },
       { label: 'Sub-account', level: 2, role: 'line', figures: { actual: table.rows[0]!.figures.actual } },
     ] }} />);
@@ -143,7 +144,7 @@ describe('ComparativeTable', () => {
   });
 
   it('renders the unavailable reason for a null figure, never a formatted zero', () => {
-    render(<ComparativeTable table={{ ...table, rows: [
+    render(<ComparativeTable scale="R" table={{ ...table, rows: [
       ...table.rows,
       { label: 'Return on equity', level: 0, role: 'line',
         figures: { actual: { value: null, format: 'pct', source: 'r.roe', unavailable: 'Equity is not positive' } } },
@@ -160,12 +161,12 @@ describe('ComparativeTable', () => {
   }));
 
   it('does not band a table at exactly the 12-row threshold', () => {
-    const { container } = render(<ComparativeTable table={{ ...table, rows: rowsOf(12) }} />);
+    const { container } = render(<ComparativeTable scale="R" table={{ ...table, rows: rowsOf(12) }} />);
     expect(container.querySelector('table')?.className).not.toMatch(/is-long/);
   });
 
   it('bands a table of 13 rows, one past the threshold', () => {
-    const { container } = render(<ComparativeTable table={{ ...table, rows: rowsOf(13) }} />);
+    const { container } = render(<ComparativeTable scale="R" table={{ ...table, rows: rowsOf(13) }} />);
     expect(container.querySelector('table')?.className).toMatch(/is-long/);
   });
 });
@@ -192,5 +193,59 @@ describe('FootnoteList', () => {
   it('renders nothing for an empty list', () => {
     const { container } = render(<FootnoteList footnotes={[]} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+
+/**
+ * The scale, THROUGH THE RENDERER.
+ *
+ * The service-side assertion for this hands `formatFigureText` the scale
+ * itself, so it proves the formatter works and nothing about whether the
+ * component passes one. Every primitive called `formatFigureText(figure)`
+ * with no scale while `ComparativeTable` printed "R'000" as its caption
+ * directly above — the header and the cells disagreed by a factor of a
+ * thousand, and no assertion read one against the other in the DOM.
+ */
+describe('a rendered cell agrees with the header above it', () => {
+  const thousands: PackTable = {
+    scale: "R'000",
+    columns: ['actual'],
+    rows: [{
+      label: 'Revenue',
+      level: 0,
+      role: 'line',
+      figures: { actual: { value: 4_200_000, format: 'money', source: 'test.revenue' } },
+    }],
+  };
+
+  it('prints a thousands figure under a thousands caption', () => {
+    const { container } = render(<ComparativeTable table={thousands} scale="R'000" />);
+    expect(container.querySelector('caption')?.textContent).toBe("R'000");
+    expect(container.querySelector('tbody td:nth-child(2)')?.textContent).toBe('4 200');
+  });
+
+  it('scales the scorecard target with the actual it is a goal for', () => {
+    // The target column is what a reader uses to judge whether the actual
+    // passed; an unscaled target beside a scaled actual is the comparison
+    // itself being wrong, not just a cell.
+    const groups = [{
+      letter: 'A',
+      name: 'Profitability',
+      rows: [{
+        metric: 'Operating profit',
+        actual: { value: 4_200_000, format: 'money' as const, source: 'test.op' },
+        target: 3_000_000,
+        prior: null,
+        status: 'met' as const,
+        trend: null,
+        trendSvg: null,
+        bulletSvg: null,
+      }],
+    }];
+    const { container } = render(<ScorecardTable groups={groups} scale="R'000" />);
+    const cells = [...container.querySelectorAll('tbody td')].map((td) => td.textContent);
+    expect(cells).toContain('4 200');
+    expect(cells).toContain('3 000');
   });
 });

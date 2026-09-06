@@ -134,6 +134,36 @@ describe('buildHighlightTiles', () => {
     expect(debtorDays?.figure.unavailable).toMatch(/revenue is not positive/i);
   });
 
+  // The percentage-change convention. `pctChange` used to divide by
+  // `Math.abs(prior)`, which reports a movement off a NEGATIVE base while the
+  // statement tables and every caption go through `marginPct`, which refuses
+  // it — so a tile and the table under it could describe one movement in
+  // opposite directions. No fixture had a negative prior base, so reverting
+  // the fix left 210 tests green. This is that fixture.
+  it('refuses a percentage change measured off a negative prior base', () => {
+    const priorLoss = withPrior({ netProfit: -40_000 });
+    const tiles = buildHighlightTiles(priorLoss, trend, new PackFigureProvenance());
+    expect(tiles.find((t) => t.label === 'Net profit')?.delta).toBeNull();
+    // The control: a POSITIVE prior base on the same fixture still yields one,
+    // so this is a refusal of the negative base and not of deltas generally.
+    expect(tiles.find((t) => t.label === 'Revenue')?.delta).not.toBeNull();
+  });
+
+  // `readDebtorDays` guards `revenue <= 0`. Loosening it to `< 0` survives a
+  // negative-days sweep, because at revenue EXACTLY zero `safeDiv` returns 0
+  // and "0 days" is not negative — it is a debtor book that collects the same
+  // day, asserted about a company with no turnover at all.
+  it('marks debtor days notMeaningful at revenue of exactly zero, not "0 days"', () => {
+    const noTurnover: PackFigureSet = {
+      ...setWithoutPrior,
+      current: figures({ revenue: 0, costOfSales: 0, accountsReceivable: 90_000 }),
+    };
+    const debtorDays = buildHighlightTiles(noTurnover, [], new PackFigureProvenance())
+      .find((t) => t.label === 'Debtor days');
+    expect(debtorDays?.figure.value).toBeNull();
+    expect(debtorDays?.figure.unavailable).toMatch(/revenue is not positive/i);
+  });
+
   it('states a delta against the prior period when one exists', () => {
     const tiles = buildHighlightTiles(setWithPrior, trend, new PackFigureProvenance());
     const revenue = tiles.find((t) => t.label === 'Revenue');
