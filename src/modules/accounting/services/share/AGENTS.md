@@ -14,20 +14,22 @@ Read-only share links for a report pack: mint, list, revoke (authenticated) and 
 ## Main signatures
 - `createShareLink({ companyId, userId, params, label?, ttlDays? })` → `{ link, token }`. The raw token is returned ONCE and never again. Throws `ShareLinkLimitError` at `MAX_LIVE_LINKS` (100).
 - `listShareLinks(companyId)` / `revokeShareLink(companyId, id, userId) → boolean`.
-- `resolveShareLink(token, ctx) → { status: 'ok' | 'expired' | 'revoked' | 'not_found' | 'rate_limited' }`; `commitShareView(link, ctx)`; `recordShareView(link, outcome, ctx, exec?)`.
+- `resolveShareLink(token, ctx) → { status: 'ok' | 'expired' | 'revoked' | 'not_found' | 'rate_limited' }`; `commitShareView(link, ctx)`; `recordShareView(link, outcome, ctx, exec?)`; `recordUnmatchedView(ctx, exec?)` for a token that matched no row.
 - `buildSharedPack(link) → SharedPack`; `stripOmittedSections(pack)`; `parseSharePackParams(raw)`, `mintShareToken`/`hashShareToken`/`isShareTokenShape`. `canonicalParamsHash` lives in `reports/packParamsHash.ts`.
 
 ## Business rules
-- **Neutral 404.** Unknown, expired and revoked are ONE outcome to the caller: same page, same status, same props. Distinguishing them makes the route an oracle — a prober could tell "never existed" from "withdrawn", which is a fact about the company. Rate limiting is the only separate answer.
+- **Neutral 404.** Unknown, expired, revoked and *failed* are ONE outcome to the caller: same page, same status, same props. Distinguishing them makes the route an oracle — a prober could tell "never existed" from "withdrawn", which is a fact about the company. Rate limiting is the only separate answer. The whole of `getServerSideProps` runs inside one `try`, so a throw from the resolver, the limiter or the audit write degrades to that page rather than to Next's 500.
+- **Equal work, not just equal answers.** All three dead outcomes write one `share_link_views` row, so they cannot be told apart by timing. An unmatched token writes a row naming NO link and NO company (`outcome = 'not_found'`, migration 613); a null `company_id` is in no tenant's RLS set, so the row belongs to the platform. A token of the wrong SHAPE is the one exception: it is rejected before the limiter and audits nothing, because it was never a token and auditing it would be an unbounded unauthenticated INSERT.
 - Expiry and revocation are checked on every view, on the row the lookup found. Withdrawal is immediate; there is no TTL to wait out and no expiry embedded in the token.
 - Only the sha256 of a token is stored. Never log a raw token, a token hash or a URL from this path — put `redactShareToken` (`@/lib/observability/redactShareToken` — there is no `@/lib/observability` barrel) around any URL that is logged.
 - The rate limiter fails CLOSED: an outage answers `rate_limited`, never `ok`.
-- Every hit that matches a row is audited, dead links included. A live view is audited by `commitShareView` AFTER the pack is built, never before.
+- Every hit past the limiter is audited, dead links and unmatched tokens included. A live view is audited by `commitShareView` AFTER the pack is built, never before.
 - Only approved commentary is published (`status = 'approved'`). Annotations are never on this path.
 - `OMITTED_SECTIONS` sections are stripped SERVER-SIDE, so "Not included on shared links." is true of the document, not just of the rendering.
 - Creation is serialised by a per-company `pg_advisory_xact_lock`; the count guard alone lets two concurrent creates pass at 99.
 
 ## Recent changes
+- 2026-09-06: migration 613. An unmatched token is audited too, with a null link and company, so the three dead outcomes cost the same; and the resolve moved inside the page's `try` so a throw is the neutral 404 rather than a 500.
 - 2026-09-06: `cash_flow` joined `OMITTED_SECTIONS`. `buildSectionData` synthesizes it (operating cash flow = net profit, investing and financing = 0), which is a placeholder on the owner's screen and a false statement of cash movement on a document sent to a bank. It returns when the section is built from the ledger.
 - 2026-09-06: the public page reads the client IP through `getClientIp` (`@/lib/rateLimit`) — LAST forwarded hop, pentest H8 — instead of its own first-hop parser. `user_agent` is bounded once, in `recordShareView`.
 - 2026-09-06: `/share/` is excluded from the service worker in both `public/sw.js` and `_app.tsx`; a cached pack served offline after revocation defeats the only control the sender has.

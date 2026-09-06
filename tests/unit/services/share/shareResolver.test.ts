@@ -6,9 +6,11 @@
  * the shape but no row, a token whose row is expired or revoked, a token
  * presented faster than the limits allow, and a rate limiter that is itself
  * down. The company must come from the ROW in every one of those cases, and
- * every hit that matched a row must leave a share_link_views record — the
- * audit row is the only way a withdrawn link still in circulation becomes
- * visible, so the tests assert the insert, not just the returned status.
+ * EVERY hit past the limiter must leave a share_link_views record — a matched
+ * dead link and an unmatched token alike. The audit row is how a withdrawn
+ * link still in circulation becomes visible, and writing one on every dead
+ * outcome is what stops the three being told apart by how much work they cost.
+ * So the tests assert the insert, not just the returned status.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -207,16 +209,51 @@ describe('resolveShareLink — outcomes', () => {
     vi.useRealTimers();
   });
 
-  it('returns not_found for a well-shaped token with no row, and writes no audit row', async () => {
+  it('audits a well-shaped token that matches NO row, naming no link and no company', async () => {
+    // While only a matched token wrote a row, a caller walking tokens could
+    // tell "withdrawn" from "never existed" by timing the response — the fact
+    // the neutral 404 exists to refuse. There is no link and therefore no
+    // company to name, and inventing one would file a stranger's probe under a
+    // tenant that had nothing to do with it.
     sqlMock.mockResolvedValue([]);
     await expect(resolveShareLink(TOKEN, CTX)).resolves.toEqual({ status: 'not_found' });
-    expect(callWith('INSERT INTO share_link_views')).toBe(-1);
+
+    const i = callWith('INSERT INTO share_link_views');
+    expect(i).toBeGreaterThan(-1);
+    expect(text(i)).toContain('not_found');
+    expect(text(i)).toContain('NULL, NULL');
+    expect(values(i)).toEqual(['203.0.113.9', 'curl/8']);
+    expect(JSON.stringify(sqlMock.mock.calls[i])).not.toContain(COMPANY);
   });
 
-  it('refuses a row whose params are not a valid pack rather than handing them on', async () => {
+  it('does one audit insert for an unmatched token, the same as for a dead link', async () => {
+    // The equalisation is the point: same number of writes, same table.
+    sqlMock.mockResolvedValue([]);
+    await resolveShareLink(TOKEN, CTX);
+    const unmatched = sqlMock.mock.calls.filter(c => (c[0] as string[]).join(' ').includes('INSERT INTO share_link_views')).length;
+
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValueOnce([linkRow({ revoked_at: new Date() })]).mockResolvedValue([]);
+    await resolveShareLink(TOKEN, CTX);
+    const revoked = sqlMock.mock.calls.filter(c => (c[0] as string[]).join(' ').includes('INSERT INTO share_link_views')).length;
+
+    expect(unmatched).toBe(revoked);
+  });
+
+  it('propagates a failed audit write for an unmatched token rather than answering quietly', async () => {
+    sqlMock.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('share_link_views insert failed'));
+    await expect(resolveShareLink(TOKEN, CTX)).rejects.toThrow('share_link_views insert failed');
+  });
+
+  it('refuses a row whose params are not a valid pack, and audits that hit against the link', async () => {
     sqlMock.mockResolvedValueOnce([linkRow({ params: { type: 'payroll', from: 'x', to: 'y' } })]).mockResolvedValue([]);
     await expect(resolveShareLink(TOKEN, CTX)).resolves.toEqual({ status: 'not_found' });
     expect(callWith('UPDATE share_links')).toBe(-1);
+
+    // The link exists here, so the row names it — unlike the unmatched case.
+    const i = callWith('INSERT INTO share_link_views');
+    expect(i).toBeGreaterThan(-1);
+    expect(values(i)).toEqual([COMPANY, LINK_ID, 'not_found', '203.0.113.9', 'curl/8']);
   });
 
   it('propagates an audit-write failure on a DEAD link rather than serving it unaudited', async () => {

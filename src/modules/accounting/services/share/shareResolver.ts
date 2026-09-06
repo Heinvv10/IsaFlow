@@ -6,14 +6,22 @@
  *     derived from the request, so a caller cannot steer it at another tenant.
  *  2. Expiry and revocation are checked here, on every view, on the row found
  *     by the same lookup. Withdrawal is immediate.
- *  3. Every hit that matches a row is written to share_link_views, including a
- *     hit on a dead link — that record is how a withdrawn link being circulated
- *     becomes visible. The write is NOT swallowed: if the audit row cannot be
- *     written the view does not happen. A dead link is audited here, since there
- *     is nothing left to build; a live one is audited by `commitShareView`,
- *     which the caller runs only once the pack it is about to serve exists.
- *     Auditing an `ok` view before the build would leave share_link_views
- *     claiming a successful view the recipient never saw.
+ *  3. EVERY hit past the rate limiter is written to share_link_views —
+ *     expired, revoked, and a token that matched no row at all. The record of a
+ *     dead link is how a withdrawn link being circulated becomes visible; the
+ *     record of an unmatched token is what makes the three dead outcomes cost
+ *     the same, which is the other half of the neutral 404. While only a
+ *     matched token wrote a row, a caller walking tokens could tell "this link
+ *     was withdrawn" from "this link never existed" by timing the response,
+ *     which is exactly the fact the neutral page refuses to state.
+ *     An unmatched hit names no link and no company because there is none
+ *     (migration 613 makes both nullable for `not_found` only).
+ *     The write is NOT swallowed: if the audit row cannot be written the view
+ *     does not happen. A dead link is audited here, since there is nothing left
+ *     to build; a live one is audited by `commitShareView`, which the caller
+ *     runs only once the pack it is about to serve exists. Auditing an `ok`
+ *     view before the build would leave share_link_views claiming a successful
+ *     view the recipient never saw.
  *  4. The rate limiter fails CLOSED. A limiter outage answers `rate_limited`,
  *     never `ok`, because the limiter is the only thing bounding an
  *     unauthenticated caller here.
@@ -41,6 +49,10 @@ export interface ResolvedShareLink {
   companyId: string;
   params: SharePackParams;
 }
+
+/** What `share_link_views.outcome` may hold — `share_link_views_outcome_chk`
+ *  in migrations 610 and 613 is the same list. */
+export type ShareViewOutcome = 'ok' | 'expired' | 'revoked' | 'not_found';
 
 export type ShareResolution =
   | { status: 'ok'; link: ResolvedShareLink }
@@ -88,6 +100,11 @@ async function withinRateLimits(tokenHash: string, ctx: ShareViewContext): Promi
 }
 
 export async function resolveShareLink(token: unknown, ctx: ShareViewContext): Promise<ShareResolution> {
+  // Before the rate limiter, and deliberately NOT audited. A string that is not
+  // 43 base64url characters was never a token, so there is nothing to walk and
+  // nothing to learn; auditing it would hand an unauthenticated caller an
+  // unbounded INSERT with no bucket charged yet. Everything past this point is
+  // rate limited and audited alike.
   if (!isShareTokenShape(token)) return { status: 'not_found' };
 
   const tokenHash = hashShareToken(token);
@@ -103,10 +120,13 @@ export async function resolveShareLink(token: unknown, ctx: ShareViewContext): P
 
   const row = rows[0];
   if (!row) {
+    // Audited like every other dead outcome, so a probe of an unknown token
+    // does the same database work as a probe of a withdrawn one and the two
+    // cannot be told apart by timing.
+    await recordUnmatchedView(ctx);
     // A prefix of the HASH, never the token: enough to tell one probed token
     // from another across log lines, useless to anyone reading the logs, and
-    // the only signal that someone is walking tokens (an unknown token matches
-    // no row, so it can write nothing to share_link_views).
+    // the signal that someone is walking tokens.
     log.warn('Share link not found', { ip: ctx.ip, tokenHashPrefix: tokenHash.slice(0, 6) }, 'share');
     return { status: 'not_found' };
   }
@@ -129,6 +149,10 @@ export async function resolveShareLink(token: unknown, ctx: ShareViewContext): P
   // a hand-edited `params` cannot reach a report builder as a trusted object.
   const params = parseSharePackParams(row.params);
   if (!params) {
+    // A live row the application cannot serve. It answers `not_found` like any
+    // other dead outcome, so it is audited like one — against the link, which
+    // here exists.
+    await recordShareView(identity, 'not_found', ctx);
     log.error('Share link has unusable params', { companyId, shareLinkId: linkId }, 'share');
     return { status: 'not_found' };
   }
@@ -175,12 +199,31 @@ function clip(v: string | null, max: number): string | null {
  *  cannot pair one tenant's id with another tenant's link. */
 export async function recordShareView(
   link: ShareLinkIdentity,
-  outcome: 'ok' | 'expired' | 'revoked',
+  outcome: ShareViewOutcome,
   ctx: ShareViewContext,
   exec: TaggedSql = sql,
 ): Promise<void> {
   await exec`
     INSERT INTO share_link_views (company_id, share_link_id, outcome, ip_address, user_agent)
     VALUES (${link.companyId}::uuid, ${link.id}::uuid, ${outcome}, ${clip(ctx.ip, IP_MAX_CHARS)}, ${clip(ctx.userAgent, UA_MAX_CHARS)})
+  `;
+}
+
+/** The audit row for a token that matched NOTHING: no link id, no company id,
+ *  because there is no link and therefore no company, and inventing one would
+ *  file a stranger's probe under a tenant that had nothing to do with it.
+ *
+ *  Its purpose is to make the unmatched outcome cost what the matched-but-dead
+ *  outcomes cost. `share_link_views_identity_chk` (migration 613) allows a
+ *  null pair for `not_found` and for nothing else, and the tenant RLS policy
+ *  reads `company_id IN (...)`, so a null-company row is invisible to every
+ *  company — it belongs to the platform.
+ *
+ *  Not swallowed, for the same reason `recordShareView` is not: a view that
+ *  cannot be audited does not happen. */
+export async function recordUnmatchedView(ctx: ShareViewContext, exec: TaggedSql = sql): Promise<void> {
+  await exec`
+    INSERT INTO share_link_views (company_id, share_link_id, outcome, ip_address, user_agent)
+    VALUES (NULL, NULL, 'not_found', ${clip(ctx.ip, IP_MAX_CHARS)}, ${clip(ctx.userAgent, UA_MAX_CHARS)})
   `;
 }

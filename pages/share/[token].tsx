@@ -10,13 +10,19 @@
  * the token in their address bar, the page is no-store and noindex, and no
  * cookie is issued. Do not "fix" this by editing middleware.ts.
  *
- * Unknown, expired and revoked are ONE outcome here: the same neutral page,
- * the same 404, the same props. Distinguishing them would make this route an
- * oracle — a caller walking tokens could tell "this link never existed" from
- * "this link was withdrawn", which is a fact about the company that an
- * unauthenticated caller has no business learning. Rate limiting is the one
- * separate answer, because it says nothing about any link and a recipient who
- * refreshed too fast has to be told to wait rather than to give up.
+ * Unknown, expired, revoked and FAILED are ONE outcome here: the same neutral
+ * page, the same 404, the same props. Distinguishing them would make this
+ * route an oracle — a caller walking tokens could tell "this link never
+ * existed" from "this link was withdrawn", which is a fact about the company
+ * that an unauthenticated caller has no business learning. Rate limiting is
+ * the one separate answer, because it says nothing about any link and a
+ * recipient who refreshed too fast has to be told to wait rather than to give
+ * up.
+ *
+ * Sameness is not only about the response. All three dead outcomes do the same
+ * database work — `resolveShareLink` audits an unmatched token as well as a
+ * matched dead one (migration 613) — because a difference in cost is a
+ * difference a caller can time.
  */
 import type { GetServerSideProps, NextApiRequest } from 'next';
 import Head from 'next/head';
@@ -89,19 +95,30 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
     // call site a reader happened to look at.
     userAgent: typeof ua === 'string' ? ua : null,
   };
-  const resolution = await resolveShareLink(ctx.params?.token, viewCtx);
-
-  if (resolution.status === 'rate_limited') {
-    ctx.res.statusCode = 429;
-    return { props: { state: 'rate_limited' } };
-  }
-  if (resolution.status !== 'ok') {
-    ctx.res.statusCode = 404;
-    return { props: { state: 'unavailable' } };
-  }
-
-  const { id, companyId } = resolution.link;
+  // Everything from here down is inside ONE try. `resolveShareLink` used to sit
+  // outside it, so a throw from the lookup, the rate limiter or the audit write
+  // produced Next's 500 page — which told a caller walking tokens that this one
+  // had reached the database, exactly the distinction the neutral 404 exists to
+  // refuse. A failure is now the same unavailable page as a dead link.
+  //
+  // `audited` carries the link identity out of the resolve for the log line
+  // below; there is nothing to name if the throw happened before it was known.
+  let audited: { id: string; companyId: string } | null = null;
   try {
+    const resolution = await resolveShareLink(ctx.params?.token, viewCtx);
+
+    if (resolution.status === 'rate_limited') {
+      ctx.res.statusCode = 429;
+      return { props: { state: 'rate_limited' } };
+    }
+    if (resolution.status !== 'ok') {
+      ctx.res.statusCode = 404;
+      return { props: { state: 'unavailable' } };
+    }
+
+    const { id, companyId } = resolution.link;
+    audited = { id, companyId };
+
     // Only what the view draws crosses into the props. The builder also returns
     // `unclassifiedAccounts` — how many of the company's accounts have no
     // recognised subtype and the rand value sitting in them — which is an
@@ -127,7 +144,7 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
     // Degrade to the SAME neutral page a dead link gets. Anything else — Next's
     // 500 page — would tell a caller walking tokens that this one is live.
     log.error('Share link view failed', {
-      companyId, shareLinkId: id,
+      companyId: audited?.companyId ?? null, shareLinkId: audited?.id ?? null,
       err: err instanceof Error ? err.message : String(err),
     }, 'share');
     ctx.res.statusCode = 404;

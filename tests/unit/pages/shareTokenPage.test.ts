@@ -130,6 +130,34 @@ describe('/share/[token] getServerSideProps', () => {
     expect(results[0]).toEqual({ props: { state: 'unavailable' } });
   });
 
+  it('degrades to the SAME neutral 404 when the resolver itself throws', async () => {
+    // The resolve used to sit outside the try. A throw from the lookup, the
+    // rate limiter or the audit write therefore produced Next's 500 page,
+    // which told a caller walking tokens that this one had reached the
+    // database — the exact distinction the neutral 404 refuses to state.
+    resolveShareLink.mockRejectedValue(new Error('connection terminated unexpectedly'));
+    const { ctx, res, headers } = makeCtx();
+
+    const out = await getServerSideProps(ctx);
+
+    expect(out).toEqual({ props: { state: 'unavailable' } });
+    expect(res.statusCode).toBe(404);
+    expect(headers['Cache-Control']).toBe('no-store, private');
+    expect(buildSharedPack).not.toHaveBeenCalled();
+  });
+
+  it('logs a resolver failure without a link identity it never learned, and without the token', async () => {
+    resolveShareLink.mockRejectedValue(new Error('connection terminated unexpectedly'));
+    const { ctx } = makeCtx({ token: 'z'.repeat(43) });
+
+    await getServerSideProps(ctx);
+
+    expect(logError).toHaveBeenCalledTimes(1);
+    const [, meta] = logError.mock.calls[0]!;
+    expect(meta).toMatchObject({ companyId: null, shareLinkId: null });
+    expect(JSON.stringify(logError.mock.calls[0])).not.toContain('z'.repeat(43));
+  });
+
   it('answers a rate-limited caller with 429 and its own state', async () => {
     resolveShareLink.mockResolvedValue({ status: 'rate_limited' });
     const { ctx, res } = makeCtx();
