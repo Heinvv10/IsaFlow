@@ -6,6 +6,6 @@
  * another's capacity, and per user so one colleague cannot spend a teammate's.
  * A company-only key made the second failure possible and is what this closes.
  */
-export function annotationRateLimitKey(action: 'create' | 'resolve', userId: string): string {
+export function annotationRateLimitKey(action: 'list' | 'create' | 'resolve', userId: string): string {
   return `annotation-${action}:u:${userId}`;
 }

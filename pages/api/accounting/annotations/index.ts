@@ -50,6 +50,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const { from, to } = req.query;
     if (rowIds === null) return apiResponse.badRequest(res, 'rowIds is required');
     if (!isIsoDate(from) || !isIsoDate(to)) return apiResponse.badRequest(res, 'from and to must be YYYY-MM-DD dates');
+
+    // Read is bounded too, and for a different reason than write. One GET may
+    // name up to MAX_ROW_IDS rows, so this verb — not POST — is the cheap way
+    // to make the database do a lot of work per request. An authenticated
+    // caller is not an unbounded one. Same per-company AND per-user bucket as
+    // create, so one colleague reloading a statement cannot lock a teammate
+    // out of reading their own notes.
+    if (!(await checkReportRateLimit(companyId, annotationRateLimitKey('list', user.id)))) {
+      log.warn('Annotation list rate limit exceeded', { companyId, userId: user.id }, 'rateLimit');
+      return apiResponse.tooManyRequests(res, 'Too many requests. Please try again shortly.');
+    }
+
     return apiResponse.success(res, { annotations: await listAnnotations(companyId, rowIds, from, to) });
   }
 

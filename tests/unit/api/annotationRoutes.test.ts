@@ -109,6 +109,41 @@ describe('GET /api/accounting/annotations', () => {
     expect(listMock).not.toHaveBeenCalled();
   });
 
+  it('is rate limited, per company AND per user, and does not query when refused', async () => {
+    // A single GET may name up to MAX_ROW_IDS rows, so read is the cheap verb
+    // for making the database work — an authenticated caller is not an
+    // unbounded one. Per user as well as per company, so one colleague
+    // reloading a statement cannot lock a teammate out of their own notes.
+    const { req, res } = mockReqRes({
+      method: 'GET', query: { rowIds: 'acc:4000', from: '2026-03-01', to: '2026-08-31' },
+    });
+    await indexHandler(req, res);
+
+    const [company, bucket] = rateLimitMock.mock.calls[0]!;
+    expect(company).toBe(COMPANY);
+    expect(bucket).toContain('user-1');
+
+    rateLimitMock.mockReset().mockResolvedValue(false);
+    listMock.mockClear();
+    const over = mockReqRes({
+      method: 'GET', query: { rowIds: 'acc:4000', from: '2026-03-01', to: '2026-08-31' },
+    });
+    await indexHandler(over.req, over.res);
+
+    expect(over.res.statusCode).toBe(429);
+    expect(listMock).not.toHaveBeenCalled();
+    expect(warnMock).toHaveBeenCalled();
+  });
+
+  it('gives the list and the create separate buckets', async () => {
+    const g = mockReqRes({ method: 'GET', query: { rowIds: 'acc:4000', from: '2026-03-01', to: '2026-08-31' } });
+    await indexHandler(g.req, g.res);
+    const p = mockReqRes({ method: 'POST', body: POST_BODY });
+    await indexHandler(p.req, p.res);
+
+    expect(rateLimitMock.mock.calls[0]![1]).not.toBe(rateLimitMock.mock.calls[1]![1]);
+  });
+
   it('lets a viewer read', async () => {
     const { req, res } = mockReqRes({
       method: 'GET', companyRole: 'viewer',
