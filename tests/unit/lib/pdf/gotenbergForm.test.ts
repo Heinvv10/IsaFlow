@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildGotenbergFields } from '@/lib/pdf/transports/gotenbergForm';
-import { PRINT_READY_SELECTOR } from '@/lib/pdf/pdfTransport';
+import {
+  buildGotenbergFields, GOTENBERG_TIMEOUT_MS, GOTENBERG_API_TIMEOUT_MS, GOTENBERG_CLIENT_MARGIN_MS,
+} from '@/lib/pdf/transports/gotenbergForm';
+import { PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS } from '@/lib/pdf/pdfTransport';
 
 const env = { APP_URL: 'https://app.isaflow.co.za' };
 const httpEnv = { APP_URL: 'http://host.docker.internal:3200' };
@@ -98,5 +100,22 @@ describe('buildGotenbergFields', () => {
   it('sets landscape only when asked', () => {
     expect(buildGotenbergFields(request, env).landscape).toBe('false');
     expect(buildGotenbergFields({ ...request, landscape: true }, env).landscape).toBe('true');
+  });
+});
+
+/**
+ * ADVERSARIAL LOW-4: the client timeout was exactly Gotenberg's own
+ * --api-timeout. Equal is a race — whichever clock reaches 60s first wins — so
+ * the same slow render surfaced as a Gotenberg 5xx or as a client AbortError
+ * depending on scheduling, and only the server's answer says what went wrong.
+ */
+describe('GOTENBERG_TIMEOUT_MS', () => {
+  it('expires strictly before the container aborts, with a real margin', () => {
+    expect(GOTENBERG_TIMEOUT_MS).toBeLessThan(GOTENBERG_API_TIMEOUT_MS);
+    expect(GOTENBERG_API_TIMEOUT_MS - GOTENBERG_TIMEOUT_MS).toBeGreaterThanOrEqual(GOTENBERG_CLIENT_MARGIN_MS);
+  });
+
+  it('still leaves room for the whole print-ready gate plus transport overhead', () => {
+    expect(GOTENBERG_TIMEOUT_MS).toBeGreaterThan(PRINT_READY_TIMEOUT_MS);
   });
 });

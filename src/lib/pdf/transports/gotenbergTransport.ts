@@ -13,10 +13,19 @@
 //       --api-timeout=60s \
 //       --chromium-allow-list='^https?://(app\.isaflow\.co\.za|host\.docker\.internal:3200)/'
 //
-// --api-timeout must stay >= GOTENBERG_TIMEOUT_MS (gotenbergForm.ts, currently
-// 60s) — Gotenberg's own default (30s) is shorter than the client's wait, so
-// a slow pack would hit the server-side abort before the client's and 503 in
-// a way that looks like a client timeout.
+// --api-timeout must stay STRICTLY ABOVE GOTENBERG_TIMEOUT_MS (gotenbergForm.ts,
+// currently 55s) — Gotenberg's own default is 30s, shorter than the client's
+// wait, so a slow pack would hit the server-side abort while the client was
+// still waiting and the failure would read as a client timeout. Equal is not
+// good enough either: two clocks reaching the same number is a race, and only
+// the server's answer says what actually went wrong.
+//
+// --chromium-allow-list is what contains the print-token cookie's bare `domain`
+// scope (gotenbergForm.ts). It cannot be asserted from this repo — the flag is
+// on the docker run line, and Gotenberg's /health and /version report neither
+// flags nor configuration — so selectTransport.ts logs a warning on every boot
+// that selects this transport until GOTENBERG_ALLOW_LIST_VERIFIED=true says an
+// operator has checked the running container.
 //
 // Set GOTENBERG_URL=http://localhost:5002 in the systemd service environment
 // (production) and in .env.local for a local container. Unset, renderPagePdf

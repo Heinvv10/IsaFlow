@@ -89,7 +89,16 @@ export function buildGotenbergFields(
   };
 }
 
-// Must stay under Gotenberg's own --api-timeout (documented as 60s in
-// gotenbergTransport.ts) so the client never times out first and masks a
-// server-side abort with a misleading client-side one.
-export const GOTENBERG_TIMEOUT_MS = PRINT_READY_TIMEOUT_MS + 30_000;
+// STRICTLY under Gotenberg's own --api-timeout (60s, see gotenbergTransport.ts)
+// so the SERVER's abort always lands first and the client reports what actually
+// happened. It used to be exactly 60s — equal, not under — which is a race:
+// whichever side's clock reached 60 first won, so the same slow render could
+// surface as a Gotenberg 5xx or as a client-side AbortError depending on
+// scheduling, and only one of those is diagnosable.
+//
+// 55s = the 30s print-ready gate plus 25s of transport and PDF-assembly
+// overhead, leaving a 5s margin. Raising --api-timeout means raising this to
+// match, in that order.
+export const GOTENBERG_API_TIMEOUT_MS = 60_000;
+export const GOTENBERG_CLIENT_MARGIN_MS = 5_000;
+export const GOTENBERG_TIMEOUT_MS = PRINT_READY_TIMEOUT_MS + 25_000;
