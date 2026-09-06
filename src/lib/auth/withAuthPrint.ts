@@ -16,6 +16,16 @@
 // print-token cookie, and clearing cookies for those was wiping the render's
 // credentials mid-render. Those 401 WITHOUT clearing.
 
+// RESIDUAL, accepted (PR review M5): a request accepted on a print token runs
+// inside withAuth's transaction like any other — BEGIN before the handler,
+// COMMIT after it. For the pack PDF route the handler is a page render, so
+// that transaction stays open for up to the 30s print-ready gate plus
+// transport overhead. It is bounded at three concurrent renders by
+// src/lib/pdf/withRenderSlot.ts, which takes its slot OUTSIDE withAuth so
+// only ADMITTED renders hold a connection; at three, the pool (AUTH_POOL_MAX,
+// default 20) carries it. Committing earlier is not the fix — the render's own
+// inbound fetch for the report reads the GUCs this transaction sets.
+
 import { verifyPrintToken, verifyPrintTokenSignature, type PrintTokenPayload } from '@/lib/pdf/printAuth';
 
 export type PrintTokenOutcome =

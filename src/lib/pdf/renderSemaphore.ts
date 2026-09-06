@@ -1,6 +1,7 @@
 // src/lib/pdf/renderSemaphore.ts
 //
-// Bounds how many page-to-PDF renders run at once in this process.
+// Bounds how many page-to-PDF renders run at once in this process, and how
+// many may be waiting for a turn.
 //
 // Why it exists: a pack render holds a withAuth pool connection for its whole
 // duration (up to the 30s print-ready gate plus transport overhead) AND the
@@ -14,10 +15,20 @@
 // The bound is per process, not per company: the resource being protected is
 // this process's connection pool, which every tenant shares.
 //
-// Excess requests WAIT rather than fail — a second export queued behind a
-// first is normal and should succeed. Past the wait bound they are refused
-// with a 503 the caller can retry, which is the honest answer: the work was
-// never started, so nothing is half-done.
+// WHERE THE SLOT IS TAKEN. `acquireRenderSlot` is a bare primitive and must be
+// called from OUTSIDE withAuth — see withRenderSlot.ts, the route wrapper that
+// composes as `withRenderSlot(withAuth(...))`. Acquiring it inside the handler
+// was the bug this replaced: a waiter was already holding a pool connection
+// and an open transaction while it waited, so the queue itself consumed the
+// resource the bound exists to protect.
+//
+// TWO BOUNDS, NOT ONE. Excess requests WAIT rather than fail — a second export
+// queued behind a first is normal and should succeed. But the queue itself was
+// unbounded, so an arbitrary number of requests could pile up against three
+// slots; past `QUEUE_BOUND_FACTOR × max` waiters a request is refused
+// IMMEDIATELY, with no wait and nothing started. Both refusals reach the caller
+// as a retryable 503, which is the honest answer: the work never began, so
+// nothing is half-done.
 
 import { log } from '@/lib/logger';
 import { AUTH_POOL_CONNECTION_TIMEOUT_MS, authPoolMax } from '@/lib/limits/poolLimits';
@@ -28,6 +39,16 @@ export class RenderCapacityError extends Error {
   constructor(waitedMs: number) {
     super(`No PDF render slot became available within ${waitedMs}ms`);
     this.name = 'RenderCapacityError';
+  }
+}
+
+/** Thrown when the WAIT QUEUE is already full, so the request is refused
+ *  without waiting at all. Distinct from RenderCapacityError only so the two
+ *  are distinguishable in a log; both are a retryable 503 to the caller. */
+export class RenderQueueFullError extends Error {
+  constructor(queued: number) {
+    super(`PDF render queue is full (${queued} waiting)`);
+    this.name = 'RenderQueueFullError';
   }
 }
 
@@ -54,6 +75,14 @@ const POOL_TIMEOUT_MARGIN_MS = 2_000;
  *  meanwhile. A quarter of the pool leaves three-quarters for ordinary
  *  traffic. */
 const POOL_SHARE_DIVISOR = 4;
+
+/** How many requests may WAIT, as a multiple of the concurrency bound. Two
+ *  deep is a queue that drains: at three slots and a 30s render, the last
+ *  waiter is served inside a minute, which is under the queue's own wait bound
+ *  so it will not be refused after burning the wait. A third layer would be,
+ *  so it is refused up front instead of being told to wait for something that
+ *  cannot arrive in time. */
+const QUEUE_BOUND_FACTOR = 2;
 
 function maxWaitCeilingMs(): number {
   return Math.max(1, AUTH_POOL_CONNECTION_TIMEOUT_MS - POOL_TIMEOUT_MARGIN_MS);
@@ -116,16 +145,23 @@ function release(): void {
 /**
  * Run `fn` holding one render slot.
  *
- * Throws RenderCapacityError — without running `fn` — if no slot frees up
- * within the wait bound.
+ * Throws — without running `fn` — either RenderQueueFullError (the wait queue
+ * is already at its bound, refused immediately) or RenderCapacityError (waited
+ * and no slot freed up in time).
+ *
+ * Call this OUTSIDE withAuth. See this file's header and withRenderSlot.ts.
  */
-export async function withRenderSlot<T>(fn: () => Promise<T>): Promise<T> {
+export async function acquireRenderSlot<T>(fn: () => Promise<T>): Promise<T> {
   const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling());
   const waitMs = boundedInt('PDF_RENDER_QUEUE_TIMEOUT_MS', process.env.PDF_RENDER_QUEUE_TIMEOUT_MS, DEFAULT_WAIT_MS, maxWaitCeilingMs());
 
   if (active < max) {
     active += 1;
   } else {
+    if (queue.length >= max * QUEUE_BOUND_FACTOR) {
+      log.warn('renderSemaphore: refused, wait queue is full', { max, queued: queue.length }, 'pdf');
+      throw new RenderQueueFullError(queue.length);
+    }
     await new Promise<void>((resolve, reject) => {
       const waiter: Waiter = {
         grant: resolve,
@@ -158,4 +194,11 @@ export function renderSlotCeilings(): { maxConcurrent: number; maxWaitMs: number
 /** Live counters — for tests and for a future health endpoint. */
 export function renderSlotStats(): { active: number; queued: number } {
   return { active, queued: queue.length };
+}
+
+/** The most requests that may be WAITING for a slot at the current bound.
+ *  Derived from the concurrency bound, so it moves with it. */
+export function renderQueueBound(): number {
+  const max = boundedInt('PDF_MAX_CONCURRENT_RENDERS', process.env.PDF_MAX_CONCURRENT_RENDERS, DEFAULT_MAX_CONCURRENT, maxConcurrentCeiling());
+  return max * QUEUE_BOUND_FACTOR;
 }

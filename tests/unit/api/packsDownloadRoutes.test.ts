@@ -48,8 +48,15 @@ function mockRes() {
   return res as unknown as NextApiResponse & typeof res;
 }
 
+/** The session cookie is what `withRenderSlot`'s precheck looks for before it
+ *  spends a render slot — see src/lib/pdf/withRenderSlot.ts. Its VALUE is never
+ *  read here; withAuth (mocked out above) is what would verify it. */
 function req(query: Record<string, string>, method = 'GET') {
-  return { method, query, url: '/api/accounting/packs/management/pdf', companyId: COMPANY, user: { id: USER } } as unknown as NextApiRequest;
+  return {
+    method, query, url: '/api/accounting/packs/management/pdf',
+    headers: { cookie: 'sb-access-token=session' },
+    companyId: COMPANY, user: { id: USER },
+  } as unknown as NextApiRequest;
 }
 
 describe('GET /api/accounting/packs/[id]/pdf', () => {
@@ -135,11 +142,16 @@ describe('GET /api/accounting/packs/[id]/pdf', () => {
   });
 
   /**
-   * ADVERSARIAL MEDIUM-1. Each render holds this request's withAuth pool
-   * connection for its whole duration and the headless browser re-enters the
-   * API for the report, so unbounded concurrency exhausts the pool for every
-   * tenant. Over the wait bound the route answers a retryable 503 rather than
-   * queueing indefinitely or 500ing.
+   * ADVERSARIAL MEDIUM-1 / HIGH-1. Each render holds this request's withAuth
+   * pool connection for its whole duration and the headless browser re-enters
+   * the API for the report, so unbounded concurrency exhausts the pool for
+   * every tenant. Over the wait bound the route answers a retryable 503 rather
+   * than queueing indefinitely or 500ing.
+   *
+   * The slot is taken by an OUTER wrapper around withAuth (see the route's
+   * default export and tests/unit/lib/pdf/withRenderSlot.test.ts), so a queued
+   * request holds no connection while it waits. These cases assert what the
+   * route does with the two outcomes; the ordering itself is pinned there.
    */
   describe('concurrent render bound', () => {
     const ORIGINAL = {

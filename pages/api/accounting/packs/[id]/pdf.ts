@@ -14,7 +14,7 @@ import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
-import { withRenderSlot, RenderCapacityError } from '@/lib/pdf/renderSemaphore';
+import { withRenderSlot } from '@/lib/pdf/withRenderSlot';
 import { sql, type DbRow } from '@/lib/neon';
 import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
 import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
@@ -66,36 +66,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.error(res, ErrorCode.SERVICE_UNAVAILABLE, 'PDF export is not available right now.');
   }
 
-  // The render is bounded process-wide (renderSemaphore.ts): it holds this
-  // request's withAuth pool connection for its whole duration AND the headless
-  // browser re-enters the same API for the report, so unbounded concurrency
-  // here exhausts the auth pool for every tenant, not just this one. Over the
-  // wait bound the answer is a retryable 503 — the render never started, so
-  // there is nothing half-done to explain.
-  let pdf: Buffer;
-  let companyName: string;
-  try {
-    [pdf, companyName] = await withRenderSlot(() => Promise.all([
-      renderPagePdf({
-        companyId,
-        userId: user.id,
-        path: PACK_PAGE,
-        query: { pack: id, from, to },
-        apiPaths: packPrintApiPaths(id as PackType),
-      }),
-      getCompanyName(companyId),
-    ]));
-  } catch (err) {
-    if (err instanceof RenderCapacityError) {
-      log.warn('Pack PDF refused: no render slot', { companyId, packType: id }, 'pdf');
-      return apiResponse.error(
-        res,
-        ErrorCode.SERVICE_UNAVAILABLE,
-        'PDF exports are busy right now. Please try again in a moment.',
-      );
-    }
-    throw err;
-  }
+  // The render slot is already held: `withRenderSlot` wraps withAuth from the
+  // OUTSIDE (see the export below), so a request that had to queue for one was
+  // not holding a pool connection or an open transaction while it waited. By
+  // the time this handler runs, the process has decided it has capacity.
+  const [pdf, companyName] = await Promise.all([
+    renderPagePdf({
+      companyId,
+      userId: user.id,
+      path: PACK_PAGE,
+      query: { pack: id, from, to },
+      apiPaths: packPrintApiPaths(id as PackType),
+    }),
+    getCompanyName(companyId),
+  ]);
 
   log.info('Pack PDF downloaded', { companyId, userId: user.id, packType: id, from, to, bytes: pdf.length }, 'packs');
 
@@ -106,4 +90,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   return res.status(200).end(pdf);
 }
 
-export default withAuth(withErrorHandler(handler as never));
+/**
+ * `withRenderSlot` is OUTSIDE `withAuth` on purpose. withAuth takes a pool
+ * connection and opens a transaction before the handler runs, so acquiring the
+ * slot inside meant a queued render waited while holding both — the queue
+ * consumed the pool the bound exists to protect. See src/lib/pdf/withRenderSlot.ts.
+ */
+export default withRenderSlot(withAuth(withErrorHandler(handler as never)));

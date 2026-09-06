@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { withRenderSlot, RenderCapacityError, renderSlotStats, renderSlotCeilings } from '@/lib/pdf/renderSemaphore';
+import { acquireRenderSlot, RenderCapacityError, RenderQueueFullError, renderSlotStats, renderSlotCeilings, renderQueueBound } from '@/lib/pdf/renderSemaphore';
 import { AUTH_POOL_CONNECTION_TIMEOUT_MS, DEFAULT_AUTH_POOL_MAX } from '@/lib/limits/poolLimits';
 import { log } from '@/lib/logger';
 
@@ -48,15 +48,15 @@ afterEach(() => {
   expect(renderSlotStats()).toEqual({ active: 0, queued: 0 });
 });
 
-describe('withRenderSlot', () => {
+describe('acquireRenderSlot', () => {
   it('runs the first three concurrently and makes the fourth wait', async () => {
     const three = [deferred(), deferred(), deferred()];
-    const running = three.map(d => withRenderSlot(d.run));
+    const running = three.map(d => acquireRenderSlot(d.run));
     await settle();
     expect(three.every(d => d.started.value)).toBe(true);
 
     const fourth = deferred();
-    const queued = withRenderSlot(fourth.run);
+    const queued = acquireRenderSlot(fourth.run);
     await settle();
     // The bound is real: the fourth render has not begun any work.
     expect(fourth.started.value).toBe(false);
@@ -76,11 +76,11 @@ describe('withRenderSlot', () => {
     process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '20';
 
     const holder = deferred();
-    const held = withRenderSlot(holder.run);
+    const held = acquireRenderSlot(holder.run);
     await settle();
 
     const refused = deferred();
-    await expect(withRenderSlot(refused.run)).rejects.toBeInstanceOf(RenderCapacityError);
+    await expect(acquireRenderSlot(refused.run)).rejects.toBeInstanceOf(RenderCapacityError);
     // Nothing half-done: the refused render never started.
     expect(refused.started.value).toBe(false);
 
@@ -90,22 +90,55 @@ describe('withRenderSlot', () => {
 
   it('releases the slot when the render throws', async () => {
     process.env.PDF_MAX_CONCURRENT_RENDERS = '1';
-    await expect(withRenderSlot(async () => { throw new Error('render blew up'); })).rejects.toThrow('render blew up');
+    await expect(acquireRenderSlot(async () => { throw new Error('render blew up'); })).rejects.toThrow('render blew up');
     expect(renderSlotStats()).toEqual({ active: 0, queued: 0 });
     // The next render still gets in.
-    await expect(withRenderSlot(async () => 'ok')).resolves.toBe('ok');
+    await expect(acquireRenderSlot(async () => 'ok')).resolves.toBe('ok');
+  });
+
+  /**
+   * ADVERSARIAL HIGH-1: the wait queue itself was unbounded, so an arbitrary
+   * number of requests could pile up against three slots. Past the bound a
+   * request is refused IMMEDIATELY — it never waits, so it cannot be told to
+   * hold on for a slot that will not arrive inside the wait bound anyway.
+   */
+  it('refuses immediately once the wait queue is full, rather than queueing without limit', async () => {
+    process.env.PDF_MAX_CONCURRENT_RENDERS = '2';
+    process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '5000';
+    expect(renderQueueBound()).toBe(4);
+
+    const held = [deferred(), deferred()];
+    const running = held.map(d => acquireRenderSlot(d.run));
+    await settle();
+
+    const waiters = Array.from({ length: 4 }, () => deferred());
+    const queued = waiters.map(w => acquireRenderSlot(w.run));
+    await settle();
+    expect(renderSlotStats()).toEqual({ active: 2, queued: 4 });
+
+    // The fifth waiter is over the bound. It is refused without waiting the
+    // 5s the queue would otherwise have made it sit through.
+    const overflow = deferred();
+    const started = Date.now();
+    await expect(acquireRenderSlot(overflow.run)).rejects.toBeInstanceOf(RenderQueueFullError);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(overflow.started.value).toBe(false);
+
+    held.forEach(d => d.finish());
+    waiters.forEach(w => w.finish());
+    await Promise.all([...running, ...queued]);
   });
 
   it('hands a freed slot to the queue rather than letting a newcomer overtake', async () => {
     process.env.PDF_MAX_CONCURRENT_RENDERS = '1';
     const holder = deferred();
-    const held = withRenderSlot(holder.run);
+    const held = acquireRenderSlot(holder.run);
     await settle();
 
     const order: string[] = [];
-    const first = withRenderSlot(async () => { order.push('queued-first'); });
+    const first = acquireRenderSlot(async () => { order.push('queued-first'); });
     await settle();
-    const second = withRenderSlot(async () => { order.push('queued-second'); });
+    const second = acquireRenderSlot(async () => { order.push('queued-second'); });
     await settle();
 
     holder.finish();
@@ -152,14 +185,14 @@ describe('bounds derived from the auth pool', () => {
     process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = '20';
 
     const held = [deferred(), deferred(), deferred(), deferred(), deferred()];
-    const running = held.map(d => withRenderSlot(d.run));
+    const running = held.map(d => acquireRenderSlot(d.run));
     await settle();
     // Five started, not fifty: the ceiling is in force, not the env value.
     expect(renderSlotStats().active).toBe(5);
     expect(held.every(d => d.started.value)).toBe(true);
 
     const refused = deferred();
-    await expect(withRenderSlot(refused.run)).rejects.toBeInstanceOf(RenderCapacityError);
+    await expect(acquireRenderSlot(refused.run)).rejects.toBeInstanceOf(RenderCapacityError);
     expect(refused.started.value).toBe(false);
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       expect.stringContaining('clamped'),
@@ -177,11 +210,11 @@ describe('bounds derived from the auth pool', () => {
     process.env.PDF_RENDER_QUEUE_TIMEOUT_MS = String(AUTH_POOL_CONNECTION_TIMEOUT_MS * 10);
 
     const holder = deferred();
-    const held = withRenderSlot(holder.run);
+    const held = acquireRenderSlot(holder.run);
     await settle();
 
     const waiter = deferred();
-    const queued = withRenderSlot(waiter.run);
+    const queued = acquireRenderSlot(waiter.run);
     await settle();
     expect(vi.mocked(log.warn)).toHaveBeenCalledWith(
       expect.stringContaining('clamped'),
@@ -206,10 +239,10 @@ describe('bounds derived from the auth pool', () => {
     vi.mocked(log.warn).mockClear();
 
     const two = [deferred(), deferred()];
-    const running = two.map(d => withRenderSlot(d.run));
+    const running = two.map(d => acquireRenderSlot(d.run));
     await settle();
     const third = deferred();
-    const queued = withRenderSlot(third.run);
+    const queued = acquireRenderSlot(third.run);
     await settle();
     expect(third.started.value).toBe(false);
     expect(vi.mocked(log.warn)).not.toHaveBeenCalledWith(
