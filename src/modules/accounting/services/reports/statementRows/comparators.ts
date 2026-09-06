@@ -10,7 +10,15 @@
  *      cannot use the service's own `line.variance` for this field — it is
  *      signed FAVOURABLY (revenue: actual − budget; expense: budget −
  *      actual), so on an expense it has the opposite sign to the movement.
- *      `applyBudgetComparator` computes it itself as `actual − budget`.
+ *      `applyBudgetComparator` computes it itself as `actual − budget`, and
+ *      ROUNDS that subtraction to two decimals. Both operands are rands
+ *      already rounded to the cent, so the only thing the rounding can
+ *      remove is IEEE-754 noise: `130000.10 − 120000.20` evaluates to
+ *      `9999.899999999994` in JavaScript, and a statement that prints
+ *      `9,999.90` beside an unrounded figure the export re-derives is the
+ *      screen and the export disagreeing over a number neither got wrong.
+ *      It can never move a figure by a cent, because no input carries a
+ *      third decimal.
  *   2. `variancePct`, computed HERE from that same `variance` and `value`
  *      (`variance / |value| * 100`) so prior and budget cannot diverge: a
  *      caller-supplied percentage on a different sign convention (as
@@ -96,6 +104,9 @@ export function applyBudgetComparator(
   });
 }
 
+/** Two decimals, because rands are two decimals. See exception 1 in this
+ *  file's header: this removes float noise from a subtraction of two
+ *  already-rounded figures, never a real cent. */
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }

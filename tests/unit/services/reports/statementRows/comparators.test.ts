@@ -54,6 +54,26 @@ describe('applyBudgetComparator', () => {
     expect(result.budget!.favourable).toBe(false);
   });
 
+  it('rounds the actual-less-budget subtraction to the cent, killing float noise', () => {
+    // 130000.10 − 120000.20 evaluates to 9999.899999999994 in IEEE-754. Both
+    // operands are rands to the cent, so the only thing round2 can remove is
+    // that noise — and without it the screen prints a figure the export,
+    // re-deriving the same subtraction, would round differently.
+    expect(130_000.1 - 120_000.2).not.toBe(9999.9);
+
+    const rows = [line({ id: '1', label: 'Salaries', accountCode: '6000', actual: 130_000.1 })];
+    const lines = [
+      budgetLine({
+        account_code: '6000', budget_amount: 120_000.2, actual_amount: 130_000.1,
+        variance: -9999.9, variance_pct: -8.33,
+      }),
+    ];
+
+    const [result] = applyBudgetComparator(rows, lines);
+
+    expect(result.budget!.variance).toBe(9999.9);
+  });
+
   it('leaves band and non-matching rows untouched', () => {
     const rows = [
       line({ id: 's', label: 'Expenses', kind: 'section' as const, actual: 0 }),

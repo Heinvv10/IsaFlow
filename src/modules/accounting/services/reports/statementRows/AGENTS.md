@@ -20,7 +20,10 @@ in a traceable way.
    for it.
 2. `comparators.ts`'s `budget.variance` (`actual − budget`, the movement),
    because the service's own `variance` is signed favourably and cannot be
-   used for that field. Tested in
+   used for that field. The subtraction is rounded to two decimals: both
+   operands are already rands to the cent, so the rounding removes IEEE-754
+   noise (`130000.10 − 120000.20` is `9999.899999999994`) and can never move
+   a real cent. Tested in
    `tests/unit/services/reports/statementRows/comparators.test.ts`.
 3. `comparators.ts`'s `variancePct` (`variance / |value| * 100`), computed
    from that same variance and value rather than passed through from a
