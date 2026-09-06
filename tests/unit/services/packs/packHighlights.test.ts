@@ -64,10 +64,29 @@ const negativeRevenueSet: PackFigureSet = {
 };
 
 describe('buildHighlightTiles', () => {
-  it('emits the curated four tiles, never the forty-ratio grid', () => {
+  // Spec §4.A page 3 names eight tiles, in this order. The original four were
+  // half the page: the model built a highlights strip the composer could not
+  // fill page 3 with. Still curated — eight chosen figures, never the
+  // forty-ratio grid `calculateExtendedRatios` can produce.
+  it('emits the curated eight tiles, never the forty-ratio grid', () => {
     const tiles = buildHighlightTiles(setWithPrior, trend, new PackFigureProvenance());
-    expect(tiles).toHaveLength(4);
-    expect(tiles.map((t) => t.label)).toEqual(['Revenue', 'Net profit', 'Gross margin', 'Cash']);
+    expect(tiles).toHaveLength(8);
+    expect(tiles.map((t) => t.label)).toEqual([
+      'Revenue', 'Gross margin', 'Operating profit', 'Net profit',
+      'Cash', 'Debt-to-equity', 'Debtor days', 'Working capital',
+    ]);
+  });
+
+  // A rising debtor book and rising gearing are WORSE periods. Marking either
+  // favourable because the percentage is positive flatters the reading in the
+  // one direction a board would not question.
+  it('marks a rise in debtor days and gearing unfavourable, not favourable', () => {
+    const tiles = buildHighlightTiles(setWithPrior, trend, new PackFigureProvenance());
+    for (const label of ['Debtor days', 'Debt-to-equity']) {
+      const delta = tiles.find((t) => t.label === label)?.delta;
+      if (delta && delta.value > 0) expect(delta.favourable, label).toBe(false);
+      if (delta && delta.value < 0) expect(delta.favourable, label).toBe(true);
+    }
   });
 
   it('states a delta against the prior period when one exists', () => {

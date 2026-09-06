@@ -44,6 +44,8 @@ import { escapeHtml } from './escapeHtml';
  *  internal `CallbackDataParams` / `TopLevelFormatterParams` types. */
 interface TooltipDataParam {
   dataIndex: number;
+  seriesName?: string;
+  value?: number;
 }
 type TopLevelFormatterParams = TooltipDataParam | TooltipDataParam[];
 
@@ -201,5 +203,71 @@ export function trendOption(points: TrendPoint[], palette: ChartPalette = DEFAUL
         data: points.map((p) => p.value),
       },
     ],
+  };
+}
+
+/**
+ * One stacked band of a composition bar. `stack` is the caller's, not this
+ * module's: a balance-sheet composition draws assets in one stack and the
+ * funding side (liabilities + equity) in another, side by side per period,
+ * and only the caller knows which bands belong together.
+ */
+export interface CompositionSeries {
+  name: string;
+  stack: string;
+  values: number[];
+}
+
+/** Band colours by position, so a caller cannot hand in a colour that
+ *  contradicts the app's chart theme. */
+const COMPOSITION_BANDS = ['ink', 'unfav', 'fav', 'prior'] as const;
+
+function compositionTooltip() {
+  return (params: TopLevelFormatterParams): string => {
+    const list = Array.isArray(params) ? params : [params];
+    return list
+      .map((p) => `${escapeHtml(p.seriesName ?? '')}: ${formatMoney(Number(p.value ?? 0))}`)
+      .join('<br/>');
+  };
+}
+
+/**
+ * Spec §4.A page 7's composition bar — one stacked bar per period.
+ *
+ * Not a waterfall: nothing here bridges between two endpoints, so the
+ * custom-series geometry `waterfallOption` needs (and the reason it exists)
+ * does not apply. A plain stacked bar is correct here because every band is
+ * a positive-or-negative magnitude measured from the same zero, and ECharts'
+ * stacking hazard across zero bites a BRIDGE, not a composition.
+ */
+export function compositionBarOption(
+  categories: string[],
+  series: CompositionSeries[],
+  palette: ChartPalette = DEFAULT_CHART_PALETTE,
+): EChartsCoreOption {
+  return {
+    animation: false,
+    grid: { left: 80, right: 24, top: 32, bottom: 64 },
+    tooltip: { formatter: compositionTooltip() },
+    legend: { bottom: 0, textStyle: { color: palette.axis } },
+    xAxis: {
+      type: 'category',
+      data: categories,
+      axisLabel: { color: palette.axis, interval: 0 },
+      axisLine: { lineStyle: { color: palette.axis } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: palette.axis },
+      axisLine: { lineStyle: { color: palette.axis } },
+      splitLine: { lineStyle: { color: palette.prior } },
+    },
+    series: series.map((band, index) => ({
+      name: band.name,
+      type: 'bar',
+      stack: band.stack,
+      itemStyle: { color: palette[COMPOSITION_BANDS[index % COMPOSITION_BANDS.length]!] },
+      data: band.values,
+    })),
   };
 }

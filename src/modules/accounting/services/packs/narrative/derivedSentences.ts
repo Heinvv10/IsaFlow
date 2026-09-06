@@ -24,6 +24,7 @@
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { formatMoney, formatPctMagnitude } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type {
   PackChartSpec,
   PackScorecardGroup,
@@ -112,15 +113,13 @@ export function scorecardTitle(met: number, total: number): string {
 }
 
 export function scorecardCaption(groups: PackScorecardGroup[]): string {
-  const rows = groups.flatMap((g) => g.rows);
-  const scored = rows.filter((r) => r.status === 'met' || r.status === 'missed');
-  if (scored.length === 0) {
+  const { met, total } = scorecardScore(groups);
+  if (total === 0) {
     return 'No scorecard metric has a target to score against this period.';
   }
-  const met = scored.filter((r) => r.status === 'met').length;
-  const missed = scored.length - met;
+  const missed = total - met;
   const missedClause = missed > 0 ? `, with ${missed} missed` : '';
-  return `${met} of ${scored.length} scored targets were met this period${missedClause}.`;
+  return `${met} of ${total} scored targets were met this period${missedClause}.`;
 }
 
 export function largestMoverCaption(rows: PackTableRow[]): string {
@@ -144,4 +143,75 @@ export function trendsCaption(panels: PackChartSpec[]): string {
   }
   const noun = panels.length === 1 ? 'metric' : 'metrics';
   return `This page tracks ${panels.length} ${noun} over the period: ${panels.map((p) => p.title).join('; ')}.`;
+}
+
+/**
+ * Page 4's title. The page itself carries the approved CEO commentary; this
+ * is the conclusion above it, and it is derived so that a pack whose
+ * commentary is still pending approval still gets a title that says
+ * something about the period rather than the word "Commentary" — the exact
+ * bare label the rejected pack shipped.
+ */
+export function narrativeTitle(set: PackFigureSet): string {
+  const { current, prior } = set;
+  const level = `Net profit of ${formatMoney(current.netProfit)}`;
+  if (prior === null) return `${level} for the period, with no comparative.`;
+  const change = pctChangeClause(current.netProfit, prior.netProfit);
+  return change === null
+    ? `${level}; ${noComparativeBaseSentence('the comparative profit base', prior.netProfit, true)}`
+    : `${level}, ${change} on the prior period.`;
+}
+
+/** Page 5's title. Spec §4.A fixes the "Group results | …" prefix. */
+export function resultsTitle(set: PackFigureSet): string {
+  const { current } = set;
+  const operating = current.operatingProfit ?? current.netProfit;
+  const noun = operating < 0 ? 'operating loss' : 'operating profit';
+  return `Group results | ${noun} of ${formatMoney(operating)} on revenue of ${formatMoney(current.revenue)}.`;
+}
+
+/**
+ * Page 6's title — how the result was EARNED, so it reads the margin and the
+ * cost base rather than restating the profit page 5 already led with.
+ */
+export function incomeStatementTitle(set: PackFigureSet): string {
+  const { current } = set;
+  const margin = marginPct(current.revenue - current.costOfSales, current.revenue);
+  const costs = `operating expenses of ${formatMoney(current.operatingExpenses)}`;
+  return margin === null
+    ? `Revenue of ${formatMoney(current.revenue)} carries no meaningful margin base against ${costs}.`
+    : `Gross margin of ${formatPctMagnitude(margin)} carried ${costs}.`;
+}
+
+/**
+ * Page 10's title. `drawn` and `planned` are stated because spec §4.A asks
+ * for six panels and the pack's trend series supports fewer — a title that
+ * quietly said "trends" while drawing three of six would hide that from a
+ * reader who cannot see what is missing.
+ */
+export function trendsTitle(trend: PackTrendPoint[], drawn: number, planned: number): string {
+  if (trend.length === 0) {
+    return `No trend series covers this period, so 0 of ${planned} panels are drawn.`;
+  }
+  const first = trend[0]!.revenue;
+  const last = trend[trend.length - 1]!.revenue;
+  const change = pctChangeClause(last, first);
+  const lead = change === null
+    ? `Revenue has no usable base at the start of the ${trend.length}-period series`
+    : `Revenue is ${change} across ${trend.length} periods`;
+  return `${lead}; ${drawn} of ${planned} panels are drawn.`;
+}
+
+/**
+ * How many scorecard targets were met, of those that could be scored.
+ *
+ * Lives beside `scorecardCaption`, which does the same counting, so page 9's
+ * title and its caption cannot disagree about the score — two independent
+ * counts of the same rows is exactly how a pack contradicts itself.
+ */
+export function scorecardScore(groups: PackScorecardGroup[]): { met: number; total: number } {
+  const scored = groups
+    .flatMap((g) => g.rows)
+    .filter((r) => r.status === 'met' || r.status === 'missed');
+  return { met: scored.filter((r) => r.status === 'met').length, total: scored.length };
 }

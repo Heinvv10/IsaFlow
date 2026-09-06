@@ -38,7 +38,7 @@ const NO_TURNOVER_MARGIN = 'Revenue is not positive, so there is no turnover to 
 
 /** `FinancialData` off the pack's own figure shape — nothing computed here,
  *  only renamed and carried through. */
-function toFinancialData(f: ReportPackFigures): FinancialData {
+export function toFinancialData(f: ReportPackFigures): FinancialData {
   return {
     revenue: f.revenue,
     costOfSales: f.costOfSales,
