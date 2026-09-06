@@ -23,6 +23,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { als } from '@/lib/als';
+import { log } from '@/lib/logger';
 import { sql, getPoolForTests } from '@/lib/neon';
 import { getFinancialFigures, totalEquity } from '@/modules/accounting/services/gl/financialFiguresService';
 import { getBalanceSheet } from '@/modules/accounting/services/reports/balanceSheetService';
@@ -109,8 +110,7 @@ describe('getFinancialFigures vs getBalanceSheet — Brightsphere agree after sc
     const { pack, balanceSheet } = await imbalances();
     // Diagnostic only — not an assertion. The pinned figure (whatever it
     // currently is) lives in the separately named test below.
-    // eslint-disable-next-line no-console
-    console.log('Brightsphere out-of-balance (pack vs balance sheet):', { pack, balanceSheet });
+    log.info('Brightsphere out-of-balance (pack vs balance sheet)', { pack, balanceSheet }, 'accounting');
 
     // Both paths now exclude the foreign leg for the same reason, so they
     // must agree to the cent — difference 0.00, not "close to R450". Do NOT
