@@ -63,7 +63,10 @@ export default function App({ Component, pageProps }: AppProps) {
         </ErrorBoundary>
         </TableDensityProvider>
         </ThemeModeProvider>
-        <TrackerScript />
+        {/* Not during a print render: the headless browser's navigation is a
+            PDF export, not a person visiting a page, and recording it puts a
+            synthetic pageview in the analytics for every export. */}
+        {!printRender && <TrackerScript />}
         <Toaster
           position="top-right"
           containerStyle={{ top: 16, right: 16 }}

@@ -37,13 +37,16 @@ vi.mock('@/lib/apiFetch', () => ({
 }));
 
 import ReportPacksPage, { getServerSideProps } from '../../../../pages/accounting/reports/report-packs';
+import { PRINT_RENDER_PATH } from '@/lib/pdf/printRenderQuery';
 
 const originalSearch = window.location.search;
 
-function setSearch(search: string) {
+/** The gate is scoped to the pack page's own path as well as ?print=1
+ *  (printRenderQuery.ts), so the stubbed location has to carry both. */
+function setSearch(search: string, pathname: string = PRINT_RENDER_PATH) {
   Object.defineProperty(window, 'location', {
     configurable: true,
-    value: { ...window.location, search },
+    value: { ...window.location, pathname, search },
   });
 }
 
@@ -58,7 +61,7 @@ afterEach(() => {
 describe('ReportPacksPage print dispatch', () => {
   it('mounts the print page, not the interactive screen, on the first render when the router is not ready', () => {
     setSearch('?pack=management&from=2026-01-01&to=2026-08-31&print=1');
-    useRouterMock.mockReturnValue({ isReady: false, query: {} });
+    useRouterMock.mockReturnValue({ isReady: false, pathname: PRINT_RENDER_PATH, query: {} });
 
     render(<ReportPacksPage />);
 
@@ -68,7 +71,7 @@ describe('ReportPacksPage print dispatch', () => {
 
   it('still mounts the print page once the router becomes ready', () => {
     setSearch('?pack=management&print=1');
-    useRouterMock.mockReturnValue({ isReady: true, query: { pack: 'management', print: '1' } });
+    useRouterMock.mockReturnValue({ isReady: true, pathname: PRINT_RENDER_PATH, query: { pack: 'management', print: '1' } });
 
     render(<ReportPacksPage />);
 
@@ -78,7 +81,7 @@ describe('ReportPacksPage print dispatch', () => {
 
   it('mounts the interactive screen for a normal, non-print visit', () => {
     setSearch('');
-    useRouterMock.mockReturnValue({ isReady: true, query: {} });
+    useRouterMock.mockReturnValue({ isReady: true, pathname: PRINT_RENDER_PATH, query: {} });
 
     render(<ReportPacksPage />);
 
