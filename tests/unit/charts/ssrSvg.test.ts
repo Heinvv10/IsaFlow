@@ -174,6 +174,37 @@ describe('renderChartSvg', () => {
     expect([...shortIds].filter((name) => tallIds.has(name))).toEqual([]);
   });
 
+  it('gives two charts of the same size but different content disjoint ids', () => {
+    // Height is not the only thing that distinguishes two charts on a page.
+    // A whole-document rewrite normalises token-shaped text too, so two
+    // charts differing only in a LABEL canonicalise to the same string, hash
+    // identically, and collide.
+    const relabel = (label: string) =>
+      buildWaterfallOption(
+        LOSS_STEPS.map((step, i) => (i === 0 ? { ...step, label } : step)),
+        DEFAULT_PALETTE,
+      );
+    const a = renderChartSvg(relabel('zr0-cls-1'), SIZE);
+    const b = renderChartSvg(relabel('zr0-cls-2'), SIZE);
+    const aIds = idsAndClasses(a);
+    expect(aIds.size).toBeGreaterThan(0);
+    expect([...aIds].filter((name) => idsAndClasses(b).has(name))).toEqual([]);
+  });
+
+  it('leaves label text alone — a label is data, not a generated name', () => {
+    // Account names, cost centres and project codes come through as labels.
+    // A rewrite that reaches into text content prints the wrong figure's name.
+    const label = 'Project zr0-cls-1 recovery';
+    const svg = renderChartSvg(
+      buildWaterfallOption(
+        LOSS_STEPS.map((step, i) => (i === 0 ? { ...step, label } : step)),
+        DEFAULT_PALETTE,
+      ),
+      SIZE,
+    );
+    expect(svg).toContain(`>${label}<`);
+  });
+
   describe('waterfall geometry (SVG y grows DOWNWARD — larger y is lower)', () => {
     const svg = renderChartSvg(buildWaterfallOption(LOSS_STEPS, DEFAULT_PALETTE), SIZE);
     const bars = parseBars(svg);

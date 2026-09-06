@@ -42,14 +42,36 @@ export const CHART_HEIGHT_MM = { inline: 48, half: 72, full: 110 } as const;
  * are identical too.
  */
 function stableIds(svg: string): string {
+  // Only where a generated name can legitimately appear. A bare document-wide
+  // replace also rewrites label TEXT — and a label here is data: an account
+  // name, a cost centre, a project code. It corrupts the printed label, and
+  // because the canonical form is normalised the same way, two charts
+  // differing only in a token-shaped label would hash identically and get
+  // colliding ids — the very defect this function exists to prevent.
+  const ATTRIBUTE = /(\bid="|\bclass="|url\(#)([^"')]*)/g;
+  // zrender also emits a `<style>` block of `.zr0-cls-0:hover` rules. Those
+  // selectors are generated names too, and leaving them out of the canonical
+  // form would leave the hash dependent on the instance counter.
+  const STYLE_BLOCK = /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/g;
   const ZR_TOKEN = /zr\d+-[A-Za-z]+-?\d+/g;
   const order = new Map<string, number>();
-  const canonical = svg.replace(ZR_TOKEN, (token) => {
-    if (!order.has(token)) order.set(token, order.size);
-    return `zrid-${order.get(token)}`;
-  });
+
+  const rewrite = (source: string, name: (index: number) => string): string => {
+    const rename = (value: string): string =>
+      value.replace(ZR_TOKEN, (token) => {
+        if (!order.has(token)) order.set(token, order.size);
+        return name(order.get(token) ?? 0);
+      });
+    return source
+      .replace(ATTRIBUTE, (_whole, lead: string, value: string) => lead + rename(value))
+      .replace(STYLE_BLOCK, (_whole, open: string, css: string, close: string) =>
+        open + rename(css) + close,
+      );
+  };
+
+  const canonical = rewrite(svg, (index) => `zrid-${index}`);
   const hash = createHash('sha1').update(canonical).digest('hex').slice(0, 8);
-  return svg.replace(ZR_TOKEN, (token) => `zr${hash}-${order.get(token)}`);
+  return rewrite(svg, (index) => `zr${hash}-${index}`);
 }
 
 export function renderChartSvg(
