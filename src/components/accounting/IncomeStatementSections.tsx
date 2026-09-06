@@ -15,9 +15,12 @@ import { DataQualityNotice } from '@/components/accounting/DataQualityNotice';
 import { formatMoney } from '@/lib/format/money';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
+import type { StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
+import { comparativeOnlyColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
 
 export function IncomeStatementSections({
   report, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative, onEvidence,
+  columns, applyComparators = rows => rows,
 }: {
   report: IncomeStatementReport;
   periodStart: string;
@@ -26,8 +29,16 @@ export function IncomeStatementSections({
   onToggleAccount: (code: string) => void;
   showComparative: boolean;
   onEvidence: (accountId: string, accountName: string) => void;
+  /** Which comparator columns to print. Omitted, the prior-period checkbox
+   *  alone decides, which is what every caller did before the trend and
+   *  budget columns existed. */
+  columns?: StatementColumns;
+  /** Decorates the rows with the fetched comparators. Identity by default, so
+   *  a surface that offers no comparator controls renders exactly as before. */
+  applyComparators?: (rows: StatementRow[]) => StatementRow[];
 }) {
-  const rows = toIncomeStatementRows(report, { comparative: showComparative });
+  const cols = columns ?? comparativeOnlyColumns(showComparative);
+  const rows = applyComparators(toIncomeStatementRows(report, { comparative: showComparative }));
   // The evidence drill is opened from inside the expanded account row. The
   // grid speaks account codes only, so the name comes back off the row it
   // belongs to.
@@ -36,7 +47,7 @@ export function IncomeStatementSections({
     <div>
       <StatementGrid
         rows={rows}
-        columns={{ prior: showComparative, budget: false, variance: showComparative, trend: false }}
+        columns={cols}
         title="Statement of Comprehensive Income"
         expandedAccount={expandedAccount}
         onToggleAccount={onToggleAccount}

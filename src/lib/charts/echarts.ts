@@ -15,6 +15,7 @@ import {
   LegendComponent,
   DataZoomComponent,
   MarkLineComponent,
+  TitleComponent,
 } from 'echarts/components';
 import { SVGRenderer, CanvasRenderer } from 'echarts/renderers';
 
@@ -28,6 +29,7 @@ echarts.use([
   LegendComponent,
   DataZoomComponent,
   MarkLineComponent,
+  TitleComponent,
   SVGRenderer,
   CanvasRenderer,
 ]);

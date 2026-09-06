@@ -16,6 +16,26 @@ export interface WaterfallStep {
 // Profit Waterfall: Revenue → COGS → Gross Profit → OpEx → Other → Net Profit
 // ---------------------------------------------------------------------------
 
+/**
+ * The figures arrive from `aggregateFigures` on NORMAL-BALANCE signs: revenue
+ * is credit less debit, every expense band is debit less credit. So the usual
+ * company hands in a positive `revenue` and a positive `operatingExpenses`,
+ * and this builds a revenue bar that RISES and an expense bar that FALLS.
+ *
+ * Neither sign is guaranteed, and this function must not force one. A period
+ * whose revenue accounts are in net DEBIT — credit notes, reversals, an
+ * unclassified account posted the other way — has genuinely negative revenue,
+ * and its revenue bar falls; a period whose expense accounts are in net CREDIT
+ * has negative expenses, and its expense bar rises. Measured on this database
+ * (2026-03-01 to 2026-08-31): ISAFlow Demo has revenue +71,600 and operating
+ * expenses +162,667, drawing revenue up and expenses down; Brightsphere has
+ * revenue −5,535,000 and operating expenses −3,717,000, drawing revenue down
+ * and expenses up. Both are the same arithmetic reporting different books.
+ *
+ * The bar's COLOUR follows the direction it moved (`waterfallOption.barColor`,
+ * favourable when the step grows profit), never the step's `color` hint here,
+ * so a falling revenue bar is red because profit fell — which is what it did.
+ */
 export function buildProfitWaterfall(data: {
   revenue: number;
   costOfSales: number;
@@ -28,29 +48,29 @@ export function buildProfitWaterfall(data: {
   const steps: WaterfallStep[] = [];
   let running = 0;
 
-  // Revenue (positive, starts from 0)
+  // Revenue: from zero to whatever the ledger says. Usually positive.
   steps.push({ label: 'Revenue', start: 0, end: data.revenue, value: data.revenue, isSubtotal: false, color: 'green' });
   running = data.revenue;
 
-  // Cost of Sales (negative)
+  // Cost of Sales: subtracted, so a positive cost draws downward.
   steps.push({ label: 'Cost of Sales', start: running, end: running - data.costOfSales, value: -data.costOfSales, isSubtotal: false, color: 'red' });
   running -= data.costOfSales;
 
   // Gross Profit (subtotal)
   steps.push({ label: 'Gross Profit', start: 0, end: data.grossProfit, value: data.grossProfit, isSubtotal: true, color: 'teal' });
 
-  // Operating Expenses (negative)
+  // Operating Expenses: subtracted, so a positive expense draws downward.
   running = data.grossProfit;
   steps.push({ label: 'Operating Expenses', start: running, end: running - data.operatingExpenses, value: -data.operatingExpenses, isSubtotal: false, color: 'red' });
   running -= data.operatingExpenses;
 
-  // Other Income (positive, skip if zero)
+  // Other Income: added. Skipped when zero rather than drawn as a flat bar.
   if (data.otherIncome !== 0) {
     steps.push({ label: 'Other Income', start: running, end: running + data.otherIncome, value: data.otherIncome, isSubtotal: false, color: 'green' });
     running += data.otherIncome;
   }
 
-  // Other Expenses (negative, skip if zero)
+  // Other Expenses: subtracted. Skipped when zero.
   if (data.otherExpenses !== 0) {
     steps.push({ label: 'Other Expenses', start: running, end: running - data.otherExpenses, value: -data.otherExpenses, isSubtotal: false, color: 'red' });
     running -= data.otherExpenses;

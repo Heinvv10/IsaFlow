@@ -56,6 +56,19 @@ export interface StatementColumns {
 }
 
 /**
+ * What a surface with no comparator controls prints: the prior-period
+ * checkbox alone decides, which is what every caller did before the trend and
+ * budget columns existed. Both statement bodies fall back to this when
+ * `columns` is omitted, and they must fall back to the SAME thing — two
+ * copies of the literal is two default statements, and the first edit to one
+ * of them makes the two surfaces disagree about what "no columns chosen"
+ * means.
+ */
+export function comparativeOnlyColumns(showComparative: boolean): StatementColumns {
+  return { prior: showComparative, budget: false, variance: showComparative, trend: false };
+}
+
+/**
  * `section` is a BAND HEADER and carries the band total in `actual`, which the
  * HTML view blanks because the band's own `subtotal` row prints it. A non-HTML
  * consumer summing rows must skip `section` rows or it counts every band

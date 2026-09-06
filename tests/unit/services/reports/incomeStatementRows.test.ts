@@ -80,8 +80,12 @@ describe('toIncomeStatementRows', () => {
     const rows = toIncomeStatementRows(R, { comparative: true });
     const sales = rows.find(r => r.accountCode === '4000')!;
     // A budget column must be addable without renaming any of these. That is
-    // the whole point of the Comparison shape.
-    expect(sales.prior).toEqual({ value: 4100000, variance: 900000, variancePct: undefined, favourable: true });
+    // the whole point of the Comparison shape. variancePct is computed by
+    // baseComparison from variance and value (900000 / 4100000 * 100), not
+    // passed through from the report — see comparators.ts.
+    expect(sales.prior).toEqual({
+      value: 4100000, variance: 900000, variancePct: 900000 / 4100000 * 100, favourable: true,
+    });
     expect(sales.budget).toBeUndefined();
   });
 
