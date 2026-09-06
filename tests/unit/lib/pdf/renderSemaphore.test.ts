@@ -12,8 +12,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-import { withRenderSlot, RenderCapacityError, renderSlotStats, renderSlotBounds } from '@/lib/pdf/renderSemaphore';
-import { AUTH_POOL_CONNECTION_TIMEOUT_MS, DEFAULT_AUTH_POOL_MAX } from '@/lib/auth/authPool';
+import { withRenderSlot, RenderCapacityError, renderSlotStats, renderSlotCeilings } from '@/lib/pdf/renderSemaphore';
+import { AUTH_POOL_CONNECTION_TIMEOUT_MS, DEFAULT_AUTH_POOL_MAX } from '@/lib/auth/poolLimits';
 import { log } from '@/lib/logger';
 
 const ORIGINAL = {
@@ -127,7 +127,7 @@ describe('withRenderSlot', () => {
  */
 describe('bounds derived from the auth pool', () => {
   it('caps the queue wait below the pool acquire timeout, with a margin', () => {
-    const { maxWaitMs } = renderSlotBounds();
+    const { maxWaitMs } = renderSlotCeilings();
     expect(maxWaitMs).toBeLessThan(AUTH_POOL_CONNECTION_TIMEOUT_MS);
     // A request waiting for a slot already holds a connection; the next caller
     // is waiting on the pool. Our refusal must land first or it refuses work
@@ -136,14 +136,14 @@ describe('bounds derived from the auth pool', () => {
   });
 
   it('caps concurrency at a quarter of the pool, so renders cannot take it all', () => {
-    expect(renderSlotBounds().maxConcurrent).toBe(Math.floor(DEFAULT_AUTH_POOL_MAX / 4));
+    expect(renderSlotCeilings().maxConcurrent).toBe(Math.floor(DEFAULT_AUTH_POOL_MAX / 4));
   });
 
   it('tracks a changed pool size rather than holding a stale copy', () => {
     process.env.AUTH_POOL_MAX = '40';
-    expect(renderSlotBounds().maxConcurrent).toBe(10);
+    expect(renderSlotCeilings().maxConcurrent).toBe(10);
     process.env.AUTH_POOL_MAX = '8';
-    expect(renderSlotBounds().maxConcurrent).toBe(2);
+    expect(renderSlotCeilings().maxConcurrent).toBe(2);
   });
 
   it('clamps an over-large PDF_MAX_CONCURRENT_RENDERS and says so', async () => {
@@ -188,7 +188,7 @@ describe('bounds derived from the auth pool', () => {
       expect.objectContaining({
         setting: 'PDF_RENDER_QUEUE_TIMEOUT_MS',
         requested: AUTH_POOL_CONNECTION_TIMEOUT_MS * 10,
-        ceiling: renderSlotBounds().maxWaitMs,
+        ceiling: renderSlotCeilings().maxWaitMs,
       }),
       'pdf',
     );

@@ -9,26 +9,13 @@ import pg from 'pg';
 // src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
 import '@/lib/pgTypes';
 import { log } from '@/lib/logger';
-
-// ── Coupled with src/lib/pdf/renderSemaphore.ts ──────────────────────────────
-// A pack PDF render holds one of these connections for its whole duration AND
-// the headless browser re-enters the API for the report, taking a second. The
-// render semaphore therefore derives BOTH of its bounds from the two constants
-// below rather than carrying its own copies:
-//   - its queue wait must expire before a caller's connection acquire does,
-//     or a request refused for capacity has already failed on the pool;
-//   - its concurrency ceiling is a fraction of the pool size, so renders and
-//     their inbound fetches cannot take every connection.
-// Change either constant and the semaphore's bounds move with it. Do not
-// restate these numbers anywhere else.
-export const AUTH_POOL_CONNECTION_TIMEOUT_MS = 15_000;
-export const DEFAULT_AUTH_POOL_MAX = 20;
-
-/** The pool's configured size. Read per call, the same way the pool itself
- *  reads it, so the semaphore and the pool can never disagree. */
-export function authPoolMax(): number {
-  return Number(process.env.AUTH_POOL_MAX ?? DEFAULT_AUTH_POOL_MAX);
-}
+// The pool's numbers live in poolLimits.ts, a pure module, because
+// src/lib/pdf/renderSemaphore.ts derives its own ceilings from them and must
+// not pull `pg` into its graph to read two constants. See that file's header
+// for the coupling.
+import {
+  AUTH_POOL_CONNECTION_TIMEOUT_MS, AUTH_POOL_IDLE_TIMEOUT_MS, authPoolMax,
+} from './poolLimits';
 
 let _pool: pg.Pool | null = null;
 
@@ -40,7 +27,7 @@ export function getAuthPool(): pg.Pool {
     connectionString: url,
     max: authPoolMax(),
     connectionTimeoutMillis: AUTH_POOL_CONNECTION_TIMEOUT_MS,
-    idleTimeoutMillis: 30000,
+    idleTimeoutMillis: AUTH_POOL_IDLE_TIMEOUT_MS,
     ssl:
       process.env.DATABASE_SSL === 'strict'
         ? { rejectUnauthorized: true }
