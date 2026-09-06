@@ -57,7 +57,13 @@ function isSWRApi(url) {
  *
  * Matched on the PATH, not the URL string: /sharepoint and /shared-with-me are
  * ordinary app pages, and a query string must not be able to smuggle "/share/"
- * into a URL that is not one. Same boundary as isTrackedPath.
+ * into a URL that is not one.
+ *
+ * THE definition of this boundary lives in src/lib/paths/isSharePath.ts. This
+ * is a deliberate second copy: a service worker is plain JS served to the
+ * browser and cannot import from src. Change one, change both —
+ * tests/unit/lib/serviceWorkerShareCache.test.ts runs this copy against the
+ * same cases.
  */
 function isSharePath(url) {
   let pathname;

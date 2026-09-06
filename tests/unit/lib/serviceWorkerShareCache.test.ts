@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { isSharePath } from '@/lib/paths/isSharePath';
 
 interface FakeEvent {
   request: { url: string; method: string; mode?: string };
@@ -130,5 +131,28 @@ describe('public/sw.js — the share page is never cached', () => {
     dispatch(url);
     await Promise.all(responses);
     expect(h.cachePuts).toEqual([url]);
+  });
+});
+
+/**
+ * sw.js necessarily carries its OWN copy of the boundary — a classic worker
+ * script served to the browser cannot import from `src`. This is the test that
+ * stops the two drifting: every case is driven through the real worker and
+ * through the real `isSharePath`, and a disagreement fails here rather than in
+ * a recipient's cache.
+ */
+describe("sw.js's copy of the boundary agrees with src/lib/paths/isSharePath", () => {
+  const PATHS = [
+    '/share', '/share/', '/share/abc123', '/share/abc123/', '/share/[token]',
+    '/', '/accounting/reports/report-packs', '/shared-with-me', '/sharepoint',
+  ];
+
+  it.each(PATHS)('%s', async (pathname) => {
+    const url = `https://app.isaflow.co.za${pathname}`;
+    const { responded } = dispatch(url);
+    await Promise.all(responses);
+    // Not intercepted at all is exactly what a share path must produce.
+    expect(responded).toBe(!isSharePath(pathname));
+    expect(h.cachePuts.includes(url)).toBe(!isSharePath(pathname));
   });
 });

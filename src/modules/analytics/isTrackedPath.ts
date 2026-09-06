@@ -6,10 +6,12 @@
  *  And the person opening a shared pack is a third party who never agreed to
  *  be measured.
  *
- *  Takes Next's route (`/share/[token]`) as readily as a resolved path, since
- *  that is what `_app` holds. `/sharepoint` and `/shared-with-me` stay tracked:
- *  the boundary is the path SEGMENT, not the prefix.
+ *  Derived from `isSharePath` rather than restating it: the share page is the
+ *  only thing excluded from tracking today, and if that ever stops being true
+ *  the extra reason belongs here, not in a second copy of the same predicate.
  */
+import { isSharePath } from '@/lib/paths/isSharePath';
+
 export function isTrackedPath(pathname: string): boolean {
-  return !(pathname === '/share' || pathname.startsWith('/share/'));
+  return !isSharePath(pathname);
 }

@@ -9,7 +9,7 @@ import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
-import { isTrackedPath } from '@/modules/analytics/isTrackedPath';
+import { isSharePath } from '@/lib/paths/isSharePath';
 import '../styles/globals.css';
 import '../styles/print.css';
 
@@ -23,7 +23,10 @@ export default function App({ Component, pageProps }: AppProps) {
   // The public share page is not tracked: its pathname carries the token.
   // The same predicate decides the service worker below, because the reason is
   // the same one — nothing about a share link may be written down client-side.
-  const tracked = isTrackedPath(useRouter().pathname);
+  // `isSharePath` is the one definition of that boundary; `isTrackedPath` in
+  // the analytics module is derived from it, and public/sw.js keeps the only
+  // other copy because a worker cannot import from src.
+  const sharePage = isSharePath(useRouter().pathname);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -33,7 +36,12 @@ export default function App({ Component, pageProps }: AppProps) {
     // serving it offline after the sender revoked the link. public/sw.js
     // refuses to cache /share/ regardless; this is the half that stops a
     // recipient's browser acquiring a worker for this origin at all.
-    if (!tracked) return;
+    //
+    // The dev-only unregister sweep below is skipped on a share path too. It
+    // is a no-op there in practice — this branch never registered a worker
+    // from a share page for it to remove — and leaving one early return for
+    // the whole effect is what keeps the two halves from drifting apart.
+    if (sharePage) return;
 
     if (process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register('/sw.js').catch(() => {
@@ -46,7 +54,7 @@ export default function App({ Component, pageProps }: AppProps) {
         regs.forEach((r) => { void r.unregister(); });
       }).catch(() => { /* non-critical */ });
     }
-  }, [tracked]);
+  }, [sharePage]);
 
   return (
     <div>
@@ -60,7 +68,7 @@ export default function App({ Component, pageProps }: AppProps) {
         </ErrorBoundary>
         </TableDensityProvider>
         </ThemeModeProvider>
-        {tracked && <TrackerScript />}
+        {!sharePage && <TrackerScript />}
         <Toaster
           position="top-right"
           containerStyle={{ top: 16, right: 16 }}
