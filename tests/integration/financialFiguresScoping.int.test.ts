@@ -105,30 +105,34 @@ describe('getFinancialFigures vs getBalanceSheet — Brightsphere agree after sc
     return { pack, balanceSheet };
   }
 
-  it('the no-RLS pack path and the RLS-authenticated page path report the SAME out-of-balance amount', async () => {
+  it('the no-RLS pack path and the RLS-authenticated page path AGREE on the out-of-balance amount', async () => {
     const { pack, balanceSheet } = await imbalances();
-    // eslint-disable-next-line no-console -- diagnostic only; not an assertion, see test below for the pinned figure
+    // Diagnostic only — not an assertion. The pinned figure (whatever it
+    // currently is) lives in the separately named test below.
+    // eslint-disable-next-line no-console
     console.log('Brightsphere out-of-balance (pack vs balance sheet):', { pack, balanceSheet });
 
     // Both paths now exclude the foreign leg for the same reason, so they
-    // agree. NOT asserting the amount here — that is a separate, real data
-    // defect (see the next test) which a future repair of JE-2026-00002
-    // should be free to fix without turning THIS test red. This test only
-    // proves the two paths compute the SAME number, whatever it is.
-    expect(pack).toBeCloseTo(balanceSheet, 2);
+    // must agree to the cent — difference 0.00, not "close to R450". Do NOT
+    // assert a specific amount here: that is a separate, real data defect
+    // (see the next test) which a future repair of JE-2026-00002 should be
+    // free to fix without turning THIS test red or making its failure
+    // message look like the scoping fix regressed.
+    expect(pack - balanceSheet).toBeCloseTo(0, 2);
   });
 
   /**
    * Pins the CURRENT state of Brightsphere's data: JE-2026-00002's R450 debit
-   * has no account left to classify against (its own account belongs to
-   * Dotbiz), so the books are R450 out. This is a known, pre-existing data
-   * defect — NOT part of this scoping fix — and repairing it (moving or
-   * reversing the entry) is expected to turn this one test red without
-   * touching the agreement test above. If this test starts failing because
-   * the imbalance changed, that is progress: update or delete this test, and
-   * confirm the agreement test above still passes.
+   * to account 1140 has no account left to classify against on either path,
+   * since that account belongs to Dotbiz, not Brightsphere — so the books are
+   * R450 out. This is a known, pre-existing DATA defect (not a scoping bug,
+   * and not part of this fix) — repairing JE-2026-00002 (moving or reversing
+   * it) is expected to turn ONLY this test red, without touching the
+   * agreement test above. If this test starts failing because the imbalance
+   * changed, that is progress: update or delete this test, and confirm the
+   * agreement test above still passes.
    */
-  it('pins the known Brightsphere data defect (R450 out) until JE-2026-00002 is repaired', async () => {
+  it('pins the known Brightsphere data defect (JE-2026-00002 -> Dotbiz account 1140, R450 out) until repaired', async () => {
     const { pack, balanceSheet } = await imbalances();
     expect(Math.abs(pack)).toBeCloseTo(450, 2);
     expect(Math.abs(balanceSheet)).toBeCloseTo(450, 2);
