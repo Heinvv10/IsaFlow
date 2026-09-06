@@ -36,6 +36,10 @@ const ROW_ROLE_CLASS: Record<PackTableRow['role'], string | undefined> = {
 /** Per indent level, matching `PackTableRow.level`'s 0-2 range. */
 const INDENT_MM_PER_LEVEL = 4;
 
+/** Spec §5.5: zebra banding applies only once a table EXCEEDS this many
+ *  rows — a table at exactly the threshold does not band. */
+const ZEBRA_ROW_THRESHOLD = 12;
+
 export interface ComparativeTableProps {
   table: PackTable;
 }
@@ -44,9 +48,10 @@ export function ComparativeTable({ table }: ComparativeTableProps) {
   const columns = table.columns.filter((col) =>
     table.rows.some((row) => row.figures[col] !== undefined),
   );
+  const isLong = table.rows.length > ZEBRA_ROW_THRESHOLD;
 
   return (
-    <table className="pack-table">
+    <table className={isLong ? 'pack-table is-long' : 'pack-table'}>
       <caption>{table.scale}</caption>
       <thead>
         <tr>

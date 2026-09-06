@@ -150,6 +150,24 @@ describe('ComparativeTable', () => {
     ] }} />);
     expect(screen.getByText('Equity is not positive')).toBeInTheDocument();
   });
+
+  // Spec §5.5: zebra banding applies only once a table EXCEEDS 12 rows. Both
+  // sides of the boundary are pinned separately — a single test above the
+  // line would pass equally against an always-emit implementation.
+  const rowsOf = (count: number) => Array.from({ length: count }, (_, i) => ({
+    label: `Line ${i}`, level: 0 as const, role: 'line' as const,
+    figures: { actual: { value: 1, format: 'money' as const, source: `s.line${i}` } },
+  }));
+
+  it('does not band a table at exactly the 12-row threshold', () => {
+    const { container } = render(<ComparativeTable table={{ ...table, rows: rowsOf(12) }} />);
+    expect(container.querySelector('table')?.className).not.toMatch(/is-long/);
+  });
+
+  it('bands a table of 13 rows, one past the threshold', () => {
+    const { container } = render(<ComparativeTable table={{ ...table, rows: rowsOf(13) }} />);
+    expect(container.querySelector('table')?.className).toMatch(/is-long/);
+  });
 });
 
 describe('FootnoteMarker', () => {
