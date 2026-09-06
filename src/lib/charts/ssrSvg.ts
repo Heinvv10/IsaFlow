@@ -140,6 +140,56 @@ function assertNoExternalReferences(svg: string): void {
   }
 }
 
+/**
+ * The `<style>` block, allow-listed rather than scanned.
+ *
+ * zrender emits one for every chart and interpolates `emphasis.itemStyle`
+ * colours into it UNESCAPED. The block sits inside `<![CDATA[ … ]]>`, so it is
+ * not text content and reaches the markup checks above — none of which look
+ * for CSS. An inline SVG's stylesheet is DOCUMENT-scoped, so an injected
+ * `@font-face` plus a `text { font-family: … }` rule makes Chromium fetch a
+ * font while rendering the pack, and an injected `* { display:none }` blanks a
+ * document going to a bank with no network involved at all.
+ *
+ * An allow-list, deliberately, and not a sixth forbidden pattern: this file
+ * has been bitten three times by matching a pattern anywhere instead of where
+ * it means something. zrender writes exactly one rule shape —
+ * `.zr<hash>-<n>:hover { <simple declarations> }` — and anything else in there
+ * was injected. Measured across every chart this repo draws: the waterfall
+ * custom series, budget bullets, the cash-flow sankey, cash position, small
+ * multiples, and a plain bar and line. If a future chart legitimately emits
+ * another shape this throws, and the fix is to admit that exact shape here.
+ */
+const HOVER_SELECTOR = /^\.zr[0-9a-z]+-\d+:hover$/;
+/** A property and a value made of colour/keyword characters. No `:`, `;`,
+ *  `{`, `}`, `/`, or quote can appear, so neither a nested rule nor a
+ *  `url(https://…)` can hide in a declaration. */
+const DECLARATION = /^[a-z-]+:[A-Za-z0-9#.,%()\s-]+$/;
+
+function assertStyleBlockIsOurs(svg: string): void {
+  const refuse = (why: string): never => {
+    throw new Error(`renderChartSvg: refusing a chart whose <style> block is not the shape zrender emits (${why})`);
+  };
+
+  for (const block of svg.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)) {
+    const css = (block[1] ?? '').replace(/<!\[CDATA\[/, '').replace(/\]\]>/, '');
+    let cursor = 0;
+    for (const rule of css.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+      // Anything BETWEEN two rules is not a rule at all — a bare declaration,
+      // a stray at-rule, or the tail of an injected one.
+      if (css.slice(cursor, rule.index).trim() !== '') refuse('content outside a rule');
+      cursor = rule.index + rule[0].length;
+
+      if (!HOVER_SELECTOR.test((rule[1] ?? '').trim())) refuse(`unexpected selector "${(rule[1] ?? '').trim()}"`);
+      for (const declaration of (rule[2] ?? '').split(';')) {
+        const text = declaration.trim();
+        if (text !== '' && !DECLARATION.test(text)) refuse('unexpected declaration');
+      }
+    }
+    if (css.slice(cursor).trim() !== '') refuse('trailing content after the last rule');
+  }
+}
+
 export function renderChartSvg(
   option: unknown,
   opts: { widthMm: number; heightMm: number },
@@ -156,6 +206,7 @@ export function renderChartSvg(
     chart.setOption({ ...(option as Record<string, unknown>), animation: false });
     const svg = stableIds(chart.renderToSVGString());
     assertNoExternalReferences(svg);
+    assertStyleBlockIsOurs(svg);
     return svg;
   } finally {
     chart.dispose();
