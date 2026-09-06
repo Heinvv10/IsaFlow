@@ -11,9 +11,24 @@ const LINES = buildBudgetVsActualLines(
   { '1000': 1_000_000, '6000': 120_000 },
 );
 
-type Series = { name?: string; type: string; data: unknown[]; itemStyle?: Record<string, unknown> };
+type Series = {
+  name?: string;
+  type: string;
+  data: unknown[];
+  itemStyle?: Record<string, unknown>;
+  label?: { color?: (p: { dataIndex: number }) => string };
+};
 const seriesOf = (o: Record<string, unknown>) => o['series'] as Series[];
 const named = (o: Record<string, unknown>, n: string) => seriesOf(o).find((s) => s.name === n)!;
+
+/** The polarity the chart actually paints: the Actual series' label colour,
+ *  resolved per row the same way ECharts resolves it. */
+const labelColours = (o: Record<string, unknown>): string[] => {
+  const series = named(o, 'Actual');
+  const colour = series.label?.color;
+  if (colour === undefined) throw new Error('Actual series has no label colour');
+  return series.data.map((_, dataIndex) => colour({ dataIndex }));
+};
 
 type TooltipOption = { tooltip: { formatter: (params: Array<{ dataIndex: number }>) => string } };
 
@@ -70,8 +85,7 @@ describe('buildBudgetBulletOption', () => {
     // Sales is UNDER budget on revenue → unfavourable, even though the actual
     // bar is shorter. Rent is OVER budget on an expense → also unfavourable,
     // and its actual bar is longer. Bar length cannot tell them apart.
-    const marks = (opt['__varianceColours'] as string[]);
-    expect(marks).toEqual([DEFAULT_PALETTE.unfav, DEFAULT_PALETTE.unfav]);
+    expect(labelColours(opt)).toEqual([DEFAULT_PALETTE.unfav, DEFAULT_PALETTE.unfav]);
     expect(labels).toHaveLength(2);
   });
 
@@ -81,7 +95,7 @@ describe('buildBudgetBulletOption', () => {
       { '1000': 1_000_000 },
     );
     const o = buildBudgetBulletOption(favLines, DEFAULT_PALETTE) as unknown as Record<string, unknown>;
-    expect(o['__varianceColours']).toEqual([DEFAULT_PALETTE.fav]);
+    expect(labelColours(o)).toEqual([DEFAULT_PALETTE.fav]);
   });
 
   it('shows the largest absolute variances first and honours the limit', () => {

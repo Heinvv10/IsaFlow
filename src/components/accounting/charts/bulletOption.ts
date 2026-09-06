@@ -5,8 +5,9 @@
  * `BudgetVsActualLine.variance` is signed FAVOURABLY by the service — for
  * revenue it is actual − budget, for an expense it is budget − actual — so
  * `variance >= 0` means favourable in both directions and the length of the
- * two bars can never be used to work that out. `__varianceColours` is
- * exported on the option so the polarity decision is directly assertable.
+ * two bars can never be used to work that out. The polarity is issued once,
+ * by `varianceColor`, into the Actual series' label colour — assert that
+ * colour rather than adding a hook to the option the chart does not read.
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
@@ -32,10 +33,8 @@ export function buildBudgetBulletOption(
 
   const budget = roleStyle('budget', palette);
   const actual = roleStyle('actual', palette);
-  const colours = rows.map((l) => varianceColor(l.variance >= 0, palette) ?? palette.ink);
 
   return {
-    __varianceColours: colours,
     grid: { left: 8, right: 24, top: 8, bottom: 8, containLabel: true },
     tooltip: {
       trigger: 'axis',
