@@ -11,6 +11,17 @@ Called only by `pages/api/accounting/annotations/*` under `withAuth`. Company an
 
 **INTERNAL ONLY, and that is a hard boundary.** Nothing here is reachable from a share link: `sharedPackService.ts` never queries `report_annotations`, and `SharedPackProps` has no field a note could travel in. A note is a working comment between colleagues, not a disclosure to a bank. Guarded by `tests/unit/services/annotations/annotationsNeverShared.test.ts` — if you add a share-side reader for these rows, that test is the one telling you not to.
 
+## NOT MOUNTED YET
+
+Say this plainly rather than leaving it to be discovered: **nothing in the
+application renders `AnnotationThread` or `NoteMarker`.** No page on this
+branch owns an account-row view for a note to hang off, so the service, the
+routes and the two components are complete and reachable only from tests.
+There is no button. The share dialog and the commentary panel ARE mounted, on
+`pages/accounting/reports/report-packs.tsx`; annotations are not, and no claim
+to the contrary belongs in a PR body or a release note until a row-level
+statement page mounts them.
+
 ## Main signatures
 - `listAnnotations(companyId, rowIds, periodStart, periodEnd) → Annotation[]` — resolved notes included.
 - `createAnnotation({ companyId, userId, authorName, rowId, periodStart, periodEnd, body }) → Annotation`.

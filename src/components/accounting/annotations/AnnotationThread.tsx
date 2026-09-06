@@ -2,6 +2,10 @@
  * The note thread for one statement row. Internal surfaces only — the share
  * page does not import it and the share loader returns no annotations.
  *
+ * NOT MOUNTED YET: no page renders this. Nothing on this branch owns an
+ * account-row view for a note to hang off, so it is reachable from tests only.
+ * See `src/modules/accounting/services/annotations/.claude.md`.
+ *
  * It renders what it is given and calls back; it holds no annotation state of
  * its own beyond the unsent draft, so the page owning the list stays the one
  * source of truth after a create or a resolve.
