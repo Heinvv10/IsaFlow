@@ -104,6 +104,20 @@ html.print-mode {
 .pack-kpi-value { font-family: var(--pack-font-mono); font-size: 28pt; line-height: 30pt; font-weight: 500; }
 .pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: auto; padding-top: 3mm; }
 
+/* Task 13 — the KPI tile, its delta and its inline sparkline. The delta's
+ * colour (favourable/unfavourable) is never the ONLY cue: `.pack-kpi-delta-cue`
+ * carries a shape glyph (▲/▼/■) alongside it — rubric criterion 7, a
+ * deuteranopic reader cannot rely on colour alone. */
+.pack-kpi-tile { display: flex; flex-direction: column; gap: 1mm; }
+.pack-kpi-label { font-size: 9pt; line-height: 12pt; color: var(--pack-grey-strong); }
+.pack-kpi-unavailable { font-size: 11pt; line-height: 14pt; font-style: italic; color: var(--pack-grey-mid); }
+.pack-kpi-delta { font-size: 9pt; line-height: 12pt; }
+.pack-kpi-delta.is-favourable { color: var(--pack-favourable, #1a7a4a); }
+.pack-kpi-delta.is-unfavourable { color: var(--pack-unfavourable, #b3261e); }
+.pack-kpi-delta-cue { font-size: 7pt; }
+.pack-kpi-sparkline svg { display: block; width: 100%; height: auto; }
+.pack-footnote-marker { font-size: 0.7em; vertical-align: super; line-height: 0; }
+
 .pack-table { width: 100%; border-collapse: collapse; font-size: 9pt; line-height: 13pt; }
 .pack-table th {
   font-size: 8pt; line-height: 12pt; text-transform: uppercase; letter-spacing: 0.06em;
