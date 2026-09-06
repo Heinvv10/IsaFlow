@@ -13,17 +13,22 @@ Turns a `ReportPack` (from `reports/reportPackService.ts`) into the ONE document
 - `buildPackDocument(pack: ReportPack, trend: PackTrendPoint[]): PackDocument` (`packDocument.ts`)
 - `buildPackDeck(document: PackDocument): DeckSlide[]` (`packDeckModel.ts`) · `renderPackPptx(slides: DeckSlide[]): Promise<Buffer>`
 - `marginKvItem(label, value: number | null): PackKvItem` · `NO_MARGIN_REASON` · `RATIO_FORMATS`
+- `packToCashFlow(d)` · `packToScorecard(d)` · `packToWaterfallSteps(d)` · `packToCommentary(d)` · `packToRatioReasons(d)` · `MissingPackFieldError` (`packSectionData.ts`)
 - `getPackTrend(companyId, to, months): Promise<PackTrendPoint[]>` (the one DB reader here)
 - `packPrintApiPaths(type): string[]` · `packDownloadFilename(company, type, from, to, ext)`
 - `waterfallOption(steps, palette?)` / `trendOption(points, palette?)` (`packChartOptions.ts`) — ECharts options
-- `renderOptionToSvg(option, size?)` / `buildAfsCharts(sections)` (`serverChartSvg.ts`)
+- `DEFAULT_CHART_PALETTE` / `type ChartPalette` (`packChartOptions.ts`) — also read by `afs/serverChartSvg.ts`
 
 ## Business rules
 - **Figures are COPIED, never derived.** These mappers read the section blob the pack service produced and translate keys; they compute no totals, no margins and no ratios. A figure that needs computing belongs in `reports/`, so the packs and the statements agree by construction rather than by coincidence.
 - `null` survives the mappers rather than defaulting to 0. A total of zero is a real total; a MARGIN of zero on no turnover is a percentage nothing on the page supports. `marginKvItem` prints `NO_MARGIN_REASON` ("No margin on non-positive turnover") instead. Every surface uses that one helper — two call sites formatting a nullable margin their own way is how one of them printed "0.0%" again.
 - A section type with no blocks THROWS (`UnknownPackSectionError`). A titled, blank page in a document a director forwards to a bank is worse than a failed render.
+- **A section blob missing a field THROWS too** (`MissingPackFieldError`, `packSectionData.ts`). `PackSection.data` is `Record<string, unknown>`, so the non-statement sections — cash flow, KPIs, the profit bridge, the ratio reasons, the commentary — used to be read by string key with a `num()` / `?? []` / `?? ''` fallback. Rename `operatingCashFlow` upstream and the cash-flow statement became six labelled zeros: plausible, uncompilable-against, and invisible to the "invents no figure" test, because 0 is already in the pack's own number set. A zero the ledger produced is a real figure; a zero a rename produced is a lie, and once a default has been applied nothing can tell them apart.
 - `packPrintApiPaths` is the authority for what the print token authorises. A path the print page fetches that is missing from it is silently stubbed by the Playwright transport and 401s under Gotenberg — either way the PDF ships showing a loading state. Pinned by `tests/unit/components/packs/packPrintFetchParity.dom.test.tsx`.
-- **Three chart paths, and they are not the same picture.** `packChartOptions.ts` builds ECharts options that `PackChart` renders in the browser with the SVG renderer — that is what the screen shows and what the PDF photographs, which is why the print readiness gate waits for every chart's `<svg>` to exist. The DECK does not use them: `pptxExportService` calls `addChart` for a NATIVE PowerPoint chart, so a recipient can click into the data rather than receive a picture of it. `serverChartSvg.ts` sits in this directory but serves NEITHER — its `buildAfsCharts` is consumed only by `afs/pdfExportService.ts`. Changing a pack chart's appearance means changing `packChartOptions.ts` and `packDeckModel.ts`'s series, in two places, on purpose.
+- **Three chart paths, and they are not the same picture.** `packChartOptions.ts` builds ECharts options that `PackChart` renders in the browser with the SVG renderer — that is what the screen shows and what the PDF photographs, which is why the print readiness gate waits for every chart's `<svg>` to exist. The DECK does not use them: `pptxExportService` calls `addChart` for a NATIVE PowerPoint chart, so a recipient can click into the data rather than receive a picture of it. A third path, `afs/serverChartSvg.ts`, serves NEITHER: it renders ECharts to an SVG string for the statutory AFS PDF, whose renderer runs no JavaScript. It used to sit in this directory, but it imports three `afs/` modules and its only consumer is `afs/pdfExportService.ts`, so it now lives beside that consumer; all it still takes from here is `DEFAULT_CHART_PALETTE`, so an AFS chart and a pack chart are the same colours. Changing a pack chart's appearance means changing `packChartOptions.ts` and `packDeckModel.ts`'s series, in two places, on purpose.
+
+## Known duplication, pending a merge
+`escapeHtml.ts` here duplicates WS1's helper in `src/components/accounting/charts/chartTypes.ts` — same five-entity escape, same reason (ECharts renders a `tooltip.formatter` return value as HTML, and every label is ledger-sourced text). The copy exists because WS1 is not on this branch; it is deliberate, not an oversight. **Unify after WS1 merges**, keeping ONE definition and pointing both chart surfaces at it: two escapers is two chances for one of them to be relaxed. Whoever merges second owns the deletion.
 
 ## Related files
 - `src/modules/accounting/services/reports/reportPackService.ts` — builds the pack (and owns every computation).
@@ -32,5 +37,6 @@ Turns a `ReportPack` (from `reports/reportPackService.ts`) into the ONE document
 - `src/lib/pdf/` — how the print page becomes bytes.
 
 ## Recent changes
+- 2026-09-06 (PR review): `serverChartSvg.ts` moved to `services/afs/`, beside its only consumer; the non-statement section blobs became typed reads that throw.
 - 2026-09-06: the legacy `reports-pdf`/`reports-html` routes now carry a null margin through as well, so all five surfaces agree.
 - 2026-09-06: corrected three false statements in this file — the deck slide type is `DeckSlide`, the interactive screen does not call `buildPackDocument`, and the deck uses native PowerPoint charts rather than server-rendered SVG.
