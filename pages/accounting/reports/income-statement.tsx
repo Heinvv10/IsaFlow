@@ -9,16 +9,13 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, BarChart3, Loader2, AlertCircle, Download, FileSpreadsheet } from 'lucide-react';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
-import type { StatementColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import { IncomeStatementSections } from '@/components/accounting/IncomeStatementSections';
 
 import { formatDisplayDate } from '@/utils/dateFormat';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
 import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
-import { useComparatorColumns } from '@/components/accounting/reportControls/useComparatorColumns';
-import { useDensity } from '@/components/accounting/reportControls/useDensity';
-import { useStatementComparators } from '@/components/accounting/reportControls/useStatementComparators';
+import { useStatementComparatorState } from '@/components/accounting/reportControls/useStatementComparatorState';
 import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 
 interface CostCentre { id: string; code: string; name: string }
@@ -104,24 +101,13 @@ export default function IncomeStatementPage() {
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
   // The Prior-period checkbox IS the comparative fetch: one control, so the
   // column cannot be on with no comparative period behind it.
-  const density = useDensity();
-  const { columns: chosen, setColumns } = useComparatorColumns(density);
-  // The trend and the budget are COMPANY-WIDE: `trendRowsService` applies no
-  // cost-centre filter and `getBudgetVariance` takes no cost centre. With one
-  // selected, those two columns would print a company figure in the same row
-  // as a departmental one. They are switched off, not fetched, and
-  // `ComparatorNotices` says why. The user's own checkbox state is left
-  // untouched in `columns` so clearing the filter restores it.
-  const companyWideUnavailable = costCentreId !== '';
-  const columns: StatementColumns = companyWideUnavailable
-    ? { ...chosen, budget: false, trend: false, variance: chosen.variance && chosen.prior }
-    : chosen;
+  const { columns, setColumns, companyWideUnavailable, apply, budgetState, trendFailed } =
+    useStatementComparatorState({
+      costCentreSelected: costCentreId !== '',
+      asOf: periodEnd, basis: 'movement', periodStart, periodEnd,
+    });
   const showComparative = columns.prior;
   const anyColumn = columns.prior || columns.budget || columns.trend;
-  const { apply, budgetState, trendFailed } = useStatementComparators({
-    trend: columns.trend, budget: columns.budget, asOf: periodEnd,
-    basis: 'movement', periodStart, periodEnd,
-  });
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
