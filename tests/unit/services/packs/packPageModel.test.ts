@@ -7,6 +7,7 @@ import {
   type PackScorecardRow,
 } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import type { TrustedChartSvg } from '@/lib/charts/ssrSvg';
 
 describe('assertPageTitleIsAMessage', () => {
   it('rejects a bare label', () => {
@@ -122,8 +123,8 @@ describe('type pins — fix round 1 Criticals', () => {
       prior: { value: 39.1, format: 'pct', source: 'r.grossMargin' },
       status: 'met',
       trend: 'up',
-      trendSvg: '<svg>trend arrow</svg>',
-      bulletSvg: '<svg>bullet gauge</svg>',
+      trendSvg: '<svg>trend arrow</svg>' as TrustedChartSvg,
+      bulletSvg: '<svg>bullet gauge</svg>' as TrustedChartSvg,
     };
     expect(row.trend).toBe('up');
     expect(row.trendSvg).not.toBe(row.bulletSvg);

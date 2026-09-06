@@ -41,7 +41,7 @@ export interface PackKpiTile {
   /** Index into the page's `footnotes`, or null when the trend needs none. */
   trendFootnote: number | null;
   /** Pre-rendered sparkline markup, or null when there is no series to show. */
-  sparklineSvg: string | null;
+  sparklineSvg: TrustedChartSvg | null;
 }
 
 export interface PackStatItem {
@@ -100,11 +100,11 @@ export interface PackScorecardRow {
   status: PackScorecardStatus;
   trend: PackTrendDirection;
   /** Pre-rendered trend sparkline/arrow markup, null if none beyond `trend`. */
-  trendSvg: string | null;
+  trendSvg: TrustedChartSvg | null;
   /** Index into the page's `footnotes`. */
   footnote?: number;
   /** Pre-rendered bullet-chart markup, or null when the metric has none. */
-  bulletSvg: string | null;
+  bulletSvg: TrustedChartSvg | null;
 }
 
 /** One lettered group of scorecard rows — e.g. "A. Growth". */
