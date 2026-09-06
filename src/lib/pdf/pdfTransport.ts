@@ -32,8 +32,14 @@ export interface PdfTransport {
 }
 
 /** A4 with the margins the reporting brief specifies, in both units the two
- *  transports want: Playwright takes CSS units, Gotenberg takes inches. */
-export const PDF_MARGIN_MM = { top: 18, bottom: 18, left: 14, right: 14 } as const;
+ *  transports want: Playwright takes CSS units, Gotenberg takes inches.
+ *
+ *  This is the SINGLE SOURCE OF TRUTH for the page margin. `styles/packPrint.css`
+ *  declares `@page { size: A4; }` with no margin, deliberately: neither
+ *  transport sets `preferCSSPageSize`, so Chromium ignores a CSS `@page`
+ *  margin and always uses the margin the transport passes here instead. A
+ *  margin added to that CSS file would be silently dropped. */
+export const PDF_MARGIN_MM = { top: 20, bottom: 22, left: 18, right: 18 } as const;
 export const MM_PER_INCH = 25.4;
 export const PAPER_A4_IN = { width: 8.27, height: 11.69 } as const;
 

@@ -26,3 +26,34 @@ html.print-mode body {
   /* Not automatic on a proportional face. A statement column misaligns without it. */
   font-variant-numeric: tabular-nums;
 }
+
+/* Chromium's ink-saving default washes out every brand band, KPI tile fill and
+ * chart fill. Both spellings: the unprefixed property is the standard, the
+ * -webkit- one is what Chromium 111 in the Gotenberg image actually honours. */
+html.print-mode,
+html.print-mode * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* Page size only — no margin here. preferCSSPageSize is never set on either
+ * transport, so Chromium ignores a CSS @page margin and uses whatever the
+ * transport passes instead (PDF_MARGIN_MM in src/lib/pdf/pdfTransport.ts,
+ * the single source of truth for the page margin). A margin declared here
+ * would be silently dropped and would mislead the next reader. */
+@page {
+  size: A4;
+}
+
+/* A full P&L and a notes table run past a page. Without this the second page
+ * of a table has no column headings and its numbers are unreadable. */
+html.print-mode thead {
+  display: table-header-group;
+}
+html.print-mode tfoot {
+  display: table-footer-group;
+}
+html.print-mode tr,
+html.print-mode [data-pack-block] {
+  break-inside: avoid;
+}

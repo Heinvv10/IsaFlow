@@ -23,8 +23,8 @@ describe('buildGotenbergFields', () => {
     expect(f.url).toBe(request.url);
     expect(f.paperWidth).toBe('8.27');
     expect(f.paperHeight).toBe('11.69');
-    expect(f.marginTop).toBe('0.71');
-    expect(f.marginLeft).toBe('0.55');
+    expect(f.marginTop).toBe('0.79');
+    expect(f.marginLeft).toBe('0.71');
   });
 
   it('waits for the print-ready flag rather than a fixed delay', () => {
