@@ -20,6 +20,20 @@ const PX_PER_MM = 96 / 25.4;
 export const CHART_HEIGHT_MM = { inline: 48, half: 72, full: 110 } as const;
 
 /**
+ * A string that has passed `assertNoExternalReferences` and
+ * `assertStyleBlockIsOurs` inside `renderChartSvg`, below — the only place
+ * this file hands one out. A page-model field typed `TrustedChartSvg`
+ * instead of `string` cannot be filled from any other source without an
+ * explicit, greppable `as TrustedChartSvg` cast, which is the point: a plain
+ * `string` assignment gave a later task that populates a chart block from
+ * anywhere else (a template string, a Sage import, a user-entered narrative)
+ * a silent path onto a board pack page inlined via
+ * `dangerouslySetInnerHTML`. The brand does not re-run the guards — it
+ * marks that they already ran.
+ */
+export type TrustedChartSvg = string & { readonly __trustedChartSvg: unique symbol };
+
+/**
  * zrender scopes its generated class names and clip-path ids to a
  * PROCESS-GLOBAL counter — the same chart drawn twice comes out as
  * `zr0-cls-2` and then `zr1-cls-15`, because both the instance number and
@@ -230,7 +244,7 @@ export function assertStyleBlockIsOurs(svg: string): void {
 export function renderChartSvg(
   option: unknown,
   opts: { widthMm: number; heightMm: number },
-): string {
+): TrustedChartSvg {
   const width = Math.round(opts.widthMm * PX_PER_MM);
   const height = Math.round(opts.heightMm * PX_PER_MM);
   const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width, height });
@@ -244,7 +258,7 @@ export function renderChartSvg(
     const svg = stableIds(chart.renderToSVGString());
     assertNoExternalReferences(svg);
     assertStyleBlockIsOurs(svg);
-    return svg;
+    return svg as TrustedChartSvg;
   } finally {
     chart.dispose();
   }

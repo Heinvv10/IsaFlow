@@ -18,6 +18,7 @@
  */
 import { useEffect, useLayoutEffect, useState } from 'react';
 import type { PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
+import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 const THEME_STORAGE_KEY = 'accounting-theme';
 const CHART_POLL_MS = 100;
@@ -42,6 +43,24 @@ export function usePrintMode(enabled: boolean): void {
 export function countCharts(sections: PackDocumentSection[]): number {
   return sections.reduce(
     (total, section) => total + section.blocks.filter((b) => b.kind === 'waterfall' || b.kind === 'trend').length,
+    0,
+  );
+}
+
+/**
+ * Chart blocks across the fixed-page pack model — the Task-12+ counterpart
+ * of `countCharts` above. That function stays untouched: `PackPrintView`
+ * still dispatches to it for `pack=management`/`pack=monthly` via
+ * `PackDocumentSection`, a different shape than `PackPage`. The two are
+ * deleted together once the legacy pack path is retired.
+ */
+export function countPageModelCharts(pages: PackPage[]): number {
+  return pages.reduce(
+    (total, page) => total + page.blocks.reduce((pageTotal, block) => {
+      if (block.kind === 'chart') return pageTotal + 1;
+      if (block.kind === 'smallMultiples') return pageTotal + block.panels.length;
+      return pageTotal;
+    }, 0),
     0,
   );
 }

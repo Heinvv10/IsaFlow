@@ -13,10 +13,10 @@
  * This function only catches the exact failure class the rejected pack shipped.
  */
 
-import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import { PackFigureProvenance, type PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
+import type { TrustedChartSvg } from '@/lib/charts/ssrSvg';
 
 /** A footnote referenced from a page's body, numbered within that page. */
 export interface PackFootnote {
@@ -131,7 +131,7 @@ export interface PackChartSpec {
   /** A conclusion, not a category label — same rule as a page title. */
   title: string;
   kind: 'line' | 'bar' | 'waterfall' | 'combo';
-  svg: string;
+  svg: TrustedChartSvg;
   heightMm: number;
   /** Populated only when `kind === 'waterfall'`; that is what the bars-sum-
    *  to-endpoints check reads instead of the SVG string. */
