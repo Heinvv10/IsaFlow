@@ -146,6 +146,35 @@ describe('renderChartSvg', () => {
     expect(svg.replace(/xmlns(:xlink)?="[^"]*"/g, '')).not.toMatch(/https?:\/\//);
   });
 
+  it('refuses to return an SVG that would fetch something', () => {
+    // ADVERSARIAL: a per-datum `symbol: 'image://…'` makes ECharts emit
+    // `<image href="https://…">`. No option builder on this branch sets
+    // `symbol` from data, so it is not reachable today — but renderChartSvg
+    // takes `unknown`, and this string is inlined into documents sent to
+    // clients and banks. An outbound fetch from the PDF renderer is a
+    // tracking beacon or an SSRF probe, so the render fails rather than
+    // printing a chart that tried to call home.
+    const hostile = {
+      xAxis: { type: 'category', data: ['a', 'b'] },
+      yAxis: { type: 'value' },
+      series: [{
+        type: 'line',
+        data: [
+          { value: 1, symbol: 'image://https://evil.example/beacon.png', symbolSize: 20 },
+          { value: 2 },
+        ],
+      }],
+    };
+    expect(() => renderChartSvg(hostile, SIZE)).toThrow(/external reference|renderChartSvg/i);
+  });
+
+  it('renders every legitimate pack chart without tripping the guard', () => {
+    const opt = buildWaterfallOption(LOSS_STEPS, DEFAULT_PALETTE);
+    for (const heightMm of Object.values(CHART_HEIGHT_MM)) {
+      expect(() => renderChartSvg(opt, { widthMm: 170, heightMm })).not.toThrow();
+    }
+  });
+
   it('is deterministic — the same option renders byte-identically', () => {
     const opt = buildWaterfallOption(LOSS_STEPS, DEFAULT_PALETTE);
     expect(renderChartSvg(opt, SIZE)).toBe(renderChartSvg(opt, SIZE));

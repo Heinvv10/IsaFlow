@@ -101,6 +101,39 @@ function stableIds(svg: string): string {
   return rewrite((index) => `zr${hash}-${index}`);
 }
 
+/**
+ * The rendered SVG is inlined into documents that go to clients and banks, and
+ * the PDF renderer fetches whatever the markup tells it to. An ECharts option
+ * can produce such a fetch from data alone: a per-datum
+ * `symbol: 'image://https://…'` emits `<image href="https://…">`. No option
+ * builder in this repo sets `symbol` from data, so it is not reachable today —
+ * but `renderChartSvg` takes `unknown`, and an outbound request from the print
+ * renderer is a tracking beacon or an SSRF probe.
+ *
+ * So this is a runtime check, not just a test: a chart that tried to fetch
+ * something is not a chart we print. A handful of anchored checks over the
+ * rendered string, deliberately not a parser — the legitimate output of this
+ * one code path is narrow and known.
+ */
+function assertNoExternalReferences(svg: string): void {
+  // The two xmlns declarations are the only URLs in a clean render, and they
+  // are namespace identifiers that are never fetched.
+  const body = svg.replace(/xmlns(:xlink)?="[^"]*"/g, '');
+  const checks: Array<[RegExp, string]> = [
+    [/<script\b/i, 'a script element'],
+    [/<foreignObject\b/i, 'a foreignObject'],
+    [/<image\b/i, 'an image element'],
+    [/\son[a-z]+\s*=/i, 'an event-handler attribute'],
+    [/\b(?:xlink:)?href\s*=/i, 'an href'],
+    [/https?:\/\//i, 'an absolute URL'],
+  ];
+  for (const [pattern, what] of checks) {
+    if (pattern.test(body)) {
+      throw new Error(`renderChartSvg: refusing a chart containing an external reference (${what})`);
+    }
+  }
+}
+
 export function renderChartSvg(
   option: unknown,
   opts: { widthMm: number; heightMm: number },
@@ -115,7 +148,9 @@ export function renderChartSvg(
     // option is handed to a headless renderer that must never be asked for a
     // partial frame, but do not believe it is what makes the chart appear.
     chart.setOption({ ...(option as Record<string, unknown>), animation: false });
-    return stableIds(chart.renderToSVGString());
+    const svg = stableIds(chart.renderToSVGString());
+    assertNoExternalReferences(svg);
+    return svg;
   } finally {
     chart.dispose();
   }
