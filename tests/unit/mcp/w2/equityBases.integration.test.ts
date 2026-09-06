@@ -19,6 +19,15 @@
  * figures checkable rather than merely printed:
  *
  *     assets − liabilities = postedEquity + derivedRetainedEarnings
+ *
+ * KNOWN DEV-DATA DEFECT (2026-09-06). In the isaflow_dev copy, Brightsphere's
+ * JE-2026-00002 posts a R450.00 debit to account 1140, an asset owned by ANOTHER
+ * company. Since every gl_accounts join is scoped to the company (WS3, PR #332),
+ * the balance sheet no longer reads across that tenant boundary, so this identity
+ * fails there by exactly R450.00: the entry genuinely does not balance within
+ * Brightsphere's own accounts. On master it only held because the unscoped join
+ * picked up the foreign leg. Production carries no such line (read-only check).
+ * The cure is a ledger correction in the dev copy, not a change to this test.
  */
 import { describe, it, expect, vi } from 'vitest';
 import { als } from '@/lib/als';

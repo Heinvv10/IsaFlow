@@ -71,10 +71,13 @@ export function assessRiskAreas(data: ManagementPackData): RiskArea[] {
     risks.push({ area: 'Liquidity Pressure', severity: 'medium', description: `Current ratio ${data.balanceSheet.currentRatio.toFixed(2)} is below recommended 1.5` });
   }
 
-  if (data.balanceSheet.debtEquityRatio > 2.0) {
-    risks.push({ area: 'Leverage Risk', severity: 'medium', description: `Debt-to-equity ${data.balanceSheet.debtEquityRatio.toFixed(2)} exceeds 2.0 — high financial leverage` });
-  } else if (data.balanceSheet.debtEquityRatio > 3.0) {
+  // Descending. Tested the other way round, `> 2.0` matched first and the
+  // high-severity branch below was unreachable for every input — so the worst
+  // gearing in the book reported as merely medium.
+  if (data.balanceSheet.debtEquityRatio > 3.0) {
     risks.push({ area: 'Leverage Crisis', severity: 'high', description: `Debt-to-equity ${data.balanceSheet.debtEquityRatio.toFixed(2)} exceeds 3.0` });
+  } else if (data.balanceSheet.debtEquityRatio > 2.0) {
+    risks.push({ area: 'Leverage Risk', severity: 'medium', description: `Debt-to-equity ${data.balanceSheet.debtEquityRatio.toFixed(2)} exceeds 2.0 — high financial leverage` });
   }
 
   if (data.ratios.grossMargin < 20) {

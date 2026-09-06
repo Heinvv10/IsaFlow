@@ -78,7 +78,7 @@ export async function getFinancialFigures(
       COALESCE(SUM(jl.credit), 0) AS cumulative_credit
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
       AND je.status = 'posted'

@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import { ArrowLeft, FileText, Download, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, FileText, Download, Loader2, ChevronDown, ChevronRight, Share2 } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
@@ -15,8 +15,18 @@ import {
 import { log } from '@/lib/logger';
 import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
 import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/modules/accounting/services/reports/statementRows/packMappers';
+import { useCompany } from '@/contexts/CompanyContext';
+import { ShareLinkDialog } from '@/components/accounting/share/ShareLinkDialog';
+import { CommentaryPanel } from '@/components/accounting/commentary/CommentaryPanel';
+import { canReadSharingSurface } from '@/modules/accounting/services/reports/sharingAccess';
 
 type PackType = 'board' | 'management' | 'monthly';
+
+/** Minting a share link and approving commentary are owner/admin decisions —
+ *  the same two roles `pages/api/accounting/share/links.ts` and the commentary
+ *  approve/reject routes enforce server-side. This gate only decides what is
+ *  drawn; the server is what decides what is allowed. */
+const APPROVER_ROLES = ['owner', 'admin'];
 
 interface PackSection { type: string; title: string; data: Record<string, unknown> }
 interface ReportPack { type: PackType; companyName: string; period: string; generatedAt: string; sections: PackSection[] }
@@ -117,6 +127,19 @@ export default function ReportPacksPage() {
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
+  const [shareOpen, setShareOpen] = useState(false);
+  const { companyRole } = useCompany();
+  const canApprove = APPROVER_ROLES.includes(companyRole ?? '');
+  // The same predicate the commentary route applies to its GET arm. A surface
+  // that could only answer 403 should not be drawn: without this a viewer
+  // opening the page would get an error panel under the pack rather than
+  // simply not being offered commentary.
+  const canReadCommentary = canReadSharingSurface(companyRole);
+
+  // The pack the person is LOOKING AT. A share link and its commentary are
+  // both filed under (type, from, to), so a link minted here and the sentences
+  // approved below are about the same document as the figures on screen.
+  const packParams = { type: selectedType, from, to };
 
   const loadPack = useCallback(async () => {
     setLoading(true);
@@ -173,6 +196,12 @@ export default function ReportPacksPage() {
                 {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 PDF
               </button>
+              {canApprove && (
+                <button onClick={() => setShareOpen(true)} className="ff-btn-secondary flex items-center gap-1 text-sm">
+                  <Share2 className="h-4 w-4" />
+                  Share
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -207,10 +236,22 @@ export default function ReportPacksPage() {
               {pack.sections.map((section, i) => (
                 <SectionCard key={section.type} section={section} defaultOpen={i === 0} />
               ))}
+              {/* Commentary for the pack on screen. `canApprove` decides
+                  whether the approve/reject controls are drawn; the routes
+                  enforce the same two roles regardless. */}
+              {canReadCommentary && (
+                <CommentaryPanel sectionRef="commentary" mode="internal" canApprove={canApprove} params={packParams} />
+              )}
             </div>
           ) : null}
         </div>
       </div>
+
+      {shareOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6 pt-24">
+          <ShareLinkDialog params={packParams} onClose={() => setShareOpen(false)} />
+        </div>
+      )}
     </AppLayout>
   );
 }

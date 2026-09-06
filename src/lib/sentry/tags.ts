@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { redactShareToken } from '@/lib/observability/redactShareToken';
 
 export interface TenantTagContext {
   companyId?: string;
@@ -19,5 +20,5 @@ export function setTenantTags(ctx: TenantTagContext): void {
 export function sanitizeRoute(url: string | undefined): string | undefined {
   if (!url) return undefined;
   const q = url.indexOf('?');
-  return q === -1 ? url : url.slice(0, q);
+  return redactShareToken(q === -1 ? url : url.slice(0, q));
 }

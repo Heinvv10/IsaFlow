@@ -10,6 +10,19 @@ export function isValidUUID(s: string): boolean {
 }
 
 /**
+ * A Next.js dynamic route parameter that must be a UUID.
+ *
+ * `req.query.id` is `string | string[] | undefined` — a repeated query
+ * parameter arrives as an array — so every route guarding one needs both the
+ * shape check and the pattern check. Four WS3 routes had written out the same
+ * regex literal and the same `typeof` beside it; a fifth copy is a fifth
+ * chance to paste one that is subtly looser.
+ */
+export function isUuidParam(value: unknown): value is string {
+  return typeof value === 'string' && UUID_RE.test(value);
+}
+
+/**
  * Strict calendar-date check for a value about to be cast in SQL (`$n::DATE`).
  * Unlike `isValidDate` above, this REJECTS an overflowing date: Date.parse
  * accepts '2026-02-31' by rolling forward to 3 March, while Postgres throws

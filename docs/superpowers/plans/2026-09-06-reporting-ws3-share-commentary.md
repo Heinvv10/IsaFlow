@@ -2582,3 +2582,45 @@ In `pages/_app.tsx`, where `TrackerScript` is mounted, read `useRouter().pathnam
 git add src/modules/analytics/isTrackedPath.ts pages/_app.tsx tests/unit/components/trackerExclusion.test.ts
 git commit -m "feat(share): the public share page is not tracked"
 ```
+
+---
+
+### Task 17: Redact share tokens in request logging and Sentry tags (controller-added)
+
+**Why:** `src/lib/api-error-handler.ts` logs `req.url` and `req.query` verbatim; `src/lib/observability/requestLogger.ts` logs the path; `src/lib/sentry/tags.ts` sends the path to Sentry. A share link `/share/<token>` would put a working credential into journalctl and a third-party service. Granted to WS3 as additive one-line changes in each file (no other edits there).
+
+**Files:**
+- Modify: `src/lib/api-error-handler.ts` (wrap the logged URL and, if `req.query` carries a `token` key, redact it), `src/lib/observability/requestLogger.ts`, `src/lib/sentry/tags.ts` — each through `redactShareToken` from `src/modules/accounting/services/share/shareResolver.ts` (move `redactShareToken` to `src/lib/observability/redactShareToken.ts` so `src/lib` does not import from a module; re-export from the service).
+- Test: `tests/unit/lib/observability/redactShareToken.test.ts` plus one test per logging site that the logged/tagged value for `/share/<43-char token>?x=1` contains `[token]` and never the token.
+
+- [ ] Write the failing tests (three sites + helper).
+- [ ] Move the helper; apply it at each site; nothing else changes in those files (diff must be ≤ 3 lines each).
+- [ ] Run the tests, `bun run type-check`, `bun run lint`; run the pre-existing tests for those three files if any (`grep -rl api-error-handler tests/unit`).
+- [ ] Commit: `fix(observability): share tokens never reach request logs or Sentry` with the trailer.
+
+---
+
+### Task 18: Scope the pack figures' account join to the company (controller-added)
+
+**Why:** `getFinancialFigures` (in `src/modules/accounting/services/reports/reportPackDataService.ts` or wherever it lives; find it) joins `gl_accounts` without `ga.company_id = je.company_id`. Under RLS (authenticated page) the foreign account is invisible, so the page is R450 out; on the share path (pool superuser, no RLS) the line is classified through another tenant's account, so the shared pack disagrees with the owner's page by R450 (Brightsphere JE-2026-00002 → Dotbiz account 1140). Granted to WS3 as a one-predicate change plus a test.
+
+**Files:** the file holding `getFinancialFigures` (additive predicate only), `tests/unit/services/reports/getFinancialFiguresScoping.test.ts`.
+
+- [ ] Failing test: with `sql` mocked, assert the query text for the figures aggregation contains a `gl_accounts`…`company_id` predicate bound to the company parameter (assert on the bound params and the SQL text both), and a second test using the repo's integration harness (non-skipping without `DATABASE_URL`) that Brightsphere's `getFinancialFigures` for 2026-03-01..2026-08-31 excludes the R450 line: total assets minus (liabilities + equity) equals the SAME value the authenticated balance-sheet page shows (fetch via `getBalanceSheet` under a `set_config('app.current_company_id', …, true)` in the test transaction) — i.e. the two paths agree.
+- [ ] Add `AND ga.company_id = je.company_id` (or the equivalent parameter predicate) to every `gl_accounts` join in that function; nothing else changes.
+- [ ] Run the tests, `bun run type-check`, `bun run lint`; commit `fix(reports): pack figures classify only through the company's own accounts` with the trailer.
+- [ ] In the report, record the agreed figure for Brightsphere before and after.
+
+---
+
+### Task 19: `useCommentary` hook and `CommentaryPanel` container (controller-added)
+
+**Why:** Task 11's `CommentaryBlock` is presentational; nothing fetches rows or calls approve/reject/regenerate with role gating. WS2's integration must only mount a component.
+
+**Files:** `src/components/accounting/commentary/useCommentary.ts`, `src/components/accounting/commentary/CommentaryPanel.tsx`, `tests/unit/components/commentary/CommentaryPanel.dom.test.tsx`.
+
+**Interfaces:** `useCommentary({ reportKind, paramsHash | { type, from, to }, sectionRef })` → `{ rows, loading, error, generate(replace?), approve(id), reject(id), refresh() }` calling the Task 10 routes through `apiFetch` with `assertOk`/`res.ok` (never `?? []`), CSRF header as `apiFetch` sends; `CommentaryPanel({ sectionRef, mode, canApprove })` renders `CommentaryBlock` with callbacks wired only when `canApprove` (owner/admin from the current user context; find the existing hook the executive dashboard or AppLayout uses for role) and surfaces `error` inline.
+
+- [ ] RED DOM tests: loads rows for the section; approve calls the route with the id and refreshes; a 403 from the route shows an inline error and leaves the row unchanged; non-approver sees no buttons; `generate` with `replace` only when confirmed.
+- [ ] Implement; `bun run type-check`, `bun run lint`, `bun run test:components`.
+- [ ] Commit `feat(commentary): container that fetches, approves and regenerates with role gating` with the trailer.

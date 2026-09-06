@@ -25,7 +25,7 @@ async function calculateRetainedEarnings(companyId: string, asAtDate: string, co
       COALESCE(SUM(CASE WHEN ga.account_type = 'expense' THEN jl.debit - jl.credit ELSE 0 END), 0) AS expenses
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID
@@ -112,7 +112,7 @@ async function fetchBalanceSheetData(companyId: string, asAtDate: string, costCe
       COALESCE(SUM(jl.credit), 0) AS total_credit
     FROM gl_journal_lines jl
     JOIN gl_journal_entries je ON je.id = jl.journal_entry_id
-    JOIN gl_accounts ga ON ga.id = jl.gl_account_id
+    JOIN gl_accounts ga ON ga.id = jl.gl_account_id AND ga.company_id = ${companyId}::UUID
     WHERE je.status = 'posted'
       AND je.company_id = ${companyId}::UUID
       AND jl.company_id = ${companyId}::UUID

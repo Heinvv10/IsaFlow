@@ -9,6 +9,7 @@ Tiny set of pure validation helpers for dates, UUIDs, and integer query paramete
 - `UUID_RE` — `/^[0-9a-f]{8}-...-[0-9a-f]{12}$/i` regex constant
 - `isValidDate(s) → boolean` — passes `DATE_RE` AND `Date.parse` (rejects calendar-invalid dates like `2024-02-30`)
 - `isValidUUID(s) → boolean` — validates standard UUID v4 format
+- `isUuidParam(value) → value is string` — the guard for a Next.js dynamic route parameter: narrows `string | string[] | undefined` AND checks `UUID_RE`. Use this in a route rather than writing the regex out again.
 - `safeInt(value, fallback, max?) → number` — parses an unknown to int; returns `fallback` on NaN; clamps to `[1, max]` (default max = 1000)
 
 ## Dependencies

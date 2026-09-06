@@ -103,4 +103,18 @@ describe('logRequestCompleted', () => {
     expect(entry.data.userId).toBeNull();
     expect(entry.data.companyId).toBeNull();
   });
+
+  it('redacts a share token out of the logged route', async () => {
+    const token = 'A'.repeat(43);
+    await runWithRequestContext('rid-F', async () => {
+      logRequestCompleted({
+        req: makeReq({ url: `/share/${token}?x=1` }),
+        res: makeRes(200),
+        startMs: Date.now(),
+      });
+    });
+    const entry = lines.map((l) => JSON.parse(l.trim())).find((p) => p.data?.event === 'request_completed');
+    expect(entry.data.route).toBe('/share/[token]');
+    expect(JSON.stringify(entry)).not.toContain(token);
+  });
 });

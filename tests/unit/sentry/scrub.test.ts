@@ -102,4 +102,38 @@ describe('scrubEvent', () => {
     expect(out!.request!.query_string as string).toContain('[REDACTED]');
     expect(out!.request!.query_string as string).toContain('safe=ok');
   });
+
+  it('redacts a share token out of request.url', () => {
+    const token = 'A'.repeat(43);
+    const event: Event = {
+      request: { url: `https://app.isaflow.co.za/share/${token}?x=1` },
+    };
+    const out = scrubEvent(event);
+    expect(out!.request!.url).toBe(`https://app.isaflow.co.za/share/[token]?x=1`);
+    expect(out!.request!.url).not.toContain(token);
+  });
+
+  it('redacts a share token out of event.transaction', () => {
+    const token = 'A'.repeat(43);
+    const event: Event = { transaction: `/share/${token}` };
+    const out = scrubEvent(event);
+    expect(out!.transaction).toBe('/share/[token]');
+    expect(out!.transaction).not.toContain(token);
+  });
+
+  it('redacts a share token out of breadcrumb data.url', () => {
+    const token = 'A'.repeat(43);
+    const event: Event = {
+      breadcrumbs: [
+        { category: 'fetch', data: { url: `/share/${token}`, method: 'GET' } },
+        { category: 'ui.click', message: 'clicked button' },
+      ],
+    };
+    const out = scrubEvent(event);
+    const [fetchCrumb, uiCrumb] = out!.breadcrumbs!;
+    expect(fetchCrumb.data!.url).toBe('/share/[token]');
+    expect(fetchCrumb.data!.method).toBe('GET');
+    expect(JSON.stringify(fetchCrumb)).not.toContain(token);
+    expect(uiCrumb.message).toBe('clicked button');
+  });
 });
