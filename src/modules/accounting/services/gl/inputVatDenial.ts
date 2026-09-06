@@ -105,6 +105,19 @@ export async function resolveVatCodeForAccount(
   `) as DbRow[];
 
   const account = rows[0];
+  // ONLY s17(2)(a) lives here. The sibling guard — nonSupplyVatGuard, for
+  // accounts on which no supply arises at all — is deliberately NOT chained
+  // in: this resolver is also what writes the LLM and smart-learning
+  // SUGGESTIONS, which a human reviews on the bank screen. Coercing a
+  // suggestion would rewrite 'standard' to 'none' before anyone saw it, and
+  // the screen's warning keys off 'standard', so the human would be shown a
+  // plain "No VAT" with no hint that anything was decided for them. That is
+  // the "silently strip a legitimate claim" failure the split exists to avoid.
+  // The unattended POSTERS call that guard themselves, through
+  // `gl/ruleVatResolution`: `autoPostRuleLine` (rule sweep),
+  // `autoPostGateService.sweep` (confidence gate) and
+  // `provisionalPostingService.postProvisional` (the gate's import branch,
+  // which predicts its own code from history). Three of them, not one.
   return applyVatDenial(Boolean(account?.vat_input_denied), requested, {
     companyId,
     glAccountId,
