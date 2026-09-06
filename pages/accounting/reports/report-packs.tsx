@@ -30,6 +30,22 @@ const PACK_CONFIGS: Array<{ type: PackType; label: string; description: string; 
 ];
 
 /**
+ * How long the server told us to wait, in whole seconds.
+ *
+ * `Retry-After` is optional and `apiResponse.tooManyRequests` does not
+ * currently set one, so the absent case is the NORMAL case rather than an
+ * error path — the message just drops the countdown. The header's HTTP-date
+ * form is not read: this endpoint's limiter is a fixed window in seconds, and
+ * guessing at a date form nothing sends would be untested code.
+ */
+export function retryAfterSeconds(headers: { get(name: string): string | null }): number | null {
+  const raw = headers.get('Retry-After');
+  if (raw === null) return null;
+  const seconds = Number(raw.trim());
+  return Number.isInteger(seconds) && seconds > 0 ? seconds : null;
+}
+
+/**
  * The page has two entirely separate lives: the interactive screen below, and
  * the printed pack the PDF renderer photographs. They are sibling components
  * rather than one component with an early return — each owns its own hooks,
@@ -73,6 +89,10 @@ function ReportPacksScreen() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState<'pdf' | 'pptx' | null>(null);
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
+  /** Set when the last pack request was refused for rate limiting. `seconds`
+   *  is null when the server sent no Retry-After, which it currently never
+   *  does — the notice then says to wait a moment rather than name a number. */
+  const [rateLimited, setRateLimited] = useState<{ seconds: number | null } | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
 
@@ -97,10 +117,25 @@ function ReportPacksScreen() {
 
     void (async () => {
       try {
-        const res = await apiFetch(`/api/accounting/reports-pack?type=${selectedType}&from=${from}&to=${to}`).then(r => r.json());
+        const res = await apiFetch(`/api/accounting/reports-pack?type=${selectedType}&from=${from}&to=${to}`);
         if (stale) return;
-        if (res.data?.pack) setPack(res.data.pack);
-        if (res.data) setUnclassified(res.data.unclassifiedAccounts ?? null);
+
+        // `apiFetch` RESOLVES on a 4xx, so a 429 used to fall through to
+        // .json(), produce an envelope with no `data`, and leave the screen
+        // blank with no spinner and no message — indistinguishable from a
+        // company with no ledger. The limit is per company and shared with
+        // every other report, so a reader who exported a few packs hits it
+        // without doing anything unusual.
+        if (res.status === 429) {
+          setRateLimited({ seconds: retryAfterSeconds(res.headers) });
+          return;
+        }
+        setRateLimited(null);
+
+        const body = await res.json();
+        if (stale) return;
+        if (body.data?.pack) setPack(body.data.pack);
+        if (body.data) setUnclassified(body.data.unclassifiedAccounts ?? null);
       } catch (err) {
         if (stale) return;
         log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) });
@@ -177,6 +212,16 @@ function ReportPacksScreen() {
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} />
+          {rateLimited && (
+            <div
+              role="status"
+              className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400"
+            >
+              Too many report requests. {rateLimited.seconds === null
+                ? 'Please try again in a moment.'
+                : `Please try again in ${rateLimited.seconds} seconds.`}
+            </div>
+          )}
           {/* Pack Type Selector */}
           <div className="grid grid-cols-3 gap-4">
             {PACK_CONFIGS.map(cfg => (
