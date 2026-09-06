@@ -31,7 +31,7 @@ describe('PresentSlide distinguishes a failed fetch from no renderer', () => {
     expect(container.textContent).not.toContain('no presentation renderer');
   });
 
-  it('still shows the generic message for trends when nothing failed (e.g. still loading)', () => {
+  it('still shows the generic message for trends when nothing failed and nothing is in flight', () => {
     const { container } = render(
       <PresentSlide slide={TRENDS_SLIDE} {...BASE_PROPS} />,
     );

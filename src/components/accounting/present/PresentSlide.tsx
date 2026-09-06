@@ -32,14 +32,22 @@ function SlideNote({ title, children }: { title: string; children: string }) {
 }
 
 export function PresentSlide({
-  slide, income, trends, trendsFailed, budget, budgetedCount, budgetFailed,
+  slide, income, incomeLoading = false,
+  trends, trendsFailed, trendsLoading = false,
+  budget, budgetedCount, budgetFailed, budgetLoading = false,
 }: {
   slide: Slide;
   income: IncomeStatementReport | null;
+  /** The income-statement fetch is in flight. A slide in flight is NOT a
+   *  slide that failed, and saying "could not be loaded" over a request that
+   *  is still running is a claim nobody checked. */
+  incomeLoading?: boolean;
   trends: AccountTrends | null;
   /** The trends fetch rejected. Distinct from "still loading" and from "this
    *  pack has no trends slide" — only this state gets an error message. */
   trendsFailed: boolean;
+  /** The trends fetch is in flight. See `incomeLoading`. */
+  trendsLoading?: boolean;
   budget: BudgetVsActualLine[];
   /** Mirrors `useStatementComparators`: `applyBudgetComparator` runs only
    *  when a real budget was captured, never on an empty one. */
@@ -48,6 +56,9 @@ export function PresentSlide({
    *  captured" (`budgetedCount === 0`) — only a real failure gets an error
    *  message here. */
   budgetFailed: boolean;
+  /** The budget-comparator fetch is in flight. Distinct from "no budget was
+   *  captured", which is a fact about the tenant, not about the request. */
+  budgetLoading?: boolean;
 }) {
   if (slide.kind === 'cover') {
     return (
@@ -62,7 +73,9 @@ export function PresentSlide({
     if (!income) {
       return (
         <SlideNote title={slide.title}>
-          The income statement for this period could not be loaded.
+          {incomeLoading
+            ? 'Loading the income statement for this period…'
+            : 'The income statement for this period could not be loaded.'}
         </SlideNote>
       );
     }
@@ -99,6 +112,9 @@ export function PresentSlide({
         </>
       );
     }
+    if (trendsLoading) {
+      return <SlideNote title={slide.title}>Loading the trend data for this period…</SlideNote>;
+    }
     if (trendsFailed) {
       return (
         <SlideNote title={slide.title}>
@@ -116,6 +132,9 @@ export function PresentSlide({
           <BudgetBulletRow lines={budget} limit={8} />
         </>
       );
+    }
+    if (budgetLoading) {
+      return <SlideNote title={slide.title}>Loading the budget data for this period…</SlideNote>;
     }
     if (budgetFailed) {
       return (

@@ -32,6 +32,13 @@ export default function PresentPackPage() {
   const [budgetedCount, setBudgetedCount] = useState(0);
   const [budgetFailed, setBudgetFailed] = useState(false);
   const [income, setIncome] = useState<IncomeStatementReport | null>(null);
+  // One flag per fetch, not one for the batch. The deck renders as soon as
+  // the PACK resolves, which is before any of these three have landed — so
+  // without them the income slide says "could not be loaded" and the trends
+  // slide says "no renderer yet" about requests that are still in flight.
+  const [incomeLoading, setIncomeLoading] = useState(false);
+  const [trendsLoading, setTrendsLoading] = useState(false);
+  const [budgetLoading, setBudgetLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -49,6 +56,12 @@ export default function PresentPackPage() {
     let live = true;
     setTrendsFailed(false);
     setBudgetFailed(false);
+    // Set BEFORE the pack fetch, not after it: `setSlides` and these flags
+    // land in the same render, so a deck can never appear with all three
+    // reading "not loading, no data".
+    setIncomeLoading(true);
+    setTrendsLoading(true);
+    setBudgetLoading(true);
 
     const load = async () => {
       try {
@@ -75,6 +88,7 @@ export default function PresentPackPage() {
           setTrendsFailed(true);
           log.error('Account trends failed to load', { error: trendsResult.reason }, 'present');
         }
+        setTrendsLoading(false);
         if (budgetResult.status === 'fulfilled') {
           setBudget(budgetResult.value.lines);
           setBudgetedCount(budgetResult.value.budgetedCount);
@@ -82,14 +96,24 @@ export default function PresentPackPage() {
           setBudgetFailed(true);
           log.error('Budget comparator failed to load', { error: budgetResult.reason }, 'present');
         }
+        setBudgetLoading(false);
         if (incomeResult.status === 'fulfilled') {
           setIncome(incomeResult.value);
         } else {
           log.error('Income statement failed to load', { error: incomeResult.reason }, 'present');
         }
+        setIncomeLoading(false);
       } catch (err) {
         if (live) setError(err instanceof Error ? err.message : String(err));
         log.error('Presentation pack failed to load', { error: err }, 'present');
+        // The pack fetch threw, so the three comparator fetches were never
+        // started. Leaving them "loading" would spin those slides forever
+        // behind an error banner nobody can page past.
+        if (live) {
+          setTrendsLoading(false);
+          setBudgetLoading(false);
+          setIncomeLoading(false);
+        }
       }
     };
 
@@ -100,12 +124,16 @@ export default function PresentPackPage() {
   const renderSlide = useCallback(
     (slide: Slide) => (
       <PresentSlide
-        slide={slide} income={income}
-        trends={trends} trendsFailed={trendsFailed}
-        budget={budget} budgetedCount={budgetedCount} budgetFailed={budgetFailed}
+        slide={slide} income={income} incomeLoading={incomeLoading}
+        trends={trends} trendsFailed={trendsFailed} trendsLoading={trendsLoading}
+        budget={budget} budgetedCount={budgetedCount}
+        budgetFailed={budgetFailed} budgetLoading={budgetLoading}
       />
     ),
-    [income, trends, trendsFailed, budget, budgetedCount, budgetFailed],
+    [
+      income, incomeLoading, trends, trendsFailed, trendsLoading,
+      budget, budgetedCount, budgetFailed, budgetLoading,
+    ],
   );
 
   const exit = useCallback(() => {

@@ -46,11 +46,16 @@ backspace go back; Home and End jump; Escape exits.
   comparator is applied only when a real budget was captured, never against
   an implicit budget of zero. `[pack].tsx` fetches it from
   `reports-budget-comparator`'s `budgetedCount` alongside `lines`.
-  `trendsFailed` / `budgetFailed` distinguish a rejected fetch from "no data
-  captured yet": the trends and ratios slides fall through to the generic
-  "no presentation renderer yet" message only when nothing failed, and show
-  an explicit "could not be loaded" message when `[pack].tsx`'s
-  `Promise.allSettled` reports a rejection.
+  Three states, never two. `trendsLoading` / `budgetLoading` /
+  `incomeLoading` mean the request is IN FLIGHT, `trendsFailed` /
+  `budgetFailed` mean it rejected, and neither of those is "no data was
+  captured". The deck is rendered as soon as the PACK fetch resolves, which
+  is before any of the three behind it have landed — so without the loading
+  flags the income slide claimed "could not be loaded" and the trends slide
+  "no presentation renderer yet" about requests that were still running.
+  `[pack].tsx` sets all three flags before the pack fetch, clears each one
+  as its `Promise.allSettled` result is read, and clears all three if the
+  pack fetch itself throws (the comparator fetches never started).
 - `[pack].tsx` renders an explicit "Unknown pack" error (via the same error
   state as a pack-fetch failure) once `router.isReady`, rather than spinning
   forever on an unrecognised `pack` type or a missing `from`/`to` range.
