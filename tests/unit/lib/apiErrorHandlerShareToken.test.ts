@@ -77,6 +77,29 @@ describe('withErrorHandler — share token redaction', () => {
     expect(JSON.stringify(requestCall)).not.toContain(TOKEN);
   });
 
+  it('redacts a share_token key too — the name only has to CONTAIN token', async () => {
+    // The regression: the URL redactor matched any parameter name containing
+    // `token` while this site matched a key named exactly `token`, so
+    // `?share_token=<token>` was stripped from the URL string and written out
+    // in full from req.query on the same log line.
+    const { req, res } = makeReqRes(`/api/share?share_token=${TOKEN}`, { share_token: TOKEN });
+    const handler = withErrorHandler(async () => {});
+    await handler(req, res);
+
+    const requestCall = apiLoggerInfo.mock.calls.find((c) => c[0]?.type === 'request');
+    expect(requestCall?.[0].query).toEqual({ share_token: '[token]' });
+    expect(JSON.stringify(requestCall)).not.toContain(TOKEN);
+  });
+
+  it('leaves a query with no token-named key untouched', async () => {
+    const { req, res } = makeReqRes('/api/accounting/share/links', { type: 'board', from: '2026-08-01' });
+    const handler = withErrorHandler(async () => {});
+    await handler(req, res);
+
+    const requestCall = apiLoggerInfo.mock.calls.find((c) => c[0]?.type === 'request');
+    expect(requestCall?.[0].query).toEqual({ type: 'board', from: '2026-08-01' });
+  });
+
   it('redacts the token out of the error log line', async () => {
     const { req, res } = makeReqRes(`/share/${TOKEN}`);
     const handler = withErrorHandler(async () => {

@@ -7,7 +7,7 @@ import { runWithRequestContext, generateRequestId } from '@/lib/observability/re
 import { logRequestCompleted } from '@/lib/observability/requestLogger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { safeCorsOrigin } from '@/lib/cors';
-import { redactShareToken } from '@/lib/observability/redactShareToken';
+import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
 
 const SENSITIVE_KEYS = new Set([
   'password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key',
@@ -110,7 +110,7 @@ export function withErrorHandler(
           type: 'request',
           method: req.method,
           url: safeUrl,
-          query: req.query?.token ? { ...req.query, token: '[token]' } : req.query,
+          query: redactTokenParams(req.query),
           body: req.method !== 'GET' ? sanitizeBody(req.body) : undefined,
         }, `API Request: ${req.method} ${safeUrl}`);
 

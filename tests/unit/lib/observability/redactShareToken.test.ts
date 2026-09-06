@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { redactShareToken } from '@/lib/observability/redactShareToken';
+import { redactShareToken, redactTokenParams } from '@/lib/observability/redactShareToken';
 
 const TOKEN = 'A'.repeat(43);
 
@@ -26,5 +26,21 @@ describe('redactShareToken', () => {
 
   it('handles empty and undefined-ish input', () => {
     expect(redactShareToken('')).toBe('');
+  });
+});
+
+describe('redactTokenParams', () => {
+  it('redacts every key whose NAME contains token, whatever the case', () => {
+    expect(redactTokenParams({ token: 'a', share_token: 'b', csrfToken: 'c', type: 'board' }))
+      .toEqual({ token: '[token]', share_token: '[token]', csrfToken: '[token]', type: 'board' });
+  });
+
+  it('returns the same object when nothing is token-named', () => {
+    const q = { type: 'board', from: '2026-08-01' };
+    expect(redactTokenParams(q)).toBe(q);
+  });
+
+  it('passes an absent query straight through', () => {
+    expect(redactTokenParams(undefined)).toBeUndefined();
   });
 });
