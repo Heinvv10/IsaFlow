@@ -29,4 +29,8 @@ backspace go back; Home and End jump; Escape exits.
   `reports-income-statement` and maps it with `toIncomeStatementRows` rather
   than reading the pack section, because the pack's income-statement section
   carries band totals with no `accountCode` and the trend/budget comparators
-  need one.
+  need one. Its `budgetedCount` prop mirrors
+  `useStatementComparators`'s guard via `hasBudgetData` — the budget
+  comparator is applied only when a real budget was captured, never against
+  an implicit budget of zero. `[pack].tsx` fetches it from
+  `reports-budget-comparator`'s `budgetedCount` alongside `lines`.

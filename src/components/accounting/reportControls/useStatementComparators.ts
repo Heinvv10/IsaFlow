@@ -24,7 +24,7 @@ import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/b
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import {
-  applyBudgetComparator, applyTrend,
+  applyBudgetComparator, applyTrend, hasBudgetData,
 } from '@/modules/accounting/services/reports/statementRows/comparators';
 
 /** What the budget fetch has established so far. `unknown` covers both "not
@@ -105,7 +105,7 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
     // the comparator then prints a variance equal to the whole actual against
     // a target nobody set — a large red bar that is an artefact, not a
     // finding. The column stays empty and the page says why.
-    if (budget && budgetData && budgetData.budgetedCount > 0) {
+    if (budget && budgetData && hasBudgetData(budgetData.budgetedCount)) {
       out = applyBudgetComparator(out, budgetData.lines);
     }
     return out;
@@ -117,7 +117,7 @@ export function useStatementComparators(opts: StatementComparatorOptions): State
       ? 'failed'
       : budgetData === null
         ? 'unknown'
-        : budgetData.budgetedCount > 0 ? 'available' : 'none';
+        : hasBudgetData(budgetData.budgetedCount) ? 'available' : 'none';
 
   return {
     apply,

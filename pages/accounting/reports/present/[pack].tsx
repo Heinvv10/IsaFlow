@@ -28,6 +28,7 @@ export default function PresentPackPage() {
   const [slides, setSlides] = useState<Slide[] | null>(null);
   const [trends, setTrends] = useState<AccountTrends | null>(null);
   const [budget, setBudget] = useState<BudgetVsActualLine[]>([]);
+  const [budgetedCount, setBudgetedCount] = useState(0);
   const [income, setIncome] = useState<IncomeStatementReport | null>(null);
   const [error, setError] = useState('');
 
@@ -61,6 +62,7 @@ export default function PresentPackPage() {
         }
         if (budgetResult.status === 'fulfilled') {
           setBudget(budgetResult.value.lines);
+          setBudgetedCount(budgetResult.value.budgetedCount);
         } else {
           log.error('Budget comparator failed to load', { error: budgetResult.reason }, 'present');
         }
@@ -80,8 +82,10 @@ export default function PresentPackPage() {
   }, [packType, from, to]);
 
   const renderSlide = useCallback(
-    (slide: Slide) => <PresentSlide slide={slide} income={income} trends={trends} budget={budget} />,
-    [income, trends, budget],
+    (slide: Slide) => (
+      <PresentSlide slide={slide} income={income} trends={trends} budget={budget} budgetedCount={budgetedCount} />
+    ),
+    [income, trends, budget, budgetedCount],
   );
 
   const exit = useCallback(() => {

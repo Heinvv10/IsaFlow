@@ -53,6 +53,18 @@ function isAccountLine(row: StatementRow): boolean {
   return row.kind === 'line' && row.accountCode !== undefined;
 }
 
+/**
+ * No budget captured means every account's budget is zero, and applying the
+ * comparator then prints a variance equal to the whole actual against a
+ * target nobody set — a large red bar that is an artefact, not a finding.
+ * Every caller of `applyBudgetComparator` — the statement pages via
+ * `useStatementComparators` and the presentation deck via `PresentSlide` —
+ * must check this before calling it, so the rule lives in one place.
+ */
+export function hasBudgetData(budgetedCount: number): boolean {
+  return budgetedCount > 0;
+}
+
 export function applyTrend(rows: StatementRow[], trends: AccountTrends): StatementRow[] {
   return rows.map((row) => {
     if (!isAccountLine(row)) return row;

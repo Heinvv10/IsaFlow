@@ -9,7 +9,7 @@ import { SmallMultiples } from '@/components/accounting/charts/SmallMultiples';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
-import { applyBudgetComparator, applyTrend } from '@/modules/accounting/services/reports/statementRows/comparators';
+import { applyBudgetComparator, applyTrend, hasBudgetData } from '@/modules/accounting/services/reports/statementRows/comparators';
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import type { IncomeStatementReport } from '@/modules/accounting/types/gl.types';
 import type { Slide } from './presentSlides';
@@ -17,12 +17,15 @@ import type { Slide } from './presentSlides';
 const COLUMNS = { prior: false, budget: true, variance: true, trend: true } as const;
 
 export function PresentSlide({
-  slide, income, trends, budget,
+  slide, income, trends, budget, budgetedCount,
 }: {
   slide: Slide;
   income: IncomeStatementReport | null;
   trends: AccountTrends | null;
   budget: BudgetVsActualLine[];
+  /** Mirrors `useStatementComparators`: `applyBudgetComparator` runs only
+   *  when a real budget was captured, never on an empty one. */
+  budgetedCount: number;
 }) {
   if (slide.kind === 'cover') {
     return (
@@ -43,7 +46,7 @@ export function PresentSlide({
     }
     const base = toIncomeStatementRows(income, { comparative: false });
     const withTrend = trends ? applyTrend(base, trends) : base;
-    const rows = applyBudgetComparator(withTrend, budget);
+    const rows = hasBudgetData(budgetedCount) ? applyBudgetComparator(withTrend, budget) : withTrend;
     return (
       <>
         <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
