@@ -35,6 +35,17 @@ const PARAMS = { type: 'board', from: '2026-03-01', to: '2026-08-31' } as const;
 
 let admin: Pool;
 
+// Every token this file ever hands to resolveShareLink charges a
+// `share:token:<hash>` row in rate_limit_counters (see withinRateLimits in
+// shareResolver.ts). Tracked here so afterAll can delete exactly those rows —
+// scoped by fixture key, never a blanket TRUNCATE that could hit another
+// worktree's concurrent run against the same isaflow_dev database.
+const resolvedTokens: string[] = [];
+async function resolve(token: unknown, ctx = CTX) {
+  if (typeof token === 'string') resolvedTokens.push(token);
+  return resolveShareLink(token, ctx);
+}
+
 beforeAll(async () => {
   admin = new Pool({ connectionString: DATABASE_URL, max: 2 });
   await admin.query(
@@ -49,13 +60,22 @@ afterAll(async () => {
   await admin.query(`DELETE FROM company_users WHERE user_id = $1`, [UA]);
   await admin.query(`DELETE FROM users WHERE id = $1`, [UA]);
   await admin.query(`DELETE FROM companies WHERE id IN ($1,$2)`, [CA, CB]);
+  // Scoped by the exact fixture keys only — the per-IP key for CTX.ip and one
+  // per-token key for every token this file actually resolved — never a
+  // pattern DELETE that could touch a concurrent worktree's rate-limit rows
+  // on the same isaflow_dev database.
+  const rateLimitKeys = [
+    `share:ip:${CTX.ip}`,
+    ...resolvedTokens.map((t) => `share:token:${hashShareToken(t)}`),
+  ];
+  await admin.query(`DELETE FROM rate_limit_counters WHERE key = ANY($1)`, [rateLimitKeys]);
   await admin.end();
 });
 
 describe('share link lifecycle', () => {
   it('a fresh token resolves to the company that created it', async () => {
     const { link, token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
-    const r = await resolveShareLink(token, CTX);
+    const r = await resolve(token);
     expect(r.status).toBe('ok');
     if (r.status === 'ok') {
       expect(r.link.companyId).toBe(CA);
@@ -72,15 +92,22 @@ describe('share link lifecycle', () => {
   });
 
   it('listShareLinks never returns a token or a hash to the caller', async () => {
-    await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
+    const { token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
     const links = await listShareLinks(CA);
-    expect(JSON.stringify(links)).not.toContain('token');
+    const serialized = JSON.stringify(links);
+    expect(serialized).not.toContain('token');
+    // The string check above only proves the shape has no field NAMED token —
+    // it says nothing about whether the raw secret or its hash leaked under a
+    // differently-named key. Assert the actual values are absent too.
+    expect(serialized).not.toContain(token);
+    expect(serialized).not.toContain(hashShareToken(token));
   });
 
   it('an unminted token is not_found, and records no view', async () => {
     const before = (await admin.query(
       `SELECT COUNT(*)::int c FROM share_link_views WHERE company_id IN ($1,$2)`, [CA, CB])).rows[0].c;
-    expect((await resolveShareLink(mintShareToken(), CTX)).status).toBe('not_found');
+    const unminted = mintShareToken();
+    expect((await resolve(unminted)).status).toBe('not_found');
     const after = (await admin.query(
       `SELECT COUNT(*)::int c FROM share_link_views WHERE company_id IN ($1,$2)`, [CA, CB])).rows[0].c;
     expect(after).toBe(before);
@@ -88,7 +115,7 @@ describe('share link lifecycle', () => {
 
   it('a revoked token stops resolving immediately and the attempt is audited', async () => {
     const { link, token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
-    const first = await resolveShareLink(token, CTX);
+    const first = await resolve(token);
     expect(first.status).toBe('ok');
     // Mirrors pages/share/[token].tsx: an 'ok' view is only ever recorded once
     // the caller commits it, after it has built the pack.
@@ -96,7 +123,7 @@ describe('share link lifecycle', () => {
       await commitShareView({ id: first.link.id, companyId: first.link.companyId }, CTX);
     }
     expect(await revokeShareLink(CA, link.id, UA)).toBe(true);
-    expect((await resolveShareLink(token, CTX)).status).toBe('revoked');
+    expect((await resolve(token)).status).toBe('revoked');
     const { rows } = await admin.query(
       `SELECT outcome FROM share_link_views WHERE share_link_id = $1 ORDER BY viewed_at`, [link.id]);
     expect(rows.map((r: { outcome: string }) => r.outcome)).toEqual(['ok', 'revoked']);
@@ -105,19 +132,19 @@ describe('share link lifecycle', () => {
   it('an expired token does not resolve', async () => {
     const { link, token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
     await admin.query(`UPDATE share_links SET expires_at = NOW() - INTERVAL '1 second' WHERE id = $1`, [link.id]);
-    expect((await resolveShareLink(token, CTX)).status).toBe('expired');
+    expect((await resolve(token)).status).toBe('expired');
   });
 
   it('company B cannot revoke company A\'s link', async () => {
     const { link, token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
     expect(await revokeShareLink(CB, link.id, 'attacker')).toBe(false);
-    expect((await resolveShareLink(token, CTX)).status).toBe('ok');
+    expect((await resolve(token)).status).toBe('ok');
   });
 
   it('view_count and last_viewed_at advance only when the caller commits a successful view', async () => {
     const { link, token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
     for (let i = 0; i < 2; i++) {
-      const r = await resolveShareLink(token, CTX);
+      const r = await resolve(token);
       expect(r.status).toBe('ok');
       if (r.status === 'ok') {
         await commitShareView({ id: r.link.id, companyId: r.link.companyId }, CTX);

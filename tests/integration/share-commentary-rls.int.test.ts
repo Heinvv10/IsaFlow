@@ -24,6 +24,7 @@ import { createShareLink } from '@/modules/accounting/services/share/shareLinkSe
 import { resolveShareLink, commitShareView } from '@/modules/accounting/services/share/shareResolver';
 import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
 import { canonicalParamsHash } from '@/modules/accounting/services/share/shareParams';
+import { hashShareToken } from '@/modules/accounting/services/share/shareToken';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL || DATABASE_URL.includes('dummy.neon.tech')) {
@@ -37,6 +38,18 @@ const UB = 'ws3-rls-user-B';
 const PARAMS = { type: 'board', from: '2026-03-01', to: '2026-08-31' } as const;
 
 let admin: Pool;
+
+// Every ip/token combination this file hands to resolveShareLink charges a
+// row in rate_limit_counters (see withinRateLimits in shareResolver.ts).
+// Tracked here so afterAll can delete exactly those rows — scoped by fixture
+// key, never a pattern DELETE that could touch a concurrent worktree's rows
+// against the same isaflow_dev database.
+const RESOLVE_IPS = ['203.0.113.10', '203.0.113.11'];
+const resolvedTokens: string[] = [];
+async function resolve(token: string, ctx: { ip: string; userAgent: string }) {
+  resolvedTokens.push(token);
+  return resolveShareLink(token, ctx);
+}
 
 beforeAll(async () => {
   admin = new Pool({ connectionString: DATABASE_URL, max: 2 });
@@ -68,6 +81,11 @@ afterAll(async () => {
   await admin.query(`DELETE FROM company_users WHERE user_id IN ($1,$2)`, [UA, UB]);
   await admin.query(`DELETE FROM users WHERE id IN ($1,$2)`, [UA, UB]);
   await admin.query(`DELETE FROM companies WHERE id IN ($1,$2)`, [CA, CB]);
+  const rateLimitKeys = [
+    ...RESOLVE_IPS.map((ip) => `share:ip:${ip}`),
+    ...resolvedTokens.map((t) => `share:token:${hashShareToken(t)}`),
+  ];
+  await admin.query(`DELETE FROM rate_limit_counters WHERE key = ANY($1)`, [rateLimitKeys]);
   await admin.end();
 });
 
@@ -115,14 +133,17 @@ describe('RLS on the WS3 tables', () => {
     }
   });
 
-  it('resolveShareLink still resolves as app_user with NO tenant GUC set (pool bypasses RLS; this path does not)', async () => {
+  it('resolveShareLink depends on the pool\'s superuser role, not app_user — it never switches role, and would fail here if that role could not bypass RLS', async () => {
     // Pins the documented dependency in shareResolver.ts: the public resolve
     // path runs on the pool's superuser connection, which bypasses RLS by
     // design, because an unauthenticated visitor has no session to carry a
-    // company GUC. This is not exercised through `admin` at all — it goes
-    // through the real service, exactly as the public share page does.
+    // company GUC. This test never issues SET LOCAL ROLE app_user at all —
+    // it calls the real service exactly as the public share page does, on
+    // the plain pool connection — so a future change that routed this path
+    // through a restricted role would fail here rather than silently altering
+    // behaviour.
     const { token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
-    const r = await resolveShareLink(token, { ip: '203.0.113.11', userAgent: 'vitest' });
+    const r = await resolve(token, { ip: '203.0.113.11', userAgent: 'vitest' });
     expect(r.status).toBe('ok');
     if (r.status === 'ok') expect(r.link.companyId).toBe(CA);
   });
@@ -144,7 +165,7 @@ describe('a share link publishes approved text only', () => {
     // this row and leak it — proven by the mutation in the PR description.
 
     const { token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
-    const r = await resolveShareLink(token, { ip: '203.0.113.10', userAgent: 'vitest' });
+    const r = await resolve(token, { ip: '203.0.113.10', userAgent: 'vitest' });
     expect(r.status).toBe('ok');
     if (r.status !== 'ok') return;
 
