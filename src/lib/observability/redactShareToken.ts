@@ -27,7 +27,8 @@ export function isTokenParamName(name: string): boolean {
  *
  *  Lives under `src/lib` (rather than the accounting module it protects) so
  *  that `src/lib` logging/observability code does not import from
- *  `src/modules`; the service re-exports this for its own callers. */
+ *  `src/modules`. There is no barrel and no re-export: every caller imports
+ *  `@/lib/observability/redactShareToken` directly. */
 export function redactShareToken(url: string): string {
   if (!url) return url;
   return url.replace(TOKEN_IN_PATH, '$1[token]').replace(TOKEN_IN_QUERY, '$1[token]');

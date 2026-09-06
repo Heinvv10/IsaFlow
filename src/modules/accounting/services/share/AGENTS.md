@@ -9,18 +9,18 @@ Read-only share links for a report pack: mint, list, revoke (authenticated) and 
 ## Caller contract
 - Authenticated: `pages/api/accounting/share/links*` under `withAuth`, company from the session.
 - Unauthenticated: `pages/share/[token].tsx` (getServerSideProps only). **The resolver runs on the pool connection, which is a SUPERUSER and bypasses RLS** — the `share_links` / `share_link_views` policies are `TO app_user` and no unauthenticated visitor has a session to carry a tenant GUC. The `company_id` predicate carried by every downstream query IS the tenancy control here; RLS is the second line, not the first. Do not "fix" this by making the public page run as `app_user`.
-- `shareParams.ts` and `shareTtl.ts` are db-free. A browser component must import `clampTtlDays` from `shareTtl` — `shareParams` pulls in `node:crypto` and fails the webpack build (guarded by `tests/unit/components-bundle-safety/shareBundleSafety.test.ts`).
+- `shareParams.ts` and `shareTtl.ts` are db-free and re-export nothing. `clampTtlDays` comes from `shareTtl`; `SharePackParams` and `canonicalParamsHash` come from `@/modules/accounting/services/reports/packParamsHash`, which pulls in `node:crypto` and is therefore server-only (`import type` is safe; a value import from a browser component fails the webpack build, guarded by `tests/unit/components-bundle-safety/shareBundleSafety.test.ts`).
 
 ## Main signatures
 - `createShareLink({ companyId, userId, params, label?, ttlDays? })` → `{ link, token }`. The raw token is returned ONCE and never again. Throws `ShareLinkLimitError` at `MAX_LIVE_LINKS` (100).
 - `listShareLinks(companyId)` / `revokeShareLink(companyId, id, userId) → boolean`.
 - `resolveShareLink(token, ctx) → { status: 'ok' | 'expired' | 'revoked' | 'not_found' | 'rate_limited' }`; `commitShareView(link, ctx)`; `recordShareView(link, outcome, ctx, exec?)`.
-- `buildSharedPack(link) → SharedPack`; `stripOmittedSections(pack)`; `parseSharePackParams(raw)`, `canonicalParamsHash(params)`, `mintShareToken`/`hashShareToken`/`isShareTokenShape`.
+- `buildSharedPack(link) → SharedPack`; `stripOmittedSections(pack)`; `parseSharePackParams(raw)`, `mintShareToken`/`hashShareToken`/`isShareTokenShape`. `canonicalParamsHash` lives in `reports/packParamsHash.ts`.
 
 ## Business rules
 - **Neutral 404.** Unknown, expired and revoked are ONE outcome to the caller: same page, same status, same props. Distinguishing them makes the route an oracle — a prober could tell "never existed" from "withdrawn", which is a fact about the company. Rate limiting is the only separate answer.
 - Expiry and revocation are checked on every view, on the row the lookup found. Withdrawal is immediate; there is no TTL to wait out and no expiry embedded in the token.
-- Only the sha256 of a token is stored. Never log a raw token, a token hash or a URL from this path — put `redactShareToken` (`@/lib/observability`) around any URL that is logged.
+- Only the sha256 of a token is stored. Never log a raw token, a token hash or a URL from this path — put `redactShareToken` (`@/lib/observability/redactShareToken` — there is no `@/lib/observability` barrel) around any URL that is logged.
 - The rate limiter fails CLOSED: an outage answers `rate_limited`, never `ok`.
 - Every hit that matches a row is audited, dead links included. A live view is audited by `commitShareView` AFTER the pack is built, never before.
 - Only approved commentary is published (`status = 'approved'`). Annotations are never on this path.
@@ -31,3 +31,6 @@ Read-only share links for a report pack: mint, list, revoke (authenticated) and 
 - 2026-09-06: `cash_flow` joined `OMITTED_SECTIONS`. `buildSectionData` synthesizes it (operating cash flow = net profit, investing and financing = 0), which is a placeholder on the owner's screen and a false statement of cash movement on a document sent to a bank. It returns when the section is built from the ledger.
 - 2026-09-06: the public page reads the client IP through `getClientIp` (`@/lib/rateLimit`) — LAST forwarded hop, pentest H8 — instead of its own first-hop parser. `user_agent` is bounded once, in `recordShareView`.
 - 2026-09-06: `/share/` is excluded from the service worker in both `public/sw.js` and `_app.tsx`; a cached pack served offline after revocation defeats the only control the sender has.
+
+## Known follow-ups
+- The app-wide `AuthProvider` in `_app.tsx` runs on `/share/<token>` too, so the public page fires `/api/auth/me` and takes a 401 the recipient never sees a consequence of. Nothing leaks — the 401 is the correct answer for a caller with no session, and the page renders entirely from `getServerSideProps` — but a third party being shown one document should not be causing an auth call at all. WS2 is adding a `skipFetch` gate to that provider; extending it to `/share/*` (via `isSharePath`) is the fix, at integration, once both branches are on master.
