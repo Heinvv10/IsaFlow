@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
 import { buildPackDocument, RATIO_FORMATS, UnknownPackSectionError, type PackKvItem } from '@/modules/accounting/services/packs/packDocument';
+import { MissingPackFieldError } from '@/modules/accounting/services/packs/packSectionData';
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
@@ -110,6 +111,65 @@ describe('buildPackDocument', () => {
     const untagged = numericKeys.filter((k) => !(k in RATIO_FORMATS));
     expect(untagged).toEqual([]);
     expect(numericKeys.length).toBeGreaterThan(30);
+  });
+
+  /**
+   * ADVERSARIAL MEDIUM-1: the cash-flow section was read by string key through
+   * a `num()` that returned 0 for a missing one, so a rename in
+   * `reportPackService` produced six labelled zeros — a plausible statement of
+   * nothing, with no compile error. The structural "INVENTS NO FIGURE" test
+   * above cannot catch it: 0 is in the pack's own number set.
+   */
+  describe('the cash-flow section', () => {
+    const cashFlowItems = (doc: ReturnType<typeof buildPackDocument>) => {
+      const section = doc.sections.find((s) => s.type === 'cash_flow')!;
+      return (section.blocks.find((b) => b.kind === 'kv') as { items: PackKvItem[] }).items;
+    };
+
+    it('prints each line under its own label, with the figure the service produced', () => {
+      const source = pack.sections.find((s) => s.type === 'cash_flow')!.data as Record<string, number>;
+      const items = cashFlowItems(buildPackDocument(pack, TREND));
+
+      expect(items.map((i) => i.label)).toEqual([
+        'Operating Cash Flow', 'Investing Cash Flow', 'Financing Cash Flow',
+        'Net Cash Flow', 'Opening Cash', 'Closing Cash',
+      ]);
+      expect(items.map((i) => i.value)).toEqual([
+        source.operatingCashFlow, source.investingCashFlow, source.financingCashFlow,
+        source.netCashFlow, source.openingCash, source.closingCash,
+      ]);
+      // Not all zero — a document of zeros would satisfy the labels alone.
+      expect(items.some((i) => i.value !== 0)).toBe(true);
+      expect(items.every((i) => i.format === 'money')).toBe(true);
+    });
+
+    it('throws rather than printing a zero when a field is renamed upstream', () => {
+      const renamed = {
+        ...pack,
+        sections: pack.sections.map((s) => (s.type !== 'cash_flow' ? s : {
+          ...s,
+          // Exactly what a rename looks like from here: the value is still in
+          // the blob, under a name this file does not read.
+          data: { ...s.data, operatingCashFlow: undefined, operating_cash_flow: s.data.operatingCashFlow },
+        })),
+      };
+      expect(() => buildPackDocument(renamed, TREND)).toThrow(MissingPackFieldError);
+      expect(() => buildPackDocument(renamed, TREND)).toThrow(/operatingCashFlow/);
+    });
+  });
+
+  it.each([
+    ['kpis', 'scorecard'],
+    ['waterfall', 'steps'],
+    ['commentary', 'summary'],
+    ['ratios', 'notMeaningful'],
+  ])('throws when the %s section loses its %s field', (sectionType, field) => {
+    const stripped = {
+      ...pack,
+      sections: pack.sections.map((s) => (s.type !== sectionType ? s : { ...s, data: { ...s.data, [field]: undefined } })),
+    };
+    expect(() => buildPackDocument(stripped, TREND)).toThrow(MissingPackFieldError);
+    expect(() => buildPackDocument(stripped, TREND)).toThrow(new RegExp(field));
   });
 
   it('throws on a section type it has no blocks for rather than printing a blank page', () => {

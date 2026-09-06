@@ -8,7 +8,12 @@
  * packDocument.test.ts fails if a number appears here that is not in the pack.
  *
  * NOTHING IN THIS FILE COMPUTES A FIGURE. Every value is copied through the
- * mappers in statementRows/packMappers.ts, which are themselves copies.
+ * mappers in statementRows/packMappers.ts and packSectionData.ts, which are
+ * themselves copies. The sections that are not statements — cash flow, KPIs,
+ * the profit bridge, the ratio reasons, the commentary — read their blob
+ * through packSectionData.ts's typed accessors, which THROW on a missing key
+ * rather than defaulting: a rename upstream must fail the render, not print a
+ * plausible statement of zeros.
  */
 import type { PackSection, PackType, ReportPack } from '@/modules/accounting/services/reports/reportPackService';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
@@ -21,6 +26,10 @@ import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpi
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import type { PackTrendPoint } from './packTrendService';
 import { isLandscapeSection, isPackSectionType, packSectionTitle, type PackSectionType } from './packSections';
+import {
+  CASH_FLOW_FIELDS, cashFlowLabel, packToCashFlow, packToCommentary,
+  packToRatioReasons, packToScorecard, packToWaterfallSteps,
+} from './packSectionData';
 
 export interface PackKvItem {
   label: string;
@@ -58,17 +67,6 @@ export interface PackDocument {
   generatedAt: string;
   sections: PackDocumentSection[];
 }
-
-const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-
-const CASH_FLOW_LINES: Array<[string, string]> = [
-  ['Operating Cash Flow', 'operatingCashFlow'],
-  ['Investing Cash Flow', 'investingCashFlow'],
-  ['Financing Cash Flow', 'financingCashFlow'],
-  ['Net Cash Flow', 'netCashFlow'],
-  ['Opening Cash', 'openingCash'],
-  ['Closing Cash', 'closingCash'],
-];
 
 /**
  * Every numeric field `calculateExtendedRatios` returns, and how it must be
@@ -199,16 +197,22 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
     case 'balance_sheet':
       return [{ kind: 'statement', rows: toManagementBsRows(packToBsTotals(d), packToBsDetail(d)) }];
 
-    case 'cash_flow':
+    case 'cash_flow': {
+      // Typed, not read by loose key: a rename upstream throws here rather
+      // than producing six labelled zeros. See packSectionData.ts.
+      const cashFlow = packToCashFlow(d);
       return [{
         kind: 'kv',
-        items: CASH_FLOW_LINES.map(([label, key]) => ({ label, value: num(d[key]), format: 'money' as const })),
+        items: CASH_FLOW_FIELDS.map((field) => ({
+          label: cashFlowLabel(field), value: cashFlow[field], format: 'money' as const,
+        })),
       }];
+    }
 
     case 'ratios': {
       // The service's own reason, copied through — the dashboard prints this
       // same string, and a pack that dropped the row instead disagreed with it.
-      const reasons = (d.notMeaningful as Record<string, string> | undefined) ?? {};
+      const reasons = packToRatioReasons(d);
       return [{
         kind: 'kv',
         items: Object.entries(d)
@@ -222,13 +226,11 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
       }];
     }
 
-    case 'kpis': {
-      const items = (d.scorecard as KPIScorecardItem[] | undefined) ?? [];
-      return [{ kind: 'scorecard', items }];
-    }
+    case 'kpis':
+      return [{ kind: 'scorecard', items: packToScorecard(d) }];
 
     case 'waterfall': {
-      const steps = (d.steps as WaterfallStep[] | undefined) ?? [];
+      const steps = packToWaterfallSteps(d);
       return steps.length > 0
         ? [{ kind: 'waterfall', steps }]
         : [{ kind: 'text', text: 'No profit bridge for this period.' }];
@@ -242,7 +244,7 @@ function blocksFor(sectionType: PackSectionType, section: PackSection, trend: Pa
         : [{ kind: 'text', text: 'No posted journals in the last twelve months.' }];
 
     case 'commentary':
-      return [{ kind: 'text', text: String(d.summary ?? '') }];
+      return [{ kind: 'text', text: packToCommentary(d) }];
 
     default: {
       const unreachable: never = sectionType;
