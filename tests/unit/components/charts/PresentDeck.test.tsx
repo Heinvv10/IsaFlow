@@ -3,7 +3,17 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { PresentDeck } from '@/components/accounting/present/PresentDeck';
 import type { Slide } from '@/components/accounting/present/presentSlides';
 
-afterEach(cleanup);
+// `fullscreenElement` and `exitFullscreen` are defined on the shared
+// `document`. Deleting them on the last line of the test that defined them
+// only runs when the test passes; a failed assertion leaves a fake
+// `exitFullscreen` in place for every test after it.
+afterEach(() => {
+  cleanup();
+  // @ts-expect-error -- test-only teardown of properties defined per test
+  delete document.fullscreenElement;
+  // @ts-expect-error -- test-only teardown of properties defined per test
+  delete document.exitFullscreen;
+});
 
 const SLIDES: Slide[] = [
   { id: 'cover', kind: 'cover', title: 'Cover', data: {} },
@@ -108,10 +118,6 @@ describe('PresentDeck', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onExit).toHaveBeenCalledTimes(1);
     expect(exitFullscreen).toHaveBeenCalledTimes(1);
-    // @ts-expect-error -- test-only cleanup of a property defined only above
-    delete document.fullscreenElement;
-    // @ts-expect-error -- test-only cleanup of a property defined only above
-    delete document.exitFullscreen;
   });
 
   it('does not call exitFullscreen on Escape when the deck is not fullscreen', () => {
@@ -125,7 +131,10 @@ describe('PresentDeck', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onExit).toHaveBeenCalledTimes(1);
     expect(exitFullscreen).not.toHaveBeenCalled();
-    // @ts-expect-error -- test-only cleanup of a property defined only above
-    delete document.exitFullscreen;
+  });
+
+  it('hands the next test a document with no fullscreen stubs on it', () => {
+    expect(document.exitFullscreen).toBeUndefined();
+    expect(document.fullscreenElement).toBeUndefined();
   });
 });

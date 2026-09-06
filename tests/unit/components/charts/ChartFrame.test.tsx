@@ -8,7 +8,22 @@ vi.mock('@/components/charts/EChartClient', () => ({
   ),
 }));
 
-afterEach(cleanup);
+// Global DOM state is restored by the harness, not by the last line of the
+// test that set it: a failing assertion returns early and leaves the `dark`
+// class and the injected stylesheet behind for every test that follows.
+const injected: HTMLStyleElement[] = [];
+function injectThemeStyles(css: string) {
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+  injected.push(style);
+}
+
+afterEach(() => {
+  cleanup();
+  document.documentElement.classList.remove('dark');
+  for (const style of injected.splice(0)) style.remove();
+});
 
 describe('ChartFrame', () => {
   it('states the unit next to the title, so a reader never guesses the scale', () => {
@@ -42,12 +57,10 @@ describe('ChartFrame', () => {
   });
 
   it('re-resolves the palette when the DOM theme class changes, so a client-side toggle repaints every chart', async () => {
-    const style = document.createElement('style');
-    style.textContent = `
+    injectThemeStyles(`
       :root { --ff-text-primary: #111111; }
       .dark { --ff-text-primary: #eeeeee; }
-    `;
-    document.head.appendChild(style);
+    `);
     const seen: string[] = [];
 
     render(
@@ -67,8 +80,13 @@ describe('ChartFrame', () => {
     });
 
     await waitFor(() => expect(seen[seen.length - 1]).not.toBe(initialInk));
+  });
 
-    document.documentElement.classList.remove('dark');
-    document.head.removeChild(style);
+  it('hands the next test a clean document, whatever the previous one did', () => {
+    // Runs after the theme test above. If its cleanup lived on its own last
+    // line instead of in afterEach, a failed assertion there would leave the
+    // `dark` class and the stylesheet here.
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(document.head.querySelectorAll('style')).toHaveLength(0);
   });
 });
