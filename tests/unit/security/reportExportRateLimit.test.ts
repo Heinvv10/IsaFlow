@@ -8,7 +8,7 @@
  * reaches the underlying report/export logic) when the limiter says over.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 vi.mock('@/lib/auth', () => ({
@@ -61,12 +61,31 @@ vi.mock('@/modules/accounting/services/reports/transactionReportingService', () 
 vi.mock('@/modules/accounting/services/reports/casewareExportService', () => ({
   exportCaseWareTB: vi.fn(),
 }));
+// The pack export routes. Stubbed so the "under the limit" case can run past
+// the gate without a browser or a database; the gate itself is what is tested.
+vi.mock('@/lib/pdf/renderPagePdf', () => ({
+  renderPagePdf: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7')),
+}));
+vi.mock('@/modules/accounting/services/reports/reportPackDataService', () => ({
+  getReportPackInput: vi.fn().mockResolvedValue({
+    companyName: 'Co', period: '', revenue: 0, costOfSales: 0, operatingExpenses: 0,
+    netProfit: 0, totalAssets: 0, totalLiabilities: 0, totalEquity: 0,
+    currentAssets: 0, currentLiabilities: 0, cash: 0, accountsReceivable: 0,
+    accountsPayable: 0, inventory: 0,
+  }),
+}));
+vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({ getPackTrend: vi.fn().mockResolvedValue([]) }));
+vi.mock('@/modules/accounting/services/packs/pptxExportService', () => ({
+  renderPackPptx: vi.fn().mockResolvedValue(Buffer.from('PK')),
+}));
 
 vi.mock('@/lib/apiResponse', () => ({
   apiResponse: {
     success: vi.fn(), badRequest: vi.fn(), tooManyRequests: vi.fn(),
-    methodNotAllowed: vi.fn(), notFound: vi.fn(), forbidden: vi.fn(), internalError: vi.fn(),
+    methodNotAllowed: vi.fn(), notFound: vi.fn(), forbidden: vi.fn(),
+    internalError: vi.fn(), error: vi.fn(),
   },
+  ErrorCode: { SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE' },
 }));
 
 import { apiResponse } from '@/lib/apiResponse';
@@ -91,11 +110,19 @@ import casewareExport from '../../../pages/api/accounting/caseware-export';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
 import packsTrend from '../../../pages/api/accounting/packs/[id]/trend';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import packsPdf from '../../../pages/api/accounting/packs/[id]/pdf';
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import packsPptx from '../../../pages/api/accounting/packs/[id]/pptx';
 
 type Handler = (req: NextApiRequest, res: NextApiResponse) => Promise<void>;
 
 function makeRes(): NextApiResponse {
-  const res = { status: vi.fn(), json: vi.fn(), setHeader: vi.fn(), send: vi.fn() } as unknown as NextApiResponse;
+  // `end` as well as `json`/`send`: the pack export routes stream a buffer
+  // through res.status(200).end(...) rather than an apiResponse helper.
+  const res = { status: vi.fn(), json: vi.fn(), setHeader: vi.fn(), send: vi.fn(), end: vi.fn() } as unknown as NextApiResponse;
   (res.status as ReturnType<typeof vi.fn>).mockReturnValue(res);
   return res;
 }
@@ -128,10 +155,26 @@ const CASES: Array<[string, Handler, string, Record<string, unknown>]> = [
   ],
   ['caseware-export', casewareExport as Handler, 'GET', { query: { period_start: '2026-01-01', period_end: '2026-01-31' } }],
   ['packs/[id]/trend', packsTrend as Handler, 'GET', { query: { id: 'monthly', to: '2026-01-31' } }],
+  // The two heaviest of the lot: the PDF route drives a headless browser that
+  // re-enters this API, the PPTX route builds a whole deck in memory. Both
+  // called checkReportRateLimit from the day they landed and neither was
+  // listed here, so a removed gate would have stayed green.
+  ['packs/[id]/pdf', packsPdf as Handler, 'GET', { query: { id: 'monthly', from: '2026-01-01', to: '2026-01-31' } }],
+  ['packs/[id]/pptx', packsPptx as Handler, 'GET', { query: { id: 'monthly', from: '2026-01-01', to: '2026-01-31' } }],
 ];
 
 describe('Report/export endpoints — per-company throttle via checkReportRateLimit', () => {
-  beforeEach(() => vi.clearAllMocks());
+  const ORIGINAL_SECRET = process.env.PRINT_TOKEN_SECRET;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // The PDF route 503s before rendering without a usable secret; the rate
+    // limit is checked first either way, which is what these cases assert.
+    process.env.PRINT_TOKEN_SECRET = 'a'.repeat(32);
+  });
+  afterEach(() => {
+    if (ORIGINAL_SECRET === undefined) delete process.env.PRINT_TOKEN_SECRET;
+    else process.env.PRINT_TOKEN_SECRET = ORIGINAL_SECRET;
+  });
 
   it.each(CASES)('%s returns 429 (via checkReportRateLimit) when over the limit', async (_name, handler, method, extra) => {
     checkReportRateLimitMock.mockResolvedValue(false);
