@@ -98,7 +98,13 @@ export function getPackTemplate(type: PackType): PackSectionConfig[] {
   }
 }
 
-const DEFAULT_KPI_TARGETS: KPITargetConfig[] = [
+/**
+ * Exported (R-P33) so the board pack's curated scorecard (`packs/pages/packScorecard.ts`)
+ * reads the SAME five targets rather than holding its own copy — a second copy
+ * of these numbers is how a target silently diverges between the pack and this
+ * KPI screen.
+ */
+export const DEFAULT_KPI_TARGETS: KPITargetConfig[] = [
   { ratioKey: 'grossProfitMargin', target: 35, warningThreshold: 25, criticalThreshold: 15, lowerIsBetter: false },
   { ratioKey: 'netProfitMargin', target: 15, warningThreshold: 10, criticalThreshold: 5, lowerIsBetter: false },
   { ratioKey: 'currentRatio', target: 1.5, warningThreshold: 1.2, criticalThreshold: 1.0, lowerIsBetter: false },
