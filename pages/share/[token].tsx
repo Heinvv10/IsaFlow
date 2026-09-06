@@ -135,7 +135,16 @@ export const getServerSideProps: GetServerSideProps<PageProps> = async (ctx) => 
     // AFTER the build. A view recorded before it would leave share_link_views
     // claiming a successful view the recipient never saw. A throw from here is
     // a refusal to serve: the pack is not shown unaudited.
-    await commitShareView({ id, companyId }, viewCtx);
+    //
+    // It also re-checks that the link is STILL live, because the build above is
+    // the slowest thing on this path and a sender revoking mid-render is
+    // exactly when they most mean it. `withdrawn` means the pack in hand is
+    // already stale: throw it away and serve the neutral page, the same answer
+    // a link revoked a second earlier would have got.
+    if (await commitShareView({ id, companyId }, viewCtx) === 'withdrawn') {
+      ctx.res.statusCode = 404;
+      return { props: { state: 'unavailable' } };
+    }
 
     // JSON round-trip: getServerSideProps rejects `undefined` anywhere in the
     // tree, and a stripped section has no `data` key at all.

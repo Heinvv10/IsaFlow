@@ -97,7 +97,7 @@ beforeEach(() => {
   buildSharedPack.mockReset();
   commitShareView.mockReset();
   logError.mockReset();
-  commitShareView.mockResolvedValue(undefined);
+  commitShareView.mockResolvedValue('served');
   order.length = 0;
 });
 
@@ -233,6 +233,23 @@ describe('/share/[token] getServerSideProps', () => {
     // tokens that this one is live.
     expect(res.statusCode).toBe(404);
     expect(out).toEqual({ props: { state: 'unavailable' } });
+  });
+
+  it('serves the neutral page, not the pack, when the link is withdrawn mid-build', async () => {
+    // The build reads the whole ledger twice; a sender revoking during it is
+    // exactly when they most mean it. commitShareView re-checks liveness in
+    // its own UPDATE and answers 'withdrawn' — the pack already in hand is
+    // stale and must be thrown away, not rendered.
+    resolveShareLink.mockResolvedValue({ status: 'ok', link: LINK });
+    buildSharedPack.mockResolvedValue(okPack);
+    commitShareView.mockResolvedValue('withdrawn');
+    const { ctx, res } = makeCtx();
+
+    const out = await getServerSideProps(ctx);
+
+    expect(out).toEqual({ props: { state: 'unavailable' } });
+    expect(res.statusCode).toBe(404);
+    expect(JSON.stringify(out)).not.toContain('Brightsphere');
   });
 
   it('degrades the same way when the audit write fails', async () => {

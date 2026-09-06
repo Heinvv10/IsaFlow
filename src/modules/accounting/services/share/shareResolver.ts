@@ -160,28 +160,74 @@ export async function resolveShareLink(token: unknown, ctx: ShareViewContext): P
   return { status: 'ok', link: { id: linkId, companyId, params } };
 }
 
-/** Records a SUCCESSFUL view. Separate from `resolveShareLink` and run after
- *  the pack is built, so a builder failure cannot leave share_link_views
- *  claiming a view the recipient never received. A throw here is a refusal to
- *  serve: the caller must degrade rather than show an unaudited pack.
+/** The serving decision this function hands back. `served` means the link was
+ *  still live at the moment the view was committed; `withdrawn` means it was
+ *  not, and the caller must show the neutral unavailable page instead of the
+ *  pack it has already built. */
+export type ShareViewCommit = 'served' | 'withdrawn';
+
+/** Commits a view. Separate from `resolveShareLink` and run after the pack is
+ *  built, so a builder failure cannot leave share_link_views claiming a view
+ *  the recipient never received. A throw here is a refusal to serve: the caller
+ *  must degrade rather than show an unaudited pack.
  *
- *  `share_link_views_outcome_chk` (migration 610) permits 'ok', 'expired' and
- *  'revoked' only, so a failed build writes NO row rather than a 'failed' one.
+ *  THE LIVENESS CHECK IS REPEATED HERE, in the UPDATE's own WHERE clause, and
+ *  that is the point of the clause rather than an accident of copying. The
+ *  resolve reads `revoked_at` once, and the pack build between the two is the
+ *  slowest thing on this path — it reads the whole ledger twice. A revoke
+ *  committing inside that window used to change nothing: the response went out
+ *  with the figures and the audit trail recorded a plain 'ok'. Revocation is
+ *  the ONLY control a sender has once a link is out, and "withdrawn while the
+ *  page was rendering" is exactly when a sender is most likely to be pressing
+ *  it. Re-checking in the UPDATE is what makes the check race-free: under READ
+ *  COMMITTED the predicate is re-evaluated after the row lock is taken, so a
+ *  revoke that committed while we were building is seen, not missed.
+ *
+ *  Zero rows affected therefore means the link died mid-build. The audit says
+ *  WHICH — 'revoked' or 'expired', read back inside the same transaction — so
+ *  the trail does not claim a withdrawal for a link that simply timed out, and
+ *  no 'ok' row is written for a view that never happened.
  *
  *  One transaction: the audit row and the counter are the same fact. A counter
  *  bumped without an audit row is a view nobody can trace, and an audit row
  *  without a bump makes view_count disagree with the log. Same pattern as the
  *  create-cap lock in shareLinkService. */
-export async function commitShareView(link: ShareLinkIdentity, ctx: ShareViewContext): Promise<void> {
-  await withTransaction(async (tx: TxSql) => {
-    await recordShareView(link, 'ok', ctx, tx);
-    await tx`
+export async function commitShareView(link: ShareLinkIdentity, ctx: ShareViewContext): Promise<ShareViewCommit> {
+  const outcome = await withTransaction(async (tx: TxSql): Promise<ShareViewOutcome> => {
+    const bumped = (await tx`
       UPDATE share_links
       SET view_count = view_count + 1, last_viewed_at = NOW()
       WHERE id = ${link.id}::uuid AND company_id = ${link.companyId}::uuid
-    `;
+        AND revoked_at IS NULL AND expires_at > NOW()
+      RETURNING id
+    `) as DbRow[];
+
+    if (bumped.length === 0) {
+      // Died between the resolve and here. Read the row back to say which, so
+      // the audit trail is accurate rather than merely present.
+      const rows = (await tx`
+        SELECT revoked_at FROM share_links
+        WHERE id = ${link.id}::uuid AND company_id = ${link.companyId}::uuid
+        LIMIT 1
+      `) as DbRow[];
+      const dead: ShareViewOutcome = rows[0]?.revoked_at ? 'revoked' : 'expired';
+      await recordShareView(link, dead, ctx, tx);
+      return dead;
+    }
+
+    await recordShareView(link, 'ok', ctx, tx);
+    return 'ok';
   });
+
+  if (outcome !== 'ok') {
+    log.warn('Share link withdrawn while its pack was being built — not served', {
+      companyId: link.companyId, shareLinkId: link.id, outcome,
+    }, 'share');
+    return 'withdrawn';
+  }
+
   log.info('Share link viewed', { companyId: link.companyId, shareLinkId: link.id }, 'share');
+  return 'served';
 }
 
 /** `ip_address` and `user_agent` are unbounded TEXT and are filled from request
