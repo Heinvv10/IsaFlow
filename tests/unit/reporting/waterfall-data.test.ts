@@ -116,3 +116,51 @@ describe('Variance Waterfall', () => {
     expect(varSteps.some(s => s.value < 0)).toBe(true);   // Costs -10K
   });
 });
+
+describe('buildProfitWaterfall on either sign of revenue', () => {
+  // Both cases measured against isaflow_dev for 2026-03-01..2026-08-31.
+  // aggregateFigures signs revenue credit-less-debit and every expense band
+  // debit-less-credit, so neither is guaranteed positive and this builder
+  // must not force one.
+  it('draws revenue up and operating expenses down for a positive-revenue company', () => {
+    // ISAFlow Demo's own figures.
+    const steps = buildProfitWaterfall({
+      revenue: 71_600, costOfSales: 236_820.13, grossProfit: -165_220.13,
+      operatingExpenses: 162_667.33, otherIncome: 9_770.68, otherExpenses: 0,
+      netProfit: -318_116.78,
+    });
+    const rev = steps.find(s => s.label === 'Revenue')!;
+    const opex = steps.find(s => s.label === 'Operating Expenses')!;
+    expect(rev.start).toBe(0);
+    expect(rev.end).toBeGreaterThan(rev.start);
+    expect(opex.end).toBeLessThan(opex.start);
+  });
+
+  it('draws revenue down and operating expenses up when the ledger says both are negative', () => {
+    // Brightsphere's own figures: revenue accounts in net debit, expense
+    // accounts in net credit. A falling revenue bar is the honest reading,
+    // not a sign bug.
+    const steps = buildProfitWaterfall({
+      revenue: -5_535_000, costOfSales: 0, grossProfit: -5_535_000,
+      operatingExpenses: -3_717_000, otherIncome: -1_000, otherExpenses: -411_237,
+      netProfit: -1_407_763,
+    });
+    const rev = steps.find(s => s.label === 'Revenue')!;
+    const opex = steps.find(s => s.label === 'Operating Expenses')!;
+    expect(rev.end).toBe(-5_535_000);
+    expect(rev.end).toBeLessThan(rev.start);
+    expect(opex.start).toBe(-5_535_000);
+    expect(opex.end).toBe(-1_818_000);
+    expect(opex.end).toBeGreaterThan(opex.start);
+  });
+
+  it('always prints the service figure on the bar, never the bar height', () => {
+    const steps = buildProfitWaterfall({
+      revenue: -5_535_000, costOfSales: 0, grossProfit: -5_535_000,
+      operatingExpenses: -3_717_000, otherIncome: 0, otherExpenses: 0,
+      netProfit: -1_818_000,
+    });
+    expect(steps.find(s => s.label === 'Revenue')!.value).toBe(-5_535_000);
+    expect(steps.find(s => s.label === 'Operating Expenses')!.value).toBe(3_717_000);
+  });
+});

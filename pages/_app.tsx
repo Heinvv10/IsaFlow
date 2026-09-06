@@ -10,6 +10,7 @@ import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { TrackerScript } from '@/components/analytics/TrackerScript';
+import { isSharePath } from '@/lib/paths/isSharePath';
 import '../styles/globals.css';
 import '../styles/print.css';
 
@@ -35,9 +36,28 @@ export default function App({ Component, pageProps }: AppProps) {
   // mistaken "not a print render" could let AuthProvider's mount effect fire.
   // See printRenderQuery.ts.
   const printRender = isPrintRender(router);
+  // The public share page is not tracked: its pathname carries the token.
+  // The same predicate decides the service worker below, because the reason is
+  // the same one — nothing about a share link may be written down client-side.
+  // `isSharePath` is the one definition of that boundary; `isTrackedPath` in
+  // the analytics module is derived from it, and public/sw.js keeps the only
+  // other copy because a worker cannot import from src.
+  const sharePage = isSharePath(router.pathname);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
+    // No service worker on a share link. The recipient is a third party being
+    // shown one document, and a worker installed from that page would go on
+    // caching the pack — token in __NEXT_DATA__ and all — on their disk,
+    // serving it offline after the sender revoked the link. public/sw.js
+    // refuses to cache /share/ regardless; this is the half that stops a
+    // recipient's browser acquiring a worker for this origin at all.
+    //
+    // The dev-only unregister sweep below is skipped on a share path too. It
+    // is a no-op there in practice — this branch never registered a worker
+    // from a share page for it to remove — and leaving one early return for
+    // the whole effect is what keeps the two halves from drifting apart.
+    if (sharePage) return;
 
     if (process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register('/sw.js').catch(() => {
@@ -50,7 +70,7 @@ export default function App({ Component, pageProps }: AppProps) {
         regs.forEach((r) => { void r.unregister(); });
       }).catch(() => { /* non-critical */ });
     }
-  }, []);
+  }, [sharePage]);
 
   return (
     <div>
@@ -64,10 +84,11 @@ export default function App({ Component, pageProps }: AppProps) {
         </ErrorBoundary>
         </TableDensityProvider>
         </ThemeModeProvider>
-        {/* Not during a print render: the headless browser's navigation is a
-            PDF export, not a person visiting a page, and recording it puts a
-            synthetic pageview in the analytics for every export. */}
-        {!printRender && <TrackerScript />}
+        {/* Not on a share page (the pathname is the token) and not during a
+            print render: the headless browser's navigation is a PDF export,
+            not a person visiting a page, and recording it puts a synthetic
+            pageview in the analytics for every export. */}
+        {!sharePage && !printRender && <TrackerScript />}
         <Toaster
           position="top-right"
           containerStyle={{ top: 16, right: 16 }}

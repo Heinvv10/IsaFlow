@@ -46,4 +46,11 @@ describe('sanitizeRoute', () => {
     expect(sanitizeRoute('/api/x?foo=bar&baz=1')).toBe('/api/x');
     expect(sanitizeRoute(undefined)).toBeUndefined();
   });
+
+  it('redacts a share token from the route before it reaches Sentry', () => {
+    const token = 'A'.repeat(43);
+    const out = sanitizeRoute(`/share/${token}?x=1`);
+    expect(out).toBe('/share/[token]');
+    expect(out).not.toContain(token);
+  });
 });

@@ -22,6 +22,14 @@ export interface Comparison {
   favourable?: boolean;
 }
 
+/** WS3: annotation presence on a row. Presentation only — it carries no figure
+ *  and is never summed. Populated client-side by attachNotes, never by an
+ *  adapter, so the adapters stay pure functions of the service report. */
+export interface StatementRowNote {
+  count: number;
+  hasOpen: boolean;
+}
+
 export interface StatementRow {
   id: string;
   kind: StatementRowKind;
@@ -37,6 +45,9 @@ export interface StatementRow {
   /** Account-detail destination. Set, the label renders as a link and the
    * expand chevron becomes a sibling button rather than wrapping it. */
   href?: string;
+  /** WS3: set by attachNotes when this row has internal annotations. Never set
+   *  on a share link — the share loader does not read annotations. */
+  note?: StatementRowNote;
 }
 
 /** The comparator columns, in render order. One entry per named comparator on
@@ -53,6 +64,19 @@ export interface StatementColumns {
   budget: boolean;
   variance: boolean;
   trend: boolean;
+}
+
+/**
+ * What a surface with no comparator controls prints: the prior-period
+ * checkbox alone decides, which is what every caller did before the trend and
+ * budget columns existed. Both statement bodies fall back to this when
+ * `columns` is omitted, and they must fall back to the SAME thing — two
+ * copies of the literal is two default statements, and the first edit to one
+ * of them makes the two surfaces disagree about what "no columns chosen"
+ * means.
+ */
+export function comparativeOnlyColumns(showComparative: boolean): StatementColumns {
+  return { prior: showComparative, budget: false, variance: showComparative, trend: false };
 }
 
 /**

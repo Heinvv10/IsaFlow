@@ -18,6 +18,7 @@ import { isPrintRender } from '@/lib/pdf/printRenderQuery';
 import { isPackType } from '@/modules/accounting/services/packs/packSections';
 import { PackPrintPage } from '@/components/accounting/packs/PackPrintPage';
 import { SectionCard, type PackSection } from '@/components/accounting/packs/PackSectionCard';
+import { PackShareButton, PackCommentary } from '@/components/accounting/packs/PackOwnerTools';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -106,6 +107,10 @@ function ReportPacksScreen() {
   const [rateLimited, setRateLimited] = useState<{ seconds: number | null } | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
+  // The pack the person is LOOKING AT. A share link and its commentary are
+  // both filed under (type, from, to), so a link minted here and the sentences
+  // approved below are about the same document as the figures on screen.
+  const packParams = { type: selectedType, from, to };
 
   /**
    * The pack fetch, with the LATEST request winning.
@@ -217,6 +222,7 @@ function ReportPacksScreen() {
                 {downloading === 'pptx' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Presentation className="h-4 w-4" />}
                 PowerPoint
               </button>
+              <PackShareButton params={packParams} />
             </div>
           </div>
         </div>
@@ -261,6 +267,7 @@ function ReportPacksScreen() {
               {pack.sections.map((section, i) => (
                 <SectionCard key={section.type} section={section} defaultOpen={i === 0} />
               ))}
+              <PackCommentary params={packParams} />
             </div>
           ) : null}
         </div>

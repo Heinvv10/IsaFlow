@@ -16,6 +16,14 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 const useRouterMock = vi.fn();
 vi.mock('next/router', () => ({ useRouter: () => useRouterMock() }));
 
+// The page mounts WS3's owner-side tools, which read the company role from
+// context. These suites render the page outside any provider, and this is not
+// what any of them is about: a viewer's role draws no Share button and no
+// commentary panel, so the surfaces under test are unchanged either way.
+// `tests/unit/components/reports/reportPacksShareMount.test.tsx` is where the
+// role gate itself is held.
+vi.mock('@/contexts/CompanyContext', () => ({ useCompany: () => ({ companyRole: 'viewer' }) }));
+
 vi.mock('@/components/layout/AppLayout', () => ({
   AppLayout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));

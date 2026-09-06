@@ -155,6 +155,23 @@ export class ApiEnvelopeError extends Error {
   }
 }
 
+/** The message to show a person when an `apiFetch`/`apiJson` call failed.
+ *
+ *  `ApiEnvelopeError` carries its own message too: a 2xx whose body is not the
+ *  shape the route promised is a real failure, and saying so beats a generic
+ *  line the reader cannot act on. Anything else — a dropped connection, a
+ *  thrown TypeError — gets the caller's fallback, because its message is about
+ *  the transport and not about what the person was trying to do.
+ *
+ *  One copy, here, next to the two error classes it narrows. Every component
+ *  doing API work needs exactly this, and two private copies had already
+ *  started to drift.
+ */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiRequestError || err instanceof ApiEnvelopeError) return err.message;
+  return fallback;
+}
+
 /**
  * Typed JSON fetch: performs the request, throws on a non-OK status, verifies
  * the `apiResponse` envelope, and returns the unwrapped `data` payload.

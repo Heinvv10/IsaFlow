@@ -3,7 +3,7 @@
 // can be unit-tested directly without loading the Sentry-wrapped next.config.js.
 import { describe, it, expect } from 'vitest';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { buildCsp, securityHeaders } = require('../../../config/securityHeaders');
+const { buildCsp, buildSharePageCsp, securityHeaders } = require('../../../config/securityHeaders');
 
 function directive(csp: string, name: string): string {
   const parts = csp.split(';').map((s) => s.trim());
@@ -100,5 +100,46 @@ describe('securityHeaders — header set', () => {
 
   it('uses the production CSP when NODE_ENV=production', () => {
     expect(get('Content-Security-Policy')?.value).toBe(buildCsp('production'));
+  });
+});
+
+describe('buildSharePageCsp — the public share page', () => {
+  // On /share/<token> the pathname IS the credential. If the Cloudflare zone
+  // has Web Analytics on, the edge injects a beacon that reports location.href
+  // into an analytics product with its own retention and its own readers.
+  const prod = buildSharePageCsp('production');
+  const dev = buildSharePageCsp('development');
+
+  it('drops the Cloudflare Web Analytics script host', () => {
+    expect(buildCsp('production')).toContain('static.cloudflareinsights.com');
+    expect(prod).not.toContain('static.cloudflareinsights.com');
+    expect(dev).not.toContain('static.cloudflareinsights.com');
+  });
+
+  it('drops the host the beacon reports to', () => {
+    expect(directive(prod, 'connect-src')).not.toContain('cloudflareinsights.com');
+    expect(directive(dev, 'connect-src')).not.toContain('cloudflareinsights.com');
+  });
+
+  it('is the site policy MINUS those two hosts, and nothing else', () => {
+    // Derived by subtraction on purpose: the share page must never quietly
+    // fall behind a tightening made to the policy every other route gets.
+    const expected = buildCsp('production')
+      .replaceAll(' https://static.cloudflareinsights.com', '')
+      .replaceAll(' https://cloudflareinsights.com', '');
+    expect(prod).toBe(expected);
+  });
+
+  it('keeps the directives the page actually needs', () => {
+    expect(directive(prod, 'default-src')).toBe("default-src 'self'");
+    expect(directive(prod, 'script-src')).toBe("script-src 'self'");
+    expect(directive(prod, 'connect-src')).toContain("'self'");
+    expect(prod).toContain("frame-ancestors 'none'");
+    expect(prod).toContain("object-src 'none'");
+    expect(prod).toContain('upgrade-insecure-requests');
+  });
+
+  it('leaves the non-share Cloudflare source alone — it is a different host', () => {
+    expect(directive(prod, 'connect-src')).toContain('https://*.cloudflare.com');
   });
 });
