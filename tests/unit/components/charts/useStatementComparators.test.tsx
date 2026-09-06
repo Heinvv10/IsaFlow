@@ -75,6 +75,22 @@ describe('useStatementComparators — the budget signal comes from the service',
   });
 });
 
+describe('useStatementComparators — the balance sheet shape', () => {
+  it('fetches no budget and reports "unknown" when budget is left off entirely', async () => {
+    apiJson.mockResolvedValue(trendsFor(3));
+    // What balance-sheet.tsx passes: no `budget`, no period bounds. A budget
+    // is a P&L figure and its account codes match nothing here.
+    const { result } = renderHook(() => useStatementComparators({
+      trend: true, asOf: '2026-08-31', basis: 'balance' as const,
+    }));
+    await waitFor(() => expect(result.current.apply(ROW())[0]!.trend?.[0]).toBe(3));
+    expect(apiJson.mock.calls.map(c => String(c[0]))).toEqual([
+      '/api/accounting/reports-account-trends?as_of=2026-08-31&basis=balance',
+    ]);
+    expect(result.current.budgetState).toBe('unknown');
+  });
+});
+
 describe('useStatementComparators — stale data', () => {
   it('drops the previous window\'s trend the moment the period changes', async () => {
     let resolveSecond: (v: unknown) => void = () => {};

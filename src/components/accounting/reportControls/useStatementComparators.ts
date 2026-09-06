@@ -41,19 +41,26 @@ export interface StatementComparators {
 
 export interface StatementComparatorOptions {
   trend: boolean;
-  budget: boolean;
+  /**
+   * Whether to fetch the budget column. OMITTED means no: a budget is a P&L
+   * figure, so the balance sheet has no budget to ask for, and it should not
+   * have to pass `budget: false` plus two period bounds that are never read
+   * to say so. Every option the budget fetch needs is optional with it.
+   */
+  budget?: boolean;
   /** Last day of the trend window — the statement's own period end / as-at. */
   asOf: string;
   /** `movement` for P&L accounts, `balance` for balance-sheet accounts. */
   basis: 'movement' | 'balance';
-  periodStart: string;
-  periodEnd: string;
+  /** Required when `budget` is on; the budget fetch's window. */
+  periodStart?: string;
+  periodEnd?: string;
 }
 
 interface BudgetData { lines: BudgetVsActualLine[]; budgetedCount: number }
 
 export function useStatementComparators(opts: StatementComparatorOptions): StatementComparators {
-  const { trend, budget, asOf, basis, periodStart, periodEnd } = opts;
+  const { trend, budget = false, asOf, basis, periodStart = '', periodEnd = '' } = opts;
   const [trends, setTrends] = useState<AccountTrends | null>(null);
   const [trendFailed, setTrendFailed] = useState(false);
   const [trendLoading, setTrendLoading] = useState(false);

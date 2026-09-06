@@ -75,8 +75,7 @@ export default function BalanceSheetPage() {
   const showComparative = columns.prior;
   const anyColumn = columns.prior || columns.trend;
   const { apply, budgetState, trendFailed } = useStatementComparators({
-    trend: columns.trend, budget: false, asOf: asAtDate,
-    basis: 'balance', periodStart: asAtDate, periodEnd: asAtDate,
+    trend: columns.trend, asOf: asAtDate, basis: 'balance',
   });
 
   useEffect(() => {
