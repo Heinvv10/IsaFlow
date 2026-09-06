@@ -22,6 +22,10 @@ needs a reason in the file and a test that pins it.
 - `statementModel.ts` — `StatementRow`, `Comparison`, `StatementColumns`.
 - `incomeStatementRows.ts` — `toIncomeStatementRows(report, opts)`.
 - `balanceSheetRows.ts` — `toBalanceSheetRows(report, opts)` → assets / L+E.
+- `attachNotes.ts` — `attachNotes(rows, annotations)` merges internal-note
+  counts onto rows. It sets `note` and nothing else — no figure is touched —
+  and returns new objects, so an adapter's output is never mutated behind its
+  back. Type-only import of the annotation service, so it stays db-free.
 - `packMappers.ts` — report-pack section blobs → the pack surfaces' shapes,
   including `toManagementPandLRows`, which builds its bands from
   `incomeStatementPackRows` so screen and pack share ONE band list.

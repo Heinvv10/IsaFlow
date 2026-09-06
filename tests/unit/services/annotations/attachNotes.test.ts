@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { attachNotes } from '@/components/accounting/annotations/attachNotes';
+import { attachNotes } from '@/modules/accounting/services/reports/statementRows/attachNotes';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { Annotation } from '@/modules/accounting/services/annotations/annotationService';
 
