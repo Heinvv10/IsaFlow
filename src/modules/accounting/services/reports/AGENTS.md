@@ -137,3 +137,22 @@ suppressible.
 constructs no `Date`. The income-statement PAGE still computes its own in
 milliseconds and compares March against 29 January – 28 February; that fix
 belongs with the convergence PR.
+
+## `trendRowsService` duplicates the balance sheet's shape rules
+
+`getMonthlyBalances` re-implements two rules `balanceSheetService` already
+owns: the signing convention (by `normal_balance`, then negate the
+contra-asset) and the leaf filter (`level >= 3 OR no children`). They are
+copies, not a shared helper, so a change to one is silently a divergence.
+
+What keeps them honest today is `tests/integration/accountTrends.int.test.ts`,
+which foots the series against `getBalanceSheet` itself rather than against a
+SUM written in the test: the last month must equal the printed balance at
+as-of, and month 6 the printed balance at that month end, for every line on
+both tenants. Mutating either rule in the service turns both red. That test
+FAILS without a real `DATABASE_URL` — it does not skip.
+
+**Follow-up:** extract the leaf predicate and the sign expression into one
+shared helper both services call, AFTER WS3 merges. WS3 changed the
+`gl_accounts` join lines in `balanceSheetService.ts`; doing it before then is
+a conflict for no gain, and the footing test above is what makes waiting safe.
