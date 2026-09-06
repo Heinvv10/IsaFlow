@@ -6,7 +6,7 @@
  */
 import type { BalanceSheetLineItem, BalanceSheetReport } from '@/modules/accounting/types/gl.report.types';
 import type { StatementRow } from './statementModel';
-import { priorComparison } from './comparators';
+import { baseComparison } from './comparators';
 
 type Polarity = 'asset' | 'claim'; // claim = liability or equity; going down is favourable for a liability
 
@@ -29,7 +29,7 @@ function lines(items: BalanceSheetLineItem[], polarity: Polarity, opts: RowOptio
     const href = opts.detailHref?.(it.accountCode);
     if (href !== undefined) row.href = href;
     if (comparative && it.priorBalance !== undefined) {
-      row.prior = priorComparison(it.priorBalance, it.variance,
+      row.prior = baseComparison(it.priorBalance, it.variance,
         v => (polarity === 'asset' ? v >= 0 : v <= 0));
     }
     return row;

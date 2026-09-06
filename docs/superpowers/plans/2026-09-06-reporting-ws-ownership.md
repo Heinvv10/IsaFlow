@@ -9,13 +9,13 @@ Read by every executor before Task 1. Files not listed under your workstream are
 - `pages/api/accounting/reports/account-trends.ts`, `pages/api/accounting/reports/budget-comparator.ts` (granted, exact names may differ per plan)
 - `src/modules/accounting/services/reports/statementRows/**` additive (`applyTrend`, `applyBudgetComparator`), `src/modules/accounting/services/reports/trendRows*.ts` / monthly trend service (new files only)
 - `incomeStatementRows.ts` and `balanceSheetRows.ts` routing both row
-  adapters' `prior` through the shared `priorComparison` helper in
+  adapters' `prior` through the shared `baseComparison` helper in
   `comparators.ts`, instead of each adapter building `prior` inline, was
   raised as ungranted by the final review (2026-09-06) — the literal grant
   above covers `statementRows/**` only additively. Accepted by the
   controller as a small shared edit rather than a duplication risk, and
   reviewed across Task 11's rounds 1–2 and the final review. The grant now
-  also covers `priorComparison` computing `variancePct` itself from
+  also covers `baseComparison` computing `variancePct` itself from
   `variance` and `value` (so `budget` and `prior` share one sign
   convention) and applying the zero-base rule (a base of exactly zero keeps
   `variance` but drops `variancePct`, since there is no denominator) —

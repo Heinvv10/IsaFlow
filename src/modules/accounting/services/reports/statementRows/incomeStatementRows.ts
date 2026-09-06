@@ -7,7 +7,7 @@
  */
 import type { IncomeStatementLineItem, IncomeStatementReport } from '@/modules/accounting/types/gl.report.types';
 import type { StatementRow } from './statementModel';
-import { priorComparison } from './comparators';
+import { baseComparison } from './comparators';
 
 type Polarity = 'income' | 'expense';
 
@@ -18,7 +18,7 @@ function lineRows(items: IncomeStatementLineItem[], polarity: Polarity, comparat
       accountCode: it.accountCode, actual: it.amount,
     };
     if (comparative && it.priorAmount !== undefined) {
-      row.prior = priorComparison(it.priorAmount, it.variance,
+      row.prior = baseComparison(it.priorAmount, it.variance,
         v => (polarity === 'income' ? v >= 0 : v <= 0));
     }
     return row;

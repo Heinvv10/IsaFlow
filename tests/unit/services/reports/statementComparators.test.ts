@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyTrend, applyBudgetComparator, priorComparison,
+  applyTrend, applyBudgetComparator, baseComparison,
 } from '@/modules/accounting/services/reports/statementRows/comparators';
 import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
@@ -129,7 +129,7 @@ describe('applyBudgetComparator', () => {
   });
 });
 
-describe('priorComparison', () => {
+describe('baseComparison', () => {
   const fav = (v: number) => v >= 0;
 
   it('keeps the movement against a zero prior, and drops only the percentage', () => {
@@ -138,7 +138,7 @@ describe('priorComparison', () => {
     // not exist — no denominator — and the services' 0 is a placeholder for
     // it, which the grid would otherwise print as "0.0%": a claim of no change
     // beside the largest movement on the statement.
-    const c = priorComparison(0, 500_000, fav);
+    const c = baseComparison(0, 500_000, fav);
     expect(c.value).toBe(0);
     expect(c.variance).toBe(500_000);
     expect(c.favourable).toBe(true);
@@ -146,20 +146,20 @@ describe('priorComparison', () => {
   });
 
   it('still judges polarity against a zero prior', () => {
-    expect(priorComparison(0, -500_000, fav).favourable).toBe(false);
+    expect(baseComparison(0, -500_000, fav).favourable).toBe(false);
   });
 
   it('computes the movement as a percentage of the base when the prior is a real figure', () => {
-    expect(priorComparison(400_000, 100_000, fav))
+    expect(baseComparison(400_000, 100_000, fav))
       .toEqual({ value: 400_000, variance: 100_000, variancePct: 25, favourable: true });
   });
 
   it('judges polarity from the movement, not from the value', () => {
-    expect(priorComparison(400_000, -100_000, fav).favourable).toBe(false);
+    expect(baseComparison(400_000, -100_000, fav).favourable).toBe(false);
   });
 
   it('leaves favourable and variancePct undefined when the service reported no variance', () => {
-    const c = priorComparison(400_000, undefined, fav);
+    const c = baseComparison(400_000, undefined, fav);
     expect(c.favourable).toBeUndefined();
     expect(c.variancePct).toBeUndefined();
   });

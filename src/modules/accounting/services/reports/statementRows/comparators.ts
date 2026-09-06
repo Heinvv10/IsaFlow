@@ -2,7 +2,7 @@
  * Fills the `trend` and `budget` fields the row model reserved for this
  * workstream. Same contract as the other adapters in this directory: every
  * figure is COPIED from a service, nothing is derived — with two exceptions,
- * both inside `priorComparison` and both covered by
+ * both inside `baseComparison` and both covered by
  * `tests/unit/services/reports/statementRows/comparators.test.ts`:
  *
  *   1. `variance` (the MOVEMENT, `actual − base`). `prior.variance` already
@@ -24,7 +24,10 @@ import type { AccountTrends } from '../trendRowsService';
 import type { Comparison, StatementRow } from './statementModel';
 
 /**
- * Build a comparison (prior or budget) for one row.
+ * Build a comparison for one row against a BASE figure — the prior period's
+ * or the budget's. Named for the base, not for `prior`: both callers reach
+ * it, and a name that says `prior` reads as if the budget column were being
+ * built out of a prior-period helper.
  *
  * A base of EXACTLY ZERO is a real comparator, and the movement against it is
  * a real figure: an account that went from nothing to R5.5m moved by R5.5m,
@@ -33,7 +36,7 @@ import type { Comparison, StatementRow } from './statementModel';
  * one cell empty rather than printing a claim of "0.0%" (no change) beside
  * the largest movement on the statement.
  */
-export function priorComparison(
+export function baseComparison(
   value: number,
   variance: number | undefined,
   favourable: (v: number) => boolean,
@@ -41,9 +44,9 @@ export function priorComparison(
   const variancePct = variance !== undefined && value !== 0
     ? (variance / Math.abs(value)) * 100
     : undefined;
-  const prior: Comparison = { value, variance, variancePct };
-  if (variance !== undefined) prior.favourable = favourable(variance);
-  return prior;
+  const comparison: Comparison = { value, variance, variancePct };
+  if (variance !== undefined) comparison.favourable = favourable(variance);
+  return comparison;
 }
 
 /** Only a coded line row carries an account-level comparator. A section,
@@ -84,7 +87,7 @@ export function applyBudgetComparator(
     if (!isAccountLine(row)) return row;
     const line = byCode.get(row.accountCode!);
     if (line === undefined) return row;
-    const budget = priorComparison(
+    const budget = baseComparison(
       line.budget_amount,
       round2(line.actual_amount - line.budget_amount),
       () => line.variance >= 0,

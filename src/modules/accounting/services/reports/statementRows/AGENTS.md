@@ -37,8 +37,10 @@ Adding a fourth exception needs a reason in the file and a test that pins it.
 - `packMappers.ts` — report-pack section blobs → the pack surfaces' shapes,
   including `toManagementPandLRows`, which builds its bands from
   `incomeStatementPackRows` so screen and pack share ONE band list.
-- `comparators.ts` — `priorComparison` (shared by both row adapters and by
-  `applyBudgetComparator`), `applyTrend` and `applyBudgetComparator`. See the
+- `comparators.ts` — `baseComparison` (one comparison against a BASE figure,
+  shared by both row adapters for `prior` and by `applyBudgetComparator` for
+  `budget` — it is not a prior-period helper), `applyTrend` and
+  `applyBudgetComparator`. See the
   exceptions above for the sign rules on `variance` and `variancePct`. Adding
   a third comparator goes here, not into the report adapters.
 

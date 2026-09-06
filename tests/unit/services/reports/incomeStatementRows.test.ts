@@ -81,7 +81,7 @@ describe('toIncomeStatementRows', () => {
     const sales = rows.find(r => r.accountCode === '4000')!;
     // A budget column must be addable without renaming any of these. That is
     // the whole point of the Comparison shape. variancePct is computed by
-    // priorComparison from variance and value (900000 / 4100000 * 100), not
+    // baseComparison from variance and value (900000 / 4100000 * 100), not
     // passed through from the report — see comparators.ts.
     expect(sales.prior).toEqual({
       value: 4100000, variance: 900000, variancePct: 900000 / 4100000 * 100, favourable: true,
