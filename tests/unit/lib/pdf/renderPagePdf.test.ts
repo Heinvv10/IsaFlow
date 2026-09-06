@@ -95,3 +95,33 @@ describe('renderPagePdf — APP_URL', () => {
     }));
   });
 });
+
+/**
+ * buildFooterHtml and buildPdfMetadata (src/lib/pdf/printFurniture.ts) were
+ * unreachable from any real render path: renderPagePdf is the only caller of
+ * the transports and its options carried neither field. The next branch wires
+ * up a caller; this one makes sure it does not have to reopen the pdf library.
+ */
+describe('renderPagePdf — footer and metadata pass-through', () => {
+  const footerHtml = '<div>Acme · Management pack</div>';
+  const metadata = {
+    title: 'Acme — Management pack — 2026', author: 'Acme',
+    subject: 'Management pack for 2026', creator: 'IsaFlow',
+  };
+
+  beforeEach(() => { process.env.APP_URL = 'http://localhost:3200'; });
+
+  it('hands both to the transport', async () => {
+    await renderPagePdf({ ...options, footerHtml, metadata });
+    expect(playwrightRender).toHaveBeenCalledWith(expect.objectContaining({ footerHtml, metadata }));
+  });
+
+  it('omits them entirely when the caller supplies neither', async () => {
+    // Not `undefined` keys: the transports fall back to FOOTER_HTML on absence,
+    // and an explicit undefined would read as a caller decision it is not.
+    await renderPagePdf(options);
+    const request = playwrightRender.mock.calls[0]![0] as Record<string, unknown>;
+    expect(request).not.toHaveProperty('footerHtml');
+    expect(request).not.toHaveProperty('metadata');
+  });
+});

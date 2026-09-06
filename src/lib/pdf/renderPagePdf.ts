@@ -20,7 +20,7 @@ import { ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE, ONBOARDING_DONE_COOKIE } from '@/
 import { chooseTransportName, type TransportName } from './selectTransport';
 import { playwrightTransport } from './transports/playwrightTransport';
 import { gotenbergTransport } from './transports/gotenbergTransport';
-import type { PdfTransport } from './pdfTransport';
+import type { PdfMetadata, PdfTransport } from './pdfTransport';
 import { log } from '@/lib/logger';
 
 export interface RenderPagePdfOptions {
@@ -36,6 +36,13 @@ export interface RenderPagePdfOptions {
    */
   apiPaths?: string[];
   landscape?: boolean;
+  /** Per-pack running footer (src/lib/pdf/printFurniture.ts buildFooterHtml).
+   *  Absent, the transport draws the plain page-number footer. */
+  footerHtml?: string;
+  /** PDF document information dictionary (buildPdfMetadata). Honoured only by
+   *  a transport whose `capabilities.metadata` is true — the Playwright
+   *  fallback warns and drops it. */
+  metadata?: PdfMetadata;
 }
 
 // A small registry rather than a switch: a new transport (Gotenberg) adds
@@ -69,6 +76,11 @@ export async function renderPagePdf(options: RenderPagePdfOptions): Promise<Buff
     url,
     landscape,
     allowedApiPaths: apiPaths,
+    // Spread rather than assign: an explicit `footerHtml: undefined` would be
+    // indistinguishable from a caller asking for no footer, and the transports
+    // fall back to FOOTER_HTML on absence.
+    ...(options.footerHtml !== undefined && { footerHtml: options.footerHtml }),
+    ...(options.metadata !== undefined && { metadata: options.metadata }),
     cookies: [
       { name: ACCESS_COOKIE, value: token, httpOnly: true },
       { name: ACTIVE_COMPANY_COOKIE, value: companyId, httpOnly: false },
