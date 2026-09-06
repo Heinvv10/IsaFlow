@@ -32,8 +32,23 @@
 
 import type { NextRouter } from 'next/router';
 
-export function isPrintRender(router: Pick<NextRouter, 'isReady' | 'query'>): boolean {
-  if (router.isReady) return router.query.print === '1';
+/**
+ * The one page the PDF pipeline renders. The gate is scoped to it because
+ * `?print=1` is not a reserved parameter: any other page could carry one for
+ * its own reasons, and a global gate would silently strip that page's auth and
+ * company context and leave it broken with no error. Only this page has a
+ * print branch, so only this page needs the providers gated.
+ */
+export const PRINT_RENDER_PATH = '/accounting/reports/report-packs';
+
+export function isPrintRender(router: Pick<NextRouter, 'isReady' | 'query' | 'pathname'>): boolean {
+  if (router.isReady) {
+    return router.pathname === PRINT_RENDER_PATH && router.query.print === '1';
+  }
   if (typeof window === 'undefined') return false;
-  return new URLSearchParams(window.location.search).get('print') === '1';
+  // Before the router is ready `pathname` is the route pattern and is already
+  // correct, but the URL is read here for both halves so the not-ready branch
+  // cannot disagree with itself about which page it is on.
+  const { pathname, search } = window.location;
+  return pathname === PRINT_RENDER_PATH && new URLSearchParams(search).get('print') === '1';
 }
