@@ -73,6 +73,23 @@ function sparklineFor(points: PackTrendPoint[], series: (p: PackTrendPoint) => n
   return renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE);
 }
 
+/**
+ * Same as `sparklineFor`, for a series that can be not-meaningful in some
+ * months (gross margin %, debtor days — both null on a no-revenue month,
+ * R-P44/R-P45). Those months are dropped from the line rather than plotted
+ * as a false zero; null when NO month has a meaningful value, same as an
+ * empty trend.
+ */
+function sparklineForNullable(
+  points: PackTrendPoint[],
+  series: (p: PackTrendPoint) => number | null,
+): PackKpiTile['sparklineSvg'] {
+  const defined = points.filter((point) => series(point) !== null);
+  if (defined.length === 0) return null;
+  const trendPoints = defined.map((point) => ({ label: point.label, value: series(point) as number }));
+  return renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE);
+}
+
 function buildTile(
   label: string,
   figure: PackFigure,
@@ -145,12 +162,17 @@ export function buildHighlightTiles(
 
   return [
     buildTile('Revenue', revenue, prior?.revenue ?? null, sparklineFor(trend, (t) => t.revenue)),
-    buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, null),
+    buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, sparklineForNullable(trend, (t) => t.grossMarginPct)),
+    // No monthly otherIncome series exists, so no monthly operating-profit
+    // series can be derived without inventing one — this tile stays without
+    // a sparkline.
     buildTile('Operating profit', operatingProfit, prior ? operatingProfitOf(prior) : null, null),
     buildTile('Net profit', netProfit, prior?.netProfit ?? null, sparklineFor(trend, (t) => t.netProfit)),
-    buildTile('Cash', cash, prior?.cash ?? null, null),
+    buildTile('Cash', cash, prior?.cash ?? null, sparklineFor(trend, (t) => t.cash)),
+    // No monthly totalEquity series exists — same reason as operating profit.
     buildTile('Debt-to-equity', leverage, priorRatios?.debtToEquity ?? null, null, true),
-    buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, null, true),
+    buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, sparklineForNullable(trend, (t) => t.debtorDays), true),
+    // No monthly working-capital series exists — same reason as above.
     buildTile('Working capital', workingCapital, priorRatios?.workingCapital ?? null, null),
   ];
 }

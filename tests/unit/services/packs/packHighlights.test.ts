@@ -192,15 +192,37 @@ describe('buildHighlightTiles', () => {
     expect(grossMargin?.delta).toBeNull();
   });
 
-  it('renders a sparkline for revenue and net profit when a monthly series exists', () => {
+  it('renders a sparkline for every tile whose monthly series exists', () => {
     const tiles = buildHighlightTiles(setWithPrior, trend, new PackFigureProvenance());
-    expect(tiles.find((t) => t.label === 'Revenue')?.sparklineSvg).not.toBeNull();
-    expect(tiles.find((t) => t.label === 'Net profit')?.sparklineSvg).not.toBeNull();
+    for (const label of ['Revenue', 'Gross margin', 'Net profit', 'Cash', 'Debtor days']) {
+      expect(tiles.find((t) => t.label === label)?.sparklineSvg, label).not.toBeNull();
+    }
   });
 
-  it('carries no sparkline when there is no monthly series', () => {
+  it('carries no sparkline for a tile with no monthly series behind it', () => {
+    const tiles = buildHighlightTiles(setWithPrior, trend, new PackFigureProvenance());
+    for (const label of ['Operating profit', 'Debt-to-equity', 'Working capital']) {
+      expect(tiles.find((t) => t.label === label)?.sparklineSvg, label).toBeNull();
+    }
+  });
+
+  it('carries no sparkline when there is no monthly series at all', () => {
     const tiles = buildHighlightTiles(setWithPrior, [], new PackFigureProvenance());
     expect(tiles.find((t) => t.label === 'Revenue')?.sparklineSvg).toBeNull();
+  });
+
+  it('drops a not-meaningful month from the gross-margin and debtor-days sparklines rather than plotting a false value, and omits the sparkline entirely when no month is meaningful', () => {
+    const zeroRevenueTrend: PackTrendPoint[] = trend.map((point) => ({
+      ...point,
+      revenue: 0,
+      grossMarginPct: null,
+      debtorDays: null,
+    }));
+    const tiles = buildHighlightTiles(setWithPrior, zeroRevenueTrend, new PackFigureProvenance());
+    expect(tiles.find((t) => t.label === 'Gross margin')?.sparklineSvg).toBeNull();
+    expect(tiles.find((t) => t.label === 'Debtor days')?.sparklineSvg).toBeNull();
+    // Cash is a balance, not a ratio — still real and still plotted.
+    expect(tiles.find((t) => t.label === 'Cash')?.sparklineSvg).not.toBeNull();
   });
 
   it('records provenance for every figure it emits', () => {
