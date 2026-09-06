@@ -31,7 +31,7 @@ import { hashShareToken } from '@/modules/accounting/services/share/shareToken';
 // Imported from the module that DEFINES it. shareLinkService re-exported it
 // for this test alone, which is not a reason for a public export to exist.
 import { clampTtlDays } from '@/modules/accounting/services/share/shareTtl';
-import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
+import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const OTHER_COMPANY = '22222222-2222-4222-8222-222222222222';

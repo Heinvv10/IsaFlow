@@ -23,7 +23,7 @@ import { Pool } from 'pg';
 import { createShareLink } from '@/modules/accounting/services/share/shareLinkService';
 import { resolveShareLink, commitShareView } from '@/modules/accounting/services/share/shareResolver';
 import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
-import { canonicalParamsHash } from '@/modules/accounting/services/share/shareParams';
+import { canonicalParamsHash } from '@/modules/accounting/services/reports/packParamsHash';
 import { generateDrafts } from '@/modules/accounting/services/commentary/commentaryService';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 import { hashShareToken } from '@/modules/accounting/services/share/shareToken';

@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiJson, ApiEnvelopeError, ApiRequestError } from '@/lib/apiFetch';
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
-import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
+import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 export interface UseCommentaryInput {
   params: SharePackParams;

@@ -45,7 +45,7 @@ import { hashShareToken } from '@/modules/accounting/services/share/shareToken';
 // re-export was dead weight, and its tests below still belong here — this is
 // the file that explains why no URL from the share path may reach a log.
 import { redactShareToken } from '@/lib/observability/redactShareToken';
-import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
+import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 const TOKEN = 'A'.repeat(43);
 const TOKEN_HASH = hashShareToken(TOKEN);

@@ -1,8 +1,8 @@
 /**
  * Split out of `shareParams.ts` so a browser component can use `clampTtlDays`
  * without dragging `canonicalParamsHash`'s `node:crypto` import into its
- * bundle. `shareParams.ts` re-exports this for every other existing caller —
- * only `ShareLinkDialog.tsx` needs to import it from here directly.
+ * bundle. This is now the ONLY module that exports it — `shareParams.ts`
+ * re-exports nothing — so server and browser callers share one import path.
  */
 const MAX_TTL_DAYS = 90;
 const DEFAULT_TTL_DAYS = 30;

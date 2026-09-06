@@ -25,7 +25,7 @@ vi.mock('@/modules/accounting/services/gl/financialFiguresService', async () => 
 }));
 
 import { buildManagementPackData } from '@/modules/accounting/services/commentary/packData';
-import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
+import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const PARAMS: SharePackParams = { type: 'board', from: '2026-04-01', to: '2026-06-30' };

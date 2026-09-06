@@ -14,7 +14,7 @@ import { sql, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { nextStatus, type CommentaryStatus } from './commentaryState';
 import { buildDraftSentences, type CommentaryPackData } from './commentaryDraft';
-import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/share/shareParams';
+import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 export interface CommentaryRow {
   id: string;

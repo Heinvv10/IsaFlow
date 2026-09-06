@@ -14,7 +14,7 @@ import { priorPeriod } from '@/modules/accounting/services/reports/priorPeriod';
 import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 import type { CommentaryPackData } from './commentaryDraft';
-import type { SharePackParams } from '@/modules/accounting/services/share/shareParams';
+import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 type IncomeStatement = ManagementPackData['incomeStatement'];
 

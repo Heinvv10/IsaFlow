@@ -9,7 +9,8 @@
 import { sql, withTransaction, type DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { mintShareToken, hashShareToken } from './shareToken';
-import { clampTtlDays, type SharePackParams } from './shareParams';
+import { clampTtlDays } from './shareTtl';
+import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 export interface ShareLinkRow {
   id: string;

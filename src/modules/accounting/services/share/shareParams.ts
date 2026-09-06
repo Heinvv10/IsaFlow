@@ -1,6 +1,5 @@
 /**
- * The only thing a share link is allowed to point at, and the canonical key
- * commentary is filed under.
+ * Validation of the only thing a share link is allowed to point at.
  *
  * `parseSharePackParams` REBUILDS the object field by field rather than
  * validating in place. That is deliberate: a caller who posts
@@ -8,25 +7,14 @@
  * `share_links.params`, where a later reader might trust it. The company on a
  * link comes from the authenticated session at creation and from the link row
  * at read time, never from params.
+ *
+ * The params type itself, and the hash commentary is filed under, live in
+ * `@/modules/accounting/services/reports/packParamsHash` — neutral ground the
+ * commentary module can import without importing the share module. This file
+ * re-exports NOTHING: every caller imports what it needs from the module that
+ * owns it, so there is one import path per symbol rather than two.
  */
-import { createHash } from 'node:crypto';
-import { clampTtlDays } from './shareTtl';
-
-// Re-exported for existing server-side callers (shareLinkService.ts). A
-// browser component MUST import clampTtlDays from './shareTtl' directly —
-// this file also defines canonicalParamsHash below, which pulls in
-// node:crypto, and any client-component VALUE import of this module drags
-// that import into the browser bundle and fails the webpack build.
-export { clampTtlDays };
-
-const PACK_TYPES = ['board', 'management', 'monthly'] as const;
-export type SharePackType = (typeof PACK_TYPES)[number];
-
-export interface SharePackParams {
-  type: SharePackType;
-  from: string;
-  to: string;
-}
+import { PACK_TYPES, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -43,11 +31,5 @@ export function parseSharePackParams(raw: unknown): SharePackParams | null {
   if (typeof type !== 'string' || !(PACK_TYPES as readonly string[]).includes(type)) return null;
   if (!isIsoDate(r.from) || !isIsoDate(r.to)) return null;
   if (r.from > r.to) return null;
-  return { type: type as SharePackType, from: r.from, to: r.to };
-}
-
-/** sha256 over the fields in a fixed order — the key commentary is filed under,
- *  so the same pack for the same period always resolves the same commentary. */
-export function canonicalParamsHash(p: SharePackParams): string {
-  return createHash('sha256').update(`${p.type}|${p.from}|${p.to}`).digest('hex');
+  return { type: type as SharePackParams['type'], from: r.from, to: r.to };
 }

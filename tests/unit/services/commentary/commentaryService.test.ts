@@ -25,7 +25,7 @@ vi.mock('@/lib/logger', () => ({
 import {
   approveCommentary, rejectCommentary, listCommentary, generateDrafts,
 } from '@/modules/accounting/services/commentary/commentaryService';
-import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/share/shareParams';
+import { canonicalParamsHash, type SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';

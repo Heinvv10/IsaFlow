@@ -25,7 +25,7 @@ vi.mock('@/modules/accounting/services/reports/reportPackService', () => ({
 
 import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
 import type { ResolvedShareLink } from '@/modules/accounting/services/share/shareResolver';
-import { canonicalParamsHash } from '@/modules/accounting/services/share/shareParams';
+import { canonicalParamsHash } from '@/modules/accounting/services/reports/packParamsHash';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const OTHER_COMPANY = '22222222-2222-4222-8222-222222222222';

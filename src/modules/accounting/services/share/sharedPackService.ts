@@ -15,7 +15,7 @@ import {
   buildReportPack, type ReportPack, type ReportPackInput,
 } from '@/modules/accounting/services/reports/reportPackService';
 import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
-import { canonicalParamsHash } from './shareParams';
+import { canonicalParamsHash } from '@/modules/accounting/services/reports/packParamsHash';
 import type { ResolvedShareLink } from './shareResolver';
 
 export interface PublishedCommentary {

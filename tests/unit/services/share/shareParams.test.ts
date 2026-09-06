@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSharePackParams, canonicalParamsHash } from '@/modules/accounting/services/share/shareParams';
+import { parseSharePackParams } from '@/modules/accounting/services/share/shareParams';
 
 describe('parseSharePackParams', () => {
   it('accepts the three pack types with ISO dates', () => {
@@ -20,19 +20,5 @@ describe('parseSharePackParams', () => {
     expect(parseSharePackParams({ type: 'board', from: '2026-08-31', to: '2026-03-01' })).toBeNull();
     expect(parseSharePackParams(null)).toBeNull();
     expect(parseSharePackParams('board')).toBeNull();
-  });
-});
-
-describe('canonicalParamsHash', () => {
-  it('is key-order independent', () => {
-    const a = canonicalParamsHash({ to: '2026-08-31', from: '2026-03-01', type: 'board' });
-    const b = canonicalParamsHash({ type: 'board', from: '2026-03-01', to: '2026-08-31' });
-    expect(a).toBe(b);
-  });
-
-  it('changes when any field changes', () => {
-    const base = canonicalParamsHash({ type: 'board', from: '2026-03-01', to: '2026-08-31' });
-    expect(canonicalParamsHash({ type: 'monthly', from: '2026-03-01', to: '2026-08-31' })).not.toBe(base);
-    expect(canonicalParamsHash({ type: 'board', from: '2026-03-02', to: '2026-08-31' })).not.toBe(base);
   });
 });

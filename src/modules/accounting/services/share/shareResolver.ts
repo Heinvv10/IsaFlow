@@ -33,7 +33,8 @@ import { sql, withTransaction, type DbRow, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { hashShareToken, isShareTokenShape } from './shareToken';
-import { parseSharePackParams, type SharePackParams } from './shareParams';
+import { parseSharePackParams } from './shareParams';
+import type { SharePackParams } from '@/modules/accounting/services/reports/packParamsHash';
 
 export interface ResolvedShareLink {
   id: string;
