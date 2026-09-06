@@ -111,24 +111,30 @@ function stableIds(svg: string): string {
  * renderer is a tracking beacon or an SSRF probe.
  *
  * So this is a runtime check, not just a test: a chart that tried to fetch
- * something is not a chart we print. A handful of anchored checks over the
- * rendered string, deliberately not a parser — the legitimate output of this
- * one code path is narrow and known.
+ * something is not a chart we print. A handful of checks over the rendered
+ * MARKUP, deliberately not a parser — the legitimate output of this one code
+ * path is narrow and known.
  */
 function assertNoExternalReferences(svg: string): void {
-  // The two xmlns declarations are the only URLs in a clean render, and they
-  // are namespace identifiers that are never fetched.
-  const body = svg.replace(/xmlns(:xlink)?="[^"]*"/g, '');
+  // Positional, like the id rewrite above and for the same reason: a pattern
+  // matched anywhere in the string is a pattern matched in DATA. Scanning the
+  // raw markup for an absolute URL aborted a whole pack render on a customer
+  // name containing one — and those arrive from Sage and bank imports. So the
+  // text nodes go first, and what is checked is markup only. A URL sitting in
+  // a text node fetches nothing; every actual fetch surface is an element or
+  // an attribute, and all of them are below.
+  const markup = svg
+    .replace(/>[^<]*</g, '><')
+    .replace(/xmlns(:xlink)?="[^"]*"/g, '');
   const checks: Array<[RegExp, string]> = [
     [/<script\b/i, 'a script element'],
     [/<foreignObject\b/i, 'a foreignObject'],
     [/<image\b/i, 'an image element'],
     [/\son[a-z]+\s*=/i, 'an event-handler attribute'],
     [/\b(?:xlink:)?href\s*=/i, 'an href'],
-    [/https?:\/\//i, 'an absolute URL'],
   ];
   for (const [pattern, what] of checks) {
-    if (pattern.test(body)) {
+    if (pattern.test(markup)) {
       throw new Error(`renderChartSvg: refusing a chart containing an external reference (${what})`);
     }
   }

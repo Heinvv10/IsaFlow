@@ -168,6 +168,24 @@ describe('renderChartSvg', () => {
     expect(() => renderChartSvg(hostile, SIZE)).toThrow(/external reference|renderChartSvg/i);
   });
 
+  it('renders a label that CONTAINS a URL — a label is data, not a reference', () => {
+    // The guard had the same defect as the id rewrite it sits next to: it
+    // matched a pattern anywhere in the string instead of where the pattern
+    // means something. Customer and supplier names arrive from Sage and bank
+    // imports; one containing a URL would have aborted an entire pack render
+    // with an error pointing at security rather than at the data. A URL in a
+    // text node fetches nothing.
+    const label = 'https://acme.example/inv';
+    const svg = renderChartSvg(
+      buildWaterfallOption(
+        LOSS_STEPS.map((step, i) => (i === 0 ? { ...step, label } : step)),
+        DEFAULT_PALETTE,
+      ),
+      SIZE,
+    );
+    expect(svg).toContain(`>${label}<`);
+  });
+
   it('renders every legitimate pack chart without tripping the guard', () => {
     const opt = buildWaterfallOption(LOSS_STEPS, DEFAULT_PALETTE);
     for (const heightMm of Object.values(CHART_HEIGHT_MM)) {
