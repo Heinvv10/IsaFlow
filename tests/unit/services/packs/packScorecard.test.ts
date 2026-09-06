@@ -82,6 +82,17 @@ const negativeEquitySet: PackFigureSet = {
   budget: null,
 };
 
+// Otherwise healthy, but the chart of accounts classifies no inventory at
+// all — `inventory: 0` is an artefact of nothing being identified as stock,
+// not a fact about the business (R-P45).
+const unclassifiedInventorySet: PackFigureSet = {
+  current: figures({ inventory: 0, inventoryCaveat: 'No accounts are classified as inventory.' }),
+  currentWindow: { start: '2026-01-01', end: '2026-01-31' },
+  prior: null,
+  priorWindow: { start: '2025-12-01', end: '2025-12-31' },
+  budget: null,
+};
+
 describe('buildScorecardGroups', () => {
   it('emits between 8 and 10 metrics, never the forty-ratio grid', () => {
     const groups = buildScorecardGroups(healthySet, new PackFigureProvenance());
@@ -152,5 +163,24 @@ describe('buildScorecardGroups', () => {
     expect(interestCover?.status).toBe('notMeaningful');
     expect(interestCover?.actual.value).toBeNull();
     expect(interestCover?.actual.unavailable).toBeTruthy();
+  });
+
+  // R-P45.
+  it('marks cash conversion cycle notMeaningful when no inventory could be identified in the chart of accounts', () => {
+    const groups = buildScorecardGroups(unclassifiedInventorySet, new PackFigureProvenance());
+    const ccc = groups.flatMap((g) => g.rows).find((r) => r.metric.match(/cash conversion cycle/i));
+    expect(ccc?.status).toBe('notMeaningful');
+    expect(ccc?.actual.value).toBeNull();
+    expect(ccc?.actual.unavailable).toBeTruthy();
+  });
+
+  // The negative case: without the pin below, an implementation that always
+  // reports cash conversion cycle as notMeaningful would still pass every
+  // other test in this file — the same unreachable-branch trap as before.
+  it('still scores a real cash conversion cycle when inventory carries no caveat', () => {
+    const groups = buildScorecardGroups(healthySet, new PackFigureProvenance());
+    const ccc = groups.flatMap((g) => g.rows).find((r) => r.metric.match(/cash conversion cycle/i));
+    expect(ccc?.status).not.toBe('notMeaningful');
+    expect(ccc?.actual.value).not.toBeNull();
   });
 });

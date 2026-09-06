@@ -7,14 +7,13 @@
  * Nothing here computes a ratio. `calculateExtendedRatios` and `marginPct`
  * own every number; this file only selects which ten to show, scores them
  * against `DEFAULT_KPI_TARGETS` (R-P33: imported from `reportPackService`,
- * never copied — a second copy is how a target silently diverges between the
- * pack and the KPI screen), and records where each figure came from.
+ * never copied — a second copy is how a target silently diverges), and
+ * records where each figure came from.
  *
  * A ratio divided by non-positive equity is `notMeaningful` with a null
- * value, read from `calculateExtendedRatios`'s own `notMeaningful` map rather
- * than a reason invented here — an insolvent company's negative debt-to-equity
- * would otherwise score as the healthiest possible reading under
- * `lowerIsBetter` (AN-07).
+ * value, read from `calculateExtendedRatios`'s own `notMeaningful` map — an
+ * insolvent company's negative debt-to-equity would otherwise score as the
+ * healthiest possible reading under `lowerIsBetter` (AN-07).
  */
 
 import {
@@ -34,9 +33,7 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 import type { PackScorecardGroup, PackScorecardRow, PackScorecardStatus } from './packPageModel';
 
 /** No turnover-basis reason exists in `calculateExtendedRatios.notMeaningful`
- *  (that map only covers equity-divided ratios), so this one names its own —
- *  a margin on non-positive revenue prints a false-positive percentage
- *  (`marginPct`'s own contract) rather than nothing at all. */
+ *  (equity-divided ratios only), so this one names its own. */
 const NO_TURNOVER_MARGIN = 'Revenue is not positive, so there is no turnover to take a margin of.';
 
 /** `FinancialData` off the pack's own figure shape — nothing computed here,
@@ -63,9 +60,7 @@ function toFinancialData(f: ReportPackFigures): FinancialData {
   };
 }
 
-/** Mirrors `reportingEngineService`'s own operating-line fallback (that
- *  helper is not exported) — other income is above the line, finance cost
- *  and tax are below it. */
+/** Mirrors `reportingEngineService`'s own (unexported) operating-line fallback. */
 function operatingProfitOf(f: ReportPackFigures): number {
   return f.operatingProfit ?? f.revenue - f.costOfSales + (f.otherIncome ?? 0) - f.operatingExpenses;
 }
@@ -183,14 +178,10 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
             : { value: r.debtToEquity },
       },
       {
-        // R-P44: `ReportPackFigures`/`ReportPackInput` carry no interest-expense
-        // field at all, so `calculateExtendedRatios.interestCoverage`'s
-        // `interestExp > 0 ? ... : 0` branch can NEVER fire here — the 0 it
-        // always returns is an artefact of a field this pack never captures,
-        // not a measurement. Printing it would tell a director "this company
-        // cannot service its debt from earnings", the opposite of the true
-        // story ("we don't know"). Always notMeaningful; never read through
-        // to the service's number.
+        // R-P44: the pack captures no interest expense at all, so
+        // `interestCoverage`'s `interestExp > 0 ? ... : 0` branch can never
+        // fire — its 0 is an artefact, not a measurement, and would tell a
+        // director "cannot service debt from earnings" falsely.
         metric: 'Interest cover',
         format: 'ratio',
         source: 'calculateExtendedRatios.interestCoverage',
@@ -217,11 +208,22 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
             : { value: raw.operatingCashFlow },
       },
       {
+        // R-P45: `inventoryCaveat` means "we cannot tell" — inventory is zero
+        // because nothing was identified as stock, not because there is none.
+        // A CCC computed through that zero reads as fast, favourable cash
+        // conversion — wrong the dangerous way, and undetectable downstream.
         metric: 'Cash conversion cycle',
         format: 'days',
         source: 'calculateExtendedRatios.cashConversionCycle',
         lowerIsBetter: true,
-        read: (r) => ({ value: r.cashConversionCycle }),
+        read: (r, raw) =>
+          raw.inventoryCaveat !== null
+            ? {
+                value: null,
+                unavailable:
+                  'No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.',
+              }
+            : { value: r.cashConversionCycle },
       },
     ],
   },
@@ -262,10 +264,9 @@ function buildRow(
 ): PackScorecardRow {
   const actual = recordFigure(p, spec.source, spec.read(ratios, raw), spec.format);
 
-  // R-P42: null only when there is no PRIOR PERIOD at all (`set.prior ===
-  // null`) — a prior period whose own ratio is not meaningful still gets a
-  // `PackFigure`, carrying its own `unavailable` reason, distinct sources so
-  // `assertConsistent` compares actual against actual and prior against prior.
+  // R-P42: null only when there is no PRIOR PERIOD at all — a prior period
+  // whose own ratio isn't meaningful still gets a `PackFigure` with its own
+  // reason, on a distinct source so `assertConsistent` never compares them.
   const prior =
     priorRatios && priorRaw
       ? recordFigure(p, `${spec.source}.prior`, spec.read(priorRatios, priorRaw), spec.format)
@@ -278,10 +279,8 @@ function buildRow(
     target,
     prior,
     status: statusFor(actual.value, target, spec.lowerIsBetter),
-    // No per-metric monthly series reaches this function (only the pack's
-    // revenue/expense/netProfit trend does, and that is `buildHighlightTiles`'s
-    // input, not this one) — R-P43: null is the honest reading, not a
-    // direction guessed off actual-vs-prior.
+    // R-P43: no per-metric monthly series reaches this function (only
+    // `buildHighlightTiles` gets one), so null is honest, not guessed.
     trend: null,
     trendSvg: null,
     bulletSvg: null,
