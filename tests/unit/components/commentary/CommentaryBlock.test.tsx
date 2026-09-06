@@ -33,6 +33,24 @@ describe('CommentaryBlock in published mode', () => {
   });
 });
 
+describe('CommentaryBlock in published mode — a withdrawn approval', () => {
+  // Migration 612: withdrawing an approval moves the row to 'draft' and LEAVES
+  // approved_text in place, so the database still records who signed off.
+  // `approvedText !== null` therefore no longer means "published", and the
+  // status check is what keeps a withdrawn sentence off a shared link.
+  const withdrawn: CommentaryRow[] = [
+    { id: 'w', sectionRef: 'income_statement', rowRef: 'revenue', draftText: 'NEW DRAFT',
+      approvedText: 'WITHDRAWN SENTENCE', status: 'draft', approvedBy: 'u1', approvedAt: '2026-09-01T00:00:00Z' },
+  ];
+
+  it('does not render text whose approval was taken back', () => {
+    const { container } = render(
+      <CommentaryBlock sectionRef="income_statement" rows={withdrawn} mode="published" />,
+    );
+    expect(container.textContent).toBe('');
+  });
+});
+
 describe('CommentaryBlock in internal mode', () => {
   it('shows the draft with an unpublished badge and an approve control', () => {
     render(<CommentaryBlock sectionRef="income_statement" rows={rows} mode="internal" onApprove={vi.fn()} onReject={vi.fn()} />);

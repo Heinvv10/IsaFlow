@@ -4,6 +4,7 @@
  * this component accepts cannot express any of those.
  */
 import { Fragment } from 'react';
+import { CommentaryBlock, type PublishedCommentaryRow } from '@/components/accounting/commentary/CommentaryBlock';
 import { formatMoney } from '@/lib/format/money';
 import { ManagementPandLRows, ManagementBalanceSheetRows } from '@/components/accounting/ManagementPandLRows';
 import {
@@ -19,18 +20,21 @@ export type SharedPackProps = Pick<SharedPack, 'companyName' | 'period' | 'comme
   pack: SharedReportPack;
 };
 
-function CommentaryFor({ sectionRef, commentary }: { sectionRef: string; commentary: PublishedCommentary[] }) {
-  const notes = commentary.filter(c => c.sectionRef === sectionRef);
-  if (notes.length === 0) return null;
-  return (
-    <div className="mt-3 space-y-1">
-      {notes.map(n => (
-        <p key={`${n.sectionRef}:${n.rowRef}`} className="text-sm leading-relaxed text-[var(--ff-text-secondary)]">
-          {n.text}
-        </p>
-      ))}
-    </div>
-  );
+/** The share page's rows onto the ONE published renderer's type.
+ *
+ *  `loadApprovedCommentary` already filtered on `status = 'approved'` and
+ *  `approved_text IS NOT NULL` server-side; restating the status here is what
+ *  lets these rows go through `CommentaryBlock` — which re-checks it — rather
+ *  than through a second renderer with its own, unwritten safety argument.
+ *  There is no id on a published row, so the section/row pair is the key, the
+ *  same one the old local renderer used. */
+function toPublishedRows(commentary: PublishedCommentary[]): PublishedCommentaryRow[] {
+  return commentary.map(c => ({
+    id: `${c.sectionRef}:${c.rowRef}`,
+    sectionRef: c.sectionRef,
+    status: 'approved' as const,
+    approvedText: c.text,
+  }));
 }
 
 /** camelCase key → the words a reader outside the company can follow. */
@@ -47,6 +51,7 @@ function Note({ children }: { children: string }) {
 }
 
 export function SharedPackView({ data }: { data: SharedPackProps }) {
+  const published = toPublishedRows(data.commentary);
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">
       <header className="mb-8 border-b border-[var(--ff-border-light)] pb-4">
@@ -95,7 +100,7 @@ export function SharedPackView({ data }: { data: SharedPackProps }) {
                 ))}
             </dl>
           )}
-          <CommentaryFor sectionRef={section.type} commentary={data.commentary} />
+          <CommentaryBlock mode="published" sectionRef={section.type} rows={published} />
         </section>
       ))}
 

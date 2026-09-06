@@ -1,44 +1,61 @@
 /**
- * Commentary printed directly under the figure it explains.
+ * Commentary printed directly under the figure it explains. THE ONE renderer
+ * for both audiences — the owner's screen and a shared link.
  *
- * `mode` is the whole safety story. `toPublished` strips every row down to
- * `PublishedCommentaryRow` before `PublishedList` ever sees it — that type has
- * no `draftText` field, so the published render path has no code path to a
- * draft, not a conditional that happens to skip it. The share page and the
- * PDF pass 'published'; the app passes 'internal', which adds the draft, the
- * badge and the approve/reject controls.
+ * `mode` is the whole safety story, and it is enforced by the PROPS, not by a
+ * branch. The published arm accepts `PublishedCommentaryRow[]`, which has no
+ * `draftText` field at all — the published render has no code path to a draft,
+ * rather than a conditional that happens to skip one.
+ *
+ * `status` IS in that type and the filter does use it, which looks redundant
+ * next to `approvedText !== null` and is not: since migration 612 a WITHDRAWN
+ * approval keeps its `approved_text` and moves to 'draft', precisely so the
+ * database still records who signed off. Text alone therefore no longer means
+ * published, and dropping the status check would put a withdrawn sentence back
+ * in front of a reader.
+ *
+ * The share page previously had its own second published renderer
+ * (`SharedPackView.CommentaryFor`). Two renderers for the one output that
+ * leaves the building is one too many: the safety argument above has to hold
+ * for whichever one is on the page, and only this file's argument was written
+ * down. The share page now passes its server-side approved rows through here.
+ *
+ * The internal arm takes the full row and adds the draft, the badge and the
+ * approve/reject controls.
  */
 import type { CommentaryRow } from '@/modules/accounting/services/commentary/commentaryService';
 
-export interface CommentaryBlockProps {
-  sectionRef: string;
-  rows: CommentaryRow[];
-  mode: 'internal' | 'published';
-  onApprove?: (id: string) => void;
-  onReject?: (id: string) => void;
-}
+/** Everything the published render needs and nothing it must not have. A full
+ *  `CommentaryRow` satisfies it structurally, so the app can hand its own rows
+ *  straight over; the share page maps its server rows onto it. */
+export type PublishedCommentaryRow = Pick<CommentaryRow, 'id' | 'sectionRef' | 'status' | 'approvedText'>;
 
-type PublishedCommentaryRow = Pick<CommentaryRow, 'id' | 'approvedText'>;
+export type CommentaryBlockProps =
+  | { mode: 'published'; sectionRef: string; rows: PublishedCommentaryRow[] }
+  | {
+      mode: 'internal';
+      sectionRef: string;
+      rows: CommentaryRow[];
+      onApprove?: (id: string) => void;
+      onReject?: (id: string) => void;
+    };
 
-function toPublished(rows: CommentaryRow[], sectionRef: string): PublishedCommentaryRow[] {
-  return rows
-    .filter(r => r.sectionRef === sectionRef && r.status === 'approved' && r.approvedText !== null)
-    .map(r => ({ id: r.id, approvedText: r.approvedText }));
-}
-
-function PublishedList({ rows }: { rows: PublishedCommentaryRow[] }) {
-  if (rows.length === 0) return null;
+function PublishedList({ rows, sectionRef }: { rows: PublishedCommentaryRow[]; sectionRef: string }) {
+  const mine = rows.filter(r => r.sectionRef === sectionRef && r.status === 'approved' && r.approvedText !== null);
+  if (mine.length === 0) return null;
   return (
     <div className="mt-3 space-y-1" data-commentary="published">
-      {rows.map(r => (
+      {mine.map(r => (
         <p key={r.id} className="text-sm leading-relaxed text-[var(--ff-text-secondary)]">{r.approvedText}</p>
       ))}
     </div>
   );
 }
 
-export function CommentaryBlock({ sectionRef, rows, mode, onApprove, onReject }: CommentaryBlockProps) {
-  if (mode === 'published') return <PublishedList rows={toPublished(rows, sectionRef)} />;
+export function CommentaryBlock(props: CommentaryBlockProps) {
+  const { sectionRef, rows, mode } = props;
+  if (mode === 'published') return <PublishedList rows={rows} sectionRef={sectionRef} />;
+  const { onApprove, onReject } = props;
 
   const mine = rows.filter(r => r.sectionRef === sectionRef && r.status !== 'rejected');
   if (mine.length === 0) return null;

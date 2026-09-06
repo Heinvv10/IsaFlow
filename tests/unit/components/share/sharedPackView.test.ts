@@ -160,6 +160,14 @@ describe('SharedPackView', () => {
     }
   });
 
+  it('renders its commentary through the shared CommentaryBlock, not a local copy', () => {
+    // The share page had a second published renderer of its own. One renderer
+    // for the output that leaves the building: the marker below is
+    // CommentaryBlock's, and its absence means a local copy came back.
+    expect(html).toContain('data-commentary="published"');
+    expect(html).not.toContain('data-commentary="internal"');
+  });
+
   it('shows the commentary empty state when no approved note exists', () => {
     expect(html).toContain('No approved commentary for this period.');
   });
