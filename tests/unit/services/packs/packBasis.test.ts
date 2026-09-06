@@ -40,8 +40,29 @@ function setWith(overrides: Partial<PackFigureSet> = {}): PackFigureSet {
   };
 }
 
+const doc = { draft: false, generatedAt: '2026-02-01T00:00:00.000Z' };
+
 describe('buildBasis', () => {
-  it('reads the ledger version off the budget watermark when a budget exists', () => {
+  // R-P46: ledgerVersion is a VALUE the caller supplies (typically
+  // getLedgerPostedThrough's result), never read off set.budget — a budget's
+  // postedThrough is null for any company with no budget, and even when
+  // present it answers a different question ("when was the budget variance
+  // last posted through", not "what ledger state did THIS pack render
+  // against"). Both branches are pinned so an always-unavailable
+  // implementation cannot pass silently.
+  it('renders a supplied ledger version', () => {
+    const basis = buildBasis(setWith(), doc, '2026-01-31T10:00:00.000Z');
+    expect(basis.basisOfPreparation.ledgerVersion).toBe('2026-01-31T10:00:00.000Z');
+  });
+
+  it('states the gap explicitly, never a blank or an invented identifier, when no ledger version is supplied', () => {
+    const basis = buildBasis(setWith(), doc, null);
+    expect(basis.basisOfPreparation.ledgerVersion).toMatch(/unavailable/i);
+    expect(basis.basisOfPreparation.ledgerVersion).not.toBe('');
+    expect(basis.basisOfPreparation.ledgerVersion).not.toBe(doc.generatedAt);
+  });
+
+  it('does not fall back to the budget watermark when no ledger version is supplied', () => {
     const set = setWith({
       budget: {
         fiscalYear: 2026,
@@ -50,14 +71,8 @@ describe('buildBasis', () => {
         postedThrough: '2026-01-31T10:00:00.000Z',
       },
     });
-    const basis = buildBasis(set, { draft: false, generatedAt: '2026-02-01T00:00:00.000Z' });
-    expect(basis.basisOfPreparation.ledgerVersion).toBe('2026-01-31T10:00:00.000Z');
-  });
-
-  it('states the gap plainly rather than passing generatedAt off as a ledger watermark when there is no budget', () => {
-    const set = setWith({ budget: null });
-    const basis = buildBasis(set, { draft: false, generatedAt: '2026-02-01T00:00:00.000Z' });
-    expect(basis.basisOfPreparation.ledgerVersion).not.toBe('2026-02-01T00:00:00.000Z');
+    const basis = buildBasis(set, doc, null);
+    expect(basis.basisOfPreparation.ledgerVersion).not.toBe('2026-01-31T10:00:00.000Z');
     expect(basis.basisOfPreparation.ledgerVersion).toMatch(/unavailable/i);
   });
 
@@ -68,24 +83,24 @@ describe('buildBasis', () => {
         inventoryCaveat: 'No inventory could be identified in the chart of accounts.',
       }),
     });
-    const basis = buildBasis(set, { draft: false, generatedAt: '2026-02-01T00:00:00.000Z' });
+    const basis = buildBasis(set, doc, 'v1');
     expect(basis.caveats).toContain('Some subtypes were unclassified and defaulted to current.');
     expect(basis.caveats).toContain('No inventory could be identified in the chart of accounts.');
   });
 
   it('omits a caveat that is not present rather than emitting an empty one', () => {
     const set = setWith({ current: figures({ classificationCaveat: null, inventoryCaveat: null }) });
-    const basis = buildBasis(set, { draft: false, generatedAt: '2026-02-01T00:00:00.000Z' });
+    const basis = buildBasis(set, doc, 'v1');
     expect(basis.caveats).toHaveLength(0);
   });
 
   it('flags a draft pack in the caveats', () => {
-    const basis = buildBasis(setWith(), { draft: true, generatedAt: '2026-02-01T00:00:00.000Z' });
+    const basis = buildBasis(setWith(), { ...doc, draft: true }, 'v1');
     expect(basis.caveats.some((c) => /draft/i.test(c))).toBe(true);
   });
 
   it('carries no unreconciled non-IFRS measure — every definition either has a reconciliation or needs none', () => {
-    const basis = buildBasis(setWith(), { draft: false, generatedAt: '2026-02-01T00:00:00.000Z' });
+    const basis = buildBasis(setWith(), doc, 'v1');
     expect(basis.definitions.length).toBeGreaterThan(0);
     for (const def of basis.definitions) {
       // None of the currently-defined terms are adjusted dollar measures, so
@@ -96,7 +111,7 @@ describe('buildBasis', () => {
   });
 
   it('states the standard, source system and currency the whole pack rests on', () => {
-    const basis = buildBasis(setWith(), { draft: false, generatedAt: '2026-02-01T00:00:00.000Z' });
+    const basis = buildBasis(setWith(), doc, 'v1');
     expect(basis.basisOfPreparation.standard).toBe('IFRS for SMEs');
     expect(basis.basisOfPreparation.sourceSystem).toBe('IsaFlow general ledger');
     expect(basis.basisOfPreparation.extractedAt).toBe('2026-02-01T00:00:00.000Z');

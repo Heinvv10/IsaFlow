@@ -8,24 +8,30 @@
  * currently compute one (see `RATIO_DEFINITIONS` below), so the criterion is
  * satisfied by there being nothing unreconciled, not by an empty exemption.
  *
- * `ledgerVersion` is meant to be the traceability anchor a reader could use
- * to reproduce this exact render. The one company-scoped read this codebase
- * has for that purpose is `getLedgerPostedThrough` in `postedThroughService`,
- * but this function is deliberately synchronous — it only sees the
- * `PackFigureSet` its caller already fetched — so it falls back to
- * `set.budget.postedThrough` (null when the company has no budget, e.g.
- * Brightsphere) and states the gap plainly rather than borrowing
- * `generatedAt` and calling it a ledger watermark it is not. See the task
- * report for the follow-up this implies.
+ * `ledgerVersion` is the traceability anchor a reader could use to reproduce
+ * this exact render. This function is deliberately synchronous — the model
+ * composes, it does not fetch — so the ledger version is not read here; it
+ * is a VALUE the caller supplies (R-P46). The intended source is
+ * `getLedgerPostedThrough` in `postedThroughService`, called once by
+ * whichever task assembles page 12 alongside the rest of the pack.
+ *
+ * `set.budget.postedThrough` was tried and rejected as a substitute: it is
+ * `null` for any company with no budget (Brightsphere, and others), and even
+ * when present it answers "when was the budget variance last posted
+ * through", not "what ledger state did THIS pack render against" — a
+ * different question. A `null` ledgerVersion parameter renders the explicit
+ * text below rather than falling back to a proxy or to `doc.generatedAt` —
+ * an invented audit identifier on the one page whose purpose is auditability
+ * would be the worst of the three options.
  */
 
-import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type {
   PackBasisOfPreparation,
   PackDefinition,
   PackNumberConvention,
   PackPagesDocument,
 } from './packPageModel';
+import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 
 export interface PackBasis {
   basisOfPreparation: PackBasisOfPreparation;
@@ -41,6 +47,9 @@ const STANDARD = 'IFRS for SMEs';
 const SOURCE_SYSTEM = 'IsaFlow general ledger';
 const CURRENCY = 'ZAR';
 const SCALE = "R'000";
+
+const LEDGER_VERSION_UNAVAILABLE =
+  'unavailable — no ledger watermark was supplied for this pack render';
 
 /** Plain IFRS-adjacent ratios used elsewhere in the pack. Percentages and
  *  ratios are formulas, not non-IFRS dollar measures, so none of these
@@ -63,17 +72,16 @@ const RATIO_DEFINITIONS: PackDefinition[] = [
   },
 ];
 
-function ledgerVersion(
-  set: PackFigureSet,
-  doc: Pick<PackPagesDocument, 'draft' | 'generatedAt'>,
-): string {
-  if (set.budget?.postedThrough) return set.budget.postedThrough;
-  return `unavailable — no posted-ledger watermark for this window (pack generated ${doc.generatedAt})`;
-}
-
+/**
+ * @param ledgerVersion The ledger state this pack was rendered against —
+ *   typically `getLedgerPostedThrough(companyId, window)`'s result, fetched
+ *   once by the page-12 assembler. `null` when the caller has none to give;
+ *   rendered as an explicit "unavailable" statement, never invented.
+ */
 export function buildBasis(
   set: PackFigureSet,
   doc: Pick<PackPagesDocument, 'draft' | 'generatedAt'>,
+  ledgerVersion: string | null,
 ): PackBasis {
   const caveats: string[] = [];
   if (set.current.classificationCaveat) caveats.push(set.current.classificationCaveat);
@@ -85,7 +93,7 @@ export function buildBasis(
       standard: STANDARD,
       sourceSystem: SOURCE_SYSTEM,
       extractedAt: doc.generatedAt,
-      ledgerVersion: ledgerVersion(set, doc),
+      ledgerVersion: ledgerVersion ?? LEDGER_VERSION_UNAVAILABLE,
     },
     numberConvention: { scale: SCALE, currency: CURRENCY },
     definitions: RATIO_DEFINITIONS,
