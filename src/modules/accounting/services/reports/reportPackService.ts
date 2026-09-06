@@ -7,7 +7,16 @@
 import { calculateExtendedRatios, type FinancialData } from './reportingEngineService';
 import { buildKPIScorecard, type KPITargetConfig } from './kpiScorecardService';
 import { buildProfitWaterfall } from './waterfallDataService';
-import { marginPct2dp } from './marginPct';
+import { marginPct, marginPct2dp } from './marginPct';
+
+/**
+ * What the commentary says instead of a percentage when turnover is not
+ * positive. Prose rather than the pack's row label (`NO_MARGIN_REASON` in
+ * packs/packDocument.ts) because it has to finish a sentence, but it states
+ * the same fact: there is no margin, not a margin of zero.
+ */
+export const NO_MARGIN_SENTENCE =
+  'There is no meaningful net profit margin on non-positive turnover.';
 
 export interface ReportPackInput {
   companyName: string;
@@ -185,9 +194,14 @@ function buildSectionData(
     }
 
     case 'trends': {
-      // Single-period snapshot — multi-period trends require historical data from API layer
-      const gm = input.revenue > 0 ? Math.round((grossProfit / input.revenue) * 10000) / 100 : 0;
-      const nm = input.revenue > 0 ? Math.round((input.netProfit / input.revenue) * 10000) / 100 : 0;
+      // Single-period snapshot — multi-period trends require historical data
+      // from the API layer. The two margins are NULL on non-positive turnover
+      // for the same reason the income_statement section's are: a margin needs
+      // turnover to be a margin OF, and 0 here is a figure the rest of the
+      // snapshot does not support. `currentRatio` keeps its 0 — that one is
+      // not a margin and no ruling moved it.
+      const gm = marginPct2dp(grossProfit, input.revenue);
+      const nm = marginPct2dp(input.netProfit, input.revenue);
       const cr = input.currentLiabilities > 0 ? Math.round((input.currentAssets / input.currentLiabilities) * 100) / 100 : 0;
       return {
         currentPeriod: {
@@ -201,12 +215,21 @@ function buildSectionData(
       };
     }
 
-    case 'commentary':
+    case 'commentary': {
+      // The same rule as every other margin on the pack. The sentence used to
+      // read "with a net profit margin of 0%" whenever turnover was zero or
+      // negative — a claim of break-even on a page showing a loss, in prose a
+      // director quotes verbatim.
+      const margin = marginPct(input.netProfit, input.revenue);
+      const revenue = `R ${input.revenue.toLocaleString('en-ZA')}`;
       return {
         period: input.period,
         companyName: input.companyName,
-        summary: `${input.companyName} reported revenue of R ${input.revenue.toLocaleString('en-ZA')} with a net profit margin of ${input.revenue > 0 ? Math.round((input.netProfit / input.revenue) * 100) : 0}%.`,
+        summary: margin === null
+          ? `${input.companyName} reported revenue of ${revenue}. ${NO_MARGIN_SENTENCE}`
+          : `${input.companyName} reported revenue of ${revenue} with a net profit margin of ${Math.round(margin)}%.`,
       };
+    }
 
     default:
       return {};
