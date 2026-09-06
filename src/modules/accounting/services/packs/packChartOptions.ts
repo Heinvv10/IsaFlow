@@ -4,8 +4,11 @@
  * browser on the printed page and by the server-side SVG renderer.
  *
  * The palette is a parameter rather than a `getComputedStyle` call because
- * this module runs in Node (serverChartSvg.ts) as well as in the browser.
- * Defaults mirror the `--ff-*` fallbacks in src/lib/charts/theme.ts.
+ * this module runs in Node (afs/serverChartSvg.ts) as well as in the browser.
+ * The default IS `src/lib/charts/theme.ts`'s `FALLBACK` — imported, not
+ * mirrored: the two were byte-identical copies of five hex values, which is
+ * one edit away from the pack's charts and the app's charts being different
+ * colours with nothing to say which is right.
  *
  * WATERFALL GEOMETRY: a transparent-base-plus-stacked-bar is the usual trick
  * for a waterfall, but ECharts stacks positive and negative values on
@@ -33,6 +36,7 @@ import type {
 } from 'echarts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { formatMoney } from '@/lib/format/money';
+import { FALLBACK } from '@/lib/charts/theme';
 import { escapeHtml } from './escapeHtml';
 
 /** The shape of an ECharts tooltip-formatter callback param this module
@@ -51,12 +55,15 @@ export interface ChartPalette {
   axis: string;
 }
 
+/** `axis` is the theme's `textTertiary`: the axis labels and ticks are the
+ *  same grey as tertiary text everywhere else in the app. The other four map
+ *  one-to-one. */
 export const DEFAULT_CHART_PALETTE: ChartPalette = {
-  ink: '#15202b',
-  fav: '#1f7a4d',
-  unfav: '#b23a3a',
-  prior: '#c9d0cc',
-  axis: '#9ca3af',
+  ink: FALLBACK.ink,
+  fav: FALLBACK.fav,
+  unfav: FALLBACK.unfav,
+  prior: FALLBACK.prior,
+  axis: FALLBACK.textTertiary,
 };
 
 export interface TrendPoint {
@@ -120,12 +127,18 @@ function firstParam(params: TopLevelFormatterParams): TooltipDataParam | undefin
   return Array.isArray(params) ? params[0] : params;
 }
 
+/** The tooltip printed the raw number — `1234567.89` where the bar's own
+ *  label, the statement three centimetres away and the deck all said
+ *  "1 234 568". Same figure, three renderings, and the one a reader hovers to
+ *  CHECK a number was the odd one out. `formatMoney` is the app's single
+ *  money formatting rule; a negative comes back in parentheses like every
+ *  other statement figure. */
 function labelTooltipFormatter(labels: string[], values: number[]) {
   return (params: TopLevelFormatterParams): string => {
     const idx = firstParam(params)?.dataIndex ?? 0;
     const label = labels[idx] ?? '';
     const value = values[idx] ?? 0;
-    return `${escapeHtml(label)}: ${value}`;
+    return `${escapeHtml(label)}: ${formatMoney(value)}`;
   };
 }
 

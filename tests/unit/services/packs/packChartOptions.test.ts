@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { waterfallOption, trendOption, DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
+import { FALLBACK } from '@/lib/charts/theme';
+import { formatMoney } from '@/lib/format/money';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import type {
   CustomSeriesRenderItem,
@@ -119,6 +121,20 @@ describe('waterfallOption', () => {
     expect(text?.style?.text).toMatch(/[(−-]/); // parenthesised or minus-signed
   });
 
+  /**
+   * ADVERSARIAL LOW-5: the tooltip printed the raw number, so hovering a bar
+   * to CHECK a figure showed a different rendering of it from the bar's own
+   * label, the statement beside it and the deck.
+   */
+  it('formats the tooltip figure the way every other money figure is formatted', () => {
+    const opt = waterfallOption(steps) as unknown as TooltipFormatterOption;
+    expect(opt.tooltip.formatter({ dataIndex: 0 })).toBe(`Revenue: ${formatMoney(steps[0]!.value)}`);
+    // Not the raw number: 1000 renders as "1 000", never "1000".
+    expect(opt.tooltip.formatter({ dataIndex: 0 })).not.toBe(`Revenue: ${steps[0]!.value}`);
+    // A negative comes back parenthesised, like the statement's own cells.
+    expect(opt.tooltip.formatter({ dataIndex: 1 })).toContain('(');
+  });
+
   it('escapes a hostile step label before it reaches the tooltip HTML', () => {
     const hostile: WaterfallStep[] = [
       { label: '<img src=x onerror=1>', start: 0, end: 100, value: 100, isSubtotal: false, color: 'green' },
@@ -147,11 +163,36 @@ describe('trendOption', () => {
     expect(opt.animation).toBe(false);
   });
 
+  it('formats the tooltip figure through formatMoney too', () => {
+    const opt = trendOption([{ label: 'Mar 2026', value: 1234567 }]) as unknown as TooltipFormatterOption;
+    expect(opt.tooltip.formatter({ dataIndex: 0 })).toBe(`Mar 2026: ${formatMoney(1234567)}`);
+  });
+
   it('escapes a hostile point label before it reaches the tooltip HTML', () => {
     const hostile = [{ label: '<img src=x onerror=1>', value: 5 }];
     const opt = trendOption(hostile) as unknown as TooltipFormatterOption;
     const html = opt.tooltip.formatter({ dataIndex: 0 });
     expect(html).not.toContain('<img');
     expect(html).toContain('&lt;img');
+  });
+});
+
+/**
+ * ADVERSARIAL MEDIUM-4: this palette restated `src/lib/charts/theme.ts`'s
+ * FALLBACK — five hex values, byte for byte, in two files. One edit to either
+ * and the pack's charts and the app's charts are different colours with
+ * nothing to say which is right. It is now imported.
+ */
+describe('DEFAULT_CHART_PALETTE', () => {
+  it('is the app theme\'s own fallback palette, not a second copy of it', () => {
+    expect(DEFAULT_CHART_PALETTE).toEqual({
+      ink: FALLBACK.ink,
+      fav: FALLBACK.fav,
+      unfav: FALLBACK.unfav,
+      prior: FALLBACK.prior,
+      // The axis grey IS the theme's tertiary text colour — the same grey the
+      // rest of the app uses for secondary labels.
+      axis: FALLBACK.textTertiary,
+    });
   });
 });
