@@ -10,6 +10,7 @@ import { BalanceCheckBanner } from '@/components/accounting/statement/BalanceChe
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { toBalanceSheetRows } from '@/modules/accounting/services/reports/statementRows/balanceSheetRows';
 import type { StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
+import { comparativeOnlyColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
 
 interface BalanceSheetBodyProps {
   report: BalanceSheetReport;
@@ -39,8 +40,7 @@ export function BalanceSheetBody({
   const built = toBalanceSheetRows(report, { comparative: showComparative, detailHref });
   const assets = applyComparators(built.assets);
   const liabilitiesAndEquity = applyComparators(built.liabilitiesAndEquity);
-  const columns = columnsProp
-    ?? { prior: showComparative, budget: false, variance: showComparative, trend: false };
+  const columns = columnsProp ?? comparativeOnlyColumns(showComparative);
   const comparatorColumns = columns.prior || columns.budget || columns.trend;
   const nameOf = (code: string) =>
     [...report.assets, ...report.liabilities, ...report.equity].find(a => a.accountCode === code)?.accountName ?? code;

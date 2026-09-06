@@ -16,6 +16,7 @@ import { formatMoney } from '@/lib/format/money';
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { toIncomeStatementRows } from '@/modules/accounting/services/reports/statementRows/incomeStatementRows';
 import type { StatementColumns, StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
+import { comparativeOnlyColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
 
 export function IncomeStatementSections({
   report, periodStart, periodEnd, expandedAccount, onToggleAccount, showComparative, onEvidence,
@@ -36,7 +37,7 @@ export function IncomeStatementSections({
    *  a surface that offers no comparator controls renders exactly as before. */
   applyComparators?: (rows: StatementRow[]) => StatementRow[];
 }) {
-  const cols = columns ?? { prior: showComparative, budget: false, variance: showComparative, trend: false };
+  const cols = columns ?? comparativeOnlyColumns(showComparative);
   const rows = applyComparators(toIncomeStatementRows(report, { comparative: showComparative }));
   // The evidence drill is opened from inside the expanded account row. The
   // grid speaks account codes only, so the name comes back off the row it

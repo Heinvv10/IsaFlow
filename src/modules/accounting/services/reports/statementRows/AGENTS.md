@@ -34,7 +34,10 @@ in a traceable way.
 Adding a fourth exception needs a reason in the file and a test that pins it.
 
 ## Files
-- `statementModel.ts` — `StatementRow`, `Comparison`, `StatementColumns`.
+- `statementModel.ts` — `StatementRow`, `Comparison`, `StatementColumns`, and
+  `comparativeOnlyColumns(showComparative)`: the columns a surface with no
+  comparator controls prints. Both statement bodies fall back to it, so
+  "no columns chosen" means one thing rather than two copies of a literal.
 - `incomeStatementRows.ts` — `toIncomeStatementRows(report, opts)`.
 - `balanceSheetRows.ts` — `toBalanceSheetRows(report, opts)` → assets / L+E.
 - `packMappers.ts` — report-pack section blobs → the pack surfaces' shapes,

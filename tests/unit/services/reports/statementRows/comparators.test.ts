@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applyBudgetComparator, applyTrend } from '@/modules/accounting/services/reports/statementRows/comparators';
+import { comparativeOnlyColumns } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { StatementRow } from '@/modules/accounting/services/reports/statementRows/statementModel';
 import type { BudgetVsActualLine } from '@/modules/accounting/services/reports/budgetVsActualLines';
 import type { AccountTrends } from '@/modules/accounting/services/reports/trendRowsService';
@@ -113,5 +114,22 @@ describe('applyTrend', () => {
     const [result] = applyTrend(rows, trends);
 
     expect(result.trend).toBeUndefined();
+  });
+});
+
+describe('comparativeOnlyColumns', () => {
+  it('is the one fallback both statement bodies use', () => {
+    expect(comparativeOnlyColumns(true))
+      .toEqual({ prior: true, budget: false, variance: true, trend: false });
+    expect(comparativeOnlyColumns(false))
+      .toEqual({ prior: false, budget: false, variance: false, trend: false });
+  });
+
+  it('never leaves a variance column with no comparator behind it', () => {
+    // Four empty cells per row read as missing data, not as "off".
+    for (const showComparative of [true, false]) {
+      const c = comparativeOnlyColumns(showComparative);
+      expect(c.variance && !c.prior && !c.budget).toBe(false);
+    }
   });
 });
