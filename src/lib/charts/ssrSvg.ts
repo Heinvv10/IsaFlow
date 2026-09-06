@@ -114,8 +114,13 @@ function stableIds(svg: string): string {
  * something is not a chart we print. A handful of checks over the rendered
  * MARKUP, deliberately not a parser — the legitimate output of this one code
  * path is narrow and known.
+ *
+ * Exported so its positive controls can be tested directly: several of the
+ * constructs it refuses (`<use>`, an event handler) are ones no ECharts option
+ * can make zrender emit, so a test that could only go through renderChartSvg
+ * would silently cover the guard's cheapest half.
  */
-function assertNoExternalReferences(svg: string): void {
+export function assertNoExternalReferences(svg: string): void {
   // Positional, like the id rewrite above and for the same reason: a pattern
   // matched anywhere in the string is a pattern matched in DATA. Scanning the
   // raw markup for an absolute URL aborted a whole pack render on a customer
@@ -124,7 +129,18 @@ function assertNoExternalReferences(svg: string): void {
   // a text node fetches nothing; every actual fetch surface is an element or
   // an attribute, and all of them are below.
   const markup = svg
-    .replace(/>[^<]*</g, '><')
+    // `<text>` bodies specifically, not every `>…<` run. A general strip
+    // consumes `>` characters, and a `>` inside an ATTRIBUTE value (producible
+    // — `textStyle.fontFamily: 'a>b'` renders `font-family:a>b;`) opens what
+    // the regex reads as a text node, deleting every sibling attribute up to
+    // the next `<`. The only false positive being excluded here is label text,
+    // and label text lives in `<text>`; SSR emits no `<title>` or `<desc>`,
+    // and the `<style>` CDATA is allow-listed separately below.
+    //
+    // The opening tag skips quoted sections for the same reason — `[^>]*`
+    // would stop at that same attribute `>` and put the tail of the tag back
+    // into the body.
+    .replace(/(<text\b(?:"[^"]*"|'[^']*'|[^>"'])*>)[^<]*(<\/text>)/gi, '$1$2')
     .replace(/xmlns(:xlink)?="[^"]*"/g, '');
   const checks: Array<[RegExp, string]> = [
     [/<script\b/i, 'a script element'],
@@ -159,6 +175,8 @@ function assertNoExternalReferences(svg: string): void {
  * custom series, budget bullets, the cash-flow sankey, cash position, small
  * multiples, and a plain bar and line. If a future chart legitimately emits
  * another shape this throws, and the fix is to admit that exact shape here.
+ *
+ * Exported for the same reason as assertNoExternalReferences above.
  */
 const HOVER_SELECTOR = /^\.zr[0-9a-z]+-\d+:hover$/;
 /** A property and a value made of colour/keyword characters. No `:`, `;`,
@@ -166,7 +184,7 @@ const HOVER_SELECTOR = /^\.zr[0-9a-z]+-\d+:hover$/;
  *  `url(https://…)` can hide in a declaration. */
 const DECLARATION = /^[a-z-]+:[A-Za-z0-9#.,%()\s-]+$/;
 
-function assertStyleBlockIsOurs(svg: string): void {
+export function assertStyleBlockIsOurs(svg: string): void {
   const refuse = (why: string): never => {
     throw new Error(`renderChartSvg: refusing a chart whose <style> block is not the shape zrender emits (${why})`);
   };
