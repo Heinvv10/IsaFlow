@@ -33,7 +33,11 @@ export default function PresentPackPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!PACK_TYPES.has(packType) || !from || !to) return;
+    if (!router.isReady) return;
+    if (!PACK_TYPES.has(packType) || !from || !to) {
+      setError(`Unknown pack: "${packType || '(none)'}". Expected one of board, management, monthly with a from/to range.`);
+      return;
+    }
     let live = true;
 
     const load = async () => {
@@ -79,7 +83,7 @@ export default function PresentPackPage() {
 
     void load();
     return () => { live = false; };
-  }, [packType, from, to]);
+  }, [router.isReady, packType, from, to]);
 
   const renderSlide = useCallback(
     (slide: Slide) => (
