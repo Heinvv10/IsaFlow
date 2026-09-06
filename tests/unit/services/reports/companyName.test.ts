@@ -38,4 +38,20 @@ describe('getCompanyName', () => {
     sqlMock.mockResolvedValue([{ name: null }]);
     expect(await getCompanyName(COMPANY)).toBe('Company');
   });
+
+  it('answers "Company" for an empty or whitespace-only name', async () => {
+    // companies.name is not constrained against '' , and the pack route used
+    // to fall back for it. Without this a blank line prints where the
+    // company's name belongs, on a document that gets sent to a bank.
+    sqlMock.mockResolvedValue([{ name: '' }]);
+    expect(await getCompanyName(COMPANY)).toBe('Company');
+
+    sqlMock.mockResolvedValue([{ name: '   ' }]);
+    expect(await getCompanyName(COMPANY)).toBe('Company');
+  });
+
+  it('trims a padded name rather than printing the padding', async () => {
+    sqlMock.mockResolvedValue([{ name: '  Brightsphere (Pty) Ltd  ' }]);
+    expect(await getCompanyName(COMPANY)).toBe('Brightsphere (Pty) Ltd');
+  });
 });
