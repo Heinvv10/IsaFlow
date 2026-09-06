@@ -91,6 +91,8 @@ const link = { id: LINK_ID, reportKind: 'pack' as const, params: PARAMS, label: 
   createdAt: '2026-01-02T09:00:00.000Z', viewCount: 0, lastViewedAt: null };
 
 beforeEach(() => {
+  // The route now REFUSES to mint without it, so every POST fixture needs one.
+  process.env.NEXT_PUBLIC_APP_URL = 'https://app.isaflow.co.za';
   rateLimitMock.mockReset().mockResolvedValue(true);
   warnMock.mockReset();
   infoMock.mockReset();
@@ -147,15 +149,34 @@ describe('POST /api/accounting/share/links', () => {
     expect(payload.data.url).toContain(`/share/${'T'.repeat(43)}`);
   });
 
-  it('builds the url on the production origin, never localhost, when the env var is unset', async () => {
+  it('builds the url on the configured origin', async () => {
     const prev = process.env.NEXT_PUBLIC_APP_URL;
-    delete process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.isaflow.co.za';
     try {
       const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS } });
       await linksHandler(req, res);
       const payload = res.sent as { data: { url: string } };
       expect(payload.data.url).toBe(`https://app.isaflow.co.za/share/${'T'.repeat(43)}`);
       expect(payload.data.url).not.toContain('localhost');
+    } finally {
+      if (prev === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = prev;
+    }
+  });
+
+  it('refuses to mint anything at all when NEXT_PUBLIC_APP_URL is unset', async () => {
+    // It used to fall back to the production host. The raw token is returned
+    // ONCE, so a URL built against the wrong origin is a live link against the
+    // company's cap that nobody can ever open — and on a staging deploy with
+    // the variable unset, every link minted would point at production. The
+    // throw is raised BEFORE createShareLink, so there is no row to orphan.
+    const prev = process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    try {
+      const { req, res } = mockReqRes({ method: 'POST', body: { params: PARAMS } });
+      await expect(linksHandler(req, res)).rejects.toThrow(/NEXT_PUBLIC_APP_URL/);
+      expect(createMock).not.toHaveBeenCalled();
+      expect(res.sent).toBeUndefined();
     } finally {
       if (prev === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
       else process.env.NEXT_PUBLIC_APP_URL = prev;

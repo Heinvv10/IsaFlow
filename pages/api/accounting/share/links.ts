@@ -36,6 +36,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const label = typeof body.label === 'string' ? body.label.slice(0, 120) : undefined;
     const ttlDays = typeof body.ttlDays === 'number' ? body.ttlDays : undefined;
 
+    // No fallback, and checked BEFORE anything is minted. Every other URL
+    // builder in this codebase defaults to the production host, which is
+    // harmless for a link a logged-in user follows and is not harmless here:
+    // the raw token is returned ONCE, so a URL built against the wrong origin
+    // is a live link against this company's cap that nobody can ever open, and
+    // the person is not told. On a staging deploy with the variable unset,
+    // every link minted would point at production. Better a 500 the operator
+    // can see — raised before the row exists, so there is nothing to orphan.
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl) {
+      log.error('NEXT_PUBLIC_APP_URL is not set — refusing to mint a share link', { companyId }, 'share');
+      throw new Error('NEXT_PUBLIC_APP_URL is not configured; a share link URL cannot be built.');
+    }
+
     let created: Awaited<ReturnType<typeof createShareLink>>;
     try {
       created = await createShareLink({ companyId, userId: user.id, params, label, ttlDays });
@@ -44,9 +58,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       throw err;
     }
 
-    // Same fallback as every other URL builder in this codebase; an unset
-    // NEXT_PUBLIC_APP_URL must not hand a client a localhost link.
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.isaflow.co.za';
     // The service already logged the creation; a second entry here would only
     // double-count it. `token` and `url` appear in this response and nowhere else.
     return apiResponse.success(res, {
