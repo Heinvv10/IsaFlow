@@ -1,5 +1,6 @@
 // src/lib/sentry/scrub.ts
 import type { Event } from '@sentry/nextjs';
+import { redactShareToken } from '@/lib/observability/redactShareToken';
 
 const SENSITIVE_KEY_RE = /pass|token|secret|otp|bank|iban|account.*number/i;
 const DROP_HEADERS = new Set(['cookie', 'authorization', 'x-csrf-token']);
@@ -63,8 +64,27 @@ function hashEmailLocalPart(email: string): string {
 
 export function scrubEvent<T extends Event>(event: T | null): T | null {
   if (!event) return null;
+
+  // A share link's token travels in the URL, not in a keyed field, so the
+  // key-based redaction above never sees it — every URL-bearing field on the
+  // event needs its own pass through redactShareToken.
+  if (typeof event.transaction === 'string') {
+    event.transaction = redactShareToken(event.transaction);
+  }
+  if (event.breadcrumbs) {
+    event.breadcrumbs = event.breadcrumbs.map((crumb) => {
+      const url = crumb.data?.url;
+      if (typeof url !== 'string') return crumb;
+      return { ...crumb, data: { ...crumb.data, url: redactShareToken(url) } };
+    });
+  }
+
   const req = event.request;
   if (!req) return event;
+
+  if (typeof req.url === 'string') {
+    req.url = redactShareToken(req.url);
+  }
 
   // Drop sensitive headers
   if (req.headers) {

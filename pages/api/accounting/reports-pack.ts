@@ -7,7 +7,6 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
-import { sql } from '@/lib/neon';
 import {
   getFinancialFigures,
   unclassifiedWarning,
@@ -20,9 +19,7 @@ import {
   type PackType,
   type ReportPackInput,
 } from '@/modules/accounting/services/reports/reportPackService';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Row = Record<string, any>;
+import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 
 const VALID_TYPES: PackType[] = ['board', 'management', 'monthly'];
 
@@ -44,7 +41,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, `type must be one of: ${VALID_TYPES.join(', ')}`);
   }
 
-  const [figures, companyRow] = await Promise.all([
+  const [figures, companyName] = await Promise.all([
     getFinancialFigures(companyId, from, to),
     getCompanyName(companyId),
   ]);
@@ -53,7 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const netProfit = period.netProfit;
 
   const data: ReportPackInput = {
-    companyName: companyRow?.name || 'Company',
+    companyName,
     period: `${from} to ${to}`,
     revenue: period.revenue,
     costOfSales: period.costOfSales,
@@ -81,13 +78,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     period: { from, to },
     unclassifiedAccounts: unclassifiedWarning(cumulative),
   });
-}
-
-async function getCompanyName(companyId: string): Promise<Row | null> {
-  const rows = (await sql`
-    SELECT name FROM companies WHERE id = ${companyId} LIMIT 1
-  `) as Row[];
-  return rows[0] || null;
 }
 
  
