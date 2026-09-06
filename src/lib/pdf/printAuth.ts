@@ -43,6 +43,22 @@ const PATH_SEP = '\n';
 // explicit ban is load-bearing.
 const FIELD_SEP = '|';
 
+// ── Canonical encodings ──────────────────────────────────────────────────────
+// A token has exactly ONE valid spelling. Both decoders below are forgiving in
+// ways the signature check cannot see: `Buffer.from(x, 'hex')` accepts
+// UPPERCASE hex, and `Buffer.from(x, 'base64url')` accepts standard base64
+// (`+`, `/`), `=` padding, and trailing bits that do not round-trip. Each of
+// those is a DIFFERENT string that verifies against the same secret, so the
+// same authority arrives wearing several faces — and anything upstream that
+// reasons about a token as a string (a rate-limit key, a replay cache, a log
+// line an operator greps for a leaked token) sees several tokens where there
+// is one. The token has no nonce and no revocation, so string identity is the
+// only handle there is on it. Non-canonical spellings are rejected outright.
+const CANONICAL_SIGNATURE = /^[0-9a-f]+$/;
+const CANONICAL_PAYLOAD = /^[A-Za-z0-9_-]+$/;
+/** sha256 as hex. */
+const SIGNATURE_HEX_LEN = 64;
+
 // Banning the separators in `paths` alone left `sign` non-injective, because
 // the same separators are unescaped in the other two fields: company `c|u`
 // with user `x` signs the identical string as company `c` with user `u|x`, so
@@ -137,9 +153,16 @@ export function mintPrintToken(companyId: string, userId: string, paths: string[
 }
 
 function parsePayload(raw: string): PrintTokenPayload | null {
+  // Charset first, then round-trip: the charset check rejects `+`, `/` and
+  // `=`, and the re-encode rejects a trailing-bit variant that decodes to the
+  // same bytes from a different string.
+  if (!CANONICAL_PAYLOAD.test(raw)) return null;
+  const decoded = Buffer.from(raw, 'base64url');
+  if (decoded.toString('base64url') !== raw) return null;
+
   let parsed: unknown;
   try {
-    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    parsed = JSON.parse(decoded.toString('utf8'));
   } catch {
     return null;
   }
@@ -187,6 +210,11 @@ export function verifyPrintTokenSignature(token: string): PrintTokenPayload | nu
   if (parts.length !== 2) return null;
   const [payloadB64, signatureHex] = parts;
   if (!payloadB64 || !signatureHex) return null;
+
+  // Exactly 64 lowercase hex characters. Without the length check
+  // `Buffer.from(hex)` truncates at the first invalid pair, and without the
+  // charset check the SAME signature is also valid in uppercase.
+  if (signatureHex.length !== SIGNATURE_HEX_LEN || !CANONICAL_SIGNATURE.test(signatureHex)) return null;
 
   const payload = parsePayload(payloadB64);
   if (!payload) return null;

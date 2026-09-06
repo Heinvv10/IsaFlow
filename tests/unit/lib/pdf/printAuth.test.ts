@@ -275,3 +275,77 @@ describe('multi-path print tokens', () => {
     expect(verifyPrintTokenSignature(`${bad}.${sig}`)).toBeNull();
   });
 });
+
+/**
+ * ADVERSARIAL LOW-11: a token must have exactly ONE valid spelling.
+ *
+ * Both decoders are forgiving in ways the HMAC cannot see: `Buffer.from(x,
+ * 'hex')` accepts uppercase, and `Buffer.from(x, 'base64url')` accepts
+ * standard base64 (`+`, `/`), `=` padding, and trailing bits that do not
+ * round-trip. Each is a DIFFERENT string that verifies against the same
+ * secret, so one authority arrives wearing several faces — and the token has
+ * no nonce and no revocation, so string identity is the only handle anything
+ * upstream has on it: a rate-limit key, a replay cache, an operator grepping
+ * the logs for a leaked token.
+ */
+describe('printAuth — only the canonical encoding verifies', () => {
+  const canonical = () => mintPrintToken(companyId, userId, [path], 120);
+
+  it('accepts the token as minted', () => {
+    expect(verifyPrintTokenSignature(canonical())).not.toBeNull();
+  });
+
+  it('rejects an uppercased signature that is otherwise identical', () => {
+    const [payload, sig] = canonical().split('.');
+    expect(sig).toMatch(/^[0-9a-f]{64}$/);
+    expect(verifyPrintTokenSignature(`${payload}.${sig!.toUpperCase()}`)).toBeNull();
+    // Even one uppercased character is a different spelling of the same value.
+    const mixed = sig!.replace(/[a-f]/, (c) => c.toUpperCase());
+    expect(mixed).not.toBe(sig);
+    expect(verifyPrintTokenSignature(`${payload}.${mixed}`)).toBeNull();
+  });
+
+  it('rejects a signature of the wrong length, truncated or padded', () => {
+    const [payload, sig] = canonical().split('.');
+    expect(verifyPrintTokenSignature(`${payload}.${sig!.slice(0, 62)}`)).toBeNull();
+    expect(verifyPrintTokenSignature(`${payload}.${sig}00`)).toBeNull();
+    expect(verifyPrintTokenSignature(`${payload}.`)).toBeNull();
+  });
+
+  it('rejects a non-hex signature rather than letting the decoder truncate it', () => {
+    const [payload, sig] = canonical().split('.');
+    // Buffer.from(hex) stops at the first invalid pair, so without a charset
+    // check this decodes to a short buffer instead of being refused.
+    expect(verifyPrintTokenSignature(`${payload}.${sig!.slice(0, 8)}zz${sig!.slice(10)}`)).toBeNull();
+  });
+
+  it('rejects a standard-base64 payload where base64url is the encoding', () => {
+    const [payload, sig] = canonical().split('.');
+    const standard = Buffer.from(payload!, 'base64url').toString('base64');
+    // Only meaningful if the two spellings actually differ for this payload.
+    if (standard.replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_') === payload) {
+      expect(standard).not.toBe(payload); // padding alone still differs
+    }
+    expect(verifyPrintTokenSignature(`${standard}.${sig}`)).toBeNull();
+  });
+
+  it('rejects a padded payload', () => {
+    const [payload, sig] = canonical().split('.');
+    expect(verifyPrintTokenSignature(`${payload}=.${sig}`)).toBeNull();
+    expect(verifyPrintTokenSignature(`${payload}==.${sig}`)).toBeNull();
+  });
+
+  it('rejects a trailing-bit variant that decodes to the same bytes', () => {
+    const [payload, sig] = canonical().split('.');
+    const decoded = Buffer.from(payload!, 'base64url');
+    // Find a last character that decodes identically but is spelled otherwise
+    // — that is exactly the non-canonical form the round-trip check catches.
+    const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const variants = ALPHABET.split('')
+      .map((c) => payload!.slice(0, -1) + c)
+      .filter((v) => v !== payload && Buffer.from(v, 'base64url').equals(decoded));
+
+    expect(variants.length, 'this payload has a non-canonical spelling to test').toBeGreaterThan(0);
+    for (const v of variants) expect(verifyPrintTokenSignature(`${v}.${sig}`)).toBeNull();
+  });
+});
