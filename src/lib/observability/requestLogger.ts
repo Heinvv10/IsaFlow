@@ -13,6 +13,7 @@
 
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { log } from '@/lib/logger';
+import { redactShareToken } from '@/lib/observability/redactShareToken';
 
 type Outcome = 'ok' | 'client_error' | 'server_error';
 
@@ -25,7 +26,7 @@ function outcomeFor(status: number): Outcome {
 function routeOf(url: string | undefined): string {
   if (!url) return '';
   const qIndex = url.indexOf('?');
-  return qIndex === -1 ? url : url.slice(0, qIndex);
+  return redactShareToken(qIndex === -1 ? url : url.slice(0, qIndex));
 }
 
 export interface LogRequestCompletedArgs {

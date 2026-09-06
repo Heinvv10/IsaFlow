@@ -7,6 +7,7 @@ import { runWithRequestContext, generateRequestId } from '@/lib/observability/re
 import { logRequestCompleted } from '@/lib/observability/requestLogger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { safeCorsOrigin } from '@/lib/cors';
+import { redactShareToken } from '@/lib/observability/redactShareToken';
 
 const SENSITIVE_KEYS = new Set([
   'password', 'confirmPassword', 'password_hash', 'token', 'secret', 'apiKey', 'api_key',
@@ -88,6 +89,7 @@ export function withErrorHandler(
       }
 
       await runWithRequestContext(requestId, async () => {
+      const safeUrl = redactShareToken(req.url ?? '');
       try {
         // CORS — single source of truth in src/lib/cors.ts (pentest M11).
         const origin = safeCorsOrigin(req.headers.origin);
@@ -107,10 +109,10 @@ export function withErrorHandler(
         apiLogger.info({
           type: 'request',
           method: req.method,
-          url: req.url,
-          query: req.query,
+          url: safeUrl,
+          query: req.query?.token ? { ...req.query, token: '[token]' } : req.query,
           body: req.method !== 'GET' ? sanitizeBody(req.body) : undefined,
-        }, `API Request: ${req.method} ${req.url}`);
+        }, `API Request: ${req.method} ${safeUrl}`);
 
         // Execute the actual handler
         await handler(req, res);
@@ -120,10 +122,10 @@ export function withErrorHandler(
         apiLogger.info({
           type: 'response',
           method: req.method,
-          url: req.url,
+          url: safeUrl,
           statusCode: res.statusCode,
           duration: `${duration}ms`,
-        }, `API Response: ${req.method} ${req.url} - ${res.statusCode} (${duration}ms)`);
+        }, `API Response: ${req.method} ${safeUrl} - ${res.statusCode} (${duration}ms)`);
 
       } catch (error) {
         const duration = Date.now() - startTime;
@@ -132,7 +134,7 @@ export function withErrorHandler(
         apiLogger.error({
           type: 'error',
           method: req.method,
-          url: req.url,
+          url: safeUrl,
           error: error instanceof Error ? error.message : 'Unknown error',
           stack: error instanceof Error ? error.stack : undefined,
           duration: `${duration}ms`,
@@ -144,7 +146,7 @@ export function withErrorHandler(
 
         // Check if headers were already sent
         if (res.headersSent) {
-          apiLogger.warn({ method: req.method, url: req.url }, 'Headers already sent, cannot send error response');
+          apiLogger.warn({ method: req.method, url: safeUrl }, 'Headers already sent, cannot send error response');
           return;
         }
 

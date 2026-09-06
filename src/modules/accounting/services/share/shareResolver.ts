@@ -31,8 +31,11 @@
 import { sql, withTransaction, type DbRow, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { redactShareToken } from '@/lib/observability/redactShareToken';
 import { hashShareToken, isShareTokenShape } from './shareToken';
 import { parseSharePackParams, type SharePackParams } from './shareParams';
+
+export { redactShareToken };
 
 export interface ResolvedShareLink {
   id: string;
@@ -62,27 +65,6 @@ const IP_MAX = 60;
 const IP_WINDOW_SECS = 300;
 const TOKEN_MAX = 120;
 const TOKEN_WINDOW_SECS = 3600;
-
-/** A 43-character base64url run is a share token wherever it sits after a
- *  `/share/` path segment or in a query parameter whose NAME contains `token`.
- *  Both forms are redacted; a 43-character segment anywhere else is left alone,
- *  because uuids and ids of other shapes must stay readable in logs.
- *
- *  Case-insensitive, and tolerant of repeated slashes, because a proxy or a
- *  hand-typed link can present `/SHARE//<token>` and Next.js will still route
- *  it — a redactor that only matched the canonical form would pass the token
- *  straight through to the log. The parameter name is matched loosely
- *  (`token`, `share_token`, `t_token`) for the same reason. */
-const TOKEN_IN_PATH = /(\/share\/+)[A-Za-z0-9_-]{43}/gi;
-const TOKEN_IN_QUERY = /([?&][^=&#]*token[^=&#]*=)[A-Za-z0-9_-]{43}/gi;
-
-/** Replace any share token in a URL with `[token]`, so the URL can be logged.
- *  Production request logging writes `req.url` verbatim; anything in this
- *  feature that hands a URL to a log must pass it through here first. */
-export function redactShareToken(url: string): string {
-  if (!url) return url;
-  return url.replace(TOKEN_IN_PATH, '$1[token]').replace(TOKEN_IN_QUERY, '$1[token]');
-}
 
 /** Both buckets are charged before the decision so a full per-IP bucket does
  *  not leave the per-token bucket un-charged (and vice versa). A throw from
