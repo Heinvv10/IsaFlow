@@ -10,7 +10,21 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createHmac } from 'crypto';
 import { mintPrintToken, verifyPrintToken, verifyPrintTokenSignature } from '@/lib/pdf/printAuth';
+
+/**
+ * The signature `printAuth.sign` produces, rebuilt here. Needed because the
+ * collision tests below sign tuples the minter now REFUSES to mint — which is
+ * the point: an attacker does not go through the minter, and the parser is
+ * the side that has to hold. Mirrors sign() exactly: `company|user|paths|exp`
+ * with paths joined on a newline.
+ */
+function signLikeMinter(companyId: string, userId: string, paths: string[], exp: number): string {
+  return createHmac('sha256', process.env.PRINT_TOKEN_SECRET as string)
+    .update(`${companyId}|${userId}|${paths.join('\n')}|${exp}`)
+    .digest('hex');
+}
 
 const ORIGINAL_SECRET = process.env.PRINT_TOKEN_SECRET;
 const TEST_SECRET = '0123456789abcdef0123456789abcdef';
@@ -175,18 +189,57 @@ describe('multi-path print tokens', () => {
     expect(() => mintPrintToken(COMPANY, USER, ['/api/a|/api/b'])).toThrow(/absolute API path/);
 
     // Verify side — a genuine signature that reads as two different tuples.
-    // `sign` builds `company|user|paths|exp`, so minting for userId `U|PACK`
-    // with paths [TREND] signs exactly the same string as a payload claiming
-    // userId `U` with paths ['PACK|TREND']. The minter validates paths, not
-    // userId, so the first half of the pair is genuinely mintable — which is
-    // why the guard has to sit in the parser, on the side an attacker reaches.
-    const genuine = mintPrintToken(COMPANY, `${USER}|${PACK}`, [TREND]);
-    const [genuineB64, sig] = genuine.split('.');
-    const { exp } = JSON.parse(Buffer.from(genuineB64!, 'base64url').toString('utf8'));
+    // `sign` builds `company|user|paths|exp`, so a token minted for userId
+    // `U|PACK` with paths [TREND] signs exactly the same string as a payload
+    // claiming userId `U` with paths ['PACK|TREND']. The minter now refuses
+    // that userId (see the collision test below), so the signature is built
+    // here the way any holder of the secret could build it — the guard that
+    // has to catch it lives in the parser, on the side an attacker reaches.
+    const exp = Math.floor(Date.now() / 1000) + 120;
+    const sig = signLikeMinter(COMPANY, `${USER}|${PACK}`, [TREND], exp);
     const collided = Buffer.from(
       JSON.stringify({ companyId: COMPANY, userId: USER, paths: [`${PACK}|${TREND}`], exp }),
     ).toString('base64url');
     expect(verifyPrintTokenSignature(`${collided}.${sig}`)).toBeNull();
+  });
+
+  /**
+   * LOW-1: `sign` was non-injective in the OTHER two fields. The separator ban
+   * covered `paths` only, so company `c|u` + user `x` produced exactly the
+   * signed string of company `c` + user `u|x` — one genuine signature
+   * validating a payload that names a different company. On a multi-tenant
+   * ledger that is a cross-tenant read, not a formatting defect.
+   */
+  describe('LOW-1 — the signing separators are banned in every signed field', () => {
+    const C = 'company-c';
+    const U = 'user-u';
+    const X = 'user-x';
+
+    it('proves the collision exists at the HMAC level', () => {
+      // The two tuples are DIFFERENT and their signed strings are IDENTICAL.
+      const exp = 9_000_000_000;
+      expect(signLikeMinter(`${C}${'|'}${U}`, X, [PACK], exp))
+        .toBe(signLikeMinter(C, `${U}|${X}`, [PACK], exp));
+    });
+
+    it('refuses to mint a companyId or userId containing either separator', () => {
+      expect(() => mintPrintToken(`${C}|${U}`, X, [PACK])).toThrow(/signing separators/);
+      expect(() => mintPrintToken(C, `${U}|${X}`, [PACK])).toThrow(/signing separators/);
+      expect(() => mintPrintToken(`${C}\n${U}`, X, [PACK])).toThrow(/signing separators/);
+      expect(() => mintPrintToken(C, `${U}\n${X}`, [PACK])).toThrow(/signing separators/);
+    });
+
+    it('rejects the colliding payload on verify, with the genuine signature', () => {
+      const exp = Math.floor(Date.now() / 1000) + 120;
+      // A signature legitimately produced for company `c|u`, user `x`.
+      const sig = signLikeMinter(`${C}|${U}`, X, [PACK], exp);
+      // The SAME bytes read as company `c`, user `u|x` — a different tenant.
+      const forged = Buffer.from(
+        JSON.stringify({ companyId: C, userId: `${U}|${X}`, paths: [PACK], exp }),
+      ).toString('base64url');
+      expect(verifyPrintTokenSignature(`${forged}.${sig}`)).toBeNull();
+      expect(verifyPrintToken(`${forged}.${sig}`, PACK)).toBeNull();
+    });
   });
 
   // M2: the mint side accepts only an already-normalised absolute pathname.

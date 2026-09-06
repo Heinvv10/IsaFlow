@@ -33,17 +33,26 @@ const MIN_SECRET_LEN = 32;
 // A newline cannot appear in a URL pathname, so joining on it makes the
 // signature unambiguous: ['/a', '/b'] and ['/a,/b'] hash differently. A comma
 // would not — a comma is legal in a pathname, and two different sets sharing a
-// signature is a forged token. Both the minter and the parser reject a path
-// containing the separator, so the join is injective for every set that can
-// reach `sign`.
+// signature is a forged token.
 const PATH_SEP = '\n';
 
-// The signed string is `company|user|paths|exp`, so a path containing `|` would
-// let the same HMAC be re-split into a different tuple — one signature, two
-// payloads. Banned on both sides for the same reason as PATH_SEP. Node's URL
-// parser does NOT percent-encode `|` in a pathname, so the normalisation check
-// below does not cover this; the explicit ban is load-bearing.
+// The signed string is `company|user|paths|exp`, so a `|` ANYWHERE in the
+// first three fields lets the same HMAC be re-split into a different tuple —
+// one signature, two payloads. Node's URL parser does NOT percent-encode `|`
+// in a pathname, so the normalisation check below does not cover it; the
+// explicit ban is load-bearing.
 const FIELD_SEP = '|';
+
+// Banning the separators in `paths` alone left `sign` non-injective, because
+// the same separators are unescaped in the other two fields: company `c|u`
+// with user `x` signs the identical string as company `c` with user `u|x`, so
+// one genuine signature verified a payload naming a different company. Both
+// separators are therefore rejected in ALL THREE variable-length fields, on
+// both sides — the minter throws, the parser returns null — which is what
+// makes the join injective for every tuple that can reach `sign`.
+function hasSeparator(value: string): boolean {
+  return value.includes(PATH_SEP) || value.includes(FIELD_SEP);
+}
 
 /** Returns the configured secret only when it meets the minimum length; a
  *  too-short secret is treated the same as "unset" (both mint and verify
@@ -108,6 +117,14 @@ function normalisedPathname(p: string): string | null {
 /** Mint a print token bound to an exact set of API paths, expiring in `ttlSeconds`. */
 export function mintPrintToken(companyId: string, userId: string, paths: string[], ttlSeconds = 120): string {
   assertPaths(paths);
+  // Not only `paths`: see hasSeparator. A mintable company or user id carrying
+  // a separator is half of a signature collision, and the minter is the side
+  // we control.
+  for (const [field, value] of [['companyId', companyId], ['userId', userId]] as const) {
+    if (typeof value !== 'string' || hasSeparator(value)) {
+      throw new Error(`mintPrintToken: ${field} must not contain the signing separators`);
+    }
+  }
   const raw = process.env.PRINT_TOKEN_SECRET;
   if (!raw) throw new Error('PRINT_TOKEN_SECRET is not set');
   const secret = getSecret();
@@ -133,12 +150,16 @@ function parsePayload(raw: string): PrintTokenPayload | null {
     typeof candidate.userId !== 'string' ||
     !Array.isArray(candidate.paths) ||
     candidate.paths.length === 0 ||
-    // The separator guards are what keep `sign` injective: without PATH_SEP a
-    // payload claiming paths ['/a\n/b'] would hash identically to ['/a', '/b'],
-    // and without FIELD_SEP the same signed string could be re-split into a
-    // different company/user/paths/exp tuple. Either way one set's signature
-    // would validate another's payload.
-    !candidate.paths.every((p) => typeof p === 'string' && !p.includes(PATH_SEP) && !p.includes(FIELD_SEP)) ||
+    // The separator guards are what keep `sign` injective, and they have to
+    // cover every variable-length field, not just paths: without PATH_SEP a
+    // payload claiming paths ['/a\n/b'] hashes identically to ['/a', '/b'],
+    // and without FIELD_SEP on companyId/userId/paths the same signed string
+    // re-splits into a different company/user/paths/exp tuple. Either way one
+    // payload's signature validates another's. This is the side an attacker
+    // reaches, so the guard has to sit here as well as in the minter.
+    hasSeparator(candidate.companyId) ||
+    hasSeparator(candidate.userId) ||
+    !candidate.paths.every((p) => typeof p === 'string' && !hasSeparator(p)) ||
     typeof candidate.exp !== 'number'
   ) {
     return null;
