@@ -29,6 +29,10 @@ const PACK_CONFIGS: Array<{ type: PackType; label: string; description: string; 
   { type: 'monthly', label: 'Monthly Pack', description: 'P&L, Balance Sheet, Cash Flow & Ratios', sections: '4 sections' },
 ];
 
+/** What `?print=1` means with no `pack` named. Bookmarks predating the
+ *  parameter rely on it, and the download route always names one. */
+const DEFAULT_PRINT_PACK = 'management';
+
 /**
  * How long the server told us to wait, in whole seconds.
  *
@@ -56,15 +60,22 @@ export default function ReportPacksPage() {
   const router = useRouter();
 
   if (isPrintRender(router)) {
-    const pack = router.query.pack;
-    // Validated, not cast. `pack` is whatever the URL says; it used to be
-    // `String(...) as PackType`, which typed a lie and sent an unknown value
-    // on to build a trend URL. Like the data-error state in PackPrintPage,
-    // this deliberately never becomes print-ready: the renderer times out
-    // loudly rather than photographing a page that is not the pack asked for.
-    // The download route validates its own `id` first, so this is reachable
-    // only by a person typing the URL — which is who the sentence is for.
-    if (!isPackType(pack)) {
+    // Absent and WRONG are different. No `pack` at all is an old bookmark of
+    // `?print=1` from before the parameter existed, and it has always meant
+    // the management pack — breaking those is a regression nobody asked for.
+    // A pack that is PRESENT but not a known type is a different thing: it is
+    // whatever the URL said, and it used to be `String(...) as PackType`,
+    // which typed a lie and sent an unknown value on to build a trend URL.
+    //
+    // The refusal deliberately never becomes print-ready, like the data-error
+    // state in PackPrintPage: the renderer times out loudly rather than
+    // photographing a page that is not the pack that was asked for. The
+    // download route validates its own `id` first, so a person typing the URL
+    // is the only one who reaches it — which is who the sentence is written
+    // for. An empty `?pack=` counts as present and wrong: it names nothing, and
+    // no bookmark carries it.
+    const requested = router.query.pack ?? DEFAULT_PRINT_PACK;
+    if (!isPackType(requested)) {
       return (
         <p className="p-8 text-sm text-[var(--ff-text-secondary)]">
           Unknown pack type. Choose board, management or monthly.
@@ -73,7 +84,7 @@ export default function ReportPacksPage() {
     }
     return (
       <PackPrintPage
-        packType={pack}
+        packType={requested}
         from={String(router.query.from ?? '')}
         to={String(router.query.to ?? '')}
       />

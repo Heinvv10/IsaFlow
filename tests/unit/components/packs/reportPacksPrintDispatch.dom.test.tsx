@@ -76,6 +76,12 @@ describe('ReportPacksPage print dispatch', () => {
    * `packTrendApiPath` and was fetched as `/api/accounting/packs/<x>/trend`.
    * Like the data-error state, the refusal never becomes print-ready: the
    * renderer times out loudly rather than photographing the wrong document.
+   *
+   * ABSENT is not WRONG. `?print=1` with no `pack` predates the parameter and
+   * has always meant the management pack, so an old bookmark still prints;
+   * only a pack that is present and unrecognised is refused. An empty
+   * `?pack=` is present and unrecognised — it names nothing, and no bookmark
+   * carries it.
    */
   it.each([['segments'], [''], ['MANAGEMENT'], ['../admin']])(
     'refuses to print an unknown pack type %j rather than casting it through',
@@ -91,11 +97,24 @@ describe('ReportPacksPage print dispatch', () => {
     },
   );
 
-  it('refuses when the pack is missing entirely, rather than defaulting to one', () => {
-    useRouterMock.mockReturnValue({ isReady: true, pathname: PRINT_RENDER_PATH, query: { print: '1' } });
+  it('refuses a repeated ?pack= parameter, which arrives as an array', () => {
+    useRouterMock.mockReturnValue({
+      isReady: true, pathname: PRINT_RENDER_PATH, query: { pack: ['board', 'management'], print: '1' },
+    });
+
     render(<ReportPacksPage />);
+
     expect(screen.queryByTestId('print-page')).toBeNull();
     expect(screen.getByText(/Unknown pack type/)).toBeInTheDocument();
+  });
+
+  it('defaults to the management pack when no pack is named, so old bookmarks still print', () => {
+    useRouterMock.mockReturnValue({ isReady: true, pathname: PRINT_RENDER_PATH, query: { print: '1' } });
+
+    render(<ReportPacksPage />);
+
+    expect(screen.getByTestId('print-page')).toHaveTextContent('management');
+    expect(screen.queryByText(/Unknown pack type/)).toBeNull();
   });
 
   it.each([['board'], ['management'], ['monthly']])('prints the %s pack', (pack) => {
