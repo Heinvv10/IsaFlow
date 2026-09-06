@@ -40,6 +40,12 @@ export default function PresentPackPage() {
       setError(`Unknown pack: "${packType || '(none)'}". Expected one of board, management, monthly with a from/to range.`);
       return;
     }
+    // The params are valid for THIS run of the effect. Clear a stale error
+    // (and the slides it may have been shown alongside) from a previous,
+    // invalid pack — a client-side navigation from an unknown pack to a
+    // known one must not keep the old "Unknown pack" banner on screen.
+    setError('');
+    setSlides(null);
     let live = true;
     setTrendsFailed(false);
     setBudgetFailed(false);
