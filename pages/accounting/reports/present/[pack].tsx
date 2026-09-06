@@ -27,8 +27,10 @@ export default function PresentPackPage() {
 
   const [slides, setSlides] = useState<Slide[] | null>(null);
   const [trends, setTrends] = useState<AccountTrends | null>(null);
+  const [trendsFailed, setTrendsFailed] = useState(false);
   const [budget, setBudget] = useState<BudgetVsActualLine[]>([]);
   const [budgetedCount, setBudgetedCount] = useState(0);
+  const [budgetFailed, setBudgetFailed] = useState(false);
   const [income, setIncome] = useState<IncomeStatementReport | null>(null);
   const [error, setError] = useState('');
 
@@ -39,6 +41,8 @@ export default function PresentPackPage() {
       return;
     }
     let live = true;
+    setTrendsFailed(false);
+    setBudgetFailed(false);
 
     const load = async () => {
       try {
@@ -62,12 +66,14 @@ export default function PresentPackPage() {
         if (trendsResult.status === 'fulfilled') {
           setTrends(trendsResult.value);
         } else {
+          setTrendsFailed(true);
           log.error('Account trends failed to load', { error: trendsResult.reason }, 'present');
         }
         if (budgetResult.status === 'fulfilled') {
           setBudget(budgetResult.value.lines);
           setBudgetedCount(budgetResult.value.budgetedCount);
         } else {
+          setBudgetFailed(true);
           log.error('Budget comparator failed to load', { error: budgetResult.reason }, 'present');
         }
         if (incomeResult.status === 'fulfilled') {
@@ -87,9 +93,13 @@ export default function PresentPackPage() {
 
   const renderSlide = useCallback(
     (slide: Slide) => (
-      <PresentSlide slide={slide} income={income} trends={trends} budget={budget} budgetedCount={budgetedCount} />
+      <PresentSlide
+        slide={slide} income={income}
+        trends={trends} trendsFailed={trendsFailed}
+        budget={budget} budgetedCount={budgetedCount} budgetFailed={budgetFailed}
+      />
     ),
-    [income, trends, budget, budgetedCount],
+    [income, trends, trendsFailed, budget, budgetedCount, budgetFailed],
   );
 
   const exit = useCallback(() => {

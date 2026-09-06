@@ -34,7 +34,7 @@ const BUDGET: BudgetVsActualLine[] = [{
 describe('PresentSlide income statement budget guard', () => {
   it('leaves the budget cell empty when budgetedCount is 0, even with budget lines present', () => {
     const { container } = render(
-      <PresentSlide slide={SLIDE} income={INCOME} trends={null} budget={BUDGET} budgetedCount={0} />,
+      <PresentSlide slide={SLIDE} income={INCOME} trends={null} trendsFailed={false} budget={BUDGET} budgetedCount={0} budgetFailed={false} />,
     );
     // The column header is always drawn (PresentSlide's COLUMNS is static),
     // but no row may carry the R1,000,000 budget figure — that would be the
@@ -44,7 +44,7 @@ describe('PresentSlide income statement budget guard', () => {
 
   it('prints the budget figure when budgetedCount is greater than 0', () => {
     const { container } = render(
-      <PresentSlide slide={SLIDE} income={INCOME} trends={null} budget={BUDGET} budgetedCount={1} />,
+      <PresentSlide slide={SLIDE} income={INCOME} trends={null} trendsFailed={false} budget={BUDGET} budgetedCount={1} budgetFailed={false} />,
     );
     expect(container.textContent).toContain('1 000 000');
   });

@@ -17,15 +17,22 @@ import type { Slide } from './presentSlides';
 const COLUMNS = { prior: false, budget: true, variance: true, trend: true } as const;
 
 export function PresentSlide({
-  slide, income, trends, budget, budgetedCount,
+  slide, income, trends, trendsFailed, budget, budgetedCount, budgetFailed,
 }: {
   slide: Slide;
   income: IncomeStatementReport | null;
   trends: AccountTrends | null;
+  /** The trends fetch rejected. Distinct from "still loading" and from "this
+   *  pack has no trends slide" — only this state gets an error message. */
+  trendsFailed: boolean;
   budget: BudgetVsActualLine[];
   /** Mirrors `useStatementComparators`: `applyBudgetComparator` runs only
    *  when a real budget was captured, never on an empty one. */
   budgetedCount: number;
+  /** The budget-comparator fetch rejected. Distinct from "no budget was
+   *  captured" (`budgetedCount === 0`) — only a real failure gets an error
+   *  message here. */
+  budgetFailed: boolean;
 }) {
   if (slide.kind === 'cover') {
     return (
@@ -65,25 +72,43 @@ export function PresentSlide({
     );
   }
 
-  if (slide.kind === 'trends' && trends) {
-    const panels = Object.entries(trends.byAccountCode)
-      .slice(0, 6)
-      .map(([key, values]) => ({ key, label: key, values }));
-    return (
-      <>
-        <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
-        <SmallMultiples panels={panels} months={trends.months} columns={3} />
-      </>
-    );
+  if (slide.kind === 'trends') {
+    if (trends) {
+      const panels = Object.entries(trends.byAccountCode)
+        .slice(0, 6)
+        .map(([key, values]) => ({ key, label: key, values }));
+      return (
+        <>
+          <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
+          <SmallMultiples panels={panels} months={trends.months} columns={3} />
+        </>
+      );
+    }
+    if (trendsFailed) {
+      return (
+        <p className="text-sm text-[var(--ff-text-secondary)]">
+          The trend data for this period could not be loaded.
+        </p>
+      );
+    }
   }
 
-  if (slide.kind === 'ratios' && budget.length > 0) {
-    return (
-      <>
-        <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
-        <BudgetBulletRow lines={budget} limit={8} />
-      </>
-    );
+  if (slide.kind === 'ratios') {
+    if (budget.length > 0) {
+      return (
+        <>
+          <h2 className="mb-4 text-2xl font-semibold text-[var(--ff-text-primary)]">{slide.title}</h2>
+          <BudgetBulletRow lines={budget} limit={8} />
+        </>
+      );
+    }
+    if (budgetFailed) {
+      return (
+        <p className="text-sm text-[var(--ff-text-secondary)]">
+          The budget data for this period could not be loaded.
+        </p>
+      );
+    }
   }
 
   return (

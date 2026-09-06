@@ -34,3 +34,11 @@ backspace go back; Home and End jump; Escape exits.
   comparator is applied only when a real budget was captured, never against
   an implicit budget of zero. `[pack].tsx` fetches it from
   `reports-budget-comparator`'s `budgetedCount` alongside `lines`.
+  `trendsFailed` / `budgetFailed` distinguish a rejected fetch from "no data
+  captured yet": the trends and ratios slides fall through to the generic
+  "no presentation renderer yet" message only when nothing failed, and show
+  an explicit "could not be loaded" message when `[pack].tsx`'s
+  `Promise.allSettled` reports a rejection.
+- `[pack].tsx` renders an explicit "Unknown pack" error (via the same error
+  state as a pack-fetch failure) once `router.isReady`, rather than spinning
+  forever on an unrecognised `pack` type or a missing `from`/`to` range.
