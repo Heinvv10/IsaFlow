@@ -87,3 +87,11 @@ describe('gotenbergTransport.render', () => {
     expect(JSON.stringify(logError.mock.calls)).not.toContain('cookies field invalid');
   });
 });
+
+describe('gotenbergTransport — capabilities', () => {
+  it('claims the metadata capability it actually has', () => {
+    // Load-bearing metadata (PDF/A for archival retention) must be enforced at
+    // the CALL SITE by reading this flag, not hoped for.
+    expect(gotenbergTransport.capabilities.metadata).toBe(true);
+  });
+});

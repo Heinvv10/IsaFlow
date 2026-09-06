@@ -12,6 +12,13 @@ export interface PrintCookie {
   httpOnly: boolean;
 }
 
+export interface PdfMetadata {
+  title: string;
+  author: string;
+  subject: string;
+  creator: string;
+}
+
 export interface PdfRenderRequest {
   /** Absolute URL including the ?print=1 query. */
   url: string;
@@ -24,16 +31,37 @@ export interface PdfRenderRequest {
    * (an unauthorised call 401s and withAuth leaves the cookies alone).
    */
   allowedApiPaths: string[];
+  /** Per-pack footer. Falls back to FOOTER_HTML when absent. */
+  footerHtml?: string;
+  /** Written into the PDF's document information dictionary. Honoured only by
+   *  a transport whose `capabilities.metadata` is true — Playwright's
+   *  page.pdf() supports no metadata at all, which is exactly why spec §8
+   *  decision 5 declines to make PDF/A a requirement. */
+  metadata?: PdfMetadata;
 }
 
 export interface PdfTransport {
   name: 'playwright' | 'gotenberg';
+  /** What this transport can actually honour. The two are NOT interchangeable:
+   *  Gotenberg writes PDF metadata, Playwright's page.pdf() supports none —
+   *  and PDF_TRANSPORT=playwright is the production incident fallback, so a
+   *  guarantee that holds in steady state silently stops holding the day the
+   *  switch is flipped. A requirement that is genuinely load-bearing (PDF/A
+   *  for archival retention) must be enforced at the CALL SITE by reading
+   *  this, rather than assumed. */
+  readonly capabilities: { readonly metadata: boolean };
   render(request: PdfRenderRequest): Promise<Buffer>;
 }
 
 /** A4 with the margins the reporting brief specifies, in both units the two
- *  transports want: Playwright takes CSS units, Gotenberg takes inches. */
-export const PDF_MARGIN_MM = { top: 18, bottom: 18, left: 14, right: 14 } as const;
+ *  transports want: Playwright takes CSS units, Gotenberg takes inches.
+ *
+ *  This is the SINGLE SOURCE OF TRUTH for the page margin. `styles/packPrint.css`
+ *  declares `@page { size: A4; }` with no margin, deliberately: neither
+ *  transport sets `preferCSSPageSize`, so Chromium ignores a CSS `@page`
+ *  margin and always uses the margin the transport passes here instead. A
+ *  margin added to that CSS file would be silently dropped. */
+export const PDF_MARGIN_MM = { top: 20, bottom: 22, left: 18, right: 18 } as const;
 export const MM_PER_INCH = 25.4;
 export const PAPER_A4_IN = { width: 8.27, height: 11.69 } as const;
 

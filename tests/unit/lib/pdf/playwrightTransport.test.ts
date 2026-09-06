@@ -49,6 +49,7 @@ vi.mock('playwright', () => ({ chromium: { launch: (...a: unknown[]) => launchMo
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 const { playwrightTransport, closeSharedBrowser } = await import('@/lib/pdf/transports/playwrightTransport');
+const { log } = await import('@/lib/logger');
 
 const request = {
   url: 'http://localhost:3200/accounting/reports/report-packs?print=1',
@@ -57,7 +58,7 @@ const request = {
   allowedApiPaths: ['/api/accounting/reports-pack'],
 };
 
-beforeEach(() => { launchMock.mockReset(); });
+beforeEach(() => { launchMock.mockReset(); vi.mocked(log.warn).mockClear(); });
 afterEach(async () => { await closeSharedBrowser(); });
 
 describe('playwrightTransport — browser reuse', () => {
@@ -116,5 +117,44 @@ describe('playwrightTransport — browser reuse', () => {
   it('still returns the rendered bytes', async () => {
     launchMock.mockResolvedValue(makeBrowser());
     await expect(playwrightTransport.render(request)).resolves.toEqual(pdfBytes);
+  });
+});
+
+/**
+ * Gotenberg writes PDF metadata; Playwright's page.pdf() supports none. That
+ * asymmetry used to be invisible: the transport simply never read
+ * request.metadata and logged "rendered". PDF_TRANSPORT=playwright is the
+ * production incident fallback, so the guarantee held in steady state and
+ * stopped holding the day someone flipped the switch.
+ */
+describe('playwrightTransport — metadata is dropped, visibly', () => {
+  const metadata = {
+    title: 'Acme — Management pack — 2026',
+    author: 'Acme', subject: 'Management pack for 2026', creator: 'IsaFlow',
+  };
+
+  it('does not claim the metadata capability', () => {
+    expect(playwrightTransport.capabilities.metadata).toBe(false);
+  });
+
+  it('warns naming the dropped keys', async () => {
+    launchMock.mockResolvedValue(makeBrowser());
+    await playwrightTransport.render({ ...request, metadata });
+
+    const warn = vi.mocked(log.warn).mock.calls
+      .find(([msg]) => String(msg).includes('metadata'));
+    expect(warn, 'expected a warn about dropped metadata').toBeDefined();
+    expect(warn![1]).toMatchObject({ dropped: ['title', 'author', 'subject', 'creator'] });
+  });
+
+  it('still returns the PDF — an incident fallback degrades, it does not fail', async () => {
+    launchMock.mockResolvedValue(makeBrowser());
+    await expect(playwrightTransport.render({ ...request, metadata })).resolves.toEqual(pdfBytes);
+  });
+
+  it('says nothing when no metadata was asked for', async () => {
+    launchMock.mockResolvedValue(makeBrowser());
+    await playwrightTransport.render(request);
+    expect(vi.mocked(log.warn).mock.calls.filter(([m]) => String(m).includes('metadata'))).toHaveLength(0);
   });
 });

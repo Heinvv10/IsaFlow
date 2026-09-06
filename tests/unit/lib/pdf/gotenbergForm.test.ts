@@ -23,8 +23,8 @@ describe('buildGotenbergFields', () => {
     expect(f.url).toBe(request.url);
     expect(f.paperWidth).toBe('8.27');
     expect(f.paperHeight).toBe('11.69');
-    expect(f.marginTop).toBe('0.71');
-    expect(f.marginLeft).toBe('0.55');
+    expect(f.marginTop).toBe('0.79');
+    expect(f.marginLeft).toBe('0.71');
   });
 
   it('waits for the print-ready flag rather than a fixed delay', () => {
@@ -117,5 +117,20 @@ describe('GOTENBERG_TIMEOUT_MS', () => {
 
   it('still leaves room for the whole print-ready gate plus transport overhead', () => {
     expect(GOTENBERG_TIMEOUT_MS).toBeGreaterThan(PRINT_READY_TIMEOUT_MS);
+  });
+});
+
+describe('buildGotenbergFields metadata', () => {
+  it("sends PDF metadata as Gotenberg's JSON metadata field when present", () => {
+    const f = buildGotenbergFields(
+      { ...request, metadata: { title: 'T', author: 'A', subject: 'S', creator: 'IsaFlow' } },
+      env,
+    );
+    expect(JSON.parse(f.metadata as string)).toMatchObject({ Title: 'T', Creator: 'IsaFlow' });
+  });
+
+  it('omits the metadata field entirely when none is supplied', () => {
+    const f = buildGotenbergFields(request, env);
+    expect(f).not.toHaveProperty('metadata');
   });
 });

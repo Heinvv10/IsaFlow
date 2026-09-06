@@ -37,8 +37,25 @@ async function getBrowser(): Promise<Browser> {
 
 export const playwrightTransport: PdfTransport = {
   name: 'playwright',
+  // page.pdf() exposes no document information dictionary at all — there is no
+  // option to pass and no post-processing step in this path.
+  capabilities: { metadata: false },
   async render(request: PdfRenderRequest): Promise<Buffer> {
     const { hostname } = new URL(request.url);
+    if (request.metadata) {
+      // WARN, not throw, and deliberately so. Metadata here is descriptive
+      // rather than load-bearing, and this transport is the INCIDENT FALLBACK:
+      // turning a cosmetic gap into a total PDF outage on the day production
+      // switches to it is the wrong trade. A requirement that really is
+      // load-bearing (PDF/A for archival retention) belongs at the call site,
+      // gated on `transport.capabilities.metadata` — which exists for exactly
+      // that, so nobody has to hope this line was read.
+      log.warn(
+        'playwrightTransport: dropping PDF metadata — this transport supports none',
+        { dropped: Object.keys(request.metadata), url: request.url },
+        'pdf',
+      );
+    }
     const browser = await getBrowser();
     const context = await browser.newContext();
     try {
@@ -80,7 +97,7 @@ export const playwrightTransport: PdfTransport = {
         },
         displayHeaderFooter: true,
         headerTemplate: HEADER_HTML,
-        footerTemplate: FOOTER_HTML,
+        footerTemplate: request.footerHtml ?? FOOTER_HTML,
       });
       log.info('playwrightTransport: rendered', { url: request.url, bytes: pdf.length }, 'pdf');
       return pdf;
