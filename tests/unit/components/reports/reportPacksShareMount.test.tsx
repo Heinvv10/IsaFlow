@@ -116,4 +116,24 @@ describe('report-packs page — WS3 surfaces are mounted', () => {
 
     expect(screen.queryByRole('button', { name: /Share/ })).toBeNull();
   });
+
+  it('draws no commentary panel for a role the route would refuse', async () => {
+    // The commentary GET arm is owner/admin/manager. Mounting the panel for a
+    // viewer would put an error under the pack instead of simply not offering
+    // commentary — and would fire a request that can only 403.
+    companyRole = 'viewer';
+    render(<ReportPacksPage />);
+    await waitFor(() => expect(screen.getByText(/Brightsphere/)).toBeTruthy());
+
+    expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull();
+    expect(asked.some(u => u.startsWith('/api/accounting/commentary'))).toBe(false);
+  });
+
+  it('draws it for a manager, who may read but not approve', async () => {
+    companyRole = 'manager';
+    render(<ReportPacksPage />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Regenerate' })).toBeTruthy());
+
+    expect(asked.some(u => u.startsWith('/api/accounting/commentary'))).toBe(true);
+  });
 });

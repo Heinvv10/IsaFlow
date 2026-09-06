@@ -1,5 +1,6 @@
 /**
  * GET  /api/accounting/commentary?type=&from=&to=   — drafts and approvals for a pack
+ *                                                     owner/admin/manager only
  * POST /api/accounting/commentary                   — generate drafts (never approves)
  *
  * The POST writes drafts only. Nothing on this route can put text on a share
@@ -14,6 +15,7 @@ import { checkReportRateLimit } from '@/lib/rateLimit';
 import { parseSharePackParams } from '@/modules/accounting/services/share/shareParams';
 import { listCommentary, generateDrafts } from '@/modules/accounting/services/commentary/commentaryService';
 import { buildManagementPackData } from '@/modules/accounting/services/commentary/packData';
+import { canReadSharingSurface } from '@/modules/accounting/services/reports/sharingAccess';
 
 /** Regeneration withdraws an approval a named person gave. That is the same
  *  class of decision as approving in the first place, so a manager who may
@@ -24,6 +26,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId, companyRole, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
+    // This arm returns DRAFT text — sentences about the company's numbers that
+    // no named person has approved. withWriteAccess lets every read method
+    // through, so without this check a viewer could read them.
+    if (!canReadSharingSurface(companyRole)) {
+      return apiResponse.forbidden(res, `Your role (${companyRole ?? 'none'}) cannot view commentary.`);
+    }
     const params = parseSharePackParams({ type: req.query.type, from: req.query.from, to: req.query.to });
     if (!params) return apiResponse.badRequest(res, 'type, from and to are required');
     return apiResponse.success(res, { commentary: await listCommentary(companyId, params) });

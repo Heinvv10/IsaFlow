@@ -234,12 +234,32 @@ describe('role gate', () => {
     expect(revokeMock).not.toHaveBeenCalled();
   });
 
-  it('still lets a viewer read the list', async () => {
+  it('refuses a viewer the list, without querying it', async () => {
+    // withWriteAccess gates mutating methods only, so the owner/admin option on
+    // the export line covers POST and says nothing about GET. Until this check
+    // existed, any member could read who a pack had been shared with, when the
+    // link expires, who minted it and how often an outsider had opened it.
     const { req, res } = mockReqRes({ method: 'GET', companyRole: 'viewer' });
+    await linksHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['owner', 'admin', 'manager'])('lets %s read the list', async (companyRole) => {
+    const { req, res } = mockReqRes({ method: 'GET', companyRole });
     await linksHandler(req, res);
 
     expect(res.statusCode).toBe(200);
     expect(listMock).toHaveBeenCalledWith(COMPANY);
+  });
+
+  it('fails closed when the request carries no role at all', async () => {
+    const { req, res } = mockReqRes({ method: 'GET', companyRole: undefined as unknown as string });
+    await linksHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(listMock).not.toHaveBeenCalled();
   });
 
   it('allows an owner to mint', async () => {

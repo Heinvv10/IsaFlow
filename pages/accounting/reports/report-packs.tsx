@@ -18,6 +18,7 @@ import { packToTotals, packToMargins, packToBsTotals, packToBsDetail } from '@/m
 import { useCompany } from '@/contexts/CompanyContext';
 import { ShareLinkDialog } from '@/components/accounting/share/ShareLinkDialog';
 import { CommentaryPanel } from '@/components/accounting/commentary/CommentaryPanel';
+import { canReadSharingSurface } from '@/modules/accounting/services/reports/sharingAccess';
 
 type PackType = 'board' | 'management' | 'monthly';
 
@@ -129,6 +130,11 @@ export default function ReportPacksPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const { companyRole } = useCompany();
   const canApprove = APPROVER_ROLES.includes(companyRole ?? '');
+  // The same predicate the commentary route applies to its GET arm. A surface
+  // that could only answer 403 should not be drawn: without this a viewer
+  // opening the page would get an error panel under the pack rather than
+  // simply not being offered commentary.
+  const canReadCommentary = canReadSharingSurface(companyRole);
 
   // The pack the person is LOOKING AT. A share link and its commentary are
   // both filed under (type, from, to), so a link minted here and the sentences
@@ -233,7 +239,9 @@ export default function ReportPacksPage() {
               {/* Commentary for the pack on screen. `canApprove` decides
                   whether the approve/reject controls are drawn; the routes
                   enforce the same two roles regardless. */}
-              <CommentaryPanel sectionRef="commentary" mode="internal" canApprove={canApprove} params={packParams} />
+              {canReadCommentary && (
+                <CommentaryPanel sectionRef="commentary" mode="internal" canApprove={canApprove} params={packParams} />
+              )}
             </div>
           ) : null}
         </div>

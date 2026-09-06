@@ -1,5 +1,6 @@
 /**
  * GET  /api/accounting/share/links        — this company's links (never the token)
+ *                                          owner/admin/manager only
  * POST /api/accounting/share/links        — create; returns the token ONCE
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
@@ -9,6 +10,7 @@ import { withAuth, withCsrf, withWriteAccess, type CompanyAuthedRequest } from '
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { parseSharePackParams } from '@/modules/accounting/services/share/shareParams';
+import { canReadSharingSurface } from '@/modules/accounting/services/reports/sharingAccess';
 import {
   createShareLink,
   listShareLinks,
@@ -16,9 +18,16 @@ import {
 } from '@/modules/accounting/services/share/shareLinkService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { companyId, user } = req as CompanyAuthedRequest;
+  const { companyId, companyRole, user } = req as CompanyAuthedRequest;
 
   if (req.method === 'GET') {
+    // withWriteAccess gates POST only — GET passes straight through it — so the
+    // owner/admin option on the export line below says nothing about this arm.
+    // Without this check any member, a viewer included, could read who a pack
+    // was shared with, when the link expires and how often it has been opened.
+    if (!canReadSharingSurface(companyRole)) {
+      return apiResponse.forbidden(res, `Your role (${companyRole ?? 'none'}) cannot view share links.`);
+    }
     return apiResponse.success(res, { links: await listShareLinks(companyId) });
   }
 

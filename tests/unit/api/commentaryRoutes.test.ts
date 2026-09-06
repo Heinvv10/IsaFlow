@@ -111,10 +111,28 @@ describe('GET /api/accounting/commentary', () => {
     expect(listMock).not.toHaveBeenCalled();
   });
 
-  it('lets a viewer read', async () => {
+  it('refuses a viewer, without querying — this arm returns unapproved drafts', async () => {
+    // withWriteAccess lets every read method through, so nothing gated this arm.
+    // What it returns is DRAFT text: sentences about the company's numbers that
+    // no named person has signed off.
     const { req, res } = mockReqRes({ method: 'GET', query: PARAMS, companyRole: 'viewer' });
     await indexHandler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it.each(['owner', 'admin', 'manager'])('lets %s read', async (companyRole) => {
+    const { req, res } = mockReqRes({ method: 'GET', query: PARAMS, companyRole });
+    await indexHandler(req, res);
     expect(res.statusCode).toBe(200);
+  });
+
+  it('fails closed when the request carries no role at all', async () => {
+    const { req, res } = mockReqRes({ method: 'GET', query: PARAMS, companyRole: undefined as unknown as string });
+    await indexHandler(req, res);
+    expect(res.statusCode).toBe(403);
+    expect(listMock).not.toHaveBeenCalled();
   });
 });
 
