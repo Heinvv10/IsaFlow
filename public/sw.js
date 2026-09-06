@@ -46,6 +46,30 @@ function isSWRApi(url) {
 }
 
 /**
+ * The public share page (/share/<token>) is never cached, by any strategy.
+ *
+ * Three reasons, each sufficient. The pathname IS the credential, so a cache
+ * entry keyed on it writes a live token to the recipient's disk. The HTML
+ * carries the financial pack and the token again inside __NEXT_DATA__. And the
+ * page is served no-store precisely so that withdrawing the link withdraws the
+ * document — a cached copy served offline after revocation defeats the one
+ * control the sender has.
+ *
+ * Matched on the PATH, not the URL string: /sharepoint and /shared-with-me are
+ * ordinary app pages, and a query string must not be able to smuggle "/share/"
+ * into a URL that is not one. Same boundary as isTrackedPath.
+ */
+function isSharePath(url) {
+  let pathname;
+  try {
+    pathname = new URL(url).pathname;
+  } catch {
+    return false;
+  }
+  return pathname === '/share' || pathname.startsWith('/share/');
+}
+
+/**
  * Check if request is for a static asset (CSS, JS, images, fonts).
  */
 function isStaticAsset(url) {
@@ -59,6 +83,10 @@ self.addEventListener('fetch', (event) => {
 
   // Skip non-GET requests
   if (request.method !== 'GET') return;
+
+  // The shared pack: straight to the network, never into a cache. Before every
+  // strategy, so no later branch can claim it.
+  if (isSharePath(url)) return;
 
   // Strategy 1: Stale-while-revalidate for key read-only API endpoints
   if (isSWRApi(url)) {

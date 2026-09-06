@@ -21,10 +21,19 @@ import '../styles/print.css';
  */
 export default function App({ Component, pageProps }: AppProps) {
   // The public share page is not tracked: its pathname carries the token.
+  // The same predicate decides the service worker below, because the reason is
+  // the same one — nothing about a share link may be written down client-side.
   const tracked = isTrackedPath(useRouter().pathname);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
+    // No service worker on a share link. The recipient is a third party being
+    // shown one document, and a worker installed from that page would go on
+    // caching the pack — token in __NEXT_DATA__ and all — on their disk,
+    // serving it offline after the sender revoked the link. public/sw.js
+    // refuses to cache /share/ regardless; this is the half that stops a
+    // recipient's browser acquiring a worker for this origin at all.
+    if (!tracked) return;
 
     if (process.env.NODE_ENV === 'production') {
       navigator.serviceWorker.register('/sw.js').catch(() => {
@@ -37,7 +46,7 @@ export default function App({ Component, pageProps }: AppProps) {
         regs.forEach((r) => { void r.unregister(); });
       }).catch(() => { /* non-critical */ });
     }
-  }, []);
+  }, [tracked]);
 
   return (
     <div>
