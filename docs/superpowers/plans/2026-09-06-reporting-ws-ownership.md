@@ -8,6 +8,16 @@ Read by every executor before Task 1. Files not listed under your workstream are
 - `pages/accounting/reports/income-statement.tsx`, `pages/accounting/reports/balance-sheet.tsx`, `src/components/accounting/IncomeStatementSections.tsx`, `src/components/accounting/BalanceSheetBody.tsx` (granted: trend/budget/columns wiring, additive)
 - `pages/api/accounting/reports/account-trends.ts`, `pages/api/accounting/reports/budget-comparator.ts` (granted, exact names may differ per plan)
 - `src/modules/accounting/services/reports/statementRows/**` additive (`applyTrend`, `applyBudgetComparator`), `src/modules/accounting/services/reports/trendRows*.ts` / monthly trend service (new files only)
+- Retroactive grant (final review, 2026-09-06): both row adapters —
+  `incomeStatementRows.ts` and `balanceSheetRows.ts` — were routed through
+  the shared `priorComparison` helper in `comparators.ts` rather than
+  building `prior` inline, tightening the "additive" grant above into a
+  small shared edit. Reviewed and accepted across Task 11's rounds 1–2 and
+  the final review.
+- `src/lib/apiRoutes.ts`: WS1 registered `reports-income-statement` and
+  `reports-pack`, which this doc did not list under WS1. Ruling (final
+  review, 2026-09-06): kept as-is — append-only, no collision with another
+  WS's entries.
 
 ## WS2 (packs + exports) owns
 - `src/modules/accounting/services/packs/**`, `src/lib/pdf/**`, `pages/api/accounting/packs/**`, `scripts/pdf/**`, `styles/print.css`
