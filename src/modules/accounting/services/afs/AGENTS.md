@@ -10,7 +10,7 @@ Annual Financial Statements engine — IFRS / IFRS-for-SMEs packs (BS/IS/CF/note
 - **Mapping**: `afsMappingService.ts` — COA → AFS line mapping.
 - **Note engine**: `noteEngineService.ts` (4-stage: fetch → generate → suppress → persist), `noteDataQueryService.ts`, `noteTemplateRegistry.ts`, `noteRendererService.ts`, `noteAiService.ts` (AI narrative for qualitative), `noteGenerators/` (one file per note: PPE, intangibles, tax, leases…).
 - **Statement calculators**: `cashFlowDirectService.ts`, `cashFlowReconciliationService.ts`, `changesInEquityService.ts`, `pisCalculatorService.ts` (Public Interest Score — Companies Act reg 26 → audit/review/compiled), `kpiScorecardService.ts`.
-- **Rendering / export**: `afsHtmlRendererService.ts`, `afsHtmlCoverTemplates.ts`, `afsHtmlTableRenderer.ts`, `docxExportService.ts`, `docxTableRenderer.ts`, `pdfExportService.ts`, `weasyprintService.ts` (Python WeasyPrint HTTP service), `casewareExportExtService.ts`.
+- **Rendering / export**: `afsHtmlRendererService.ts`, `afsHtmlCoverTemplates.ts`, `afsHtmlTableRenderer.ts`, `docxExportService.ts`, `docxTableRenderer.ts`, `pdfExportService.ts`, `weasyprintService.ts` (Python WeasyPrint HTTP service), `serverChartSvg.ts`, `casewareExportExtService.ts`.
 - **Branding / templates**: `brandProfileService.ts`, `imageLibraryService.ts`, `reportTemplates.ts`, `entityTerminology.ts` (Company/CC/Trust label swap).
 - **Review workflow**: `afsReviewService.ts` (`draft → review → approved → issued`), `afsSectionCommentService.ts`, `afsPreExportChecks.ts` (blocker gate).
 - **Proof / signing**: `afsProofCopyService.ts`, `signumIntegrationService.ts` (e-signature), `cipcFilingGuideService.ts`.
@@ -45,6 +45,7 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/afs/*` and 
 - `scripts/migrations/sql/333-345_*` — AFS engine schema (documents, sections, jobs, portal, PIS).
 
 ## Recent changes
+- 2026-09-06: `serverChartSvg.ts` moved in from `services/packs/`. It renders an ECharts option to an SVG STRING because the statutory PDF path goes through WeasyPrint, which runs no JavaScript — so a chart has to arrive already drawn. It registers its own narrow ECharts module set (SVG renderer only) rather than `src/lib/charts/echarts.ts`, which registers the canvas renderer and is client-only, so it is safe to import in a Node request handler. Its only consumer is `pdfExportService.ts`. The default palette still comes from `services/packs/packChartOptions.ts`, so an AFS chart and a pack chart are the same colours.
 - 2026-04-23: unit-test drift fixes after PRD-05 ship.
 - 2026-04-21: three schema-mismatch 500s from PR #31.
 - 2026-04-21: phases 3-8 — IFRS notes, report templates, PIS, ratios, VAT recon, multi-entity.

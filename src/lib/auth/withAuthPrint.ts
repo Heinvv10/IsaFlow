@@ -1,0 +1,76 @@
+// src/lib/auth/withAuthPrint.ts
+//
+// The print-pipeline fallback withAuth takes when GoTrue verification fails:
+// a headless Chromium request (src/lib/pdf/renderPagePdf.ts) carrying a
+// short-lived print token in the SAME cookie a GoTrue session uses.
+//
+// Extracted from withAuth for one reason: the branch used to re-implement the
+// bound-path check inline against verifyPrintTokenSignature, so the tested
+// function (verifyPrintToken, with its exact-match and prefix-widening tests)
+// had no production caller and the code that actually ran was untested. The
+// path decision now goes through verifyPrintToken and nowhere else.
+//
+// The two-outcome shape is deliberate. A garbage/forged/expired token is a
+// dead session: clear the cookies and 401 as normal. A genuine token bound to
+// DIFFERENT paths is not — AppLayout's own background calls present the same
+// print-token cookie, and clearing cookies for those was wiping the render's
+// credentials mid-render. Those 401 WITHOUT clearing.
+
+// RESIDUAL, accepted (PR review M5): a request accepted on a print token runs
+// inside withAuth's transaction like any other — BEGIN before the handler,
+// COMMIT after it. For the pack PDF route the handler is a page render, so
+// that transaction stays open for up to the 30s print-ready gate plus
+// transport overhead. It is bounded at three concurrent renders by
+// src/lib/pdf/withRenderSlot.ts, which takes its slot OUTSIDE withAuth so
+// only ADMITTED renders hold a connection; at three, the pool (AUTH_POOL_MAX,
+// default 20) carries it. Committing earlier is not the fix — the render's own
+// inbound fetch for the report reads the GUCs this transaction sets.
+
+import { verifyPrintToken, verifyPrintTokenSignature, type PrintTokenPayload } from '@/lib/pdf/printAuth';
+
+export type PrintTokenOutcome =
+  | { kind: 'accepted'; payload: PrintTokenPayload }
+  /** `clearCookies` is true only for a token that is not genuine at all. */
+  | { kind: 'rejected'; clearCookies: boolean };
+
+/** The only method a print token can authorise. Every path a token can be
+ *  bound to is a read, and the renderer only ever issues GETs. */
+const PRINT_METHOD = 'GET';
+
+/**
+ * Decide whether a print token authorises this request.
+ *
+ * `requestPath` must already have the query string stripped — the token binds
+ * pathnames, and printAuth matches them with `===`, never by prefix.
+ *
+ * `method` is bound as tightly as the path. A token binds a path SET, not a
+ * verb, so if a bound route ever grew a write method a captured token would
+ * become a write credential for its remaining TTL — and the token is
+ * replay-bounded by that TTL alone, with no nonce and no revocation. Every
+ * bound path is a read today; this is what keeps that a property of the code
+ * rather than of the current route table.
+ */
+export function authenticatePrintToken(
+  token: string,
+  requestPath: string,
+  activeCompanyId: string,
+  method: string | undefined,
+): PrintTokenOutcome {
+  // Before the signature is even checked: a genuine token used on a write is
+  // not a dead session, so the cookies stay (the render may still be running).
+  if (method !== PRINT_METHOD) return { kind: 'rejected', clearCookies: false };
+
+  const payload = verifyPrintToken(token, requestPath);
+  if (payload) {
+    // A token is bound to a company as well as a path set: the active-company
+    // cookie is attacker-controllable, and without this a print token could
+    // read another tenant under a swapped cookie.
+    if (payload.companyId !== activeCompanyId) return { kind: 'rejected', clearCookies: false };
+    return { kind: 'accepted', payload };
+  }
+
+  // verifyPrintToken said no. Signature-only tells the two refusals apart:
+  // a token that verifies here is genuine and merely bound elsewhere (or
+  // expired — verifyPrintTokenSignature rejects those too, so they clear).
+  return { kind: 'rejected', clearCookies: verifyPrintTokenSignature(token) === null };
+}

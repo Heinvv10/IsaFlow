@@ -14,11 +14,17 @@ import Link from 'next/link';
 import { MonitorPlay } from 'lucide-react';
 
 /** The pack a statement page presents. `management` is the one whose sections
- *  the deck has renderers for — income statement, waterfall, trends, ratios. */
+ *  the deck has renderers for — income statement, waterfall, trends, ratios,
+ *  and it is what a page that is not itself about a pack presents.
+ *
+ *  The packs page IS about a pack, and the deck route takes all three types
+ *  (`board`, `management`, `monthly`), so it names the one on screen instead.
+ *  Optional rather than required: the two statement pages have no pack to
+ *  name and must keep presenting the management deck. */
 export const PRESENT_PACK = 'management';
 
-export function presentHref(from: string, to: string): string {
-  return `/accounting/reports/present/${PRESENT_PACK}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+export function presentHref(from: string, to: string, pack: string = PRESENT_PACK): string {
+  return `/accounting/reports/present/${encodeURIComponent(pack)}?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
 }
 
 const CLASSES =
@@ -26,7 +32,7 @@ const CLASSES =
   'bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-lg ' +
   'hover:bg-slate-50 dark:hover:bg-slate-800 text-sm font-medium';
 
-export function PresentLink({ from, to }: { from: string; to: string }) {
+export function PresentLink({ from, to, pack = PRESENT_PACK }: { from: string; to: string; pack?: string }) {
   // Without both bounds the deck can only render its "Unknown pack" error, so
   // the control is inert rather than a link to a page that reports a fault.
   if (!from || !to) {
@@ -37,7 +43,7 @@ export function PresentLink({ from, to }: { from: string; to: string }) {
     );
   }
   return (
-    <Link href={presentHref(from, to)} className={CLASSES}>
+    <Link href={presentHref(from, to, pack)} className={CLASSES}>
       <MonitorPlay className="h-4 w-4" /> Present
     </Link>
   );

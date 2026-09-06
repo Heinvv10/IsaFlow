@@ -21,6 +21,7 @@ export interface BalanceSheetDetail {
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /**
  * Each band of the shared pack row list, keyed by its BAND KEY, never by its
@@ -88,9 +89,14 @@ export function packToTotals(d: Record<string, unknown>): Record<string, number>
 
 /** The pack's two margin figures. The service computes them; the pack lost
  * them when it moved onto StatementGrid, and they are the figures a reader
- * quotes back. */
-export function packToMargins(d: Record<string, unknown>): { grossMargin: number; netMargin: number } {
-  return { grossMargin: num(d.grossMargin), netMargin: num(d.netMargin) };
+ * quotes back.
+ *
+ * `null` survives here rather than defaulting to 0 like the other mappers:
+ * a total of zero is a real total, but a margin of zero on no turnover is a
+ * percentage nothing on the page supports. See `marginKvItem` in
+ * packDocument.ts for the row the surfaces print instead. */
+export function packToMargins(d: Record<string, unknown>): { grossMargin: number | null; netMargin: number | null } {
+  return { grossMargin: numOrNull(d.grossMargin), netMargin: numOrNull(d.netMargin) };
 }
 
 /** The pack's `balance_sheet` section keys → the balance-sheet totals shape.
@@ -107,4 +113,30 @@ export function packToBsDetail(d: Record<string, unknown>): BalanceSheetDetail {
     currentAssets: num(d.currentAssets), cash: num(d.cash),
     accountsReceivable: num(d.accountsReceivable), accountsPayable: num(d.accountsPayable),
   };
+}
+
+/**
+ * The management pack's balance-sheet summary rows — three subtotals plus the
+ * derived Total Liabilities and Equity line (the report has no field for this;
+ * same documented exception as balanceSheetRows.ts). `detail` copies the
+ * report's own figures in, no arithmetic.
+ *
+ * Moved here from ManagementPandLRows.tsx so the printed pack and the PPTX
+ * deck render the SAME rows the screen does rather than a second list.
+ */
+export function toManagementBsRows(
+  bs: Record<string, number> | undefined,
+  detail?: BalanceSheetDetail,
+): StatementRow[] {
+  const n = (k: string) => bs?.[k] ?? 0;
+  return [
+    { id: 'sub:totalAssets', kind: 'subtotal', label: 'Total Assets', depth: 0, actual: n('totalAssets') },
+    ...(detail?.currentAssets !== undefined ? [{ id: 'line:currentAssets', kind: 'line' as const, label: 'Current Assets', depth: 1 as const, actual: detail.currentAssets }] : []),
+    ...(detail?.cash !== undefined ? [{ id: 'line:cash', kind: 'line' as const, label: 'Cash', depth: 1 as const, actual: detail.cash }] : []),
+    ...(detail?.accountsReceivable !== undefined ? [{ id: 'line:accountsReceivable', kind: 'line' as const, label: 'Accounts Receivable', depth: 1 as const, actual: detail.accountsReceivable }] : []),
+    { id: 'sub:totalLiabilities', kind: 'subtotal', label: 'Total Liabilities', depth: 0, actual: n('totalLiabilities') },
+    ...(detail?.accountsPayable !== undefined ? [{ id: 'line:accountsPayable', kind: 'line' as const, label: 'Accounts Payable', depth: 1 as const, actual: detail.accountsPayable }] : []),
+    { id: 'sub:totalEquity', kind: 'subtotal', label: 'Total Equity', depth: 0, actual: n('totalEquity') },
+    { id: 'grand:totalLiabilitiesAndEquity', kind: 'grand', label: 'Total Liabilities and Equity', depth: 0, actual: n('totalLiabilities') + n('totalEquity') },
+  ];
 }

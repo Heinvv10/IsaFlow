@@ -53,6 +53,15 @@ describe('securityHeaders — production CSP', () => {
     expect(directive(csp, 'object-src')).toBe("object-src 'none'");
     expect(directive(csp, 'base-uri')).toBe("base-uri 'self'");
   });
+
+  // Task 12 fix round 1: `upgrade-insecure-requests` must be prod-only. Applied
+  // unconditionally, it made Gotenberg's Chromium upgrade dev's plain-HTTP
+  // subresources to HTTPS, which the dev server can't answer — the page never
+  // hydrates and [data-print-ready] never appears. Production is HTTPS end to
+  // end, so the directive is a genuine hardening there.
+  it('sets upgrade-insecure-requests in production', () => {
+    expect(csp).toContain('upgrade-insecure-requests');
+  });
 });
 
 describe('securityHeaders — dev CSP', () => {
@@ -65,6 +74,12 @@ describe('securityHeaders — dev CSP', () => {
   });
   it('keeps localhost dev connect targets', () => {
     expect(directive(csp, 'connect-src')).toContain('http://localhost:3101');
+  });
+
+  // Task 12 fix round 1: see the production test above for why this must be
+  // absent in dev.
+  it('does NOT set upgrade-insecure-requests', () => {
+    expect(csp).not.toContain('upgrade-insecure-requests');
   });
 });
 

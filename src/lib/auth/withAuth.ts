@@ -1,20 +1,19 @@
 // src/lib/auth/withAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
-import pg from 'pg';
-// Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
-// in this process. This file builds its own Pool, so it must not depend on
-// src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
-import '@/lib/pgTypes';
 import { verifyToken } from './gotrue';
-import { verifyPrintTokenSignature } from '@/lib/pdf/printAuth';
+import { authenticatePrintToken } from './withAuthPrint';
+import { getAuthPool } from './authPool';
 import { parseCookies, clearAuthCookies, ACCESS_COOKIE, ACTIVE_COMPANY_COOKIE } from './cookies';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
 import { setTenantTags, sanitizeRoute } from '@/lib/sentry/tags';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { ROLE_HIERARCHY, type AuthRole } from './types';
 import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
+
+// Re-exported so every existing `import { withRole } from '@/lib/auth/withAuth'`
+// keeps working; the implementation moved to withRole.ts (300-line ceiling).
+export { withRole } from './withRole';
 
 /**
  * Route categories that get per-company rate limiting applied inside withAuth
@@ -34,50 +33,6 @@ export interface CompanyAuthedRequest extends NextApiRequest {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Handler = (req: any, res: NextApiResponse<any>) => any;
-
-/**
- * Role gate — must be composed inside withAuth.
- * Checks req.companyRole against the ROLE_HIERARCHY.
- *
- * Usage: withAuth(withRole('admin')(withErrorHandler(handler)))
- */
-export function withRole(requiredRole: AuthRole) {
-  return (handler: Handler): Handler => {
-    return async (req: NextApiRequest, res: NextApiResponse) => {
-      const authedReq = req as CompanyAuthedRequest;
-      const userRoleLevel = ROLE_HIERARCHY[authedReq.companyRole as AuthRole] ?? 0;
-      const requiredRoleLevel = ROLE_HIERARCHY[requiredRole] ?? 0;
-      if (userRoleLevel < requiredRoleLevel) {
-        return res.status(403).json({
-          success: false,
-          error: { code: 'FORBIDDEN', message: `This action requires ${requiredRole} role or higher` },
-        });
-      }
-      return handler(req, res);
-    };
-  };
-}
-
-let _pool: pg.Pool | null = null;
-function getAuthPool(): pg.Pool {
-  if (_pool) return _pool;
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error('DATABASE_URL required');
-  _pool = new pg.Pool({
-    connectionString: url,
-    max: Number(process.env.AUTH_POOL_MAX ?? 20),
-    connectionTimeoutMillis: 15000,
-    idleTimeoutMillis: 30000,
-    ssl:
-      process.env.DATABASE_SSL === 'strict'
-        ? { rejectUnauthorized: true }
-        : process.env.DATABASE_SSL === 'disable'
-          ? false
-          : { rejectUnauthorized: false },
-  });
-  _pool.on('error', (err) => log.warn('withAuth pool background error', { message: err.message }, 'Auth'));
-  return _pool;
-}
 
 export function withAuth(handler: Handler): NextApiHandler {
   return async (req, res) => {
@@ -106,39 +61,35 @@ export function withAuth(handler: Handler): NextApiHandler {
     } catch (err) {
       // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
       // Chromium request carries a short-lived print token instead of a
-      // GoTrue session in the SAME cookie. verifyPrintTokenSignature is a
-      // no-op (always null) unless PRINT_TOKEN_SECRET is set, so this
-      // branch is fully disabled by default.
-      //
-      // Signature/expiry and path are checked in two steps deliberately: a
-      // token that is genuinely signed but bound to a DIFFERENT path (e.g.
-      // AppLayout's own background calls, which have no GoTrue session and
-      // present the same print-token cookie) must 401 WITHOUT clearing
-      // cookies — clearAuthCookies wiping the print cookies mid-render was
-      // racing the actual report fetch. Only a garbage/forged/expired token
-      // gets the original clear-and-401 treatment.
-      const candidate = verifyPrintTokenSignature(token);
-      if (!candidate) {
-        log.warn('withAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
-        clearAuthCookies(res);
-        return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
-      }
+      // GoTrue session in the SAME cookie. The whole decision lives in
+      // authenticatePrintToken (withAuthPrint.ts), which calls the tested
+      // verifyPrintToken rather than re-checking the bound paths here — an
+      // inline copy of that check is how the exact-match rule ended up with
+      // no production caller. It is a no-op (always rejected) unless
+      // PRINT_TOKEN_SECRET is set, so the branch is disabled by default.
+      // The method goes in too: a print token authorises GETs only, so a
+      // captured one cannot become a write credential if a bound route ever
+      // grows a write method.
       const requestPath = req.url?.split('?')[0] ?? '';
-      if (candidate.path !== requestPath || candidate.companyId !== activeCompanyId) {
-        log.warn('withAuth: print token not valid for this request', {
-          tokenPath: candidate.path,
-          requestPath,
-          tokenCompanyId: candidate.companyId,
-          activeCompanyId,
-        }, 'Auth');
+      const outcome = authenticatePrintToken(token, requestPath, activeCompanyId, req.method);
+      if (outcome.kind === 'rejected') {
+        if (outcome.clearCookies) {
+          log.warn('withAuth: invalid token', { message: err instanceof Error ? err.message : String(err) }, 'Auth');
+          clearAuthCookies(res);
+        } else {
+          // A genuine print token bound elsewhere — AppLayout's own background
+          // calls present the same cookie. Clearing here wiped the render's
+          // credentials mid-render.
+          log.warn('withAuth: print token not valid for this request', { requestPath, activeCompanyId }, 'Auth');
+        }
         return res.status(401).json({ success: false, error: { code: 'INVALID_TOKEN', message: 'Invalid or expired token' } });
       }
       log.info('withAuth: print token accepted', {
-        companyId: candidate.companyId,
-        userId: candidate.userId,
-        path: candidate.path,
+        companyId: outcome.payload.companyId,
+        userId: outcome.payload.userId,
+        paths: outcome.payload.paths,
       }, 'Auth');
-      claims = { sub: candidate.userId } as Awaited<ReturnType<typeof verifyToken>>;
+      claims = { sub: outcome.payload.userId } as Awaited<ReturnType<typeof verifyToken>>;
     }
 
     const startedAt = Date.now();

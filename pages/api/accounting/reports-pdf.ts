@@ -7,7 +7,7 @@
  */
 
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { incomeStatementPackRows } from '@/modules/accounting/services/reports/incomeStatementPackRows';
+import { incomeStatementPackRows, NO_MARGIN_CELL } from '@/modules/accounting/services/reports/incomeStatementPackRows';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess } from '@/lib/auth';
@@ -75,6 +75,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 // ── PDF generation ────────────────────────────────────────────────────────────
 const n = (v: unknown): number => (typeof v === 'number' ? v : parseFloat(String(v ?? '0')));
 const pct = (v: unknown): string => `${Number(n(v)).toFixed(1)}%`;
+
+/** The Margin column for one P&L row. Blank when the band has no margin,
+ *  NO_MARGIN_CELL when turnover is not positive so there is none to take. */
+const marginCell = (margin: number | null | undefined): string =>
+  margin === undefined ? '' : margin === null ? NO_MARGIN_CELL : pct(margin);
 const getPrimaryRgb = (c: string) => { try { return hexToRgb(c); } catch { return TEAL; } };
 
 function renderSectionHeader(
@@ -142,8 +147,11 @@ export function renderSection(
         autoTable,
         [['Item', 'Amount', 'Margin']],
         // One row list, shared with the HTML pack — see incomeStatementPackRows.
+        // undefined = this band has no margin (blank cell); null = it has one
+        // in principle but turnover is not positive, so there is no margin to
+        // print. Coercing null to 0 here printed "0.0%" on a loss period.
         incomeStatementPackRows(d as Record<string, unknown>).map(r =>
-          [r.label, fmtZAR(n(r.amount)), r.margin === undefined ? '' : pct(r.margin)]),
+          [r.label, fmtZAR(n(r.amount)), marginCell(r.margin)]),
         y,
         margin,
       );

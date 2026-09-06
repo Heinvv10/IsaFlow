@@ -15,6 +15,8 @@ vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.
 
 import { renderSectionHtml } from '@/../pages/api/accounting/reports-html';
 import { renderSection } from '@/../pages/api/accounting/reports-pdf';
+import { NO_MARGIN_CELL } from '@/modules/accounting/services/reports/incomeStatementPackRows';
+import { buildReportPack } from '@/modules/accounting/services/reports/reportPackService';
 
 /** Brightsphere, all-time — the tenant whose pack was short by R341,712.00. */
 const SECTION = {
@@ -117,5 +119,57 @@ describe('PDF pack renderer', () => {
     const labels = calls[0]!.body.map(r => r[0]);
     expect(labels).not.toContain('Other Income');
     expect(labels).toContain('Operating Profit');
+  });
+});
+
+/**
+ * Non-positive turnover. `reportPackService` emits `grossMargin`/`netMargin`
+ * as null there — a margin needs turnover to be a margin OF — and both legacy
+ * renderers used to coerce that null to 0 and print "0.0%", a figure nothing
+ * else on the page supports, on documents sent to clients.
+ */
+describe('legacy packs on non-positive turnover', () => {
+  /** The income_statement section reportPackService actually builds when
+   *  credit notes exceed sales. Built through the service, not hand-written,
+   *  so a service that stopped nulling would fail here too. */
+  const negativeSection = () => {
+    const pack = buildReportPack('board', {
+      companyName: 'Loss Co', period: '2026-01', revenue: -1000, costOfSales: 0,
+      operatingExpenses: 500, netProfit: -1500, totalAssets: 0, totalLiabilities: 0,
+      totalEquity: 0, currentAssets: 0, currentLiabilities: 0, cash: 0,
+      accountsReceivable: 0, accountsPayable: 0, inventory: 0,
+    }, '2026-01-01', '2026-01-31');
+    return pack.sections.find(s => s.type === 'income_statement')!;
+  };
+
+  it('the service still hands the renderers a null margin', () => {
+    const d = negativeSection().data;
+    expect(d.grossMargin).toBeNull();
+    expect(d.netMargin).toBeNull();
+  });
+
+  it('the HTML pack prints the not-meaningful cell, never 0.0%', () => {
+    const html = renderSectionHtml(negativeSection() as never);
+    expect(html).not.toContain('0.0%');
+    expect(html).not.toContain('%');
+    const cells = html.match(/<td class="num muted">([^<]*)<\/td>/g) ?? [];
+    expect(cells.filter(c => c.includes(NO_MARGIN_CELL)).length).toBe(2);
+  });
+
+  it('the PDF pack prints the not-meaningful cell, never 0.0%', () => {
+    const calls: Array<{ body: string[][] }> = [];
+    const autoTable = (_d: unknown, o: { body: string[][] }) => { calls.push(o); };
+    const doc = {
+      lastAutoTable: { finalY: 20 }, setFontSize: () => {}, setFont: () => {},
+      setTextColor: () => {}, text: () => {}, addPage: () => {}, setFillColor: () => {}, rect: () => {},
+    } as never;
+    renderSection(doc, autoTable, negativeSection() as never, 210, 297, 10, { r: 0, g: 0, b: 0 });
+    const body = calls[0]!.body;
+    const margins = body.map(r => r[2]!);
+    expect(margins.join('|')).not.toContain('%');
+    expect(body.find(r => r[0] === 'Gross Profit')![2]).toBe(NO_MARGIN_CELL);
+    expect(body.find(r => r[0] === 'Net Profit')![2]).toBe(NO_MARGIN_CELL);
+    // A band that never had a margin still gets a blank cell, not the dash.
+    expect(body.find(r => r[0] === 'Operating Expenses')![2]).toBe('');
   });
 });

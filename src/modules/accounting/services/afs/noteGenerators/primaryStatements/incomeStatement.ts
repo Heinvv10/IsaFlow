@@ -31,7 +31,7 @@ const REVENUE_CODES = new Set([
   ACCUMULATED_BF_CODE,
 ]);
 
-function isRevenueLine(l: SectionLine): boolean {
+export function isRevenueLine(l: SectionLine): boolean {
   return REVENUE_CODES.has(l.code);
 }
 

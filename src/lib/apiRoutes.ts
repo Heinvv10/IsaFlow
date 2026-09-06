@@ -38,6 +38,7 @@ import type { Currency } from '@/modules/accounting/services/core/currencyServic
 import type { MigrationSession } from '@/modules/accounting/services/core/migrationService';
 import type { getVATReturn } from '@/modules/accounting/services/reports/vatReturnService';
 import type { findVatAllocationMismatches } from '@/modules/accounting/services/reports/vatAllocationMismatchService';
+import type { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
 import type { createShareLink, listShareLinks } from '@/modules/accounting/services/share/shareLinkService';
 import type { CommentaryRow, generateDrafts, listCommentary } from '@/modules/accounting/services/commentary/commentaryService';
 import type { createAnnotation, listAnnotations } from '@/modules/accounting/services/annotations/annotationService';
@@ -125,6 +126,7 @@ interface StaticRoutes {
  */
 interface DynamicRoutes {
   '/api/admin/users/{}/impersonate': { redirect: string };
+  '/api/accounting/packs/{}/trend': Awaited<ReturnType<typeof getPackTrend>>;
   // WS3. Each of these serves POST only, so each has one payload and needs no
   // union. The two commentary verbs return the same row shape by design: an
   // approval and a rejection differ in `status`, not in envelope.

@@ -87,3 +87,76 @@ describe('incomeStatementPackRows', () => {
     expect(r.every(x => Number.isFinite(x.amount))).toBe(true);
   });
 });
+
+/**
+ * Three margin states, not two. The legacy HTML and PDF packs read this
+ * builder's `margin` field directly, and coercing a null margin to 0 here is
+ * what printed "Gross margin 0.0%" on a period whose turnover was negative.
+ */
+describe('incomeStatementPackRows — margin states', () => {
+  it('carries a null margin through as null, never 0', () => {
+    const r = incomeStatementPackRows({
+      revenue: -1000, costOfSales: 0, grossProfit: -1000, operatingExpenses: 500,
+      netProfit: -1500, grossMargin: null, netMargin: null,
+    });
+    expect(by(r, 'Gross Profit')!.margin).toBeNull();
+    expect(by(r, 'Net Profit')!.margin).toBeNull();
+  });
+
+  it('treats an absent margin key as "none to print", not as zero', () => {
+    const r = incomeStatementPackRows({ revenue: 100, netProfit: 10 });
+    expect(by(r, 'Gross Profit')!.margin).toBeNull();
+    expect(by(r, 'Net Profit')!.margin).toBeNull();
+  });
+
+  it('keeps undefined for a band that never carries a margin', () => {
+    const r = incomeStatementPackRows({ revenue: 100, grossMargin: 40, netMargin: 10, netProfit: 10 });
+    expect(by(r, 'Operating Expenses')!.margin).toBeUndefined();
+    expect(by(r, 'Gross Profit')!.margin).toBe(40);
+  });
+
+  it('does not turn a non-numeric margin into 0', () => {
+    const r = incomeStatementPackRows({ revenue: 100, grossMargin: 'x', netProfit: 10, netMargin: 10 });
+    expect(by(r, 'Gross Profit')!.margin).toBeNull();
+  });
+});
+
+/**
+ * ADVERSARIAL LOW-10 (TDD): the bottom line is COPIED from the caller — it is
+ * the classifier's own figure (`gl/accountClassification#aggregateFigures`,
+ * through `financialFiguresService`), and every surface that prints a net
+ * profit prints that one number. Nothing here may re-derive it, round it, or
+ * reconcile it against the bands, however equivalent the arithmetic looks:
+ * the identity is enforced upstream, and a second derivation here is how two
+ * surfaces come to print different bottom lines for the same period.
+ */
+describe('incomeStatementPackRows — the bottom line is copied, not derived', () => {
+  const netProfitOf = (d: Record<string, unknown>) =>
+    incomeStatementPackRows(d).find(r => r.key === 'netProfit')!.amount;
+
+  it('returns the caller\'s netProfit bit for bit', () => {
+    expect(netProfitOf(BRIGHTSPHERE)).toBe(BRIGHTSPHERE.netProfit);
+  });
+
+  it('does not round or re-scale it', () => {
+    // Cents that a re-derivation through the bands would not reproduce.
+    for (const n of [8394848.6, 0.01, -0.01, 1234567.89, -998877.66, 1e-2]) {
+      expect(netProfitOf({ ...BRIGHTSPHERE, netProfit: n })).toBe(n);
+    }
+  });
+
+  it('keeps it even when the bands do NOT foot to it', () => {
+    // A blob whose bands sum nowhere near the bottom line. The row must still
+    // be the caller's figure: reconciling it here would silently overwrite the
+    // classifier and hide the real defect.
+    const inconsistent = { ...BRIGHTSPHERE, netProfit: 42 };
+    expect(netProfitOf(inconsistent)).toBe(42);
+    const r = incomeStatementPackRows(inconsistent);
+    const v = (l: string) => r.find(x => x.label === l)!.amount;
+    expect(v('Operating Profit') - v('Other Expenses')).not.toBeCloseTo(42, 2);
+  });
+
+  it('keeps a loss as a loss', () => {
+    expect(netProfitOf({ ...BRIGHTSPHERE, netProfit: -750000.25 })).toBe(-750000.25);
+  });
+});

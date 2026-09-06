@@ -1,10 +1,11 @@
 import { useEffect } from 'react';
-import type { AppProps } from 'next/app';
 import { useRouter } from 'next/router';
+import type { AppProps } from 'next/app';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { CompanyProvider } from '@/contexts/CompanyContext';
+import { isPrintRender } from '@/lib/pdf/printRenderQuery';
 import { TableDensityProvider } from '@/contexts/TableDensityContext';
 import { ThemeModeProvider } from '@/contexts/ThemeModeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -20,13 +21,36 @@ import '../styles/print.css';
  * SW caching breaks HMR in dev by pinning old webpack bundles).
  */
 export default function App({ Component, pageProps }: AppProps) {
+  const router = useRouter();
+  // A print render (Gotenberg/Playwright photographing report-packs.tsx's
+  // ?print=1 branch) needs no auth or company context, and Gotenberg cannot
+  // stub these providers' own background fetches the way the Playwright
+  // transport does: AuthProvider's /api/auth/me fails JWT verification on a
+  // print token and its handler clears the sb-access-token cookie (the same
+  // cookie carrying the print token), and CompanyProvider's own fetch 401s
+  // under the print token, whose refresh-then-redirect (apiFetch.ts)
+  // navigates the whole render to /login before it can finish. The check
+  // takes the whole router, not router.query: query only means anything once
+  // router.isReady says it does. The pack page has getServerSideProps, so it
+  // is ready from the first client render and there is no window in which a
+  // mistaken "not a print render" could let AuthProvider's mount effect fire.
+  // See printRenderQuery.ts.
+  const printRender = isPrintRender(router);
   // The public share page is not tracked: its pathname carries the token.
   // The same predicate decides the service worker below, because the reason is
   // the same one — nothing about a share link may be written down client-side.
   // `isSharePath` is the one definition of that boundary; `isTrackedPath` in
   // the analytics module is derived from it, and public/sw.js keeps the only
   // other copy because a worker cannot import from src.
-  const sharePage = isSharePath(useRouter().pathname);
+  const sharePage = isSharePath(router.pathname);
+  // Neither route has a session to fetch. The print render carries a print
+  // token these providers' own fetches reject (see printRenderQuery.ts); the
+  // share page is opened by a third party with no cookie at all, where
+  // /api/auth/me and /api/accounting/companies can only 401 — and apiFetch's
+  // refresh-then-redirect turns that into a navigation to /login, replacing
+  // the pack the recipient was sent with a login screen they have no account
+  // for. One name for the two, because it is one reason.
+  const skipProviders = printRender || sharePage;
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -59,8 +83,8 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <div>
     <ThemeProvider>
-      <AuthProvider>
-        <CompanyProvider>
+      <AuthProvider skipFetch={skipProviders}>
+        <CompanyProvider skipFetch={skipProviders}>
         <ThemeModeProvider>
         <TableDensityProvider>
         <ErrorBoundary>
@@ -68,7 +92,11 @@ export default function App({ Component, pageProps }: AppProps) {
         </ErrorBoundary>
         </TableDensityProvider>
         </ThemeModeProvider>
-        {!sharePage && <TrackerScript />}
+        {/* Not on a share page (the pathname is the token) and not during a
+            print render: the headless browser's navigation is a PDF export,
+            not a person visiting a page, and recording it puts a synthetic
+            pageview in the analytics for every export. */}
+        {!sharePage && !printRender && <TrackerScript />}
         <Toaster
           position="top-right"
           containerStyle={{ top: 16, right: 16 }}
