@@ -24,7 +24,10 @@ vi.mock('@/modules/accounting/services/reports/reportPackDataService', () => ({
     inventoryCaveat: null, classificationCaveat: null,
   })),
 }));
-vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({ getPackTrend: vi.fn(async () => []) }));
+const getPackTrendMock = vi.fn(async () => []);
+vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({
+  getPackTrend: (...a: unknown[]) => getPackTrendMock(...a),
+}));
 const renderPackPptxMock = vi.fn(async () => Buffer.from('PK-pptx-bytes'));
 vi.mock('@/modules/accounting/services/packs/pptxExportService', () => ({
   renderPackPptx: (...a: unknown[]) => renderPackPptxMock(...a),
@@ -32,6 +35,7 @@ vi.mock('@/modules/accounting/services/packs/pptxExportService', () => ({
 
 import pdfRoute from '../../../pages/api/accounting/packs/[id]/pdf';
 import pptxRoute from '../../../pages/api/accounting/packs/[id]/pptx';
+import trendRoute from '../../../pages/api/accounting/packs/[id]/trend';
 import { log } from '@/lib/logger';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -299,5 +303,51 @@ describe('GET /api/accounting/packs/[id]/pptx', () => {
       }),
       expect.any(String),
     );
+  });
+});
+
+/**
+ * ADVERSARIAL LOW-6: `months` was checked only for finiteness, and
+ * `monthSlots` clamps anything outside 1..12 to that range. So `months=999`
+ * came back as a twelve-point series a caller had every reason to read as 999
+ * months of history, and `months=1.5` as a one-point one — both silently.
+ */
+describe('GET /api/accounting/packs/[id]/trend — months', () => {
+  beforeEach(() => {
+    getPackTrendMock.mockClear();
+    rateLimitMock.mockClear();
+    rateLimitMock.mockResolvedValue(true);
+  });
+
+  const call = (months?: string) => {
+    const res = mockRes();
+    const query: Record<string, string> = { id: 'management', to: '2026-09-05' };
+    if (months !== undefined) query.months = months;
+    return trendRoute(req(query), res).then(() => res);
+  };
+
+  it.each([['0'], ['13'], ['999'], ['1.5'], ['-3'], ['abc'], [''], ['1e1000'], ['NaN']])(
+    'rejects months=%j rather than clamping it',
+    async (months) => {
+      const res = await call(months);
+      expect(res.statusCode).toBe(400);
+      expect(getPackTrendMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('says what it wanted', async () => {
+    const res = await call('99');
+    expect(JSON.stringify(res.body)).toMatch(/whole number from 1 to 12/);
+  });
+
+  it.each([['1'], ['6'], ['12']])('accepts months=%j and passes it through unchanged', async (months) => {
+    const res = await call(months);
+    expect(res.statusCode).toBe(200);
+    expect(getPackTrendMock).toHaveBeenCalledWith(COMPANY, '2026-09-05', Number(months));
+  });
+
+  it('defaults to twelve months when the caller says nothing', async () => {
+    await call(undefined);
+    expect(getPackTrendMock).toHaveBeenCalledWith(COMPANY, '2026-09-05', 12);
   });
 });

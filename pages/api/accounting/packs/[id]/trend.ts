@@ -17,6 +17,13 @@ import type { PackType } from '@/modules/accounting/services/reports/reportPackS
 const VALID_TYPES: PackType[] = ['board', 'management', 'monthly'];
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** The series is a TWELVE-month trend; `monthSlots` clamps anything outside
+ *  1..12 to that range. Clamping silently is how `months=999` came back as a
+ *  12-point series that the caller had every reason to read as 999 months of
+ *  history, and `months=1.5` as a 1-point one. The route says no instead. */
+const MIN_MONTHS = 1;
+const MAX_MONTHS = 12;
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
 
@@ -29,8 +36,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const to = String(req.query.to ?? '');
   if (!ISO_DATE.test(to)) return apiResponse.badRequest(res, 'to must be a YYYY-MM-DD date');
 
-  const months = Number(req.query.months ?? 12);
-  if (!Number.isFinite(months)) return apiResponse.badRequest(res, 'months must be a number');
+  const months = Number(req.query.months ?? MAX_MONTHS);
+  if (!Number.isInteger(months) || months < MIN_MONTHS || months > MAX_MONTHS) {
+    return apiResponse.badRequest(res, `months must be a whole number from ${MIN_MONTHS} to ${MAX_MONTHS}`);
+  }
 
   if (!(await checkReportRateLimit(companyId, 'packs-trend'))) {
     log.warn('Pack trend rate limit exceeded', { companyId }, 'rateLimit');
