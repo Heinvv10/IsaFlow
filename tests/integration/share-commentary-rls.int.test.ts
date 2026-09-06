@@ -24,6 +24,8 @@ import { createShareLink } from '@/modules/accounting/services/share/shareLinkSe
 import { resolveShareLink, commitShareView } from '@/modules/accounting/services/share/shareResolver';
 import { buildSharedPack } from '@/modules/accounting/services/share/sharedPackService';
 import { canonicalParamsHash } from '@/modules/accounting/services/share/shareParams';
+import { generateDrafts } from '@/modules/accounting/services/commentary/commentaryService';
+import type { ManagementPackData } from '@/modules/accounting/services/reports/aiCommentaryService';
 import { hashShareToken } from '@/modules/accounting/services/share/shareToken';
 
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -178,5 +180,58 @@ describe('a share link publishes approved text only', () => {
     expect(text).not.toContain('WITHDRAWN DRAFT TEXT');
     expect(text).not.toContain('B APPROVED');   // tenant B's approved text
     expect(text).not.toContain('B NOTE');       // no annotation, ever
+  });
+});
+
+/** Enough of a pack for the draft builder to write an income_statement:revenue
+ *  sentence, which is the row the withdrawal test below regenerates. */
+const PACK_DATA: ManagementPackData = {
+  companyName: 'WS3R-A',
+  period: '2026-03-01 to 2026-08-31',
+  incomeStatement: { revenue: 1_000_000, costOfSales: 600_000, grossProfit: 400_000, operatingExpenses: 250_000, netProfit: 150_000 },
+  balanceSheet: { totalAssets: 2_000_000, totalLiabilities: 800_000, equity: 1_200_000, currentRatio: 0.9, debtEquityRatio: 0.67 },
+  priorPeriod: { revenue: 800_000, costOfSales: 500_000, grossProfit: 300_000, operatingExpenses: 220_000, netProfit: 80_000 },
+  ratios: { grossMargin: 40, netMargin: 15, currentRatio: 0.9, quickRatio: 0.7 },
+};
+
+describe('withdrawing an approval keeps the approver on the row (migration 612)', () => {
+  it('stamps withdrawn_by/withdrawn_at, preserves approved_by, and publishes nothing', async () => {
+    const hash = canonicalParamsHash(PARAMS);
+    await admin.query(
+      `INSERT INTO report_commentary (company_id, report_kind, params_hash, period_start, period_end, section_ref, row_ref, draft_text, approved_text, status, generated_by, approved_by, approved_at)
+       VALUES ($1,'pack',$2,'2026-03-01','2026-08-31','income_statement','revenue','OLD DRAFT','APPROVED BY A NAMED PERSON','approved',$3,$3,NOW())
+       ON CONFLICT (company_id, report_kind, params_hash, section_ref, row_ref) DO UPDATE SET
+         draft_text = EXCLUDED.draft_text, approved_text = EXCLUDED.approved_text,
+         status = 'approved', approved_by = EXCLUDED.approved_by, approved_at = NOW(),
+         withdrawn_by = NULL, withdrawn_at = NULL`,
+      [CA, hash, UA]);
+
+    await generateDrafts({
+      companyId: CA, userId: 'ws3-rls-withdrawer', params: PARAMS, data: PACK_DATA, replace: true,
+    });
+
+    const { rows } = await admin.query(
+      `SELECT status, approved_text, approved_by, withdrawn_by, withdrawn_at, draft_text
+       FROM report_commentary
+       WHERE company_id = $1 AND params_hash = $2 AND section_ref = 'income_statement' AND row_ref = 'revenue'`,
+      [CA, hash]);
+    const row = rows[0];
+
+    expect(row.status).toBe('draft');
+    // The whole point: the record of who signed off survives the withdrawal.
+    expect(row.approved_by).toBe(UA);
+    expect(row.approved_text).toBe('APPROVED BY A NAMED PERSON');
+    // And the withdrawal itself is now on the record too.
+    expect(row.withdrawn_by).toBe('ws3-rls-withdrawer');
+    expect(row.withdrawn_at).not.toBeNull();
+    expect(row.draft_text).not.toBe('OLD DRAFT');
+
+    // Keeping approved_text leaks nothing: the published query filters on
+    // status, and this row is a draft again. Proven end to end, not argued.
+    const { token } = await createShareLink({ companyId: CA, userId: UA, params: PARAMS });
+    const r = await resolve(token, { ip: '203.0.113.11', userAgent: 'vitest' });
+    expect(r.status).toBe('ok');
+    if (r.status !== 'ok') return;
+    expect(JSON.stringify(await buildSharedPack(r.link))).not.toContain('APPROVED BY A NAMED PERSON');
   });
 });

@@ -55,6 +55,8 @@ const dbRow = (over: Record<string, unknown> = {}) => ({
   generated_by: 'user-1',
   approved_by: null,
   approved_at: null,
+  withdrawn_by: null,
+  withdrawn_at: null,
   ...over,
 });
 
@@ -199,7 +201,11 @@ describe('generateDrafts', () => {
     expect(written.some(v => v.includes('revenue'))).toBe(false);
   });
 
-  it('withdraws the approval in the same statement that rewrites the draft, only with replace', async () => {
+  it('stamps the withdrawal and PRESERVES the approver, only with replace', async () => {
+    // The record of who approved a sentence must survive the sentence being
+    // withdrawn — otherwise "who signed off on the March commentary, and who
+    // took it back?" has no answer in the database. Migration 612 adds the two
+    // withdrawal columns; the approval columns are left exactly as they are.
     sqlMock.mockResolvedValueOnce([
       dbRow({ status: 'approved', approved_text: 'Signed off.', approved_by: 'approver-9', approved_at: new Date() }),
     ]);
@@ -211,13 +217,46 @@ describe('generateDrafts', () => {
     const revenueCall = sqlMock.mock.calls.findIndex((c, i) => i > 0 && (c.slice(1) as unknown[]).includes('revenue'));
     expect(revenueCall).toBeGreaterThan(0);
     const stmt = text(revenueCall);
-    expect(stmt).toContain('approved_text');
-    expect(stmt).toContain('approved_by');
-    expect(stmt).toContain('approved_at');
-    expect(values(revenueCall)).toContain(true); // clearsApproval
+    expect(stmt).toContain('withdrawn_by');
+    expect(stmt).toContain('withdrawn_at');
+    // Not touched at all — no assignment, so no way to lose them.
+    expect(stmt).not.toContain('approved_text =');
+    expect(stmt).not.toContain('approved_by =');
+    expect(stmt).not.toContain('approved_at =');
+    // The withdrawer is the authenticated caller, interpolated, not the
+    // generated_by of some earlier run.
+    expect(values(revenueCall)).toContain('user-1');
+    expect(values(revenueCall)).toContain(true); // replace
     expect(infoMock).toHaveBeenCalledWith(
       'Commentary approval withdrawn by regeneration', expect.anything(), 'commentary',
     );
+  });
+
+  it('reads the withdrawal columns back onto the row', async () => {
+    const withdrawnAt = new Date('2026-09-06T08:30:00.000Z');
+    sqlMock.mockResolvedValueOnce([dbRow({
+      approved_text: 'Signed off.', approved_by: 'approver-9', approved_at: new Date('2026-09-01T00:00:00.000Z'),
+      withdrawn_by: 'user-1', withdrawn_at: withdrawnAt,
+    })]);
+    const [row] = await listCommentary(COMPANY, PARAMS);
+    // A withdrawn row: still a draft, still naming the person who approved it.
+    expect(row!.status).toBe('draft');
+    expect(row!.approvedBy).toBe('approver-9');
+    expect(row!.withdrawnBy).toBe('user-1');
+    expect(row!.withdrawnAt).toBe(withdrawnAt.toISOString());
+  });
+
+  it('leaves the withdrawal columns alone when the row was not approved', async () => {
+    sqlMock.mockResolvedValueOnce([dbRow({ status: 'draft', withdrawn_by: 'someone-earlier' })]);
+    sqlMock.mockResolvedValue([{ id: ID }]);
+    await generateDrafts({ companyId: COMPANY, userId: 'user-1', params: PARAMS, data: DATA });
+
+    // The CASE is on the row's state at WRITE time, so re-drafting an ordinary
+    // draft cannot rewrite the record of a withdrawal that happened earlier.
+    const stmt = text(1);
+    expect(stmt).toContain("CASE WHEN report_commentary.status = 'approved' THEN");
+    expect(stmt).toContain('ELSE report_commentary.withdrawn_by END');
+    expect(stmt).toContain('ELSE report_commentary.withdrawn_at END');
   });
 
   it('does not revive a rejected sentence on a plain generate', async () => {
@@ -250,9 +289,10 @@ describe('generateDrafts', () => {
     const stmt = text(1);
     expect(stmt).toContain("report_commentary.status = 'draft'");
     expect(stmt).not.toContain("report_commentary.status <> 'approved'");
-    // Withdrawal is decided by the row's state at write time, so a row approved
-    // inside the read-to-write window cannot keep approved_text it never re-earned.
-    expect(stmt).toContain("CASE WHEN report_commentary.status = 'approved' THEN NULL");
+    // Withdrawal is stamped on the row's state at write time, so a row approved
+    // inside the read-to-write window is recorded as withdrawn by whoever's
+    // regeneration actually did it.
+    expect(stmt).toContain("withdrawn_at = CASE WHEN report_commentary.status = 'approved' THEN NOW()");
   });
 
   it('counts a row the ON CONFLICT guard refused as skipped, not written', async () => {

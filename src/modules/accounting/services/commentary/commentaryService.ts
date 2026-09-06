@@ -25,6 +25,11 @@ export interface CommentaryRow {
   status: CommentaryStatus;
   approvedBy: string | null;
   approvedAt: string | null;
+  /** Set when a `replace` regeneration withdrew an approval. The approval
+   *  columns beside these are the approval that was withdrawn, not a live one —
+   *  `status` is what says whether the text is published. */
+  withdrawnBy: string | null;
+  withdrawnAt: string | null;
 }
 
 /** `not_found` is a 404, `empty_draft` a 400, `invalid_state` a 409. The route
@@ -45,6 +50,8 @@ function toRow(r: DbRow): CommentaryRow {
     status: String(r.status) as CommentaryStatus,
     approvedBy: r.approved_by ? String(r.approved_by) : null,
     approvedAt: r.approved_at ? new Date(r.approved_at).toISOString() : null,
+    withdrawnBy: r.withdrawn_by ? String(r.withdrawn_by) : null,
+    withdrawnAt: r.withdrawn_at ? new Date(r.withdrawn_at).toISOString() : null,
   };
 }
 
@@ -94,9 +101,15 @@ export async function generateDrafts(input: {
     // row; without the guard this upsert would quietly demote that approval, or
     // undo that rejection, with nobody having asked for either.
     //
-    // The approval columns are cleared on the row's ACTUAL state at write time
-    // rather than on the read-time flag, so a row approved inside that window
-    // cannot end up carrying approved_text it never re-earned.
+    // A withdrawal is STAMPED, not erased. approved_text, approved_by and
+    // approved_at survive it, so the row still says who put their name to that
+    // sentence, and withdrawn_by/withdrawn_at say who took it back and when
+    // (migration 612). Nothing leaks by keeping them: the published query
+    // filters on status = 'approved' and this row is now a draft.
+    //
+    // The stamp is written on the row's ACTUAL state at write time rather than
+    // on the read-time flag, so a row approved inside the read-to-write window
+    // is recorded as withdrawn by whoever's regeneration actually did it.
     const rows = (await sql`
       INSERT INTO report_commentary
         (company_id, report_kind, params_hash, period_start, period_end,
@@ -108,9 +121,8 @@ export async function generateDrafts(input: {
       DO UPDATE SET
         draft_text = EXCLUDED.draft_text,
         status = 'draft',
-        approved_text = CASE WHEN report_commentary.status = 'approved' THEN NULL ELSE report_commentary.approved_text END,
-        approved_by = CASE WHEN report_commentary.status = 'approved' THEN NULL ELSE report_commentary.approved_by END,
-        approved_at = CASE WHEN report_commentary.status = 'approved' THEN NULL ELSE report_commentary.approved_at END,
+        withdrawn_by = CASE WHEN report_commentary.status = 'approved' THEN ${input.userId} ELSE report_commentary.withdrawn_by END,
+        withdrawn_at = CASE WHEN report_commentary.status = 'approved' THEN NOW() ELSE report_commentary.withdrawn_at END,
         generated_by = EXCLUDED.generated_by,
         updated_at = NOW()
       WHERE report_commentary.status = 'draft' OR ${overwrite}::boolean
