@@ -120,3 +120,33 @@ export async function fetchAccountNames(
 
   return new Map(rows.map((r) => [String(r.id), String(r.account_name ?? '')]));
 }
+
+/**
+ * Single-account form, for the one caller that has an id and no name:
+ * `autoPostRuleLine`'s per-line fallback, taken when the sweep did not
+ * pre-resolve. Its own SELECT rather than a chain inside
+ * `resolveVatCodeForAccount`, because that resolver also writes the
+ * categorisation SUGGESTIONS a human reviews — coercing there would decide
+ * for them silently. See the note in inputVatDenial.ts.
+ */
+export async function resolveNonSupplyForAccount(
+  companyId: string,
+  glAccountId: string | null | undefined,
+  requestedVatCode: string | null | undefined,
+  context: Omit<NonSupplyContext, 'companyId'> = {},
+): Promise<NonSupplyResolution> {
+  const requested = requestedVatCode || VAT_CODE_NONE;
+  if (!glAccountId) return { vatCode: requested, coerced: false, reason: null };
+
+  const rows = (await sql`
+    SELECT account_name FROM gl_accounts
+    WHERE id = ${glAccountId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+
+  const name = rows[0]?.account_name;
+  return applyNonSupplyGuard(
+    name === null || name === undefined ? null : String(name),
+    requested,
+    { companyId, glAccountId, ...context },
+  );
+}

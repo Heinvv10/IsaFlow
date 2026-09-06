@@ -69,6 +69,9 @@ export interface VatOnBalanceSheetLine {
  * Why an account can never carry VAT. Defined beside the patterns that assign
  * it, in `gl/nonSupplyAccounts`, and re-exported here for the row type below.
  */
+// Both lines are needed and neither is redundant: the `export type ... from`
+// re-exports the name for this module's importers, and a type-only re-export
+// does NOT bind it locally, so `VatNonSupplyLine` below needs its own import.
 export type { NonSupplyReason } from '../gl/nonSupplyAccounts';
 import type { NonSupplyReason } from '../gl/nonSupplyAccounts';
 

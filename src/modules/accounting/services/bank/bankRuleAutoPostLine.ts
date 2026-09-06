@@ -16,8 +16,7 @@ import {
 } from '../gl/journalEntryService';
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
-import { applyVatDenial, resolveVatCodeForAccount } from '../gl/inputVatDenial';
-import { applyNonSupplyGuard } from '../gl/nonSupplyVatGuard';
+import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
@@ -110,33 +109,16 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // omits it (undefined, as opposed to an explicit null meaning "no default")
   // gets the lookup done here instead: this guard is a statutory one, and a
   // caller forgetting to pass an argument must not silently turn it off.
-  //
-  // A rule may also not claim VAT on an account where no supply can arise.
-  // That is the second guard and a different statute — see nonSupplyVatGuard.
-  // It runs on the batched branch only when the caller passed the account
-  // NAME it classifies on; without it the line falls through to the per-line
-  // resolver, which looks both up itself. A guard that quietly does nothing
-  // because an argument was omitted is worse than one that costs a SELECT.
-  const canBatch = input.ruleGlAccountVatDenied !== undefined
-    && input.ruleGlAccountName !== undefined;
-  const resolved = allocType !== 'account'
-    ? { vatCode: requestedVatCode, denied: false, nonSupplyCoerced: false }
-    : canBatch
-      ? (() => {
-          const d = applyVatDenial(input.ruleGlAccountVatDenied!, requestedVatCode, denialContext);
-          if (d.denied) return { ...d, nonSupplyCoerced: false };
-          const n = applyNonSupplyGuard(input.ruleGlAccountName ?? null, requestedVatCode, {
-            companyId, bankTxId: String(tx.id), ruleName, glAccountId: ruleGlAccountId ?? undefined,
-          });
-          return { vatCode: n.vatCode, denied: false, nonSupplyCoerced: n.coerced };
-        })()
-      : await (async () => {
-          const r = await resolveVatCodeForAccount(
-            companyId, ruleGlAccountId, requestedVatCode, denialContext,
-          );
-          return { vatCode: r.vatCode, denied: r.denied, nonSupplyCoerced: r.nonSupplyReason != null };
-        })();
-  const { vatCode, denied: vatDenied, nonSupplyCoerced } = resolved;
+  const { vatCode, denied: vatDenied, nonSupplyCoerced } = await resolveRuleVatCode({
+    allocType,
+    companyId,
+    requestedVatCode,
+    glAccountId: ruleGlAccountId,
+    ruleGlAccountVatDenied: input.ruleGlAccountVatDenied,
+    ruleGlAccountName: input.ruleGlAccountName,
+    denialContext,
+    guardContext: { bankTxId: String(tx.id), ruleName, glAccountId: ruleGlAccountId ?? undefined },
+  });
   const hasVat = vatCode === 'standard';
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;

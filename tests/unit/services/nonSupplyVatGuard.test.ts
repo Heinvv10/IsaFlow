@@ -122,15 +122,19 @@ describe('the labels and advice cover every reason', () => {
 });
 
 describe('the pure module stays importable from the browser', () => {
-  it('pulls in no database client', async () => {
-    // The bank screens import this directly. If it ever gains a `@/lib/neon`
-    // import the bundle grows a pg client and the page breaks at build time —
-    // this fails first, and says why.
-    const fs = await import('node:fs');
-    const src = fs.readFileSync(
-      'src/modules/accounting/services/gl/nonSupplyAccounts.ts', 'utf8',
-    );
-    expect(src).not.toMatch(/from '@\/lib\/neon'/);
-    expect(src).not.toMatch(/from '@\/lib\/logger'/);
+  it('resolves without pulling in a database client, transitively', async () => {
+    // The bank screens import this directly, so a server-only import anywhere
+    // in its graph breaks the page bundle. Asserted by making those modules
+    // throw on import and requiring this one to load anyway — a source-text
+    // grep would pass a differently-spelled import, or an indirection through
+    // a helper that pulls the client in itself.
+    vi.resetModules();
+    vi.doMock('@/lib/neon', () => { throw new Error('db client imported'); });
+    vi.doMock('@/lib/logger', () => { throw new Error('server logger imported'); });
+    const mod = await import('@/modules/accounting/services/gl/nonSupplyAccounts');
+    expect(typeof mod.classifyNonSupplyAccount).toBe('function');
+    vi.doUnmock('@/lib/neon');
+    vi.doUnmock('@/lib/logger');
+    vi.resetModules();
   });
 });

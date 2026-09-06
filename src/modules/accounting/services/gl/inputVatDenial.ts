@@ -29,8 +29,6 @@
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/lib/neon';
-import { applyNonSupplyGuard } from './nonSupplyVatGuard';
-import type { NonSupplyReason } from './nonSupplyAccounts';
 
 /** The vat code that claims no input tax. */
 export const VAT_CODE_NONE = 'none';
@@ -47,12 +45,6 @@ export interface VatResolution {
   vatCode: string;
   /** True when the account's denial overrode what the caller asked for. */
   denied: boolean;
-  /**
-   * Set when the SECOND guard fired instead — the account is one on which no
-   * supply can arise. A different statute from s17(2)(a) and a different
-   * module (`nonSupplyVatGuard`); see the note on the resolver below.
-   */
-  nonSupplyReason?: NonSupplyReason;
 }
 
 /**
@@ -102,11 +94,7 @@ export async function resolveVatCodeForAccount(
   context: Record<string, unknown> = {},
 ): Promise<VatResolution> {
   const requested = requestedVatCode || VAT_CODE_NONE;
-  // Widened from `!== VAT_CODE_STANDARD` when the non-supply guard joined:
-  // that one also bites on zero_rated, which still declares a supply value in
-  // box 2. The denial guard below is unaffected — it only ever fires on
-  // standard, so a zero_rated code costs one lookup and returns unchanged.
-  if (!glAccountId || !claimsSomething(requested)) {
+  if (!glAccountId || requested !== VAT_CODE_STANDARD) {
     return { vatCode: requested, denied: false };
   }
 
@@ -117,38 +105,22 @@ export async function resolveVatCodeForAccount(
   `) as DbRow[];
 
   const account = rows[0];
-  const ctx = {
+  // ONLY s17(2)(a) lives here. The sibling guard — nonSupplyVatGuard, for
+  // accounts on which no supply arises at all — is deliberately NOT chained
+  // in: this resolver is also what writes the LLM and smart-learning
+  // SUGGESTIONS, which a human reviews on the bank screen. Coercing a
+  // suggestion would rewrite 'standard' to 'none' before anyone saw it, and
+  // the screen's warning keys off 'standard', so the human would be shown a
+  // plain "No VAT" with no hint that anything was decided for them. That is
+  // the "silently strip a legitimate claim" failure the split exists to avoid.
+  // The unattended POSTER (autoPostRuleLine) calls that guard itself.
+  return applyVatDenial(Boolean(account?.vat_input_denied), requested, {
     companyId,
     glAccountId,
     accountCode: account?.account_code,
     accountName: account?.account_name,
     ...context,
-  };
-
-  // TWO GUARDS, TWO STATUTES, ONE LOOKUP. They are kept in separate modules on
-  // purpose — s17(2)(a) denies a claim on a supply that really happened, while
-  // nonSupplyVatGuard says no supply happened at all, and conflating those is
-  // the mistake this file's header already warns about. What they share is the
-  // account row, so the resolver chains them rather than paying for a second
-  // SELECT. Denial runs first only because it is the narrower rule; both land
-  // on 'none', so the order cannot change the posted code.
-  const denial = applyVatDenial(Boolean(account?.vat_input_denied), requested, ctx);
-  if (denial.denied) return denial;
-
-  const nonSupply = applyNonSupplyGuard(
-    account?.account_name === undefined || account?.account_name === null
-      ? null : String(account.account_name),
-    requested,
-    { companyId, glAccountId, ...context },
-  );
-  return nonSupply.coerced
-    ? { vatCode: nonSupply.vatCode, denied: false, nonSupplyReason: nonSupply.reason ?? undefined }
-    : denial;
-}
-
-/** Does this code claim or declare anything a guard should look at? */
-function claimsSomething(code: string): boolean {
-  return code !== VAT_CODE_NONE && code !== 'no_vat' && code !== 'exempt';
+  });
 }
 
 /**
