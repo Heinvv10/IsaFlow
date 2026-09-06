@@ -3,7 +3,7 @@
  * Pack selector (Board/Management/Monthly) + preview + PDF download
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, ChevronDown, ChevronRight, Presentation } from 'lucide-react';
@@ -196,17 +196,41 @@ function ReportPacksScreen() {
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
 
-  const loadPack = useCallback(async () => {
+  /**
+   * The pack fetch, with the LATEST request winning.
+   *
+   * There was no sequencing: a reader who switched from Board to Management,
+   * or nudged a date, had two requests in flight, and whichever the server
+   * answered last won. A full-GL aggregation for a wide period easily outlives
+   * a narrow one, so the screen settled on the pack the reader had already
+   * moved off — showing Board figures under a Management heading, with the
+   * download buttons pointed at Management. Nothing on the page said so.
+   *
+   * Each run marks itself stale on cleanup, so only the newest effect can
+   * write state. `loading` is set on the way in, not derived, so the spinner
+   * covers the whole of the newest request rather than clearing when an older
+   * one lands.
+   */
+  useEffect(() => {
+    let stale = false;
     setLoading(true);
-    try {
-      const res = await apiFetch(`/api/accounting/reports-pack?type=${selectedType}&from=${from}&to=${to}`).then(r => r.json());
-      if (res.data?.pack) setPack(res.data.pack);
-      if (res.data) setUnclassified(res.data.unclassifiedAccounts ?? null);
-    } catch (err) { log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) }); }
-    finally { setLoading(false); }
-  }, [selectedType, from, to]);
 
-  useEffect(() => { void loadPack(); }, [loadPack]);
+    void (async () => {
+      try {
+        const res = await apiFetch(`/api/accounting/reports-pack?type=${selectedType}&from=${from}&to=${to}`).then(r => r.json());
+        if (stale) return;
+        if (res.data?.pack) setPack(res.data.pack);
+        if (res.data) setUnclassified(res.data.unclassifiedAccounts ?? null);
+      } catch (err) {
+        if (stale) return;
+        log.error('Failed to load report pack', { error: err instanceof Error ? err.message : String(err) });
+      } finally {
+        if (!stale) setLoading(false);
+      }
+    })();
+
+    return () => { stale = true; };
+  }, [selectedType, from, to]);
 
   /**
    * Fetch a generated document and hand it to the browser. The server names
