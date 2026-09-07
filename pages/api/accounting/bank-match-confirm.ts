@@ -25,6 +25,10 @@ import {
   allocateTransaction,
   matchTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
+import {
+  signMismatchReason,
+  type SettlementKind,
+} from '@/modules/accounting/services/bank/bankLineDirection';
 type Row = Record<string, unknown>;
 
 const BodySchema = z.object({
@@ -59,7 +63,31 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
     if (txRows.length === 0) {
       return apiResponse.notFound(res, 'Bank transaction', bankTransactionId);
     }
-    const paymentAmount = Math.abs(Number(txRows[0]!.amount));
+    // SIGNED first, magnitude second. This route settles the document with
+    // arithmetic of its own (`amount_paid += min(paymentAmount, outstanding)`)
+    // which has no idea which way the money went, and `allocateTransaction` now
+    // posts the journal in the direction the sign implies. Unguarded, a refund
+    // matched here raises the AP liability in the GL while this route reduces
+    // it in the subledger — control and subledger differ by TWICE the line,
+    // behind a match a human confirmed on screen.
+    //
+    // Refused rather than reinterpreted, and BEFORE the first write: `withAuth`
+    // decides COMMIT vs ROLLBACK on `statusCode >= 500`, so a 400 raised after
+    // a write commits it. `bank_transfer` and `journal_line` are absent from
+    // this map deliberately — they tie a line to a journal that already exists
+    // and settle no document, so they have no direction to contradict.
+    const signedAmount = Number(txRows[0]!.amount);
+    const settles: Partial<Record<typeof candidateType, SettlementKind>> = {
+      supplier_invoice: 'supplier',
+      purchase_order: 'supplier',
+      customer_invoice: 'customer',
+    };
+    const settlementKind = settles[candidateType];
+    if (settlementKind) {
+      const wrongWay = signMismatchReason(settlementKind, signedAmount);
+      if (wrongWay) return apiResponse.badRequest(res, wrongWay);
+    }
+    const paymentAmount = Math.abs(signedAmount);
 
     if (candidateType === 'supplier_invoice') {
       const invRows = (await sql`

@@ -57,6 +57,8 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     + 'reason and the rest of the batch still posts, so you can re-send a list without checking it first. '
     + 'A transaction_id or bank_reference that matches no transaction — or matches several — is also SKIPPED '
     + 'with a reason, so one unrecognised reference never costs you the rest of the batch. '
+    + 'DIRECTION FOLLOWS THE SIGN: a money-out line against a supplier is a payment (DR Accounts Payable / CR Bank) and a money-IN line is a supplier refund (DR Bank / CR Accounts Payable); a money-in line against a customer is a receipt and a money-out line is a customer refund. A refund is NOT applied to an invoice — name no invoice_id for one. '
+    + 'A line whose invoice_id contradicts its direction is SKIPPED with that reason, never guessed. '
     + 'ALL OR NOTHING for real faults: if a line genuinely fails, the whole batch is rolled back, nothing is '
     + 'posted, and the error names the line. Every line is attributed to the agent, and the returned batch_id '
     + 'undoes the posted set through reverse_bank_allocation_batch. Use dry_run to see what would post and '

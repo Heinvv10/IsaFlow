@@ -119,6 +119,14 @@ describe('postAllocationLine — customer receipt naming an invoice', () => {
 });
 
 describe('postAllocationLine — supplier payment naming an invoice', () => {
+  // The suite default is the CUSTOMER fixture, +R218,344.80 — money in. A
+  // supplier payment is money OUT and stored negative, and since 2026-09-07 a
+  // money-in line naming a bill is refused rather than applied at its magnitude
+  // (`signMismatchReason`), so the sign has to be the real one here.
+  beforeEach(() => {
+    fetchBankTransaction.mockResolvedValue({ amount: -218344.80, transactionDate: '2025-12-19' });
+  });
+
   it('applies through applyBankLineToSupplierInvoices', async () => {
     await postAllocationLine(CTX, TX, line({ allocType: 'supplier' }), 'bulk_allocate_bank_transactions');
     expect(applyBankLineToSupplierInvoices).toHaveBeenCalledTimes(1);

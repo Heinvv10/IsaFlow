@@ -137,7 +137,18 @@ export async function allocateTransaction(
   const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
-  const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
+  // The `account` branch has no entity, so the direction IS the only signal:
+  // money out is a purchase (input tax), money in is a supply (output tax).
+  //
+  // supplier/customer are NOT direction-derived, and that was the bug's quiet
+  // half. A supplier REFUND reverses the original purchase, so it reverses
+  // INPUT tax — reaching for vat_output because the cash happened to come in
+  // put the reversal on the wrong side of the VAT201 entirely. The tax side
+  // follows what the counterparty is, and the sign only decides DR or CR.
+  const vatAccountKey: 'vat_input' | 'vat_output' =
+    allocType === 'supplier' ? 'vat_input'
+      : allocType === 'customer' ? 'vat_output'
+        : isSpent ? 'vat_input' : 'vat_output';
   const mapVatType = effectiveVatCode === 'standard' ? 'standard' as const
     : effectiveVatCode === 'zero_rated' ? 'zero_rated' as const
     : effectiveVatCode === 'exempt' ? 'exempt' as const : undefined;
@@ -206,15 +217,34 @@ export async function allocateTransaction(
     const supRows = (await sql`SELECT name FROM suppliers WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     const supName = supRows.length > 0 ? String(supRows[0]!.name) : `Supplier #${entityId}`;
     allocEntityName = supName;
-    entryDesc = description || `Payment to ${supName}`;
+    entryDesc = description || (isSpent ? `Payment to ${supName}` : `Refund from ${supName}`);
     source = 'auto_supplier_payment';
-    lines = [
-      { glAccountId: apAccountId, debit: netAmount, credit: 0, description: entryDesc, vatType: mapVatType },
-      { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
-    ];
-    if (hasVat) {
-      const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
-      lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
+    // isSpent (money out) → a payment: DR AP, CR Bank.
+    // deposit (money in)  → a refund:  DR Bank, CR AP.
+    //
+    // This branch ignored `isSpent` and always posted the payment direction, so
+    // a refund credited the bank that the statement says was debited and the
+    // account finished wrong by TWICE the line. Nothing failed: the call
+    // returned success and the row read as allocated. R261,651.64 on Velocity
+    // Fibre, found only by diffing the GL against the bank on signed amount.
+    if (isSpent) {
+      lines = [
+        { glAccountId: apAccountId, debit: netAmount, credit: 0, description: entryDesc, vatType: mapVatType },
+        { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+      ];
+      if (hasVat) {
+        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
+        lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
+      }
+    } else {
+      lines = [
+        { glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+        { glAccountId: apAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
+      ];
+      if (hasVat) {
+        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
+        lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
+      }
     }
   } else if (allocType === 'customer' && entityId) {
 
@@ -222,15 +252,30 @@ export async function allocateTransaction(
     const custRows = (await sql`SELECT name FROM customers WHERE id = ${entityId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
     const custName = custRows.length > 0 ? String(custRows[0]!.name) : `Customer #${entityId}`;
     allocEntityName = custName;
-    entryDesc = description || `Receipt from ${custName}`;
+    entryDesc = description || (isSpent ? `Refund to ${custName}` : `Receipt from ${custName}`);
     source = 'auto_payment';
-    lines = [
-      { glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc },
-      { glAccountId: arAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
-    ];
-    if (hasVat) {
-      const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
-      lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
+    // The mirror of the supplier arm, and it carried the mirror bug with no
+    // occurrence yet: money OUT against a customer is a refund — DR AR, CR Bank
+    // — and posting the receipt direction moved the bank the wrong way by twice
+    // in exactly the same silence.
+    if (isSpent) {
+      lines = [
+        { glAccountId: arAccountId, debit: netAmount, credit: 0, description: entryDesc, vatType: mapVatType },
+        { glAccountId: bankAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+      ];
+      if (hasVat) {
+        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
+        lines.splice(1, 0, { glAccountId: vatAcctId, debit: vatAmount, credit: 0, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
+      }
+    } else {
+      lines = [
+        { glAccountId: bankAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+        { glAccountId: arAccountId, debit: 0, credit: netAmount, description: entryDesc, vatType: mapVatType },
+      ];
+      if (hasVat) {
+        const vatAcctId = await resolveVatAccountId(vatAccountKey, companyId);
+        lines.push({ glAccountId: vatAcctId, debit: 0, credit: vatAmount, description: `VAT @ ${vatRate}%`, vatType: 'standard' });
+      }
     }
   } else {
     if (!contraAccountId) throw new Error('contraAccountId is required for account allocation');
@@ -305,8 +350,14 @@ export async function allocateTransaction(
       AND jl.company_id = ${companyId}::UUID LIMIT 1`) as Row[];
   const journalLineId = jeLines.length > 0 ? String(jeLines[0]!.id) : null;
 
+  // `!isSpent` here and on the INSERT below: a customer refund is cash going
+  // OUT, and a `customer_payments` row for it is a RECEIPT the company never
+  // received. It would surface in list_unapplied_receipts and on the customer
+  // statement as real cash — the same orphan shape that put R1.84m of phantom
+  // receipts on one statement — and the fallback lookup this guard also skips
+  // is a query with no reason to run.
   let paymentUserId: string | null = null;
-  if (allocType === 'customer' && entityId) {
+  if (allocType === 'customer' && entityId && !isSpent) {
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (uuidPattern.test(userId)) {
       paymentUserId = userId;
@@ -336,7 +387,7 @@ export async function allocateTransaction(
             allocation_batch_id = NULL
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
-    if (allocType === 'customer' && entityId && paymentUserId) {
+    if (allocType === 'customer' && entityId && paymentUserId && !isSpent) {
       await wTx`
         INSERT INTO customer_payments (
           company_id, client_id, payment_date, total_amount, payment_method,
@@ -355,7 +406,11 @@ export async function allocateTransaction(
   // back to the most-recent unpaid invoice for the supplier. The explicit path
   // is correct when multiple invoices are outstanding; the fallback keeps older
   // call sites functional without requiring them to know the invoice.
-  if (allocType === 'supplier' && entityId) {
+  //
+  // `isSpent` gates it: a refund is not a payment, and flagging the most recent
+  // unpaid bill `payment_matched` for money coming back IN records a settlement
+  // that never happened — on a bill the caller never named.
+  if (allocType === 'supplier' && entityId && isSpent) {
     try {
       let targetInvoiceId: string | null = invoiceId ?? null;
       if (!targetInvoiceId) {
@@ -429,6 +484,8 @@ export async function splitAllocateTransaction(
     const hasVat = lineVatCode === 'standard';
     const netAmount = hasVat ? Math.round((lineAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : lineAmount;
     const vatAmount = hasVat ? Math.round((lineAmount - netAmount) * 100) / 100 : 0;
+    // A split line is always a GL account — the split path has no entity — so
+    // here the direction genuinely IS the only signal available.
     const vatAccountKey = isSpent ? 'vat_input' as const : 'vat_output' as const;
     const lineDesc = line.description || entryDesc;
     const mapVatType = lineVatCode === 'standard' ? 'standard' as const

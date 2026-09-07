@@ -95,8 +95,10 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     ? String(rule.description_template)
         .replace('{description}', String(tx.description || ''))
         .replace('{amount}', totalAmount.toFixed(2))
-    : allocType === 'supplier' ? `Payment to ${supplierName}`
-    : allocType === 'customer' ? `Receipt from ${customerName}`
+    : allocType === 'supplier'
+      ? (isDeposit ? `Refund from ${supplierName}` : `Payment to ${supplierName}`)
+    : allocType === 'customer'
+      ? (isDeposit ? `Receipt from ${customerName}` : `Refund to ${customerName}`)
     : `Bank: ${tx.description || 'Categorised by rule'}`;
 
   // The same resolver the screen's allocateTransaction uses. A rule may not
