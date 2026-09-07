@@ -156,7 +156,7 @@ export function buildHighlightTiles(
   // and a second reading of one source is how the headline tile and the
   // scorecard row start disagreeing — which throws, taking the render with it.
   const operatingProfit = p.figure(OPERATING_PROFIT_SOURCE, operatingProfitOf(current), 'money');
-  const leverage = recordRead(p, DEBT_TO_EQUITY_SOURCE, readDebtToEquity(ratios), 'ratio');
+  const leverage = recordRead(p, DEBT_TO_EQUITY_SOURCE, readDebtToEquity(ratios, current), 'ratio');
   const debtorDays = recordRead(p, DEBTOR_DAYS_SOURCE, readDebtorDays(ratios, current), 'days');
   const workingCapital = p.figure('calculateExtendedRatios.workingCapital', ratios.workingCapital, 'money');
 

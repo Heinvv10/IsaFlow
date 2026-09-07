@@ -62,12 +62,18 @@ function barKind(step: WaterfallStep, index: number, count: number): PackWaterfa
   return step.end >= step.start ? 'increase' : 'decrease';
 }
 
-function toBars(steps: WaterfallStep[]): PackWaterfallBar[] {
+/**
+ * @param uncapturedLabel The step drawn only to make the bridge foot, if any.
+ *   Marked on the bar rather than matched by label downstream: the
+ *   proportion check must not break when either plug is re-worded.
+ */
+function toBars(steps: WaterfallStep[], uncapturedLabel: string | null): PackWaterfallBar[] {
   return steps.map((step, index) => ({
     label: step.label,
     start: step.start,
     end: step.end,
     kind: barKind(step, index, steps.length),
+    ...(step.label === uncapturedLabel ? { uncaptured: true } : {}),
   }));
 }
 
@@ -80,7 +86,7 @@ function toBars(steps: WaterfallStep[]): PackWaterfallBar[] {
  * separately. Calling it "Interest and tax" would classify a residual nobody
  * measured, which is the kind of confident guess this pack exists to stop.
  */
-const UNCAPTURED_LABEL = 'Other, not separately captured';
+export const PROFIT_UNCAPTURED_LABEL = 'Other, not separately captured';
 
 function withUncapturedStep(steps: WaterfallStep[], netProfit: number): WaterfallStep[] {
   const closing = steps[steps.length - 1];
@@ -91,7 +97,7 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
   if (gap === 0) return steps;
 
   const step: WaterfallStep = {
-    label: UNCAPTURED_LABEL,
+    label: PROFIT_UNCAPTURED_LABEL,
     start: lastMovement.end,
     end: lastMovement.end + gap,
     value: gap,
@@ -120,7 +126,7 @@ export function buildProfitWaterfallChart(set: PackFigureSet): PackChartSpec {
     kind: 'waterfall',
     svg: renderChartSvg(waterfallOption(bridged), FULL),
     heightMm: FULL.heightMm,
-    waterfallBars: toBars(bridged),
+    waterfallBars: toBars(bridged, PROFIT_UNCAPTURED_LABEL),
   };
 }
 
@@ -138,6 +144,8 @@ export function buildProfitWaterfallChart(set: PackFigureSet): PackChartSpec {
  * would be a chart that contradicts the table above it; a bridge with an
  * unexplained-movement bar foots, and says what it does not know.
  */
+export const CASH_UNCAPTURED_LABEL = 'Unexplained movement';
+
 export interface PackCashBridge {
   chart: PackChartSpec;
   /** The movement in cash the three captured categories do not account for.
@@ -161,7 +169,7 @@ export function buildCashWaterfallChart(set: PackFigureSet): PackCashBridge | nu
   if (current.financingCashFlow !== undefined) movements.push({ label: 'Financing', value: current.financingCashFlow });
   const explained = movements.reduce((sum, m) => sum + m.value, 0);
   const residual = current.cash - opening - explained;
-  if (residual !== 0) movements.push({ label: 'Unexplained movement', value: residual });
+  if (residual !== 0) movements.push({ label: CASH_UNCAPTURED_LABEL, value: residual });
 
   const steps: WaterfallStep[] = [
     { label: 'Opening cash', start: 0, end: opening, value: opening, isSubtotal: true, color: 'blue' },
@@ -188,7 +196,7 @@ export function buildCashWaterfallChart(set: PackFigureSet): PackCashBridge | nu
       kind: 'waterfall',
       svg: renderChartSvg(waterfallOption(steps), FULL),
       heightMm: FULL.heightMm,
-      waterfallBars: toBars(steps),
+      waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL),
     },
   };
 }

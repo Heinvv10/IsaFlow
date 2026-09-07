@@ -20,8 +20,11 @@ import {
   trendsCaption,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { TRENDS_PANELS_SPECIFIED, type PackCashBridge } from './packPageCharts';
+import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_NOTE } from './packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import type { PackMatter } from './packMatters';
 import type {
   PackChartSpec,
   PackDisclosureNote,
@@ -86,6 +89,31 @@ export function buildHighlightsBlocks(
   };
 }
 
+/**
+ * Page 11 — the matters, with each quantum recorded through the provenance
+ * map (I-4).
+ *
+ * The source is indexed by RANK, which is the only stable identifier a matter
+ * has: `buildMatters` orders them by quantum, largest first, and two matters
+ * from different sources can carry the same issue text. It must be unique per
+ * matter — one source issued twice with two values is what `assertConsistent`
+ * throws on, and it would take the render with it.
+ */
+const NO_QUANTUM =
+  'This matter has no single rand amount — an overdue filing, or a check that found nothing to quantify.';
+
+export function buildMattersBlock(matters: PackMatter[], p: PackFigureProvenance): PackPageBlock {
+  return {
+    kind: 'matters',
+    matters: matters.map(({ quantum, ...rest }, index) => ({
+      ...rest,
+      quantum: quantum === null
+        ? p.figure(`buildMatters.quantum.${index}`, null, 'money', NO_QUANTUM)
+        : p.figure(`buildMatters.quantum.${index}`, quantum, 'money'),
+    })),
+  };
+}
+
 /** Page 7 — the balance sheet, its composition chart, and the MANDATORY
  *  §3.5 negative-equity disclosure when equity is underwater. */
 export function buildPositionBlocks(
@@ -118,7 +146,20 @@ export function buildCashBlocks(
   set: PackFigureSet,
 ): PackPageBlock[] {
   const cashBlocks: PackPageBlock[] = [{ kind: 'table', table: cash }];
-  if (cashBridge) cashBlocks.push({ kind: 'chart', chart: cashBridge.chart });
+  if (cashBridge) {
+    cashBlocks.push({ kind: 'chart', chart: cashBridge.chart });
+    // The bridge foots on a named plug, which is honest — but on these
+    // figures the plug is larger than the net movement it sits inside, and a
+    // bar that dwarfs its own subject needs saying out loud rather than
+    // merely labelling. The gate requires this sentence whenever the share
+    // breaches; the sentence itself is defined once, beside the check.
+    const disproportionate = disproportionatePlugSentence(cashBridge.chart);
+    if (disproportionate !== null) {
+      cashBlocks.push(disclose('How much of this bridge is unexplained', [
+        note('Size of the unexplained step', disproportionate),
+      ]));
+    }
+  }
   else {
     cashBlocks.push(disclose('No cash bridge', [
       note('Why', 'Opening cash is the prior period\'s closing balance, and there is no prior period. A bridge opening at zero would assert the business started the period with an empty bank account.'),

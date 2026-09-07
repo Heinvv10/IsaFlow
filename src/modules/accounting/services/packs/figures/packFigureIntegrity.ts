@@ -40,8 +40,8 @@
  */
 
 import type { PackFigure } from './packFigureProvenance';
-import type { PackPagesDocument } from '../pages/packPageModel';
-import { checkWaterfall } from './packWaterfallIntegrity';
+import type { PackChartSpec, PackPagesDocument } from '../pages/packPageModel';
+import { checkWaterfall, disproportionatePlugSentence } from './packWaterfallIntegrity';
 import {
   checkCashBridgeEndpoints,
   checkColumns,
@@ -51,8 +51,18 @@ import {
 
 /** One basis point, in the percentage POINTS a `pct` figure is stated in. */
 const PCT_TOLERANCE = 0.01;
-/** A ratio is printed to two decimals, so half of the last printed digit. */
-const RATIO_TOLERANCE = 0.005;
+/**
+ * One unit of the last digit a ratio prints.
+ *
+ * NOT half of it, which is what a single rounding would need.
+ * `reportingEngineService` rounds a ratio TWICE — `safeDiv` to four decimals
+ * and then `r2` to two — so the printed value can sit 0.00505 from the true
+ * quotient (0.724951 becomes 0.7250 becomes 0.73), and a half-unit tolerance
+ * would refuse an honest ratio computed exactly as the engine computes it.
+ * A discrepancy smaller than one printed unit is also invisible to the reader
+ * on the page, which is the standard this gate holds a figure to.
+ */
+const RATIO_TOLERANCE = 0.01;
 
 /** A figure and where in the document it was found, for the failure message. */
 interface Located {
@@ -86,6 +96,10 @@ function locateFigures(doc: PackPagesDocument): Located[] {
               found.push({ figure: row.actual, where: at(`scorecard '${row.metric}' actual`) });
               if (row.prior) found.push({ figure: row.prior, where: at(`scorecard '${row.metric}' prior`) });
             }
+          break;
+        case 'matters':
+          for (const matter of block.matters)
+            found.push({ figure: matter.quantum, where: at(`matter '${matter.issue.slice(0, 40)}'`) });
           break;
         case 'definitions':
           for (const entry of block.entries)
@@ -131,9 +145,30 @@ function checkQuotients(located: Located[]): string[] {
   const seen = new Set<string>();
   for (const { figure, where } of located) {
     const { basis, value, format, source } = figure;
-    if (basis === undefined || value === null) continue;
+    if (value === null) continue;
     if (seen.has(source)) continue;
     seen.add(source);
+
+    // A quotient that prints a number and cannot say which two figures
+    // produced it (I-1). The gate refuses a `money` figure carrying a basis
+    // as unrecomputable; accepting a percentage carrying NONE is the same
+    // hole from the other side, and it is the larger one — seven live
+    // figures, including current ratio, cash ratio and debt-to-equity, went
+    // unrecomputed because the check only fired on figures that had already
+    // volunteered their working. 'days' is deliberately not a quotient
+    // format here: a day count is a rate multiplied by a period length
+    // (`receivables / revenue * 365`), so it has no numerator-over-
+    // denominator the gate could reproduce without inventing a third term.
+    if (basis === undefined) {
+      if (format === 'pct' || format === 'ratio') {
+        failures.push(
+          `${where}: '${source}' prints ${value} as a ${format} but states ` +
+            `no numerator and denominator, so nothing can recompute it. A ` +
+            `quotient the pack cannot explain is refused.`,
+        );
+      }
+      continue;
+    }
 
     if (format !== 'pct' && format !== 'ratio') {
       failures.push(
@@ -164,6 +199,40 @@ function checkQuotients(located: Located[]): string[] {
   return failures;
 }
 
+/**
+ * Every sentence a page puts in front of a reader — disclosure notes and
+ * rendered narrative. A mandatory disclosure is satisfied by the page SAYING
+ * it, wherever it is carried, not by a particular block kind holding it.
+ */
+function pageProse(page: PackPagesDocument['pages'][number]): string[] {
+  return page.blocks.flatMap((block) => {
+    if (block.kind === 'disclosure') return block.disclosure.notes.map((n) => n.body);
+    if (block.kind === 'narrative') return [block.narrative.body ?? ''];
+    return [];
+  });
+}
+
+/**
+ * A bridge may lean on its plug, but the page may not stay quiet about it.
+ *
+ * The plug itself is accepted — see `disproportionatePlugSentence` for why a
+ * disclosure and not a refusal. What is refused is drawing a plug that
+ * outweighs what it is plugging and leaving the reader to notice: the bridge
+ * foots, so nothing else in this gate would ever fire on it.
+ */
+function checkPlugDisclosure(
+  page: PackPagesDocument['pages'][number],
+  chart: PackChartSpec,
+): string[] {
+  const sentence = disproportionatePlugSentence(chart);
+  if (sentence === null) return [];
+  if (pageProse(page).some((text) => text.includes(sentence))) return [];
+  return [
+    `Page ${page.number}'s bridge '${chart.id}' leans on an unmeasured step ` +
+      `and the page does not say so. It must carry: ${sentence}`,
+  ];
+}
+
 /** Checks 4 and 6, both of which walk the page blocks rather than figures. */
 function checkBlocks(doc: PackPagesDocument): string[] {
   const failures: string[] = [];
@@ -172,10 +241,16 @@ function checkBlocks(doc: PackPagesDocument): string[] {
       if (block.kind === 'table') {
         failures.push(...checkColumns(block.table, `Page ${page.number} table`));
       } else if (block.kind === 'chart') {
-        if (block.chart.kind === 'waterfall') failures.push(...checkWaterfall(block.chart));
+        if (block.chart.kind === 'waterfall') {
+          failures.push(...checkWaterfall(block.chart));
+          failures.push(...checkPlugDisclosure(page, block.chart));
+        }
       } else if (block.kind === 'smallMultiples') {
         for (const panel of block.panels) {
-          if (panel.kind === 'waterfall') failures.push(...checkWaterfall(panel));
+          if (panel.kind === 'waterfall') {
+            failures.push(...checkWaterfall(panel));
+            failures.push(...checkPlugDisclosure(page, panel));
+          }
         }
       }
     }

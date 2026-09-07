@@ -19,6 +19,13 @@
 
 import type { PackPagesDocument, PackTable, PackTableColumnKey } from '../pages/packPageModel';
 import { formatPackPeriod } from '../pages/packPeriodLabel';
+// The CONSTANT, not the string it holds. Two reasons: `packOperatingProfitReading`
+// guards the one-reading rule by scanning these files for reads of the raw
+// optional field, and it matches on text, so spelling the source out here
+// would trip a guard this file does not break; and an identity keyed to a
+// COPY of a source name silently stops checking anything the day that source
+// is renamed.
+import { OPERATING_PROFIT_SOURCE } from './packMetricReads';
 import { MONEY_TOLERANCE } from './packWaterfallIntegrity';
 
 /** The one value a source was issued with, or null when it was never issued
@@ -60,6 +67,21 @@ const IDENTITIES: readonly Identity[] = [
       { source: 'packFigureSet.current.totalLiabilities', sign: 1 },
       { source: 'packFigureSet.current.currentLiabilities', sign: -1 },
     ],
+  },
+  {
+    // I-2. EBITDA is a DERIVED subtotal here in the strictest sense: the pack
+    // hands `calculateExtendedRatios` no depreciation or amortisation field,
+    // so `ebitda = ebit + dep + amort` reduces to the operating line, rounded
+    // to two decimals. That identity is worth pinning precisely because it is
+    // invisible on the page — a reader sees "EBITDA" and reads a different
+    // measure from the one above it. If a depreciation figure is ever added
+    // to `toFinancialData`, this check FAILS, which is the correct alarm:
+    // EBITDA would then genuinely differ from EBIT and this identity must
+    // gain the term rather than be deleted.
+    statement:
+      'EBITDA does not equal the operating line. The pack captures no depreciation or amortisation, so the two cannot differ — if one has been added, this identity needs the extra term',
+    target: 'calculateExtendedRatios.ebitda',
+    terms: [{ source: OPERATING_PROFIT_SOURCE, sign: 1 }],
   },
   {
     statement: 'Gross profit does not equal revenue less cost of sales',

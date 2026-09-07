@@ -17,6 +17,7 @@ import { PackFigureProvenance, type PackFigure } from '@/modules/accounting/serv
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import type { TrustedChartSvg } from '@/lib/charts/ssrSvg';
+import type { PackChartSpec } from './packChartModel';
 import type { PackMatter } from './packMatters';
 
 /** A footnote referenced from a page's body, numbered within that page. */
@@ -115,39 +116,6 @@ export interface PackScorecardGroup {
   rows: PackScorecardRow[];
 }
 
-/** One bar of a waterfall chart, carried as data so the integrity gate can
- *  check that the bars actually sum to their endpoints without re-parsing
- *  the rendered SVG. */
-export interface PackWaterfallBar {
-  label: string;
-  start: number;
-  end: number;
-  /**
-   * 'subtotal' is a MID-statement rest point — Gross Profit, Operating Profit
-   * — drawn from the axis rather than from the bar before it, so the chain
-   * restarts there (R-P50). The integrity gate checks it by its `end` against
-   * what the chain accumulated to, never by its `start`; without the member
-   * those bars had to be reported by their drawn direction, which is true of
-   * the rectangle and false of the arithmetic, and the gate would have failed
-   * an honest bridge.
-   */
-  kind: 'open' | 'increase' | 'decrease' | 'subtotal' | 'close';
-}
-
-export interface PackChartSpec {
-  /** Stable id for this chart within its page — how a later task addresses
-   *  it (e.g. the integrity gate reporting which chart failed). */
-  id: string;
-  /** A conclusion, not a category label — same rule as a page title. */
-  title: string;
-  kind: 'line' | 'bar' | 'waterfall' | 'combo';
-  svg: TrustedChartSvg;
-  heightMm: number;
-  /** Populated only when `kind === 'waterfall'`; that is what the bars-sum-
-   *  to-endpoints check reads instead of the SVG string. */
-  waterfallBars?: PackWaterfallBar[];
-}
-
 export interface PackNarrative {
   status: 'approved' | 'derived' | 'pending' | 'draft';
   /** A component renders this ONLY when `status` is 'approved' (a human
@@ -187,6 +155,24 @@ export interface PackDefinition {
   reconciliation?: PackReconciliationStep[];
 }
 
+/**
+ * A matter as the PAGE carries it.
+ *
+ * `buildMatters` produces a raw rand `quantum`, because it assembles an
+ * exposure out of four reports rather than reading a ledger balance. But it
+ * is a FIGURE, printed in a money column beside statements in the same
+ * document, and §7.2's first bullet admits no exception: every figure on
+ * every page resolves through the provenance map. It was the one printed
+ * number in the pack that did not, so the gate's own first rule was not
+ * literally true of page 11 (I-4).
+ */
+export interface PackMatterFigure extends Omit<PackMatter, 'quantum'> {
+  /** Null-valued with a reason for a matter that has no single amount — an
+   *  overdue filing, or the "no matters" item. Never a zero, which would say
+   *  the exposure was measured and found to be nothing. */
+  quantum: PackFigure;
+}
+
 export type PackPageBlock =
   | { kind: 'kpiTiles'; tiles: PackKpiTile[] }
   | { kind: 'statTiles'; groups: PackStatGroup[] }
@@ -200,7 +186,7 @@ export type PackPageBlock =
   // so a matter cannot be expressed as one. `PackMatter` already carries
   // exactly those five fields; a second shape would be one more thing to
   // keep in step with `buildMatters`.
-  | { kind: 'matters'; matters: PackMatter[] }
+  | { kind: 'matters'; matters: PackMatterFigure[] }
   | { kind: 'disclosure'; disclosure: PackDisclosure }
   | { kind: 'definitions'; entries: PackDefinition[] };
 
@@ -294,3 +280,8 @@ export interface PackPagesDocument {
  *  300-line cap while gaining the `matters` block kind. Re-exported here
  *  because every existing caller imports them from this module. */
 export { assertPageTitleIsAMessage, isContentPage } from './packPageRules';
+
+/** The chart data types, split to `packChartModel.ts` for the 300-line cap
+ *  when `PackWaterfallBar` gained its `uncaptured` flag. Re-exported because
+ *  every existing caller imports them from this module. */
+export type { PackChartSpec, PackWaterfallBar } from './packChartModel';

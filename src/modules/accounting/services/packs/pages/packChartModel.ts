@@ -1,0 +1,54 @@
+/**
+ * What a chart carries into a page, as DATA.
+ *
+ * Split from `packPageModel.ts` for the 300-line cap. It is a clean seam
+ * rather than an arbitrary one: everything here exists so a bridge can be
+ * CHECKED without re-parsing the rendered SVG — the bars, their kinds, and
+ * the flag marking a step nothing measured. `packPageModel.ts` re-exports
+ * both names, so every existing import path still resolves.
+ */
+
+import type { TrustedChartSvg } from '@/lib/charts/ssrSvg';
+
+/** One bar of a waterfall chart, carried as data so the integrity gate can
+ *  check that the bars actually sum to their endpoints without re-parsing
+ *  the rendered SVG. */
+export interface PackWaterfallBar {
+  label: string;
+  start: number;
+  end: number;
+  /**
+   * 'subtotal' is a MID-statement rest point — Gross Profit, Operating Profit
+   * — drawn from the axis rather than from the bar before it, so the chain
+   * restarts there (R-P50). The integrity gate checks it by its `end` against
+   * what the chain accumulated to, never by its `start`; without the member
+   * those bars had to be reported by their drawn direction, which is true of
+   * the rectangle and false of the arithmetic, and the gate would have failed
+   * an honest bridge.
+   */
+  kind: 'open' | 'increase' | 'decrease' | 'subtotal' | 'close';
+  /**
+   * True for a bar drawn only to make the bridge foot — page 8's
+   * `Unexplained movement`, page 6's `Other, not separately captured`. It is
+   * a flag rather than a `kind` because arithmetically such a bar IS an
+   * increase or a decrease and the chain walk must treat it as one; what is
+   * different about it is that no service measured it. The proportion check
+   * reads this, and a label match would break the moment either bar is
+   * re-worded.
+   */
+  uncaptured?: boolean;
+}
+
+export interface PackChartSpec {
+  /** Stable id for this chart within its page — how a later task addresses
+   *  it (e.g. the integrity gate reporting which chart failed). */
+  id: string;
+  /** A conclusion, not a category label — same rule as a page title. */
+  title: string;
+  kind: 'line' | 'bar' | 'waterfall' | 'combo';
+  svg: TrustedChartSvg;
+  heightMm: number;
+  /** Populated only when `kind === 'waterfall'`; that is what the bars-sum-
+   *  to-endpoints check reads instead of the SVG string. */
+  waterfallBars?: PackWaterfallBar[];
+}

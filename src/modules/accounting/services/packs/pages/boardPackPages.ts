@@ -66,6 +66,7 @@ import {
 import {
   buildCashBlocks,
   buildHighlightsBlocks,
+  buildMattersBlock,
   buildPositionBlocks,
   buildTrendBlocks,
   commentary,
@@ -74,6 +75,7 @@ import {
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
 import { formatPackPeriod } from './packPeriodLabel';
+import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import type {
   PackComparativePeriod,
   PackFootnote,
@@ -164,6 +166,18 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     commentary(largestMoverCaption(results.rows)),
   ], 'portrait', statementNotes);
 
+  // The profit bridge reaches net profit through a step nothing measured —
+  // interest and tax, which no field carries. Where that step is a material
+  // share of the figure the bridge lands on, the page must say so, and the
+  // integrity gate refuses a pack that draws it silently.
+  const profitBridge = buildProfitWaterfallChart(set);
+  const profitPlug = disproportionatePlugSentence(profitBridge);
+  const profitBridgeCaveat: PackPageBlock[] = profitPlug === null
+    ? []
+    : [disclose('How much of this bridge is unexplained', [
+        note('Size of the unexplained step', profitPlug),
+      ])];
+
   const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set);
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set), set);
   const trendBlocks = buildTrendBlocks(panels);
@@ -190,8 +204,9 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     snapshot,
     page(6, incomeStatementTitle(set), 'Financials', 'high', [
       { kind: 'table', table: income },
-      { kind: 'chart', chart: buildProfitWaterfallChart(set) },
+      { kind: 'chart', chart: profitBridge },
       commentary(largestMoverCaption(income.rows)),
+      ...profitBridgeCaveat,
     ], 'portrait', statementNotes),
     page(7, positionTitle(set), 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
     page(8, cashTitle(set), 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
@@ -212,7 +227,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       // decision required. Prose notes carried the same five facts but a
       // director scanning for "which of these needs me" had to read every
       // paragraph to find the owner column.
-      { kind: 'matters', matters: input.matters },
+      buildMattersBlock(input.matters, p),
       { kind: 'narrative', narrative: input.mattersCommentary ?? pending },
       disclose('What was checked', [
         note('Sources', 'Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A source that fails appears as a named matter, never as a silent omission.'),

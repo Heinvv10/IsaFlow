@@ -47,16 +47,51 @@ export function readDebtorDays(ratios: ExtendedRatioResult, raw: ReportPackFigur
 
 export const DEBT_TO_EQUITY_SOURCE = 'calculateExtendedRatios.debtToEquity';
 
-/** The engine already refuses this ratio on non-positive equity (AN-07) and
- *  states its own reason; that reason is read, never re-worded here. */
-export function readDebtToEquity(ratios: ExtendedRatioResult): PackMetricRead {
+/**
+ * The engine already refuses this ratio on non-positive equity (AN-07) and
+ * states its own reason; that reason is read, never re-worded here.
+ *
+ * The basis is the pair the engine divided — liabilities over equity — so the
+ * integrity gate can recompute the printed ratio (I-1). A ratio that prints a
+ * number and cannot say which two figures produced it is exactly the shape
+ * the gate refuses on the money side, and there is no reason a leverage
+ * multiple should be held to a lower standard than a margin. Equity is
+ * non-zero on this branch by construction: `debtToEquity` is null whenever
+ * equity fails the AN-07 basis test.
+ */
+export function readDebtToEquity(ratios: ExtendedRatioResult, raw: ReportPackFigures): PackMetricRead {
   return ratios.debtToEquity === null
     ? {
         value: null,
         unavailable:
           ratios.notMeaningful.debtToEquity ?? 'Equity is not positive, so this ratio has no meaning.',
       }
-    : { value: ratios.debtToEquity };
+    : {
+        value: ratios.debtToEquity,
+        basis: { numerator: raw.totalLiabilities, denominator: raw.totalEquity },
+      };
+}
+
+/**
+ * The two current-liability ratios, which `safeDiv` reports as 0 when there
+ * are no current liabilities at all.
+ *
+ * That zero is an artefact of the guard, not a measurement: a company owing
+ * nothing in the short term has INFINITE liquidity cover, and printing 0.00
+ * says the exact opposite — the same defect class as R-P44's negative debtor
+ * days. Reported as unavailable with the reason, which also keeps the gate's
+ * recompute honest: a basis over a zero denominator cannot reproduce anything.
+ */
+const NO_CURRENT_LIABILITIES =
+  'There are no current liabilities to cover, so this ratio has no denominator to measure against.';
+
+export function readOverCurrentLiabilities(
+  value: number,
+  numerator: number,
+  currentLiabilities: number,
+): PackMetricRead {
+  if (currentLiabilities === 0) return { value: null, unavailable: NO_CURRENT_LIABILITIES };
+  return { value, basis: { numerator, denominator: currentLiabilities } };
 }
 
 /**

@@ -36,6 +36,7 @@ import {
   operatingProfitOf,
   readDebtToEquity,
   readDebtorDays,
+  readOverCurrentLiabilities,
   type PackMetricRead,
 } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackScorecardGroup, PackScorecardRow, PackScorecardStatus } from './packPageModel';
@@ -127,14 +128,14 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
         source: 'calculateExtendedRatios.currentRatio',
         targetKey: 'currentRatio',
         lowerIsBetter: false,
-        read: (r) => ({ value: r.currentRatio }),
+        read: (r, raw) => readOverCurrentLiabilities(r.currentRatio, raw.currentAssets, raw.currentLiabilities),
       },
       {
         metric: 'Cash ratio',
         format: 'ratio',
         source: 'calculateExtendedRatios.cashRatio',
         lowerIsBetter: false,
-        read: (r) => ({ value: r.cashRatio }),
+        read: (r, raw) => readOverCurrentLiabilities(r.cashRatio, raw.cash, raw.currentLiabilities),
       },
     ],
   },
@@ -169,7 +170,7 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
         source: DEBT_TO_EQUITY_SOURCE,
         targetKey: 'debtToEquity',
         lowerIsBetter: true,
-        read: readDebtToEquity,
+        read: (r, raw) => readDebtToEquity(r, raw),
       },
       {
         // R-P44: the pack captures no interest expense at all, so
