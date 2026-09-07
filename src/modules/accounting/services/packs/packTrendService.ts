@@ -35,6 +35,29 @@ export interface PackTrendPoint {
   /** 'Mar 2026' */
   label: string;
   /**
+   * TRUE WHERE THE MONTH IS ONLY COVERED UP TO THE REPORTING DATE.
+   *
+   * The series runs twelve calendar months to the month CONTAINING the
+   * reporting date, and the query is clamped at that date — so a pack run to
+   * 7 September carries a September of seven days, drawn and totalled beside
+   * eleven whole ones. Nothing said so. The demo pack's gross-margin panel
+   * therefore read "fell from 5323.5% to 100.0% over 3 periods" with 100.0%
+   * the terminal point of the drawn line: a seven-day window with revenue of
+   * 30 and no cost of sales, presented as where margin currently stands. The
+   * same stub set the end of the revenue, operating-expenses and debtor-days
+   * panels and the last row of page 5.
+   *
+   * The month is kept — it is real posted movement and dropping it would
+   * report a period the pack is not reporting on — and marked instead,
+   * wherever it is printed. `packPartialMonth.ts` owns the marking; this is
+   * the fact it marks from.
+   */
+  partial: boolean;
+  /** Days of the month the figures cover — the whole month unless `partial`. */
+  daysCovered: number;
+  /** Days in the calendar month, so the two can be printed as a fraction. */
+  daysInMonth: number;
+  /**
    * TURNOVER — revenue accounts less the other-income band, which is the
    * measure `aggregateFigures` calls `revenue` and every statement in the pack
    * prints under that name.
@@ -232,9 +255,21 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
     const daysInMonth = Number(slot.to.slice(-2));
     const debtorDays = debtorPct === null ? null : round2((debtorPct / 100) * daysInMonth);
 
+    // A MONTH IS PARTIAL WHERE THE QUERY'S UPPER BOUND CUTS INTO IT — the
+    // same `upperBound` the cumulative positions are clamped by, read against
+    // this slot rather than asserted of the last one. Read from the bound and
+    // not from `slots.length - 1` because it is the CLAMP that makes the
+    // month short, and a series whose `to` falls on a month end has no stub
+    // at all.
+    const partial = upperBound < slot.to;
+    const daysCovered = partial ? Number(upperBound.slice(-2)) : daysInMonth;
+
     return {
       month: slot.month,
       label: slot.label,
+      partial,
+      daysCovered,
+      daysInMonth,
       revenue,
       otherIncome,
       expenses,

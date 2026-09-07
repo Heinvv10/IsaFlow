@@ -304,9 +304,9 @@ function actionsThatFit(matters: PackMatter[]): PackMatter[] {
  * Most matters state their issue as a noun phrase — "29 unreconciled bank
  * items across 3 bank accounts" — and `issue — decision` reads as one line.
  * The credit-month matter is three sentences of prose and ends in a full
- * stop, so the panel printed "…larger by the month's revenue. — Identify the
- * reversals…", which is a punctuation mark that means nothing after a
- * sentence has already ended.
+ * stop, so the panel printed "…the month's revenue and other income of 39. —
+ * Identify the reversals…", which is a punctuation mark that means nothing
+ * after a sentence has already ended.
  *
  * The matters TABLE has the same two shapes in its Issue column and does not
  * hit this, because it puts the decision in its own column; only the panel

@@ -48,6 +48,7 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 import { toFinancialData } from './packScorecard';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { PACK_SCALE } from './packBasis';
+import { monthLabel } from './packPartialMonth';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 
 /** The five measure columns, in the order they print. */
@@ -90,7 +91,11 @@ const MEASURES: ReadonlyArray<{
 export function trendWindowLabel(trend: PackTrendPoint[]): string {
   const last = trend[trend.length - 1]!;
   const months = trend.length === 1 ? '1 month' : `${trend.length} months`;
-  return `${months} to ${last.label}`;
+  // THE STUB IS MARKED IN THE TOTAL ROW'S OWN LABEL, because the total row is
+  // where a reader who never reaches the last month meets the window: it sums
+  // eleven whole months and seven days of a twelfth, and "12 months to Sep
+  // 2026" says otherwise. See `packPartialMonth.ts`.
+  return `${months} to ${monthLabel(last)}`;
 }
 
 /**
@@ -105,7 +110,7 @@ export function buildMonthlyResultsTable(
   p: PackFigureProvenance,
 ): PackTable {
   const rows: PackTableRow[] = trend.map((point) => ({
-    label: point.label,
+    label: monthLabel(point),
     level: 0,
     role: 'line',
     figures: Object.fromEntries(
@@ -165,14 +170,26 @@ export function monthlyResultsTitle(trend: PackTrendPoint[], scale: MoneyScale):
   const at = (value: number) => trend.filter((point) => point.netProfit === value).length;
   const bestAt = at(best.netProfit);
   const worstAt = at(worst.netProfit);
-  if (bestAt === 1 && worstAt === 1) {
-    return `Net profit runs from ${money(worst.netProfit)} in ${worst.label} to `
-      + `${money(best.netProfit)} in ${best.label} across ${months}.`;
-  }
+  // LOWEST AND HIGHEST, NAMED AS SUCH — NOT "runs from … to …".
+  //
+  // This sentence and page 10's panel titles are the same "from X to Y over N
+  // periods" construction over the same measure and the same window, and they
+  // mean different things: this one is the MIN and the MAX, the panel's is the
+  // FIRST and the LAST. The rendered pack printed "Net profit runs from (784)
+  // in Jan 2026 to 1 908 in Jul 2026 across the 12 months" three sheets from
+  // "Net profit rose from (99) to (11) over 12 periods", and a reader has no
+  // way to know which sentence is which — worse, "runs from … in Jan 2026"
+  // reads as a chronology on a table whose first row is Oct 2025.
+  //
+  // So this one names what it measures. "lowest at … and highest at …" cannot
+  // be read as a start and an end, and `movementSentence` keeps the panels'
+  // wording unchanged — two constructions, visibly different, rather than one
+  // construction carrying two meanings.
   const side = (point: PackTrendPoint, count: number) => (count === 1
-    ? `${money(point.netProfit)} in ${point.label}`
+    ? `${money(point.netProfit)} in ${monthLabel(point)}`
     : `${money(point.netProfit)} in ${count} of ${months}`);
-  return `Net profit is ${side(worst, worstAt)} and ${side(best, bestAt)}.`;
+  return `Net profit is lowest at ${side(worst, worstAt)} and highest at ${side(best, bestAt)}`
+    + `${bestAt === 1 && worstAt === 1 ? ` across ${months}` : ''}.`;
 }
 
 /**
@@ -215,12 +232,12 @@ export function monthlyResultsCaption(trend: PackTrendPoint[], scale: MoneyScale
   const base = printed(total);
   if (base <= 0) {
     return `Revenue over ${window} is ${money(total)}, which is not a positive base, so no `
-      + `month's share of it is meaningful. The largest single month is ${biggest.label}, at `
+      + `month's share of it is meaningful. The largest single month is ${monthLabel(biggest)}, at `
       + `${money(biggest.revenue)}.`;
   }
   const share = (printed(biggest.revenue) / base) * 100;
-  return `${biggest.label} carried the most revenue of any month, ${money(biggest.revenue)} of the `
-    + `${money(total)} earned over ${window} — ${share.toFixed(1)}% of it.`;
+  return `${monthLabel(biggest)} carried the most revenue of any month, ${money(biggest.revenue)} `
+    + `of the ${money(total)} earned over ${window} — ${share.toFixed(1)}% of it.`;
 }
 
 /**
@@ -254,7 +271,12 @@ export function ebitdaMemoSentence(set: PackFigureSet, scale: MoneyScale): strin
     + 'plus the depreciation and amortisation charged in the period, and it is presented because a '
     + 'board asks for it, not because a standard requires it. Every other figure on this sheet is '
     + 'one month\'s; this one is the reporting period\'s, which the footer of every sheet states. '
-    + 'The basis of preparation reconciles it to operating profit line by line.';
+    // BOTH COLUMNS, now that page 12 bridges both. This sentence stated the
+    // comparative EBITDA with the same prominence as the current one and then
+    // pointed at a reconciliation that covered only the current — so the
+    // figure a reader was most likely to query was the one with no bridge.
+    + `The basis of preparation reconciles ${set.prior === null ? 'it' : 'both'} to operating `
+    + 'profit line by line.';
 }
 
 /** The period's EBITDA, through the one service that owns the measure —

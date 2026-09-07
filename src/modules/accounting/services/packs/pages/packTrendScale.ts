@@ -166,9 +166,12 @@ export function dominantPoint(series: number[][]): ScaleDominator | null {
 /**
  * WHY A MONTH CAN SHOW A PROFIT ON A PERIOD THAT SHOWS A LOSS.
  *
- * The pack's monthly net profit is `revenue − expenses` over the postings
- * dated in that month, which is the same definition the income statement
- * applies to the whole period. The two therefore reconcile, and a director
+ * The pack's monthly net profit is `revenue + otherIncome − expenses` over
+ * the postings dated in that month — every revenue account less every expense
+ * account, written as the two income bands the statement prints. That is the
+ * same definition the income statement applies to the whole period. (It read
+ * `revenue − expenses` until `PackTrendPoint.revenue` was banded down to
+ * turnover; the identity did not change, the name of one of its terms did.) The two therefore reconcile, and a director
  * comparing the trends page's spike against a period income statement whose
  * total inflows are R111k is entitled to be told how — otherwise the largest
  * visual event in the document is one the pack does not acknowledge.
@@ -205,6 +208,16 @@ export function creditMonthClause(point: PackTrendPoint): string | null {
  *   unit — never a raw number, so a caller cannot format it a second way.
  * @param rose Whether the last value is at or above the first. Taken from the
  *   NUMBERS, because two formatted strings cannot be compared for order.
+ * @param lastMonth The month the last figure belongs to, named ONLY where
+ *   naming it changes what the sentence claims — which is where that month is
+ *   a PART month. "Gross margin fell from 5323.5% to 100.0% over 3 periods"
+ *   stated a current position that was measured over seven days of September,
+ *   and the same stub ended the revenue, operating-expenses and debtor-days
+ *   panels. Three words inside the existing sentence rather than a sentence
+ *   of its own: page 10 carries six of these titles inside 83mm boxes and
+ *   fits its own two disclosures with a tenth of a millimetre to spare, so a
+ *   second sentence per panel is three notes the board would lose instead.
+ *   What "(part)" MEANS is stated once, on the basis of preparation.
  */
 export function movementSentence(
   name: string,
@@ -212,13 +225,16 @@ export function movementSentence(
   last: string,
   periods: number,
   rose: boolean,
+  lastMonth?: string,
 ): string {
+  const at = lastMonth === undefined ? '' : ` in ${lastMonth}`;
   if (first === last) {
     // NO VERB. "Operating expenses is nil" and "Debtor days is unchanged"
     // both read as a template that has not been told whether its subject is
     // singular; a measure's name is a label, and a label takes a colon.
     const level = first === 'nil' ? 'nil' : `unchanged at ${last}`;
-    return `${name}: ${level} in the first and the last month of the ${periods}-month series.`;
+    const lastIs = lastMonth === undefined ? 'the last' : lastMonth;
+    return `${name}: ${level} in the first month and ${lastIs} of the ${periods}-month series.`;
   }
-  return `${name} ${rose ? 'rose' : 'fell'} from ${first} to ${last} over ${periods} periods.`;
+  return `${name} ${rose ? 'rose' : 'fell'} from ${first} to ${last}${at} over ${periods} periods.`;
 }

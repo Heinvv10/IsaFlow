@@ -80,6 +80,13 @@ function trendPoint(i: number, closingCash: number): PackTrendPoint {
   return {
     month: `2025-${String(i + 1).padStart(2, '0')}`,
     label: `M${i + 1}`,
+    // WHOLE MONTHS. `partialMonthOf` reads this, and a fixture that left it
+    // undefined would exercise the un-marked path by accident on every test
+    // in the suite. The mid-month case has its own fixture —
+    // `packPartialMonth.test.ts`.
+    partial: false,
+    daysCovered: 31,
+    daysInMonth: 31,
     revenue,
     otherIncome: 0,
     expenses: 520_000 + i * 9_000,

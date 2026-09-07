@@ -12,6 +12,7 @@
 import { formatFigureText } from '../primitives/packFigureText';
 import { FootnoteMarker } from '../primitives/FootnoteMarker';
 import type { MoneyScale } from '@/lib/format/money';
+import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packBlockModel';
 import type {
   PackDefinition,
   PackDisclosure,
@@ -53,11 +54,38 @@ export function PackDefinitionsBlock({ entries, scale }: PackDefinitionsBlockPro
             {entry.definition}
             {entry.reconciliation && entry.reconciliation.length > 0 && (
               <table className="pack-table pack-definition-bridge">
+                {/* A SECOND COLUMN NEEDS A HEADING; ONE DOES NOT.
+                    A bare pair of money columns says nothing about which
+                    period is which, and the comparative bridge exists
+                    precisely because a reader could not tell a comparative
+                    add-back of nil from one the pack never computed. Drawn
+                    off the steps rather than off a flag, so a bridge with no
+                    comparative prints exactly the single-column table it
+                    printed before. */}
+                {entry.reconciliation.some((step) => step.comparative !== undefined) && (
+                  <thead>
+                    <tr>
+                      <th scope="col" />
+                      {/* THE PACK'S OWN COLUMN WORDS, not a second pair. Every
+                          statement in the document heads its two periods
+                          Actual and Prior, and this bridge is read against
+                          them; "Reporting period / Comparative" would be a
+                          third vocabulary for one idea — and two long
+                          headings wrap inside a glossary column, which the
+                          height model cannot see. */}
+                      <th scope="col">{PACK_TABLE_COLUMN_LABEL.actual}</th>
+                      <th scope="col">{PACK_TABLE_COLUMN_LABEL.prior}</th>
+                    </tr>
+                  </thead>
+                )}
                 <tbody>
                   {entry.reconciliation.map((step, index) => (
                     <tr key={`${step.label}-${index}`}>
                       <td>{step.label}</td>
                       <td>{formatFigureText(step.figure, scale)}</td>
+                      {step.comparative !== undefined && (
+                        <td>{formatFigureText(step.comparative, scale)}</td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

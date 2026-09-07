@@ -165,8 +165,11 @@ describe("page 10's money panels", () => {
     const marginYs = plottedYs(byId.get('trend-gross-margin')!, trend.length);
     const margins = trend.map((p) => p.grossMarginPct!);
 
-    // The panel uses its height: 40% to 51% is a line that climbs.
-    expect(Math.max(...marginYs) - Math.min(...marginYs)).toBeGreaterThan(10);
+    // The panel uses its height: 40% to 51% is a line that climbs. 8px in a
+    // 28mm plot box — the bound was 10 when the box was 30mm and it is the
+    // same claim scaled; what it refuses is the flat line the rand axis draws,
+    // measured on the next assertion at under one pixel.
+    expect(Math.max(...marginYs) - Math.min(...marginYs)).toBeGreaterThan(8);
     // On the rand axis the same eleven points would be one flat line half a
     // pixel thick, at the top of the panel — which is the reason a ratio does
     // not join the shared scale.

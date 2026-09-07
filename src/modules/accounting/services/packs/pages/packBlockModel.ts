@@ -258,6 +258,20 @@ export interface PackDisclosure {
 export interface PackReconciliationStep {
   label: string;
   figure: PackFigure;
+  /**
+   * THE SAME LINE FOR THE COMPARATIVE PERIOD, where the pack has one.
+   *
+   * Page 5 stated the comparative EBITDA — "The comparative period's is
+   * (905)" — with the same prominence as the current one, and nothing in the
+   * pack reconciled it. It happened to equal comparative operating profit
+   * exactly, which a reader cannot tell from an add-back the pack failed to
+   * compute; §7.1 criterion 12 fails a non-IFRS measure stated without its
+   * bridge, and it does not exempt the column a pack states second.
+   *
+   * Absent where `PackFigureSet.prior` is null: a first-period company has no
+   * comparative to bridge, and an empty second column would claim one.
+   */
+  comparative?: PackFigure;
 }
 
 export interface PackDefinition {

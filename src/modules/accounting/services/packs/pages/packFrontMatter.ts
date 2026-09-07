@@ -115,7 +115,11 @@ export function buildBasisPage(
   return page(title, 'Basis of preparation', 'Governance', 'medium', [
     disclose('Basis of preparation', [
       note('Standard', basis.basisOfPreparation.standard),
-      note('Period', period),
+      // AND WHICH PART OF IT THE MONTHLY SERIES DOES NOT COVER IN FULL. The
+      // series runs to the month CONTAINING the reporting date, so on a pack
+      // run mid-month its last point is a stub — and page 10 quoted one as a
+      // gross margin of 100.0%. See `partialMonthBasisNote`.
+      note('Period', basis.partialMonth === null ? period : `${period}. ${basis.partialMonth}`),
       note('Comparative period', comparativePeriod === null
         ? 'None. There is no prior period with a ledger to compare against, so no statement carries a comparative column.'
         : comparativePeriod.label),

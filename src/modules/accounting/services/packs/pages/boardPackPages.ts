@@ -81,6 +81,7 @@ import {
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
 import { withDerivedMatters } from './packDerivedMatters';
+import { partialMonthClauseFor } from './packPartialMonth';
 import { selectPrintedMatters } from './packMattersPrinted';
 import { fitPageToBox } from './packPageFit';
 import { pageBoxMm, pageMm } from './packPageMetrics';
@@ -152,7 +153,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, generatedAt } = input;
   const draft = input.draftReasons.length > 0;
   const p = new PackFigureProvenance();
-  const basis = buildBasis(set, { generatedAt }, input.draftReasons, input.ledgerVersion, p);
+  const basis = buildBasis(set, { generatedAt }, input.draftReasons, input.ledgerVersion, trend, p);
   const { scale, currency } = basis.numberConvention;
 
   // The comparative is the window the PRIOR FIGURES were read over, and it
@@ -196,7 +197,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // when a row moves off the page.
   // The checks that reach this page all read the ledger; one anomaly is
   // visible only in the SERIES — see `creditMonthMatters`.
-  const allMatters = withDerivedMatters(input.matters, trend);
+  const allMatters = withDerivedMatters(input.matters, trend, scale);
   const mattersHeadline = mattersTitle(allMatters, scale);
   const matters = selectPrintedMatters(allMatters, mattersBudgetMm(mattersSupport, mattersHeadline));
 
@@ -235,9 +236,18 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         // reporting date and the pack's period is whatever was asked for; the
         // closing row states its own window, and this says why it is not the
         // period total on the next sheet.
+        // AND WHICH OF ITS MONTHS IS NOT A WHOLE MONTH. The last row of this
+        // table is the month CONTAINING the reporting date, so on a pack run
+        // mid-month it is a stub — seven days on the pack the visual gate
+        // read — summed into the closing row beside eleven whole months. The
+        // row and the closing label carry "(part)"; this says what that
+        // means, on the sheet the rows are printed on. Appended to the
+        // window note rather than given a note of its own: page 5 has the
+        // paper for a clause and not for a block.
         note('The window', `This table covers ${trendWindowLabel(trend)}, which is the series page `
           + '10 draws. The reporting period is stated in the footer of every sheet, and the income '
-          + 'statement overleaf carries that period\'s own totals against the comparative.'),
+          + 'statement overleaf carries that period\'s own totals against the comparative.'
+          + (partialMonthClauseFor(trend) === null ? '' : ` ${partialMonthClauseFor(trend)}`)),
       ]),
     ];
   const monthlyBlocks: PackPageBlock[] = [

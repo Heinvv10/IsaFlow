@@ -432,8 +432,11 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
  * Two things make a bar look wrong, and either one puts this note on the
  * page:
  *
- *   1. its bar and its table cell carry opposite signs (Demo's cost of
- *      sales, Brightsphere's operating expenses);
+ *   1. its bar POINTS the opposite way to the sign of its table cell (Demo's
+ *      cost of sales, Brightsphere's operating expenses). The LABEL agrees
+ *      with the table — see `WaterfallStep.labelValue`, which is the fix for
+ *      the same figure printing with two signs on one sheet — so what is left
+ *      to explain is the direction, and that is what this note explains;
  *   2. its ink and its direction disagree — a green bar that points down, a
  *      red one that points up (Brightsphere's revenue).
  *
@@ -478,9 +481,10 @@ export function bridgeSignFootnote(
   // sentence for a bar whose table cell agrees with it would be sent to
   // check an agreement.
   const example = diverged !== undefined && cell !== null && cell !== undefined
-    ? `${named.label} of ${formatMoney(cell, { scale })} in the table is drawn as `
-      + `${formatMoney(step, { scale })} on the bar — the amount by which it ${moved} profit — `
-      + `and in ${ink}, because it is ${klass}. The two signs are the same fact read two ways.`
+    ? `${named.label} of ${formatMoney(cell, { scale })} in the table is labelled with that same `
+      + `figure on the bridge, drawn ${step < 0 ? 'DOWNWARDS' : 'UPWARDS'} because that is the `
+      + `direction it ${moved} profit, and in ${ink}, because it is ${klass}. The label and the `
+      + 'position are the same fact read two ways.'
     : `${named.label} is drawn in ${ink}, because it is ${klass}, and points `
       + `${step < 0 ? 'DOWN' : 'UP'}, because that is the direction it moved profit this period.`;
 

@@ -92,6 +92,33 @@ export function bridgeRoundingNote(operating: number, addBack: number, ebitda: n
 }
 
 /**
+ * THE SAME NOTE OVER TWO COLUMNS, because the bridge now carries two.
+ *
+ * Either column may fail to foot as printed and they fail independently, so
+ * the note names WHICH one it is explaining. A reader looking at the column
+ * that does add must not be told it does not.
+ */
+export function bridgeRoundingNotes(
+  current: { operating: number; addBack: number; ebitda: number },
+  comparative: { operating: number; addBack: number; ebitda: number } | null,
+): string | undefined {
+  const currentNote = bridgeRoundingNote(current.operating, current.addBack, current.ebitda);
+  const priorNote = comparative === null
+    ? undefined
+    : bridgeRoundingNote(comparative.operating, comparative.addBack, comparative.ebitda);
+  if (currentNote === undefined && priorNote === undefined) return undefined;
+  if (comparative === null) return currentNote;
+  // NAMED, once there are two columns to confuse. A bare "the three lines
+  // above" over a two-column bridge does not say which three.
+  if (currentNote !== undefined && priorNote !== undefined) {
+    return `Reporting period: ${currentNote} Comparative period: ${priorNote}`;
+  }
+  return currentNote !== undefined
+    ? `Reporting period: ${currentNote}`
+    : `Comparative period: ${priorNote}`;
+}
+
+/**
  * The convention, the two margins, and every ratio and day count the pack
  * prints — in the order a reader meets them.
  *
@@ -211,6 +238,24 @@ export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): P
   const operating = operatingProfitOf(current);
   const ebitda = calculateExtendedRatios(toFinancialData(current)).ebitda;
   const charged = current.depreciation !== 0;
+  // THE COMPARATIVE COLUMN, AND THE REASON IT EXISTS.
+  //
+  // Page 5 states the comparative period's EBITDA in the same sentence as the
+  // current one, and until now nothing in the pack reconciled it. On the demo
+  // company it equals comparative operating profit to the rand, which is a
+  // nil add-back — true, and indistinguishable to a reader from a measure the
+  // pack could not compute. §7.1 criterion 12 asks for the bridge, not for
+  // the bridge of whichever column the pack finds convenient.
+  //
+  // Read through the SAME two calls as the current column, off `set.prior`,
+  // so the two columns cannot be computed different ways; null where there is
+  // no comparative period at all (R3), which leaves the bridge one column
+  // wide rather than printing an empty second.
+  const prior = set.prior === null ? null : {
+    operating: operatingProfitOf(set.prior),
+    addBack: set.prior.depreciation,
+    ebitda: calculateExtendedRatios(toFinancialData(set.prior)).ebitda,
+  };
   // A NEGATIVE ADD-BACK IS NOT A SIGN ERROR, AND THE PAGE HAD TO SAY WHICH.
   //
   // Brightsphere's bridge read "Add back: depreciation and amortisation
@@ -258,11 +303,30 @@ export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): P
           : 'None was charged this period, so the add-back is nil and EBITDA equals operating '
             + 'profit — what the ledger says, not a measure the pack failed to compute.'),
     reconciliation: [
-      { label: 'Operating profit (IFRS)', figure: p.figure(OPERATING_PROFIT_SOURCE, operating, 'money') },
-      { label: 'Add back: depreciation and amortisation', figure: p.figure(DEPRECIATION_SOURCE, current.depreciation, 'money') },
-      { label: 'EBITDA', figure: p.figure(EBITDA_SOURCE, ebitda, 'money') },
+      {
+        label: 'Operating profit (IFRS)',
+        figure: p.figure(OPERATING_PROFIT_SOURCE, operating, 'money'),
+        // `${source}.prior` is the convention every comparative figure in the
+        // pack is recorded under — see `packStatementTables.buildRow` — so the
+        // prior column of this bridge and the prior column of a statement
+        // table cannot be two different readings of one source.
+        ...(prior === null ? {} : { comparative: p.figure(`${OPERATING_PROFIT_SOURCE}.prior`, prior.operating, 'money') }),
+      },
+      {
+        label: 'Add back: depreciation and amortisation',
+        figure: p.figure(DEPRECIATION_SOURCE, current.depreciation, 'money'),
+        ...(prior === null ? {} : { comparative: p.figure(`${DEPRECIATION_SOURCE}.prior`, prior.addBack, 'money') }),
+      },
+      {
+        label: 'EBITDA',
+        figure: p.figure(EBITDA_SOURCE, ebitda, 'money'),
+        ...(prior === null ? {} : { comparative: p.figure(`${EBITDA_SOURCE}.prior`, prior.ebitda, 'money') }),
+      },
     ],
-    reconciliationNote: bridgeRoundingNote(operating, current.depreciation, ebitda),
+    reconciliationNote: bridgeRoundingNotes(
+      { operating, addBack: current.depreciation, ebitda },
+      prior,
+    ),
   };
 
   // EBITDA sits with the profitability terms rather than at the end: it is

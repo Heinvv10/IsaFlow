@@ -191,9 +191,15 @@ export function buildHighlightTiles(
   return [
     buildTile('Revenue', revenue, prior?.revenue ?? null, sparklineFor(trend, (t) => t.revenue), hasComparative),
     buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, sparklineForNullable(trend, (t) => t.grossMarginPct), hasComparative),
-    // No monthly otherIncome series exists, so no monthly operating-profit
-    // series can be derived without inventing one — this tile stays without
-    // a sparkline.
+    // No monthly operating-profit series EXISTS, and the four bands that
+    // would make one are not a substitute. `PackTrendPoint` carries turnover,
+    // other income, cost of sales and the operating band, so the subtraction
+    // is now available here — and taking it would be a page computing a
+    // figure, which is the one thing the pack's provenance rule forbids:
+    // `operatingProfitOf` prefers the classifier's OWN `operatingProfit`
+    // where the ledger carries one, and a sparkline derived in this file
+    // could silently disagree with the tile it sits beside. This tile stays
+    // without one until the service issues the series.
     buildTile('Operating profit', operatingProfit, prior ? operatingProfitOf(prior) : null, null, hasComparative),
     buildTile('Net profit', netProfit, prior?.netProfit ?? null, sparklineFor(trend, (t) => t.netProfit), hasComparative),
     buildTile('Cash', cash, prior?.cash ?? null, sparklineFor(trend, (t) => t.cash), hasComparative),

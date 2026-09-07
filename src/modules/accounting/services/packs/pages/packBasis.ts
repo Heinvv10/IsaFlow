@@ -41,11 +41,16 @@ import { buildDefinitions } from './packDefinitions';
 import { NO_INVENTORY_CLASSIFIED } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
+import { partialMonthBasisNote, partialMonthOf } from './packPartialMonth';
+import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
 export interface PackBasis {
   basisOfPreparation: PackBasisOfPreparation;
   numberConvention: PackNumberConvention;
   definitions: PackDefinition[];
+  /** The part-month sentence page 12's Period line carries, or null where the
+   *  series ends on a whole month — see `partialMonthBasisNote`. */
+  partialMonth: string | null;
   /** `classificationCaveat` off the current figures, this pack's own wording
    *  of the inventory caveat (see `INVENTORY_CAVEAT`), and the draft status
    *  when `doc.draft`. Surfaced rather than suppressed — see
@@ -130,6 +135,12 @@ export function statementFootnotes(comparative: PackComparativePeriod | null): P
   ];
 }
 
+/** The part-month sentence for this series, or null. */
+function partialFor(trend: PackTrendPoint[]): string | null {
+  const point = partialMonthOf(trend);
+  return point === null ? null : partialMonthBasisNote(point);
+}
+
 const LEDGER_VERSION_UNAVAILABLE =
   'unavailable — no ledger watermark was supplied for this pack render';
 
@@ -139,12 +150,18 @@ const LEDGER_VERSION_UNAVAILABLE =
  *   typically `getLedgerPostedThrough(companyId, window)`'s result, fetched
  *   once by the page-12 assembler. `null` when the caller has none to give;
  *   rendered as an explicit "unavailable" statement, never invented.
+ * @param trend The monthly series the pack draws, read for ONE fact: whether
+ *   its last month is a PART month. That is a statement about the window
+ *   every monthly figure in this pack was measured over, so it belongs on the
+ *   basis page — which said nothing about it while page 10 quoted a gross
+ *   margin of 100.0% taken over seven days. See `packPartialMonth.ts`.
  */
 export function buildBasis(
   set: PackFigureSet,
   doc: Pick<PackPagesDocument, 'generatedAt'>,
   draftReasons: PackDraftReason[],
   ledgerVersion: string | null,
+  trend: PackTrendPoint[],
   /** The document's provenance map — EBITDA's reconciliation is made of
    *  FIGURES, and a figure on a page that no service issued is what the
    *  integrity gate exists to refuse. */
@@ -171,6 +188,9 @@ export function buildBasis(
     },
     numberConvention: { scale: PACK_SCALE, currency: CURRENCY },
     definitions: buildDefinitions(set, p),
+    // A STATEMENT ABOUT THE WINDOW, so it rides on the Period fact rather
+    // than becoming a fourth caveat — see `partialMonthBasisNote`.
+    partialMonth: partialFor(trend),
     caveats,
   };
 }

@@ -22,6 +22,7 @@ import {
   type Domain,
   type ScaleDominator,
 } from './packTrendScale';
+import { monthLabel, partialMonthClause } from './packPartialMonth';
 import type { PackChartSpec } from './packPageModel';
 
 /**
@@ -71,7 +72,26 @@ import type { PackChartSpec } from './packPageModel';
  * was the shared domain, and `packTrendScale` moves a panel off it rather than
  * growing the page.
  */
-const PANEL = { widthMm: 83, heightMm: 30 };
+/**
+ * 28, DOWN FROM 30, AND WHAT IT BUYS IS THE PART-MONTH MARKER.
+ *
+ * The series ends on the month CONTAINING the reporting date, so on a pack
+ * run mid-month the terminal point of every panel is a stub — seven days on
+ * the pack the visual gate read, which is how a gross margin of 100.0% came
+ * to be printed as where margin currently stands. Naming that month inside
+ * each panel's own movement sentence costs one caption line on the tallest
+ * panel of each row: 4.2mm on a page that fitted with a tenth of a
+ * millimetre to spare.
+ *
+ * Two millimetres a row is where it comes from. The alternative was the
+ * page's two "Reading these panels" notes, which are what make its own
+ * percentage claims checkable, and a plot band is the cheaper of the two: at
+ * 28 the panels are still a quarter taller than the 22mm the old landscape
+ * sheet left after its caption, and the excursion problem that made three of
+ * them draw one to two pixels was solved by `packTrendScale` moving a panel
+ * off the shared domain, not by height.
+ */
+const PANEL = { widthMm: 83, heightMm: 28 };
 
 /**
  * Page 10 — the small multiples.
@@ -193,12 +213,23 @@ function moneyPanel(
     creditMonth: string | null;
   } | null,
 ): PackChartSpec {
-  const points = trend.map((point) => ({ label: point.label, value: panel.pick(point) }));
+  // THE X-AXIS CARRIES THE MARK TOO — `monthLabel`. The panel labels its
+  // first and last tick only, so the terminal tick IS the stub wherever there
+  // is one, and it is the tick the reader reads the end label against.
+  const points = trend.map((point) => ({ label: monthLabel(point), value: panel.pick(point) }));
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
   const money = (n: number) => formatMoney(n, { scale });
   const prose = (n: number) => inProse(money(n));
-  const clauses = [movementSentence(panel.name, prose(first), prose(last), points.length, last >= first)];
+  // AND THE SENTENCE SAYS WHICH MONTH ITS LAST FIGURE IS, where that month is
+  // a stub. "Revenue rose from nil to 30 over 12 periods" states a current
+  // position measured over seven days of September; unmarked, that is the
+  // sentence a director repeats back in the meeting.
+  const terminal = trend[trend.length - 1];
+  const clauses = [movementSentence(
+    panel.name, prose(first), prose(last), points.length, last >= first,
+    terminal !== undefined && terminal.partial ? monthLabel(terminal) : undefined,
+  )];
   // A PANEL THAT DOES NOT SHARE THE SCALE SAYS SO, IN ITS OWN TITLE. The
   // page's scale note names it too; this is the half a reader meets while
   // looking at the line, which is where a rescaled axis actually misleads.
@@ -255,9 +286,8 @@ function moneyPanel(
  * nothing.
  */
 function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[], scale: MoneyScale): PackChartSpec | null {
-  const points = trend
-    .filter((point) => panel.pick(point) !== null)
-    .map((point) => ({ label: point.label, value: panel.pick(point) as number }));
+  const drawn = trend.filter((point) => panel.pick(point) !== null);
+  const points = drawn.map((point) => ({ label: monthLabel(point), value: panel.pick(point) as number }));
   if (points.length === 0) return null;
 
   const domain = sharedDomain([points.map((p) => p.value)]);
@@ -271,8 +301,16 @@ function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[], scale: MoneyScal
   // sheet presented four different scales as one shared scale plus two
   // exceptions. The reason is different from a money panel's and is stated as
   // such: this panel is not in rands at all.
-  const title = `${movementSentence(panel.name, prose(first), prose(last), points.length, last >= first)}`
-    + ` Own scale: ${panel.unit}, not ${scale}.`;
+  // A RATIO PANEL DROPS THE MONTHS IT CANNOT MEASURE, so the point it ends on
+  // is the last month it COULD measure — which is the stub where the stub has
+  // a value, and is not where it does not. Read off `drawn`, the series
+  // actually plotted, rather than off the window: page 10's gross-margin
+  // panel is exactly the case, ending on a 100.0% taken over seven days.
+  const terminal = drawn[drawn.length - 1]!;
+  const title = movementSentence(
+    panel.name, prose(first), prose(last), points.length, last >= first,
+    terminal.partial ? monthLabel(terminal) : undefined,
+  ) + ` Own scale: ${panel.unit}, not ${scale}.`;
   return {
     id: panel.id,
     title,
@@ -352,7 +390,9 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
     return moneyPanel(panel, trend, scale, scales[i]!, point === undefined || dominator === null
       ? null
       : {
-        label: point.label,
+        // Marked, like every other month this pack names — the scale-setting
+        // month can be the stub.
+        label: monthLabel(point),
         value: dominator.value,
         // THE PRINTED PERCENTAGE OFF THE PRINTED FIGURES, exactly as
         // `printedSharePct` does for a panel's own share — see `atScale`. The
@@ -443,12 +483,18 @@ export function buildCashTrendChart(
   box: { widthMm: number; heightMm: number } = CASH_TREND_RUNGS[0],
 ): PackChartSpec | null {
   if (trend.length === 0) return null;
-  const points = trend.map((p) => ({ label: p.label, value: p.cash }));
+  const points = trend.map((p) => ({ label: monthLabel(p), value: p.cash }));
   const domain = sharedDomain([points.map((p) => p.value)]);
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
   const direction = last >= first ? 'rose' : 'fell';
   const money = (n: number) => inProse(formatMoney(n, { scale }));
+  // CASH IS A POSITION, NOT A MOVEMENT, so the stub costs it less than it
+  // costs a flow panel — a balance at 7 September is a real balance at
+  // 7 September. It is still measured to a different date from the eleven
+  // month-ends before it, and this sentence names both endpoints by month, so
+  // it says which one.
+  const closing = trend[trend.length - 1]!;
   // NAMED PERIODS, not just a count. This panel shares a sheet with the cash
   // table, whose Opening cash is the START OF THE REPORTING PERIOD, while this
   // series opens wherever the twelve-month window does — (125) at 1 January
@@ -459,7 +505,8 @@ export function buildCashTrendChart(
     id: 'cash-trend',
     title:
       `Closing cash ${direction} from ${money(first)} at ${points[0]!.label} ` +
-      `to ${money(last)} at ${points[points.length - 1]!.label}, over ${points.length} periods.`,
+      `to ${money(last)} at ${points[points.length - 1]!.label}, over ${points.length} periods.` +
+      (closing.partial ? ` ${partialMonthClause(closing)}` : ''),
     kind: 'line',
     svg: renderChartSvg(
       // LABELLED, unlike a page-10 panel. This one is 170mm wide and is the

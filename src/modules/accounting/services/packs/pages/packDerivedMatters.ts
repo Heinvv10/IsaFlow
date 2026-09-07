@@ -8,7 +8,9 @@
  * why it is its own file rather than a fifth entry in that module's SOURCES.
  */
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
+import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { NO_PRIOR_MEETING_RECORD, type PackMatter } from './packMatters';
+import { monthLabel } from './packPartialMonth';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
 /**
@@ -34,35 +36,69 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
  * on the panel — one derivation, two pages, so the largest visual event in the
  * document stops being one the governance page has never heard of.
  */
-export function creditMonthMatters(trend: PackTrendPoint[]): PackMatter[] {
+export function creditMonthMatters(trend: PackTrendPoint[], scale: MoneyScale): PackMatter[] {
+  const money = (n: number) => inProse(formatMoney(n, { scale }));
   return trend.filter((point) => point.expenses < 0).map((point) => ({
     kind: 'finding' as const,
     // AND IT SAYS WHICH NUMBER IT IS, BECAUSE THE PACK PRINTS TWO FOR THIS
-    // MONTH. The trends panel quantifies July at 1 908 and this row quantified
+    // MONTH. The trends panel quantifies July at 1 908 and this row quantifies
     // it at 1 869 — a reader meeting both takes them for one quantity stated
     // twice, which is the defect class this pack has fixed four times. They
     // are two quantities: the panel plots the month's NET PROFIT and this
-    // quantum is the EXPENSE CREDIT alone, so the difference is the month's
-    // revenue and nothing else. On the live demo company that is
-    // 1 907 848.90 − 1 869 169.85 = 38 679.05, which is July's revenue to the
-    // cent. Both are read off the same `PackTrendPoint`, so the identity
-    // holds by construction rather than by coincidence — see
-    // `packDerivedMatters.test.ts`, which asserts it on the row rather than
-    // on the two rendered strings.
+    // quantum is the EXPENSE CREDIT alone.
+    //
+    // THE SENTENCE JOINING THEM SAID "larger by the month's revenue" AND WAS
+    // FALSE ON BOTH COMPANIES. `getPackTrend` defines a month's net profit as
+    // `revenue + otherIncome − expenses`, so where expenses are a credit the
+    // identity is `netProfit = credit + revenue + otherIncome` — the two
+    // income BANDS, not turnover alone. Demo July: 1 869 + 37 + 2 = 1 908,
+    // and the sentence was out by the other income. Brightsphere April is the
+    // direction as well as the magnitude: 4 128 + (5 535) + (1) = (1 408), a
+    // net profit 5 536 BELOW the credit, on a month whose turnover is
+    // negative — so "larger by the revenue" was wrong in sign, on the page
+    // before the sheet that disproves it.
+    //
+    // The identity is stated with its three figures rather than as a
+    // relation, because a relation has to be true in every direction and
+    // these figures are true as printed: both bands are columns of page 5's
+    // table for this month, so the addition is one a director can take off
+    // the sheet. It holds for a negative turnover, for nil other income, and
+    // by construction rather than by the arithmetic of one company — all
+    // three are read off the same `PackTrendPoint`.
     //
     // The panel is left alone deliberately: it sits inside a 48mm box on the
     // tightest page in the pack, its own title already says which measure it
     // plots, and every word added there is a line the chart loses. The column
     // that says nothing about what its number is, is this one.
-    issue: `${point.label}: expenses for the month are a net credit — more was reversed out of `
+    issue: `${monthLabel(point)}: expenses for the month are a net credit — more was reversed out of `
       + 'expense accounts than was posted into them, so the month reports a profit the period does '
-      + 'not. The quantum is that credit; the trends panel plots the month\'s net profit, which is '
-      + 'larger by the month\'s revenue.',
-    quantum: round2(Math.abs(point.expenses)),
+      // AND IT IS NO LONGER THAN THE SENTENCE IT REPLACES, WHICH IS NOT A
+      // STYLE POINT. Page 11's table is budgeted in LINES of paper
+      // (`mattersBudgetMm`), so a longer issue prints one fewer matter and
+      // moves a real R339k exposure into the unprinted tail — the first
+      // draft of this cost the demo pack a row. Three figures and the
+      // addition between them, in the words the row already had.
+      + `not. The quantum is that credit, ${money(creditOf(point))}; the trends panel's net profit `
+      + `of ${money(point.netProfit)} is that credit plus revenue and other income of `
+      + `${money(incomeOf(point))}.`,
+    quantum: round2(creditOf(point)),
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
     decisionRequired: 'Identify the reversals behind the credit and confirm the period they belong to.',
   }));
+}
+
+/** The size of the credit — the quantum this row carries, and the first of
+ *  the three figures its sentence states. */
+function creditOf(point: PackTrendPoint): number {
+  return Math.abs(point.expenses);
+}
+
+/** THE TWO INCOME BANDS TOGETHER, which is what separates the credit from the
+ *  month's net profit. Turnover alone was the old answer and it was short by
+ *  the other-income band — see the sentence above. */
+function incomeOf(point: PackTrendPoint): number {
+  return round2(point.revenue + point.otherIncome);
 }
 
 /**
@@ -70,8 +106,12 @@ export function creditMonthMatters(trend: PackTrendPoint[]): PackMatter[] {
  * check ran clean" line removed where they are, because a page cannot carry
  * both.
  */
-export function withDerivedMatters(matters: PackMatter[], trend: PackTrendPoint[]): PackMatter[] {
-  const derived = creditMonthMatters(trend);
+export function withDerivedMatters(
+  matters: PackMatter[],
+  trend: PackTrendPoint[],
+  scale: MoneyScale,
+): PackMatter[] {
+  const derived = creditMonthMatters(trend, scale);
   if (derived.length === 0) return matters;
   return [...matters.filter((m) => m.kind !== 'none'), ...derived];
 }

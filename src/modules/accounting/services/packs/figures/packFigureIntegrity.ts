@@ -106,8 +106,18 @@ function locateFigures(doc: PackPagesDocument): Located[] {
           break;
         case 'definitions':
           for (const entry of block.entries)
-            for (const step of entry.reconciliation ?? [])
+            for (const step of entry.reconciliation ?? []) {
               found.push({ figure: step.figure, where: at(`'${entry.term}' reconciliation '${step.label}'`) });
+              // The comparative column is a printed figure like any other, so
+              // it is traced like any other. A bridge column outside the gate
+              // is a column that can print a number no service issued.
+              if (step.comparative !== undefined) {
+                found.push({
+                  figure: step.comparative,
+                  where: at(`'${entry.term}' reconciliation '${step.label}' comparative`),
+                });
+              }
+            }
           break;
         default:
           break;

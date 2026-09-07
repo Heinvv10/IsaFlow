@@ -41,10 +41,21 @@ export const TABLE_ROW_MM = 8.15;
  * `Extracted at` and `Ledger version` off the basis of preparation to pay for
  * millimetres that were never on the paper.
  *
- * Chromium measures the bridge growing by 7.0, 7.0 and 6.9mm across its three
- * rows; 7.0 is the transcribed arithmetic and is never short of any of them.
+ * Chromium measured the bridge growing by 7.0, 7.0 and 6.9mm across its three
+ * rows at `.pack-table td`'s 1.2mm padding. `.pack-definition-bridge td` sets
+ * 0.6mm — a three-line bridge inside a glossary entry does not want a
+ * statement's row rhythm, and the comparative column added by the
+ * two-column bridge has to be paid for on a page that fits with millimetres
+ * to spare. 5.9 is 7.0 less the 1.2mm of padding taken off, rounded up;
+ * `packSheetCount.test.ts` re-measures it against the browser.
  */
-export const DEFINITION_BRIDGE_ROW_MM = 7;
+export const DEFINITION_BRIDGE_ROW_MM = 5.9;
+/** The comparative column's heading row on that bridge. A `.pack-table th` at
+ *  8pt over a 12pt line, with `.pack-definition-bridge th`'s 0.4mm padding
+ *  rather than the statement header's 1.5mm — see `styles/packPrint.css`.
+ *  Charged at `TABLE_HEAD_MM` it read 8 and cost page 12 three millimetres it
+ *  does not have. */
+export const DEFINITION_BRIDGE_HEAD_MM = 4.9;
 /** A `.pack-table` header row. The statements' and the scorecard's column
  *  headings are a fixed enum of short labels and measure 7.4mm on every
  *  fixture; the matters table's "Quantum (R\'000)" wraps, and is budgeted at

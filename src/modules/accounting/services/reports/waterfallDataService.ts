@@ -10,6 +10,25 @@ export interface WaterfallStep {
   value: number;
   isSubtotal: boolean;
   color: 'green' | 'red' | 'blue' | 'teal';
+  /**
+   * THE FIGURE THE BAR IS LABELLED WITH, where that is not `value`.
+   *
+   * `value` is the step's EFFECT ON PROFIT, which is what positions the bar
+   * and is the negation of the ledger figure for every subtracted line. So a
+   * board pack printed Cost of sales as `1 431` in its income statement and
+   * `(1 431)` on the bridge a hundred millimetres below it, and Brightsphere
+   * printed three of six bars as the negation of the table above them —
+   * `3 717` against a table reading `(3 717)`. Two visual gates in a row
+   * reported it as a chart contradicting a table, and both were reading the
+   * sheet correctly: an explanatory footnote had been added and was not read.
+   *
+   * The label now carries the TABLE's sign and the bar's DIRECTION carries
+   * the effect on profit, so the two are one figure read two ways rather than
+   * two signs for one figure. Absent where the two agree — revenue, other
+   * income, the subtotals, and either bridge's residual plug, which is a
+   * derived movement with no ledger line to agree with.
+   */
+  labelValue?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,7 +72,7 @@ export function buildProfitWaterfall(data: {
   running = data.revenue;
 
   // Cost of Sales: subtracted, so a positive cost draws downward.
-  steps.push({ label: 'Cost of Sales', start: running, end: running - data.costOfSales, value: -data.costOfSales, isSubtotal: false, color: 'red' });
+  steps.push({ label: 'Cost of Sales', start: running, end: running - data.costOfSales, value: -data.costOfSales, labelValue: data.costOfSales, isSubtotal: false, color: 'red' });
   running -= data.costOfSales;
 
   // Gross Profit (subtotal)
@@ -61,7 +80,7 @@ export function buildProfitWaterfall(data: {
 
   // Operating Expenses: subtracted, so a positive expense draws downward.
   running = data.grossProfit;
-  steps.push({ label: 'Operating Expenses', start: running, end: running - data.operatingExpenses, value: -data.operatingExpenses, isSubtotal: false, color: 'red' });
+  steps.push({ label: 'Operating Expenses', start: running, end: running - data.operatingExpenses, value: -data.operatingExpenses, labelValue: data.operatingExpenses, isSubtotal: false, color: 'red' });
   running -= data.operatingExpenses;
 
   // Other Income: added. Skipped when zero rather than drawn as a flat bar.
@@ -72,7 +91,7 @@ export function buildProfitWaterfall(data: {
 
   // Other Expenses: subtracted. Skipped when zero.
   if (data.otherExpenses !== 0) {
-    steps.push({ label: 'Other Expenses', start: running, end: running - data.otherExpenses, value: -data.otherExpenses, isSubtotal: false, color: 'red' });
+    steps.push({ label: 'Other Expenses', start: running, end: running - data.otherExpenses, value: -data.otherExpenses, labelValue: data.otherExpenses, isSubtotal: false, color: 'red' });
     running -= data.otherExpenses;
   }
 

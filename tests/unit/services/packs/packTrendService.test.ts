@@ -57,11 +57,13 @@ describe('getPackTrend', () => {
     expect(points).toEqual([
       {
         month: '2026-02', label: 'Feb 2026',
+        partial: false, daysCovered: 28, daysInMonth: 28,
         revenue: 0, otherIncome: 0, expenses: 0, netProfit: 0, costOfSales: 0, operatingExpenses: 0,
         grossMarginPct: null, cash: 0, accountsReceivable: 0, debtorDays: null,
       },
       {
         month: '2026-03', label: 'Mar 2026',
+        partial: false, daysCovered: 31, daysInMonth: 31,
         revenue: 1000.5, otherIncome: 0, expenses: 400.25, netProfit: 600.25, costOfSales: 0, operatingExpenses: 400.25,
         grossMarginPct: 100, cash: 0, accountsReceivable: 0, debtorDays: 0,
       },

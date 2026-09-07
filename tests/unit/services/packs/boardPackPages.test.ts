@@ -219,7 +219,7 @@ describe('buildBoardPackPages', () => {
       // It NAMES a line and both of its figures, so a reader can check the
       // rule against the page rather than take it on trust — and the line it
       // names is one the table on that page actually carries.
-      const named = /ran\. (.+) of .+ in the table is drawn as/.exec(note)?.[1];
+      const named = /ran\. (.+) of .+ in the table is labelled with/.exec(note)?.[1];
       expect(named, 'the footnote names no line').toBeDefined();
       const rows = page.blocks.flatMap((b) => (b.kind === 'table' ? b.table.rows.map((r) => r.label.toLowerCase()) : []));
       expect(rows).toContain(named!.toLowerCase());
@@ -245,7 +245,7 @@ describe('buildBoardPackPages', () => {
     for (const [name, input] of [['demo', demoInput], ['brightsphere', brightsphereInput]] as const) {
       const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Income statement')!;
       const note = page.footnotes.map((f) => f.text).join(' ');
-      const named = /ran\. (.+) of .+ in the table is drawn as|ran\. (.+) is drawn in/.exec(note);
+      const named = /ran\. (.+) of .+ in the table is labelled with|ran\. (.+) is drawn in/.exec(note);
       expect(named, `${name}: the footnote names no line`).not.toBeNull();
       const label = (named![1] ?? named![2])!;
       const ink = /is drawn in (green|red)|and in (green|red), because/.exec(note);
@@ -481,7 +481,15 @@ describe('buildBoardPackPages', () => {
     // checkable. At 30 the same page measures 244.4mm and drops nothing. The
     // 10mm left over is not slack: a caption that wraps grows its row, and
     // these captions now carry an "Own scale" clause.
-    expect(panels.every((p) => p.heightMm === 30)).toBe(true);
+    //
+    // 28, DOWN FROM 30, AND THE PART-MONTH MARKER IS WHAT IT BUYS. Naming the
+    // terminal month inside each panel's own movement sentence — required
+    // where that month is a seven-day stub, see `packPartialMonth.ts` — costs
+    // one caption line on the tallest panel of each of the three rows, 4.2mm,
+    // on a page that measured 254.9mm in a 255mm box. Two millimetres a row
+    // is where it comes from, and the alternative was the page's two "Reading
+    // these panels" notes.
+    expect(panels.every((p) => p.heightMm === 28)).toBe(true);
     expect(panels.every((p) => p.heightMm < CHART_HEIGHT_MM.inline)).toBe(true);
   });
 

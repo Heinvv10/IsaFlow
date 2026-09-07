@@ -586,7 +586,18 @@ html.print-mode .pack-pages {
 .pack-definition + .pack-definition { margin-top: 2mm; }
 .pack-definition-term { font-weight: 600; }
 .pack-definition-body { margin: 0 0 0 4mm; }
-.pack-definition-bridge { margin-top: 1mm; width: auto; min-width: 60mm; }
+.pack-definition-bridge { margin-top: 0.4mm; width: auto; min-width: 60mm; }
+/* The comparative column's heading row. `.pack-table th`'s 1.5mm padding is
+ * set for a statement's own header band across a 174mm measure; inside a
+ * glossary entry it is a rule of white above three short lines, and page 12
+ * has millimetres to spare. 0.4mm keeps the row legible at 8pt and costs
+ * `DEFINITION_BRIDGE_HEAD_MM` rather than `TABLE_HEAD_MM`. */
+.pack-definition-bridge th { padding: 0.2mm 2mm; }
+/* And its cells. `.pack-table td`'s 1.2mm is set for a statement across the
+ * full measure; three lines inside a glossary entry read tighter, and the
+ * comparative column has to be paid for from somewhere on a page that fits
+ * with millimetres to spare. See `DEFINITION_BRIDGE_ROW_MM`. */
+.pack-definition-bridge td { padding: 0.6mm 2mm; }
 /* Why the three lines above do not add as printed — see
  * `bridgeRoundingNote`. 7.5pt grey, the size the pack sets every fact ABOUT a
  * figure in, so it reads as a qualification of the bridge and not as a fourth

@@ -118,9 +118,26 @@ describe('sheet 5\'s month-by-month results', () => {
     }
   });
 
-  it('titles the sheet with the spread of net profit across the months it shows', () => {
+  /**
+   * AND IT STATES THE SPREAD AS A SPREAD, NOT AS A CHRONOLOGY.
+   *
+   * This sentence names the MIN and the MAX; page 10's panel titles name the
+   * FIRST and the LAST. Both used "from X to Y", over the same measure and
+   * the same window, so the rendered pack printed "Net profit runs from (784)
+   * in Jan 2026 to 1 908 in Jul 2026 across the 12 months" three sheets from
+   * "Net profit rose from (99) to (11) over 12 periods" — and a reader has no
+   * way to tell which sentence means which. Worse, "runs from … in Jan 2026"
+   * reads as a start date on a table whose first row is Oct 2025.
+   *
+   * So the two constructions must stay visibly different: this one says which
+   * end is which, and never borrows the panel's wording.
+   */
+  it('titles the sheet with the spread of net profit, named as a low and a high', () => {
     const title = monthlyResultsTitle(withBelowLine, PACK_SCALE);
-    expect(title).toMatch(/Net profit runs from .+ in .+ to .+ in .+/);
+    expect(title).toMatch(/Net profit is lowest at .+ in .+ and highest at .+ in .+/);
+    // NOT the panel's construction. `movementSentence` owns "from X to Y over
+    // N periods" and means first-to-last by it.
+    expect(title).not.toMatch(/from .+ to .+/);
     const flat: PackTrendPoint[] = withBelowLine.map((p) => ({ ...p, netProfit: 0 }));
     expect(monthlyResultsTitle(flat, PACK_SCALE)).toContain('nil');
   });

@@ -178,7 +178,11 @@ function makeWaterfallRenderItem(
         {
           type: 'text',
           style: {
-            text: formatMoney(step.value, { scale }),
+            // THE TABLE'S SIGN, NOT THE STEP'S EFFECT ON PROFIT — see
+            // `WaterfallStep.labelValue`. The bar's direction already carries
+            // the effect; printing the negation of the figure in the table on
+            // the same sheet made the chart look like it disagreed with it.
+            text: formatMoney(step.labelValue ?? step.value, { scale }),
             x: x + width / 2,
             // A bar that reaches the top of the domain has no room above it,
             // so its label sits just inside the bar instead of half off the
@@ -220,7 +224,8 @@ export function waterfallOption(
     animation: false,
     grid: { left: 80, right: 24, top: 32, bottom: 72 },
     tooltip: {
-      formatter: labelTooltipFormatter(steps.map((s) => s.label), steps.map((s) => s.value), scale),
+      // Same figure the bar prints — see `WaterfallStep.labelValue`.
+      formatter: labelTooltipFormatter(steps.map((s) => s.label), steps.map((s) => s.labelValue ?? s.value), scale),
     },
     xAxis: {
       type: 'category',

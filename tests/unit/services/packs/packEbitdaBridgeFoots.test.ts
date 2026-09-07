@@ -86,3 +86,44 @@ describe('bridgeRoundingNote', () => {
     expect(bridgeRoundingNote(-1_545_540, 0, -1_545_540)).toBeUndefined();
   });
 });
+
+/**
+ * AND IT BRIDGES BOTH COLUMNS, NOT JUST THE ONE THE PACK FINDS CONVENIENT.
+ *
+ * Page 5 states the comparative period's EBITDA in the same sentence, at the
+ * same prominence, as the current one — "The comparative period's is (905)" —
+ * and nothing in the pack reconciled it. On the demo company it equals
+ * comparative operating profit exactly, which is a NIL add-back: true, and
+ * indistinguishable to a reader from a measure the pack could not compute.
+ * §7.1 criterion 12 fails a non-IFRS measure stated without its bridge, and
+ * a comparative stated in the pack is a measure stated in the pack.
+ */
+describe('the comparative column of the EBITDA bridge', () => {
+  it('is printed, and adds, wherever the pack has a comparative period', () => {
+    for (const [name, input] of [['demo', demoInput], ['live demo', liveDemoInput]] as const) {
+      const entry = ebitda(input);
+      const steps = entry.reconciliation!;
+      const comparatives = steps.map((s) => s.comparative);
+      expect(comparatives.every((c) => c !== undefined), `${name}: a step has no comparative`)
+        .toBe(true);
+      const [operating, addBack, total] = comparatives.map((c) => printed(c!.value as number));
+      if (operating! + addBack! !== total!) {
+        // Same standard as the current column: it says so on the line.
+        expect(entry.reconciliationNote, `${name}: the comparative does not add and says nothing`)
+          .toMatch(/Comparative period:/);
+        continue;
+      }
+      expect(operating! + addBack!).toBe(total!);
+      // AND IT IS A SECOND READING OF A SECOND PERIOD, not a copy of the
+      // first. Every comparative figure resolves at its own `.prior` source.
+      for (const step of steps) expect(step.comparative!.source).toMatch(/\.prior$/);
+    }
+  });
+
+  /** A first-period company has no comparative to bridge, and an empty
+   *  second column would claim one. */
+  it('is absent where the pack has no comparative period', () => {
+    const entry = ebitda({ ...demoInput, set: { ...demoInput.set, prior: null } });
+    for (const step of entry.reconciliation!) expect(step.comparative).toBeUndefined();
+  });
+});

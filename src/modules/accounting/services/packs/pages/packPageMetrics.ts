@@ -41,6 +41,7 @@ import {
   SCORECARD_ROW_MM,
   tableMm,
   DEFINITION_BRIDGE_ROW_MM,
+  DEFINITION_BRIDGE_HEAD_MM,
 } from './packBlockHeights';
 import { mattersTableMm } from './packMattersPrinted';
 import type { PackPage, PackPageBlock } from './packPageModel';
@@ -149,7 +150,20 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       const heights = block.entries.map((e) =>
         lines(wrappedLines(e.term, 8.5, measure), 12)
         + lines(wrappedLines(e.definition, 8.5, measure - 4), 12)
-        + (e.reconciliation?.length ? 1 + e.reconciliation.length * DEFINITION_BRIDGE_ROW_MM : 0)
+        // AND THE COMPARATIVE COLUMN'S HEADER ROW, where the bridge carries
+        // one — a `<thead>` is a row of paper like any other, and page 12
+        // fits with about 1.7mm to spare, so an unmeasured row is a sheet.
+        // 0.4 is `.pack-definition-bridge`'s own `margin-top`; it was 1mm,
+        // and page 12 is measured to a tenth.
+        + (e.reconciliation?.length
+          ? 0.4 + e.reconciliation.length * DEFINITION_BRIDGE_ROW_MM
+            // AND THE COMPARATIVE COLUMN'S HEADER ROW, where the bridge
+            // carries one. A `<thead>` is a row of paper like any other —
+            // charged at a `td`'s 7mm it came out 0.9mm short of the browser,
+            // and page 12 fits with about 1.7mm to spare, so an unmeasured
+            // row is a thirteenth sheet.
+            + (e.reconciliation.some((step) => step.comparative !== undefined) ? DEFINITION_BRIDGE_HEAD_MM : 0)
+          : 0)
         // `.pack-definition-bridge-note` — 7.5pt over an 11pt line, 1mm clear
         // of the bridge above it. Charged, because an entry that grows and is
         // not measured is how a page takes a thirteenth sheet.
