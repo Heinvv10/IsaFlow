@@ -143,9 +143,23 @@ export function buildMattersBlock(selection: SelectedMatters, p: PackFigureProve
 export function buildMattersSupportBlocks(commentary: PackNarrative): PackPageBlock[] {
   return [
     { kind: 'narrative', narrative: commentary },
+    // TWO NOTES MERGED INTO ONE, AND THE MERGE IS THE POINT. This block is
+    // not prose the fitter can drop — it is subtracted from the table's
+    // budget BEFORE the selection runs (`mattersBudgetMm`), so every
+    // millimetre it takes is a matter that does not print. At four lines it
+    // was costing the live demo pack a row: JE-2026-00085 at 339 moved out of
+    // the table and into the "further matters are not printed" tail, which is
+    // real exposure leaving the page a director reads.
+    //
+    // Both facts stay. "A source that fails is named as a matter, never
+    // dropped" is the silent-omission guarantee `packMatters.ts` states, and
+    // "no prior pack is stored, so movement is untracked" is why the Movement
+    // column reads untracked. What went is the clause explaining what
+    // movement is NOT computed from — a period comparison "which would answer
+    // a different question" — which describes an arithmetic the pack does not
+    // perform. Two lines instead of four, and the row comes back.
     disclose('What was checked', [
-      note('Sources', 'Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A source that fails appears as a named matter, never as a silent omission.'),
-      note('Movement', 'No prior board pack is stored, so movement since the last meeting is stated as untracked rather than computed from a period comparison, which would answer a different question.'),
+      note('Sources', 'Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A source that fails is named as a matter, never dropped. No prior pack is stored, so movement is untracked.'),
     ]),
   ];
 }

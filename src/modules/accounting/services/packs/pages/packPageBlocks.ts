@@ -127,8 +127,16 @@ export function buildHighlightsBlocks(
         note('Comparison basis', comparative === null
           ? 'This pack has no comparative period, so no tile shows a movement and none is shown as a move from zero.'
           : `Each movement is measured against ${comparative.label} — the comparative period the basis page states, and the prior column the statement pages print.`),
+        // SHORTENED, AND WHAT WENT WAS THE RESTATEMENT. It read "— the
+        // comparative period carries no value for that measure, or its prior
+        // figure is not a positive base —", which is the Commentary block
+        // three centimetres above this one, verbatim: those two sentences ARE
+        // the captions `tileCaption` writes. The fact this note exists to
+        // disclose is that a blank movement is explained rather than unknown,
+        // and that a movement is never drawn from zero; both survive. It cost
+        // the sheet one line of 9.5pt, which is what sheet 3 was over by.
         ...(comparative === null ? [] : [note('Absent comparatives',
-          'A tile with no movement says why in its own caption — the comparative period carries no value for that measure, or its prior figure is not a positive base. A movement is never shown as a move from zero.')]),
+          'A tile with no movement says why in its own caption above. A movement is never shown as a move from zero.')]),
         // AND THAT THE PERIOD STOPS PART-WAY THROUGH ITS LAST MONTH.
         //
         // Page 3 was the only substantive sheet in the pack with no
@@ -312,6 +320,19 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
     parts.push('Every panel labels the low and high of its own axis, so a share of the range can '
       + 'be checked off the sheet.');
   }
+  // THE TWO REASONS A PANEL IS OFF THE SHARED SCALE, IN ONE SENTENCE, AND
+  // THAT SAVED PAGE 10 A LINE OF 9.5pt.
+  //
+  // They were two sentences — one for the panels with too little range, one
+  // reading "Gross margin and Debtor days are different units and keep their
+  // own" — and on the live demo company, which is the only pack that reaches
+  // BOTH arms, the note ran to five lines and the page was 7.4mm past its
+  // sheet. Each reason is now a parenthesis on the panel it belongs to, so
+  // nothing about which measure is off the scale for which reason is lost,
+  // and the "slopes are not comparable" caution — which only the first arm
+  // used to carry — now covers the ratio panels too, which is the direction
+  // that gains a reader something.
+  const offShared: string[] = [];
   if (panels.ownScale.length > 0) {
     const named = inWords(panels.ownScale.map((p) => `${p.name} (${p.sharePct}%)`));
     // WHAT THE PERCENTAGE IS OF, IN THE SENTENCE THAT MAKES THE CLAIM. The
@@ -329,14 +350,14 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
     // undisclosed denominator. The commentary block above — which the fitter
     // never touches — carries the range, and every panel now prints the ends
     // of its own axis, so the number is on the sheet twice already.
-    parts.push(
-      `${named} are drawn on their OWN scales — each has too little of its own range to register `
-      + 'on the shared one, and says so in its own title. Their slopes are not comparable with the '
-      + 'panels above.',
-    );
+    offShared.push(`${named} (too little range to register on it)`);
   }
   if (panels.ownUnits.length > 0) {
-    parts.push(`${inWords(panels.ownUnits)} are different units and keep their own.`);
+    offShared.push(`${inWords(panels.ownUnits)} (different units)`);
+  }
+  if (offShared.length > 0) {
+    parts.push(`${inWords(offShared)} are on their OWN scales, so their slopes are not comparable `
+      + 'with the panels above.');
   }
   // A pack that draws no panel at all has no scale to describe, and a headed
   // note with an empty body is a heading the page cannot honour.

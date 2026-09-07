@@ -141,8 +141,19 @@ function partialFor(trend: PackTrendPoint[]): string | null {
   return point === null ? null : partialMonthBasisNote(point);
 }
 
+/**
+ * ONE LINE OF THE GLOSSARY'S TWO COLUMNS, AND IT HAS TO BE.
+ *
+ * It read "unavailable — no ledger watermark was supplied for this pack
+ * render" and set at 8.5pt across an 83mm column that is two lines. Page 12
+ * of the live Brightsphere pack composes at 257.0mm in a 255mm box, and the
+ * note the fitter takes to pay for that is the LAST note of the basis block —
+ * this one. The eight basis facts are the reason the page exists
+ * (`packBasisMetadataKept.test.ts` names all eight), so the value says the
+ * same thing in one line instead of buying the paper out of the fact.
+ */
 const LEDGER_VERSION_UNAVAILABLE =
-  'unavailable — no ledger watermark was supplied for this pack render';
+  'unavailable — none supplied for this render';
 
 
 /**

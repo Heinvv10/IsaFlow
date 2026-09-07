@@ -228,44 +228,37 @@ describe('the printed board pack', () => {
     // Task 36's fix report carries the per-character measurements.
     expect(worst, `the model over-estimates a page by ${worst.toFixed(1)}mm`).toBeLessThan(25);
 
-    // ONE PAGE ABRIDGES A REQUIRED DISCLOSURE, AND IT IS NAMED HERE RATHER
-    // THAN EXCUSED IN THE COMPOSER.
+    // NO PAGE ABRIDGES A REQUIRED DISCLOSURE, AND THERE IS NO LONGER A NAMED
+    // EXCEPTION TO THIS.
     //
-    // Until task 36 no fixture reached this lever at all, because the ruler
-    // read every page 8-12% short and page 5 fit on paper it did not have.
-    // With `WIDTH_SAFETY` at 1.12 — above the measured error rather than
-    // inside it — page 5 is over its sheet by 1.2mm on the live demo company
-    // and 6.5mm on Brightsphere, and it has no cheaper lever: its blocks are
-    // the monthly table, two REQUIRED disclosures and the caption, and it
-    // carries no chart to step down a rung. So the trimmer takes the rounding
-    // footnote and then the second note of "Reading this table" — the window
-    // note, which says what period the table covers and which month of it is
-    // a stub.
+    // There was one. With `WIDTH_SAFETY` corrected to 1.12 page 5 came out
+    // over its sheet by 1.2mm on the live demo company and 6.5mm on
+    // Brightsphere, with no cheaper lever — the monthly table, two REQUIRED
+    // disclosures and the caption, and no chart to step down a rung — so the
+    // trimmer took the rounding footnote and then the second note of "Reading
+    // this table", the window note that says what period the table covers and
+    // which month of it is a stub. `ABRIDGED = 'Group results'` was named
+    // here, and asserted to still be happening, so the exception could not
+    // outlive the decision that was pending on it.
     //
-    // That is a decision about what page 5 prints, not about how the pack
-    // measures paper, and it is open: see task 36's fix report. What must NOT
-    // happen meanwhile is a second page joining it silently, so the assertion
-    // stands for every other page and names this one.
-    const ABRIDGED = 'Group results';
-    const abridged: string[] = [];
+    // The decision was taken in task 37: shorten the prose, keep every
+    // disclosure. "The columns" stopped naming the three expense bands twice
+    // and "The window" stopped restating what the sheet's own footer says;
+    // both notes are three lines instead of four, page 5 fits on every
+    // fixture, and the exception is deleted with the comment that explained
+    // it. This is back to what it was before the ruler was corrected: no page
+    // of any fixture may pay for its budget out of a disclosure the pack is
+    // required to make.
     for (const [name, input] of Object.entries(FIXTURES)) {
       for (const page of buildBoardPackPages(input).pages) {
         const said = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
         if (said === undefined) continue;
-        if (!said.text.includes('required to make')) continue;
-        if (page.navLabel === ABRIDGED) { abridged.push(`${name} page ${page.number}`); continue; }
         expect(
           said.text,
           `${name} page ${page.number} paid for the budget out of a required disclosure`,
         ).not.toContain('required to make');
       }
     }
-    // AND THE NAMED ONE IS ASSERTED TO STILL BE HAPPENING, so this exception
-    // cannot outlive the decision that is pending on it. Shorten page 5 and
-    // this goes red, and whoever shortened it deletes the exception.
-    expect(abridged.length, `no fixture abridges "${ABRIDGED}" any more — the page 5 exception `
-      + 'above is stale and should be deleted with the comment that explains it')
-      .toBeGreaterThan(0);
   }, 300_000);
 
   /**

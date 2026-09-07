@@ -285,9 +285,10 @@ describe('the highlights page states its part month', () => {
   // simply absent from `liveDemoTrend` and `brightsphereLiveTrend`, so every
   // "(part)" marker the rendered packs print was invisible to the composer
   // tests, and a note added to sheet 3 could push the live sheet past its box
-  // with the whole suite green. It did — and since task 36 corrected the
-  // ruler, it does: the second test below is Brightsphere's sheet 3 losing
-  // the note, recorded rather than skipped.
+  // with the whole suite green. It did — and when task 36 corrected the
+  // ruler it showed up as Brightsphere's sheet 3 dropping both notes. Task 37
+  // shortened the prose that was costing it the line, so both packs are held
+  // to the same assertion again.
 
   it('the live demo company', () => {
     const page = pageNamed(PACKS[0]![1], 'Highlights');
@@ -300,30 +301,28 @@ describe('the highlights page states its part month', () => {
   });
 
   /**
-   * AND LIVE BRIGHTSPHERE'S SHEET 3 NO LONGER CARRIES EITHER — which is a
-   * measured loss, recorded here rather than quietly dropped.
+   * AND LIVE BRIGHTSPHERE'S SHEET 3 CARRIES BOTH AGAIN.
    *
-   * This sheet composed at 98.7% of its box under a ruler that read the
-   * pack's own prose 7 to 12 per cent short. `WIDTH_SAFETY` is now 1.12,
-   * above the worst string these fixtures print (task 36), and the sheet is
-   * 4.2mm over: the trimmer takes the last two notes of "Reading these
-   * tiles", which are the part-month sentence and the one stating the scale
-   * the tiles are in. The sheet says on its face that it did.
+   * It did not for one round. The sheet composed at 98.7% of its box under a
+   * ruler that read the pack's own prose 7 to 12 per cent short; with
+   * `WIDTH_SAFETY` corrected to 1.12 (task 36) it was 4.2mm over, and the
+   * trimmer took the last two notes of "Reading these tiles" — the part-month
+   * sentence and the one stating the scale the tiles are in. This test was
+   * inverted for that round, asserting the loss so it could not become
+   * permanent by nobody looking.
    *
-   * That is a decision about what sheet 3 prints and it is open — see task
-   * 36's fix report. It is asserted rather than skipped so it cannot become
-   * permanent by nobody looking, and so it goes RED the day sheet 3 is
-   * shortened enough to carry both notes again.
+   * Task 37 paid for the ruler in prose instead: "Absent comparatives" gave
+   * up the clause listing the two reasons a movement is absent, which is the
+   * Commentary block three centimetres above it word for word. One line of
+   * 9.5pt, and the sheet is inside its box on both companies with every note
+   * on it. The assertion is the same as the live demo company's above.
    */
-  it('live Brightsphere states the loss on the sheet, pending the decision', () => {
+  it('live Brightsphere carries both, and takes nothing to do it', () => {
     const page = pageNamed(buildBoardPackPages(brightsphereLiveInput), 'Highlights');
     const said = stringsOn(page).join(' ');
-    expect(said).not.toMatch(/Every tile covers the whole period, whose last month/);
-    expect(said).not.toMatch(/Figures are in R'000/);
-    // The sheet does not lose them silently: it names the disclosure it took
-    // them from, in a footnote a director reads.
-    expect(page.footnotes.map((f) => f.text).join(' '))
-      .toMatch(/Not printed on this page: 2 explanatory notes, from “Reading these tiles”/);
+    expect(said).toMatch(/Every tile covers the whole period, whose last month — \w+ \d+ — is \d+ of its \d+ days/);
+    expect(said).toMatch(/Figures are in R'000/);
+    expect(page.footnotes.filter((f) => /Not printed on this page/.test(f.text))).toEqual([]);
   });
 
   it('says nothing where the period ends on a whole month', () => {

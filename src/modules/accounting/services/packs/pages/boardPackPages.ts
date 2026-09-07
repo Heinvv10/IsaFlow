@@ -244,12 +244,20 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         // 21mm measure cannot carry the definition itself. Revenue and Other
         // income are the two bands of the income side and are the same two the
         // income statement overleaf prints under those names.
-        note('The columns', 'Revenue is turnover; Other income is the band the income statement '
-          + 'reports separately. Cost of sales, Operating and Other are the three bands every '
-          + 'expense of a month falls into: cost of sales, everything else above the operating '
-          + 'line, and everything below it — finance costs, tax and other expenses. The two '
-          + 'income columns less the three expense columns are the month\'s net profit, so each '
-          + 'row adds across.'),
+        // SHORTENED BY ONE LINE, AND WHAT WENT WAS A SECOND NAMING OF THE
+        // SAME THREE BANDS. It read "Cost of sales, Operating and Other are
+        // the three bands every expense of a month falls into: cost of sales,
+        // everything else above the operating line, and everything below it"
+        // — the three column names, then the same three glossed in order, so
+        // "cost of sales" appeared twice in one sentence. Naming each band
+        // once with its gloss attached says the same thing in three lines
+        // instead of four. Every fact stays: what Revenue and Other income
+        // are, what each of the three expense bands contains, and that the
+        // row adds across.
+        note('The columns', 'Revenue is turnover; Other income is what the income statement '
+          + 'reports separately. Expenses fall in three: Cost of sales; Operating, above the '
+          + 'operating line; Other, below it. The two income columns less the three expense '
+          + 'columns are the month\'s net profit, so each row adds across.'),
         // AND WHICH WINDOW THIS IS. The trend runs twelve months to the
         // reporting date and the pack's period is whatever was asked for; the
         // closing row states its own window, and this says why it is not the
@@ -262,9 +270,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         // means, on the sheet the rows are printed on. Appended to the
         // window note rather than given a note of its own: page 5 has the
         // paper for a clause and not for a block.
+        // AND SHORTENED, for the same reason and by the same rule. "The
+        // reporting period is stated in the footer of every sheet" is a fact
+        // the footer of THIS sheet states; the note's job is to say that this
+        // table's window is not that period and where the period's own totals
+        // are. Both survive, in three lines rather than four, which is what
+        // kept the part-month clause on Brightsphere's sheet 5.
         note('The window', `This table covers ${trendWindowLabel(trend)}, which is the series page `
-          + '10 draws. The reporting period is stated in the footer of every sheet, and the income '
-          + 'statement overleaf carries that period\'s own totals against the comparative.'
+          + '10 draws. The income statement overleaf carries the reporting period\'s own totals '
+          + 'against the comparative.'
           + (partialMonthClauseFor(trend) === null ? '' : ` ${partialMonthClauseFor(trend)}`)),
       ]),
     ];

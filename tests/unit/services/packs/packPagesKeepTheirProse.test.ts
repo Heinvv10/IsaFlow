@@ -49,61 +49,37 @@ const FIXTURES: [string, BoardPackInput][] = [
 ];
 
 /**
- * THE SHEETS THAT DO APOLOGISE, SINCE THE RULER WAS CORRECTED — a list, not
- * an exemption.
+ * NO SHEET APOLOGISES, ON ANY FIXTURE, AND THE LIST THAT USED TO SIT HERE IS
+ * DELETED RATHER THAN EMPTIED.
  *
- * Until task 36 this was `[]` for every fixture, and that was true because
- * `packTextMetrics`'s em table reads the pack's own prose 7 to 12 per cent
- * SHORT and `WIDTH_SAFETY` was set at 1.08, inside that error. Pages were
- * fitting on paper they did not have; one live page — Brightsphere's cash
- * sheet — was already budgeted 234.7mm against 238.0mm laid out, and the
- * twelve-sheet guarantee rested on the fixtures rather than on the model.
+ * Task 36 raised `WIDTH_SAFETY` from 1.08 — inside the em table's own 7-12%
+ * error — to 1.12, above the worst of the 344 strings these fixtures print
+ * measured in Chromium in the real face. That was the ruler starting to tell
+ * the truth, and it cost four sheets the paper they had been fitting on: this
+ * table named them per fixture, with an assertion below it that went red the
+ * moment it emptied, because the decision about which sentence goes was the
+ * one still open.
  *
- * `WIDTH_SAFETY` is now 1.12, above the worst of the 344 strings these
- * fixtures print, measured in Chromium in the real face. A factor set above
- * the worst string over-charges the average one by about seven per cent,
- * which tips roughly one line in fifteen — so four pages that were fitting by
- * the model's optimism no longer fit, and hand prose back.
+ * It is paid now, in prose, in task 37 — sheet 3's "Absent comparatives"
+ * dropped the clause that restates the Commentary block above it, sheet 5's
+ * two required notes each lost a second naming of something the same note
+ * already said, sheet 10's Scale and Period notes lost a sentence and a
+ * phrase, page 11's two support notes became one, and page 12's
+ * ledger-unavailable value became one line of its column. Every disclosure
+ * those sheets carried is still on them; what went was words.
  *
- * WHAT THAT COSTS A READER, page by page, is a content decision and it is
- * open: sheet 3 of the live Brightsphere pack loses the note stating the
- * scale its figures are in AND the note saying its last month is a stub;
- * sheet 5 loses the rounding footnote and the window note on six fixtures;
- * sheet 12 loses the colour key; sheet 10 loses one panel note. Task 36's fix
- * report carries the list and the millimetres. None of these pages has a
- * chart rung left to step down — sheet 5 has no chart at all — so the answer
- * is shorter prose on those four sheets, and choosing which sentence goes is
- * not a decision this file may take by leaving the ruler short.
- *
- * IT IS PINNED PER FIXTURE RATHER THAN WAIVED. A page joining this list
- * silently is the regression, and every entry leaving it is the fix.
+ * So the expectation is back to `[]` for every fixture, which is the state
+ * this file asserted before the ruler was corrected and the state it should
+ * be kept in: a sheet joining the list is the regression, and there is no
+ * longer an accepted cost for it to hide in.
  */
-const APOLOGISES: Record<string, string[]> = {
-  'the live demo company as it renders': ['10 Trends'],
-  'the live demo company whose EBITDA bridge rounds': ['10 Trends'],
-  'the live demo company': ['5 Group results'],
-  'the demo company': ['3 Highlights'],
-  Brightsphere: [],
-  'Brightsphere as the live route composed it': [
-    '3 Highlights', '5 Group results', '12 Basis of preparation',
-  ],
-  'cash in the millions': ['5 Group results'],
-};
-
 describe('no sheet apologises for its own layout', () => {
   it.each(FIXTURES)('%s', (name, input) => {
     const doc = buildBoardPackPages(input);
     const apologised = doc.pages
       .filter((p) => p.footnotes.some((f) => f.text.startsWith(OMISSION_MARK)))
       .map((p) => `${p.number} ${p.navLabel}`);
-    expect(apologised, 'a sheet told the board its layout dropped prose').toEqual(APOLOGISES[name] ?? []);
-  });
-
-  // NOT VACUOUS, AND IN THE DIRECTION THAT MATTERS: the table above records a
-  // cost that is meant to be paid off. When the four sheets are shortened it
-  // empties, this goes red, and whoever shortened them deletes it.
-  it('still has sheets to hand back', () => {
-    expect(Object.values(APOLOGISES).flat().length).toBeGreaterThan(0);
+    expect(apologised, 'a sheet told the board its layout dropped prose').toEqual([]);
   });
 
   /**

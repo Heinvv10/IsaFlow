@@ -119,11 +119,18 @@ export function trendWindowNote(panels: PackChartSpec[]): PackDisclosureNote | n
   const debtorDays = panels.some((panel) => panel.id === 'trend-debtor-days')
     ? ' Debtor days also differs in its annualisation, which the basis of preparation defines.'
     : '';
+  // THE FRAME IS SHORTER BY A LINE AND THE LIST IS UNTOUCHED. It read "plots
+  // one MONTH at a time … — <list> — against the comparative period", and on
+  // the live demo company, where all six panels have a counterpart, that ran
+  // to five lines on a sheet 7.4mm past its paper. "at a time" says nothing
+  // the sentence does not, and the comparative is a period by construction —
+  // the basis page names its dates. Every measure and every page it points a
+  // reader at is still here, in the same words.
   return {
     heading: 'Period',
     body:
-      'Each panel plots one MONTH at a time. The same measures print for the WHOLE reporting '
-      + `period — ${inWords(where)} — against the comparative period. Different windows: the two `
+      'Each panel plots one MONTH. The same measures print for the WHOLE reporting period, '
+      + `against the comparative — ${inWords(where)}. Different windows: the two `
       + `will not agree.${debtorDays}`,
   };
 }
