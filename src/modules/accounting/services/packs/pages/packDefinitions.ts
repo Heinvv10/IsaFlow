@@ -29,6 +29,16 @@
  * is not a term with one meaning — receivables over revenue times 365 and
  * receivables over revenue times the days in the month are both called that,
  * and this pack prints both, on two different pages.
+ *
+ * WHICH IS WHY THE DAY COUNT IS STATED. The definitions said "times the days
+ * in the period" while `calculateExtendedRatios` multiplied by 365, so the
+ * one measure a director is most likely to query was the one the pack could
+ * not explain: creditor days of 1 035 on cost of sales of 805 implies trade
+ * payables of 3 401 under the printed definition, against total liabilities
+ * of 2 281. Impossible — and ÷ 365 gives 2 283, which ties. The computation
+ * is the annualised convention every ratio in this repo uses (AFS KPIs, the
+ * scorecard, the ratio trends); it is the prose that was wrong, and the prose
+ * is what moved.
  */
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
@@ -101,15 +111,23 @@ const TERMS: PackDefinition[] = [
   },
   {
     term: 'Debtor days',
-    definition: 'Trade receivables over revenue, times the days in the window — the reporting period on the scorecard and highlights, one month on the trends page. That is why the two differ.',
+    // 365, NOT THE DAYS IN THE PERIOD. `calculateExtendedRatios` multiplies
+    // by 365 and always has; this page said "the days in the window", and
+    // creditor days then could not be reproduced from its own definition —
+    // 1 035 × 805 ÷ 245 implies payables of 3 401 against total liabilities
+    // of 2 281, which is impossible, while ÷ 365 gives 2 283. The figures
+    // were right and the definition was wrong. The trends page IS a
+    // days-in-the-month figure (`packTrendService.debtorDays`), which is why
+    // the two windows are still distinguished here.
+    definition: 'Trade receivables over revenue, times 365 — an annualised figure on the scorecard and highlights, whatever the length of the reporting period. The trends page instead multiplies each month\'s ratio by the days in that month, so the two do not agree.',
   },
   {
     term: 'Creditor days',
-    definition: 'Trade payables over cost of sales, times the days in the period. Not reported where there is no cost of sales.',
+    definition: 'Trade payables over cost of sales, times 365 — annualised, whatever the length of the reporting period. Not reported where there is no cost of sales.',
   },
   {
     term: 'Cash conversion cycle',
-    definition: 'Debtor days plus inventory days, less creditor days. Not reported where no account is classified as inventory.',
+    definition: 'Debtor days plus inventory days, less creditor days — each annualised on 365 days, as above. Not reported where no account is classified as inventory.',
   },
   {
     term: 'Operating cash flow',
