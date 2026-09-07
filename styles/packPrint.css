@@ -11,20 +11,46 @@
   font-display: block; src: url('/fonts/IBMPlexSans-Medium.woff2') format('woff2'); }
 @font-face { font-family: 'IBM Plex Sans'; font-weight: 600; font-style: normal;
   font-display: block; src: url('/fonts/IBMPlexSans-SemiBold.woff2') format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-style: normal;
-  font-display: block; src: url('/fonts/IBMPlexMono-Regular.woff2') format('woff2'); }
-@font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-style: normal;
-  font-display: block; src: url('/fonts/IBMPlexMono-Medium.woff2') format('woff2'); }
-
+/* ONE FACE. IBM PLEX MONO IS NOT LOADED, AND MUST NOT BE.
+ *
+ * Every figure position in the pack — the page-3 tiles at 22pt, every
+ * statement cell, the contents numbers, the matters quantum column and the
+ * scorecard's status words — was set in IBM Plex Mono against IBM Plex Sans
+ * prose. The intent was column alignment and monospace is not how a document
+ * gets it: a humanist sans with `tnum` gives every digit the same advance
+ * while staying the same voice as the sentence beside it. A monospace figure
+ * next to humanist prose reads as a fallback the renderer chose, and a status
+ * column set in it reads as terminal output rather than as a judgement the
+ * company is making.
+ *
+ * `--pack-font-figure` exists so the figure positions say what they are.
+ * There is deliberately no mono variable left to reach for.
+ */
 html.print-mode {
   --pack-font-sans: 'IBM Plex Sans', system-ui, sans-serif;
-  --pack-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --pack-font-figure: var(--pack-font-sans);
 }
 
 html.print-mode body {
   font-family: var(--pack-font-sans);
-  /* Not automatic on a proportional face. A statement column misaligns without it. */
+  /* Not automatic on a proportional face. A statement column misaligns without
+   * it, and since the figures are set in the TEXT face this is what carries
+   * the alignment monospace used to. */
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+/* Every position that holds a FIGURE, restating the two features rather than
+ * inheriting them: `font-variant-numeric` is not inherited through an element
+ * that sets `font-feature-settings` of its own, and these are the cells whose
+ * alignment a reader checks a column with. */
+html.print-mode .pack-kpi-value,
+html.print-mode .pack-stat-value,
+html.print-mode .pack-table td,
+html.print-mode .pack-contents-number,
+html.print-mode .pack-matters td:nth-child(2) {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
 }
 
 /* Chromium's ink-saving default washes out every brand band, KPI tile fill and
@@ -204,7 +230,7 @@ html.print-mode .pack-pages {
  * as `(1` over `546)`. A number split across two lines is a number a reader
  * has to reassemble. `font-size` shrinks to fit the column instead. */
 .pack-kpi-value {
-  font-family: var(--pack-font-mono);
+  font-family: var(--pack-font-figure);
   /* 22pt, not 24. `white-space: nowrap` means a tile's widest figure sets the
    * grid track, and the pack's one negative convention turned `−1348.0%` into
    * `(1348.0%)` — one character wider, and page 3's tile row then ran past the
@@ -236,7 +262,7 @@ html.print-mode .pack-pages {
   border-bottom: 1pt solid var(--pack-ink);
 }
 .pack-table th:first-child, .pack-table td:first-child { text-align: left; }
-.pack-table td { padding: 1.2mm 2mm; text-align: right; font-family: var(--pack-font-mono); white-space: nowrap; }
+.pack-table td { padding: 1.2mm 2mm; text-align: right; font-family: var(--pack-font-figure); white-space: nowrap; }
 /* The label column is the one column that is prose, so it is the only one
  * allowed to wrap — a figure that wraps mid-number is a figure a reader has
  * to reassemble. */
@@ -255,7 +281,7 @@ html.print-mode .pack-pages {
   position: relative;
 }
 /* Task 14 — scorecard table (spec §4.A page 9). Each lettered group is its
- * own `.pack-table`, so the existing table rules (header row, mono figures)
+ * own `.pack-table`, so the existing table rules (header row, tabular figures)
  * apply unchanged; only the group heading and the status/trend cells are new. */
 .pack-scorecard { display: flex; flex-direction: column; gap: 4mm; }
 /* The metric name carries the most words in the row; a fixed share keeps the
@@ -382,7 +408,7 @@ html.print-mode .pack-pages {
 
 .pack-contents-list { list-style: none; margin: 4mm 0 0; padding: 0; font-size: 10pt; line-height: 16pt; }
 .pack-contents-item { display: flex; justify-content: space-between; border-bottom: 0.5pt solid var(--pack-rule); padding: 1mm 0; }
-.pack-contents-number { font-family: var(--pack-font-mono); color: var(--pack-grey-mid); margin-right: 3mm; }
+.pack-contents-number { font-family: var(--pack-font-figure); color: var(--pack-grey-mid); margin-right: 3mm; }
 .pack-contents-title { flex: 1; }
 
 .pack-section-divider {
@@ -393,7 +419,7 @@ html.print-mode .pack-pages {
 
 .pack-stat-tile { display: flex; flex-direction: column; gap: 0.5mm; }
 .pack-stat-label { font-size: 8pt; line-height: 11pt; color: var(--pack-grey-strong); }
-.pack-stat-value { font-family: var(--pack-font-mono); font-size: 13pt; line-height: 16pt; font-weight: 500; white-space: nowrap; }
+.pack-stat-value { font-family: var(--pack-font-figure); font-size: 13pt; line-height: 16pt; font-weight: 500; white-space: nowrap; }
 .pack-stat-value.is-unavailable { font-size: 10pt; font-style: italic; font-weight: 400; color: var(--pack-grey-mid); }
 
 /* Task 18 — the block layer. Every page below the cover is a column of
@@ -472,7 +498,7 @@ html.print-mode .pack-pages {
 
 /* Page 11's matters table. Four of its five columns are prose, so they are
  * left-aligned and proportional — the default `.pack-table td` rule right-
- * aligns in the mono face, which is correct for a figure and unreadable for
+ * aligns and sets its figures tabular, which is correct for a figure column and unreadable for
  * a sentence. Quantum keeps it. */
 /* Four of five columns are prose, so they WRAP — `.pack-table td`'s
  * `white-space: nowrap` is right for a statement's figure columns and would
@@ -480,7 +506,7 @@ html.print-mode .pack-pages {
 .pack-matters td { text-align: left; font-family: var(--pack-font-sans); vertical-align: top; white-space: normal; }
 .pack-matters th { text-align: left; }
 .pack-matters td:nth-child(2), .pack-matters th:nth-child(2) {
-  text-align: right; font-family: var(--pack-font-mono); white-space: nowrap;
+  text-align: right; font-family: var(--pack-font-figure); white-space: nowrap;
 }
 .pack-matters-row td { border-bottom: 0.5pt solid var(--pack-rule); }
 /* The count of matters the sheet had no room for. Set like the table's own

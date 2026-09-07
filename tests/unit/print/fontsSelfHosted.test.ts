@@ -8,7 +8,6 @@ const CSS = readFileSync(join(ROOT, 'styles/packPrint.css'), 'utf8');
 
 const FACES = [
   'IBMPlexSans-Regular.woff2', 'IBMPlexSans-Medium.woff2', 'IBMPlexSans-SemiBold.woff2',
-  'IBMPlexMono-Regular.woff2', 'IBMPlexMono-Medium.woff2',
 ];
 
 describe('self-hosted print fonts', () => {
@@ -32,5 +31,18 @@ describe('self-hosted print fonts', () => {
 
   it('declares tabular figures on the sans face', () => {
     expect(CSS).toMatch(/font-variant-numeric:\s*tabular-nums/);
+    expect(CSS).toMatch(/font-feature-settings:\s*"tnum" 1/);
+  });
+
+  it('loads no monospace face at all', () => {
+    // The pack is ONE typeface. Every figure position — tiles, statement
+    // cells, contents numbers, the matters quantum column, the scorecard's
+    // status words — used to be set in IBM Plex Mono against IBM Plex Sans
+    // prose, which reads as a renderer fallback rather than as a decision.
+    // Alignment comes from `tnum` on the text face instead. A file that
+    // references the face again would also ship two more woff2 payloads into
+    // every PDF.
+    expect(CSS).not.toMatch(/IBMPlexMono/);
+    expect(CSS).not.toMatch(/pack-font-mono/);
   });
 });
