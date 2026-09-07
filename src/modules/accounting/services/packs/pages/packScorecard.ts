@@ -261,19 +261,40 @@ function statusFor(value: number | null, target: number | null, lowerIsBetter: b
  * the thing that knows. It is a prefix rather than a rewrite because the
  * reasons are ordinary sentences a later author will reword, and a rewrite
  * that parses them would silently stop working when one of them changed.
+ *
+ * ONLY WHERE THE CURRENT PERIOD IS NOT SAYING IT TOO, AND THAT IS NOT A
+ * SAVING — IT IS THE RULE. `NotMeaningfulNotes` prints one note per DISTINCT
+ * sentence, so prefixing a sentence the actual column already carries splits
+ * one note into two that say the same thing about the same measure. On
+ * Brightsphere — a company whose revenue is negative in both periods, so most
+ * reasons hold in both — that doubled the note block under the scorecard and
+ * took the page to 264.9mm on a 255mm sheet: `fitPageToBox` refused the whole
+ * pack, and the company could not print a board pack at all. A reason that is
+ * true of both periods needs no period stated, because the unqualified present
+ * tense is not wrong about either; the prefix is for the reason that is true
+ * of the comparative alone, which is the case the defect was about.
  */
 const PRIOR_PERIOD_PREFIX = 'In the comparative period: ';
+
+const DEFAULT_REASON = 'This metric could not be computed from the available figures.';
+
+function reasonOf(read: MetricRead): string {
+  return read.unavailable ?? DEFAULT_REASON;
+}
 
 function recordFigure(
   p: PackFigureProvenance,
   source: string,
   read: MetricRead,
   format: PackFigureFormat,
-  period: 'actual' | 'prior' = 'actual',
+  /** Whether to say which period this reason is about — see
+   *  `PRIOR_PERIOD_PREFIX`. False for every actual cell, and for a prior cell
+   *  whose sentence the actual column already states. */
+  qualifyAsPrior = false,
 ): PackFigure {
   if (read.value !== null) return p.figure(source, read.value, format, undefined, read.basis);
-  const reason = read.unavailable ?? 'This metric could not be computed from the available figures.';
-  const stated = period === 'prior'
+  const reason = reasonOf(read);
+  const stated = qualifyAsPrior
     ? `${PRIOR_PERIOD_PREFIX}${reason.charAt(0).toLowerCase()}${reason.slice(1)}`
     : reason;
   return p.figure(source, null, format, stated);
@@ -286,16 +307,24 @@ function buildRow(
   priorRatios: ExtendedRatioResult | null,
   priorRaw: ReportPackFigures | null,
   p: PackFigureProvenance,
+  actualReasons: ReadonlySet<string>,
 ): PackScorecardRow {
   const actual = recordFigure(p, spec.source, spec.read(ratios, raw), spec.format);
 
   // R-P42: null only when there is no PRIOR PERIOD at all — a prior period
   // whose own ratio isn't meaningful still gets a `PackFigure` with its own
   // reason, on a distinct source so `assertConsistent` never compares them.
-  const prior =
-    priorRatios && priorRaw
-      ? recordFigure(p, `${spec.source}.prior`, spec.read(priorRatios, priorRaw), spec.format, 'prior')
-      : null;
+  let prior: PackFigure | null = null;
+  if (priorRatios && priorRaw) {
+    const read = spec.read(priorRatios, priorRaw);
+    prior = recordFigure(
+      p,
+      `${spec.source}.prior`,
+      read,
+      spec.format,
+      read.value === null && !actualReasons.has(reasonOf(read)),
+    );
+  }
 
   const target = targetFor(spec);
   return {
@@ -316,9 +345,20 @@ export function buildScorecardGroups(set: PackFigureSet, p: PackFigureProvenance
   const ratios = calculateExtendedRatios(toFinancialData(set.current));
   const priorRatios = set.prior ? calculateExtendedRatios(toFinancialData(set.prior)) : null;
 
+  // Every sentence the ACTUAL column states, gathered before any prior cell is
+  // written: a prior reason that repeats one of these is left unqualified so
+  // the table carries one note rather than two.
+  const actualReasons = new Set(
+    GROUPS.flatMap((group) => group.metrics)
+      .map((spec) => spec.read(ratios, set.current))
+      .filter((read) => read.value === null)
+      .map(reasonOf),
+  );
+
   return GROUPS.map((group) => ({
     letter: group.letter,
     name: group.name,
-    rows: group.metrics.map((spec) => buildRow(spec, ratios, set.current, priorRatios, set.prior, p)),
+    rows: group.metrics.map((spec) =>
+      buildRow(spec, ratios, set.current, priorRatios, set.prior, p, actualReasons)),
   }));
 }

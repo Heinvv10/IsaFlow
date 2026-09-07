@@ -287,6 +287,50 @@ export const brightsphereInput: BoardPackInput = {
 };
 
 /**
+ * BRIGHTSPHERE AS THE LIVE TENANT ACTUALLY IS: WITH A COMPARATIVE PERIOD.
+ *
+ * `brightsphereInput` above carries `prior: null`, which is why it could not
+ * reach the failure. The live company has a prior period and it is negative in
+ * the same places the current one is — so every scorecard metric that cannot
+ * be computed cannot be computed TWICE, once per column. When each prior
+ * reason was qualified with "In the comparative period: " unconditionally,
+ * that turned seven notes into fourteen, took the scorecard from 249.2mm to
+ * 264.9mm on a 255mm sheet, and `fitPageToBox` refused the whole pack: the
+ * company could not print a board pack at all.
+ *
+ * The figures are the dev tenant's own, read back from
+ * `buildPackFigureSet(d27bac33…, 2026-01-01, 2026-09-07)`.
+ */
+export const brightspherePriorSet: PackFigureSet = {
+  ...brightsphereSet,
+  prior: figures({
+    companyName: 'Brightsphere (Pty) Ltd',
+    revenue: -2_100_000,
+    costOfSales: 0,
+    operatingExpenses: -1_400_000,
+    operatingProfit: -700_000,
+    netProfit: -700_000,
+    totalAssets: 180_000,
+    totalLiabilities: 420_000,
+    totalEquity: -240_000,
+    currentAssets: 90_000,
+    currentLiabilities: 350_000,
+    cash: 9_000,
+    accountsReceivable: 55_000,
+    accountsPayable: 190_000,
+    inventory: 0,
+    operatingCashFlow: 0,
+    inventoryCaveat: 'No inventory accounts are classified, so a quick ratio has not excluded any.',
+    classificationCaveat: null,
+  }),
+};
+
+export const brightspherePriorInput: BoardPackInput = {
+  ...brightsphereInput,
+  set: brightspherePriorSet,
+};
+
+/**
  * THE PACK THE FIRST RENDERED PROOF ACTUALLY PRINTED — the shape that turned
  * twelve model pages into nineteen sheets of paper.
  *

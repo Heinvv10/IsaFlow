@@ -184,3 +184,63 @@ describe('buildScorecardGroups', () => {
     expect(ccc?.actual.value).not.toBeNull();
   });
 });
+
+/**
+ * A REASON QUALIFIED BY ITS PERIOD, AND THE PAGE THAT COULD NOT FIT TWO OF IT.
+ *
+ * `PRIOR_PERIOD_PREFIX` exists because a reason computed for the comparative
+ * column printed in the unqualified present tense under a current-period
+ * figure. Prefixing every prior reason fixed that and created a second one:
+ * `NotMeaningfulNotes` prints one note per DISTINCT sentence, so a reason true
+ * of both periods became two notes saying the same thing. Brightsphere — whose
+ * revenue is negative in both periods — grew its scorecard to 264.9mm on a
+ * 255mm sheet and `fitPageToBox` refused the entire pack.
+ */
+describe('a not-meaningful reason and the period it is about', () => {
+  const bothPeriodsNegative: PackFigureSet = {
+    current: figures({ revenue: -100_000, costOfSales: 0, operatingCashFlow: 0 }),
+    currentWindow: { start: '2026-01-01', end: '2026-01-31' },
+    prior: figures({ revenue: -80_000, costOfSales: 0, operatingCashFlow: 0 }),
+    priorWindow: { start: '2025-01-01', end: '2025-01-31' },
+    budget: null,
+  };
+
+  const priorOnly: PackFigureSet = {
+    current: figures({}),
+    currentWindow: { start: '2026-01-01', end: '2026-01-31' },
+    prior: figures({ revenue: -80_000 }),
+    priorWindow: { start: '2025-01-01', end: '2025-01-31' },
+    budget: null,
+  };
+
+  function reasons(set: PackFigureSet): string[] {
+    const groups = buildScorecardGroups(set, new PackFigureProvenance());
+    const figuresOnPage = groups.flatMap((g) => g.rows.flatMap((r) => [r.actual, r.prior]));
+    return [...new Set(
+      figuresOnPage
+        .filter((f): f is NonNullable<typeof f> => f !== null && f.value === null)
+        .map((f) => f.unavailable ?? ''),
+    )];
+  }
+
+  it('states a reason once when it is true of both periods', () => {
+    const stated = reasons(bothPeriodsNegative);
+    // The sentence is in the present tense and both periods are in it, so
+    // nothing needs qualifying — and the page carries one note, not two.
+    expect(stated.filter((r) => r.startsWith('In the comparative period'))).toEqual([]);
+    expect(new Set(stated).size).toBe(stated.length);
+  });
+
+  it('still says which period a reason that is only true of the comparative is about', () => {
+    const stated = reasons(priorOnly);
+    const qualified = stated.filter((r) => r.startsWith('In the comparative period'));
+
+    // The defect the prefix was added for: revenue is positive NOW, so a bare
+    // "Revenue is not positive…" under this page would be false of the column
+    // the reader is looking at.
+    expect(qualified.length).toBeGreaterThan(0);
+    for (const reason of qualified) {
+      expect(stated).not.toContain(reason.slice('In the comparative period: '.length));
+    }
+  });
+});

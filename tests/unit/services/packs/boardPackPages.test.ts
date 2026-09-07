@@ -29,8 +29,10 @@ import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis'
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { TRENDS_PANELS_SPECIFIED } from '@/modules/accounting/services/packs/pages/packPageCharts';
+import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import {
   brightsphereInput,
+  brightspherePriorInput,
   brightsphereSet,
   demoInput,
   demoSet,
@@ -573,5 +575,30 @@ describe('buildBoardPackPages', () => {
     const doc2 = buildBoardPackPages(brightsphereInput);
     expect(() => doc2.provenance.assertConsistent()).not.toThrow();
     expect([...doc2.provenance.all().keys()].length).toBeGreaterThan(30);
+  });
+});
+
+/**
+ * THE COMPANY THAT COULD NOT PRINT A BOARD PACK AT ALL.
+ *
+ * Brightsphere's live pack composed twelve sheets, then stopped composing
+ * anything: `fitPageToBox` refused its scorecard at 264.9mm on a 255mm sheet
+ * and the download returned 422. The refusal was right — the page really did
+ * not fit — and what did not fit was seven not-meaningful notes printed twice,
+ * once plainly for the current period and once again prefixed "In the
+ * comparative period: " for a comparative in which the same sentence is just
+ * as true. See `packScorecard.ts`.
+ */
+describe('Brightsphere, with the comparative period the live tenant has', () => {
+  it('composes its twelve pages', () => {
+    expect(() => buildBoardPackPages(brightspherePriorInput)).not.toThrow();
+  });
+
+  it('fits its scorecard on one sheet, with room to spare', () => {
+    const scorecard = buildBoardPackPages(brightspherePriorInput)
+      .pages.find((page) => page.navLabel === 'Scorecard');
+
+    expect(scorecard).toBeDefined();
+    expect(pageMm(scorecard!)).toBeLessThan(pageBoxMm(scorecard!));
   });
 });
