@@ -1,6 +1,14 @@
 /**
  * The brand tokens a printed pack renders with.
  *
+ * PURE, AND IT HAS TO STAY THAT WAY: `PackPagesView.tsx` imports
+ * `packBrandStyleBlock` from here, so everything this module imports is in the
+ * BROWSER bundle. The render-time SSRF re-check of `logoUrl` needs
+ * `node:dns`, so it lives in `packBrandForRender.ts` — importing `safeFetch`
+ * here broke the print page with `UnhandledSchemeError: Reading from
+ * "node:dns/promises"`, which every unit test was green over and only loading
+ * the page showed.
+ *
  * Two things this file exists to stop. First, a company with no brand_profiles
  * row printing an unstyled pack — it gets the neutral default instead. Second,
  * a legacy row written before the contrast gate (Task 4) reproducing an
@@ -8,8 +16,6 @@
  * the stored value.
  */
 import type { BrandProfile } from '@/modules/accounting/services/afs/afsTypes';
-import { checkPublicUrl } from '@/lib/safeFetch';
-import { log } from '@/lib/logger';
 import {
   DARK_INK, MIN_TEXT_CONTRAST, NEUTRAL_BRAND_PRIMARY, contrastRatio, isUsableBrandPrimary,
 } from '@/lib/brand/contrast';
@@ -59,37 +65,4 @@ export function packBrandStyleBlock(brand: PackBrand): string {
     `  --pack-brand-secondary: ${brand.secondaryColour};\n` +
     `  --pack-brand-ink: ${brand.primaryInk};\n` +
     `}`;
-}
-
-/**
- * THE LOGO, RE-CHECKED AT RENDER TIME — the same policy as `safePrimary`
- * above, applied to the one tenant-controlled URL the pack puts on the page.
- *
- * `brand-profile.ts` runs `checkPublicUrl` on the way IN, which is a
- * point-in-time DNS decision: a host that resolves publicly when the profile
- * is saved and privately when the pack is rendered is fetched by the headless
- * browser as `<img src>` on the cover. Under Gotenberg the container's
- * `--chromium-allow-list` is the outer bound; under the Playwright transport
- * (`PDF_TRANSPORT=playwright`, the documented incident fallback) there is no
- * equivalent, and its own request interceptor is scoped to the API paths the
- * print page fetches — it does not see image loads at all.
- *
- * SUBSTITUTE, DO NOT REFUSE. A logo that no longer resolves publicly is
- * dropped and the pack prints without it, exactly as an unreadable brand
- * colour is replaced rather than throwing: at render time there is no UI to
- * warn against, and a board pack that will not render is worse than one with
- * no logo on its cover. The reason is logged.
- *
- * Async, and therefore separate from `resolvePackBrand` rather than folded
- * into it: the resolver is pure and is called from tests and from any surface
- * that only wants the colours. Everything that hands a brand to the RENDERER
- * goes through this.
- */
-export async function resolvePackBrandForRender(profile: BrandProfile | null): Promise<PackBrand> {
-  const brand = resolvePackBrand(profile);
-  if (brand.logoUrl === null) return brand;
-  const reason = await checkPublicUrl(brand.logoUrl);
-  if (reason === null) return brand;
-  log.warn('Pack logo dropped: its URL is not a public target at render time', { reason }, 'packs');
-  return { ...brand, logoUrl: null };
 }

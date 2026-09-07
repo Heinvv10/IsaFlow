@@ -26,7 +26,7 @@ import {
   getLedgerPostedThrough,
   NO_LEDGER_READ,
 } from '@/modules/accounting/services/reports/postedThroughService';
-import { resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrand';
+import { resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrandForRender';
 import { buildPackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
 import { buildMatters } from './packMatters';

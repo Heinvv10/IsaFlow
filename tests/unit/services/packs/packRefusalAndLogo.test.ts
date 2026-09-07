@@ -31,10 +31,8 @@ import {
   packRefusalMessages,
   UNEXPLAINED_FAILURE,
 } from '@/modules/accounting/services/packs/packRefusal';
-import {
-  resolvePackBrand,
-  resolvePackBrandForRender,
-} from '@/modules/accounting/services/packs/packBrand';
+import { resolvePackBrand } from '@/modules/accounting/services/packs/packBrand';
+import { resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrandForRender';
 import type { BrandProfile } from '@/modules/accounting/services/afs/afsTypes';
 
 describe('what a failed pack render is allowed to tell its caller', () => {
