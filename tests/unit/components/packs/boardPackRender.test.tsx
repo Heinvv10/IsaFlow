@@ -68,10 +68,15 @@ describe('board pack, rendered', () => {
     }
   });
 
-  it('draws the one landscape page as a named page and leaves the other eleven portrait', () => {
+  it('turns no sheet sideways — every page is portrait', () => {
+    // Page 10 was the one landscape sheet, for six trend panels three across.
+    // Printed and bound it was the sheet a director had to turn. The panels
+    // are two across at 83mm now, which fits the portrait measure and gives
+    // each panel 48mm rather than 36. The renderer's landscape path is still
+    // live and still tested — `packPagesView.test.tsx` builds a landscape
+    // page and asserts the attribute; no page in the board pack asks for it.
     const { container } = render(<PackPagesView document={demoDoc()} />);
-    expect(container.querySelectorAll('[data-print-landscape]')).toHaveLength(1);
-    expect(container.querySelector('#pack-page-10')?.hasAttribute('data-print-landscape')).toBe(true);
+    expect(container.querySelectorAll('[data-print-landscape]')).toHaveLength(0);
   });
 });
 

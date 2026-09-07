@@ -247,10 +247,13 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         note('Not meaningful', 'A metric shown as not meaningful states its own reason — an unreportable ratio is never printed as a number.'),
       ]),
     ], 'portrait', periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1)),
-    // The one landscape page in the pack, per spec §4.A page 10 and R5: the
-    // orientation is a PAGE-level property the print CSS keys off, never a
-    // document-level flag, which would turn the whole pack sideways.
-    page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Trends', 'Performance', 'high', trendBlocks, 'landscape'),
+    // PORTRAIT, like the other eleven. This was the one landscape sheet in
+    // the pack — six panels three across needed the width — and printed and
+    // bound it was the sheet a director had to turn. Two across at 83mm fits
+    // the portrait measure, and the 255mm box gives each panel 48mm instead
+    // of 36. Orientation stays a PAGE-level property (R5): the capability is
+    // unchanged, no page asks for it.
+    page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Trends', 'Performance', 'high', trendBlocks),
     page(mattersHeadline, MATTERS_NAV_LABEL, 'Governance', 'medium', [
       // Spec §4.A page 11 asks for a TABLE — issue, quantum, owner, movement,
       // decision required. Prose notes carried the same five facts but a

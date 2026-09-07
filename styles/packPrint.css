@@ -459,11 +459,14 @@ html.print-mode .pack-pages {
 .pack-chart-title { font-size: 10pt; line-height: 14pt; font-weight: 500; margin-bottom: 1.5mm; }
 .pack-chart-svg { flex: 1; min-height: 0; }
 .pack-chart-svg svg { display: block; width: 100%; height: 100%; }
-/* Spec §4.A page 10: six panels, shared y-scale within a row, so the row
- * count is fixed at three across and the panels pair off vertically. */
+/* Spec §4.A page 10: six panels on a PORTRAIT sheet, two across and three
+ * down. Three across was what the landscape sheet needed; two gives each
+ * panel 83mm — a millimetre off the old measure — and lets the row height go
+ * from 36mm to 48mm, which is what three of the six panels needed to show
+ * any movement at all. */
 .pack-small-multiples {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--pack-gutter);
 }
 

@@ -68,7 +68,8 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
     case 'chart':
       return block.chart.heightMm;
     case 'smallMultiples': {
-      const rows = Math.ceil(block.panels.length / 3);
+      // Two across (`repeat(2, 1fr)`), since the trends page became portrait.
+      const rows = Math.ceil(block.panels.length / 2);
       const panel = Math.max(0, ...block.panels.map((p) => p.heightMm));
       return rows * panel + Math.max(0, rows - 1) * GUTTER_MM;
     }

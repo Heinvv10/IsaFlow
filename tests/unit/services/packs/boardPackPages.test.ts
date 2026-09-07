@@ -153,9 +153,12 @@ describe('buildBoardPackPages', () => {
     expect(block?.kind === 'narrative' && block.narrative.status).toBe('pending');
   });
 
-  it('renders the trends page landscape and every other page portrait', () => {
-    expect(doc.pages.find((p) => p.number === 10)?.orientation).toBe('landscape');
-    expect(doc.pages.filter((p) => p.orientation === 'landscape')).toHaveLength(1);
+  it('turns no sheet sideways — twelve portrait pages', () => {
+    // The trends page was the one landscape sheet, for six panels three
+    // across. Two across at 83mm fits the portrait measure, and the taller
+    // box is what three of its panels needed to show any movement.
+    expect(doc.pages.filter((p) => p.orientation === 'landscape')).toHaveLength(0);
+    expect(doc.pages.every((p) => p.orientation === 'portrait')).toBe(true);
   });
 
   it('shows a comparative on every KPI and every statement row that has one', () => {
@@ -334,22 +337,18 @@ describe('buildBoardPackPages', () => {
     expect(prose.some((text) => /not explained/i.test(text))).toBe(true);
   });
 
-  it('draws the trends page as LINE panels short enough for a landscape sheet', () => {
+  it('draws the trends page as LINE panels on spec §5.6\'s inline rung', () => {
     const panels = doc.pages.find((p) => p.number === 10)!.blocks
       .flatMap((b) => (b.kind === 'smallMultiples' ? b.panels : []));
     expect(panels.length).toBeGreaterThan(0);
     expect(panels.every((p) => p.kind === 'line')).toBe(true);
-    // Six panels draw three across, so the page carries two rows of them
-    // inside a LANDSCAPE content box 168mm tall — at 72mm a row the panels
-    // alone came to 164mm, and at the 48mm inline rung two rows came to
-    // 104mm, which still spilled once the page titles became visible on
-    // paper and for any company whose trend draws fewer than six panels (a
-    // disclosure says why, and costs another 21mm). 36mm is deliberately
-    // BELOW spec §5.6's rungs: those were set against a 255mm portrait box
-    // and this is the one page printed into a 168mm one. The sheet count in
+    // 36mm, two thirds of a rung, was what six panels three across cost on a
+    // landscape sheet whose content box is 168mm rather than 255. Portrait
+    // and two across, three rows of 48mm plus their gutters come to 160mm in
+    // a 255mm box — so the panels sit on a rung like every other chart in the
+    // pack, and gain a third more height to draw in. The sheet count in
     // tests/unit/print/packSheetCount.test.ts is what actually holds this.
-    expect(panels.every((p) => p.heightMm === 36)).toBe(true);
-    expect(panels.every((p) => p.heightMm < CHART_HEIGHT_MM.inline)).toBe(true);
+    expect(panels.every((p) => p.heightMm === CHART_HEIGHT_MM.inline)).toBe(true);
   });
 
   function disclosureHeadings(page: (typeof doc)['pages'][number]): string[] {

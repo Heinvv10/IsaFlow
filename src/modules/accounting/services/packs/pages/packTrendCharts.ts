@@ -25,24 +25,26 @@ import {
 import type { PackChartSpec } from './packPageModel';
 
 /**
- * A page-10 panel: 82mm wide, 36mm tall.
+ * A page-10 panel: 83mm wide, 48mm tall, TWO ACROSS ON A PORTRAIT SHEET.
  *
- * Six panels are drawn three across, so the page carries two rows of them —
- * plus a title, a caption and two disclosures — inside a LANDSCAPE content
- * box that is 168mm tall, not 255mm. At 72mm a row the panels alone came to
- * 164mm and the page printed on two landscape sheets; at the 48mm inline
- * rung two rows are 104mm, and the page still printed on two sheets for any
- * company whose page title wraps to three lines or whose trend draws fewer
- * than six panels (which adds a disclosure saying why).
+ * It was 82 x 36, three across, on the one landscape sheet in a
+ * twelve-sheet portrait pack. Landscape was chosen to fit six panels in two
+ * rows, and it cost more than it bought: printed and bound, one sheet in
+ * twelve turns sideways, and a 168mm content box left the page the tightest
+ * in the pack — 0.9mm of slack on Brightsphere, which is what made its
+ * disclosures the first prose the fitter took.
  *
- * 36mm is BELOW spec §5.6's 48/72/110 rungs, deliberately: those rungs were
- * chosen against a 255mm portrait box, and this is the one page in the pack
- * printed into a 168mm one. Two rows plus their gutter is 80mm, which leaves
- * the title, caption and both disclosures room on the widest title any
- * fixture produces. `CHART_HEIGHT_MM` is left alone — every portrait chart
- * still sits on the rungs.
+ * Two across is 83mm a panel — within a millimetre of the old measure — and
+ * three rows of 48mm plus their gutters come to 160mm in a 255mm box. The
+ * page gains a third more panel height, which is the other half of what the
+ * trends page needed (three of its panels were drawing one to two pixels of
+ * excursion), and the pack stops having a sheet that reads sideways.
+ *
+ * 48mm is spec §5.6's inline rung, which the portrait pages are all set on.
+ * The 36mm the landscape sheet used sat below every rung, deliberately,
+ * because that page was printed into a box two thirds the height.
  */
-const PANEL = { widthMm: 82, heightMm: 36 };
+const PANEL = { widthMm: 83, heightMm: 48 };
 
 /**
  * Page 10 — the small multiples.

@@ -608,46 +608,32 @@ describe('the printed board pack', () => {
     }
   }, 300_000);
 
-  it('sets the landscape page across the whole landscape sheet', async () => {
-    // The trends page was laid out at 210mm on 261mm of paper, and the sheet
-    // count could not see it: `PackPagesView`'s wrapper carries
-    // `max-w-[210mm]`, which is right on screen and wrong on paper, where the
-    // sheet already IS the measure. Fifty-one millimetres of white down the
-    // right edge, and — because a page's height is a function of its width —
-    // 10 to 14mm of extra height, which is what put the live Brightsphere
-    // pack on a thirteenth sheet while this harness reported twelve off the
-    // same document.
-    //
-    // Asserted on the LAID-OUT page rather than by reading the stylesheet: a
-    // test that greps CSS for `max-width: none` passes on a comment. The
-    // harness restates the wrapper's own utility (see `WRAPPER_UTILITIES`) so
-    // this measures the same cascade the application resolves, and deleting
-    // `html.print-mode .pack-pages { max-width: none }` puts it back at 210.
+  /**
+   * THE PACK IS TWELVE PORTRAIT SHEETS.
+   *
+   * Page 10 was the one landscape sheet, because six panels three across
+   * needed the width. Printed and bound it was the sheet a director had to
+   * turn, and a 168mm content box left it the tightest page in the pack —
+   * 0.9mm of slack on Brightsphere, which is why its disclosures were the
+   * first prose the fitter took. Two panels across at 83mm fit the portrait
+   * measure and the 255mm box gives each panel 48mm instead of 36.
+   *
+   * The landscape PATH is still live — `PackPage.orientation`, the print
+   * CSS's `[data-print-landscape]` rules, this harness's own landscape
+   * measurement, and `html.print-mode .pack-pages { max-width: none }`, which
+   * is what stopped a 261mm sheet being laid out at 210. No page asks for it
+   * today; `packPagesView.test.tsx` holds the attribute end of it.
+   */
+  it('turns no sheet sideways, and prints the trends page on one of them', async () => {
     const document = buildBoardPackPages(demoInput);
-    expect(document.pages.some((p) => p.orientation === 'landscape')).toBe(true);
+    expect(document.pages.filter((p) => p.orientation === 'landscape')).toHaveLength(0);
 
     const printed = await printBoardPack(document, browser);
-    expect(printed.landscapeWidthMm, 'no landscape page was laid out').not.toBeNull();
-    expect(
-      printed.landscapeWidthMm!,
-      `the landscape page is set across ${printed.landscapeWidthMm}mm of a 261mm sheet`,
-    ).toBeGreaterThan(255);
-  }, 120_000);
-
-  it('prints the landscape page on ONE landscape sheet', async () => {
-    // `.pack-page`'s min-height is 255mm — the PORTRAIT box. A landscape
-    // sheet's box is 168mm, so page 10 was 87mm taller than the paper it was
-    // printed on and spilled onto a second, blank, landscape sheet on every
-    // pack ever rendered. The blank sheet was the min-height, not content.
-    const document = buildBoardPackPages(demoInput);
-    const landscape = document.pages.filter((p) => p.orientation === 'landscape');
-    expect(landscape).toHaveLength(1);
-
+    expect(printed.landscapeWidthMm, 'a page was laid out landscape').toBeNull();
     // Probed by a phrase only that page carries, not by its title: PDF text
     // extraction breaks words apart ("ACTU AL"), so no long probe survives —
     // and the contents page lists short nav labels, which a short probe would
     // match a second time.
-    const printed = await printBoardPack(document, browser);
     const sheets = printed.sheetText.filter((t) => t.replace(/\s+/g, ' ').includes('Reading these panels'));
     expect(sheets.length, 'the trends page spans more than one sheet').toBe(1);
   }, 120_000);
