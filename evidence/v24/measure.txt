@@ -1,0 +1,26 @@
+===== demo =====
+p-01 Cover                        39.05/255 = 15.3%
+p-02 Contents                     164.51/255 = 64.5%
+p-03 Highlights                   247.91/255 = 97.2%
+p-04 Commentary and actions       169.14/255 = 66.3%
+p-05 Group results                245.94/255 = 96.4%
+p-06 Income statement             225.59/255 = 88.5%
+p-07 Balance sheet                245.31/255 = 96.2%
+p-08 Cash                         234.74/255 = 92.1%
+p-09 Scorecard                    253.29/255 = 99.3%
+p-10 Trends                       253.18/255 = 99.3%
+p-11 Matters for the board        253.18/255 = 99.3%
+p-12 Basis of preparation         242.29/255 = 95.0%
+===== brightsphere =====
+p-01 Cover                        34.11/255 = 13.4%
+p-02 Contents                     164.51/255 = 64.5%
+p-03 Highlights                   254.26/255 = 99.7%
+p-04 Commentary and actions       169.14/255 = 66.3%
+p-05 Group results                251.23/255 = 98.5%
+p-06 Income statement             244.28/255 = 95.8%
+p-07 Balance sheet                252.27/255 = 98.9%
+p-08 Cash                         234.74/255 = 92.1%
+p-09 Scorecard                    247.40/255 = 97.0%
+p-10 Trends                       200.16/255 = 78.5%
+p-11 Matters for the board        241.10/255 = 94.6%
+p-12 Basis of preparation         244.36/255 = 95.8%
