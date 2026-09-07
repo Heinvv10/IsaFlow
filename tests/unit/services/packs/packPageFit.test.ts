@@ -55,6 +55,57 @@ describe('a page the composer cannot fit', () => {
     expect(required?.kind === 'disclosure' && required.disclosure.notes).toHaveLength(1);
   });
 
+  /**
+   * A FOOTNOTE THAT EXPLAINS A PRINTED FIGURE IS NOT PROSE THE PAGE MAY
+   * ECONOMISE ON.
+   *
+   * The trimmer popped footnotes last-first, and on the live Brightsphere
+   * income statement the last one was the sign-flip note — the only thing on
+   * the sheet reconciling the table's `(3 717)` with the `3 717` the bridge
+   * below it draws. It went, and the sheet printed a chart apparently
+   * contradicting the table beside it.
+   */
+  it('never takes a footnote that explains a figure while an ordinary one remains', () => {
+    // Six footnotes, the LAST of which explains a figure, on a page whose
+    // only other lever is a disclosure the pack must make — so the trimmer is
+    // past optional prose and into footnotes before it stops.
+    const subject = page([disclosure('Negative equity', 17, true)], 6);
+    // Distinct texts, so "which footnote survived" is answerable at all.
+    subject.footnotes.forEach((f, i) => { f.text = `Footnote ${i}. ${SENTENCE}`; });
+    // LAST, which is where Brightsphere's sign-flip note sat and why
+    // `footnotes.pop()` reached it first.
+    subject.footnotes[5]!.required = true;
+    const marks = subject.footnotes.map((f) => f.text);
+    expect(pageMm(subject)).toBeGreaterThan(pageBoxMm(subject));
+
+    const { page: fitted, dropped } = fitPageReport(subject);
+    expect(dropped.footnotes).toBeGreaterThan(0);
+    expect(
+      fitted.footnotes.map((f) => f.text),
+      'the trimmer took the note that explains a figure',
+    ).toContain(marks[5]!);
+    // And what it took instead came off the END: the ordinary footnotes that
+    // survive are a prefix of the ordinary footnotes it started with, so the
+    // order is still last-first past the ones it may not take.
+    const ordinary = fitted.footnotes
+      .filter((f) => f.required !== true && !f.text.startsWith(OMISSION_MARK))
+      .map((f) => f.text);
+    const started = marks.filter((m) => m !== marks[5]);
+    expect(ordinary).toEqual(started.slice(0, ordinary.length));
+  });
+
+  it('abridges a required disclosure rather than take the last figure footnote', () => {
+    const subject = page([disclosure('Negative equity', 40, true)], 1);
+    subject.footnotes[0]!.required = true;
+    const mark = subject.footnotes[0]!.text;
+
+    const { page: fitted, dropped } = fitPageReport(subject);
+    expect(fitted.footnotes.map((f) => f.text)).toContain(mark);
+    expect(dropped.footnotes).toBe(0);
+    expect(dropped.requiredNotes).toBeGreaterThan(0);
+    expect(pageMm(fitted)).toBeLessThanOrEqual(pageBoxMm(fitted));
+  });
+
   it('says on the page when it had to abridge a disclosure the pack must make', () => {
     // Nothing optional to take, so the only lever left is the tail of a
     // required block — which it may pull, and must then own.

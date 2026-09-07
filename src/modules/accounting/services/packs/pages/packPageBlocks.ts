@@ -425,6 +425,11 @@ export function bridgeSignFootnote(
     if (step === 0 || Math.sign(step) === Math.sign(cell)) continue;
     return [{
       number,
+      // REQUIRED — see `PackFootnote.required`. This is the only thing on the
+      // sheet that reconciles a table cell with the bar drawn from it, and on
+      // Brightsphere the fitter took it, leaving a chart that appears to state
+      // the opposite sign to the table beside it.
+      required: true as const,
       text:
         `The table states each line as the ledger carries it; the bridge below draws each line by `
         + `its EFFECT on net profit. ${bar.label} of ${formatMoney(cell, { scale })} in the table is `

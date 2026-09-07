@@ -207,6 +207,12 @@ function lastTrimmableNote(blocks: PackPageBlock[], level: 'optional' | 'require
   return null;
 }
 
+/** The last index matching `keep`, or null. */
+function lastIndex<T>(items: T[], keep: (item: T) => boolean): number | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) if (keep(items[i]!)) return i;
+  return null;
+}
+
 /** Drop the last note of block `index`, removing the block if that empties it. */
 function dropNote(blocks: PackPageBlock[], index: number, dropped: Dropped): void {
   const block = blocks[index]!;
@@ -260,7 +266,12 @@ export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dro
   while (over()) {
     const optional = lastTrimmableNote(blocks, 'optional');
     if (optional !== null) { dropNote(blocks, optional, dropped); dropped.notes += 1; continue; }
-    if (footnotes.length > 0) { footnotes.pop(); dropped.footnotes += 1; continue; }
+    // LAST-FIRST, PAST THE ONES THAT EXPLAIN A FIGURE. `footnotes.pop()` took
+    // whatever was last, and on Brightsphere's income statement that was the
+    // note reconciling the table's (3 717) with the bridge's 3 717 — see
+    // `PackFootnote.required`.
+    const trimmable = lastIndex(footnotes, (f) => f.required !== true);
+    if (trimmable !== null) { footnotes.splice(trimmable, 1); dropped.footnotes += 1; continue; }
     const required = lastTrimmableNote(blocks, 'required');
     if (required !== null) { dropNote(blocks, required, dropped); dropped.requiredNotes += 1; continue; }
     break;

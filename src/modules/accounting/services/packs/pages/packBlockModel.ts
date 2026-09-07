@@ -23,6 +23,22 @@ import type { PackMatter } from './packMatters';
 export interface PackFootnote {
   number: number;
   text: string;
+  /**
+   * A footnote `fitPageToBox` may not take.
+   *
+   * Same distinction `PackDisclosure.required` draws, for the same reason.
+   * The fitter pops footnotes last-first, and on the live Brightsphere income
+   * statement the last two were the prior-column basis and the SIGN-FLIP note
+   * — the one that explains why the table states operating expenses as
+   * (3 717) while the bridge below it draws `3 717`. Without it the page
+   * shows a chart apparently contradicting the table on the same sheet, with
+   * nothing offered to reconcile them; the page fitted and said "Not printed
+   * on this page: 2 footnotes", which is not an answer a director has.
+   *
+   * Marked on the notes that explain a printed FIGURE rather than the ones
+   * that qualify the page, so the fitter still has levers.
+   */
+  required?: true;
 }
 
 /** A movement beside a figure. The basis is mandatory — "up 12% against
