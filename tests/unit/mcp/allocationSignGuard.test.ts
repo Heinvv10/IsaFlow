@@ -82,12 +82,21 @@ describe('signMismatchReason', () => {
     expect(signMismatchReason('customer', 500)).toBeNull();
   });
 
-  // A zero line contradicts no direction. What is wrong with it — nothing to
-  // settle — belongs to skipReasonForInvoice, which measures it against the
-  // outstanding balance. One rule, one owner.
-  it('says nothing about a zero line', () => {
-    expect(signMismatchReason('supplier', 0)).toBeNull();
-    expect(signMismatchReason('customer', 0)).toBeNull();
+  // A ZERO line is refused too, and the reason it must be is subtle. The
+  // earlier version of this guard passed zero through on the reasoning that
+  // `skipReasonForInvoice` would refuse it against the outstanding balance. It
+  // does not: `skipReasonForInvoice(state, id, 0)` with R500 outstanding runs
+  // `0 > 500.01` → false → null → the line is POSTABLE. It then reaches
+  // `validateBankSupplierPayment` (`tx.amount >= 0`) or
+  // `validateBankReceiptApplication` (`tx.amount <= 0`), both of which THROW —
+  // mid-write, past the point `bulkAllocationSkip` can skip around it, so the
+  // registry savepoint unwinds all 500 lines of the batch. One R0.00 statement
+  // line would destroy a batch, which is the single outcome that file exists to
+  // prevent. The guard therefore uses the SAME thresholds as the services it
+  // fronts: >= 0 for a bill, <= 0 for a customer invoice.
+  it('refuses a zero line, matching the services it fronts', () => {
+    expect(signMismatchReason('supplier', 0)).toMatch(/R0\.00 settles nothing/);
+    expect(signMismatchReason('customer', 0)).toMatch(/R0\.00 settles nothing/);
   });
 });
 
@@ -138,6 +147,19 @@ describe('partitionAllocationLines — the sign guard in a batch', () => {
     ]);
     expect(result.postable.map((l) => l.index)).toEqual([1]);
     expect(result.skipped[0]!.reason).not.toMatch(/outstanding/);
+  });
+
+  it('skips a zero line rather than letting it unwind the batch', async () => {
+    findBankTransactionAllocationStates.mockResolvedValue(new Map([
+      [TX_IN, { id: TX_IN, status: 'imported', matchedJournalLineId: null, amount: 0 }],
+      [TX_OUT, { id: TX_OUT, status: 'imported', matchedJournalLineId: null, amount: -115 }],
+    ]));
+    const result = await partitionAllocationLines(COMPANY, [
+      line(0, TX_IN, 'supplier'),
+      line(1, TX_OUT, 'supplier'),
+    ]);
+    expect(result.skipped.map((s) => s.index)).toEqual([0]);
+    expect(result.postable.map((l) => l.index)).toEqual([1]);
   });
 
   it('leaves a line that names no invoice alone, whatever its sign', async () => {

@@ -46,9 +46,16 @@ import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMat
 import { applyBankLineToSupplierInvoices } from '@/modules/accounting/services/ap/supplierBankPaymentService';
 import { fetchBankTransaction } from '@/modules/accounting/services/bank/bankMatchDbQueries';
 import { BankLineDirectionError } from '../bankLineDirectionError';
+// The rule lives in the bank module, not here: `bank-match-confirm` settles
+// documents through the same arithmetic and must give the identical answer.
+import {
+  signMismatchReason,
+  type SettlementKind,
+} from '@/modules/accounting/services/bank/bankLineDirection';
 
 /** The two allocation types that have a subledger document to apply to. */
-export type ApplyKind = 'customer' | 'supplier';
+export type ApplyKind = SettlementKind;
+export { signMismatchReason };
 
 /**
  * Which apply path a line takes, or null for "post a plain journal".
@@ -79,34 +86,6 @@ export async function bankLineSignedAmount(companyId: string, txId: string): Pro
   return Number(tx.amount);
 }
 
-/**
- * A PRE-WRITE reason this line's SIGN contradicts the document it names, or
- * null when the direction is consistent.
- *
- * Settling a bill is money going OUT; settling a customer invoice is money
- * coming IN. `confirmReceiptMatch` and `applyBankLineToSupplierInvoices` both
- * take the absolute value and apply it as a settlement, so a refund named
- * against an invoice would settle that invoice by the refund's value — cash
- * flowing the wrong way recorded as the document being paid.
- *
- * Pure, so the batch path and the single-line path cannot drift on the wording,
- * and so `dry_run` reports exactly what the live call will do.
- *
- * A ZERO line is not a mismatch: it contradicts no direction, and what is wrong
- * with it (nothing to settle) belongs to `skipReasonForInvoice`, which already
- * refuses it against the outstanding balance. One rule, one owner.
- */
-export function signMismatchReason(kind: ApplyKind, signedAmount: number): string | null {
-  if (kind === 'supplier' && signedAmount > 0) {
-    return `R${signedAmount.toFixed(2)} is money IN and cannot settle a bill — `
-      + 'drop invoice_id to book it as a supplier refund, or name a money-out line';
-  }
-  if (kind === 'customer' && signedAmount < 0) {
-    return `R${Math.abs(signedAmount).toFixed(2)} is money OUT and cannot settle a customer `
-      + 'invoice — drop invoice_id to book it as a customer refund, or name a money-in line';
-  }
-  return null;
-}
 
 /** What a batch needs to know about one invoice to decide if a line can post. */
 export interface InvoiceState {
