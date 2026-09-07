@@ -115,12 +115,24 @@ export function trendWindowNote(panels: PackChartSpec[]): PackDisclosureNote | n
  * Empty where the panel is not DRAWN, for the same reason as `trendWindowNote`
  * — a page must not point at a chart the pack does not contain.
  *
+ * IT NAMES THE PAGE IT IS ABOUT. The note used to open "Debtor days on this
+ * page is the figure for the whole reporting period" — and a render put it
+ * alone on a blank thirteenth sheet, where "this page" pointed at nothing.
+ * The composer now holds every page to its box so that cannot recur, but a
+ * sentence whose truth depends on where it lands is the defect class this
+ * whole page has been chasing: a reader who meets it out of context, in a
+ * forwarded extract or a screen reader's linear order, can still tell which
+ * page it means.
+ *
+ * @param pageName The page's own `navLabel` — the string the Contents prints,
+ *   not a second spelling of it.
  * @param number The footnote number to issue, since the PAGE owns its own
  *   footnote numbering (see `PackKpiTile.trendFootnote`).
  */
 export function periodWindowFootnotes(
   panels: PackChartSpec[],
   panelId: string,
+  pageName: string,
   number: number,
 ): PackFootnote[] {
   const counterpart = PERIOD_COUNTERPARTS[panelId];
@@ -131,7 +143,8 @@ export function periodWindowFootnotes(
   return [{
     number,
     text:
-      `${measure} on this page is the figure for the WHOLE reporting period, measured on the period totals; `
-      + 'the trends page plots the same measure one month at a time. Different windows: the two will not agree.',
+      `${measure} on this page — the ${pageName.toLowerCase()} page — is the figure for the WHOLE `
+      + 'reporting period, measured on the period totals; the trends page plots the same measure '
+      + 'one month at a time. Different windows: the two will not agree.',
   }];
 }

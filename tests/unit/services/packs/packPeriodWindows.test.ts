@@ -122,11 +122,11 @@ describe('the month-versus-period note', () => {
     // carries two statement notes, and a third that renumbered itself to 1
     // would print two footnote 1s on one sheet.
     const panels = buildTrendPanels(demoInput.trend, PACK_SCALE);
-    expect(periodWindowFootnotes(panels, 'trend-gross-margin', 3)[0]?.number).toBe(3);
-    expect(periodWindowFootnotes(panels, 'trend-debtor-days', 1)[0]?.number).toBe(1);
+    expect(periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', 3)[0]?.number).toBe(3);
+    expect(periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1)[0]?.number).toBe(1);
     // And nothing at all for a panel this trend does not draw.
     const none = buildTrendPanels(liveDemoInput.trend, PACK_SCALE);
-    expect(periodWindowFootnotes(none, 'trend-gross-margin', 3)).toEqual([]);
+    expect(periodWindowFootnotes(none, 'trend-gross-margin', 'Income statement', 3)).toEqual([]);
   });
 });
 
