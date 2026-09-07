@@ -153,6 +153,39 @@ describe('buildBoardPackPages', () => {
     expect(block?.kind === 'narrative' && block.narrative.status).toBe('pending');
   });
 
+  /**
+   * SHEET 6 PRINTS ONE LINE TWICE, WITH TWO SIGNS, AND BOTH ARE RIGHT.
+   *
+   * The table states operating expenses as the ledger carries them — 226 —
+   * and the bridge six centimetres below draws the same line as (226),
+   * because a bridge bar is a STEP: how much that line moved the running
+   * total. On Brightsphere it inverts, because operating expenses there are a
+   * net CREDIT, so the bar reads 3 717 against a table cell of (3 717) and
+   * the chart appears to state the opposite sign to the table on the same
+   * sheet. Nothing on the page said which was which.
+   */
+  it('explains the one line whose bridge bar and table cell carry opposite signs', () => {
+    for (const [name, input] of [['demo', demoInput], ['brightsphere', brightsphereInput]] as const) {
+      const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Income statement')!;
+      const note = page.footnotes.map((f) => f.text).join(' ');
+      expect(note, `${name} does not explain its bridge's sign`).toMatch(/EFFECT on net profit/);
+      // It NAMES a line and both of its figures, so a reader can check the
+      // rule against the page rather than take it on trust — and the line it
+      // names is one the table on that page actually carries.
+      const named = /profit\. (.*) of .* in the table is drawn as/.exec(note)?.[1];
+      expect(named, 'the footnote names no line').toBeDefined();
+      const rows = page.blocks.flatMap((b) => (b.kind === 'table' ? b.table.rows.map((r) => r.label.toLowerCase()) : []));
+      expect(rows).toContain(named!.toLowerCase());
+    }
+
+    // And the footnotes are numbered in sequence — the note is conditional,
+    // so the one after it cannot assume a fixed position.
+    const page = buildBoardPackPages(demoInput).pages.find((p) => p.navLabel === 'Income statement')!;
+    expect(page.footnotes.map((f) => f.number)).toEqual(
+      page.footnotes.map((_, index) => index + 1),
+    );
+  });
+
   it('turns no sheet sideways — twelve portrait pages', () => {
     // The trends page was the one landscape sheet, for six panels three
     // across. Two across at 83mm fits the portrait measure, and the taller

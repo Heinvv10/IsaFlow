@@ -61,6 +61,7 @@ import {
 } from './packStatementTables';
 import {
   buildCashBlocks,
+  bridgeSignFootnote,
   buildCommentaryBlocks,
   buildHighlightsBlocks,
   buildPositionBlocks,
@@ -194,6 +195,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     ? []
     : [mustDisclose('How much of this bridge is unexplained', [note('Size of the unexplained step', profitPlug)])];
 
+  // The bridge labels a cost line the opposite way the table does, and both
+  // are right — see `bridgeSignFootnote`. Printed only where a line actually
+  // diverges, and it names that line, so the next footnote's number depends
+  // on whether this one is there.
+  const bridgeNote = bridgeSignFootnote(income, profitBridge, scale, statementNotes.length + 1);
+
   const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set, scale);
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
   const trendBlocks = buildTrendBlocks(trendPanels);
@@ -235,7 +242,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       // page's FOOTNOTES, below — see `periodWindowFootnotes`.
     ], 'portrait', [
       ...statementNotes,
-      ...periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', statementNotes.length + 1),
+      ...bridgeNote,
+      ...periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', statementNotes.length + bridgeNote.length + 1),
     ]),
     page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
     page(cashTitle(set, scale), 'Cash', 'Financials', 'high', cashBlocks, 'portrait', statementNotes),

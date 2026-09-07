@@ -24,7 +24,7 @@ import {
 import { TRENDS_PANELS_SPECIFIED, type PackCashBridge, type TrendPanels } from './packPageCharts';
 import type { SelectedMatters } from './packMattersPrinted';
 import { trendWindowNote } from './packTrendCrossReference';
-import type { MoneyScale } from '@/lib/format/money';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_NOTE } from './packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
@@ -320,4 +320,52 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
     ]));
   }
   return trendBlocks;
+}
+
+
+/**
+ * WHY THE BRIDGE LABELS A LINE THE OPPOSITE WAY THE TABLE DOES.
+ *
+ * Sheet 6 prints operating expenses of `226` in the table and `(226)` on the
+ * bar six centimetres below it. Both are right and they are not the same
+ * quantity: the table states the line as the ledger carries it, and a bridge
+ * bar is a STEP — how much that line moved the running total. A cost of 226
+ * moves profit by (226).
+ *
+ * On Brightsphere it reads as an error rather than as a convention:
+ * operating expenses are a net CREDIT of (3 717), so the bar is `3 717` and
+ * the table `(3 717)`, and the chart appears to state the opposite sign to
+ * the table on the same sheet. Nothing on the page said which was which.
+ *
+ * DERIVED FROM A ROW THAT ACTUALLY DIVERGES, not printed as boilerplate: the
+ * footnote names one line whose bar and cell carry opposite signs, with both
+ * figures, so a reader can check the rule against the page in front of them.
+ * Null when no line diverges — a pack whose bridge and table agree
+ * everywhere needs no note, and one that printed it anyway would be
+ * explaining a contradiction the reader cannot find.
+ */
+export function bridgeSignFootnote(
+  table: PackTable,
+  chart: PackChartSpec,
+  scale: MoneyScale,
+  number: number,
+): PackFootnote[] {
+  const bars = chart.waterfallBars ?? [];
+  const rows = new Map(table.rows.map((row) => [row.label.toLowerCase(), row.figures.actual?.value ?? null]));
+  for (const bar of bars) {
+    if (bar.kind === 'subtotal' || bar.kind === 'open' || bar.kind === 'close') continue;
+    const cell = rows.get(bar.label.toLowerCase());
+    if (cell === null || cell === undefined || cell === 0) continue;
+    const step = bar.end - bar.start;
+    if (step === 0 || Math.sign(step) === Math.sign(cell)) continue;
+    return [{
+      number,
+      text:
+        `The table states each line as the ledger carries it; the bridge below draws each line by `
+        + `its EFFECT on net profit. ${bar.label} of ${formatMoney(cell, { scale })} in the table is `
+        + `drawn as ${formatMoney(step, { scale })} on the bar — the amount by which it `
+        + `${step < 0 ? 'reduces' : 'increases'} profit. The two signs are the same fact read two ways.`,
+    }];
+  }
+  return [];
 }
