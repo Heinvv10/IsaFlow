@@ -32,6 +32,7 @@ import { TRENDS_PANELS_SPECIFIED } from '@/modules/accounting/services/packs/pag
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import {
   brightsphereInput,
+  brightsphereLiveInput,
   brightspherePriorInput,
   brightsphereSet,
   demoInput,
@@ -41,6 +42,8 @@ import {
   pageWithTableRow,
   trend,
 } from './fixtures/boardPackInputs';
+import { liveDemoRenderedInput } from './fixtures/liveDemoBoardPack';
+import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 
 
 /** Whether a block puts anything on the page. Counting blocks is not enough. */
@@ -643,5 +646,69 @@ describe('Brightsphere, with the comparative period the live tenant has', () => 
 
     expect(scorecard).toBeDefined();
     expect(pageMm(scorecard!)).toBeLessThan(pageBoxMm(scorecard!));
+  });
+});
+
+/**
+ * THE SAME COMPANY, THREE WEEKS LATER, REFUSED ON A DIFFERENT SHEET.
+ *
+ * `fitPageToBox: "Income statement" needs 260.5mm and its sheet gives 255mm,
+ * with nothing left on it that may be dropped` — the live route, on the
+ * ledger `brightsphereLiveInput` is read off. Nothing on that sheet is spare:
+ * the table and the bridge carry figures, the caption is derived, the
+ * negative-revenue disclosure is required and its single note may not be
+ * taken, and the sign-flip footnote is the only thing on the page explaining
+ * why the table states operating expenses as (3.717) and the bridge draws
+ * 3.717.
+ *
+ * So the chart pays, because the chart is the one block on the page whose
+ * height the spec lets the pack choose, and it is chosen by MEASURING the
+ * composed page rather than by predicting what will be on it — see
+ * `shorterProfitBridge`. Mutation: force the bridge to keep the rung
+ * `buildProfitWaterfallChart`'s predicates picked and this file refuses to
+ * compose the pack at all, at exactly the 260.5mm the live route reported.
+ */
+describe('Brightsphere as the live route composed it', () => {
+  // Composed inside each case rather than once at describe scope: the failure
+  // this pins is a THROW, and a throw during collection takes the whole file
+  // down with it instead of naming the case that found it.
+  const incomeStatement = () => buildBoardPackPages(brightsphereLiveInput)
+    .pages.find((page) => page.navLabel === 'Income statement')!;
+
+  it('composes twelve sheets rather than refusing the pack', () => {
+    expect(buildBoardPackPages(brightsphereLiveInput).pages).toHaveLength(12);
+  });
+
+  it('fits its income statement on one sheet', () => {
+    const income = incomeStatement();
+    expect(pageMm(income)).toBeLessThanOrEqual(pageBoxMm(income));
+  });
+
+  it('keeps the note reconciling the table\'s sign with the bridge\'s', () => {
+    const income = incomeStatement();
+    expect(income.footnotes.some((f) => f.required === true && /same fact read two ways/.test(f.text)))
+      .toBe(true);
+    // And it did not buy the space by abridging the disclosure either.
+    expect(income.blocks.some((b) => b.kind === 'disclosure'
+      && b.disclosure.heading === 'Negative revenue'
+      && b.disclosure.notes.length === 1)).toBe(true);
+    // Nor by apologising for its own layout.
+    expect(income.footnotes.some((f) => f.text.startsWith(OMISSION_MARK))).toBe(false);
+  });
+
+  it('pays for the room out of the bridge, at the bottom rung of the height grid', () => {
+    const chart = incomeStatement().blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
+    expect(chart.id).toBe('profit-bridge');
+    expect(chart.heightMm).toBe(48);
+  });
+
+  it('leaves a page that already fits at the height its predicates chose', () => {
+    // The live demo company's sheet fits at 72mm, so nothing measures it down
+    // a further rung — a page is not made smaller than it needs to be.
+    const demoIncome = buildBoardPackPages(liveDemoRenderedInput)
+      .pages.find((page) => page.navLabel === 'Income statement')!;
+    const chart = demoIncome.blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
+    expect(chart.heightMm).toBe(72);
+    expect(pageMm(demoIncome)).toBeLessThanOrEqual(pageBoxMm(demoIncome));
   });
 });

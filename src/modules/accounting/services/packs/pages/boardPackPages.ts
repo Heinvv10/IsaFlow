@@ -52,6 +52,7 @@ import {
   buildPositionCompositionChart,
   buildProfitWaterfallChart,
   buildTrendPanels,
+  shorterProfitBridge,
   TRENDS_PANELS_SPECIFIED,
 } from './packPageCharts';
 import {
@@ -76,6 +77,7 @@ import type { PackMatter } from './packMatters';
 import { withDerivedMatters } from './packDerivedMatters';
 import { selectPrintedMatters } from './packMattersPrinted';
 import { fitPageToBox } from './packPageFit';
+import { pageBoxMm, pageMm } from './packPageMetrics';
 import {
   buildMattersBlock,
   buildMattersSupportBlocks,
@@ -99,6 +101,7 @@ import {
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import type { PackDraftReason } from './packDraftStatus';
 import type {
+  PackChartSpec,
   PackComparativePeriod,
   PackNarrative,
   PackPageBlock,
@@ -244,17 +247,61 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // the same call that puts the footnote on the page below, so the height and
   // the footnote cannot disagree about whether the panel exists.
   const grossMarginWindowNote = periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', 1);
-  const profitBridge = buildProfitWaterfallChart(set, scale, grossMarginWindowNote.length > 0);
-  const profitPlug = disproportionatePlugSentence(profitBridge, scale);
-  const profitBridgeCaveat: PackPageBlock[] = profitPlug === null
-    ? []
-    : [mustDisclose('How much of this bridge is unexplained', [note('Size of the unexplained step', profitPlug)])];
 
-  // The bridge labels a cost line the opposite way the table does, and both
-  // are right — see `bridgeSignFootnote`. Printed only where a line actually
-  // diverges, and it names that line, so the next footnote's number depends
-  // on whether this one is there.
-  const bridgeNote = bridgeSignFootnote(income, profitBridge, scale, statementNotes.length + 1);
+  // PAGE 6, AS A FUNCTION OF THE BRIDGE ON IT, because the height of the
+  // bridge is decided by measuring this page rather than by predicting it —
+  // see `shorterProfitBridge` and the loop below. Everything here except the
+  // chart is the same at every rung; the plug sentence and the sign footnote
+  // are rebuilt from the bridge passed in rather than from a bridge built
+  // once, so a page cannot describe a chart it is not carrying.
+  const incomeStatementSheet = (bridge: PackChartSpec): UnnumberedPage => {
+    const profitPlug = disproportionatePlugSentence(bridge, scale);
+    const profitBridgeCaveat: PackPageBlock[] = profitPlug === null
+      ? []
+      : [mustDisclose('How much of this bridge is unexplained', [note('Size of the unexplained step', profitPlug)])];
+    // The bridge labels a cost line the opposite way the table does, and both
+    // are right — see `bridgeSignFootnote`. Printed only where a line actually
+    // diverges, and it names that line, so the next footnote's number depends
+    // on whether this one is there.
+    const bridgeNote = bridgeSignFootnote(income, bridge, scale, statementNotes.length + 1);
+    return page(incomeStatementTitle(set, scale), 'Income statement', 'Financials', 'high', [
+      { kind: 'table', table: income },
+      { kind: 'chart', chart: bridge },
+      commentary(largestMoverCaption(income.rows)),
+      // The same treatment page 7 gives negative assets. Brightsphere heads
+      // this page with revenue of (5 535) and said nothing about it, two
+      // sheets before explaining a negative asset side at length.
+      ...negativeRevenueCaveat,
+      ...profitBridgeCaveat,
+      // The reciprocal of the trends page's own window note rides in this
+      // page's FOOTNOTES, below — see `periodWindowFootnotes`.
+    ], 'portrait', [
+      ...statementNotes,
+      ...bridgeNote,
+      ...periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', statementNotes.length + bridgeNote.length + 1),
+    ]);
+  };
+
+  // AND THE RUNG IS CHOSEN BY MEASURING THE PAGE, NOT BY PREDICTING IT.
+  //
+  // Live Brightsphere carries the negative-revenue disclosure, a required
+  // sign-flip footnote and a three-line caption saying no percentage change
+  // is meaningful, and at the rung the predicates chose the sheet measured
+  // 260.5mm in a 255mm box with nothing left on it `fitPageToBox` may drop —
+  // so the company could not be given a board pack at all. Nothing on the
+  // page is spare: every block carries a figure or a note the pack owes the
+  // reader, and the chart is the one thing on it with a height the spec lets
+  // us choose.
+  //
+  // A page that already fits is composed once and keeps the height it has.
+  let profitBridge = buildProfitWaterfallChart(set, scale, grossMarginWindowNote.length > 0);
+  let incomeSheet = incomeStatementSheet(profitBridge);
+  while (pageMm(incomeSheet) > pageBoxMm(incomeSheet)) {
+    const shorter = shorterProfitBridge(set, scale, profitBridge);
+    if (shorter === null) break;
+    profitBridge = shorter;
+    incomeSheet = incomeStatementSheet(profitBridge);
+  }
 
   const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set, scale);
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
@@ -288,22 +335,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     highlights,
     narrativePage,
     snapshot,
-    page(incomeStatementTitle(set, scale), 'Income statement', 'Financials', 'high', [
-      { kind: 'table', table: income },
-      { kind: 'chart', chart: profitBridge },
-      commentary(largestMoverCaption(income.rows)),
-      // The same treatment page 7 gives negative assets. Brightsphere heads
-      // this page with revenue of (5 535) and said nothing about it, two
-      // sheets before explaining a negative asset side at length.
-      ...negativeRevenueCaveat,
-      ...profitBridgeCaveat,
-      // The reciprocal of the trends page's own window note rides in this
-      // page's FOOTNOTES, below — see `periodWindowFootnotes`.
-    ], 'portrait', [
-      ...statementNotes,
-      ...bridgeNote,
-      ...periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', statementNotes.length + bridgeNote.length + 1),
-    ]),
+    incomeSheet,
     page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
     // The cash page is the one sheet carrying BOTH windows — the table's
     // period opening balance and the twelve-month line beneath it — and it

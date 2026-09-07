@@ -87,6 +87,46 @@ const HALF = { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline };
  */
 const MID = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
 
+type ChartBox = { widthMm: number; heightMm: number };
+
+/** Spec §5.6's height grid, tallest first — the only heights a bridge takes. */
+const BRIDGE_RUNGS: ChartBox[] = [FULL, MID, HALF];
+
+/**
+ * THE SAME BRIDGE ONE RUNG SHORTER, or null at the bottom of the grid.
+ *
+ * `buildProfitWaterfallChart` predicts what else the page will carry — a plug
+ * disclosure, a negative-revenue disclosure, the trends cross-reference
+ * footnote — and steps down one rung where it does. Three times that
+ * prediction has been a rung short of the page it was predicting, and the
+ * third time the page could not be composed at all: live Brightsphere carries
+ * the negative-revenue disclosure AND a required sign-flip footnote AND a
+ * three-line "no comparable percentage change" caption, and at 72mm its
+ * income statement measures 260.5mm in a 255mm box with nothing left on it
+ * the fitter may drop.
+ *
+ * So the caller MEASURES instead of predicting further: it composes the page,
+ * and where the page still does not fit it asks for the next rung down and
+ * composes it again — see `boardPackPages`. A predicate that enumerates
+ * causes is wrong on the fourth cause; a page that has been measured is not.
+ * The predicates above stay as the STARTING rung, so no page that fits today
+ * changes height.
+ *
+ * The bottom rung is 48mm, which is where page 8 already draws its cash
+ * bridge — the same chart kind at the same size in the same pack — and
+ * `intervalsFor` drops the bridge to three gridlines there rather than
+ * crowding six into the plot.
+ */
+export function shorterProfitBridge(
+  set: PackFigureSet,
+  scale: MoneyScale,
+  current: PackChartSpec,
+): PackChartSpec | null {
+  const rung = BRIDGE_RUNGS.findIndex((b) => b.heightMm === current.heightMm);
+  const next = rung === -1 ? undefined : BRIDGE_RUNGS[rung + 1];
+  return next === undefined ? null : buildProfitWaterfallChart(set, scale, false, next);
+}
+
 /**
  * HOW MANY GRIDLINE STEPS THIS BOX HAS ROOM FOR.
  *
@@ -171,11 +211,14 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
  *   put a display transform where a check reads.
  * @param carriesWindowNote Whether the page also carries the trends
  *   cross-reference footnote — see `crowded` below.
+ * @param rung The height to draw it at, overriding the one the predicates
+ *   below choose. `shorterProfitBridge` passes it; nothing else should.
  */
 export function buildProfitWaterfallChart(
   set: PackFigureSet,
   scale: MoneyScale,
   carriesWindowNote = false,
+  rung?: ChartBox,
 ): PackChartSpec {
   const f = set.current;
   const steps = buildProfitWaterfall({
@@ -219,7 +262,7 @@ export function buildProfitWaterfallChart(
   const crowded = (share !== null && share >= UNCAPTURED_SHARE_LIMIT)
     || f.revenue < 0
     || carriesWindowNote;
-  const box = crowded ? MID : FULL;
+  const box = rung ?? (crowded ? MID : FULL);
   return {
     id: 'profit-bridge',
     title: `Revenue of ${formatMoney(f.revenue, { scale })} bridges to net profit of ${formatMoney(f.netProfit, { scale })}.`,

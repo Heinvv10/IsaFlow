@@ -457,3 +457,137 @@ export function pageWithTableRow(
 export function basisPage<T>(doc: { pages: T[] }): T {
   return doc.pages[doc.pages.length - 1]!;
 }
+
+/**
+ * BRIGHTSPHERE AS THE LIVE ROUTE COMPOSED IT ON 2026-09-07 — the tenant that
+ * could not be given a board pack at all.
+ *
+ * `brightspherePriorInput` above is the same company two rounds earlier and
+ * its income statement measures 249.9mm, five millimetres inside the sheet,
+ * so no fixture in the suite could see what the live route did:
+ *
+ *   fitPageToBox: "Income statement" needs 260.5mm and its sheet gives 255mm,
+ *   with nothing left on it that may be dropped — every remaining note is one
+ *   this pack is required to make.
+ *
+ * The eleven millimetres between them are ONE BLOCK: the derived caption.
+ * This company's prior period carries no income at all, so every change cell
+ * on the statement is prose rather than a percentage and the caption under
+ * the chart reads "No line item on this page has a comparable percentage
+ * change…" over three lines instead of one. Nothing about that was modelled,
+ * because the earlier fixture was rounded off a figure set with a prior
+ * period that had figures in it.
+ *
+ * So the whole sheet is here as the ledger gives it: negative revenue, which
+ * brings the required "what this means" disclosure with it; a required
+ * sign-flip footnote, which the fitter may not take; and a prior period of
+ * zeroes, which is what makes the caption three lines. Every figure below is
+ * `buildPackFigureSet('d27bac33…', '2026-01-01', '2026-09-07')`'s own output,
+ * unrounded, read back from `isaflow_dev` on 2026-09-07.
+ *
+ * WHAT IT DOES NOT MODEL: the live tenant's thirty board matters. Page 11 is
+ * budgeted separately (`mattersBudgetMm`) and had nothing to do with this
+ * failure; the single matter carries over from `brightsphereInput`.
+ */
+export const brightsphereLiveSet: PackFigureSet = {
+  current: figures({
+    companyName: 'Brightsphere Technologies (Pty) Ltd',
+    period: '2026-01-01 to 2026-09-07',
+    revenue: -5_535_000,
+    costOfSales: 0,
+    operatingExpenses: -3_717_000,
+    otherIncome: -1_000,
+    otherExpenses: -411_237,
+    operatingProfit: -1_819_000,
+    netProfit: -1_407_763,
+    totalAssets: 3_191_945.16,
+    totalLiabilities: 5_368_200.63,
+    totalEquity: -2_176_255.47,
+    currentAssets: -3_372_178.7,
+    currentLiabilities: 5_792_028.13,
+    cash: -3_452_709.7,
+    accountsReceivable: -329_700,
+    accountsPayable: 0,
+    inventory: 0,
+    depreciation: -152_000,
+    inventoryCaveat: 'No account in the chart of accounts is classified as inventory, so inventory '
+      + 'could not be identified and the quick ratio does not exclude it: on these figures the '
+      + 'quick ratio and the current ratio are the same number. Read it as a current ratio until '
+      + 'the stock control account is classified.',
+    classificationCaveat: null,
+  }),
+  currentWindow: { start: '2026-01-01', end: '2026-09-07' },
+  // Every income line zero — not absent. This is the half of the fixture the
+  // rounded one could not reach: `packStatementTables` fills the change
+  // column with "The prior figure is not a positive base…" and
+  // `largestMoverCaption` says no percentage change is meaningful, in three
+  // lines.
+  prior: figures({
+    companyName: 'Brightsphere Technologies (Pty) Ltd',
+    period: '2025-04-26 to 2025-12-31',
+    revenue: 0,
+    costOfSales: 0,
+    operatingExpenses: 0,
+    otherIncome: 0,
+    otherExpenses: 0,
+    operatingProfit: 0,
+    netProfit: 0,
+    totalAssets: 6_554_795.16,
+    totalLiabilities: 7_323_287.63,
+    totalEquity: -768_492.47,
+    currentAssets: 142_671.3,
+    currentLiabilities: 7_747_115.13,
+    cash: -267_109.7,
+    accountsReceivable: 0,
+    accountsPayable: 0,
+    inventory: 0,
+    depreciation: 0,
+    inventoryCaveat: 'No account in the chart of accounts is classified as inventory, so inventory '
+      + 'could not be identified and the quick ratio does not exclude it: on these figures the '
+      + 'quick ratio and the current ratio are the same number. Read it as a current ratio until '
+      + 'the stock control account is classified.',
+    classificationCaveat: null,
+  }),
+  priorWindow: { start: '2025-04-26', end: '2025-12-31' },
+  budget: null,
+};
+
+/**
+ * The twelve months `getPackTrend` returns for that window.
+ *
+ * ONE MONTH CARRIES THE WHOLE PERIOD and every gross margin is null — the
+ * company's revenue is in net debit, so no month has a positive base to
+ * measure a margin against and the trends page draws no gross-margin panel.
+ * That is what decides whether page 6 carries the cross-reference footnote,
+ * so a fixture that invented a margin series would be testing the other
+ * branch of the failure.
+ */
+export const brightsphereLiveTrend: PackTrendPoint[] = [
+  'Oct 2025', 'Nov 2025', 'Dec 2025', 'Jan 2026', 'Feb 2026', 'Mar 2026',
+  'Apr 2026', 'May 2026', 'Jun 2026', 'Jul 2026', 'Aug 2026', 'Sep 2026',
+].map((label, i) => {
+  const trading = i === 6;
+  const opened = i >= 6;
+  return {
+    month: `${label.slice(4)}-${String(((i + 9) % 12) + 1).padStart(2, '0')}`,
+    label,
+    revenue: trading ? -5_536_000 : 0,
+    expenses: trading ? -4_128_237 : 0,
+    netProfit: trading ? -1_407_763 : 0,
+    costOfSales: 0,
+    operatingExpenses: trading ? -3_717_000 : 0,
+    grossMarginPct: null,
+    cash: opened ? -3_452_709.7 : -267_109.7,
+    accountsReceivable: opened ? -329_700 : 0,
+    debtorDays: null,
+  };
+});
+
+export const brightsphereLiveInput: BoardPackInput = {
+  ...brightsphereInput,
+  companyLegalName: 'Brightsphere Technologies (Pty) Ltd',
+  period: '1 January 2026 to 7 September 2026',
+  draftReasons: ['unapprovedCommentary'],
+  set: brightsphereLiveSet,
+  trend: brightsphereLiveTrend,
+};

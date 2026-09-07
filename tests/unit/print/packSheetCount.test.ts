@@ -27,6 +27,7 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import { isContentPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import {
   brightsphereInput,
+  brightsphereLiveInput,
   demoInput,
   denseInput,
   noRatioPanelsInput,
@@ -72,6 +73,15 @@ const FIXTURES = {
   // about a company with millions in the bank. Brightsphere is such a company
   // and its sheet 8 measured 195.6mm against 198.8mm of paper.
   'cash in the millions': millionsCashInput,
+  // THE ONE THAT COULD NOT BE COMPOSED AT ALL. Every fixture above reaches
+  // paper; this one refused, at `fitPageToBox: "Income statement" needs
+  // 260.5mm and its sheet gives 255mm`, on the live route and on nothing in
+  // this suite. Its income statement is the only one in the set carrying the
+  // negative-revenue disclosure, a required sign-flip footnote AND a prior
+  // period of zeroes — which is what turns the caption under the chart into
+  // three lines. The bridge on it prints at the bottom rung, so this is also
+  // the only fixture that holds the 48mm profit bridge to Chromium's layout.
+  'Brightsphere as the live route composed it': brightsphereLiveInput,
 } as const;
 
 let browser: Browser;
