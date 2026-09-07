@@ -14,7 +14,6 @@
  * which is why neither showed up.
  */
 import type { EChartsCoreOption } from 'echarts/core';
-import { formatMoney } from '@/lib/format/money';
 import { DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
 
 /** The one ECharts label-callback field these formatters read. */
@@ -62,10 +61,15 @@ export function sparklineOption(
  * No legend (one series per panel, and the panel's title names it), and the
  * last point is labelled directly, so the reader never has to match a colour
  * to a key.
+ *
+ * @param formatValue How this panel's own unit prints. REQUIRED: a rand
+ *   series, a percentage and a day count are three different units, and a
+ *   panel row carries all three.
  */
 export function smallMultipleOption(
   points: TrendPoint[],
   domain: { min: number; max: number },
+  formatValue: (value: number) => string,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
 ): EChartsCoreOption {
   const last = points[points.length - 1]?.value ?? 0;
@@ -100,8 +104,13 @@ export function smallMultipleOption(
         endLabel: {
           show: true,
           color: palette.ink,
-          // The end value, formatted the one way this app formats money.
-          formatter: (param: LabelParam) => formatMoney(Number(param.value ?? last)),
+          // The end value, formatted the way the PANEL's own unit is
+          // formatted. It was hard-wired to `formatMoney` with no scale, so
+          // the gross-margin panel labelled −1394.3% as `(1 394)` and every
+          // money panel printed raw rands under an `R'000` header. A panel
+          // knows its unit and its scale; this function does not, so it is
+          // handed one rather than guessing.
+          formatter: (param: LabelParam) => formatValue(Number(param.value ?? last)),
         },
         data: points.map((p) => p.value),
       },

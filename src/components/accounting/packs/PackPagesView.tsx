@@ -29,14 +29,16 @@ export interface PackPagesViewProps {
 }
 
 /**
- * The document's scale, narrowed to the type every formatter takes.
+ * The document's scale, re-checked at the render boundary.
  *
- * Throws rather than falling back to `'R'`. `numberConvention.scale` is
- * typed `string` on the model, so an unrecognised value is representable —
- * and printing unscaled cells under a header that says "R'000" is the exact
- * 1000x misread the required-scale rule (R-P52) exists to stop. A render
- * that stops is a diagnosable failure; a pack that prints every figure a
- * thousand times too large is one a director forwards to a bank.
+ * `numberConvention.scale` is now typed `MoneyScale`, so this cannot fail on
+ * a document composed in this process — and it is kept anyway, because a
+ * TYPE is not a runtime guarantee for a document that arrived over the wire.
+ * `adoptPackPagesDocument` narrows it there; this is the last check before
+ * the figures are actually formatted, and printing unscaled cells under a
+ * header that says "R'000" is the exact 1000x misread R-P52 exists to stop.
+ * A render that stops is a diagnosable failure; a pack that prints every
+ * figure a thousand times too large is one a director forwards to a bank.
  */
 function requireScale(document: PackPagesDocument) {
   const scale = toMoneyScale(document.numberConvention.scale);

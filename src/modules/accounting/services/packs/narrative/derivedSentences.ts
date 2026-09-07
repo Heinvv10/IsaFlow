@@ -1,5 +1,8 @@
 /**
- * Deterministic captions and titles for pack pages.
+ * Deterministic TITLES for pack pages, and the two disclosure sentences that
+ * belong beside them. The block-level CAPTIONS moved to `derivedCaptions.ts`
+ * when this file hit the 300-line ceiling and are re-exported at the bottom,
+ * so every existing import path still resolves.
  *
  * Every function here is `derived` in the approved/derived commentary split:
  * a pure string built from figures already on the pack, never model output.
@@ -7,6 +10,16 @@
  * cannot be traced back to a number someone can check — that traceability is
  * the whole reason this file has no service call, no `Date.now()`, and no
  * branch that depends on anything but its arguments.
+ *
+ * SCALE IS A REQUIRED ARGUMENT WHEREVER A FIGURE IS PRINTED (R-P52).
+ * Scaling is a display concern owned by `formatMoney`; the model's figures
+ * stay RAW so the integrity gate keeps comparing raw values. It was the
+ * TABLES that were wired for the document's scale and the PROSE that was
+ * not, so page 6 printed revenue as `99` under an `R'000` header and, three
+ * centimetres below, "Revenue of 98 800" — the same figure, twice, a
+ * thousand apart. A required parameter is what makes forgetting it a compile
+ * error rather than a board pack a director misreads by three orders of
+ * magnitude.
  *
  * Every percentage goes through `marginPct`, which returns null on a
  * non-positive base. That guard is reused here for period-on-period change,
@@ -22,16 +35,20 @@
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { formatMoney, formatPctMagnitude } from '@/lib/format/money';
+import { formatMoney, formatPctMagnitude, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
-import type {
-  PackChartSpec,
-  PackKpiTile,
-  PackScorecardGroup,
-  PackTableRow,
-} from '@/modules/accounting/services/packs/pages/packPageModel';
+
+export {
+  cashCaption,
+  largestMoverCaption,
+  positionCaption,
+  scorecardCaption,
+  scorecardScore,
+  tileCaption,
+  trendsCaption,
+} from './derivedCaptions';
 
 /**
  * The no-margin wording for THIS page's margin line, which reads operating
@@ -64,11 +81,11 @@ function noComparativeBaseSentence(subject: string, base: number, midSentence = 
   return midSentence ? `${s.charAt(0).toLowerCase()}${s.slice(1)}` : s;
 }
 
-export function highlightsTitle(set: PackFigureSet): string {
+export function highlightsTitle(set: PackFigureSet, scale: MoneyScale): string {
   const { current, prior } = set;
   let revenueClause: string;
   if (prior === null) {
-    revenueClause = `Revenue is ${formatMoney(current.revenue)}, with no comparative period.`;
+    revenueClause = `Revenue is ${formatMoney(current.revenue, { scale })}, with no comparative period.`;
   } else {
     const change = pctChangeClause(current.revenue, prior.revenue);
     revenueClause = change === null
@@ -90,67 +107,34 @@ export function highlightsTitle(set: PackFigureSet): string {
   return `${revenueClause} ${marginClause}`;
 }
 
-export function positionTitle(set: PackFigureSet): string {
+export function positionTitle(set: PackFigureSet, scale: MoneyScale): string {
   const equity = set.current.totalEquity;
   if (equity < 0) {
-    return `Balance sheet position: negative equity of ${formatMoney(equity)}.`;
+    return `Balance sheet position: negative equity of ${formatMoney(equity, { scale })}.`;
   }
   if (set.prior) {
     const change = pctChangeClause(equity, set.prior.totalEquity);
     if (change !== null) {
-      return `Equity is ${change} to ${formatMoney(equity)}.`;
+      return `Equity is ${change} to ${formatMoney(equity, { scale })}.`;
     }
   }
-  return `Balance sheet position: equity of ${formatMoney(equity)}.`;
+  return `Balance sheet position: equity of ${formatMoney(equity, { scale })}.`;
 }
 
-export function cashTitle(set: PackFigureSet): string {
+export function cashTitle(set: PackFigureSet, scale: MoneyScale): string {
   const cash = set.current.cash;
   if (set.prior === null) {
-    return `Cash stands at ${formatMoney(cash)}, with no comparative period.`;
+    return `Cash stands at ${formatMoney(cash, { scale })}, with no comparative period.`;
   }
   const change = pctChangeClause(cash, set.prior.cash);
   if (change === null) {
-    return `Cash stands at ${formatMoney(cash)}; ${noComparativeBaseSentence('the comparative cash base', set.prior.cash, true)}`;
+    return `Cash stands at ${formatMoney(cash, { scale })}; ${noComparativeBaseSentence('the comparative cash base', set.prior.cash, true)}`;
   }
-  return `Cash is ${change} to ${formatMoney(cash)}.`;
+  return `Cash is ${change} to ${formatMoney(cash, { scale })}.`;
 }
 
 export function scorecardTitle(met: number, total: number): string {
   return `Scorecard | ${met} of ${total} targets met`;
-}
-
-export function scorecardCaption(groups: PackScorecardGroup[]): string {
-  const { met, total } = scorecardScore(groups);
-  if (total === 0) {
-    return 'No scorecard metric has a target to score against this period.';
-  }
-  const missed = total - met;
-  const missedClause = missed > 0 ? `, with ${missed} missed` : '';
-  return `${met} of ${total} scored targets were met this period${missedClause}.`;
-}
-
-export function largestMoverCaption(rows: PackTableRow[]): string {
-  const movers = rows
-    .filter((r) => r.role === 'line')
-    .map((r) => ({ label: r.label, pct: r.figures.changePct?.value ?? null }))
-    .filter((m): m is { label: string; pct: number } => m.pct !== null && Number.isFinite(m.pct));
-
-  if (movers.length === 0) {
-    return 'No line item shows a meaningful period-on-period movement.';
-  }
-
-  const largest = movers.reduce((a, b) => (Math.abs(b.pct) > Math.abs(a.pct) ? b : a));
-  const direction = largest.pct >= 0 ? 'up' : 'down';
-  return `${largest.label} moved the most, ${direction} ${formatPctMagnitude(largest.pct)}.`;
-}
-
-export function trendsCaption(panels: PackChartSpec[]): string {
-  if (panels.length === 0) {
-    return 'No trend panels are available this period.';
-  }
-  const noun = panels.length === 1 ? 'metric' : 'metrics';
-  return `This page tracks ${panels.length} ${noun} over the period: ${panels.map((p) => p.title).join('; ')}.`;
 }
 
 /**
@@ -160,9 +144,9 @@ export function trendsCaption(panels: PackChartSpec[]): string {
  * something about the period rather than the word "Commentary" — the exact
  * bare label the rejected pack shipped.
  */
-export function narrativeTitle(set: PackFigureSet): string {
+export function narrativeTitle(set: PackFigureSet, scale: MoneyScale): string {
   const { current, prior } = set;
-  const level = `Net profit of ${formatMoney(current.netProfit)}`;
+  const level = `Net profit of ${formatMoney(current.netProfit, { scale })}`;
   if (prior === null) return `${level} for the period, with no comparative.`;
   const change = pctChangeClause(current.netProfit, prior.netProfit);
   return change === null
@@ -171,26 +155,26 @@ export function narrativeTitle(set: PackFigureSet): string {
 }
 
 /** Page 5's title. Spec §4.A fixes the "Group results | …" prefix. */
-export function resultsTitle(set: PackFigureSet): string {
+export function resultsTitle(set: PackFigureSet, scale: MoneyScale): string {
   const { current } = set;
   // Was `?? current.netProfit`, which titled the page "operating profit of
   // 512 000" above a table row reading 750 000. Same defect as above: net
   // profit is a DIFFERENT line, not a fallback for this one.
   const operating = operatingProfitOf(current);
   const noun = operating < 0 ? 'operating loss' : 'operating profit';
-  return `Group results | ${noun} of ${formatMoney(operating)} on revenue of ${formatMoney(current.revenue)}.`;
+  return `Group results | ${noun} of ${formatMoney(operating, { scale })} on revenue of ${formatMoney(current.revenue, { scale })}.`;
 }
 
 /**
  * Page 6's title — how the result was EARNED, so it reads the margin and the
  * cost base rather than restating the profit page 5 already led with.
  */
-export function incomeStatementTitle(set: PackFigureSet): string {
+export function incomeStatementTitle(set: PackFigureSet, scale: MoneyScale): string {
   const { current } = set;
   const margin = marginPct(current.revenue - current.costOfSales, current.revenue);
-  const costs = `operating expenses of ${formatMoney(current.operatingExpenses)}`;
+  const costs = `operating expenses of ${formatMoney(current.operatingExpenses, { scale })}`;
   return margin === null
-    ? `Revenue of ${formatMoney(current.revenue)} carries no meaningful margin base against ${costs}.`
+    ? `Revenue of ${formatMoney(current.revenue, { scale })} carries no meaningful margin base against ${costs}.`
     : `Gross margin of ${formatPctMagnitude(margin)} carried ${costs}.`;
 }
 
@@ -199,6 +183,8 @@ export function incomeStatementTitle(set: PackFigureSet): string {
  * for six panels and the pack's trend series supports fewer — a title that
  * quietly said "trends" while drawing three of six would hide that from a
  * reader who cannot see what is missing.
+ *
+ * No scale: every figure in it is a percentage.
  */
 export function trendsTitle(trend: PackTrendPoint[], drawn: number, planned: number): string {
   if (trend.length === 0) {
@@ -214,81 +200,12 @@ export function trendsTitle(trend: PackTrendPoint[], drawn: number, planned: num
 }
 
 /**
- * How many scorecard targets were met, of those that could be scored.
- *
- * Lives beside `scorecardCaption`, which does the same counting, so page 9's
- * title and its caption cannot disagree about the score — two independent
- * counts of the same rows is exactly how a pack contradicts itself.
- */
-export function scorecardScore(groups: PackScorecardGroup[]): { met: number; total: number } {
-  const scored = groups
-    .flatMap((g) => g.rows)
-    .filter((r) => r.status === 'met' || r.status === 'missed');
-  return { met: scored.filter((r) => r.status === 'met').length, total: scored.length };
-}
-
-/**
- * One derived line per highlight tile — spec §4.A page 3's "derived one-liner
- * per tile".
- *
- * It carries no formatted figure on purpose: the tile prints the value itself
- * three centimetres away, and a second rendering of the same number here is
- * how a pack ends up disagreeing with itself over rounding. What the tile
- * cannot say is the DIRECTION's meaning, which is what this adds.
- */
-export function tileCaption(tile: PackKpiTile): string {
-  if (tile.figure.value === null) {
-    return `Not available. ${tile.figure.unavailable ?? ''}`.trim();
-  }
-  if (tile.delta === null) {
-    return 'No comparative period, so no movement is shown against this figure.';
-  }
-  const direction = tile.delta.value >= 0 ? 'Up' : 'Down';
-  const judgement = tile.delta.favourable ? 'a favourable' : 'an unfavourable';
-  return `${direction} ${formatPctMagnitude(tile.delta.value)} on the ${tile.delta.basis} — ${judgement} movement.`;
-}
-
-/**
- * Page 7's caption. Deliberately NOT `positionTitle`, which is the page's own
- * heading: a commentary block that restates the title pads the page's density
- * with an echo, which is the opposite of what spec §5.7's three-block rule is
- * for. This says what the title does not — how the near-term obligations are
- * covered.
- */
-export function positionCaption(set: PackFigureSet): string {
-  const { currentAssets, currentLiabilities } = set.current;
-  const workingCapital = currentAssets - currentLiabilities;
-  const cover = marginPct(currentAssets, currentLiabilities);
-  const coverClause = cover === null
-    ? 'Current liabilities are not a positive base, so no cover percentage is meaningful'
-    : `Current assets cover current liabilities ${formatPctMagnitude(cover)}`;
-  return `${coverClause}; working capital stands at ${formatMoney(workingCapital)}.`;
-}
-
-/**
- * Page 8's caption, and the place the cash bridge's plug is explained.
- *
- * `residual` is the movement in cash the three captured categories do not
- * account for. The bridge draws it as a named bar so the chart foots; a
- * reader must be told it is unexplained rather than left to assume it is
- * something we measured.
- */
-export function cashCaption(set: PackFigureSet, residual: number | null): string {
-  const ocf = set.current.operatingCashFlow;
-  const lead = ocf === undefined
-    ? 'No operating cash flow figure was captured for this period.'
-    : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${formatMoney(Math.abs(ocf))}.`;
-  if (residual === null || residual === 0) return lead;
-  return `${lead} ${formatMoney(Math.abs(residual))} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
-}
-
-/**
  * Spec §3.5's mandatory negative-equity disclosure, in one place.
  *
  * `NegativeEquityBlock.tsx` renders this and the page model carries it, and a
  * second copy of a MANDATORY disclosure is how the two drift until one of
  * them stops matching what the pack actually shows.
  */
-export function negativeEquitySentence(equity: number): string {
-  return `Total equity is ${formatMoney(equity)}. Liabilities exceed assets by this amount, which may affect covenant compliance and the going-concern assessment.`;
+export function negativeEquitySentence(equity: number, scale: MoneyScale): string {
+  return `Total equity is ${formatMoney(equity, { scale })}. Liabilities exceed assets by this amount, which may affect covenant compliance and the going-concern assessment.`;
 }

@@ -39,15 +39,15 @@
  * which governs two readings of ONE source and stays exact.
  */
 
+import { toMoneyScale } from '@/lib/format/money';
 import type { PackFigure } from './packFigureProvenance';
-import type { PackChartSpec, PackPagesDocument } from '../pages/packPageModel';
-import { checkWaterfall, disproportionatePlugSentence } from './packWaterfallIntegrity';
+import type { PackPagesDocument } from '../pages/packPageModel';
 import {
   checkCashBridgeEndpoints,
-  checkColumns,
   checkComparativePeriod,
   checkStatements,
 } from './packStatementIntegrity';
+import { checkBlocks } from './packBlockIntegrity';
 
 /** One basis point, in the percentage POINTS a `pct` figure is stated in. */
 const PCT_TOLERANCE = 0.01;
@@ -202,65 +202,6 @@ function checkQuotients(located: Located[]): string[] {
 }
 
 /**
- * Every sentence a page puts in front of a reader — disclosure notes and
- * rendered narrative. A mandatory disclosure is satisfied by the page SAYING
- * it, wherever it is carried, not by a particular block kind holding it.
- */
-function pageProse(page: PackPagesDocument['pages'][number]): string[] {
-  return page.blocks.flatMap((block) => {
-    if (block.kind === 'disclosure') return block.disclosure.notes.map((n) => n.body);
-    if (block.kind === 'narrative') return [block.narrative.body ?? ''];
-    return [];
-  });
-}
-
-/**
- * A bridge may lean on its plug, but the page may not stay quiet about it.
- *
- * The plug itself is accepted — see `disproportionatePlugSentence` for why a
- * disclosure and not a refusal. What is refused is drawing a plug that
- * outweighs what it is plugging and leaving the reader to notice: the bridge
- * foots, so nothing else in this gate would ever fire on it.
- */
-function checkPlugDisclosure(
-  page: PackPagesDocument['pages'][number],
-  chart: PackChartSpec,
-): string[] {
-  const sentence = disproportionatePlugSentence(chart);
-  if (sentence === null) return [];
-  if (pageProse(page).some((text) => text.includes(sentence))) return [];
-  return [
-    `Page ${page.number}'s bridge '${chart.id}' leans on an unmeasured step ` +
-      `and the page does not say so. It must carry: ${sentence}`,
-  ];
-}
-
-/** Checks 4 and 6, both of which walk the page blocks rather than figures. */
-function checkBlocks(doc: PackPagesDocument): string[] {
-  const failures: string[] = [];
-  for (const page of doc.pages) {
-    for (const block of page.blocks) {
-      if (block.kind === 'table') {
-        failures.push(...checkColumns(block.table, `Page ${page.number} table`));
-      } else if (block.kind === 'chart') {
-        if (block.chart.kind === 'waterfall') {
-          failures.push(...checkWaterfall(block.chart));
-          failures.push(...checkPlugDisclosure(page, block.chart));
-        }
-      } else if (block.kind === 'smallMultiples') {
-        for (const panel of block.panels) {
-          if (panel.kind === 'waterfall') {
-            failures.push(...checkWaterfall(panel));
-            failures.push(...checkPlugDisclosure(page, panel));
-          }
-        }
-      }
-    }
-  }
-  return failures;
-}
-
-/**
  * Refuse to render a pack whose figures do not reconcile.
  *
  * Reports EVERY failure rather than the first, for the reason
@@ -287,7 +228,20 @@ export function assertPackIntegrity(doc: PackPagesDocument): void {
   failures.push(...checkQuotients(located));
   failures.push(...checkCashBridgeEndpoints(doc));
   failures.push(...checkComparativePeriod(doc));
-  failures.push(...checkBlocks(doc));
+
+  // The document's own scale, narrowed. An unrecognised one is refused rather
+  // than defaulted: every figure on the pack is FORMATTED at this scale, and
+  // printing rands under a header that claims thousands is the 1000x misread
+  // (R-P52) the whole mechanism exists to stop.
+  const scale = toMoneyScale(doc.numberConvention.scale);
+  if (scale === null) {
+    failures.push(
+      `The pack states its figures in '${doc.numberConvention.scale}', which is not a scale ` +
+        `any formatter knows. Refusing to print figures at an unknown scale.`,
+    );
+  } else {
+    failures.push(...checkBlocks(doc, scale));
+  }
 
   if (failures.length > 0) {
     throw new Error(

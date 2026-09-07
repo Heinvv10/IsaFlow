@@ -17,6 +17,7 @@ import { PackFigureProvenance, type PackFigure } from '@/modules/accounting/serv
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import type { TrustedChartSvg } from '@/lib/charts/ssrSvg';
+import type { MoneyScale } from '@/lib/format/money';
 import type { PackChartSpec } from './packChartModel';
 import type { PackMatter } from './packMatters';
 
@@ -208,8 +209,17 @@ export interface PackPage {
  *  every table's `scale` against, so R'000 and R cannot both pass silently.
  *  Currency lives here, not again on `PackBasisOfPreparation`. */
 export interface PackNumberConvention {
-  /** e.g. "R'000". */
-  scale: string;
+  /**
+   * e.g. "R'000". Typed `MoneyScale`, not `string`: EVERY figure the pack
+   * prints — cell, tile, prose sentence, chart axis, bar label — is formatted
+   * at this scale, and a value no formatter recognises would print rands
+   * under a header claiming thousands. That is the 1000x misread R-P52
+   * exists to stop, so it is made unrepresentable rather than validated at
+   * each of the dozen render sites. `adoptPackPagesDocument` re-narrows it on
+   * the far side of the JSON boundary, where the type guarantee does not
+   * survive.
+   */
+  scale: MoneyScale;
   /** e.g. 'ZAR'. */
   currency: string;
 }

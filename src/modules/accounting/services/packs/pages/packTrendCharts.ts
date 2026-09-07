@@ -10,7 +10,7 @@
  * every name here, so existing import paths still resolve.
  */
 
-import { formatMoney } from '@/lib/format/money';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -62,16 +62,22 @@ const RATIO_PANELS: RatioPanel[] = [
   { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => `${n.toFixed(1)} days` },
 ];
 
-function moneyPanel(panel: MoneyPanel, trend: PackTrendPoint[], domain: { min: number; max: number }): PackChartSpec {
+function moneyPanel(
+  panel: MoneyPanel,
+  trend: PackTrendPoint[],
+  domain: { min: number; max: number },
+  scale: MoneyScale,
+): PackChartSpec {
   const points = trend.map((point) => ({ label: point.label, value: panel.pick(point) }));
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
   const direction = last >= first ? 'rose' : 'fell';
+  const money = (n: number) => formatMoney(n, { scale });
   return {
     id: panel.id,
-    title: `${panel.name} ${direction} from ${formatMoney(first)} to ${formatMoney(last)} over ${points.length} periods.`,
+    title: `${panel.name} ${direction} from ${money(first)} to ${money(last)} over ${points.length} periods.`,
     kind: 'line',
-    svg: renderChartSvg(smallMultipleOption(points, domain), PANEL),
+    svg: renderChartSvg(smallMultipleOption(points, domain, money), PANEL),
     heightMm: PANEL.heightMm,
   };
 }
@@ -98,19 +104,19 @@ function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[]): PackChartSpec |
     id: panel.id,
     title: `${panel.name} ${direction} from ${panel.format(first)} to ${panel.format(last)} over ${points.length} periods.`,
     kind: 'line',
-    svg: renderChartSvg(smallMultipleOption(points, domain), PANEL),
+    svg: renderChartSvg(smallMultipleOption(points, domain, panel.format), PANEL),
     heightMm: PANEL.heightMm,
   };
 }
 
-export function buildTrendPanels(trend: PackTrendPoint[]): PackChartSpec[] {
+export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): PackChartSpec[] {
   if (trend.length === 0) return [];
 
   // One row of panels, so ONE y-domain across the money panels (spec §4.A
   // page 10). Per-panel scales would draw a flat metric and a collapsing one
   // with the same apparent slope, which is a chart that misreports direction.
   const moneyDomain = sharedDomain(MONEY_PANELS.map((panel) => trend.map(panel.pick)));
-  const money = MONEY_PANELS.map((panel) => moneyPanel(panel, trend, moneyDomain));
+  const money = MONEY_PANELS.map((panel) => moneyPanel(panel, trend, moneyDomain, scale));
 
   // Spec order: revenue, gross margin %, operating expenses, net profit,
   // cash, debtor days.
@@ -138,18 +144,19 @@ const CASH_TREND_FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
  * Null when there is no trend series to plot — the same "say why, don't
  * invent" rule the rest of this file follows rather than opening at zero.
  */
-export function buildCashTrendChart(trend: PackTrendPoint[]): PackChartSpec | null {
+export function buildCashTrendChart(trend: PackTrendPoint[], scale: MoneyScale): PackChartSpec | null {
   if (trend.length === 0) return null;
   const points = trend.map((p) => ({ label: p.label, value: p.cash }));
   const domain = sharedDomain([points.map((p) => p.value)]);
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
   const direction = last >= first ? 'rose' : 'fell';
+  const money = (n: number) => formatMoney(n, { scale });
   return {
     id: 'cash-trend',
-    title: `Closing cash ${direction} from ${formatMoney(first)} to ${formatMoney(last)} over ${points.length} periods.`,
+    title: `Closing cash ${direction} from ${money(first)} to ${money(last)} over ${points.length} periods.`,
     kind: 'line',
-    svg: renderChartSvg(smallMultipleOption(points, domain), CASH_TREND_FULL),
+    svg: renderChartSvg(smallMultipleOption(points, domain, money), CASH_TREND_FULL),
     heightMm: CASH_TREND_FULL.heightMm,
   };
 }

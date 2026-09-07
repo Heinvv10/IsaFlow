@@ -30,7 +30,7 @@
  * beyond being a chart.
  */
 
-import { formatMoney } from '@/lib/format/money';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import { buildProfitWaterfall, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import {
@@ -107,8 +107,15 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
   return [...steps.slice(0, -1), step, closing];
 }
 
-/** Page 6 — revenue to net profit, IBCS notation. */
-export function buildProfitWaterfallChart(set: PackFigureSet): PackChartSpec {
+/**
+ * Page 6 — revenue to net profit, IBCS notation.
+ *
+ * @param scale The document's `numberConvention.scale`, for the TITLE, the
+ *   bar labels and the y-axis. The bridge's own `start`/`end` figures stay
+ *   raw — the integrity gate walks them, and scaling a model figure would
+ *   put a display transform where a check reads.
+ */
+export function buildProfitWaterfallChart(set: PackFigureSet, scale: MoneyScale): PackChartSpec {
   const f = set.current;
   const steps = buildProfitWaterfall({
     revenue: f.revenue,
@@ -122,9 +129,9 @@ export function buildProfitWaterfallChart(set: PackFigureSet): PackChartSpec {
   const bridged = withUncapturedStep(steps, f.netProfit);
   return {
     id: 'profit-bridge',
-    title: `Revenue of ${formatMoney(f.revenue)} bridges to net profit of ${formatMoney(f.netProfit)}.`,
+    title: `Revenue of ${formatMoney(f.revenue, { scale })} bridges to net profit of ${formatMoney(f.netProfit, { scale })}.`,
     kind: 'waterfall',
-    svg: renderChartSvg(waterfallOption(bridged), FULL),
+    svg: renderChartSvg(waterfallOption(bridged, scale), FULL),
     heightMm: FULL.heightMm,
     waterfallBars: toBars(bridged, PROFIT_UNCAPTURED_LABEL),
   };
@@ -153,7 +160,7 @@ export interface PackCashBridge {
   residual: number;
 }
 
-export function buildCashWaterfallChart(set: PackFigureSet): PackCashBridge | null {
+export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): PackCashBridge | null {
   const { current, prior } = set;
   if (prior === null) return null;
 
@@ -192,9 +199,9 @@ export function buildCashWaterfallChart(set: PackFigureSet): PackCashBridge | nu
     residual,
     chart: {
       id: 'cash-bridge',
-      title: `Cash moved from ${formatMoney(opening)} to ${formatMoney(current.cash)} over the period.`,
+      title: `Cash moved from ${formatMoney(opening, { scale })} to ${formatMoney(current.cash, { scale })} over the period.`,
       kind: 'waterfall',
-      svg: renderChartSvg(waterfallOption(steps), FULL),
+      svg: renderChartSvg(waterfallOption(steps, scale), FULL),
       heightMm: FULL.heightMm,
       waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL),
     },
@@ -202,7 +209,7 @@ export function buildCashWaterfallChart(set: PackFigureSet): PackCashBridge | nu
 }
 
 /** Page 7 — assets beside the funding that stands behind them, per period. */
-export function buildPositionCompositionChart(set: PackFigureSet): PackChartSpec {
+export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneyScale): PackChartSpec {
   const { current, prior } = set;
   const periods = prior ? ['Prior', 'Current'] : ['Current'];
   const at = (pick: (f: typeof current) => number): number[] =>
@@ -216,9 +223,9 @@ export function buildPositionCompositionChart(set: PackFigureSet): PackChartSpec
 
   return {
     id: 'position-composition',
-    title: `Assets of ${formatMoney(current.totalAssets)} stand on liabilities of ${formatMoney(current.totalLiabilities)} and equity of ${formatMoney(current.totalEquity)}.`,
+    title: `Assets of ${formatMoney(current.totalAssets, { scale })} stand on liabilities of ${formatMoney(current.totalLiabilities, { scale })} and equity of ${formatMoney(current.totalEquity, { scale })}.`,
     kind: 'bar',
-    svg: renderChartSvg(compositionBarOption(periods, series), FULL),
+    svg: renderChartSvg(compositionBarOption(periods, series, scale), FULL),
     heightMm: FULL.heightMm,
   };
 }

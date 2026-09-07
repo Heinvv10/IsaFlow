@@ -26,7 +26,7 @@
  * nothing about the gap.
  */
 
-import { formatMoney } from '@/lib/format/money';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import type { PackChartSpec, PackWaterfallBar } from '../pages/packPageModel';
 
 /** One cent. Money figures are raw rands (R-P52), so this is absolute. */
@@ -170,7 +170,7 @@ export function uncapturedShare(bars: PackWaterfallBar[]): number | null {
  * check on it drift apart, and the drift is invisible until the day the
  * disclosure is missing and the gate still passes.
  */
-export function disproportionatePlugSentence(chart: PackChartSpec): string | null {
+export function disproportionatePlugSentence(chart: PackChartSpec, scale: MoneyScale): string | null {
   const bars = chart.waterfallBars;
   if (bars === undefined) return null;
   const share = uncapturedShare(bars);
@@ -181,9 +181,11 @@ export function disproportionatePlugSentence(chart: PackChartSpec): string | nul
   // `formatMoney`, not the raw `money` above: this sentence is printed on the
   // page, where a director reads it, while the failure messages in this file
   // are read by whoever is fixing the pack and want the unrounded figure.
+  // At the DOCUMENT's scale, like every other figure a reader sees. It printed
+  // raw rands beside a table stated in R'000, on the same page.
   const amount = formatMoney(
     plug.reduce((sum, bar) => sum + Math.abs(bar.end - bar.start), 0),
-    { symbol: true },
+    { symbol: true, scale },
   );
   const pct = Number.isFinite(share) ? `${(share * 100).toFixed(0)}%` : 'more than the whole';
   return (

@@ -4,6 +4,16 @@
  */
 import { StatementGrid } from '@/components/accounting/statement/StatementGrid';
 import { waterfallOption, trendOption } from '@/modules/accounting/services/packs/packChartOptions';
+import type { MoneyScale } from '@/lib/format/money';
+
+/**
+ * The legacy accordion pack states every figure in RANDS — it carries no
+ * `numberConvention` and its KV items are formatted unscaled (`packKvFormat`).
+ * Stated here rather than defaulted inside `waterfallOption`, because a
+ * default is what let the fixed-page pack draw rand axes under an `R'000`
+ * header; this pack's charts and its own tables agree at 'R'.
+ */
+const LEGACY_PACK_SCALE: MoneyScale = 'R';
 import type { PackBlock, PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
 import { formatPackKv, scorecardFigure } from '@/modules/accounting/services/packs/packKvFormat';
 import { PackChart } from './PackChart';
@@ -57,12 +67,12 @@ function Block({ block }: { block: PackBlock }) {
       );
 
     case 'waterfall':
-      return <PackChart option={waterfallOption(block.steps)} />;
+      return <PackChart option={waterfallOption(block.steps, LEGACY_PACK_SCALE)} />;
 
     case 'trend':
       // Revenue is the series a reader quotes off a twelve-month page; the
       // other two are on the statements a page earlier.
-      return <PackChart option={trendOption(block.points.map((p) => ({ label: p.label, value: p.revenue })))} />;
+      return <PackChart option={trendOption(block.points.map((p) => ({ label: p.label, value: p.revenue })), LEGACY_PACK_SCALE)} />;
 
     case 'text':
       return <p className="text-sm text-[var(--ff-text-secondary)]">{block.text}</p>;

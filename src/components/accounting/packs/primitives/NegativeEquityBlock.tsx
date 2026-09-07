@@ -10,18 +10,23 @@
  * for it to say.
  */
 import { negativeEquitySentence } from '@/modules/accounting/services/packs/narrative/derivedSentences';
+import type { MoneyScale } from '@/lib/format/money';
 
 export interface NegativeEquityBlockProps {
   equity: number;
+  /** The document's `numberConvention.scale` — see `formatFigureText`. This
+   *  block prints a rand amount, so it takes the scale the rest of the page
+   *  prints at rather than assuming rands. */
+  scale: MoneyScale;
 }
 
-export function NegativeEquityBlock({ equity }: NegativeEquityBlockProps) {
+export function NegativeEquityBlock({ equity, scale }: NegativeEquityBlockProps) {
   if (equity >= 0) return null;
 
   return (
     <div className="pack-disclosure pack-disclosure-negative-equity">
       <h3 className="pack-disclosure-heading">Negative equity</h3>
-      <p className="pack-disclosure-body">{negativeEquitySentence(equity)}</p>
+      <p className="pack-disclosure-body">{negativeEquitySentence(equity, scale)}</p>
     </div>
   );
 }

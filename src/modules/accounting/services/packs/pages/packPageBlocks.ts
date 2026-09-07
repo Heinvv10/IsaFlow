@@ -20,6 +20,7 @@ import {
   trendsCaption,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { TRENDS_PANELS_SPECIFIED, type PackCashBridge } from './packPageCharts';
+import type { MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_NOTE } from './packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
@@ -65,7 +66,7 @@ const SPARKLINE_FOOTNOTE = 1;
  *  its delta and the basis that delta is measured against. */
 export function buildHighlightsBlocks(
   tiles: PackKpiTile[],
-  scale: string,
+  scale: MoneyScale,
   currency: string,
 ): { blocks: PackPageBlock[]; footnotes: PackFootnote[] } {
   const highlightTiles = tiles.map((tile) =>
@@ -120,18 +121,19 @@ export function buildPositionBlocks(
   position: PackTable,
   compositionChart: PackChartSpec,
   set: PackFigureSet,
+  scale: MoneyScale,
 ): PackPageBlock[] {
   const positionBlocks: PackPageBlock[] = [
     { kind: 'table', table: position },
     { kind: 'chart', chart: compositionChart },
-    commentary(positionCaption(set)),
+    commentary(positionCaption(set, scale)),
   ];
   const equity = set.current.totalEquity;
   if (equity < 0) {
     positionBlocks.push(disclose('Negative equity', [
       // One sentence, shared with `NegativeEquityBlock` — a second copy of a
       // MANDATORY §3.5 disclosure is how the two drift apart.
-      note('Consequence', negativeEquitySentence(equity)),
+      note('Consequence', negativeEquitySentence(equity, scale)),
     ]));
   }
   return positionBlocks;
@@ -144,6 +146,7 @@ export function buildCashBlocks(
   cashBridge: PackCashBridge | null,
   cashTrend: PackChartSpec | null,
   set: PackFigureSet,
+  scale: MoneyScale,
 ): PackPageBlock[] {
   const cashBlocks: PackPageBlock[] = [{ kind: 'table', table: cash }];
   if (cashBridge) {
@@ -153,7 +156,7 @@ export function buildCashBlocks(
     // bar that dwarfs its own subject needs saying out loud rather than
     // merely labelling. The gate requires this sentence whenever the share
     // breaches; the sentence itself is defined once, beside the check.
-    const disproportionate = disproportionatePlugSentence(cashBridge.chart);
+    const disproportionate = disproportionatePlugSentence(cashBridge.chart, scale);
     if (disproportionate !== null) {
       cashBlocks.push(disclose('How much of this bridge is unexplained', [
         note('Size of the unexplained step', disproportionate),
@@ -172,7 +175,7 @@ export function buildCashBlocks(
     ]));
   }
   cashBlocks.push(disclose('Commentary', [
-    note('This period', cashCaption(set, cashBridge?.residual ?? null)),
+    note('This period', cashCaption(set, cashBridge?.residual ?? null, scale)),
   ]));
   return cashBlocks;
 }

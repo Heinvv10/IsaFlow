@@ -25,6 +25,7 @@ import type { PackMatter } from '@/modules/accounting/services/packs/pages/packM
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import { formatMoney, formatPctMagnitude, toMoneyScale } from '@/lib/format/money';
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import { TRENDS_PANELS_SPECIFIED } from '@/modules/accounting/services/packs/pages/packPageCharts';
@@ -330,8 +331,10 @@ describe('buildBoardPackPages', () => {
     expect(points).toHaveLength(trend.length);
     // The closing value is labelled directly on the chart (spec §4.A's
     // end-labelled small multiple), so the figure itself is checkable in the
-    // SVG, not just in the title string.
-    expect(chart.svg).toContain(formatMoney(trend[trend.length - 1]!.cash));
+    // SVG, not just in the title string — AT THE DOCUMENT'S SCALE, which is
+    // what an end label on a chart under an R'000 header must print (R-P52).
+    expect(chart.svg).toContain(formatMoney(trend[trend.length - 1]!.cash, { scale: PACK_SCALE }));
+    expect(chart.svg).not.toContain(formatMoney(trend[trend.length - 1]!.cash));
     expect(disclosureHeadings(doc.pages.find((p) => p.number === 8)!)).not.toContain('No closing-cash series');
   });
 
@@ -431,9 +434,11 @@ describe('buildBoardPackPages', () => {
     expect(tile.figure.value).not.toBeNull();
     expect(row.figures.actual!.value).toBe(tile.figure.value);
 
-    // Page 5's title states the operating profit. It must be THAT number.
+    // Page 5's title states the operating profit. It must be THAT number, at
+    // the scale the tile beside it prints — the title is prose and prose was
+    // the layer that printed raw rands under an R'000 header (R-P52).
     expect(noOperatingLine.pages.find((p) => p.number === 5)!.title)
-      .toContain(formatMoney(tile.figure.value!));
+      .toContain(formatMoney(tile.figure.value!, { scale: PACK_SCALE }));
 
     // Page 3's title states the operating margin. It must be THAT number over
     // this period's revenue, not a margin taken on a defaulted zero.

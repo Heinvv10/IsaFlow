@@ -11,6 +11,7 @@
  * the same shape.
  */
 import { describe, expect, it } from 'vitest';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import {
   disproportionatePlugSentence,
@@ -212,8 +213,11 @@ describe('assertPackIntegrity — bridges', () => {
       { label: 'Closing cash', start: 0, end: 610_000, kind: 'close' },
     ];
     const chart = chartOf('cash-bridge', bars);
-    const said = disproportionatePlugSentence(chart)!;
-    expect(said).toMatch(/R 266 000/);
+    const said = disproportionatePlugSentence(chart, PACK_SCALE)!;
+    // At the document's scale, like every other figure on the page: R266 000
+    // under an R'000 header prints as `R 266`.
+    expect(said).toMatch(/R 266\b/);
+    expect(said).not.toMatch(/R 266 000/);
     const blocks: PackPageBlock[] = [
       { kind: 'chart', chart },
       { kind: 'disclosure', disclosure: { heading: 'How much of this bridge is unexplained', notes: [{ heading: 'Size', body: said }] } },
@@ -235,7 +239,7 @@ describe('assertPackIntegrity — bridges', () => {
     ];
     const chart = chartOf('cash-bridge', bars);
     expect(uncapturedShare(bars)).toBeCloseTo(12_000 / 124_000, 6);
-    expect(disproportionatePlugSentence(chart)).toBeNull();
+    expect(disproportionatePlugSentence(chart, PACK_SCALE)).toBeNull();
     expect(() => assertPackIntegrity(docOf(p, [{ kind: 'chart', chart }]))).not.toThrow();
   });
 
@@ -253,7 +257,7 @@ describe('assertPackIntegrity — bridges', () => {
     // 266,000 is 2.7% of the R10m endpoint — invisible — but 214% of the
     // R124,000 the bridge actually explains.
     expect(uncapturedShare(bars)).toBeCloseTo(266_000 / 124_000, 6);
-    expect(disproportionatePlugSentence(chartOf('cash-bridge', bars))).not.toBeNull();
+    expect(disproportionatePlugSentence(chartOf('cash-bridge', bars), PACK_SCALE)).not.toBeNull();
   });
 
   it('does not let a disclosure on another page cover this page\'s bridge', () => {
@@ -265,7 +269,7 @@ describe('assertPackIntegrity — bridges', () => {
     const p = new PackFigureProvenance();
     balanced(p);
     const chart = chartOf('cash-bridge', LEANING_BARS);
-    const said = disproportionatePlugSentence(chart)!;
+    const said = disproportionatePlugSentence(chart, PACK_SCALE)!;
     const doc = docOfPages(p, [
       page([{ kind: 'chart', chart }], 8),
       page([saying(said)], 9),
@@ -281,7 +285,7 @@ describe('assertPackIntegrity — bridges', () => {
     const p = new PackFigureProvenance();
     balanced(p);
     const chart = chartOf('cash-bridge', LEANING_BARS);
-    const said = disproportionatePlugSentence(chart)!;
+    const said = disproportionatePlugSentence(chart, PACK_SCALE)!;
     const doc = docOfPages(p, [
       page([{ kind: 'chart', chart }, saying(said)], 8),
       page([], 9),

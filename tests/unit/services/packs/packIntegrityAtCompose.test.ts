@@ -10,6 +10,7 @@
  * a director would actually be handed.
  */
 import { describe, expect, it } from 'vitest';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import {
   disproportionatePlugSentence,
@@ -106,7 +107,7 @@ describe('buildBoardPackPages calls the gate', () => {
         .find((c) => c.kind === 'waterfall')!;
       const share = uncapturedShare(chart.waterfallBars!);
       expect(share, `page ${number} share`).toBeGreaterThan(0.1);
-      const said = disproportionatePlugSentence(chart)!;
+      const said = disproportionatePlugSentence(chart, PACK_SCALE)!;
       const prose = pg.blocks.flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes.map((n) => n.body) : []));
       expect(prose.some((t) => t.includes(said)), `page ${number} prose`).toBe(true);
     }

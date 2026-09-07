@@ -35,6 +35,7 @@
  */
 
 import { adoptTrustedChartSvg, type TrustedChartSvg } from '@/lib/charts/trustedChartSvg';
+import { toMoneyScale } from '@/lib/format/money';
 import {
   PackFigureProvenance,
   type PackFigure,
@@ -180,9 +181,25 @@ function replayProvenance(figures: PackFigure[]): PackFigureProvenance {
  * director.
  */
 export function adoptPackPagesDocument(raw: SerialisedPackPagesDocument): PackPagesDocument {
-  const { provenance, pages, ...rest } = raw;
+  const { provenance, pages, numberConvention, ...rest } = raw;
+
+  // `PackNumberConvention.scale` is typed `MoneyScale`, and a type guarantee
+  // does not survive `JSON.parse` — the same reason every SVG is re-branded
+  // above. Re-narrowed rather than trusted: every figure on the pack is
+  // FORMATTED at this scale, so an unrecognised one would print rands under
+  // a header claiming thousands (R-P52).
+  const scale = toMoneyScale(numberConvention.scale);
+  if (scale === null) {
+    throw new Error(
+      `adoptPackPagesDocument: the pack states its figures in ` +
+        `'${numberConvention.scale}', which is not a scale any formatter knows. ` +
+        `Refusing to print figures at an unknown scale.`,
+    );
+  }
+
   return {
     ...rest,
+    numberConvention: { ...numberConvention, scale },
     pages: pages.map(adoptPage),
     provenance: replayProvenance(provenance),
   };

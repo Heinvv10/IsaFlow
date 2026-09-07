@@ -148,19 +148,19 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const cash = buildCashTable(set, p);
   const scorecard = buildScorecardGroups(set, p);
   const score = scorecardScore(scorecard);
-  const cashBridge = buildCashWaterfallChart(set);
-  const cashTrend = buildCashTrendChart(trend);
-  const panels = buildTrendPanels(trend);
+  const cashBridge = buildCashWaterfallChart(set, scale);
+  const cashTrend = buildCashTrendChart(trend, scale);
+  const panels = buildTrendPanels(trend, scale);
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
   const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency);
-  const highlights = page(3, highlightsTitle(set), 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
+  const highlights = page(3, highlightsTitle(set, scale), 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
 
   // Page 5 — the table every later number traces back to, and the five
   // headline tiles beneath it. The tiles are the SAME objects page 3 carries,
   // so the two pages cannot print different values for one figure.
-  const snapshot = page(5, resultsTitle(set), 'Financials', 'high', [
+  const snapshot = page(5, resultsTitle(set, scale), 'Financials', 'high', [
     { kind: 'table', table: results },
     { kind: 'kpiTiles', tiles: tiles.slice(0, 5) },
     commentary(largestMoverCaption(results.rows)),
@@ -170,16 +170,16 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // interest and tax, which no field carries. Where that step is a material
   // share of the figure the bridge lands on, the page must say so, and the
   // integrity gate refuses a pack that draws it silently.
-  const profitBridge = buildProfitWaterfallChart(set);
-  const profitPlug = disproportionatePlugSentence(profitBridge);
+  const profitBridge = buildProfitWaterfallChart(set, scale);
+  const profitPlug = disproportionatePlugSentence(profitBridge, scale);
   const profitBridgeCaveat: PackPageBlock[] = profitPlug === null
     ? []
     : [disclose('How much of this bridge is unexplained', [
         note('Size of the unexplained step', profitPlug),
       ])];
 
-  const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set);
-  const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set), set);
+  const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set, scale);
+  const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
   const trendBlocks = buildTrendBlocks(panels);
 
   const pages: PackPage[] = [
@@ -198,18 +198,18 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // figures; the commentary and the board's action items are both carried
     // by the one `PackNarrative`, which is what `NarrativeColumns` renders as
     // its two columns.
-    page(4, narrativeTitle(set), 'Performance', 'medium', [
+    page(4, narrativeTitle(set, scale), 'Performance', 'medium', [
       { kind: 'narrative', narrative: input.commentary ?? pending },
     ]),
     snapshot,
-    page(6, incomeStatementTitle(set), 'Financials', 'high', [
+    page(6, incomeStatementTitle(set, scale), 'Financials', 'high', [
       { kind: 'table', table: income },
       { kind: 'chart', chart: profitBridge },
       commentary(largestMoverCaption(income.rows)),
       ...profitBridgeCaveat,
     ], 'portrait', statementNotes),
-    page(7, positionTitle(set), 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
-    page(8, cashTitle(set), 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
+    page(7, positionTitle(set, scale), 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
+    page(8, cashTitle(set, scale), 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
     page(9, scorecardTitle(score.met, score.total), 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
       commentary(scorecardCaption(scorecard)),

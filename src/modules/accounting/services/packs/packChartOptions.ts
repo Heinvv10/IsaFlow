@@ -24,9 +24,19 @@
  * summed. The number PRINTED on the bar is `step.value` exactly as the
  * service produced it — never a value derived from the rect.
  *
- * SECURITY: ECharts' `tooltip.formatter` renders its return value as HTML.
- * Every label below is ledger-sourced text (an account or step name), so it
- * is escaped before interpolation — see `escapeHtml.ts`.
+ * SECURITY: the tooltip formatters render their return value as HTML and
+ * every label is ledger-sourced text, so they escape before interpolating.
+ * They live in `packChartAxes.ts` with the money axis — see the note there.
+ *
+ * SCALE. Every money string a chart draws — the y-axis ticks, the number
+ * printed on a waterfall bar, the tooltip — goes through `formatMoney` with
+ * the DOCUMENT's scale, and the y-axis carries that scale as its axis name.
+ * The data stays raw: `api.coord` needs the real values or the geometry
+ * moves. Before this the axis of a chart sitting under an `R'000` table ran
+ * to `-1,500,000` and a bar was labelled `(1 331 781)` beside a table cell
+ * reading `(1 332)`. It is also where `-532,331.6000000001` came from —
+ * ECharts' default axis formatter is `String(value)`, and a float tick has
+ * no reason to be round.
  */
 import type { EChartsCoreOption } from 'echarts/core';
 import type {
@@ -35,38 +45,21 @@ import type {
   CustomSeriesRenderItemParams,
 } from 'echarts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
-import { formatMoney } from '@/lib/format/money';
-import { FALLBACK } from '@/lib/charts/theme';
-import { escapeHtml } from './escapeHtml';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import {
+  axisDomain,
+  compositionTooltip,
+  labelTooltipFormatter,
+  moneyValueAxis,
+  DEFAULT_CHART_PALETTE,
+  type ChartPalette,
+} from './packChartAxes';
 
-/** The shape of an ECharts tooltip-formatter callback param this module
- *  actually reads. Declared locally: `echarts/core` does not export its
- *  internal `CallbackDataParams` / `TopLevelFormatterParams` types. */
-interface TooltipDataParam {
-  dataIndex: number;
-  seriesName?: string;
-  value?: number;
-}
-type TopLevelFormatterParams = TooltipDataParam | TooltipDataParam[];
-
-export interface ChartPalette {
-  ink: string;
-  fav: string;
-  unfav: string;
-  prior: string;
-  axis: string;
-}
-
-/** `axis` is the theme's `textTertiary`: the axis labels and ticks are the
- *  same grey as tertiary text everywhere else in the app. The other four map
- *  one-to-one. */
-export const DEFAULT_CHART_PALETTE: ChartPalette = {
-  ink: FALLBACK.ink,
-  fav: FALLBACK.fav,
-  unfav: FALLBACK.unfav,
-  prior: FALLBACK.prior,
-  axis: FALLBACK.textTertiary,
-};
+/** The palette and its type live in `packChartAxes.ts` with the money axis
+ *  they colour, and are re-exported here because every existing caller —
+ *  and every existing test — imports them from this module. */
+export { DEFAULT_CHART_PALETTE } from './packChartAxes';
+export type { ChartPalette } from './packChartAxes';
 
 export interface TrendPoint {
   label: string;
@@ -83,11 +76,7 @@ function stepColour(step: WaterfallStep, palette: ChartPalette): string {
   return step.end - step.start >= 0 ? palette.fav : palette.unfav;
 }
 
-function axisDomain(values: number[]): { min: number; max: number } {
-  return { min: Math.min(0, ...values), max: Math.max(0, ...values) };
-}
-
-function makeWaterfallRenderItem(steps: WaterfallStep[], palette: ChartPalette): CustomSeriesRenderItem {
+function makeWaterfallRenderItem(steps: WaterfallStep[], palette: ChartPalette, scale: MoneyScale): CustomSeriesRenderItem {
   return function renderItem(params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) {
     const step = steps[params.dataIndex];
     if (!step) return undefined;
@@ -112,7 +101,7 @@ function makeWaterfallRenderItem(steps: WaterfallStep[], palette: ChartPalette):
         {
           type: 'text',
           style: {
-            text: formatMoney(step.value),
+            text: formatMoney(step.value, { scale }),
             x: x + width / 2,
             y: y - 4,
             fill: palette.ink,
@@ -125,31 +114,23 @@ function makeWaterfallRenderItem(steps: WaterfallStep[], palette: ChartPalette):
   };
 }
 
-function firstParam(params: TopLevelFormatterParams): TooltipDataParam | undefined {
-  return Array.isArray(params) ? params[0] : params;
-}
-
-/** The tooltip printed the raw number — `1234567.89` where the bar's own
- *  label, the statement three centimetres away and the deck all said
- *  "1 234 568". Same figure, three renderings, and the one a reader hovers to
- *  CHECK a number was the odd one out. `formatMoney` is the app's single
- *  money formatting rule; a negative comes back in parentheses like every
- *  other statement figure. */
-function labelTooltipFormatter(labels: string[], values: number[]) {
-  return (params: TopLevelFormatterParams): string => {
-    const idx = firstParam(params)?.dataIndex ?? 0;
-    const label = labels[idx] ?? '';
-    const value = values[idx] ?? 0;
-    return `${escapeHtml(label)}: ${formatMoney(value)}`;
-  };
-}
-
-export function waterfallOption(steps: WaterfallStep[], palette: ChartPalette = DEFAULT_CHART_PALETTE): EChartsCoreOption {
+/**
+ * @param scale The document's `numberConvention.scale`. REQUIRED — a bridge
+ *   drawn in rands beneath a table stated in `R'000` is the 1000x misread
+ *   R-P52 exists to stop, and a default would make the unsafe path the easy
+ *   one. The step DATA stays raw: `api.coord` maps it to pixels, so scaling
+ *   it would move the geometry rather than the labels.
+ */
+export function waterfallOption(
+  steps: WaterfallStep[],
+  scale: MoneyScale,
+  palette: ChartPalette = DEFAULT_CHART_PALETTE,
+): EChartsCoreOption {
   return {
     animation: false,
-    grid: { left: 80, right: 24, top: 24, bottom: 72 },
+    grid: { left: 80, right: 24, top: 32, bottom: 72 },
     tooltip: {
-      formatter: labelTooltipFormatter(steps.map((s) => s.label), steps.map((s) => s.value)),
+      formatter: labelTooltipFormatter(steps.map((s) => s.label), steps.map((s) => s.value), scale),
     },
     xAxis: {
       type: 'category',
@@ -157,18 +138,12 @@ export function waterfallOption(steps: WaterfallStep[], palette: ChartPalette = 
       axisLabel: { color: palette.axis, interval: 0, rotate: 30 },
       axisLine: { lineStyle: { color: palette.axis } },
     },
-    yAxis: {
-      type: 'value',
-      ...axisDomain(steps.flatMap((s) => [s.start, s.end])),
-      axisLabel: { color: palette.axis },
-      axisLine: { lineStyle: { color: palette.axis } },
-      splitLine: { lineStyle: { color: palette.prior } },
-    },
+    yAxis: moneyValueAxis(palette, scale, axisDomain(steps.flatMap((s) => [s.start, s.end]))),
     series: [
       {
         name: 'waterfall',
         type: 'custom',
-        renderItem: makeWaterfallRenderItem(steps, palette),
+        renderItem: makeWaterfallRenderItem(steps, palette, scale),
         clip: true,
         data: steps.map((s) => [s.start, s.end]),
       },
@@ -176,12 +151,16 @@ export function waterfallOption(steps: WaterfallStep[], palette: ChartPalette = 
   };
 }
 
-export function trendOption(points: TrendPoint[], palette: ChartPalette = DEFAULT_CHART_PALETTE): EChartsCoreOption {
+export function trendOption(
+  points: TrendPoint[],
+  scale: MoneyScale,
+  palette: ChartPalette = DEFAULT_CHART_PALETTE,
+): EChartsCoreOption {
   return {
     animation: false,
-    grid: { left: 80, right: 24, top: 24, bottom: 64 },
+    grid: { left: 80, right: 24, top: 32, bottom: 64 },
     tooltip: {
-      formatter: labelTooltipFormatter(points.map((p) => p.label), points.map((p) => p.value)),
+      formatter: labelTooltipFormatter(points.map((p) => p.label), points.map((p) => p.value), scale),
     },
     xAxis: {
       type: 'category',
@@ -189,12 +168,7 @@ export function trendOption(points: TrendPoint[], palette: ChartPalette = DEFAUL
       axisLabel: { color: palette.axis, interval: 0, rotate: 30 },
       axisLine: { lineStyle: { color: palette.axis } },
     },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: palette.axis },
-      axisLine: { lineStyle: { color: palette.axis } },
-      splitLine: { lineStyle: { color: palette.prior } },
-    },
+    yAxis: moneyValueAxis(palette, scale),
     series: [
       {
         name: 'Actual',
@@ -222,15 +196,6 @@ export interface CompositionSeries {
  *  contradicts the app's chart theme. */
 const COMPOSITION_BANDS = ['ink', 'unfav', 'fav', 'prior'] as const;
 
-function compositionTooltip() {
-  return (params: TopLevelFormatterParams): string => {
-    const list = Array.isArray(params) ? params : [params];
-    return list
-      .map((p) => `${escapeHtml(p.seriesName ?? '')}: ${formatMoney(Number(p.value ?? 0))}`)
-      .join('<br/>');
-  };
-}
-
 /**
  * Spec §4.A page 7's composition bar — one stacked bar per period.
  *
@@ -243,12 +208,13 @@ function compositionTooltip() {
 export function compositionBarOption(
   categories: string[],
   series: CompositionSeries[],
+  scale: MoneyScale,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
 ): EChartsCoreOption {
   return {
     animation: false,
-    grid: { left: 80, right: 24, top: 32, bottom: 64 },
-    tooltip: { formatter: compositionTooltip() },
+    grid: { left: 80, right: 24, top: 40, bottom: 64 },
+    tooltip: { formatter: compositionTooltip(scale) },
     legend: { bottom: 0, textStyle: { color: palette.axis } },
     xAxis: {
       type: 'category',
@@ -256,12 +222,7 @@ export function compositionBarOption(
       axisLabel: { color: palette.axis, interval: 0 },
       axisLine: { lineStyle: { color: palette.axis } },
     },
-    yAxis: {
-      type: 'value',
-      axisLabel: { color: palette.axis },
-      axisLine: { lineStyle: { color: palette.axis } },
-      splitLine: { lineStyle: { color: palette.prior } },
-    },
+    yAxis: moneyValueAxis(palette, scale),
     series: series.map((band, index) => ({
       name: band.name,
       type: 'bar',
