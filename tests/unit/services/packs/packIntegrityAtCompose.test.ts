@@ -124,23 +124,40 @@ describe('buildBoardPackPages calls the gate', () => {
     expect(basisNotes.some((n) => n.heading === 'Comparative period' && /None\./.test(n.body))).toBe(true);
   });
 
-  it('does not hold the operating line to a formula the classifier does not use (I-2)', () => {
-    // Why operating profit is NOT an identity while gross profit is. Gross
-    // profit is derived by the pack — revenue less cost of sales, both
-    // recorded — so it is checkable. The operating line is READ from the
-    // classifier, and the classifier's answer is not the naive formula: on
-    // the demo figures it is 735,000 where revenue − cost of sales + other
-    // income − operating expenses gives 750,000, the 15,000 difference being
-    // other expenses, which the classifier puts above the line and the
-    // formula omits. An identity asserting the formula would fail this
-    // honest pack. What DOES hold the line together is that every page reads
-    // it through one source, which `assertConsistent` already enforces.
+  it('reads the operating line the classifier computes, which excludes other expenses (I-2)', () => {
+    // THIS TEST USED TO DOCUMENT THE OPPOSITE, AND THE BELIEF SHIPPED A
+    // STATEMENT THAT DID NOT FOOT.
+    //
+    // It read: "the classifier's answer is not the naive formula: on the demo
+    // figures it is 735,000 where revenue − cost of sales + other income −
+    // operating expenses gives 750,000, the 15,000 difference being other
+    // expenses, which the classifier puts above the line". The classifier
+    // does no such thing. `aggregateFigures` is two consecutive lines —
+    // `operatingProfit = grossProfit + otherIncome − operatingExpenses` and
+    // `netProfit = operatingProfit − otherExpenses` — so other expenses is
+    // BELOW the operating line, and `operatingProfitOf`'s documented fallback
+    // says the same. 735 000 was a hand-written fixture value with the other
+    // expenses already taken off, and this test pinned it.
+    //
+    // What it cost: page 6 printed Other expenses inside the operating block,
+    // above a subtotal that excludes it, and a director summing the visible
+    // rows of the Brightsphere pack got (1 408) where the row printed
+    // (1 819). Nil on the demo company, so no fixture could see it.
+    //
+    // What still holds is the ORIGINAL point, which was right: the pack READS
+    // the line rather than recomputing it, so a classifier that changes its
+    // mind moves every page at once. That is asserted below on a figure set
+    // whose supplied line disagrees with the formula.
     const f = demoSet.current;
-    const naive = f.revenue - f.costOfSales + (f.otherIncome ?? 0) - f.operatingExpenses;
-    expect(operatingProfitOf(f)).toBe(735_000);
-    expect(naive).toBe(750_000);
-    expect(naive - operatingProfitOf(f)).toBe(f.otherExpenses);
-    // And the pack renders, which it would not if the formula were asserted.
+    const formula = f.revenue - f.costOfSales + (f.otherIncome ?? 0) - f.operatingExpenses;
+    expect(operatingProfitOf(f)).toBe(750_000);
+    expect(formula).toBe(750_000);
+    expect(f.netProfit).toBe(f.operatingProfit! - f.otherExpenses - 223_000);
+
+    // READ, not recomputed: a supplied line that differs from the formula is
+    // the one the pack prints.
+    expect(operatingProfitOf({ ...f, operatingProfit: 1 })).toBe(1);
+
     expect(() => buildBoardPackPages(demoInput)).not.toThrow();
   });
 

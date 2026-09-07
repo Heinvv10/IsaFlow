@@ -172,8 +172,26 @@ export function buildIncomeStatementTable(set: PackFigureSet, p: PackFigureProve
     { label: 'Gross profit', key: 'is.grossProfit', source: 'packStatementTables.grossProfit', role: 'subtotal', actual: grossProfitOf(current), prior: prior ? grossProfitOf(prior) : null },
     { label: 'Operating expenses', key: 'is.operatingExpenses', source: 'packFigureSet.current.operatingExpenses', level: 1, actual: current.operatingExpenses, prior: prior?.operatingExpenses ?? null },
     { label: 'Other income', key: 'is.otherIncome', source: 'packFigureSet.current.otherIncome', level: 1, actual: current.otherIncome ?? 0, prior: prior?.otherIncome ?? null },
-    { label: 'Other expenses', key: 'is.otherExpenses', source: 'packFigureSet.current.otherExpenses', level: 1, actual: current.otherExpenses ?? 0, prior: prior?.otherExpenses ?? null },
     { label: 'Operating profit', key: 'is.operating', source: OPERATING_PROFIT_SOURCE, role: 'subtotal', actual: operatingProfitOf(current), prior: prior ? operatingProfitOf(prior) : null },
+    // BELOW THE OPERATING LINE, BECAUSE THAT IS WHERE THE COMPUTATION PUTS IT.
+    //
+    // `aggregateFigures` is explicit — `operatingProfit = grossProfit +
+    // otherIncome − operatingExpenses` and `netProfit = operatingProfit −
+    // otherExpenses` — so other expenses is a NON-OPERATING item in this
+    // ledger's own income statement, and `operatingProfitOf`'s fallback says
+    // the same. This table printed it INSIDE the operating block anyway: a
+    // director summing the visible rows down to Operating profit on the
+    // Brightsphere pack got (1 408) where the subtotal printed (1 819), the
+    // difference being the 411 of other expenses standing above a subtotal
+    // that excludes it. The figures were right and the layout contradicted
+    // them.
+    //
+    // It is nil on the demo company, so the demo data hid this completely —
+    // the same fixture-against-live lesson as the matters budget. The rest of
+    // the platform already lays it out this way: see
+    // `incomeStatementPackRows`, which puts Other Expenses after Operating
+    // Profit.
+    { label: 'Other expenses', key: 'is.otherExpenses', source: 'packFigureSet.current.otherExpenses', level: 1, actual: current.otherExpenses ?? 0, prior: prior?.otherExpenses ?? null },
     { label: 'Net profit', key: 'is.netProfit', source: 'packFigureSet.current.netProfit', role: 'total', actual: current.netProfit, prior: prior?.netProfit ?? null },
   ], set, true);
 }

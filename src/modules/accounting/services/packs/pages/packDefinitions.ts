@@ -168,6 +168,20 @@ export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): P
   const operating = operatingProfitOf(current);
   const ebitda = calculateExtendedRatios(toFinancialData(current)).ebitda;
   const charged = current.depreciation !== 0;
+  // A NEGATIVE ADD-BACK IS NOT A SIGN ERROR, AND THE PAGE HAD TO SAY WHICH.
+  //
+  // Brightsphere's bridge read "Add back: depreciation and amortisation
+  // (152)", taking operating profit (1 819) to EBITDA (1 971) — arithmetic
+  // that is internally consistent under a definition saying "PLUS the
+  // depreciation and amortisation CHARGED in the period", which invites a
+  // reader to conclude the sign is wrong. It is not: `depreciation` is the
+  // signed period movement on the classifier's `depreciation_expense` band
+  // (`aggregateFigures`), those accounts sit inside operating expenses, and a
+  // period whose net movement on them is a CREDIT — a reversal or a
+  // correction — has already had that credit raise its operating profit. The
+  // add-back takes it back out, in the direction that keeps EBITDA a measure
+  // before depreciation. Unexplained, that is a number a director stops at.
+  const credited = current.depreciation < 0;
 
   const ebitdaDefinition: PackDefinition = {
     term: 'EBITDA',
@@ -175,10 +189,15 @@ export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): P
       'Earnings before interest, tax, depreciation and amortisation — a non-IFRS measure, taken '
       + 'from operating profit (already stated before interest and tax) plus the depreciation and '
       + 'amortisation charged in the period. '
-      + (charged
-        ? 'The bridge below is the whole of it; there are no other adjustments.'
-        : 'None was charged this period, so the add-back is nil and EBITDA equals operating '
-          + 'profit — what the ledger says, not a measure the pack failed to compute.'),
+      + (credited
+        ? 'The charge for this period is a NET CREDIT — more was reversed out of the depreciation '
+          + 'accounts than was posted into them — so the add-back is negative and EBITDA is below '
+          + 'operating profit. That is the ledger\'s own movement, not a sign error: the credit has '
+          + 'already raised operating profit, and this takes it back out.'
+        : charged
+          ? 'The bridge below is the whole of it; there are no other adjustments.'
+          : 'None was charged this period, so the add-back is nil and EBITDA equals operating '
+            + 'profit — what the ledger says, not a measure the pack failed to compute.'),
     reconciliation: [
       { label: 'Operating profit (IFRS)', figure: p.figure(OPERATING_PROFIT_SOURCE, operating, 'money') },
       { label: 'Add back: depreciation and amortisation', figure: p.figure(DEPRECIATION_SOURCE, current.depreciation, 'money') },

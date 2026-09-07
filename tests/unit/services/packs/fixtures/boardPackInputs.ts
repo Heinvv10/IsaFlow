@@ -29,7 +29,13 @@ export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigure
     operatingExpenses: 1_180_000,
     otherIncome: 40_000,
     otherExpenses: 15_000,
-    operatingProfit: 735_000,
+    // 4 200 − 2 310 − 1 180 + 40. `aggregateFigures` computes the operating
+    // line WITHOUT other expenses — `netProfit = operatingProfit −
+    // otherExpenses` is the next line of it — and this fixture carried
+    // 735 000, which is that figure with the 15 000 of other expenses already
+    // taken off. A fixture that models the classifier's output has to model
+    // its arithmetic, or a statement that does not foot as laid out passes.
+    operatingProfit: 750_000,
     netProfit: 512_000,
     totalAssets: 3_900_000,
     totalLiabilities: 1_640_000,
