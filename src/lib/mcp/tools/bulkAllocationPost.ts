@@ -16,12 +16,30 @@ import type { McpToolContext } from '../types';
 export interface PostedLine {
   transaction_id: string;
   journal_entry_id: string;
+  /** Present only when a guard changed this line's VAT code before posting. */
+  vat_coerced?: { from: string; to: string; reason: 'input_tax_denied' | 'no_supply' };
+}
+
+/** One line whose VAT claim a guard dropped before it posted. */
+export interface CoercedVatLine {
+  index: number;
+  transaction_id: string;
+  from: string;
+  to: string;
+  /** `input_tax_denied` = s17(2)(a) entertainment. `no_supply` = no supply can arise. */
+  reason: 'input_tax_denied' | 'no_supply';
 }
 
 export interface PostedBatch {
   lines: PostedLine[];
   /** Rows that became unallocatable AFTER the pre-check — a lost race. */
   raced: SkippedLine[];
+  /**
+   * Lines that POSTED, but gross: a guard refused the VAT claim. Reported per
+   * batch because a caller reading only the summary would otherwise miss that
+   * 40 of its 500 lines did not do what it asked.
+   */
+  vatCoerced: CoercedVatLine[];
 }
 
 /**
@@ -138,6 +156,9 @@ export async function postPreparedLines(
 ): Promise<PostedBatch> {
   const lines: PostedLine[] = [];
   const raced: SkippedLine[] = [];
+  // Per batch, not per line: a run that quietly dropped a claim on 40 of 500
+  // lines is exactly the thing a caller reading only the summary would miss.
+  const vatCoerced: CoercedVatLine[] = [];
 
   for (const { index, txId, line } of ordered) {
     // Sequential, not Promise.all: these share one pg connection, and
@@ -153,7 +174,9 @@ export async function postPreparedLines(
       lines.push({
         transaction_id: result.transactionId,
         journal_entry_id: result.journalEntryId,
+        ...(result.vatCoerced ? { vat_coerced: result.vatCoerced } : {}),
       });
+      if (result.vatCoerced) vatCoerced.push({ index, transaction_id: txId, ...result.vatCoerced });
     } catch (err) {
       const status = racedStatus(err);
       if (status !== null) {
@@ -172,5 +195,5 @@ export async function postPreparedLines(
     }
   }
 
-  return { lines, raced };
+  return { lines, raced, vatCoerced };
 }
