@@ -334,16 +334,22 @@ describe('buildBoardPackPages', () => {
     expect(prose.some((text) => /not explained/i.test(text))).toBe(true);
   });
 
-  it('draws the trends page as LINE panels at the inline height', () => {
+  it('draws the trends page as LINE panels short enough for a landscape sheet', () => {
     const panels = doc.pages.find((p) => p.number === 10)!.blocks
       .flatMap((b) => (b.kind === 'smallMultiples' ? b.panels : []));
     expect(panels.length).toBeGreaterThan(0);
     expect(panels.every((p) => p.kind === 'line')).toBe(true);
-    // INLINE (48mm), not half. Six panels draw three across, so the page
-    // carries two rows of them inside a LANDSCAPE content box 168mm tall —
-    // at 72mm a row the panels alone came to 164mm and the page printed on
-    // two landscape sheets. Still one of spec §5.6's three heights.
-    expect(panels.every((p) => p.heightMm === CHART_HEIGHT_MM.inline)).toBe(true);
+    // Six panels draw three across, so the page carries two rows of them
+    // inside a LANDSCAPE content box 168mm tall — at 72mm a row the panels
+    // alone came to 164mm, and at the 48mm inline rung two rows came to
+    // 104mm, which still spilled once the page titles became visible on
+    // paper and for any company whose trend draws fewer than six panels (a
+    // disclosure says why, and costs another 21mm). 36mm is deliberately
+    // BELOW spec §5.6's rungs: those were set against a 255mm portrait box
+    // and this is the one page printed into a 168mm one. The sheet count in
+    // tests/unit/print/packSheetCount.test.ts is what actually holds this.
+    expect(panels.every((p) => p.heightMm === 36)).toBe(true);
+    expect(panels.every((p) => p.heightMm < CHART_HEIGHT_MM.inline)).toBe(true);
   });
 
   function disclosureHeadings(page: (typeof doc)['pages'][number]): string[] {

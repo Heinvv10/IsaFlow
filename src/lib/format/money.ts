@@ -45,14 +45,16 @@ export function signOf(n: number): 'pos' | 'neg' | 'zero' {
   return n < 0 ? 'neg' : 'pos';
 }
 
+/** A figure too small to survive its scale, printed as a bound rather than as
+ *  a zero — see `formatMoney`. */
+const BELOW_SCALE = '<1';
+
 export function formatMoney(
   n: number,
   opts: { cents?: boolean; symbol?: boolean; scale?: MoneyScale } = {},
 ): string {
   // Scaled BEFORE the sign is read, so the sign and the zero test both apply
-  // to the number actually printed. A figure smaller than half a unit of its
-  // scale prints `0` (rounds to nothing at this scale); an actual zero still
-  // prints the dash, so the two stay distinguishable.
+  // to the number actually printed. An actual zero prints the dash.
   const scaled = opts.scale ? n / MONEY_SCALES[opts.scale] : n;
   const s = signOf(scaled);
   if (s === 'zero') return ZERO_DASH;
@@ -60,6 +62,23 @@ export function formatMoney(
     .format(Math.abs(scaled))
     .replace(/[\xa0\u202f]/g, ' ')
     .replace(/,/g, '.');
+  // A REAL amount that rounds to nothing at this scale is not `0`.
+  //
+  // The board pack's matters page listed journals for board decision with a
+  // quantum column reading `0` under an `R'000` header: R400 of exposure,
+  // printed as the digit a reader takes to mean "no money involved". It is the
+  // mirror of the 1000x misread the scale mechanism exists to stop — one
+  // direction prints thousands as rands, the other prints rands as nothing —
+  // and `–` would be worse still, because the dash is this formatter's word
+  // for a measured zero. `<1` says what is true: there is an amount, and it is
+  // under one unit of the scale stated in the header.
+  //
+  // Only on the whole-number path: `cents` already prints `0.40`, which is
+  // both non-zero and exact.
+  if (!opts.cents && body === '0') {
+    const withSymbolBelow = opts.symbol ? `R ${BELOW_SCALE}` : BELOW_SCALE;
+    return s === 'neg' ? `(${withSymbolBelow})` : withSymbolBelow;
+  }
   const withSymbol = opts.symbol ? `R ${body}` : body;
   return s === 'neg' ? `(${withSymbol})` : withSymbol;
 }

@@ -84,7 +84,7 @@ export function PackBlockView({ block, scale }: PackBlockViewProps) {
     case 'definitions':
       return <PackDefinitionsBlock entries={block.entries} scale={scale} />;
     case 'matters':
-      return <MattersTable matters={block.matters} scale={scale} />;
+      return <MattersTable matters={block.matters} omitted={block.omitted} scale={scale} />;
     default: {
       // Exhaustiveness, checked by the compiler. See the file header.
       const unreachable: never = block;

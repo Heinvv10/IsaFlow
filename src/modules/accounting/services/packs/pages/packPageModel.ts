@@ -201,7 +201,22 @@ export type PackPageBlock =
   // so a matter cannot be expressed as one. `PackMatter` already carries
   // exactly those five fields; a second shape would be one more thing to
   // keep in step with `buildMatters`.
-  | { kind: 'matters'; matters: PackMatterFigure[] }
+  | {
+      kind: 'matters';
+      /** The matters the page has room to print — see `selectPrintedMatters`. */
+      matters: PackMatterFigure[];
+      /**
+       * The matters that did NOT fit, as a count and a total exposure, or
+       * null when every one of them is printed.
+       *
+       * Carried on the block rather than left to the component, because a
+       * board pack that prints ten of twenty-eight matters and says nothing
+       * has hidden eighteen decisions a director is accountable for. It is
+       * DATA so the integrity gate can see it, for the same reason a
+       * waterfall carries its bars.
+       */
+      omitted: { count: number; quantum: PackFigure } | null;
+    }
   | { kind: 'disclosure'; disclosure: PackDisclosure }
   | { kind: 'definitions'; entries: PackDefinition[] };
 

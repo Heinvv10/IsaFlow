@@ -52,16 +52,21 @@ export {
 const FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.full };
 
 /**
- * Page 8's bridge is HALF height, not full.
+ * Page 8's bridge is the INLINE rung, not half and not full.
  *
  * Its page is the busiest in the pack — a cash table, this bridge, a
  * multi-period cash line and up to two disclosures — and at full height it
  * was 60mm taller than an A4 content box, so it printed on two sheets with
- * the closing-cash chart stranded alone on the second. Spec §5.6's height
- * grid is 48/72/110mm and this is the middle rung; nothing is dropped from
+ * the closing-cash chart stranded alone on the second. Half height was still
+ * 17mm too tall once the page titles became visible on paper (they had been
+ * hidden by a `header` rule in styles/print.css), and on the live demo
+ * company, whose cash table carries four footnotes, 35mm too tall. Spec
+ * §5.6's height grid is 48/72/110mm and this is the bottom rung — the same
+ * rung the closing-cash line beside it already uses, so the two charts on
+ * the page are now the same height as each other. Nothing is dropped from
  * the page to buy the space.
  */
-const HALF = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
+const HALF = { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline };
 
 function barKind(step: WaterfallStep, index: number, count: number): PackWaterfallBar['kind'] {
   if (index === 0) return 'open';

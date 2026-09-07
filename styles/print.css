@@ -30,9 +30,20 @@
 
 @media print {
   /* AppLayout chrome: sidebar (desktop + mobile drawer), top header bar,
-     and the Sage-style horizontal module nav (top nav mode). */
+     and the Sage-style horizontal module nav (top nav mode).
+
+     `header` is EXCLUDED for the pack's own page headers. A board pack page
+     carries its title in a `<header>` inside its `<section>` — correct
+     semantics, and a bare `header` selector hid it. Every content sheet of
+     the rendered pack opened straight into a table or a chart with nothing
+     naming it: a director reading sheet 7 out of order could not tell it was
+     the balance sheet. Rubric criterion 1 ("every content page title states a
+     conclusion about this period") failed on the printed artefact while the
+     model held twelve perfectly good titles and every test that read the
+     MODEL passed. Scoped by class rather than by `body > header`, because
+     the pack's headers are nested arbitrarily deep inside the print page. */
   html.print-mode aside,
-  html.print-mode header,
+  html.print-mode header:not(.pack-page-header),
   html.print-mode nav {
     display: none !important;
   }

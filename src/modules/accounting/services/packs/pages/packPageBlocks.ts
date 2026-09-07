@@ -27,6 +27,7 @@ import { ROUNDING_NOTE } from './packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatter } from './packMatters';
+import { omittedQuantum, selectPrintedMatters } from './packMattersPrinted';
 import type {
   PackChartSpec,
   PackDisclosureNote,
@@ -133,15 +134,36 @@ export function buildCommentaryBlocks(
 const NO_QUANTUM =
   'This matter has no single rand amount — an overdue filing, or a check that found nothing to quantify.';
 
+const OMITTED_NOT_QUANTIFIED =
+  'None of the matters not printed here carries a single rand amount, so they have no total to state.';
+
 export function buildMattersBlock(matters: PackMatter[], p: PackFigureProvenance): PackPageBlock {
+  // What FITS on the sheet, and what is left over — see `packMattersPrinted`.
+  // The index a quantum is recorded under is the matter's rank in the FULL
+  // list, so a source is still unique per matter and still traces back to the
+  // same finding whether or not the page had room to print it.
+  const { printed, omitted } = selectPrintedMatters(matters);
+  const rank = new Map<PackMatter, number>(matters.map((matter, index) => [matter, index]));
+  const total = omittedQuantum(omitted);
+
   return {
     kind: 'matters',
-    matters: matters.map(({ quantum, ...rest }, index) => ({
-      ...rest,
-      quantum: quantum === null
-        ? p.figure(`buildMatters.quantum.${index}`, null, 'money', NO_QUANTUM)
-        : p.figure(`buildMatters.quantum.${index}`, quantum, 'money'),
-    })),
+    matters: printed.map((matter) => {
+      const { quantum, ...rest } = matter;
+      const source = `buildMatters.quantum.${rank.get(matter) ?? 0}`;
+      return {
+        ...rest,
+        quantum: quantum === null
+          ? p.figure(source, null, 'money', NO_QUANTUM)
+          : p.figure(source, quantum, 'money'),
+      };
+    }),
+    omitted: omitted.length === 0 ? null : {
+      count: omitted.length,
+      quantum: total === null
+        ? p.figure('buildMatters.omittedQuantum', null, 'money', OMITTED_NOT_QUANTIFIED)
+        : p.figure('buildMatters.omittedQuantum', total, 'money'),
+    },
   };
 }
 

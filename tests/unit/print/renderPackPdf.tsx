@@ -74,6 +74,22 @@ export interface PrintedPack {
    * a nineteen-sheet pack most easily introduces.
    */
   overflow: Array<{ id: string; over: number; widest: string }>;
+  /**
+   * How tall each `.pack-page` box actually is, in millimetres, beside the
+   * box the paper gives it.
+   *
+   * The sheet count says a page spilled; it never says by how much, and
+   * "expected 14 to be 12" sent every previous reader to open a PDF by hand
+   * and guess. A page 3mm over is a padding change and a page 60mm over is a
+   * page carrying more than fits — the two need opposite fixes.
+   */
+  heights: Array<{
+    id: string; mm: number; boxMm: number; overMm: number;
+    /** Each direct child of the page box and its own height, for a page that
+     *  is over — the block to shrink, named, instead of guessed at. Empty on
+     *  a page that fits. */
+    blocks: Array<{ what: string; mm: number }>;
+  }>;
   pdf: Buffer;
 }
 
@@ -161,6 +177,20 @@ export async function printBoardPack(
       return out;
     }, { landscape: LANDSCAPE_WIDTH_PX });
 
+    const heights = await page.evaluate((mmPerPx) => {
+      return Array.from(document.querySelectorAll('.pack-page')).map((el) => {
+        const box = el as HTMLElement;
+        const boxMm = box.hasAttribute('data-print-landscape') ? mmPerPx.landscape : mmPerPx.portrait;
+        const mm = Math.round((box.scrollHeight / mmPerPx.px) * 10) / 10;
+        const overMm = Math.round((mm - boxMm) * 10) / 10;
+        const blocks = overMm <= 0.2 ? [] : Array.from(box.children).map((child) => ({
+          what: `${child.tagName.toLowerCase()}.${child.className || '-'}`,
+          mm: Math.round(((child as HTMLElement).getBoundingClientRect().height / mmPerPx.px) * 10) / 10,
+        }));
+        return { id: box.id || 'page', mm, boxMm, overMm, blocks };
+      });
+    }, { px: PX_PER_MM, portrait: CONTENT_BOX_MM, landscape: LANDSCAPE_BOX_MM });
+
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -188,7 +218,7 @@ export async function printBoardPack(
       };
     };
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
-    return { sheets: total, sheetText: pages.map((p) => p.text), overflow, pdf };
+    return { sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, pdf };
   } finally {
     await page.close();
   }

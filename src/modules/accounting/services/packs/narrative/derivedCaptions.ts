@@ -191,7 +191,11 @@ export function boardActionItems(matters: PackMatter[]): string[] {
 
   const remaining = matters.length - shown.length;
   if (remaining > 0) {
-    items.push(`${remaining} further ${remaining === 1 ? 'matter is' : 'matters are'} listed, with their quanta, on the matters page.`);
+    // NOT "listed, with their quanta, on the matters page": that page prints
+    // what fits on a sheet and states its own remainder, so a promise here
+    // that all of them are listed there is one this pack cannot keep for a
+    // company with twenty-eight matters. See `selectPrintedMatters`.
+    items.push(`${remaining} further ${remaining === 1 ? 'matter follows' : 'matters follow'} on the matters page, ranked by exposure.`);
   }
   return items;
 }

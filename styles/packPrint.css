@@ -79,7 +79,11 @@ html.print-mode [data-pack-block] {
 
 html.print-mode {
   --pack-gutter: 8mm;
-  --pack-baseline: 6mm;
+  /* 4.5mm, not 6mm. A page carries up to six blocks, so the baseline is paid
+   * five or six times on the pages that are tightest — the cash page spilled
+   * by less than the 6mm rhythm cost it. The rhythm is still a single
+   * multiple everywhere (spec §5.1); only its size changed. */
+  --pack-baseline: 4.5mm;
   --pack-ink: #1a1a1a;
   --pack-grey-strong: #4a4a4a;
   --pack-grey-mid: #8a8a8a;
@@ -117,12 +121,32 @@ html.print-mode {
   align-items: start;
 }
 
+/* THE PAGE HEADER, and it has to be CHEAP.
+ *
+ * The title was hidden altogether until `styles/print.css`'s `header` rule
+ * was scoped, so its cost had never been paid on paper. Set at 20pt over a
+ * 13pt section line it costs 25-30mm of an A4 content box — a page title is
+ * a whole SENTENCE here by rule (`assertPageTitleIsAMessage`), so it wraps
+ * to two or three lines — and every fixture in the print harness spilled the
+ * moment the titles became visible.
+ *
+ * So: the section becomes an EYEBROW above the title rather than a second
+ * heading below it (it is 'Financials' / 'Governance' — a locator, not a
+ * heading of anything), and the title is set at the size a sentence of that
+ * length wants to be read at. Same information, ~14mm less paper. */
+.pack-page-header { margin: 0 0 var(--pack-baseline); }
 .pack-title {
-  font-size: 20pt; line-height: 24pt; font-weight: 600;
-  margin: 0 0 3mm; padding-bottom: 2mm;
+  font-size: 13pt; line-height: 16.5pt; font-weight: 600;
+  margin: 0; padding-bottom: 1.5mm;
   border-bottom: 2pt solid var(--pack-brand);
 }
-.pack-section-heading { font-size: 13pt; line-height: 18pt; font-weight: 600; margin: 0 0 2mm; }
+.pack-section-heading {
+  display: block;
+  font-size: 8pt; line-height: 11pt; font-weight: 500;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--pack-grey-strong);
+  margin: 0 0 0.5mm;
+}
 /* `white-space: nowrap`, and it is not cosmetic: at 28pt in a four-column
  * grid a figure of `(1 546)` broke after the thousands separator and printed
  * as `(1` over `546)`. A number split across two lines is a number a reader
@@ -132,7 +156,7 @@ html.print-mode {
   font-size: 24pt; line-height: 27pt; font-weight: 500;
   white-space: nowrap;
 }
-.pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: auto; padding-top: 3mm; }
+.pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: auto; padding-top: 2mm; }
 
 /* Task 13 — the KPI tile, its delta and its inline sparkline. The delta's
  * colour (favourable/unfavourable) is never the ONLY cue: `.pack-kpi-delta-cue`
@@ -302,6 +326,25 @@ html.print-mode {
   gap: var(--pack-gutter);
 }
 
+/* A LANDSCAPE sheet's box is 168mm tall and 261mm wide, and the trends
+ * page's two disclosures cost 43mm of that box stacked one note per row.
+ * Set in two columns they cost half that, and a 261mm-wide measure was too
+ * long to read comfortably anyway — 130mm is about 90 characters at 9.5pt.
+ * The heading spans both columns so the block still reads as one note.
+ * Landscape only; every portrait page keeps the single measure. */
+.pack-page[data-print-landscape] .pack-disclosure {
+  display: block;
+  column-count: 2;
+  column-gap: var(--pack-gutter);
+}
+.pack-page[data-print-landscape] .pack-disclosure-heading {
+  column-span: all;
+  margin-bottom: 1.5mm;
+}
+.pack-page[data-print-landscape] .pack-disclosure-body + .pack-disclosure-body {
+  margin-top: 1.5mm;
+}
+
 /* The commentary source line — R7's visible difference between a human
  * sign-off and a derived caption. A label, so it reads as one: small, caps,
  * on its own line above the prose. */
@@ -339,6 +382,12 @@ html.print-mode {
   text-align: right; font-family: var(--pack-font-mono); white-space: nowrap;
 }
 .pack-matters-row td { border-bottom: 0.5pt solid var(--pack-rule); }
+/* The count of matters the sheet had no room for. Set like the table's own
+ * repeated-column note rather than like body prose: it is a statement ABOUT
+ * the table, and a reader must not mistake it for a matter. */
+.pack-matters-omitted {
+  margin: 1.5mm 0 0; font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid);
+}
 
 [data-pack-draft] .pack-page::before {
   content: 'DRAFT';

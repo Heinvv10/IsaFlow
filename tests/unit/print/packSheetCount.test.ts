@@ -24,20 +24,28 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { isContentPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import {
   brightsphereInput,
   demoInput,
   denseInput,
   noRatioPanelsInput,
 } from '../services/packs/fixtures/boardPackInputs';
+import { liveDemoInput } from '../services/packs/fixtures/liveDemoBoardPack';
 import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
-import { printBoardPack } from './renderPackPdf';
+import { printBoardPack, type PrintedPack } from './renderPackPdf';
 
 const FIXTURES = {
   demo: demoInput,
   brightsphere: brightsphereInput,
   dense: denseInput,
   'no ratio panels': noRatioPanelsInput,
+  // The one fixture shaped like the company a director actually receives a
+  // pack for. Every other entry here was chosen from a rendered proof that
+  // had ALREADY been laid out; this one is the live demo company as the
+  // second proof printed it, at fourteen sheets, and it is the reason the
+  // three above could all be green while the document was wrong.
+  live: liveDemoInput,
 } as const;
 
 let browser: Browser;
@@ -50,7 +58,7 @@ describe('the printed board pack', () => {
       const document = buildBoardPackPages(input);
       const printed = await printBoardPack(document, browser);
 
-      expect(printed.sheets, sheetReport(document.pages.map((p) => p.title), printed.sheetText))
+      expect(printed.sheets, sheetReport(printed.sheetText, printed.heights))
         .toBe(document.pages.length);
 
       // A pack can be made to fit twelve sheets by pushing content off the
@@ -68,6 +76,37 @@ describe('the printed board pack', () => {
       expect(thinSheets(printed.sheetText), `${name}: sheets carrying almost nothing`).toEqual([]);
     }, 120_000);
   }
+
+  it('prints every content page\'s TITLE on its own sheet', async () => {
+    // The pack is BUILT on message titles — `assertPageTitleIsAMessage`, the
+    // rubric's first criterion ("every content page title states a conclusion
+    // about this period"), and a whole task spent making the titles say
+    // something. On paper not one of them appeared: `styles/print.css` hid
+    // `header` to strip AppLayout's chrome, and `PackPageFrame` carries the
+    // title in a `<header>`. Sheets 3 to 14 opened straight into a table or a
+    // chart, and a director reading one out of order could not name it.
+    //
+    // Every title test in the suite read the MODEL, where the titles were
+    // present and correct throughout. So this one reads the SHEET, on the
+    // fixture shaped like the live company, and compares the letters only:
+    // PDF text extraction breaks words apart ("ACTU AL") and no probe
+    // survives it otherwise.
+    const document = buildBoardPackPages(liveDemoInput);
+    const printed = await printBoardPack(document, browser);
+    const letters = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // One sheet per page is asserted above, so the sheet at a page's index IS
+    // that page's sheet — no searching, which would pass on a title printed
+    // on the wrong sheet.
+    expect(printed.sheets).toBe(document.pages.length);
+    for (const [index, page] of document.pages.entries()) {
+      if (!isContentPage(page.number)) continue;
+      expect(
+        letters(printed.sheetText[index] ?? ''),
+        `sheet ${index + 1} does not carry page ${page.number}'s title: "${page.title}"`,
+      ).toContain(letters(page.title));
+    }
+  }, 120_000);
 
   it('runs the company, the pack, the period and the confidentiality mark along every sheet', async () => {
     // `buildFooterHtml` and `buildPdfMetadata` were written, reviewed and
@@ -166,8 +205,16 @@ function thinSheets(sheetText: string[]): Array<{ sheet: number; chars: number }
  * came from — matching page TITLES instead does not work, because PDF text
  * extraction breaks words apart ("ACTU AL") and no probe survives it.
  */
-function sheetReport(_titles: string[], sheetText: string[]): string {
+function sheetReport(sheetText: string[], heights: PrintedPack['heights']): string {
   const lines = sheetText.map((text, i) =>
     `  sheet ${i + 1}: ${text.replace(/\s+/g, ' ').trim().slice(0, 70)}`);
-  return `${sheetText.length} sheets:\n${lines.join('\n')}`;
+  // And WHICH page box is too tall, by how much. A sheet count alone says a
+  // page spilled and never says which one or by how far.
+  const over = heights
+    .filter((h) => h.overMm > 0.2)
+    .map((h) => [
+      `  ${h.id}: ${h.mm}mm in a ${h.boxMm}mm box (+${h.overMm}mm)`,
+      ...h.blocks.map((b) => `      ${b.mm}mm ${b.what}`),
+    ].join('\n'));
+  return `${sheetText.length} sheets:\n${lines.join('\n')}\npages past their box:\n${over.join('\n') || '  none'}`;
 }

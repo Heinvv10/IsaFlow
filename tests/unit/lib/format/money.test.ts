@@ -96,13 +96,25 @@ describe('formatMoney scaling', () => {
   });
 
   it('distinguishes a figure that rounds to nothing from an actual zero', () => {
-    // R400 is less than half a thousand, so under an R'000 header it rounds
-    // to `0` — the same thing an unscaled sub-rand figure already does. An
-    // ACTUAL zero still prints the dash, so the two readings stay distinct:
-    // "too small to show at this scale" is not "nothing".
-    expect(formatMoney(400, { scale: "R'000" })).toBe('0');
-    expect(formatMoney(0.4)).toBe('0');
+    // R400 is less than half a thousand, so under an R'000 header it survives
+    // the scale as nothing. It printed `0` — and the board pack's matters page
+    // listed journals a board was being asked to decide on with a quantum
+    // column of `0`, which a reader takes to mean no money is involved. It is
+    // the mirror of the 1000x misread: one direction prints thousands as
+    // rands, the other prints rands as nothing.
+    //
+    // `<1` states the bound. The dash stays reserved for a MEASURED zero, so
+    // all three readings remain distinct: an amount under one unit, nothing,
+    // and unavailable.
+    expect(formatMoney(400, { scale: "R'000" })).toBe('<1');
+    expect(formatMoney(-400, { scale: "R'000" })).toBe('(<1)');
+    expect(formatMoney(400, { scale: "R'000", symbol: true })).toBe('R <1');
+    expect(formatMoney(0.4)).toBe('<1');
+    // Cents already print the real amount, so there is nothing to bound.
+    expect(formatMoney(0.4, { cents: true })).toBe('0.40');
     expect(formatMoney(0, { scale: "R'000" })).toBe('–');
+    // And a figure that does survive the scale is untouched.
+    expect(formatMoney(1_400, { scale: "R'000" })).toBe('1');
   });
 
   it('scales millions too', () => {

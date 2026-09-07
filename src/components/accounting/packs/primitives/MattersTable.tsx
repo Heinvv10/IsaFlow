@@ -25,10 +25,19 @@
  * rands beside a statement in thousands is the 1000x misread, one page later.
  */
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatterFigure } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface MattersTableProps {
   matters: PackMatterFigure[];
+  /**
+   * The matters that did not fit on the sheet, or null when they all did.
+   *
+   * A table that prints ten of twenty-eight rows and says nothing has hidden
+   * eighteen decisions from the people accountable for them. The note below
+   * is the only thing standing between the sheet-count fix and that.
+   */
+  omitted: { count: number; quantum: PackFigure } | null;
   /** The document's `numberConvention.scale` — see `formatFigureText`. */
   scale: MoneyScale;
 }
@@ -55,7 +64,7 @@ function uniformColumns(matters: PackMatterFigure[]): ProseColumn[] {
     .map(({ key }) => key);
 }
 
-export function MattersTable({ matters, scale }: MattersTableProps) {
+export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
   const isLong = matters.length > ZEBRA_ROW_THRESHOLD;
   const uniform = uniformColumns(matters);
   const columns = PROSE_COLUMNS.filter((c) => !uniform.includes(c.key));
@@ -83,6 +92,16 @@ export function MattersTable({ matters, scale }: MattersTableProps) {
           ))}
         </tbody>
       </table>
+      {omitted !== null && (
+        <p className="pack-matters-omitted">
+          {omitted.count} further {omitted.count === 1 ? 'matter is' : 'matters are'} not printed
+          on this page: the pack lists the largest by exposure, and every matter with no single
+          rand amount, first.{' '}
+          {omitted.quantum.value === null
+            ? omitted.quantum.unavailable
+            : `They come to ${formatMoney(omitted.quantum.value, { scale })} in total.`}
+        </p>
+      )}
       {uniform.length > 0 && (
         <dl className="pack-table-notes">
           {PROSE_COLUMNS.filter((c) => uniform.includes(c.key)).map((c) => (

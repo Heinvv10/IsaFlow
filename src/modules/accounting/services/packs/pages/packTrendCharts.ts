@@ -11,20 +11,30 @@
  */
 
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
-import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
+import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackChartSpec } from './packPageModel';
 
 /**
- * A page-10 panel: 82mm wide, and INLINE height (48mm) rather than half.
+ * A page-10 panel: 82mm wide, 36mm tall.
  *
  * Six panels are drawn three across, so the page carries two rows of them —
  * plus a title, a caption and two disclosures — inside a LANDSCAPE content
  * box that is 168mm tall, not 255mm. At 72mm a row the panels alone came to
- * 164mm and the page printed on two landscape sheets.
+ * 164mm and the page printed on two landscape sheets; at the 48mm inline
+ * rung two rows are 104mm, and the page still printed on two sheets for any
+ * company whose page title wraps to three lines or whose trend draws fewer
+ * than six panels (which adds a disclosure saying why).
+ *
+ * 36mm is BELOW spec §5.6's 48/72/110 rungs, deliberately: those rungs were
+ * chosen against a 255mm portrait box, and this is the one page in the pack
+ * printed into a 168mm one. Two rows plus their gutter is 80mm, which leaves
+ * the title, caption and both disclosures room on the widest title any
+ * fixture produces. `CHART_HEIGHT_MM` is left alone — every portrait chart
+ * still sits on the rungs.
  */
-const PANEL = { widthMm: 82, heightMm: CHART_HEIGHT_MM.inline };
+const PANEL = { widthMm: 82, heightMm: 36 };
 
 /**
  * Page 10 — the small multiples.
@@ -140,9 +150,17 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Pa
   return panels;
 }
 
-/** Page 8's closing-cash line — inline height, because it shares its page
- *  with a statement table and a bridge. See `HALF` in `packPageCharts.ts`. */
-const CASH_TREND_FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline };
+/**
+ * Page 8's closing-cash line — 36mm, the same height as a trends panel.
+ *
+ * It shares the busiest page in the pack with a statement table that can
+ * carry four footnotes, a bridge, and two disclosures, and that page printed
+ * on two sheets for the live demo company. This chart is a CONTEXT strip —
+ * where cash has been standing over twelve periods — beside a bridge that
+ * answers the period's own question, so it is the one to give the height
+ * back. See `HALF` in `packPageCharts.ts` for the bridge's own rung.
+ */
+const CASH_TREND_FULL = { widthMm: 170, heightMm: 36 };
 
 /**
  * Page 8 — the closing-cash line spec §4.A page 8 asks for, drawn from the
