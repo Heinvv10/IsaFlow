@@ -40,11 +40,16 @@ import type { PackChartSpec } from './packPageModel';
  * trends page needed (three of its panels were drawing one to two pixels of
  * excursion), and the pack stops having a sheet that reads sideways.
  *
- * 48mm is spec §5.6's inline rung, which the portrait pages are all set on.
- * The 36mm the landscape sheet used sat below every rung, deliberately,
- * because that page was printed into a box two thirds the height.
+ * 44mm rather than spec §5.6's 48mm inline rung, and the rung is the thing
+ * that gives: this is the only page in the pack that carries THREE rows of
+ * charts, and the rungs were set for a page carrying one. At 48 the demo
+ * pack's trends page measured 255.8mm in a 255mm box and `fitPageToBox`
+ * dropped a disclosure to pay for the 0.8 — printing "1 explanatory note is
+ * not printed" on the one page whose panels are drawn on two different
+ * scales, which is the note a reader most needs. 44 leaves 12mm of headroom
+ * and is still a fifth taller than the 36mm the landscape sheet allowed.
  */
-const PANEL = { widthMm: 83, heightMm: 48 };
+const PANEL = { widthMm: 83, heightMm: 44 };
 
 /**
  * Page 10 — the small multiples.
@@ -107,20 +112,21 @@ function moneyPanel(
   // page's scale note names it too; this is the half a reader meets while
   // looking at the line, which is where a rescaled axis actually misleads.
   if (!drawn.shared) {
-    clauses.push(
-      `Drawn on its own scale — its range is ${drawn.ownSharePct}% of the shared money scale, `
-      + 'too little to show against it.',
-    );
+    // SHORT. A panel's title is drawn INSIDE its 44mm box, so every line of it
+    // is a line the chart does not get: the first wording ran to three lines
+    // and took a third of the plot with it. The page's Scale note carries the
+    // argument; this carries the fact.
+    clauses.push(`Own scale — ${drawn.ownSharePct}% of the shared range.`);
   }
   // AND THE MONTH THAT SETS THE SCALE IS NAMED ON THE PANEL THAT CARRIES IT.
   // The rendered demo pack drew a spike of +1 908 in one month on a page
   // whose income statement totals (1 546) for the period, and no title, note
   // or caption anywhere in the document mentioned it.
   if (dominant !== null) {
-    const because = dominant.creditMonth === null ? '' : `, on a month where ${dominant.creditMonth}`;
+    const because = dominant.creditMonth === null ? '' : ` — ${dominant.creditMonth}`;
     clauses.push(
-      `${dominant.label} alone is ${prose(dominant.value)}${because}, and sets `
-      + `${dominant.sharePct}% of the shared money scale.`,
+      `${dominant.label} alone is ${prose(dominant.value)}${because} — and sets `
+      + `${dominant.sharePct}% of the scale.`,
     );
   }
   return {

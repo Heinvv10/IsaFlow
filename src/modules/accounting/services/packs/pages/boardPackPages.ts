@@ -250,9 +250,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
       commentary(scorecardCaption(scorecard)),
+      // ONE note, not two. "Targets" and "Not meaningful" were definitions,
+      // and they now sit with the other sixteen on the basis page — this page
+      // could not afford them, dropped both for space and then printed "2
+      // explanatory notes are not printed", telling a director that two
+      // measures had lost their explanation without saying which. What stays
+      // is the POINTER, because a director reading a column of MISSED and
+      // NOT MEANINGFUL needs to know both are defined and where.
       disclose('Scoring basis', [
-        note('Targets', 'Targets are the platform defaults; a metric with no target is shown unscored rather than assumed met.'),
-        note('Not meaningful', 'A metric shown as not meaningful states its own reason — an unreportable ratio is never printed as a number.'),
+        note('Definitions', 'Each metric is scored against the platform\'s default target. The basis page defines the terms and every formula used here.'),
       ]),
     ], 'portrait', periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1)),
     // PORTRAIT, like the other eleven. This was the one landscape sheet in

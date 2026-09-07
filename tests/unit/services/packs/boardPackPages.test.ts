@@ -370,18 +370,22 @@ describe('buildBoardPackPages', () => {
     expect(prose.some((text) => /not explained/i.test(text))).toBe(true);
   });
 
-  it('draws the trends page as LINE panels on spec §5.6\'s inline rung', () => {
+  it('draws the trends page as LINE panels tall enough to show a movement', () => {
     const panels = doc.pages.find((p) => p.number === 10)!.blocks
       .flatMap((b) => (b.kind === 'smallMultiples' ? b.panels : []));
     expect(panels.length).toBeGreaterThan(0);
     expect(panels.every((p) => p.kind === 'line')).toBe(true);
-    // 36mm, two thirds of a rung, was what six panels three across cost on a
-    // landscape sheet whose content box is 168mm rather than 255. Portrait
-    // and two across, three rows of 48mm plus their gutters come to 160mm in
-    // a 255mm box — so the panels sit on a rung like every other chart in the
-    // pack, and gain a third more height to draw in. The sheet count in
-    // tests/unit/print/packSheetCount.test.ts is what actually holds this.
-    expect(panels.every((p) => p.heightMm === CHART_HEIGHT_MM.inline)).toBe(true);
+    // 36mm was what six panels three across cost on a landscape sheet whose
+    // content box is 168mm rather than 255. Portrait and two across, three
+    // rows of 44mm plus their gutters come to 148mm in a 255mm box — a fifth
+    // more height to draw in, and 12mm of headroom for the page's two
+    // disclosures. It is BELOW §5.6's 48mm inline rung deliberately: this is
+    // the only page carrying three rows of charts, and at 48 the live demo
+    // page measured 255.8mm in a 255mm box and dropped a disclosure to pay
+    // for the 0.8. The sheet count in tests/unit/print/packSheetCount.test.ts
+    // is what actually holds this.
+    expect(panels.every((p) => p.heightMm === 44)).toBe(true);
+    expect(panels.every((p) => p.heightMm < CHART_HEIGHT_MM.inline)).toBe(true);
   });
 
   function disclosureHeadings(page: (typeof doc)['pages'][number]): string[] {

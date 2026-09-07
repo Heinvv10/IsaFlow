@@ -106,6 +106,6 @@ describe('a page the composer cannot fit', () => {
     expect(pageMm(subject)).toBeLessThanOrEqual(pageBoxMm(subject));
     const { page: fitted, dropped } = fitPageReport(subject);
     expect(fitted).toBe(subject);
-    expect(dropped).toEqual({ notes: 0, requiredNotes: 0, footnotes: 0 });
+    expect(dropped).toEqual({ notes: 0, requiredNotes: 0, footnotes: 0, from: [] });
   });
 });

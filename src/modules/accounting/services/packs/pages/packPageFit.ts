@@ -104,9 +104,20 @@ export interface Dropped {
    */
   requiredNotes: number;
   footnotes: number;
+  /**
+   * The headings of the disclosures notes were taken from, in the order they
+   * were taken, without repeats.
+   *
+   * The footnote read "2 explanatory notes are not printed. Every figure,
+   * table and chart on it is complete" — an admission of incompleteness and a
+   * claim of completeness in one sentence, with nothing to say WHICH two
+   * measures lost their explanation. A director cannot look up a note that is
+   * not there; naming the disclosure at least says where to ask.
+   */
+  from: string[];
 }
 
-const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0 };
+const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0, from: [] };
 
 /** Did this page give anything up? */
 function tookSomething(dropped: Dropped): boolean {
@@ -144,8 +155,15 @@ function omissionText(dropped: Dropped): string {
     parts.push(`${dropped.requiredNotes} ${dropped.requiredNotes === 1 ? 'note' : 'notes'} from a `
       + 'disclosure this pack is required to make');
   }
-  return `${OMISSION_MARK}: ${parts.join(', ')} are not printed. Every figure, `
-    + 'table and chart on it is complete; a board pack is the same twelve sheets for every company.';
+  const count = dropped.notes + dropped.footnotes + dropped.requiredNotes;
+  // "1 explanatory note ARE not printed" printed on a live pack. The count is
+  // known here, so the verb agrees with it.
+  const verb = count === 1 ? 'is' : 'are';
+  const where = dropped.from.length === 0
+    ? ''
+    : ` — from ${dropped.from.map((h) => `"${h}"`).join(' and ')}`;
+  return `${OMISSION_MARK}: ${parts.join(', ')}${where} ${verb} not printed. `
+    + 'Every figure, table and chart on the page is complete.';
 }
 
 /** The omission footnote, numbered after whatever survives on the page. */
@@ -175,9 +193,10 @@ function lastTrimmableNote(blocks: PackPageBlock[], level: 'optional' | 'require
 }
 
 /** Drop the last note of block `index`, removing the block if that empties it. */
-function dropNote(blocks: PackPageBlock[], index: number): void {
+function dropNote(blocks: PackPageBlock[], index: number, dropped: Dropped): void {
   const block = blocks[index]!;
   if (block.kind !== 'disclosure') return;
+  if (!dropped.from.includes(block.disclosure.heading)) dropped.from.push(block.disclosure.heading);
   const notes = block.disclosure.notes.slice(0, -1);
   if (notes.length === 0) blocks.splice(index, 1);
   else blocks[index] = { kind: 'disclosure', disclosure: { ...block.disclosure, notes } };
@@ -203,7 +222,7 @@ export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dro
 
   const blocks: PackPageBlock[] = [...page.blocks];
   const footnotes: PackFootnote[] = [...page.footnotes];
-  const dropped: Dropped = { ...NOTHING };
+  const dropped: Dropped = { ...NOTHING, from: [] };
   // THE PAGE IS MEASURED WITH THE FOOTNOTE THAT EXPLAINS THE TRIMMING ON IT.
   // A budget that reserves a flat allowance instead over-trims a page that
   // needed one note off, and under-trims the page where the allowance turns
@@ -225,10 +244,10 @@ export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dro
 
   while (over()) {
     const optional = lastTrimmableNote(blocks, 'optional');
-    if (optional !== null) { dropNote(blocks, optional); dropped.notes += 1; continue; }
+    if (optional !== null) { dropNote(blocks, optional, dropped); dropped.notes += 1; continue; }
     if (footnotes.length > 0) { footnotes.pop(); dropped.footnotes += 1; continue; }
     const required = lastTrimmableNote(blocks, 'required');
-    if (required !== null) { dropNote(blocks, required); dropped.requiredNotes += 1; continue; }
+    if (required !== null) { dropNote(blocks, required, dropped); dropped.requiredNotes += 1; continue; }
     break;
   }
 

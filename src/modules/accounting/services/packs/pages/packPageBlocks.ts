@@ -257,8 +257,8 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
   const parts: string[] = [];
   if (panels.sharedScale.length > 1) {
     parts.push(
-      `${inWords(panels.sharedScale)} share one y-scale, so a metric ten times the size of `
-      + 'another cannot look like it moved as much.',
+      `${inWords(panels.sharedScale)} share one y-scale, so none of them can look like it moved `
+      + 'more than it did.',
     );
   } else if (panels.sharedScale.length === 1) {
     parts.push(`${panels.sharedScale[0]} is the only money panel on the shared y-scale.`);
@@ -266,9 +266,8 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
   if (panels.ownScale.length > 0) {
     const named = inWords(panels.ownScale.map((p) => `${p.name} (${p.sharePct}%)`));
     parts.push(
-      `${named} are drawn on their OWN scales: each moves across too little of the shared `
-      + 'range to show against it, so the share it would have occupied is printed beside its '
-      + 'name and stated again in its own title. Their slopes are not comparable with the '
+      `${named} are drawn on their OWN scales — each covers too little of the shared range to `
+      + 'register on it, and says so in its own title. Their slopes are not comparable with the '
       + 'panels above.',
     );
   }
@@ -308,6 +307,12 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
   // the one that goes.
   const readingNotes = [windowNote, scaleNote(panels)]
     .filter((n): n is PackDisclosureNote => n !== null);
+  // ONE COLUMN, deliberately: two columns were tried and are DEARER here.
+  // `break-inside: avoid` means a two-note block balances to the taller note
+  // rather than to half the lines, so the ten-line Period note would set the
+  // block's height with the five-line Scale note beside it — 52.7mm against
+  // 47.8mm in a single measure. Columns pay off on page 12's sixteen terms,
+  // not on two paragraphs.
   if (readingNotes.length > 0) trendBlocks.push(disclose('Reading these panels', readingNotes));
   if (drawn.length < TRENDS_PANELS_SPECIFIED) {
     trendBlocks.push(mustDisclose('Panels not drawn', [

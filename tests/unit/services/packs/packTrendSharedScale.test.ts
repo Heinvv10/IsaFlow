@@ -125,7 +125,7 @@ describe("page 10's money panels", () => {
         Math.max(...off),
         `${id} does not claim the shared scale yet sits on it, so the split is decorative`,
       ).toBeGreaterThan(1);
-      expect(panel!.title, `${id} is on its own scale and does not say so`).toMatch(/own scale/);
+      expect(panel!.title, `${id} is on its own scale and does not say so`).toMatch(/Own scale/i);
     }
 
     // Both branches were exercised: this fixture has a series a decade wider

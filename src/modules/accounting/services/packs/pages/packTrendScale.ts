@@ -169,7 +169,7 @@ export function dominantPoint(series: number[][]): ScaleDominator | null {
  * silence.
  */
 export function creditMonthClause(point: PackTrendPoint): string | null {
-  return point.expenses < 0 ? 'expenses that month were a net credit' : null;
+  return point.expenses < 0 ? 'a month whose expenses were a net credit' : null;
 }
 
 /**
@@ -199,8 +199,11 @@ export function movementSentence(
   rose: boolean,
 ): string {
   if (first === last) {
+    // NO VERB. "Operating expenses is nil" and "Debtor days is unchanged"
+    // both read as a template that has not been told whether its subject is
+    // singular; a measure's name is a label, and a label takes a colon.
     const level = first === 'nil' ? 'nil' : `unchanged at ${last}`;
-    return `${name} is ${level} in both the first and the last month of the ${periods}-month series.`;
+    return `${name}: ${level} in the first and the last month of the ${periods}-month series.`;
   }
   return `${name} ${rose ? 'rose' : 'fell'} from ${first} to ${last} over ${periods} periods.`;
 }

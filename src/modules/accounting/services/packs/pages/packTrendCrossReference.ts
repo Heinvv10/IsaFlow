@@ -92,9 +92,9 @@ export function trendWindowNote(panels: PackChartSpec[]): PackDisclosureNote | n
   return {
     heading: 'Period',
     body:
-      'Each panel plots one MONTH at a time and states its movement from the first month of the series to the last. '
-      + `The same measures print for the WHOLE reporting period — ${inWords(where)} — against the comparative period. `
-      + 'Different windows: they will not agree, and neither is derived from the other.',
+      'Each panel plots one MONTH at a time. The same measures print for the WHOLE reporting '
+      + `period — ${inWords(where)} — against the comparative period. Different windows: the two `
+      + 'will not agree.',
   };
 }
 
