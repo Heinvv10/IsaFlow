@@ -14,6 +14,14 @@
 import { escapeHtml } from '@/modules/accounting/services/packs/escapeHtml';
 import type { PdfMetadata } from './pdfTransport';
 
+/**
+ * The confidentiality mark every pack footer carries, and the same words the
+ * cover's own disclosure uses (`packFrontMatter.ts`). One constant, because a
+ * cover that says one thing and a running footer that says another is a
+ * document arguing with itself about who may read it.
+ */
+export const PACK_CONFIDENTIALITY = 'Confidential — for board use';
+
 export interface PackFurniture {
   companyName: string;
   packLabel: string;

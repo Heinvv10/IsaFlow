@@ -10,6 +10,7 @@
  */
 import { ROUNDING_NOTE } from './packBasis';
 import { disclose, note } from './packPageBlocks';
+import { PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import type { PackBasis } from './packBasis';
 import type { MoneyScale } from '@/lib/format/money';
 import type { PackComparativePeriod, PackPage } from './packPageModel';
@@ -50,7 +51,7 @@ export interface PackFrontMatter {
 export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
   return [
     page(f.companyLegalName, 'Front', 'low', [
-      disclose('Confidential — for board use', [
+      disclose(PACK_CONFIDENTIALITY, [
         note('Preparation', `Prepared by ${f.preparedBy} on ${f.generatedAt.slice(0, 10)}. This pack is ${f.draft ? 'a DRAFT — figures are not final' : 'FINAL'}.`),
       ]),
     ]),

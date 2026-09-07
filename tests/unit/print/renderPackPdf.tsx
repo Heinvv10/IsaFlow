@@ -26,7 +26,7 @@ import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { chromium, type Browser } from 'playwright';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
-import { PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
+import { HEADER_HTML, PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -94,6 +94,11 @@ const LANDSCAPE_WIDTH_PX = Math.round((297 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.
 export async function printBoardPack(
   document: PackPagesDocument,
   browser: Browser,
+  /** The running footer the route passes to the transport. Absent, Chromium
+   *  draws none — which is what every pack printed before the route was wired
+   *  to `buildFooterHtml`, and the reason a sheet count could pass while no
+   *  page named the company, the period or the confidentiality mark. */
+  footerHtml?: string,
 ): Promise<PrintedPack> {
   const body = renderToStaticMarkup(<PackPagesView document={document} />);
   const html =
@@ -159,6 +164,13 @@ export async function printBoardPack(
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
+      // Chromium prints its own title/date header unless handed an empty one
+      // — the same pair the transports use (`HEADER_HTML`).
+      ...(footerHtml === undefined ? {} : {
+        displayHeaderFooter: true,
+        headerTemplate: HEADER_HTML,
+        footerTemplate: footerHtml,
+      }),
       margin: {
         top: mm(PDF_MARGIN_MM.top),
         bottom: mm(PDF_MARGIN_MM.bottom),

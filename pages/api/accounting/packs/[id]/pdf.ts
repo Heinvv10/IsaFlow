@@ -18,6 +18,18 @@
  * failed render is DIAGNOSED here, by composing the same document in this
  * process and reporting what it refuses on. Only on the failure path: the
  * happy path composes nothing extra.
+ *
+ * THE FOOTER AND THE PDF METADATA ARE BUILT HERE TOO. `buildFooterHtml` and
+ * `buildPdfMetadata` existed with no caller at all, so every pack printed
+ * Chromium's bare `n / m` and `pdfinfo` reported no metadata — a document a
+ * director forwards to their bank with no company, no period and no
+ * confidentiality mark on any page. Neither can be CSS: Blink implements
+ * neither `@bottom-center` margin boxes nor `position: running()`, and both
+ * would draw nothing silently.
+ *
+ * `landscape` is deliberately NOT passed. It turns the WHOLE document
+ * sideways; page 10 alone is landscape, through the named `@page` rule in
+ * `styles/print.css` that keys off the page's own `data-print-landscape`.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -28,9 +40,12 @@ import { checkReportRateLimit } from '@/lib/rateLimit';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { withRenderSlot } from '@/lib/pdf/withRenderSlot';
 import { sql, type DbRow } from '@/lib/neon';
+import { buildFooterHtml, buildPdfMetadata, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
+import { formatPackPeriod } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
+import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
 import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
-import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
+import { PACK_LABELS, packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 
 const VALID_TYPES: PackType[] = ['board', 'management', 'monthly'];
@@ -109,19 +124,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // not holding a pool connection or an open transaction while it waited. By
   // the time this handler runs, the process has decided it has capacity.
   const preparedBy = user.email ?? 'IsaFlow';
+  const companyName = await getCompanyName(companyId);
+
+  // The same rule the pack itself applies (`boardPackDocument.ts`): FINAL only
+  // when the period the window ends in is closed. A footer that said FINAL
+  // over figures that can still move is the more dangerous of the two errors,
+  // and the body watermark and the footer must not disagree.
+  const furniture = {
+    companyName,
+    packLabel: PACK_LABELS[id as PackType],
+    period: formatPackPeriod(from, to),
+    confidentiality: PACK_CONFIDENTIALITY,
+    draft: (await getPeriodStatusForDate(companyId, to)) !== 'closed',
+  };
+
   let pdf: Buffer;
-  let companyName: string;
   try {
-    [pdf, companyName] = await Promise.all([
-      renderPagePdf({
-        companyId,
-        userId: user.id,
-        path: PACK_PAGE,
-        query: { pack: id, from, to },
-        apiPaths: packPrintApiPaths(id as PackType),
-      }),
-      getCompanyName(companyId),
-    ]);
+    pdf = await renderPagePdf({
+      companyId,
+      userId: user.id,
+      path: PACK_PAGE,
+      query: { pack: id, from, to },
+      apiPaths: packPrintApiPaths(id as PackType),
+      footerHtml: buildFooterHtml(furniture),
+      metadata: buildPdfMetadata(furniture),
+    });
   } catch (error) {
     const refusal = await packRefusalReason(id, { companyId, from, to, preparedBy });
     if (refusal === null) throw error;

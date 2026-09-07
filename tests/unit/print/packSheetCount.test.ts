@@ -30,6 +30,7 @@ import {
   denseInput,
   noRatioPanelsInput,
 } from '../services/packs/fixtures/boardPackInputs';
+import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import { printBoardPack } from './renderPackPdf';
 
 const FIXTURES = {
@@ -71,6 +72,36 @@ describe('the printed board pack', () => {
       // name, a period and a confidentiality mark. Everything else is content.
       .filter((s) => s.sheet !== 1 && s.chars < 200);
     expect(thin, 'sheets carrying almost nothing').toEqual([]);
+  }, 120_000);
+
+  it('runs the company, the pack, the period and the confidentiality mark along every sheet', async () => {
+    // `buildFooterHtml` and `buildPdfMetadata` were written, reviewed and
+    // merged with NO CALLER: `pdf.ts` asked for a render and never passed
+    // them, so every pack printed Chromium's bare `n / m` and `pdfinfo`
+    // reported no metadata at all. A document a director forwards to their
+    // bank had no company name, no period and no confidentiality mark on any
+    // page of it, and nothing in the suite could tell — the footer is drawn
+    // by the browser into the page MARGIN, so it is not in the DOM and only
+    // a printed document has it.
+    const furniture = {
+      companyName: 'ISAFlow Demo (Pty) Ltd',
+      packLabel: 'Board Pack',
+      period: '1 March 2026 to 31 August 2026',
+      confidentiality: PACK_CONFIDENTIALITY,
+      draft: true,
+    };
+    const printed = await printBoardPack(
+      buildBoardPackPages(demoInput),
+      browser,
+      buildFooterHtml(furniture),
+    );
+
+    for (const [index, text] of printed.sheetText.entries()) {
+      const flat = text.replace(/\s+/g, ' ');
+      for (const needle of [furniture.companyName, furniture.packLabel, furniture.period, 'DRAFT']) {
+        expect(flat, `sheet ${index + 1} footer is missing "${needle}"`).toContain(needle);
+      }
+    }
   }, 120_000);
 
   it('prints the landscape page on ONE landscape sheet', async () => {
