@@ -30,7 +30,7 @@ import {
 } from '@/modules/accounting/services/packs/pages/packTrendCrossReference';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
-import { cashTitle, narrativeTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
+import { cashTitle, narrativeComparativeFootnote, narrativeTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { brightsphereInput, demoInput, noRatioPanelsInput } from './fixtures/boardPackInputs';
@@ -197,15 +197,23 @@ describe('the no-comparative-base sentence', () => {
     // "Net profit of (1 546); the comparative profit base is measured against
     // a negative comparative base, so the percentage change is not
     // meaningful." — the second sentence a director read on sheets 4 and 8.
-    const titles = [
-      narrativeTitle(liveDemoSet, PACK_SCALE),
-      cashTitle(liveDemoSet, PACK_SCALE),
-    ];
-    for (const title of titles) {
-      expect(title).not.toMatch(/base is measured against .* base/i);
-      // It still says the thing: the comparative exists and is negative.
-      expect(title).toMatch(/comparative .* figure is negative/i);
-    }
+    // SHEET 8 STILL SAYS IT IN THE HEADLINE. Its headline is a LEVEL —
+    // "Cash stands at (531)" — and the clause completes that sentence rather
+    // than displacing a finding, so it stays where it is.
+    const cash = cashTitle(liveDemoSet, PACK_SCALE);
+    expect(cash).not.toMatch(/base is measured against .* base/i);
+    expect(cash).toMatch(/comparative .* figure is negative/i);
+
+    // SHEET 4 SAYS IT UNDER THE RULE. The ninth visual gate rejected a
+    // headline that spent its second half on a missing denominator on a page
+    // whose figures are a real loss; the clause is unchanged and it is now a
+    // footnote of that page. Both halves are pinned — the note carries it,
+    // and the headline does not.
+    const narrative = narrativeTitle(liveDemoSet, PACK_SCALE);
+    expect(narrative).not.toMatch(/base is measured against .* base/i);
+    expect(narrative).not.toMatch(/comparative/i);
+    expect(narrativeComparativeFootnote(liveDemoSet))
+      .toMatch(/comparative .* figure is negative/i);
     // Both fixtures exercise the negative branch, so neither passes vacuously.
     expect(liveDemoSet.prior!.netProfit).toBeLessThan(0);
     expect(liveDemoSet.prior!.cash).toBeLessThan(0);

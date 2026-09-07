@@ -37,6 +37,7 @@ import {
   compositionBarOption,
   stepPaint,
   waterfallOption,
+  waterfallChromePx,
   type CompositionSeries,
 } from '@/modules/accounting/services/packs/packChartOptions';
 import {
@@ -135,16 +136,22 @@ export function shorterProfitBridge(
  * `waterfallOption` defaults to six, which suits the 110mm rung and
  * overprints on the 48mm one: the demo cash bridge drew seven tick labels
  * with 11.8px between their centres at 12px type. The plot is the box less
- * `grid.top` and `grid.bottom` (32 + 72 in `waterfallOption`), and 26px is
+ * `grid.top` and `grid.bottom`, which `waterfallChromePx` reports because
+ * the bottom rung draws them tighter, and 26px is
  * comfortable for a 12px label — the same measure `packChartAxisLegibility`
  * asserts against on the printed SVG.
  */
 const PX_PER_MM = 96 / 25.4;
-const GRID_CHROME_PX = 32 + 72;
 const TICK_PITCH_PX = 26;
 
+/** The bottom rung, where the bridge draws its axis chrome tighter and its
+ *  category labels a size smaller — see `WATERFALL_CHROME`. */
+function isCompact(box: { heightMm: number }): boolean {
+  return box.heightMm <= CHART_HEIGHT_MM.inline;
+}
+
 function intervalsFor(box: { heightMm: number }): number {
-  const plot = box.heightMm * PX_PER_MM - GRID_CHROME_PX;
+  const plot = box.heightMm * PX_PER_MM - waterfallChromePx(isCompact(box));
   return Math.max(2, Math.floor(plot / TICK_PITCH_PX));
 }
 
@@ -273,7 +280,7 @@ export function buildProfitWaterfallChart(
     id: 'profit-bridge',
     title: `Revenue of ${formatMoney(f.revenue, { scale })} bridges to net profit of ${formatMoney(f.netProfit, { scale })}.`,
     kind: 'waterfall',
-    svg: renderChartSvg(waterfallOption(bridged, scale, undefined, intervalsFor(box)), box),
+    svg: renderChartSvg(waterfallOption(bridged, scale, undefined, intervalsFor(box), isCompact(box)), box),
     heightMm: box.heightMm,
     waterfallBars: bars,
   };
@@ -394,11 +401,38 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
       id: 'cash-bridge',
       title: `Cash moved from ${formatMoney(opening, { scale })} to ${formatMoney(current.cash, { scale })} over the period.`,
       kind: 'waterfall',
-      svg: renderChartSvg(waterfallOption(steps, scale, undefined, intervalsFor(HALF)), HALF),
+      svg: renderChartSvg(waterfallOption(steps, scale, undefined, intervalsFor(HALF), isCompact(HALF)), HALF),
       heightMm: HALF.heightMm,
       waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL),
     },
   };
+}
+
+/**
+ * PAGE 7'S CHART TITLE, WHICH USED TO BE A METAPHOR THAT COLLAPSES ON THE
+ * ONE COMPANY THAT NEEDS IT MOST.
+ *
+ * It read "Assets of (730) stand on liabilities of 3 357 and equity of
+ * (4 087)". Nothing stands on anything when the asset side is negative: the
+ * sentence asks a director to picture a structure at the exact moment the
+ * pack is telling them there is not one, on the sheet where the figures are
+ * least forgiving of a loose word. The demo pack and Brightsphere both print
+ * negative assets, so this is not a hypothetical edge.
+ *
+ * A structural verb where the structure holds, the balance-sheet identity in
+ * plain words where it does not — "matched by" is true of A = L + E at any
+ * sign, and claims no shape. "Does not hold" is ANY component below zero,
+ * not just assets: equity of (4 087) does not stand under anything either.
+ */
+function positionCompositionTitle(current: PackFigureSet['current'], scale: MoneyScale): string {
+  const money = (n: number) => formatMoney(n, { scale });
+  const funding = `liabilities of ${money(current.totalLiabilities)} and equity of ${money(current.totalEquity)}`;
+  const structural = current.totalAssets >= 0
+    && current.totalLiabilities >= 0
+    && current.totalEquity >= 0;
+  return structural
+    ? `Assets of ${money(current.totalAssets)} stand on ${funding}.`
+    : `Assets of ${money(current.totalAssets)} are matched by ${funding}.`;
 }
 
 /** Page 7 — assets beside the funding that stands behind them, per period. */
@@ -430,7 +464,7 @@ export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneySc
 
   return {
     id: 'position-composition',
-    title: `Assets of ${formatMoney(current.totalAssets, { scale })} stand on liabilities of ${formatMoney(current.totalLiabilities, { scale })} and equity of ${formatMoney(current.totalEquity, { scale })}.`,
+    title: positionCompositionTitle(current, scale),
     kind: 'bar',
     svg: renderChartSvg(compositionBarOption(periods, series, scale), box),
     heightMm: box.heightMm,

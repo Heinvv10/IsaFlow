@@ -125,6 +125,27 @@ const RULES: Rule[] = [
       + 'act on a ledger instruction, and the person who can is not holding this document',
   },
   {
+    name: 'a unit shoved against a figure instead of heading its column',
+    /**
+     * `R'000` IS A BANNER, NOT A SUFFIX.
+     *
+     * Every statement in the pack sets its scale once, above the column it
+     * governs, and every sentence that names the scale says it with the
+     * preposition — "Figures in R'000". Two sentences did neither and wrote
+     * the banner token immediately after a figure instead: page 11's "3 544
+     * R'000 of exposure" and page 10's "a span of 3 529 R'000". That is a
+     * third position for the unit in one document, and a reader who has to
+     * work out where the unit sits has to work out whether it applies.
+     *
+     * The digit-space-token shape is the whole defect: the banner itself is
+     * a bare `R'000` with nothing before it and is collected by this gate
+     * (`table scale`) without matching, and `inScale` puts a comma and the
+     * preposition between the two.
+     */
+    pattern: /\d\s+R(?:'000|'m)?(?=[\s.,;:)]|$)/,
+    instead: 'say it the way the rest of the pack does — `inScale`, which writes ", in R\'000"',
+  },
+  {
     name: 'a placeholder or a runtime sentinel',
     pattern: /\b(?:TODO|FIXME|XXX|undefined|NaN|\[object Object\])\b/,
     instead: 'a sentence the pack can stand behind, or no sentence',

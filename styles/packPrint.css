@@ -323,15 +323,27 @@ html.print-mode .pack-pages {
 
 /* Task 14 — narrative columns: prose beside the action panel. */
 .pack-narrative-columns { display: grid; grid-template-columns: 2fr 1fr; gap: var(--pack-gutter); }
-/* WHERE THERE IS NO COMMENTARY, THE COMMENTARY COLUMN IS ONE ITALIC LINE.
- * At 2fr it held that line and 1 130 of 1 150 pixel-rows of nothing — 98.2%
- * white — while the derived action panel was squeezed into a third of the
- * measure and ran the depth of the sheet. The placeholder still prints, and
- * still says commentary is owed; it just stops reserving two thirds of the
- * page to say it. `max-content` is the width of the sentence itself. */
+/* WHERE THERE IS NO COMMENTARY, THERE IS NO COMMENTARY COLUMN.
+ *
+ * At 2fr the placeholder held one italic line and 1 130 of 1 150 pixel-rows
+ * of nothing — 98.2% white — while the derived action panel was squeezed
+ * into a third of the measure. Shrinking the first column to `max-content`
+ * fixed the proportion and not the READ: a one-line column beside a panel
+ * five paragraphs deep still looks like a column whose contents failed to
+ * load, which is what the ninth gate called it.
+ *
+ * So the two stack. The placeholder still prints, and still says commentary
+ * is owed; it is a line above the panel rather than a column beside it. The
+ * panel keeps a readable measure rather than running the full 174mm — 9.5pt
+ * across the whole page is about a hundred characters to the line — and
+ * keeps roughly the depth it had, so the sheet does not gain white by the
+ * fix. `packBlockHeights.narrativeMm` charges for the stack. */
 .pack-narrative-columns.is-pending {
-  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 2mm;
 }
+.pack-narrative-columns.is-pending .pack-narrative-actions { max-width: 120mm; }
+.pack-narrative-columns.is-pending .pack-narrative-pending { margin: 0; }
 /* AND WHERE THERE IS NO ACTION PANEL, THERE IS NO SECOND COLUMN. See
  * `NarrativeColumns` — every derived caption in the pack was reserving a 1fr
  * column for a block only page 4 carries. */

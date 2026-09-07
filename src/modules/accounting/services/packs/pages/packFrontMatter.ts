@@ -13,10 +13,11 @@ import { ROUNDING_NOTE } from './packBasis';
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { disclose, mustDisclose, note } from './packPageBlocks';
 import { fitPageToBox } from './packPageFit';
+import { PT_MM } from './packTextMetrics';
 import { PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import type { PackBasis } from './packBasis';
 import type { MoneyScale } from '@/lib/format/money';
-import type { PackComparativePeriod, PackPage } from './packPageModel';
+import type { PackComparativePeriod, PackPage, PackPageBlock } from './packPageModel';
 
 /** A page before it knows its own number — see `numbered` in
  *  `boardPackPages.ts`, which is the only thing that assigns one. */
@@ -95,9 +96,59 @@ export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
       disclose('Basis of preparation', [
         note('In short', `${f.basis.basisOfPreparation.standard}. ${f.period}. Figures in ${f.scale} (${f.currency}), ${f.draftReasons.length > 0 ? 'draft' : 'final'}. Full basis on page ${f.basisPageNumber}.`),
       ]),
+      // THE QUALIFICATIONS, WITH THE CONTENTS, WHERE THEY ARE READ FIRST.
+      //
+      // They were the last block of the last sheet, under a sixteen-term
+      // glossary — the furthest point in the document from where a director
+      // starts. Two things move with them. This page was a twelve-line
+      // index and one paragraph over about 60% white, which is a sheet that
+      // looks like it failed to load; and page 12 was composing within two
+      // millimetres of its box on the live Brightsphere ledger, with no room
+      // for the colour key it owed the reader. A caveat is a statement about
+      // what the figures are, so the front of the pack is where it belongs.
+      //
+      // REQUIRED, so `fitPageToBox` reaches them only after this page's own
+      // optional prose is gone, and never takes the first.
+      caveatsBlock(f.basis),
     ]),
   ];
 }
+
+/** The heading `printedCaveats` matches on, so the block and the count that
+ *  reads it cannot drift apart on a rename. */
+const CAVEATS_HEADING = 'Caveats';
+
+function caveatsBlock(basis: PackBasis): PackPageBlock {
+  return mustDisclose(CAVEATS_HEADING, basis.caveats.length > 0
+    ? basis.caveats.map((caveat, index) => note(`Caveat ${index + 1}`, caveat))
+    : [note('None', 'No classification or inventory caveat applies to these figures.')]);
+}
+
+/** How many caveats a composed page actually prints. */
+export function printedCaveats(page: UnnumberedPage, basis: PackBasis): number {
+  if (basis.caveats.length === 0) return 0;
+  for (const block of page.blocks) {
+    if (block.kind === 'disclosure' && block.disclosure.heading === CAVEATS_HEADING) {
+      return block.disclosure.notes.length;
+    }
+  }
+  return 0;
+}
+
+/**
+ * The one palette, in the fewest words that still name all three systems.
+ *
+ * Short because page 12 is the tightest sheet in the pack — on the live
+ * Brightsphere ledger it composes within about two millimetres of its box,
+ * and `fitPageToBox` pays for a long note by taking the ledger version and
+ * the extraction time off the fact list above it. A colour key is not worth
+ * the pack's own provenance.
+ */
+const COLOUR_KEY =
+  'On the bridges, green is an income line, red a cost line and dark ink a total; '
+  + 'the two also differ in lightness, so a monochrome copy still separates them. '
+  + 'The balance sheet\'s bands are one ink at three lightnesses, legended on the chart. '
+  + 'Red on the scorecard marks a missed target.';
 
 /** The last page — spec §4.A page 12. */
 export function buildBasisPage(
@@ -106,12 +157,17 @@ export function buildBasisPage(
   comparativePeriod: PackComparativePeriod | null,
   scale: MoneyScale,
   currency: string,
+  /** The caveats the CONTENTS page composed — see `printedCaveats`. Passed in
+   *  rather than read off `basis`, because this sentence must count what a
+   *  reader can actually turn to, and the contents page is held to its sheet
+   *  like every other. */
+  caveatsPrinted: number,
 ): UnnumberedPage {
   // A CONCLUSION, not the page's own name restated. It read "Basis of
   // preparation" over "Basis of preparation and definitions"; what a director
   // needs from the headline is what standard the figures were prepared under,
   // at what scale, and whether anything qualifies them.
-  const title = basisTitle(basis, scale, basis.caveats.length);
+  const title = basisTitle(basis, scale, caveatsPrinted);
   return page(title, 'Basis of preparation', 'Governance', 'medium', [
     disclose('Basis of preparation', [
       note('Standard', basis.basisOfPreparation.standard),
@@ -134,15 +190,24 @@ export function buildBasisPage(
     // sixteen-term glossary.
     ], 2),
     { kind: 'definitions', entries: basis.definitions },
-    // REQUIRED, so it is the LAST prose on this page the fitter may take and
-    // its first note can never be taken at all. It was optional and it is the
-    // page's last block, which made a caveat qualifying the figures the FIRST
-    // thing dropped when the page ran short — ahead of "Rounding" and "Ledger
-    // version" three centimetres above it. A qualification of the numbers
-    // outranks a fact about how they were extracted.
-    mustDisclose('Caveats', basis.caveats.length > 0
-      ? basis.caveats.map((caveat, index) => note(`Caveat ${index + 1}`, caveat))
-      : [note('None', 'No classification or inventory caveat applies to these figures.')]),
+    // THE PACK'S ONE COLOUR KEY, ON THE PAGE THAT STATES ITS CONVENTIONS.
+    //
+    // Three colour systems ran through the pack and this page defined none
+    // of them, so red meant a cost on sheet 6 and a missed target on sheet 9
+    // with nothing connecting the two. Stated here rather than repeated as a
+    // legend on each chart: it is a convention of the document, like the
+    // bracket for a negative in the glossary above.
+    //
+    // ITS OWN BLOCK, not a ninth fact in the list at the top. As a fact it
+    // is four lines in an 83mm column, and the balanced two-column block
+    // charges half of them to the page — which on the live Brightsphere
+    // ledger is more paper than the sheet has, and the fitter pays for it by
+    // taking the ledger version and the extraction time off the pack's own
+    // provenance. As a block it is the LAST prose on the page and the page
+    // has the room, because the caveats moved to the contents.
+    disclose('Colour', [note('Key', COLOUR_KEY)]),
+    // THE CAVEATS ARE NOT HERE. They print with the contents — see
+    // `buildFrontPages` — and the standfirst above says so and counts them.
   ]);
 }
 
@@ -151,47 +216,46 @@ export function buildBasisPage(
 function basisTitle(basis: PackBasis, scale: MoneyScale, caveats: number): string {
   const clause = caveats === 0
     ? 'no caveat qualifies these figures'
-    : `${caveats === 1 ? 'one caveat qualifies' : `${caveats} caveats qualify`} these figures`;
+    : `${caveats === 1 ? 'one caveat qualifies' : `${caveats} caveats qualify`} these figures, `
+      + 'printed with the contents';
   return `Prepared under ${basis.basisOfPreparation.standard} from the `
     + `${basis.basisOfPreparation.sourceSystem}, in ${scale}; ${clause}.`;
 }
 
-/** How many caveats a composed basis page actually prints. */
-function printedCaveats(page: UnnumberedPage, basis: PackBasis): number {
-  if (basis.caveats.length === 0) return 0;
-  for (const block of page.blocks) {
-    if (block.kind === 'disclosure' && block.disclosure.heading === 'Caveats') {
-      return block.disclosure.notes.length;
-    }
-  }
-  return 0;
+/**
+ * THE CONTENTS PAGE, HELD TO ITS SHEET.
+ *
+ * It carries the caveats now, and a company with four long ones would
+ * otherwise push the pack to a thirteenth sheet from the FRONT — the one
+ * place nothing was measured, because until now page 2 was a twelve-line
+ * index and a paragraph. The caveats are a required disclosure, so the
+ * fitter reaches them only after this page's own optional prose, never takes
+ * the first of them, and says on the page what it took.
+ *
+ * WHATEVER IT TAKES, THE BASIS PAGE'S STANDFIRST HAS TO KNOW. That sentence
+ * counts the caveats that qualify the figures and names where they print; a
+ * count composed before this fit is a count this fit can falsify, which is
+ * the exact defect the basis page was rejected for once already. So the
+ * caller fits this page FIRST and hands `printedCaveats` to
+ * `buildBasisPage` — see `boardPackPages`.
+ */
+export function fitContentsPage(page: UnnumberedPage, pageCount: number): UnnumberedPage {
+  return fitPageToBox(page, contentsListMm(pageCount));
 }
 
 /**
- * THE BASIS PAGE, FITTED TO ITS SHEET AND TITLED BY WHAT IT ACTUALLY PRINTS.
+ * The paper `PackContents` draws that this page's BLOCKS do not account for:
+ * the index itself.
  *
- * The rendered pack's standfirst read "…in R'000; 2 caveats qualify these
- * figures", one caveat was printed, and the page's own footer then admitted
- * "Not printed on this page: 1 explanatory note, from 'Caveats'". A
- * governance page that miscounts its own qualifications is the single worst
- * line in a board pack: it is not a layout complaint, it is the page telling
- * a director there is a second qualification and then not saying what it is.
- *
- * The count is composed BEFORE the page is held to its sheet, so the only
- * honest fix is to compose the title again afterwards, against the notes that
- * survived. Re-fitted after the retitle because a title is a page's tallest
- * text and a shorter one can free a line — and iterated, because that freed
- * line can bring a caveat back and change the count again. It converges in
- * one or two turns and stops either way: a title that says fewer caveats than
- * the page prints would be the same defect pointing the other direction.
+ * It is not a block — the component builds it from the page list — so
+ * `pageMm` reports this sheet at a third of its real height, which was
+ * harmless while the page carried one paragraph and is not now that it
+ * carries the caveats. Transcribed from `.pack-contents-list` and
+ * `.pack-contents-item` in `packPrint.css`: a 4mm top margin, then per row a
+ * 10pt line at 16pt leading, 1mm of padding either side and a half-point
+ * rule.
  */
-export function fitBasisPage(page: UnnumberedPage, basis: PackBasis, scale: MoneyScale): UnnumberedPage {
-  let fitted = fitPageToBox(page);
-  for (let turn = 0; turn < 3; turn += 1) {
-    const printed = printedCaveats(fitted, basis);
-    const title = basisTitle(basis, scale, printed);
-    if (fitted.title === title) return fitted;
-    fitted = fitPageToBox({ ...page, title });
-  }
-  return fitted;
+export function contentsListMm(pageCount: number): number {
+  const row = 16 * PT_MM + 2 + 0.5 * PT_MM;
+  return 4 + pageCount * row;
 }

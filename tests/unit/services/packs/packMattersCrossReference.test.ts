@@ -156,12 +156,17 @@ describe('the two sentences on page 11 that state an amount', () => {
     expect(checkMattersAmounts(doc, PACK_SCALE)).toEqual([]);
   });
 
-  it('states it with the scale it is measured in', () => {
+  it('states it with the scale it is measured in, in the pack\'s one prose form', () => {
     const page = doc.pages.find((p) => p.blocks.some((b) => b.kind === 'matters'));
     // "26 of them carrying 1 675 of exposure" over a note reading "They come
     // to 658 R'000 in total" reads as one quantity at two values. It is two
     // quantities, and only one of them said so.
-    expect(page?.title).toContain(`${PACK_SCALE} of exposure`);
+    expect(page?.title).toContain(`of exposure, in ${PACK_SCALE}`);
+    // AND NOT AS A BANNER SHOVED AGAINST THE FIGURE. `R'000` heads a column
+    // everywhere else in the pack; this sentence and page 10's shared-scale
+    // note were the two places it trailed a number instead, which is a third
+    // position for the unit in one document. See `inScale`.
+    expect(page?.title).not.toMatch(new RegExp(`\\d\\s+${PACK_SCALE.replace("'", "'")}`));
   });
 
   /**
@@ -183,7 +188,7 @@ describe('the two sentences on page 11 that state an amount', () => {
     const wrong = {
       ...doc,
       pages: doc.pages.map((p) => (p === page
-        ? { ...p, title: p.title.replace(/[\d ]+(?= R)/, ' 9 999 ') }
+        ? { ...p, title: p.title.replace(/[\d ]+(?= of exposure)/, ' 9 999 ') }
         : p)),
     };
 

@@ -612,34 +612,38 @@ describe('the printed board pack', () => {
     expect(sheet).toContain('Commentary pending approval');
   }, 120_000);
 
-  it('gives the measure to the action panel when commentary is pending', async () => {
-    // R-P57's other half. Page 4's commentary column ran at 2fr and held one
-    // italic line — "Commentary pending approval." — over 98.2% white, while
-    // the derived action panel beside it was squeezed into a third of the
-    // measure and ran the depth of the sheet.
+  it('stacks the action panel under the placeholder when commentary is pending', async () => {
+    // R-P57's other half, TWICE CORRECTED. Page 4's commentary column ran at
+    // 2fr and held one italic line — "Commentary pending approval." — over
+    // 98.2% white, while the derived action panel beside it was squeezed
+    // into a third of the measure and ran the depth of the sheet. The first
+    // fix sized the placeholder to `max-content` and gave the rest to the
+    // panel, which fixed the PROPORTION and not the READ: a one-line column
+    // beside a five-paragraph one still looks like a column whose contents
+    // failed to load, which is what the ninth visual gate called it.
     //
-    // `.pack-narrative-columns.is-pending` sizes the placeholder to its own
-    // sentence and gives the rest to the panel, and NOTHING referenced that
-    // class: deleting the CSS rule and the className together left 302 unit
-    // tests, 447 component tests and this file green. `thinSheets` cannot see
-    // it either — it counts characters per SHEET, and a sheet that is full
-    // down one side and empty down the other passes.
+    // So the two stack, and that is what this measures — off the laid-out
+    // boxes, not off the class list. `thinSheets` cannot see any of this: it
+    // counts characters per SHEET, and a sheet full down one side and empty
+    // down the other passes it.
     //
-    // So it is measured on the laid-out page, as a ratio of the two columns
-    // rather than as a pixel count: the placeholder is one sentence at
-    // `max-content`, the panel gets what is left, and 2fr/1fr is the mutation
-    // this must go red on.
+    // The mutations this goes red on: restoring either grid (`2fr 1fr` or
+    // `max-content 1fr`) puts the panel level with the placeholder rather
+    // than under it, and dropping the panel's `max-width` gives it the whole
+    // 174mm measure — about a hundred characters to the line at 9.5pt.
     const printed = await printBoardPack(buildBoardPackPages(brightsphereInput), browser);
     expect(brightsphereInput.commentary, 'this only means anything on a pending pack').toBeNull();
 
     expect(printed.pendingNarrative, 'page 4 does not carry a pending narrative').not.toBeNull();
-    const { placeholderMm, panelMm } = printed.pendingNarrative!;
-    expect(panelMm, `the panel has ${panelMm}mm against the placeholder's ${placeholderMm}mm`)
-      .toBeGreaterThan(placeholderMm);
-    // At 2fr/1fr the placeholder takes 110mm of the 174mm measure. Its own
-    // sentence is about 50mm, so anything past 70mm is the old layout.
-    expect(placeholderMm, 'the placeholder is sized to the column, not to its sentence')
-      .toBeLessThan(70);
+    const { placeholderMm, panelMm, stacked } = printed.pendingNarrative!;
+    expect(stacked, 'the panel sits beside the placeholder rather than under it').toBe(true);
+    // One column, so the placeholder's box is the whole measure rather than
+    // the width of its own sentence.
+    expect(placeholderMm, 'the placeholder is still sized to a column')
+      .toBeGreaterThan(150);
+    // And the panel keeps a measure a reader can follow — `max-width: 120mm`.
+    expect(panelMm, `the panel is set across ${panelMm}mm`).toBeLessThanOrEqual(122);
+    expect(panelMm, `the panel is set across ${panelMm}mm`).toBeGreaterThan(90);
   }, 120_000);
 
   it('carries no class inside a page box whose CSS this harness does not load', async () => {

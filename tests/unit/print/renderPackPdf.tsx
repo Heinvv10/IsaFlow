@@ -197,8 +197,8 @@ export interface PrintedPack {
    *
    * Measured because nothing else could see the fix. The placeholder column
    * ran at 2fr and held one italic line over 1 130 blank pixel-rows;
-   * `.pack-narrative-columns.is-pending` gives the measure to the panel
-   * instead. `thinSheets` counts characters per SHEET, so a sheet that is
+   * `.pack-narrative-columns.is-pending` stacks the two instead — the
+   * placeholder is a line above the panel, not a column beside it. `thinSheets` counts characters per SHEET, so a sheet that is
    * full down one side and empty down the other passes it, and no test
    * referenced `is-pending` at all — deleting the CSS rule and the className
    * together left the whole suite green.
@@ -206,7 +206,7 @@ export interface PrintedPack {
    * Null where the pack's commentary is approved, which is the case this does
    * not describe.
    */
-  pendingNarrative: { placeholderMm: number; panelMm: number } | null;
+  pendingNarrative: { placeholderMm: number; panelMm: number; stacked: boolean } | null;
   /**
    * How wide the landscape page is actually laid out, in millimetres, at the
    * landscape viewport. Null where the pack has no landscape page.
@@ -462,7 +462,17 @@ export async function printBoardPack(
       if (placeholder === null || panel === null) return null;
       const mmOf = (el: Element) =>
         Math.round((el.getBoundingClientRect().width / pxPerMm) * 10) / 10;
-      return { placeholderMm: mmOf(placeholder), panelMm: mmOf(panel) };
+      // STACKED OR SIDE BY SIDE, read off the laid-out boxes rather than off
+      // the class list: the panel's top edge is below the placeholder's
+      // bottom when the two are rows of one column, and level with its top
+      // when they are two columns of one row.
+      const placeholderBox = placeholder.getBoundingClientRect();
+      const panelBox = panel.getBoundingClientRect();
+      return {
+        placeholderMm: mmOf(placeholder),
+        panelMm: mmOf(panel),
+        stacked: panelBox.top >= placeholderBox.bottom - 1,
+      };
     }, PX_PER_MM);
 
     const pdf = await page.pdf({

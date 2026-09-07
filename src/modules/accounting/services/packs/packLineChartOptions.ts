@@ -110,9 +110,19 @@ export function smallMultipleOption(
     // for the end label. The 83mm PANEL keeps its tight one: six of them to
     // a landscape sheet is a different form, and `containLabel` is what lets
     // a panel spend its width on the line.
+    // AND THE BOTTOM GUTTER IS THE LABELS' OWN, NOT THE WATERFALL'S.
+    //
+    // The full-width line took `bottom: 64` from `waterfallOption`, where 64
+    // pixels is what seven category names rotated 30 degrees need. This axis
+    // prints TWO labels, horizontally — "Oct 2025" and "Sep 2026 (part)" —
+    // and 64 is 15mm of white between the last thing drawn and the bottom of
+    // the chart's box. On page 8 that is the visible hole the ninth gate
+    // found between the cash line and the Commentary heading below it. 32
+    // clears a 12px label and its tick with room to spare, and the 32mm of
+    // box the line was not using becomes plot.
     grid: unit === null
       ? { left: 4, right: 64, top: 12, bottom: 28, containLabel: true }
-      : { left: 80, right: 64, top: 32, bottom: 64 },
+      : { left: 80, right: 64, top: 32, bottom: 32 },
     xAxis: {
       type: 'category',
       data: points.map((p) => p.label),

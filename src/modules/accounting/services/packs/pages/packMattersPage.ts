@@ -14,7 +14,7 @@ import { remainingPageMm } from './packPageFit';
 import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatter } from './packMatters';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, inScale, type MoneyScale } from '@/lib/format/money';
 import type { PackNarrative, PackPageBlock } from './packPageModel';
 
 /** The page's short name in the Contents, and the 16pt heading it prints
@@ -69,9 +69,14 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
   // reading "They come to 658 R'000 in total" — two figures about two
   // different sets, one of which said what it was measured in. A reader with
   // no scale on the larger number reads the pair as a contradiction.
+  //
+  // AND IN THE FORM PROSE STATES A UNIT IN, which is not the banner token
+  // pushed up against the figure — see `inScale`. This sentence and page
+  // 10's shared-scale note were the only two places in the pack where
+  // `R'000` trailed a number instead of heading a column.
   const exposure = quantified.length === 0
     ? 'none of them carrying a single rand amount'
-    : `${quantified.length} of them carrying ${formatMoney(total, { scale })} ${scale}${EXPOSURE_CLAUSE}`;
+    : `${quantified.length} of them carrying ${inScale(`${formatMoney(total, { scale })}${EXPOSURE_CLAUSE}`, scale)}`;
   return `${findings.length} ${noun} a board decision, ${exposure}.${failedClause}`;
 }
 

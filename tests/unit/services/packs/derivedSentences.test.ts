@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cashTitle,
+  highlightsComparativeFootnote,
   highlightsTitle,
   incomeStatementTitle,
   largestMoverCaption,
@@ -38,7 +39,25 @@ describe('highlightsTitle', () => {
     // arithmetically meaningless and reads as a triumph or a catastrophe at random.
     const title = highlightsTitle(set(-50_000, -100_000, -20_000));
     expect(title).not.toMatch(/%/);
-    expect(title).toMatch(/negative|not meaningful/i);
+    // The headline states the LEVEL — the finding — rather than the reason a
+    // ratio could not be formed. The ninth visual gate rejected the pack for
+    // spending half of sheet 3's headline on a denominator.
+    expect(title).toMatch(/Revenue of \(50 000\)/);
+  });
+
+  it('moves the reason there is no percentage into a footnote on the page', () => {
+    // WHERE THE CLAUSE WENT. It is a disclosure the page still owes the
+    // reader — a tile with no movement beside it needs saying why — and it
+    // now prints under the rule with the page's other apparatus rather than
+    // as the first line a director reads. Both halves are asserted: the
+    // footnote says it, and the title above does not.
+    const noBase = set(-50_000, -100_000, -20_000);
+    expect(highlightsComparativeFootnote(noBase))
+      .toMatch(/comparative revenue figure is negative/i);
+    expect(highlightsTitle(noBase)).not.toMatch(/comparative/i);
+    // And nothing is footnoted where the page states the movement itself.
+    expect(highlightsComparativeFootnote(set(1_120_000, 1_000_000, 50_000))).toBeNull();
+    expect(highlightsComparativeFootnote(set(1_120_000, null, 50_000))).toBeNull();
   });
 
   it('never prints a margin of 0% on non-positive turnover', () => {

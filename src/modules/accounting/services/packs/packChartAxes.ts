@@ -75,13 +75,46 @@ export interface ChartPalette {
  */
 const CATEGORICAL_BANDS = ['#15202b', '#5b7185', '#a9b8c4', '#d7dee4'] as const;
 
-/** `axis` is the theme's `textTertiary`: the axis labels and ticks are the
- *  same grey as tertiary text everywhere else in the app. The other four map
- *  one-to-one. */
+/**
+ * THE INCOME AND COST INKS ARE SEPARATED BY LIGHTNESS, NOT ONLY BY HUE.
+ *
+ * The app's semantic pair is `#1f7a4d` and `#b23a3a`, and on a screen they
+ * are unmistakable. Desaturated they are not: their relative luminances are
+ * 99.4 and 83.5 out of 255, a six per cent separation, so sheet 6's green
+ * revenue bar and red cost-of-sales bar RESOLVE TO THE SAME MID-GREY. A
+ * board pack is photocopied, faxed to a bank and printed on a mono office
+ * device, and in every one of those a reader was left with bar direction and
+ * the printed labels alone.
+ *
+ * These two keep the hues — income is green and cost is red in every pack
+ * this platform prints, and that convention is stated on the basis page —
+ * and put a real step of lightness between them: ink 30.5, cost 66.8, income
+ * 129.2 out of 255, which is the same kind of lightness ramp
+ * `ChartPalette.categorical` uses for the balance sheet's three bands. Cost
+ * sits between the two, which is also the right weight for it: the darkest
+ * ink stays the subtotal, the mark a reader's eye should land on.
+ *
+ * BOTH ARE STILL FILLS ON WHITE PAPER, which is the constraint that decides
+ * how far apart they can go. A fill needs 3:1 against the sheet to read as a
+ * shape at all; income at `#2e9d63` is 3.43:1 and anything lighter stops
+ * being a bar. The bar LABEL is what gave way instead — see
+ * `labelInkOn` in `packChartOptions.ts`, which picks paper or ink by
+ * contrast rather than assuming paper reads on every fill.
+ *
+ * Not in `theme.ts`'s FALLBACK: that is the app's on-screen semantic pair and
+ * nothing about a screen is photocopied. This is the PRINT palette.
+ *
+ * `axis` is the theme's `textTertiary`: the axis labels and ticks are the
+ * same grey as tertiary text everywhere else in the app. `ink` and `prior`
+ * map one-to-one.
+ */
+const PRINT_FAV = '#2e9d63';
+const PRINT_UNFAV = '#8c2f2f';
+
 export const DEFAULT_CHART_PALETTE: ChartPalette = {
   ink: FALLBACK.ink,
-  fav: FALLBACK.fav,
-  unfav: FALLBACK.unfav,
+  fav: PRINT_FAV,
+  unfav: PRINT_UNFAV,
   prior: FALLBACK.prior,
   axis: FALLBACK.textTertiary,
   categorical: CATEGORICAL_BANDS,

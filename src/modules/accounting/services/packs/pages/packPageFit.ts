@@ -238,14 +238,26 @@ function dropNote(blocks: PackPageBlock[], index: number, dropped: Dropped): voi
  * is the safety net for the company nobody sampled, which is the one that
  * has produced all three overflows so far.
  */
-export function fitPageToBox<T extends MeasurablePage>(page: T): T {
-  return fitPageReport(page).page;
+export function fitPageToBox<T extends MeasurablePage>(page: T, reserveMm = 0): T {
+  return fitPageReport(page, reserveMm).page;
 }
 
 /** The same fit, with what it took — for the tests that hold the model to a
  *  bound on how much a page may lose to it. */
-export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dropped: Dropped } {
-  const box = pageBoxMm(page);
+export function fitPageReport<T extends MeasurablePage>(
+  page: T,
+  /**
+   * Paper this page carries that its BLOCKS do not account for.
+   *
+   * The contents page is the only one: `PackContents` draws the twelve-line
+   * index itself, off the page list, so `pageMm` sees a page with one
+   * disclosure on it and would happily let a long caveat run onto a
+   * thirteenth sheet under an index that says twelve. The caller states what
+   * the component draws — see `contentsListMm`.
+   */
+  reserveMm = 0,
+): { page: T; dropped: Dropped } {
+  const box = pageBoxMm(page) - reserveMm;
   if (pageMm(page) <= box) return { page, dropped: NOTHING };
 
   const blocks: PackPageBlock[] = [...page.blocks];
@@ -295,12 +307,12 @@ export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dro
   // fixtures — the trimming below runs on live data and on this file's own
   // tests, never on a fixture.
   if (!tookSomething(dropped)) {
-    assertFits(page, page);
+    assertFits(page, page, reserveMm);
     return { page, dropped: NOTHING };
   }
 
   const fitted = { ...page, blocks, footnotes: [...footnotes, omissionFootnote(dropped, footnotes)] };
-  assertFits(page, fitted);
+  assertFits(page, fitted, reserveMm);
   return { page: fitted, dropped };
 }
 
@@ -323,8 +335,8 @@ export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dro
  * so this reaches a human as a sentence naming the page, rather than as a
  * corrupt download or a thirty-second timeout.
  */
-function assertFits(original: MeasurablePage, fitted: MeasurablePage): void {
-  const box = pageBoxMm(fitted);
+function assertFits(original: MeasurablePage, fitted: MeasurablePage, reserveMm: number): void {
+  const box = pageBoxMm(fitted) - reserveMm;
   const mm = pageMm(fitted);
   if (mm <= box) return;
   // TWO SENTENCES FOR TWO READERS — see `PackRefusal`. The millimetres and the

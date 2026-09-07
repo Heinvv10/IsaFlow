@@ -10,7 +10,7 @@
  * every name here, so existing import paths still resolve.
  */
 
-import { formatDays, formatMoney, formatPctLevel, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPctLevel, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -138,7 +138,15 @@ const MONEY_PANELS: MoneyPanel[] = [
 
 const RATIO_PANELS: RatioPanel[] = [
   { id: 'trend-gross-margin', name: 'Gross margin', pick: (p) => p.grossMarginPct, format: (n) => formatPctLevel(n), unit: 'a percentage' },
-  { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => formatDays(n, 1), unit: 'a day count' },
+  // ONE DECIMAL RULE FOR A DAY COUNT, WHICH IS NONE. This panel printed
+  // "18.6 days" and "59.6 days" while the scorecard and the highlights
+  // printed "213 days", "789 days" and "1 035 days" — the same label, two
+  // precisions, two sheets apart. The two ARE on different bases and the
+  // pack discloses that on both pages, but precision is not how a reader
+  // tells one basis from another: it reads as one of the two being more
+  // exact. `formatDays`' own default is the whole-day form the rest of the
+  // pack uses, so the panel now takes it too.
+  { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => formatDays(n), unit: 'a day count' },
 ];
 
 /**
@@ -427,9 +435,13 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
     // subtraction a reader does on the sheet gives the number the sheet
     // states. `shared.max - shared.min` rounded separately does not: the
     // live demo page published "1 908", "(1 621)" and "a span of 3 528".
+    // AND THE UNIT IN THE FORM PROSE STATES ONE IN — see `inScale`. It read
+    // "a span of 3 529 R'000", the column banner shoved against a figure,
+    // which is a third position for a unit the pack otherwise only ever
+    // sets above the column it governs.
     sharedRange: `${inProse(formatMoney(shared.min, { scale }))} to `
       + `${inProse(formatMoney(shared.max, { scale }))}, a span of `
-      + `${inProse(formatMoney(sharedSpan * MONEY_SCALES[scale], { scale }))} ${scale}`,
+      + `${inScale(inProse(formatMoney(sharedSpan * MONEY_SCALES[scale], { scale })), scale)}`,
   };
 }
 

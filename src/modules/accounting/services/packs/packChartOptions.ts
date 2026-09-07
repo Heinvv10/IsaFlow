@@ -45,6 +45,7 @@ import type {
   CustomSeriesRenderItemParams,
 } from 'echarts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
+import { contrastRatio } from '@/lib/brand/contrast';
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import {
   axisDomain,
@@ -132,8 +133,56 @@ export function stepPaint(step: WaterfallStep): 'favourable' | 'unfavourable' | 
  * A directly labelled bar is also the greyscale cue the rubric asks for:
  * `(1 431)` reads under a photocopier and `red` does not.
  */
+/**
+ * THE AXIS CHROME IS NOT A CONSTANT, BECAUSE THE BOX IS NOT.
+ *
+ * `top: 32, bottom: 72` is what seven category names rotated thirty degrees
+ * need at 12px, and it is right on the 110mm rung. On the 48mm rung — which
+ * is where a page carrying a negative-revenue disclosure, a sign-flip
+ * footnote and a three-line caption puts the bridge — the box is 181px and
+ * that chrome takes 104 of them, so the BARS get 77px. The demo pack's
+ * bridge draws its bars over 168px on the same sheet number. The ninth gate
+ * read the two side by side and called the short one squashed enough to
+ * crowd its own labels, which it is: it is the same chart at 43% plot
+ * against 75%.
+ *
+ * The compact rung gives the labels 56px and sets them at 10px. "Operating
+ * Expenses" at 10px is about 92px wide, so rotated thirty degrees it stands
+ * 46px tall plus its line — inside 56 with room, and measured on the printed
+ * SVG by `packChartAxisLegibility`. What that buys the plot is 28px, better
+ * than a third more bar on the rung that needed it most.
+ */
+const WATERFALL_CHROME = {
+  full: { top: 32, bottom: 72, labelPx: 12 },
+  compact: { top: 20, bottom: 56, labelPx: 10 },
+} as const;
+
+/** The pixels of a waterfall's box its axis chrome takes, for a caller
+ *  choosing how many gridlines the rest of it can hold. */
+export function waterfallChromePx(compact: boolean): number {
+  const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
+  return chrome.top + chrome.bottom;
+}
+
 const LABEL_GAP_PX = 4;
 const LABEL_LINE_PX = 12;
+
+/**
+ * WHICH INK A LABEL DRAWN INSIDE A BAR IS SET IN — decided by contrast
+ * against the fill, not assumed.
+ *
+ * It was always `palette.paper`, which was true of every fill the palette
+ * carried at the time. Separating income from cost by lightness (see
+ * `DEFAULT_CHART_PALETTE`) made income light enough that white on it is
+ * 3.4:1 — under the 4.5:1 a line of 12px type needs — so the assumption
+ * would have traded one silent illegibility for another. Paper where paper
+ * reads, ink where ink does.
+ */
+function labelInkOn(fill: string, palette: ChartPalette): string {
+  return contrastRatio(fill, palette.paper) >= contrastRatio(fill, palette.ink)
+    ? palette.paper
+    : palette.ink;
+}
 
 function makeWaterfallRenderItem(
   steps: WaterfallStep[],
@@ -196,7 +245,7 @@ function makeWaterfallRenderItem(
             // the pack — carrying no value at all, which left red/green hue
             // as the only thing separating an increase from a decrease on
             // them. The label was being drawn the whole time.
-            fill: inside ? palette.paper : palette.ink,
+            fill: inside ? labelInkOn(stepColour(step, palette), palette) : palette.ink,
             align: 'center',
             verticalAlign: inside || below ? 'top' : 'bottom',
           },
@@ -218,11 +267,13 @@ export function waterfallOption(
   scale: MoneyScale,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
   intervals = 6,
+  compact = false,
 ): EChartsCoreOption {
   const domain = axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals);
+  const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
   return {
     animation: false,
-    grid: { left: 80, right: 24, top: 32, bottom: 72 },
+    grid: { left: 80, right: 24, top: chrome.top, bottom: chrome.bottom },
     tooltip: {
       // Same figure the bar prints — see `WaterfallStep.labelValue`.
       formatter: labelTooltipFormatter(steps.map((s) => s.label), steps.map((s) => s.labelValue ?? s.value), scale),
@@ -230,7 +281,7 @@ export function waterfallOption(
     xAxis: {
       type: 'category',
       data: steps.map((s) => s.label),
-      axisLabel: { color: palette.axis, interval: 0, rotate: 30 },
+      axisLabel: { color: palette.axis, interval: 0, rotate: 30, fontSize: chrome.labelPx },
       axisLine: { lineStyle: { color: palette.axis } },
     },
     yAxis: moneyValueAxis(palette, scale, domain),

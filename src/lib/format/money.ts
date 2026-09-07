@@ -40,6 +40,25 @@ export function inProse(formatted: string): string {
 }
 
 /**
+ * A FIGURE AND ITS UNIT, IN THE ONE FORM PROSE STATES THEM.
+ *
+ * `R'000` is a COLUMN BANNER everywhere a statement prints — set once above
+ * the figures it governs, never beside one of them. Two sentences juxtaposed
+ * the banner token against a number instead ("3 544 R'000 of exposure", "a
+ * span of 3 529 R'000"), which put the unit in a third position: above the
+ * column on nine sheets, trailing the figure on two. A reader who has to
+ * work out where the unit is has to work out whether it applies.
+ *
+ * The pack already had a prose form and used it four times — "Figures in
+ * R'000", "in R'000; one caveat qualifies these figures" — so this is that
+ * form, with one owner. `packProseIntegrity` refuses a pack that prints the
+ * bare juxtaposition, so a third form cannot be added by hand.
+ */
+export function inScale(formatted: string, scale: MoneyScale): string {
+  return `${formatted}, in ${scale}`;
+}
+
+/**
  * The scales a statement may be stated in. `formatMoney` divides by the
  * scale's divisor before formatting, so "R'000" prints 4 200 000 as `4 200`
  * under a thousands header instead of the full rand amount, which a reader

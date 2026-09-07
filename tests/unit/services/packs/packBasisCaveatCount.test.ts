@@ -8,15 +8,28 @@
  * qualification of the figures and then not saying what it is, on the one
  * sheet whose whole job is to say how the numbers were made.
  *
- * The count is composed before the page is held to its sheet, so this pins
- * both halves of the fix — the caveats are the LAST prose the fitter may take
- * (they were the first, being the page's last block), and whatever it does
- * take, the standfirst is composed again against what survived.
+ * THE CAVEATS NOW PRINT WITH THE CONTENTS, and the invariant travels with
+ * them. Page 12 was composing within two millimetres of its box on a live
+ * ledger with no room left for the colour key it owed the reader, and page 2
+ * was a twelve-line index over 60% white; a qualification of the figures is
+ * also the thing a director should meet before the figures rather than after
+ * the glossary. So the count the basis page states is a count of what the
+ * CONTENTS page printed — composed before that page is held to its sheet, so
+ * the caller fits the contents page first and hands the survivors on.
+ *
+ * Both halves of the original fix still hold: the caveats are a REQUIRED
+ * disclosure, so the fitter reaches them only after the page's own optional
+ * prose and never takes the first; and whatever it does take, the standfirst
+ * counts what survived.
  */
 import { describe, expect, it } from 'vitest';
-import { buildBasisPage, fitBasisPage } from '@/modules/accounting/services/packs/pages/packFrontMatter';
+import {
+  buildBasisPage, buildFrontPages, contentsListMm, fitContentsPage, printedCaveats,
+} from '@/modules/accounting/services/packs/pages/packFrontMatter';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
+import { fitPageToBox } from '@/modules/accounting/services/packs/pages/packPageFit';
+import type { UnnumberedPage } from '@/modules/accounting/services/packs/pages/packFrontMatter';
 import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import type { PackBasis } from '@/modules/accounting/services/packs/pages/packBasis';
 
@@ -45,52 +58,76 @@ function basisWith(definitions: number, caveats: number): PackBasis {
   };
 }
 
+/** The two pages the caveats are split across: the contents page prints
+ *  them, the basis page counts them. Composed in the order
+ *  `buildBoardPackPages` composes them. */
 function build(basis: PackBasis) {
-  return fitBasisPage(
-    buildBasisPage(basis, '1 January 2026 to 7 September 2026', null, PACK_SCALE, 'ZAR'),
+  const [, contents] = buildFrontPages({
+    companyLegalName: 'Fixture (Pty) Ltd',
+    period: '1 January 2026 to 7 September 2026',
+    preparedBy: 'A Person',
+    generatedAt: '2026-09-07T06:00:00.000Z',
+    draftReasons: [],
+    scale: PACK_SCALE,
+    currency: 'ZAR',
     basis,
-    PACK_SCALE,
-  );
+    basisPageNumber: 12,
+  });
+  const fittedContents = fitContentsPage(contents!, 12);
+  return {
+    contents: fittedContents,
+    listMm: contentsListMm(12),
+    basisPage: fitPageToBox(buildBasisPage(
+      basis, '1 January 2026 to 7 September 2026', null, PACK_SCALE, 'ZAR',
+      printedCaveats(fittedContents, basis),
+    )),
+  };
 }
 
-/** The caveats the page actually prints. */
-function printed(page: ReturnType<typeof build>): number {
-  for (const block of page.blocks) {
-    if (block.kind === 'disclosure' && block.disclosure.heading === 'Caveats') {
-      return block.disclosure.notes.length;
-    }
-  }
-  return 0;
+/** How many caveats a composed page actually printed. The `basis` argument
+ *  only tells `printedCaveats` that the pack HAS caveats, so any non-empty
+ *  one answers the question. */
+function printedOn(page: UnnumberedPage): number {
+  return printedCaveats(page, basisWith(0, 1));
 }
+
+/** More long caveats than a contents sheet can hold beside its index. */
+const MANY_CAVEATS = 12;
 
 describe("the basis page's caveat count", () => {
-  it('states the two it prints when the page has room for both', () => {
-    const page = build(basisWith(4, 2));
-    expect(pageMm(page)).toBeLessThanOrEqual(pageBoxMm(page));
-    expect(printed(page)).toBe(2);
-    expect(page.title).toContain('2 caveats qualify these figures');
+  it('states the two the contents page prints when there is room for both', () => {
+    const { contents, basisPage } = build(basisWith(4, 2));
+    expect(pageMm(contents) + contentsListMm(12)).toBeLessThanOrEqual(pageBoxMm(contents));
+    expect(pageMm(basisPage)).toBeLessThanOrEqual(pageBoxMm(basisPage));
+    expect(printedOn(contents)).toBe(2);
+    expect(basisPage.title).toContain('2 caveats qualify these figures, printed with the contents');
+    // And the basis page does not print them a second time.
+    expect(basisPage.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Caveats'))
+      .toBe(false);
   });
 
-  it('states the one it prints when the page does not', () => {
-    // A glossary big enough that the sheet cannot carry both caveats. The
-    // page is still one sheet — that is the constraint the whole fit exists
-    // for — so the question is only whether it tells the truth about itself.
-    const page = build(basisWith(20, 2));
-    expect(pageMm(page)).toBeLessThanOrEqual(pageBoxMm(page));
-    const count = printed(page);
-    expect(count, 'this fixture is meant to cost the page a caveat').toBeLessThan(2);
-    expect(page.title).toContain(count === 1 ? 'one caveat qualifies' : 'no caveat qualifies');
-    expect(page.title).not.toContain('2 caveats');
+  it('states the ones it prints when the contents page cannot carry them all', () => {
+    // Enough long caveats that the contents sheet cannot hold them beside the
+    // index. The pack is still twelve sheets — that is the constraint the
+    // whole fit exists for — so the question is only whether the basis page
+    // tells the truth about what a reader can turn to.
+    const { contents, basisPage } = build(basisWith(4, MANY_CAVEATS));
+    // THE INDEX COUNTS. `PackContents` draws it off the page list rather than
+    // out of a block, so a page held only to `pageMm` would run onto a
+    // thirteenth sheet under an index that says twelve.
+    expect(pageMm(contents) + contentsListMm(12)).toBeLessThanOrEqual(pageBoxMm(contents));
+    const count = printedOn(contents);
+    expect(count, 'this fixture is meant to cost the page a caveat').toBeLessThan(MANY_CAVEATS);
+    expect(basisPage.title).toContain(count === 1 ? 'one caveat qualifies' : `${count} caveats qualify`);
+    expect(basisPage.title).not.toContain(`${MANY_CAVEATS} caveats`);
   });
 
-  it('never reduces the caveats to nothing, and drops the pack\'s own prose first', () => {
-    const page = build(basisWith(20, 2));
-    expect(printed(page), 'a required disclosure is never taken to zero').toBeGreaterThan(0);
-    const said = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
-    // Whatever the page gave up, it says so — and a caveat is only ever taken
-    // after the pack's own optional prose has gone.
-    if (printed(page) < 2) {
-      expect(said, 'the page took a caveat and did not say so').toBeDefined();
+  it('never reduces the caveats to nothing, and says on the page what it took', () => {
+    const { contents } = build(basisWith(4, MANY_CAVEATS));
+    expect(printedOn(contents), 'a required disclosure is never taken to zero').toBeGreaterThan(0);
+    const said = contents.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
+    if (printedOn(contents) < MANY_CAVEATS) {
+      expect(said, 'the contents page took a caveat and did not say so').toBeDefined();
     }
   });
 });

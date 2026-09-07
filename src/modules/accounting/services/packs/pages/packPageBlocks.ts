@@ -157,8 +157,14 @@ export function buildCommentaryBlocks(
   return [
     { kind: 'narrative', narrative, boardActions: boardActionItems(selection) },
     disclose('How this page is prepared', [
-      note('Commentary', 'The left column carries the board\'s own commentary on the period. It prints only once an approver has signed it; until then this page says so rather than printing unapproved text.'),
-      note('Action panel', 'The right column is derived from the same checks the matters page tabulates — aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings — in the order the matters page prints them: matters with no single rand amount first, then the largest by exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.'),
+      // NEITHER SENTENCE NAMES A COLUMN, because the page has two shapes.
+      // With commentary approved the two sit side by side; with it pending
+      // the placeholder is a line above the panel and there is no left or
+      // right — see `packPrint.css`. These read "The left column…" and "The
+      // right column…", which on every pack shipped so far was a sentence
+      // describing a layout the sheet did not have.
+      note('Commentary', 'This page carries the board\'s own commentary on the period. It prints only once an approver has signed it; until then the page says so rather than printing unapproved text.'),
+      note('Action panel', 'The panel headed \'For the board\' is derived from the same checks the matters page tabulates — aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings — in the order the matters page prints them: matters with no single rand amount first, then the largest by exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.'),
     ]),
   ];
 }

@@ -31,9 +31,11 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import {
   cashTitle,
+  highlightsComparativeFootnote,
   highlightsTitle,
   incomeStatementTitle,
   largestMoverCaption,
+  narrativeComparativeFootnote,
   narrativeTitle,
   negativeRevenueSentence,
   positionTitle,
@@ -99,10 +101,11 @@ import { cashWindowFootnotes, periodWindowFootnotes } from './packTrendCrossRefe
 import { formatPackPeriod } from './packPeriodLabel';
 import {
   buildBasisPage,
-  fitBasisPage,
   buildFrontPages,
+  fitContentsPage,
   numbered,
   page,
+  printedCaveats,
   type UnnumberedPage,
 } from './packFrontMatter';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
@@ -204,7 +207,16 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
   const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency, comparativePeriod);
-  const highlights = page(highlightsTitle(set, scale), 'Highlights', 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
+  // THE HEADLINE STATES THE FINDING; THE REASON A PERCENTAGE COULD NOT BE
+  // FORMED IS A NOTE UNDER THE RULE — see `highlightsComparativeFootnote`.
+  // REQUIRED, because dropping it would leave the page stating a level with
+  // nothing saying why no movement is shown beside it, which is the absence
+  // the pack's whole footnote apparatus exists to name.
+  const revenueBaseNote = highlightsComparativeFootnote(set);
+  const highlights = page(highlightsTitle(set, scale), 'Highlights', 'Performance', 'high', highlightBlocks, 'portrait',
+    revenueBaseNote === null
+      ? highlightFootnotes
+      : [...highlightFootnotes, { number: highlightFootnotes.length + 1, text: revenueBaseNote, required: true as const }]);
 
   // Page 5 — the result month by month. See `packMonthlyResults.ts` for why
   // it is no longer the period statement sheet 6 prints again three
@@ -376,12 +388,17 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   //
   // The placeholder STAYS. Filling the panel is not a way to stop saying that
   // commentary is owed and unwritten.
+  const netProfitBaseNote = narrativeComparativeFootnote(set);
   const narrativePage = page(
     narrativeTitle(set, scale),
     'Commentary and actions',
     'Performance',
     'medium',
     buildCommentaryBlocks(input.commentary ?? pending, matters),
+    'portrait',
+    // The clause the headline used to end on, under the rule with the page's
+    // other apparatus. Required for the same reason page 3's is.
+    netProfitBaseNote === null ? [] : [{ number: 1, text: netProfitBaseNote, required: true as const }],
   );
 
   const body: UnnumberedPage[] = [
@@ -424,7 +441,20 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // the portrait measure, and the 255mm box gives each panel 48mm instead
     // of 36. Orientation stays a PAGE-level property (R5): the capability is
     // unchanged, no page asks for it.
-    page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Trends', 'Performance', 'high', trendBlocks),
+    // THE PANEL COUNT IS NOT THE HEADLINE. "6 of 6 panels are drawn" is a
+    // rendering status and it was the last clause of the sentence a director
+    // reads first — see `trendsTitle`.
+    //
+    // AND IT NEEDED NOWHERE NEW TO GO. The page's own caption already opens
+    // "6 metrics are tracked over the period", and where a measure is
+    // MISSING the mandatory `Panels not drawn` block above names how many
+    // could be drawn, which of the six they are and why. A footnote saying
+    // "all six are drawn" on top of that is the rendering status again, in a
+    // smaller size: measured, it cost this page 5.9mm, and on the live demo
+    // company the fitter paid for it by dropping the window note — the
+    // paragraph that stops a director reading 100.0% here against (1310.8%)
+    // on sheet 6 as a contradiction. Not a trade this page makes.
+    page(trendsTitle(trend, scale, TRENDS_PANELS_SPECIFIED), 'Trends', 'Performance', 'high', trendBlocks),
     page(mattersHeadline, MATTERS_NAV_LABEL, 'Governance', 'medium', [
       // Spec §4.A page 11 asks for a TABLE — issue, quantum, owner, movement,
       // decision required. Prose notes carried the same five facts but a
@@ -433,34 +463,40 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       buildMattersBlock(matters, p),
       ...mattersSupport,
     ]),
-    buildBasisPage(basis, input.period, comparativePeriod, scale, currency),
   ];
 
   // Page 2 says where the full basis is; it is the LAST page, counted rather
-  // than written as the literal 12 it used to be.
-  const total = 2 + body.length;
+  // than written as the literal 12 it used to be. The basis page is not in
+  // `body` yet — see below — so it is counted here.
+  const total = 2 + body.length + 1;
+  const [cover, contents] = buildFrontPages({
+    companyLegalName: input.companyLegalName,
+    period: input.period,
+    preparedBy: input.preparedBy,
+    generatedAt,
+    draftReasons: input.draftReasons,
+    scale,
+    currency,
+    basis,
+    basisPageNumber: total,
+  });
+  // THE CONTENTS PAGE IS FITTED BEFORE THE BASIS PAGE IS COMPOSED, and the
+  // order is the whole point. The caveats print with the contents now, and
+  // the basis page's standfirst counts them and says where they are — a
+  // count composed before the contents page is held to its sheet is a count
+  // that fit can falsify. See `fitContentsPage`.
+  const fittedContents = fitContentsPage(contents!, total);
+  const basisPage = buildBasisPage(
+    basis, input.period, comparativePeriod, scale, currency, printedCaveats(fittedContents, basis),
+  );
   const pages = numbered([
-    ...buildFrontPages({
-      companyLegalName: input.companyLegalName,
-      period: input.period,
-      preparedBy: input.preparedBy,
-      generatedAt,
-      draftReasons: input.draftReasons,
-      scale,
-      currency,
-      basis,
-      basisPageNumber: total,
-    }),
+    cover!,
+    fittedContents,
     // EVERY page, held to its sheet — the same rule the matters table spends
     // its budget under, applied to the prose on the other eleven. A page that
     // already fits comes back untouched.
-    //
-    // The basis page goes through `fitBasisPage` instead: its standfirst
-    // COUNTS its caveats, and a count composed before the page is held to its
-    // sheet is a count the fit can falsify. See `fitBasisPage`.
-    ...body.map((p2) => (p2.navLabel === 'Basis of preparation'
-      ? fitBasisPage(p2, basis, scale)
-      : fitPageToBox(p2))),
+    ...body.map((p2) => fitPageToBox(p2)),
+    fitPageToBox(basisPage),
   ]);
 
   const document: PackPagesDocument = {

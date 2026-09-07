@@ -14,10 +14,13 @@ import type { PackDisclosure, PackNarrative, PackPageBlock } from './packPageMod
 
 /** `--pack-gutter`. */
 export const GUTTER_MM = 8;
-/** `max-content` of "Commentary pending approval." at 10pt italic — the one
- *  sentence `.pack-narrative-columns.is-pending` sizes its first column to,
- *  measured at 50.3mm and rounded up. */
-const PENDING_PLACEHOLDER_MM = 52;
+/** `.pack-narrative-columns.is-pending .pack-narrative-actions`'s
+ *  `max-width`. The panel stacks UNDER the placeholder now rather than
+ *  sitting beside it, and 120mm is the measure it keeps: 9.5pt across the
+ *  full 174mm is about a hundred characters to the line. */
+const PENDING_PANEL_MM = 120;
+/** The `row-gap` between the placeholder and the panel below it. */
+const PENDING_ROW_GAP_MM = 2;
 
 /** One `.pack-table` body row of a single line, padding and its collapsed
  *  rule included. Rows measure 6.98-7.25mm; the collapsed borders a row's own
@@ -153,38 +156,39 @@ export function disclosureMm(disclosure: PackDisclosure, orientation: PageOrient
 }
 
 /**
- * `NarrativeColumns` — the commentary column beside the derived action panel.
+ * `NarrativeColumns` — the commentary and the derived action panel.
  *
- * The two sit side by side in one grid row, so the block costs the TALLER of
- * them, and the measure each is set across depends on which column is which:
- * with commentary approved the panel takes a third of the page; pending, the
- * placeholder shrinks to its own sentence and the panel takes what is left.
+ * TWO SHAPES, AND THE STATUS DECIDES WHICH. With commentary approved the two
+ * sit side by side in one grid row, so the block costs the TALLER of them and
+ * the panel is set across a third of the page. With commentary PENDING there
+ * is no commentary column at all: the placeholder is a line above the panel
+ * and the block costs both, one after the other. See `packPrint.css` for why
+ * a one-line column beside a five-paragraph one had to stop.
  */
 export function narrativeMm(narrative: PackNarrative, boardActions: string[], orientation: PageOrientation): number {
   const width = PAGE_WIDTH_MM[orientation];
   const pending = narrative.status === 'pending';
-  // 2fr of the grid, against `max-content` on the pending placeholder — one
-  // fixed sentence, so a constant of the stylesheet rather than of the data.
-  const proseWidth = pending ? PENDING_PLACEHOLDER_MM : (width - GUTTER_MM) * (2 / 3);
   // `.pack-narrative-source` — one line beside the prose, where the measure
   // is two thirds of the page, and two in the panel, where it is a third.
   const source = lines(1, 11);
-  const body = pending || narrative.body === null
+  const panelOf = (widthMm: number): number => (boardActions.length === 0 ? 0
+    : lines(1, 15) + 1 + lines(2, 11) + 1.5 + listMm(boardActions, widthMm - 8));
+
+  if (pending) {
+    const placeholder = lines(1, 15);
+    const panel = panelOf(PENDING_PANEL_MM - 4);
+    // A placeholder with no panel under it still occupies its grid row:
+    // 12.3mm on the paper against the 5.3mm the paragraph itself measures.
+    if (panel === 0) return 12.4;
+    return placeholder + PENDING_ROW_GAP_MM + panel;
+  }
+
+  const proseWidth = (width - GUTTER_MM) * (2 / 3);
+  const body = narrative.body === null
     ? lines(1, 15)
     : source + lines(wrappedLines(narrative.body, 10, proseWidth), 15);
   const approved = narrative.actions.length === 0 ? 0 : 2 + listMm(narrative.actions, proseWidth - 4);
-  const prose = body + approved;
-
-  // The panel's measure: a third of the page beside approved commentary, and
-  // everything the placeholder does not want beside a pending one.
-  const panelWidth = (pending ? width - GUTTER_MM - PENDING_PLACEHOLDER_MM : (width - GUTTER_MM) / 3) - 4;
-  const panel = boardActions.length === 0 ? 0
-    : lines(1, 15) + 1 + lines(2, 11) + 1.5 + listMm(boardActions, panelWidth - 8);
-
-  // A pending placeholder with no panel beside it still occupies its grid
-  // row: 12.3mm on the paper against the 5.3mm the paragraph itself measures.
-  const floor = pending && boardActions.length === 0 ? 12.4 : 0;
-  return Math.max(prose, panel, floor);
+  return Math.max(body + approved, panelOf((width - GUTTER_MM) / 3 - 4));
 }
 
 /** A `<ul>` of prose items, each wrapped to `widthMm`, 1.5mm apart. */
