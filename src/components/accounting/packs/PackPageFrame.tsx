@@ -33,11 +33,28 @@ export function PackPageFrame({ page, children }: PackPageFrameProps) {
         * page title in the pack with it. See that rule for what the reader
         * received. */}
       <header className="pack-page-header">
-        {/* The section reads ABOVE the title, as an eyebrow: it is a locator
-          * ('Financials', 'Governance'), and set below the title as a second
-          * heading it read as a heading of the blocks that follow. */}
-        <span className="pack-section-heading">{page.section}</span>
-        <h2 className="pack-title">{page.title}</h2>
+        {/* THE PAGE SAYS WHICH PAGE IT IS, in the words the Contents uses.
+          *
+          * `title` is a CONCLUSION by rule (`assertPageTitleIsAMessage`) —
+          * "Gross margin is a negative 1348.0%, carrying operating expenses
+          * of 226." — and for four of the ten content sheets that conclusion
+          * never happened to begin with the page's name. A director turning
+          * to sheet 6 from a Contents page promising "Income statement" found
+          * nothing on it saying so.
+          *
+          * So `navLabel` — the same string the Contents prints, not a second
+          * spelling of it — is the page's HEADING, and the derived conclusion
+          * is the standfirst beneath it. That also settles the hierarchy the
+          * re-review flagged: the heading was 13pt against 24pt KPI figures,
+          * which read as a caption. The section eyebrow moves onto the
+          * heading's own line, right-aligned, so the header still costs two
+          * lines of paper rather than three — the pack's slack is measured in
+          * millimetres. */}
+        <div className="pack-page-heading-row">
+          <h2 className="pack-page-name">{page.navLabel}</h2>
+          <span className="pack-section-heading">{page.section}</span>
+        </div>
+        <p className="pack-title">{page.title}</p>
       </header>
       {children}
       {page.footnotes.length > 0 && (

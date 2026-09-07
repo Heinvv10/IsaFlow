@@ -113,6 +113,14 @@ html.print-mode {
 .pack-page[data-print-landscape] {
   min-height: 168mm;
 }
+/* A landscape sheet's box is 87mm shorter, so the header pays for itself
+ * there in a way it does not in portrait: naming the page cost 2.1mm more
+ * than page 10 had. The name and the standfirst both come down a step and the
+ * header's own bottom margin halves — the page still names itself, at a size
+ * that still outranks the panel captions under it. */
+.pack-page[data-print-landscape] .pack-page-header { margin-bottom: 2mm; }
+.pack-page[data-print-landscape] .pack-page-name { font-size: 13pt; line-height: 16pt; }
+.pack-page[data-print-landscape] .pack-title { font-size: 10.5pt; line-height: 13pt; }
 
 .pack-grid {
   display: grid;
@@ -135,17 +143,40 @@ html.print-mode {
  * heading of anything), and the title is set at the size a sentence of that
  * length wants to be read at. Same information, ~14mm less paper. */
 .pack-page-header { margin: 0 0 var(--pack-baseline); }
+
+/* THE HEADING ROW: the page's NAME, and its section as an eyebrow beside it.
+ *
+ * The section used to sit on a line of its own above the title. It shares
+ * this one instead, so naming the page costs no extra paper — the header is
+ * still two lines. `baseline` alignment, not `center`: the two sit on the
+ * same reading line at very different sizes. */
+.pack-page-heading-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: var(--pack-gutter); margin: 0 0 0.5mm;
+}
+/* The page's own name — "Income statement", the string the Contents prints.
+ * 16pt against the 24pt KPI figure: a heading that reads as a heading and
+ * still loses to the number it introduces, which is the order a board pack
+ * wants. */
+.pack-page-name {
+  font-size: 16pt; line-height: 19pt; font-weight: 600;
+  margin: 0;
+}
+/* The derived conclusion, now a standfirst under the heading rather than the
+ * heading itself. Lighter and one point smaller than it was, so the two-line
+ * header did not grow when the name went above it. */
 .pack-title {
-  font-size: 13pt; line-height: 16.5pt; font-weight: 600;
+  font-size: 12pt; line-height: 15pt; font-weight: 400;
+  color: var(--pack-grey-strong);
   margin: 0; padding-bottom: 1.5mm;
   border-bottom: 2pt solid var(--pack-brand);
 }
 .pack-section-heading {
-  display: block;
   font-size: 8pt; line-height: 11pt; font-weight: 500;
   letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--pack-grey-strong);
-  margin: 0 0 0.5mm;
+  white-space: nowrap;
+  margin: 0;
 }
 /* `white-space: nowrap`, and it is not cosmetic: at 28pt in a four-column
  * grid a figure of `(1 546)` broke after the thousands separator and printed
@@ -153,7 +184,12 @@ html.print-mode {
  * has to reassemble. `font-size` shrinks to fit the column instead. */
 .pack-kpi-value {
   font-family: var(--pack-font-mono);
-  font-size: 24pt; line-height: 27pt; font-weight: 500;
+  /* 22pt, not 24. `white-space: nowrap` means a tile's widest figure sets the
+   * grid track, and the pack's one negative convention turned `−1348.0%` into
+   * `(1348.0%)` — one character wider, and page 3's tile row then ran past the
+   * right edge of the paper, where content is not short but GONE. 23 and 21
+   * were both printed; 22 is the largest that clears it on every fixture. */
+  font-size: 22pt; line-height: 25pt; font-weight: 500;
   white-space: nowrap;
 }
 .pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: auto; padding-top: 2mm; }
@@ -252,9 +288,23 @@ html.print-mode {
 }
 
 /* Task 14 — cover, contents, section divider and the stand-alone stat tile. */
+/* THE COVER IS NOT VERTICALLY CENTRED, and that is the fix.
+ *
+ * It was `justify-content: center`, which on a 255mm box put roughly half a
+ * sheet of white between the brand band and the first word of the title and
+ * left the band reading as a placeholder somebody forgot to fill. The title
+ * block now starts under the band with a deliberate amount of air above it,
+ * and the generated line and the cover's own blocks (the confidentiality mark
+ * and the preparer) are pushed to the foot by `margin-top: auto` below — so
+ * the sheet is composed top and bottom rather than pooled in the middle, and
+ * the band caps a page that starts at the top of it. */
 .pack-cover {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
   gap: 4mm; min-height: 255mm; text-align: center;
+  /* `border-box` so the padding comes OUT of the 255mm box rather than being
+   * added to it — without it the cover measured 301mm against a 255mm sheet
+   * and printed on two. */
+  box-sizing: border-box; padding-top: 46mm;
   position: relative;
 }
 /* Spec §5.4's brand band.
@@ -284,7 +334,9 @@ html.print-mode {
 .pack-cover-company { font-size: 26pt; line-height: 30pt; font-weight: 600; margin: 0; }
 .pack-cover-label { font-size: 16pt; line-height: 20pt; color: var(--pack-grey-strong); }
 .pack-cover-period { font-size: 11pt; }
-.pack-cover-meta { font-size: 8pt; color: var(--pack-grey-mid); }
+/* The foot of the cover: this and everything after it (page 1's own blocks)
+ *  sit at the bottom of the sheet. See `.pack-cover`. */
+.pack-cover-meta { font-size: 8pt; color: var(--pack-grey-mid); margin-top: auto; }
 .pack-cover-logo { max-height: 18mm; max-width: 60mm; }
 
 .pack-contents-list { list-style: none; margin: 4mm 0 0; padding: 0; font-size: 10pt; line-height: 16pt; }

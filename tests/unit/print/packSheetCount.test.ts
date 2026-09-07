@@ -31,7 +31,11 @@ import {
   denseInput,
   noRatioPanelsInput,
 } from '../services/packs/fixtures/boardPackInputs';
-import { liveDemoInput } from '../services/packs/fixtures/liveDemoBoardPack';
+import {
+  liveDemoInput,
+  manyLongNullQuantumMattersInput,
+  manyShortNullQuantumMattersInput,
+} from '../services/packs/fixtures/liveDemoBoardPack';
 import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import { printBoardPack, type PrintedPack } from './renderPackPdf';
 
@@ -46,6 +50,13 @@ const FIXTURES = {
   // second proof printed it, at fourteen sheets, and it is the reason the
   // three above could all be green while the document was wrong.
   live: liveDemoInput,
+  // THE TWO SHAPES THE MATTERS CAP DID NOT CAP. `MATTERS_PRINTED_MAX` kept
+  // every null-quantum matter before it looked at the count, so these printed
+  // fourteen and thirteen sheets at the commit that claimed twelve. They are
+  // full fixtures rather than a unit test on the selector because the thing
+  // that was wrong was the number of SHEETS, and only paper can say that.
+  'many long null-quantum matters': manyLongNullQuantumMattersInput,
+  'many short null-quantum matters': manyShortNullQuantumMattersInput,
 } as const;
 
 let browser: Browser;
@@ -65,7 +76,7 @@ describe('the printed board pack', () => {
       // RIGHT edge instead of the bottom, and nothing about the sheet count
       // would notice. Clipped content is worse than a nineteen-sheet pack: it
       // is gone, with nothing on the page to say it was ever there.
-      expect(printed.overflow, `${name} runs past the right edge of the paper`).toEqual([]);
+      expect(printed.overflow, `${name} runs past the right edge of the paper: ${JSON.stringify(printed.overflow)}`).toEqual([]);
 
       // And the other direction: the 19-sheet render's tell was sheets 7, 9
       // and 18 carrying nothing but the tail of the previous page's
@@ -77,7 +88,22 @@ describe('the printed board pack', () => {
     }, 120_000);
   }
 
-  it('prints every content page\'s TITLE on its own sheet', async () => {
+  /**
+   * EVERY CONTENT SHEET IDENTIFIES ITSELF AS THE PAGE THE CONTENTS NAMES.
+   *
+   * The previous round proved a title prints somewhere, using `page.title` —
+   * which is a CONCLUSION by rule, "Gross margin is a negative 1348.0%,
+   * carrying operating expenses of 226." Six of the ten content sheets
+   * happened to open with their own name; sheets 3, 4, 6 and 10 did not, so a
+   * director turning to sheet 6 from a Contents page promising "Income
+   * statement" found nothing on the page saying so.
+   *
+   * `navLabel` is the string the Contents itself prints, so this compares the
+   * page against its own index entry rather than against a second spelling.
+   * Both are asserted: the page must be findable AND must still state its
+   * conclusion.
+   */
+  it("prints every content page's NAME and its conclusion on its own sheet", async () => {
     // The pack is BUILT on message titles — `assertPageTitleIsAMessage`, the
     // rubric's first criterion ("every content page title states a conclusion
     // about this period"), and a whole task spent making the titles say
@@ -105,7 +131,41 @@ describe('the printed board pack', () => {
         letters(printed.sheetText[index] ?? ''),
         `sheet ${index + 1} does not carry page ${page.number}'s title: "${page.title}"`,
       ).toContain(letters(page.title));
+      expect(
+        letters(printed.sheetText[index] ?? ''),
+        `sheet ${index + 1} does not name itself "${page.navLabel}", which is what the `
+          + `Contents page promises at number ${page.number}`,
+      ).toContain(letters(page.navLabel));
     }
+  }, 120_000);
+
+  /**
+   * ONE NEGATIVE CONVENTION, READ OFF THE PAPER, AND ON THE CHARACTER.
+   *
+   * The rendered pack printed `(1 546)`, `−1348.0%` and `-0.14` within a few
+   * rows of each other on sheet 9 — an accounting bracket, a U+2212 and an
+   * ASCII hyphen for one idea. Spec §7.1 criterion 8 is one number convention
+   * per pack, and asserting "there is a sign" would have passed on all three.
+   *
+   * POSITIONAL, like every other guard in this codebase that learnt the
+   * lesson: a `-` after a digit or a letter is an ISO date (`2026-09-07`), a
+   * range or a hyphenated word, and matching one anywhere in a document
+   * matches it in data. What is refused is a minus opening a number — the one
+   * position where it is a sign — ADJACENT to the digit, because a hyphen
+   * with a space after it is a dash in prose, and the matters page carries
+   * "Bank Charges - 2026/01" straight out of a journal reference. The live
+   * fixture is the one that carries
+   * negative money, negative percentages and negative ratios at once.
+   */
+  it('prints negatives in brackets, with no minus sign of either kind', async () => {
+    const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
+    for (const [index, text] of printed.sheetText.entries()) {
+      const offenders = [...text.matchAll(/(?<![0-9A-Za-z])[-\u2212]\d/g)].map((m) => m[0]);
+      expect(offenders, `sheet ${index + 1} prints a signed negative, not a bracket`).toEqual([]);
+    }
+    // And the convention is actually exercised on this pack rather than
+    // vacuously satisfied by a document with no negatives in it.
+    expect(printed.sheetText.some((t) => /\(\d/.test(t.replace(/\s+/g, ' ')))).toBe(true);
   }, 120_000);
 
   it('prints the brand band on the cover of a DRAFT pack', async () => {
