@@ -23,7 +23,7 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
-import { formatMoney, formatPctMagnitude, toMoneyScale } from '@/lib/format/money';
+import { formatMoney, pctWithWord, toMoneyScale } from '@/lib/format/money';
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
@@ -499,7 +499,7 @@ describe('buildBoardPackPages', () => {
     // this period's revenue, not a margin taken on a defaulted zero.
     const margin = marginPct(tile.figure.value!, demoSet.current.revenue)!;
     expect(noOperatingLine.pages.find((p) => p.number === 3)!.title)
-      .toContain(formatPctMagnitude(margin));
+      .toContain(pctWithWord(margin, 'a positive', 'a negative'));
   });
 
   it('tells the reader that rounded components may not add to the totals', () => {

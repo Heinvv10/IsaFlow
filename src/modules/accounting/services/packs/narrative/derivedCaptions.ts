@@ -19,7 +19,7 @@
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { formatMoney, formatPctMagnitude, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type {
@@ -50,8 +50,7 @@ export function largestMoverCaption(rows: PackTableRow[]): string {
   }
 
   const largest = movers.reduce((a, b) => (Math.abs(b.pct) > Math.abs(a.pct) ? b : a));
-  const direction = largest.pct >= 0 ? 'up' : 'down';
-  return `${largest.label} moved the most, ${direction} ${formatPctMagnitude(largest.pct)}.`;
+  return `${largest.label} moved the most, ${pctWithWord(largest.pct, 'up', 'down')}.`;
 }
 
 /**
@@ -103,9 +102,8 @@ export function tileCaption(tile: PackKpiTile): string {
   if (tile.delta === null) {
     return 'No comparative period, so no movement is shown against this figure.';
   }
-  const direction = tile.delta.value >= 0 ? 'Up' : 'Down';
   const judgement = tile.delta.favourable ? 'a favourable' : 'an unfavourable';
-  return `${direction} ${formatPctMagnitude(tile.delta.value)} on the ${tile.delta.basis} — ${judgement} movement.`;
+  return `${pctWithWord(tile.delta.value, 'Up', 'Down')} on the ${tile.delta.basis} — ${judgement} movement.`;
 }
 
 /**
@@ -121,7 +119,7 @@ export function positionCaption(set: PackFigureSet, scale: MoneyScale): string {
   const cover = marginPct(currentAssets, currentLiabilities);
   const coverClause = cover === null
     ? 'Current liabilities are not a positive base, so no cover percentage is meaningful'
-    : `Current assets cover current liabilities ${formatPctMagnitude(cover)}`;
+    : `Current assets cover current liabilities ${pctWithWord(cover, 'at', 'at negative')}`;
   return `${coverClause}; working capital stands at ${formatMoney(workingCapital, { scale })}.`;
 }
 
@@ -174,10 +172,50 @@ export function cashCaption(set: PackFigureSet, residual: number | null, scale: 
  */
 const BOARD_ACTIONS_SHOWN = 5;
 
+/**
+ * And a LINE budget beside the count, for the same reason page 11 has one.
+ *
+ * Five is the right number of decisions to put in front of a board; it is not
+ * a statement about how much paper five of them take. `buildMatters` embeds
+ * `String(error)` in a failed-source matter, so a company whose debtor check
+ * is timing out produces five bullets of two hundred characters each and page
+ * 4 measured 318mm against a 255mm sheet — the twelve-sheet contract broken
+ * from the commentary page rather than from the matters page. The overflow
+ * line below already exists to carry whatever does not fit.
+ *
+ * Both numbers are measured off the printed sheet rather than derived: at
+ * ~46 characters a line the panel came out 22.5mm past the paper, and the
+ * fixture's own bullets put the column at about 27. The budget is what is
+ * left of a 255mm box under the page header and beside the commentary
+ * column. `packSheetCount.test.ts`'s long-null-quantum fixture is what holds
+ * both honest.
+ */
+const BOARD_ACTION_CHARS_PER_LINE = 27;
+const BOARD_ACTIONS_LINE_BUDGET = 30;
+
+/** As many of the first `BOARD_ACTIONS_SHOWN` matters as the panel can print.
+ *  At least one: a panel that lists nothing and says "5 further matters
+ *  follow" is the silent omission the panel exists to prevent. */
+function actionsThatFit(matters: PackMatter[]): PackMatter[] {
+  const fits: PackMatter[] = [];
+  let lines = 0;
+  for (const matter of matters.slice(0, BOARD_ACTIONS_SHOWN)) {
+    // The bullet is at most `issue — decisionRequired`; measured at its
+    // longest so the budget holds whichever branch below is taken.
+    const cost = Math.ceil(
+      (matter.issue.length + matter.decisionRequired.length + 3) / BOARD_ACTION_CHARS_PER_LINE,
+    );
+    if (fits.length > 0 && lines + cost > BOARD_ACTIONS_LINE_BUDGET) break;
+    fits.push(matter);
+    lines += cost;
+  }
+  return fits;
+}
+
 export function boardActionItems(matters: PackMatter[]): string[] {
   if (matters.length === 0) return [];
 
-  const shown = matters.slice(0, BOARD_ACTIONS_SHOWN);
+  const shown = actionsThatFit(matters);
   const decisions = new Set(shown.map((m) => m.decisionRequired));
   const uniform = shown.length > 1 && decisions.size === 1;
 

@@ -1,10 +1,25 @@
 /**
  * Statement figure formatting. One place, so a number looks the same on the
  * screen, in the pack and in the PDF. Conventions: thousands separated by a
- * narrow space (en-ZA), negatives in parentheses, zero as an en dash.
+ * narrow space (en-ZA), negatives in brackets, zero as an en dash.
+ *
+ * ONE NEGATIVE CONVENTION, FOR EVERY KIND OF NUMBER (spec §7.1 criterion 8).
+ * A rendered board pack printed `(1 546)` for money, `−1348.0%` for a
+ * percentage and `-0.14` for a ratio — three markers for one idea, the
+ * second a U+2212 and the third an ASCII hyphen, all three within a few rows
+ * of each other on one sheet. A reader who has to learn which marker a
+ * column uses is being asked to do the document's work.
+ *
+ * The bracket wins because it is the convention a financial statement is
+ * read in and the one `formatMoney` has always used; `formatPct` and
+ * `formatRatio` were the outliers and now follow it. There is no minus sign
+ * left in this module: the sign character a reader sees is `(` and `)`, and
+ * nothing else. PROSE is the one exception, and it is not an exception to
+ * the convention so much as to the notion of a figure position — a sentence
+ * carries its direction in a WORD, through `pctWithWord` below, because
+ * "margin is (12.0%)" reads as an aside rather than as a negative.
  */
 const ZERO_DASH = '–';
-const MINUS = '−';
 
 /**
  * The scales a statement may be stated in. `formatMoney` divides by the
@@ -90,19 +105,92 @@ export function formatPct(n: number, dp = 1): string {
   const s = signOf(n);
   const body = `${Math.abs(n).toFixed(dp)}%`;
   if (s === 'zero') return `0.${'0'.repeat(dp)}%`;
-  return s === 'neg' ? `${MINUS}${body}` : `+${body}`;
+  // Brackets, not U+2212. See the module docblock: one negative convention.
+  // The leading `+` on a positive stays — it marks a change column's
+  // direction, and a bracket and a plus are the same convention read in two
+  // directions, not two conventions.
+  return s === 'neg' ? `(${body})` : `+${body}`;
 }
 
 /**
- * `formatPct` without the leading sign, for prose that already carries
- * direction in a word ("up 12.0%", not "up +12.0%"). Same rounding
- * convention as `formatPct` (1dp by default) so a caption and the table
- * beside it never disagree on precision for the same underlying change —
- * that mismatch is what spec §7.1 criterion 8's one-number-convention rule
- * exists to stop. Callers must not strip the sign off `formatPct`'s own
- * output themselves; that would be a second, undeclared formatter.
+ * A percentage stated as a LEVEL rather than as a change — a gross margin, a
+ * share of revenue, a debtor concentration.
+ *
+ * `formatPct` prefixes `+` because it reads a change column, and "+12.3%"
+ * over a gross-margin trend panel claims a movement that was never measured.
+ * Same negative convention, no sign on the positive side. A separate function
+ * rather than an option on `formatPct`: an option has a default, and the
+ * default is what a caller forgets.
  */
-export function formatPctMagnitude(n: number, dp = 1): string {
+export function formatPctLevel(n: number, dp = 1): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
+  const body = `${Math.abs(n).toFixed(dp)}%`;
+  return n < 0 ? `(${body})` : body;
+}
+
+/**
+ * A ratio — a current ratio, a gearing, a times-covered — at two decimals.
+ *
+ * Here rather than at the four call sites that each wrote `value.toFixed(2)`:
+ * that is how `-0.14` reached a board pack's scorecard on the same sheet as
+ * `(1 546)` and `−1348.0%`. `toFixed` emits an ASCII hyphen, which is not
+ * this codebase's negative marker and is not the marker on the row above it.
+ */
+export function formatRatio(n: number, dp = 2): string {
+  if (!Number.isFinite(n)) return ZERO_DASH;
+  const body = Math.abs(n).toFixed(dp);
+  // Not `signOf`: a ratio of 0.00 is a MEASURED ratio, and the en dash is
+  // this module's word for a figure that is not there at all. Only the sign
+  // is decided here.
+  return n < 0 ? `(${body})` : body;
+}
+
+/** A day count — debtor days, creditor days — in the same convention. */
+export function formatDays(n: number, dp = 0): string {
+  if (!Number.isFinite(n)) return ZERO_DASH;
+  const body = `${Math.abs(n).toFixed(dp)} days`;
+  return n < 0 ? `(${body})` : body;
+}
+
+/**
+ * A percentage that has been PAIRED WITH ITS DIRECTION, and the only way to
+ * obtain one for prose.
+ *
+ * `formatPctMagnitude` used to be exported for this and it was correct in
+ * isolation and wrong in context: it prints an unsigned magnitude, on the
+ * understanding that the sentence around it supplies the direction in a word
+ * ("up 12.0%"). Two sentences were then written that supply no such word —
+ * "Operating margin is 1564.3%." and "Gross margin of 1348.0% carried…" —
+ * and a board pack's largest type reported a catastrophic negative margin as
+ * a positive one, two centimetres above its own table reading the opposite.
+ * That is not a formatting bug; it is a false statement about the business.
+ *
+ * The remedy is the shape `TrustedChartSvg` uses (`src/lib/charts/trustedChartSvg.ts`):
+ * a branded value with exactly ONE guarded way to obtain it. The magnitude
+ * formatter below is no longer exported, so a sentence cannot be handed a
+ * bare percentage from this module at all — the next author of the next
+ * sentence has to name the word that carries the sign, and forgetting is a
+ * compile error (`formatPctMagnitude` does not resolve) rather than a wrong
+ * number on paper.
+ *
+ * `up`/`down` are the words THIS sentence wants — "up"/"down" for a change,
+ * "a positive"/"a negative" for a level, "at"/"at negative" where the
+ * percentage is a cover ratio. Both are required: an empty positive word
+ * reintroduces the undirected number this type exists to make unwritable.
+ */
+export type ProsePct = string & { readonly __prosePct: unique symbol };
+
+/** The magnitude, deliberately NOT exported. See `ProsePct`. */
+function formatPctMagnitude(n: number, dp = 1): string {
   return `${Math.abs(n).toFixed(dp)}%`;
+}
+
+export function pctWithWord(n: number, up: string, down: string, dp = 1): ProsePct {
+  // A non-finite percentage has no magnitude to state and no direction to
+  // name. The dash is the same answer `formatPct` gives, and the direction
+  // word is dropped with it — "up –" would be worse than either.
+  if (!Number.isFinite(n)) return ZERO_DASH as ProsePct;
+  // Zero counts as the positive word, matching every call site's previous
+  // `pct >= 0 ? 'up' : 'down'`.
+  return `${n < 0 ? down : up} ${formatPctMagnitude(n, dp)}` as ProsePct;
 }

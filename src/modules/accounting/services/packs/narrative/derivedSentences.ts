@@ -27,15 +27,22 @@
  * is exactly as meaningless as a margin on non-positive turnover, for the same
  * reason: the sign of the result stops tracking the sign of the story.
  *
- * Every percentage is rendered through `formatPctMagnitude`, the same
- * rounding convention `formatPct` uses for the tables beside these captions
- * — a hand-rolled `Math.round(...)+'%'` here would print "12%" in prose
- * against "+12.0%" in the table for the same change, which is the mixed
+ * Every percentage is rendered through `pctWithWord`, the same rounding
+ * convention `formatPct` uses for the tables beside these captions — a
+ * hand-rolled `Math.round(...)+'%'` here would print "12%" in prose against
+ * "+12.0%" in the table for the same change, which is the mixed
  * number-convention failure spec §7.1 criterion 8 exists to stop.
+ *
+ * AND EVERY PERCENTAGE NAMES ITS OWN DIRECTION. `pctWithWord` takes the two
+ * words this sentence uses for up and down and there is no way to get an
+ * undirected percentage out of `money.ts` at all — because two sentences
+ * here once printed a bare magnitude ("Operating margin is 1564.3%.",
+ * "Gross margin of 1348.0% carried…") above tables reading the negative of
+ * exactly that, on a pack that went to a board.
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { formatMoney, formatPctMagnitude, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
@@ -66,8 +73,7 @@ const NO_OPERATING_MARGIN_SENTENCE =
 function pctChangeClause(current: number, prior: number): string | null {
   const pct = marginPct(current - prior, prior);
   if (pct === null) return null;
-  const direction = pct >= 0 ? 'up' : 'down';
-  return `${direction} ${formatPctMagnitude(pct)}`;
+  return pctWithWord(pct, 'up', 'down');
 }
 
 /**
@@ -103,7 +109,7 @@ export function highlightsTitle(set: PackFigureSet, scale: MoneyScale): string {
   const margin = marginPct(operatingProfitOf(current), current.revenue);
   const marginClause = margin === null
     ? NO_OPERATING_MARGIN_SENTENCE
-    : `Operating margin is ${formatPctMagnitude(margin)}.`;
+    : `Operating margin is ${pctWithWord(margin, 'a positive', 'a negative')}.`;
 
   return `${revenueClause} ${marginClause}`;
 }
@@ -176,7 +182,7 @@ export function incomeStatementTitle(set: PackFigureSet, scale: MoneyScale): str
   const costs = `operating expenses of ${formatMoney(current.operatingExpenses, { scale })}`;
   return margin === null
     ? `Revenue of ${formatMoney(current.revenue, { scale })} carries no meaningful margin base against ${costs}.`
-    : `Gross margin of ${formatPctMagnitude(margin)} carried ${costs}.`;
+    : `Gross margin is ${pctWithWord(margin, 'a positive', 'a negative')}, carrying ${costs}.`;
 }
 
 /**

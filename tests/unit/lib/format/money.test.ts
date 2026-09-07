@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatMoney, formatPct, formatPctMagnitude, signOf, MONEY_SCALES, toMoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPct, formatPctLevel, formatRatio, pctWithWord, signOf, MONEY_SCALES, toMoneyScale } from '@/lib/format/money';
 
 describe('formatMoney', () => {
   it('uses thousands separators and no decimals by default', () => {
@@ -27,20 +27,65 @@ describe('formatMoney', () => {
 describe('formatPct', () => {
   it('signs positive and negative, one decimal', () => {
     expect(formatPct(6.94)).toBe('+6.9%');
-    expect(formatPct(-8.1)).toBe('−8.1%');
     expect(formatPct(0)).toBe('0.0%');
+  });
+  // ONE negative convention across the module, and asserted on the CHARACTER.
+  // A rendered pack carried `(1 546)`, `−1348.0%` and `-0.14` within a few
+  // rows of each other — an accounting bracket, a U+2212 and an ASCII hyphen
+  // for one idea. `not.toContain('-')` alone passes on a U+2212, which is how
+  // the percentage formatter kept its own marker while the money formatter
+  // was pinned to brackets.
+  it('shows a negative percentage in brackets, with no minus of either kind', () => {
+    expect(formatPct(-8.1)).toBe('(8.1%)');
+    expect(formatPct(-8.1)).not.toContain('-');       // ASCII hyphen U+002D
+    expect(formatPct(-8.1)).not.toContain('\u2212');  // minus sign U+2212
   });
 });
 
-describe('formatPctMagnitude', () => {
-  it('matches formatPct rounding with no sign', () => {
-    expect(formatPctMagnitude(6.94)).toBe('6.9%');
-    expect(formatPctMagnitude(-8.1)).toBe('8.1%');
-    expect(formatPctMagnitude(0)).toBe('0.0%');
+describe('formatRatio and formatDays', () => {
+  it('use the same bracket, never a hyphen', () => {
+    expect(formatRatio(0.14)).toBe('0.14');
+    expect(formatRatio(-0.14)).toBe('(0.14)');
+    expect(formatRatio(-0.14)).not.toContain('-');
+    expect(formatDays(63.7, 1)).toBe('63.7 days');
+    expect(formatDays(-12)).toBe('(12 days)');
+    expect(formatDays(-12)).not.toContain('-');
   });
-  it('renders a dash for a non-finite figure, never 0.0%', () => {
-    expect(formatPctMagnitude(NaN)).toBe('–');
-    expect(formatPctMagnitude(Infinity)).toBe('–');
+  it('keeps a measured zero as a zero, and a non-figure as a dash', () => {
+    // Not the en dash: 0.00 is a ratio someone measured. The dash is this
+    // module's word for a figure that is not there at all.
+    expect(formatRatio(0)).toBe('0.00');
+    expect(formatRatio(NaN)).toBe('–');
+    expect(formatDays(Infinity)).toBe('–');
+  });
+});
+
+describe('formatPctLevel', () => {
+  it('states a level with no leading plus, and a negative in brackets', () => {
+    expect(formatPctLevel(63.7)).toBe('63.7%');
+    expect(formatPctLevel(-1348)).toBe('(1348.0%)');
+    expect(formatPctLevel(NaN)).toBe('–');
+  });
+});
+
+describe('pctWithWord', () => {
+  // THE DEFECT THIS TYPE EXISTS FOR. `formatPctMagnitude` was exported for
+  // prose that carries direction in a word, and two sentences were then
+  // written that carry none: a board pack's largest type read "Gross margin
+  // of 1348.0%" two centimetres above its own table reading the negative of
+  // it. There is now no exported way to obtain an undirected percentage, so
+  // the word and the number come out together.
+  it('carries the direction of a NEGATIVE value into the string', () => {
+    expect(pctWithWord(-1348, 'a positive', 'a negative')).toBe('a negative 1348.0%');
+    expect(pctWithWord(-8.1, 'up', 'down')).toBe('down 8.1%');
+  });
+  it('matches formatPct rounding, and reads zero as the positive word', () => {
+    expect(pctWithWord(6.94, 'up', 'down')).toBe('up 6.9%');
+    expect(pctWithWord(0, 'up', 'down')).toBe('up 0.0%');
+  });
+  it('renders a dash for a non-finite figure, with no direction word', () => {
+    expect(pctWithWord(NaN, 'up', 'down')).toBe('–');
+    expect(pctWithWord(Infinity, 'up', 'down')).toBe('–');
   });
 });
 

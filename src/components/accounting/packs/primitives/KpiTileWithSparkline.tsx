@@ -20,7 +20,7 @@
  */
 import { formatFigureText } from './packFigureText';
 import type { MoneyScale } from '@/lib/format/money';
-import { formatPctMagnitude } from '@/lib/format/money';
+import { pctWithWord } from '@/lib/format/money';
 import { FootnoteMarker } from './FootnoteMarker';
 import type { PackKpiTile } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -61,7 +61,12 @@ export function KpiTileWithSparkline({ tile, scale }: KpiTileWithSparklineProps)
           <span className="pack-kpi-delta-cue" data-variance-cue={direction} aria-hidden="true">
             {DELTA_GLYPH[direction]}
           </span>{' '}
-          {direction} {formatPctMagnitude(delta.value)} {delta.basis}
+          {/* The word and the number come out of `pctWithWord` together, so
+            * the tile cannot print "up" beside a negative movement. Both
+            * words are `direction`, which `deltaDirection` derived from this
+            * same value — that is what keeps "flat 0.0%" reading as flat
+            * rather than as "up". */}
+          {pctWithWord(delta.value, direction, direction)} {delta.basis}
         </span>
       )}
       {sparklineSvg !== null && (

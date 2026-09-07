@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cashTitle,
   highlightsTitle,
+  incomeStatementTitle,
   largestMoverCaption,
   positionTitle,
   scorecardCaption,
@@ -49,13 +50,50 @@ describe('highlightsTitle', () => {
     // reversion to `netProfit` would silently fall through to null on.
     const title = highlightsTitle(set(1_120_000, 1_000_000, 50_000));
     // 50,000 / 1,120,000 = 4.4642...% -> 4.5% at 1dp.
-    expect(title).toMatch(/Operating margin is 4\.5%/);
+    expect(title).toMatch(/Operating margin is a positive 4\.5%/);
   });
 
   it('no-margin fallback names the operating line, not net profit', () => {
     const title = highlightsTitle(set(0, 0, 0));
     expect(title).toMatch(/operating margin/i);
     expect(title).not.toMatch(/net profit margin/i);
+  });
+});
+
+/**
+ * THE HEADLINE SENTENCES DROPPED THE MINUS SIGN.
+ *
+ * A rendered pack's sheet 6 read "Gross margin of 1348.0%" in the largest
+ * type on the page, directly above its own table reading (1348.0%); sheet 3
+ * read "Operating margin is 1564.3%" against (1564.3%). A margin of positive
+ * 1348% and one of negative 1348% are not the same claim about a business,
+ * and the header is the line that gets read.
+ *
+ * Both sentences went through `formatPctMagnitude`, which is correct in
+ * isolation — an unsigned magnitude, for prose that carries direction in a
+ * word — and was reached by two sentences that carry no such word. These
+ * exercise a NEGATIVE value through both builders and assert the direction
+ * survives into the string.
+ */
+describe('a negative percentage keeps its direction in the sentence', () => {
+  const negativeMargin = () => set(100_000, null, -1_564_300);
+
+  it('says the operating margin is NEGATIVE, not just how large it is', () => {
+    const title = highlightsTitle(negativeMargin(), "R'000");
+    expect(title).toContain('1564.3%');
+    expect(title).toMatch(/negative 1564\.3%/);
+    // And the failure the fixture reproduces: the magnitude alone, with the
+    // sentence saying "is" and nothing else.
+    expect(title).not.toMatch(/margin is 1564\.3%/);
+  });
+
+  it('says the gross margin is NEGATIVE on page 6', () => {
+    const title = incomeStatementTitle(
+      { current: { revenue: 100_000, costOfSales: 1_448_000, operatingExpenses: 226_000 } } as never,
+      "R'000",
+    );
+    expect(title).toMatch(/negative 1348\.0%/);
+    expect(title).not.toMatch(/margin of 1348\.0%/);
   });
 });
 
