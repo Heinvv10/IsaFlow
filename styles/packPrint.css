@@ -346,7 +346,7 @@ html.print-mode .pack-pages {
   margin-bottom: 1.5mm;
 }
 .pack-disclosure.is-two-column .pack-disclosure-body { break-inside: avoid; }
-.pack-disclosure.is-two-column .pack-disclosure-body + .pack-disclosure-body { margin-top: 1.5mm; }
+.pack-disclosure.is-two-column .pack-disclosure-body + .pack-disclosure-body { margin-top: 0; }
 .pack-disclosure-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0; }
 .pack-disclosure-body { font-size: 9.5pt; line-height: 14pt; margin: 0; }
 /* Negative equity (spec §3.5) is the one disclosure the pack cannot let a

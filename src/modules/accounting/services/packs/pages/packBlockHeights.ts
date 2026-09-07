@@ -23,6 +23,28 @@ const PENDING_PLACEHOLDER_MM = 52;
  *  rule included. Rows measure 6.98-7.25mm; the collapsed borders a row's own
  *  box does not report add up to about another millimetre across a table. */
 export const TABLE_ROW_MM = 8.15;
+/**
+ * ONE ROW OF EBITDA'S RECONCILIATION BRIDGE — the `.pack-table` inside a
+ * glossary entry, which carries no rules and must not be charged for any.
+ *
+ * It was charged `TABLE_ROW_MM`, and the millimetre of difference deleted five
+ * facts from the one page that exists to state them. `.pack-table` is 9pt over
+ * a 13pt leading (4.586mm) with `td { padding: 1.2mm 2mm }` either side, so a
+ * row with no border is 6.99mm; `TABLE_ROW_MM` is a sixth of a millimetre more
+ * than that per row because a STATEMENT's rows carry subtotal, total and
+ * grand-total rules whose collapsed borders a row's own box does not report.
+ * The bridge has three plain `<tr>`s and no rule on any of them.
+ *
+ * Three rows at the statement's price over-charged page 12 by 3.5mm on a page
+ * the browser lays out at 253.8mm in a 255mm box. The fitter, believing the
+ * model, took `Currency and rounding`, `Source system`, `Rounding`,
+ * `Extracted at` and `Ledger version` off the basis of preparation to pay for
+ * millimetres that were never on the paper.
+ *
+ * Chromium measures the bridge growing by 7.0, 7.0 and 6.9mm across its three
+ * rows; 7.0 is the transcribed arithmetic and is never short of any of them.
+ */
+export const DEFINITION_BRIDGE_ROW_MM = 7;
 /** A `.pack-table` header row. The statements' and the scorecard's column
  *  headings are a fixed enum of short labels and measure 7.4mm on every
  *  fixture; the matters table's "Quantum (R\'000)" wraps, and is budgeted at
@@ -89,8 +111,21 @@ export function disclosureMm(disclosure: PackDisclosure, orientation: PageOrient
     // Each note is `break-inside: avoid`, so the block is the taller of the
     // two columns under Chromium's own in-order balance — the same model
     // `blockMm` uses for the glossary, and for the same reason.
-    return heading + 1.5 + lines(balancedLines(noteLines), 14)
-      + Math.max(0, disclosure.notes.length - 1) * 1.5;
+    //
+    // PLUS ONE LINE, WHICH IS THE BALANCER'S OWN SLACK AND NOT A FUDGE.
+    // `balancedLines` is the BEST in-order split; Chromium's multicol
+    // balancer does not always find it. Measured on the basis page's own
+    // block against the real faces: at eight notes and at six it lays the
+    // taller column out one line above the best split, and at seven, five,
+    // four and three it hits the split exactly. One line is that error, and
+    // `packSheetCount.test.ts` re-measures it on every fixture.
+    //
+    // This used to be paid for by charging `(notes - 1) * 1.5` for the gap
+    // between notes, which covered the balancer by accident and cost the
+    // block ten millimetres for eight one-line facts. The gap is now zero in
+    // `packPrint.css` — a list of label-and-value pairs on a 14pt leading is
+    // separated already — and the balancer is paid for on purpose.
+    return heading + 1.5 + lines(balancedLines(noteLines) + 1, 14);
   }
   if (orientation === 'portrait') return heading + disclosure.notes.length * 1.5 + lines(total, 14);
   // Landscape sets the notes in two balanced columns (`column-count: 2`) and
