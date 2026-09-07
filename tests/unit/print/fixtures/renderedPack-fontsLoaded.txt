@@ -51,14 +51,14 @@ In short IFRS for SMEs. 1 January 2026 to 7 September 2026. Figures in R'000 (ZA
 PE RFO RMAN CE
 
 Revenue has no positive comparative base for a percentage change. Operating margin is a
-negative 1557.8%.
+negative 1551.3%.
 Revenue
 
 1
 
 Gross margin
 
-99
+100
 
 Cash
 
@@ -70,7 +70,7 @@ Operating profit
 
 Net profit
 
-(1342.1%)
+(1336.3%)
 
 (1 545)
 
@@ -179,7 +179,7 @@ the exposure. It is machine-written and states the decision each matter is waiti
 
 FI N AN CI AL S
 
-An operating loss of (1 545) on revenue of 99.
+An operating loss of (1 545) on revenue of 100.
 R'000
 ACTU AL
 
@@ -189,11 +189,11 @@ CHANG E
 
 CHANG E %
 
-99
+100
 
 –
 
-99
+100
 
 n/m
 
@@ -203,7 +203,7 @@ Gross profit
 
 (805)
 
-(527)
+(526)
 
 n/m
 
@@ -249,9 +249,9 @@ Operating profit
 
 Net profit
 
-99
+100
 
-(1342.1%)
+(1336.3%)
 
 (1 545)
 
@@ -285,7 +285,7 @@ a
 
 FI N AN CI AL S
 
-Gross margin is a negative 1342.1%, carrying operating expenses of 226.
+Gross margin is a negative 1336.3%, carrying operating expenses of 226.
 R'000
 ACTU AL
 
@@ -303,11 +303,11 @@ CHANG E %
 
 a
 
-99
+100
 
 –
 
-99
+100
 
 n/m
 
@@ -321,7 +321,7 @@ n/m
 
 +77.8%
 
-+1442.1%
++1436.3%
 
 a
 
@@ -329,7 +329,7 @@ a
 
 (805)
 
-(527)
+(526)
 
 n/m
 
@@ -339,11 +339,11 @@ Operating expenses
 
 112
 
-113
+114
 
-+101.1%
++101.3%
 
-+227.6%
++226.9%
 
 Other income
 
@@ -375,7 +375,7 @@ Net profit
 
 (905)
 
-(1342.1%)
+(1336.3%)
 
 a
 
@@ -395,11 +395,11 @@ n/m
 
 a
 
-(1557.8%)
+(1551.3%)
 
 a
 
-(1557.8%)
+(1551.3%)
 
 a n/m — The prior figure is not a positive base, so no percentage change is meaningful.
 
@@ -407,13 +407,12 @@ DR
 AF
 T
 
-Revenue of 99 bridges to net profit of (1 545).
+Revenue of 100 bridges to net profit of (1 545).
 R'000
-99
-
+100
 –
 
-99
+100
 
 (1 331)
 
@@ -476,7 +475,7 @@ Ne
 
 D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
-Operating expenses moved the most, up 101.1%.
+Operating expenses moved the most, up 101.3%.
 
 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
 The prior column is the period 26 April 2025 to 31 December 2025.
@@ -503,11 +502,11 @@ CHANG E %
 
 Current assets
 
-(467)
+(466)
 
 (125)
 
-(342)
+(341)
 
 n/m
 
@@ -521,11 +520,11 @@ Non-current assets
 
 n/m
 
-(733)
+(732)
 
 (262)
 
-(471)
+(470)
 
 n/m
 
@@ -580,7 +579,7 @@ DR
 AF
 T
 
-Assets of (733) stand on liabilities of 3 356 and equity of (4 088).
+Assets of (732) stand on liabilities of 3 356 and equity of (4 088).
 R'000
 
 4 000
@@ -612,7 +611,7 @@ Current assets cover current liabilities at negative 13.9%; working
 capital stands at (3 822).
 
 Negative total assets
-What this means Total assets are (733). An asset side below zero is not a position a business can hold; it means
+What this means Total assets are (732). An asset side below zero is not a position a business can hold; it means
 one or more asset accounts carry credit balances — commonly a bank account overdrawn beyond its recorded
 facility, or a control account posted against. The balance sheet still foots, so the pack reports it as the ledger
 states it; it should be traced to the accounts before this pack is relied on.
@@ -795,7 +794,7 @@ S TATU S
 
 Gross margin
 
-(1342.1%)
+(1336.3%)
 
 +35.0%
 
@@ -803,7 +802,7 @@ n/m
 
 Operating margin
 
-(1557.8%)
+(1551.3%)
 
 –
 
@@ -874,9 +873,9 @@ T
 
 ME TRI C
 
-S TATU S
-
 b
+
+S TATU S
 
 213 days
 
@@ -904,15 +903,15 @@ n/m
 
 PRI OR
 
-d
+c
 
 0.50
 
-e
+d
 
 n/m
 
-f
+d
 
 S TATU S
 NOT ME ANINGFU L
@@ -941,7 +940,7 @@ n/m
 
 n/m
 
-g
+e
 
 Operating cash flow
 
@@ -951,11 +950,11 @@ Cash conversion cycle
 
 n/m
 
-i
+f
 
-h
+e
 
-j
+f
 
 NOT ME ANINGFU L
 NOT ME ANINGFU L
@@ -963,19 +962,17 @@ NOT ME ANINGFU L
 a n/m — In the comparative period: revenue is not positive, so there is no turnover to take a margin of.
 b n/m — In the comparative period: revenue is not positive, so days of sales outstanding cannot be measured.
 c n/m — Equity is negative — liabilities exceed assets, so this ratio inverts and cannot be ranked.
-d n/m — In the comparative period: equity is negative — liabilities exceed assets, so this ratio inverts and cannot be ranked.
-e n/m — Interest expense is not captured in the pack figure set.
-f n/m — In the comparative period: interest expense is not captured in the pack figure set.
-g n/m — No operating cash flow figure was captured for this period.
-h n/m — In the comparative period: no operating cash flow figure was captured for this period.
-i n/m — No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.
-j n/m — In the comparative period: no inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.
+d n/m — Interest expense is not captured in the pack figure set.
+e n/m — No operating cash flow figure was captured for this period.
+f n/m — No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.
 D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
 0 of 3 scored targets were met this period, with 3 missed.
 
-This page had room for its figures and not for all of its prose: 1 explanatory note, 1 footnote — from "Scoring basis" are not printed. Every figure,
-table and chart on the page is complete.
+Debtor days on this page — the scorecard page — is the figure for the WHOLE reporting period, measured on the period totals; the trends page
+plots the same measure one month at a time. Different windows: the two will not agree.
+This page had room for its figures and not for all of its prose: 1 explanatory note — from "Scoring basis" is not printed. Every figure, table and
+chart on the page is complete.
 
 9 / 12
 
@@ -983,7 +980,7 @@ table and chart on the page is complete.
 
 PE RFO RMAN CE
 
-Revenue is up 1301.7% from the first month of the 12-month series to the last; 6 of 6
+Revenue is up 1322.0% from the first month of the 12-month series to the last; 6 of 6
 panels are drawn.
 Revenue rose from 2 to 28 over 12 periods. Own
 scale — 1.1% of the shared range.
@@ -1027,9 +1024,9 @@ Cash fell from (115) to (532) over 12 periods.
 
 Sep 2026
 
-Debtor days rose from 0.0 days to 63.0 days over 12
+Debtor days rose from 0.0 days to 62.4 days over 12
 periods.
-63.0 days
+62.4 days
 
 (532)
 
@@ -1062,7 +1059,7 @@ margin and Debtor days are different units and keep their own.
 
 G O VE RN AN CE
 
-28 matters require a board decision, 26 of them carrying 1 675 of exposure.
+28 matters require a board decision, 26 of them carrying 1 675 R'000 of exposure.
 ISSUE
 
 QU ANTU M (R'0 0 0 )
@@ -1168,8 +1165,8 @@ shown.
 
 Currency and rounding ZAR, figures in R'000.
 
-Extracted at 7 September 2026 at 11:14 SAST
-Ledger version 7 September 2026 at 09:58 SAST
+Extracted at 7 September 2026 at 11:55 SAST
+Ledger version 7 September 2026 at 11:40 SAST
 
 Negative figures
 In brackets — (1 546) — for currency, percentages and

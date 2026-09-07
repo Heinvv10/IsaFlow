@@ -4,8 +4,8 @@
  * Both fixtures are real `pdftotext -layout` output from the same code, the
  * same company and the same period, rendered minutes apart. The only
  * difference is that one render's font files were held back for nine seconds:
- * `renderedPack-fontsLoaded.txt` is 38 648 bytes and
- * `renderedPack-fontsBlocked.txt` is 3 039 — twelve well-formed sheets with
+ * `renderedPack-fontsLoaded.txt` is 19 392 bytes and
+ * `renderedPack-fontsBlocked.txt` is 746 — twelve well-formed sheets with
  * almost nothing on them, which is the artefact every other gate in this
  * repository passed.
  *
