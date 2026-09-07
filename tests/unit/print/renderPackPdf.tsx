@@ -33,20 +33,66 @@ const ROOT = path.resolve(__dirname, '../../..');
 const HOST = 'http://pack.print.local/';
 
 /**
- * `body { margin: 0 }`, which the app gets from Tailwind's preflight and this
- * harness does not load. It is not cosmetic: the UA default is 8px, and 8px
- * of top margin above a 255mm page box is enough to push every single page
- * onto a second sheet. Without it this harness measures its own missing
- * reset rather than the pack.
+ * THE SAME BASELINE THE APPLICATION LOADS, not a one-line stand-in for it.
+ *
+ * This was `body{margin:0}` — the single preflight rule anyone had noticed
+ * mattering — and the gap it left was not theoretical. The live Brightsphere
+ * pack printed TWELVE sheets under this harness and THIRTEEN through the
+ * route, off the same document, because `.pack-page`'s children inherit a
+ * different set of element defaults here than they do in the app: the UA
+ * gives `ol` a 1em margin and a 40px indent and `figure` a 1em/40px margin,
+ * and Tailwind's preflight zeroes both. A harness that certifies a document
+ * the route spills is worse than no harness, because the number it reports
+ * is the one a reviewer trusts.
+ *
+ * So it loads what `pages/_app.tsx` loads, in the order it loads it:
+ * Tailwind's own preflight, then `styles/globals.css`, then
+ * `styles/print.css`.
+ *
+ * TAILWIND'S GENERATED UTILITIES ARE NOT COMPILED HERE, AND ONE OF THEM IS
+ * LOAD-BEARING. Producing the real utilities layer means running the Tailwind
+ * compiler over the rendered markup, which is a build step inside a unit
+ * test. The pack's markup uses six, all on `PackPagesView`'s outer wrapper
+ * (`mx-auto max-w-[210mm] bg-white p-0 text-[…]`) plus one error paragraph
+ * the print path never renders — and `max-w-[210mm]` is not the no-op it
+ * looks like. It capped the 261mm LANDSCAPE sheet at portrait width, so the
+ * trends page was set across two thirds of its paper and ran 10-14mm taller
+ * than it needed to, which is what made the pack thirteen sheets on one
+ * company while this harness reported twelve off the same document.
+ *
+ * So that one declaration is restated below, in the cascade position the
+ * compiled utilities layer occupies — before `print.css`, which is what has
+ * to beat it. It is not a copy of a value for its own sake: it is the thing
+ * `packPrint.css`'s `html.print-mode .pack-pages { max-width: none }` exists
+ * to override, and without it here that override could be deleted with this
+ * harness still green.
+ *
+ * The other five change no box. If a utility ever appears INSIDE a
+ * `.pack-page` — on a block, a tile, a table — this reasoning is void and the
+ * compiler has to run.
  */
-const PREFLIGHT = 'body{margin:0}';
 
-/** `styles/print.css` with its one `@import` inlined — Chromium would fetch
- *  it, and there is no server here to fetch it from. */
+/**
+ * The one Tailwind utility on the pack's markup that changes a page's
+ * measure, in the cascade position Tailwind's own output would put it.
+ */
+const WRAPPER_UTILITIES = '.pack-pages{margin-left:auto;margin-right:auto;max-width:210mm}';
 function printStylesheet(): string {
+  // The literal file `@tailwind base` emits. Read from the installed package
+  // so a Tailwind upgrade moves this harness with the app rather than leaving
+  // it measuring last year's defaults.
+  const preflight = readFileSync(
+    path.join(ROOT, 'node_modules/tailwindcss/lib/css/preflight.css'), 'utf8');
+  // `@tailwind` is a build directive, not CSS; the `@layer base`/`@layer
+  // utilities` blocks around this file's own rules are left standing, because
+  // a layered rule loses to an unlayered one and that is the same order the
+  // compiled cascade puts them in against `print.css`.
+  const globals = readFileSync(path.join(ROOT, 'styles/globals.css'), 'utf8')
+    .replace(/@tailwind\s+[a-z]+;/g, '');
   const print = readFileSync(path.join(ROOT, 'styles/print.css'), 'utf8');
   const pack = readFileSync(path.join(ROOT, 'styles/packPrint.css'), 'utf8');
-  return `${PREFLIGHT}${print.replace(/@import\s+'\.\/packPrint\.css';/, pack)}`;
+  return preflight + globals + WRAPPER_UTILITIES
+    + print.replace(/@import\s+'\.\/packPrint\.css';/, pack);
 }
 
 export interface PrintedPack {
@@ -147,6 +193,16 @@ export interface PrintedPack {
    * not describe.
    */
   pendingNarrative: { placeholderMm: number; panelMm: number } | null;
+  /**
+   * How wide the landscape page is actually laid out, in millimetres, at the
+   * landscape viewport. Null where the pack has no landscape page.
+   *
+   * A page's HEIGHT is a function of its measure, so a page silently set
+   * across the wrong width reports a height no sheet ever has — and this one
+   * was, by `max-w-[210mm]` on the wrapper. The sheet count could not see it
+   * and the height could not be trusted; this is the number that says which.
+   */
+  landscapeWidthMm: number | null;
   pdf: Buffer;
 }
 
@@ -288,6 +344,11 @@ export async function printBoardPack(
       height: Math.round(LANDSCAPE_BOX_MM * PX_PER_MM),
     });
     const landscapePass = await page.evaluate(measure, geometry);
+    const landscapeWidthMm = await page.evaluate((pxPerMm) => {
+      const el = document.querySelector('.pack-page[data-print-landscape]');
+      if (el === null) return null;
+      return Math.round((el.getBoundingClientRect().width / pxPerMm) * 10) / 10;
+    }, PX_PER_MM);
     await page.setViewportSize({
       width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM),
       height: Math.round(CONTENT_BOX_MM * PX_PER_MM),
@@ -373,7 +434,7 @@ export async function printBoardPack(
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
     return {
       sheets: total, sheetText: pages.map((p) => p.text), overflow, heights,
-      coverBand, pageNames, pendingNarrative, pdf,
+      coverBand, pageNames, pendingNarrative, landscapeWidthMm, pdf,
     };
   } finally {
     await page.close();

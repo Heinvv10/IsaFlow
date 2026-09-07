@@ -514,6 +514,32 @@ describe('the printed board pack', () => {
       .toBeLessThan(70);
   }, 120_000);
 
+  it('sets the landscape page across the whole landscape sheet', async () => {
+    // The trends page was laid out at 210mm on 261mm of paper, and the sheet
+    // count could not see it: `PackPagesView`'s wrapper carries
+    // `max-w-[210mm]`, which is right on screen and wrong on paper, where the
+    // sheet already IS the measure. Fifty-one millimetres of white down the
+    // right edge, and — because a page's height is a function of its width —
+    // 10 to 14mm of extra height, which is what put the live Brightsphere
+    // pack on a thirteenth sheet while this harness reported twelve off the
+    // same document.
+    //
+    // Asserted on the LAID-OUT page rather than by reading the stylesheet: a
+    // test that greps CSS for `max-width: none` passes on a comment. The
+    // harness restates the wrapper's own utility (see `WRAPPER_UTILITIES`) so
+    // this measures the same cascade the application resolves, and deleting
+    // `html.print-mode .pack-pages { max-width: none }` puts it back at 210.
+    const document = buildBoardPackPages(demoInput);
+    expect(document.pages.some((p) => p.orientation === 'landscape')).toBe(true);
+
+    const printed = await printBoardPack(document, browser);
+    expect(printed.landscapeWidthMm, 'no landscape page was laid out').not.toBeNull();
+    expect(
+      printed.landscapeWidthMm!,
+      `the landscape page is set across ${printed.landscapeWidthMm}mm of a 261mm sheet`,
+    ).toBeGreaterThan(255);
+  }, 120_000);
+
   it('prints the landscape page on ONE landscape sheet', async () => {
     // `.pack-page`'s min-height is 255mm — the PORTRAIT box. A landscape
     // sheet's box is 168mm, so page 10 was 87mm taller than the paper it was

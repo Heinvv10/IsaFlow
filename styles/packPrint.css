@@ -105,6 +105,27 @@ html.print-mode {
 }
 .pack-page:last-child { break-after: auto; }
 
+/* THE WRAPPER WAS CAPPING EVERY PAGE AT PORTRAIT WIDTH, INCLUDING THE
+ * LANDSCAPE ONE.
+ *
+ * `PackPagesView`'s root carries `max-w-[210mm]`, which is right on screen —
+ * the pack is a page-shaped document in a browser window — and wrong on
+ * paper, where the sheet already IS the measure. A landscape sheet's content
+ * box is 261mm and the trends page was being laid out across 210 of them: 51mm
+ * of white down the right edge, and a page 10-14mm TALLER than it needed to
+ * be, because six panels and two columns of notes were set into two thirds of
+ * the paper they print on.
+ *
+ * That is what made the pack thirteen sheets on one company while the print
+ * harness — which has no wrapper and no Tailwind utilities — reported twelve
+ * off the same document. The composer models a landscape page at 261mm
+ * (`PAGE_WIDTH_MM.landscape`); this is what makes that true of the paper.
+ *
+ * Print only. An on-screen reader keeps the 210mm column. */
+html.print-mode .pack-pages {
+  max-width: none;
+}
+
 /* A LANDSCAPE page's box is 210mm tall, not 297mm — so the portrait
  * min-height above is 87mm taller than the sheet it is printed on, and page
  * 10 spilled onto a second landscape sheet on EVERY pack ever rendered. The
