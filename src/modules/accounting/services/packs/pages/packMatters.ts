@@ -24,6 +24,8 @@
 
 import { log } from '@/lib/logger';
 import { getAgingReport } from '@/modules/accounting/services/reports/agingReportService';
+import { formatMoney, inScale } from '@/lib/format/money';
+import { PACK_SCALE } from './packBasis';
 import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAccountStatusService';
 import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 import { getOverdueStatutoryFilings } from '@/modules/accounting/services/reports/statutoryFilingsService';
@@ -102,9 +104,26 @@ async function agedDebtorConcentrationMatters(
   const pct = (largest.total / report.totals.total) * 100;
   if (pct < CONCENTRATION_THRESHOLD_PCT) return [];
 
+  // AND THE BASE THE PERCENTAGE IS A SHARE OF IS PRINTED.
+  //
+  // It read "…is 77.0% of total debtors owed" with a quantum of 3 192, and NO
+  // receivables figure appears anywhere in the twelve sheets — so the one
+  // percentage in the governance table was the one claim in the pack a
+  // director could not check. Worse, 3 192 is also Brightsphere's Total
+  // assets on page 7, so the sheet offered a reader a plausible base that is
+  // the wrong one. (The two are R3 191 824 and R3 191 945: different figures
+  // that round to the same R'000. The concentration is computed against
+  // `getAgingReport(...).totals.total`, the trade-receivable subledger, and
+  // is correct — the equality is arithmetic coincidence, not a wrong field.)
+  //
+  // Stating the base makes the division reproducible off the sheet, and it is
+  // stated in the pack's ONE prose form for a unit (`inScale`) because the
+  // quantum column beside it is headed in R'000 and an unmarked figure in the
+  // issue column would be read in rands.
   return [{
     kind: 'finding',
-    issue: `Aged debtor concentration: ${largest.entityName} is ${pct.toFixed(1)}% of total debtors owed`,
+    issue: `Aged debtor concentration: ${largest.entityName} is ${pct.toFixed(1)}% of all debtors `
+      + `owed, which come to ${inScale(formatMoney(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}`,
     quantum: round2(largest.total),
     owner: 'Credit control',
     movement: NO_PRIOR_MEETING_RECORD,

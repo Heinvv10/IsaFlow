@@ -217,10 +217,22 @@ export function linesForChars(text: string, perLine: number): number {
   return wrapEms(text, perLine * EM_DEFAULT);
 }
 
+/**
+ * A "WORD" IS WHAT A BROWSER WILL NOT BREAK, WHICH IS NOT WHAT `\s` MATCHES.
+ *
+ * `formatMoney` separates thousands with U+00A0 so a figure cannot split
+ * across a line at its own separator (see `GROUP_SEPARATOR`) — and JavaScript's
+ * `\s` matches U+00A0, so a wrap model splitting on `/\s+/` would offer the
+ * renderer a break the browser will never take. It would then under-count the
+ * lines of any block carrying a figure in prose, which is the number every
+ * page's fit is decided on.
+ */
+const BREAKABLE = /[^\S\u00a0\u202f]+/;
+
 function wrapEms(text: string, perLine: number): number {
   let count = 1;
   let used = 0;
-  for (const word of text.split(/\s+/)) {
+  for (const word of text.split(BREAKABLE)) {
     if (word.length === 0) continue;
     const wordEms = textEms(word);
     const withWord = used === 0 ? wordEms : used + EM_SPACE + wordEms;

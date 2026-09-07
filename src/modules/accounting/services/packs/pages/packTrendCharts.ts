@@ -293,6 +293,15 @@ function moneyPanel(
  * series is honest, a zero is a claim about a debtor book that collected
  * nothing.
  */
+/** The last month a ratio panel actually PLOTS — which is the last month it
+ *  could measure, not the last month of the window. Shared with `ratioPanel`,
+ *  whose title marks that same point, so the panel and the page cannot
+ *  disagree about which month a ratio ends on. */
+function ratioTerminal(panel: RatioPanel, trend: PackTrendPoint[]): PackTrendPoint | undefined {
+  const drawn = trend.filter((point) => panel.pick(point) !== null);
+  return drawn[drawn.length - 1];
+}
+
 function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[], scale: MoneyScale): PackChartSpec | null {
   const drawn = trend.filter((point) => panel.pick(point) !== null);
   const points = drawn.map((point) => ({ label: monthLabel(point), value: panel.pick(point) as number }));
@@ -314,7 +323,7 @@ function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[], scale: MoneyScal
   // a value, and is not where it does not. Read off `drawn`, the series
   // actually plotted, rather than off the window: page 10's gross-margin
   // panel is exactly the case, ending on a 100.0% taken over seven days.
-  const terminal = drawn[drawn.length - 1]!;
+  const terminal = ratioTerminal(panel, trend)!;
   const title = movementSentence(
     panel.name, prose(first), prose(last), points.length, last >= first,
     terminal.partial ? monthLabel(terminal) : undefined,
@@ -352,6 +361,25 @@ export interface TrendPanels {
   /** Panels in a unit of their own — a percentage, a day count. */
   ownUnits: string[];
   /**
+   * Ratio panels whose LAST plotted month is the part month, by name.
+   *
+   * A tag says WHICH month a figure belongs to; it does not say that a RATIO
+   * taken over seven of thirty days is an artefact of the window rather than
+   * a movement in the business. Page 10 quoted "Gross margin fell from
+   * 5323.5% to 100.0% in Sep 2026 (part)" — seven days of revenue against no
+   * cost of sales yet posted — and "Debtor days rose from 19 days to 60 days
+   * in Sep 2026 (part)", a seven-day ratio annualised over a whole month.
+   * Both carried the marker and a director still reads 100.0% as a
+   * turnaround. The money panels do not have this problem: a part month's
+   * REVENUE is a smaller true figure, while a part month's MARGIN is a
+   * different measurement.
+   *
+   * Named rather than counted, and read off the months each panel actually
+   * PLOTTED — a ratio panel drops the months it cannot measure, so the point
+   * it ends on is not always the end of the window.
+   */
+  ratiosEndingOnPartMonth: string[];
+  /**
    * The shared y-domain in words — "(707) to 1 908, a span of 2 615" — so the
    * page can STATE the denominator its percentages are taken against.
    *
@@ -371,7 +399,10 @@ export interface TrendPanels {
 
 export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): TrendPanels {
   if (trend.length === 0) {
-    return { panels: [], sharedScale: [], ownScale: [], ownUnits: [], sharedRange: null };
+    return {
+      panels: [], sharedScale: [], ownScale: [], ownUnits: [],
+      ratiosEndingOnPartMonth: [], sharedRange: null,
+    };
   }
 
   // ONE y-domain across the money panels (spec §4.A page 10) for every panel
@@ -431,6 +462,10 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
       .filter((p) => !p.shared)
       .map(({ name, sharePct }) => ({ name, sharePct })),
     ownUnits: RATIO_PANELS.filter((p) => panels.some((drawn) => drawn.id === p.id)).map((p) => p.name),
+    ratiosEndingOnPartMonth: RATIO_PANELS
+      .filter((p) => panels.some((drawn) => drawn.id === p.id))
+      .filter((p) => ratioTerminal(p, trend)?.partial === true)
+      .map((p) => p.name),
     // The span is the difference of the two extremes AS PRINTED, so the
     // subtraction a reader does on the sheet gives the number the sheet
     // states. `shared.max - shared.min` rounded separately does not: the

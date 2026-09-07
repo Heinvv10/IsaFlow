@@ -19,6 +19,7 @@
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
+import { rankedBy, superlativeClause } from './statedRelation';
 import { formatMoney, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
@@ -73,27 +74,45 @@ export function scorecardCaption(groups: PackScorecardGroup[]): string {
  * counter-example.
  *
  * So the empty case says what is actually true — that this page has no
- * comparable percentage — and carries the reason the cells already give,
+ * comparable movement — and carries the reason the cells already give,
  * rather than concluding something about the period from it.
+ *
+ * AND THE RANKING IS THE MONEY. It ranked on the percentage column and read
+ * "Operating expenses moved the most, up 102.1%." on a table where cost of
+ * sales moved 626 against operating expenses' 115 — 626 of the 639 total
+ * deterioration. The sentence answered "which line changed most relative to
+ * itself" in the words of "which line explains the result", two centimetres
+ * under a bridge whose tallest bar is cost of sales. `rankedBy` takes the
+ * ranking as a value and `superlativeClause` makes the sentence name the
+ * measure; see `statedRelation.ts` for why the percentage is not the honest
+ * superlative here.
  */
-export function largestMoverCaption(rows: PackTableRow[]): string {
+export function largestMoverCaption(rows: PackTableRow[], scale: MoneyScale): string {
   const lineRows = rows.filter((r) => r.role === 'line');
-  const movers = lineRows
-    .map((r) => ({ label: r.label, pct: r.figures.changePct?.value ?? null }))
-    .filter((m): m is { label: string; pct: number } => m.pct !== null && Number.isFinite(m.pct));
+  // RANKED ON THE MONEY, AND THE SENTENCE SAYS SO — see `rankedBy` and the
+  // docblock above `RankedMeasure` for why this page's superlative is the
+  // money and not the percentage.
+  const largest = rankedBy(lineRows, 'money', (r) => r.figures.change?.value ?? null);
 
-  if (movers.length === 0) {
+  if (largest === null) {
+    // The reason is taken from whichever change column the page HAS, so a
+    // table carrying percentages but no amounts still explains itself.
     const reason = lineRows
-      .map((r) => r.figures.changePct)
+      .flatMap((r) => [r.figures.change, r.figures.changePct])
       .find((f) => f !== undefined && f.value === null && f.unavailable !== undefined)
       ?.unavailable;
     return reason === undefined
-      ? 'No line item on this page carries a period-on-period percentage change.'
-      : `No line item on this page has a comparable percentage change. ${reason}`;
+      ? 'No line item on this page carries a period-on-period movement.'
+      : `No line item on this page has a comparable movement. ${reason}`;
   }
 
-  const largest = movers.reduce((a, b) => (Math.abs(b.pct) > Math.abs(a.pct) ? b : a));
-  return `${largest.label} moved the most, ${pctWithWord(largest.pct, 'up', 'down')}.`;
+  // The figure is the one the ranking was TAKEN on — `Superlative.value` —
+  // and the percentage is not restated beside it: this caption sits under the
+  // table's own Change % column, and the round before this one found a
+  // sentence for every figure the same sheet already prints.
+  const moved = largest.value;
+  return `${largest.winner.label} ${superlativeClause(largest)}, `
+    + `${moved < 0 ? 'down' : 'up'} ${formatMoney(Math.abs(moved), { scale })}.`;
 }
 
 /**

@@ -188,7 +188,7 @@ describe('the two sentences on page 11 that state an amount', () => {
     const wrong = {
       ...doc,
       pages: doc.pages.map((p) => (p === page
-        ? { ...p, title: p.title.replace(/[\d ]+(?= of exposure)/, ' 9 999 ') }
+        ? { ...p, title: p.title.replace(/[\d\u00a0 ]+(?= of exposure)/, ' 9 999 ') }
         : p)),
     };
 

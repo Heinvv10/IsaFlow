@@ -98,9 +98,9 @@ describe('bridgeRoundingNote', () => {
   it('states the unrounded arithmetic when the printed lines do not add', () => {
     const note = bridgeRoundingNote(-1_544_600, 77_400, -1_467_200);
     expect(note).toBeDefined();
-    expect(note).toContain('(1 544 600.00)');
-    expect(note).toContain('77 400.00');
-    expect(note).toContain('(1 467 200.00)');
+    expect(note).toContain('(1\u00a0544\u00a0600.00)');
+    expect(note).toContain('77\u00a0400.00');
+    expect(note).toContain('(1\u00a0467\u00a0200.00)');
   });
 
   it('says nothing when they do add — a note for a discrepancy a reader cannot find is worse than none', () => {

@@ -38,7 +38,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import { formatPackTimestamp } from './packPeriodLabel';
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { buildDefinitions } from './packDefinitions';
-import { NO_INVENTORY_CLASSIFIED } from './packScorecard';
+import { liquidityMetricNames, NO_INVENTORY_CLASSIFIED } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
 import { partialMonthBasisNote, partialMonthOf } from './packPartialMonth';
@@ -87,10 +87,49 @@ export interface PackBasis {
  *
  * 187 characters against the old 191, and the ceiling is real: page 12 drops
  * prose when this caveat grows — see `packPagesKeepTheirProse`.
+ *
+ * AND THE SECOND HALF NAMES THE MEASURES OFF THE SCORECARD ITSELF. It read
+ * "liquidity is read off the current ratio alone" and page 9's section B
+ * prints the current ratio AND the cash ratio — a limitation the pack
+ * contradicts seven sheets later, in its own list of limitations. That
+ * sentence was itself the fix for a caveat which discussed a quick ratio the
+ * pack never printed, so this is the same defect twice: a claim about what
+ * page 9 shows, written without looking at page 9. `liquidityMetricNames`
+ * reads the scorecard's own group, so the caveat cannot survive a change to
+ * the section it describes.
  */
 const INVENTORY_CAVEAT =
-  `${NO_INVENTORY_CLASSIFIED} No acid-test ratio is published; liquidity is read off the current `
-  + `ratio alone.`;
+  `${NO_INVENTORY_CLASSIFIED} No acid-test ratio is published; liquidity is read off `
+  + `${measureList(liquidityMetricNames())}.`;
+
+/** "a, b and c". */
+function inWords(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]!}`;
+}
+
+/**
+ * A list of scorecard metric names, mid-sentence, AS A PERSON WOULD WRITE IT.
+ *
+ * The names are row labels — "Current ratio", "Cash ratio" — so they are
+ * capitalised where they print and are not proper nouns here. Where they all
+ * end on the same noun the noun is said once and pluralised ("the current and
+ * cash ratios"); otherwise each is written out. That is not decoration: the
+ * caveat has a 191-character ceiling it is held to by test, and the full
+ * join is 200. Making the sentence shorter by hand is what put a false claim
+ * in it twice, so the shortening is a rule over the names rather than a
+ * choice about them.
+ */
+function measureList(names: string[]): string {
+  if (names.length === 0) return 'nothing on the scorecard';
+  const words = names.map((name) => name.toLowerCase().split(' '));
+  const noun = words[0]![words[0]!.length - 1]!;
+  if (names.length > 1 && words.every((w) => w[w.length - 1] === noun)) {
+    return `the ${inWords(words.map((w) => w.slice(0, -1).join(' ')))} ${noun}s`;
+  }
+  if (names.length === 1) return `the ${words[0]!.join(' ')} alone`;
+  return inWords(words.map((w) => `the ${w.join(' ')}`));
+}
 
 const STANDARD = 'IFRS for SMEs';
 const SOURCE_SYSTEM = 'IsaFlow general ledger';

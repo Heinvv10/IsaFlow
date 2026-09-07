@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import {
   cashTitle,
   highlightsTitle,
@@ -41,7 +42,7 @@ describe('highlightsTitle', () => {
     // The headline states the LEVEL — the finding — rather than the reason a
     // ratio could not be formed. The ninth visual gate rejected the pack for
     // spending half of sheet 3's headline on a denominator.
-    expect(title).toMatch(/Revenue of \(50 000\)/);
+    expect(title).toMatch(/Revenue of \(50\u00a0000\)/);
   });
 
   it('keeps the reason there is no percentage off the headline', () => {
@@ -204,29 +205,61 @@ describe('scorecardCaption', () => {
 });
 
 describe('largestMoverCaption', () => {
-  const line = (label: string, changePct: number | null): PackTableRow => ({
+  const line = (label: string, change: number | null, changePct: number | null = null): PackTableRow => ({
     label,
     level: 0,
     role: 'line',
     figures: {
-      changePct: changePct === null
-        ? { value: null, format: 'pct', source: 'x.y', unavailable: 'no comparative' }
-        : { value: changePct, format: 'pct', source: 'x.y' },
+      change: change === null
+        ? { value: null, format: 'money', source: 'x.y', unavailable: 'no comparative' }
+        : { value: change, format: 'money', source: 'x.y' },
+      ...(changePct === null ? {} : { changePct: { value: changePct, format: 'pct' as const, source: 'x.y' } }),
     },
   });
 
-  it('names the row with the largest absolute movement', () => {
-    const rows = [line('Revenue', 5), line('Cost of sales', -40), line('Other income', 12)];
-    expect(largestMoverCaption(rows)).toMatch(/Cost of sales moved the most, down 40(\.0)?%/);
+  it('names the row with the largest movement in money', () => {
+    const rows = [line('Revenue', 5_000), line('Cost of sales', -40_000), line('Other income', 12_000)];
+    expect(largestMoverCaption(rows, PACK_SCALE)).toMatch(/Cost of sales moved the most in money, down 40/);
+  });
+
+  /**
+   * THE DEFECT THIS PINS, AND IT IS THE WHOLE REASON THE RANKING MOVED.
+   *
+   * Page 6 read "Operating expenses moved the most, up 102.1%." on a table
+   * where cost of sales moved 626 against operating expenses' 115 — 626 of
+   * the 639 total deterioration, and the tallest bar on the bridge printed
+   * two centimetres below the sentence. Ranking on the percentage names the
+   * line that changed most RELATIVE TO ITSELF, which on any small comparative
+   * base is not the line that explains the result.
+   *
+   * Both measures are in the fixture and they disagree: operating expenses
+   * move 102% on a base of 113 while cost of sales moves five times the money
+   * on a base ten times larger. Rank on `changePct` again and this goes red.
+   */
+  it('ranks on the money even where the percentage names another line', () => {
+    const rows = [
+      line('Cost of sales', 626_000, 77.8),
+      line('Operating expenses', 115_000, 102.1),
+    ];
+    const caption = largestMoverCaption(rows, PACK_SCALE);
+    expect(caption).toContain('Cost of sales');
+    expect(caption).not.toContain('Operating expenses');
+    // AND IT SAYS WHICH MEASURE IT RANKED ON, so the sentence cannot be read
+    // as answering the percentage question. `superlativeClause` is total over
+    // `RankedMeasure`, so there is no wording without one.
+    expect(caption).toContain('moved the most in money');
+    // The figure printed is the one the ranking was taken on.
+    expect(caption).toContain('626');
+    expect(caption).not.toContain('77.8');
   });
 
   it('ignores subtotal rows and rows with no comparative', () => {
     const rows: PackTableRow[] = [
-      { label: 'Total', level: 0, role: 'total', figures: { changePct: { value: 90, format: 'pct', source: 'x.y' } } },
+      { label: 'Total', level: 0, role: 'total', figures: { change: { value: 90_000, format: 'money', source: 'x.y' } } },
       line('Revenue', null),
-      line('Rent', 3),
+      line('Rent', 3_000),
     ];
-    expect(largestMoverCaption(rows)).toMatch(/Rent moved the most, up 3(\.0)?%/);
+    expect(largestMoverCaption(rows, PACK_SCALE)).toMatch(/Rent moved the most in money, up 3/);
   });
 
   /**
@@ -237,8 +270,8 @@ describe('largestMoverCaption', () => {
    * base — so the page had concluded something about the PERIOD from a missing
    * PERCENTAGE, two sheets from its own counter-example.
    */
-  it('says the percentage is missing, not that nothing moved', () => {
-    const caption = largestMoverCaption([line('Revenue', null)]);
+  it('says the movement is missing, not that nothing moved', () => {
+    const caption = largestMoverCaption([line('Revenue', null)], PACK_SCALE);
 
     expect(caption).toMatch(/no line item on this page/i);
     // The claim it must NOT make: this page cannot see the other page's table.
@@ -249,7 +282,7 @@ describe('largestMoverCaption', () => {
 
   it('still says something when the column carries no reason either', () => {
     const bare: PackTableRow = { label: 'Revenue', level: 0, role: 'line', figures: {} };
-    expect(largestMoverCaption([bare])).toMatch(/no line item on this page/i);
+    expect(largestMoverCaption([bare], PACK_SCALE)).toMatch(/no line item on this page/i);
   });
 });
 

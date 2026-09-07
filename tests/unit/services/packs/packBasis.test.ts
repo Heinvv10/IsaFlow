@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import { buildScorecardGroups } from '@/modules/accounting/services/packs/pages/packScorecard';
 import { buildBasis } from '@/modules/accounting/services/packs/pages/packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
@@ -108,8 +109,55 @@ describe('buildBasis', () => {
     // which is the defect this caveat was written to remove with a different
     // vocabulary. `checkProse` fails it now; this holds the sentence itself.
     expect(inventory).not.toMatch(/\bclassify\b/i);
-    expect(inventory).toMatch(/current ratio/i);
     expect(inventory!.length).toBeLessThanOrEqual(191);
+  });
+
+  /**
+   * AND THE CAVEAT NAMES WHAT PAGE 9 ACTUALLY PRINTS.
+   *
+   * It read "liquidity is read off the current ratio alone" while section B
+   * of the scorecard printed the current ratio AND the cash ratio — a stated
+   * limitation the pack contradicts seven sheets later, in its own list of
+   * limitations. That sentence had itself been written to replace a caveat
+   * discussing a quick ratio the pack never prints, so the same mistake was
+   * made twice: a claim about the scorecard, checked against a memory of it.
+   *
+   * So this is checked against the SCORECARD THE PACK COMPOSES, not against a
+   * fixed string. Every liquidity metric page 9 renders must be named in the
+   * caveat, and no metric outside that group may be. Mutation-proof: rename a
+   * metric in `GROUPS`, or add a third to the liquidity group, and the caveat
+   * follows or this goes red.
+   */
+  it('names every liquidity metric the scorecard prints, and no other', () => {
+    const set = setWith({
+      current: figures({
+        inventoryCaveat: 'No inventory could be identified in the chart of accounts.',
+      }),
+    });
+    const basis = buildBasis(set, doc, [], 'v1', [], new PackFigureProvenance());
+    const inventory = basis.caveats.find((c) => /inventory/i.test(c))!;
+
+    const groups = buildScorecardGroups(set, new PackFigureProvenance());
+    const liquidity = groups.find((g) => g.name === 'Liquidity')!;
+    expect(liquidity.rows.length, 'the scorecard prints no liquidity metric to name')
+      .toBeGreaterThan(1);
+
+    // Every metric page 9 prints under Liquidity is in the sentence…
+    for (const row of liquidity.rows) {
+      const head = row.metric.toLowerCase().replace(/ ratio$/, '');
+      expect(inventory.toLowerCase(), `the caveat does not name "${row.metric}"`)
+        .toContain(head);
+    }
+    // …and the plural is right, so the sentence cannot say "alone" of two.
+    expect(inventory).not.toMatch(/ratio alone/);
+    // …and nothing from another group is named as a liquidity measure.
+    const others = groups
+      .filter((g) => g.name !== 'Liquidity')
+      .flatMap((g) => g.rows.map((r) => r.metric.toLowerCase()));
+    const read = inventory.toLowerCase().split('liquidity is read off')[1] ?? '';
+    for (const other of others) {
+      expect(read, `the caveat names "${other}" as a liquidity measure`).not.toContain(other);
+    }
   });
 
   it('omits a caveat that is not present rather than emitting an empty one', () => {

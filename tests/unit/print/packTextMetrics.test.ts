@@ -38,6 +38,22 @@ const SAMPLES: Array<[string, string]> = [
   ['Korean', '이 분개는 은행 명세서의 잔액과 일치하지 않으므로 월말까지 회계 부서의 확인이 필요합니다.'],
   ['Cyrillic', 'Проводка не соответствует остатку по банковской выписке и требует проверки бухгалтерией.'],
   ['Greek', 'Η εγγραφή δεν συμφωνεί με το υπόλοιπο του τραπεζικού λογαριασμού και απαιτεί έλεγχο.'],
+  /**
+   * FIGURES IN PROSE, WITH THE SEPARATOR THE PACK ACTUALLY EMITS.
+   *
+   * `formatMoney` groups thousands with U+00A0 so a figure cannot split at
+   * its own separator — the `4 128` break the eleventh gate found on
+   * Brightsphere's page 11. JavaScript's `\s` MATCHES U+00A0, so a wrap
+   * model splitting on `/\s+/` offers itself a break Chromium will never
+   * take, and reads short on exactly the strings the pack sets in its
+   * governance and disclosure prose. Long unbreakable runs, deliberately, so
+   * a measure has to carry a whole figure or start a new line.
+   */
+  ['figures with a non-breaking separator',
+    '1\u00a0234\u00a0567 2\u00a0345\u00a0678 3\u00a0456\u00a0789 4\u00a0567\u00a0890 5\u00a0678\u00a0901 '
+    + '6\u00a0789\u00a0012 7\u00a0890\u00a0123 8\u00a0901\u00a0234 9\u00a0012\u00a0345 1\u00a0123\u00a0456 '
+    + 'and the quantum is that credit, 4\u00a0128; net profit of (1\u00a0408) is that credit plus '
+    + 'revenue and other income of (5\u00a0536).'],
 ];
 
 /** The three measures the pack actually sets prose across. */
@@ -92,4 +108,42 @@ describe('the pack text ruler', () => {
       await page.close();
     }
   }, 120_000);
+
+  /**
+   * AND IT DOES NOT OFFER ITSELF A BREAK THE BROWSER CANNOT TAKE.
+   *
+   * `formatMoney` groups thousands with U+00A0 so a figure cannot split at
+   * its own separator — the `4 128` break the eleventh gate found set as "4"
+   * and "128" on two lines of Brightsphere's page 11. JavaScript's `\s`
+   * MATCHES U+00A0, so a wrap model splitting on `/\s+/` treats the
+   * separator as a break opportunity and packs a figure's first group onto a
+   * line the browser will leave short. That is the ruler reading SHORT, which
+   * is the direction that puts a page on a second sheet.
+   *
+   * Asserted against the ruler directly rather than against Chromium: the em
+   * table is conservative enough that a whole paragraph absorbs the
+   * difference, and it is the single wrap decision that has to be right.
+   */
+  it('does not break a figure at its own thousands separator', () => {
+    const pt = 9.5;
+    const grouped = '111\u00a0111 222\u00a0222';
+    const breakable = grouped.replace(/\u00a0/g, ' ');
+
+    // THE MEASURE IS FOUND, NOT WRITTEN DOWN — the narrowest whole
+    // millimetre at which the same characters fit one line when every space
+    // in them may break. At that width the difference between the two models
+    // is exactly one break, and the em table can be refitted without this
+    // case quietly ceasing to discriminate.
+    const measureMm = [...Array(120).keys()]
+      .map((n) => n + 1)
+      .find((mm) => wrappedLines(breakable, pt, mm) === 1);
+    expect(measureMm, 'no measure fits the sample, so nothing is being tested').toBeDefined();
+
+    expect(
+      wrappedLines(grouped, pt, measureMm!),
+      `at ${measureMm}mm the ruler fitted two grouped figures on one line, which it can only do `
+        + 'by breaking one of them at its own thousands separator — a break the browser will '
+        + 'never take, so the ruler reads short',
+    ).toBe(2);
+  });
 });

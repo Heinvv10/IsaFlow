@@ -239,6 +239,30 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
   },
 ];
 
+/**
+ * THE LIQUIDITY MEASURES THIS PACK ACTUALLY PRINTS, READ OFF THE SCORECARD.
+ *
+ * Page 12's inventory caveat has to name them, and twice now it has named
+ * them from the author's belief instead. The first wording qualified a QUICK
+ * ratio the pack does not publish. Its replacement — written two rounds ago
+ * to fix exactly that — read "liquidity is read off the current ratio alone",
+ * and the eleventh gate failed it against section B of page 9, which prints
+ * the current ratio AND the cash ratio. One false claim traded for another,
+ * because both were checked against a memory of the scorecard rather than
+ * against the scorecard.
+ *
+ * So the caveat takes the names from `GROUPS`, which is the same list page 9
+ * renders from. Adding a third liquidity metric rewrites the caveat; removing
+ * one rewrites it too. There is no wording that can outlive the section it
+ * describes.
+ */
+const LIQUIDITY_GROUP = 'Liquidity';
+
+export function liquidityMetricNames(): string[] {
+  return GROUPS.filter((group) => group.name === LIQUIDITY_GROUP)
+    .flatMap((group) => group.metrics.map((metric) => metric.metric));
+}
+
 const TARGETS = new Map(DEFAULT_KPI_TARGETS.map((t) => [t.ratioKey, t.target]));
 
 function targetFor(spec: MetricSpec): number | null {

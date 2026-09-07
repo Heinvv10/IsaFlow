@@ -13,7 +13,7 @@ const render = (props: Parameters<typeof KpiTile>[0]) =>
 
 describe('KpiTile', () => {
   it('formats money, pct and ratio by kind', () => {
-    expect(render({ label: 'Revenue', value: 4812345, kind: 'money' })).toContain('R 4 812 345');
+    expect(render({ label: 'Revenue', value: 4812345, kind: 'money' })).toContain('R 4\u00a0812\u00a0345');
     expect(render({ label: 'GP%', value: 54.49, kind: 'pct' })).toContain('54.5%');
     expect(render({ label: 'Current ratio', value: 1.847, kind: 'ratio' })).toContain('1.85');
   });
@@ -25,7 +25,7 @@ describe('KpiTile', () => {
       deltaPct: 6.94, favourable: true,
     });
     expect(html).toContain('vs budget');
-    expect(html).toContain('R 4 500 000');
+    expect(html).toContain('R 4\u00a0500\u00a0000');
     expect(html).toMatch(/data-fav="true"[^>]*>\+6\.9%/);
   });
 

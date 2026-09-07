@@ -233,8 +233,8 @@ describe('board pack figures, R-P52', () => {
     // separate house-style question already deferred to the visual gate.
     const table = page6.querySelector('.pack-table') as HTMLElement;
     expect(table.querySelector('caption')?.textContent).toBe("R'000");
-    expect(table.textContent).toContain('4 200');
-    expect(table.textContent).not.toContain('4 200 000');
+    expect(table.textContent).toContain('4\u00a0200');
+    expect(table.textContent).not.toContain('4\u00a0200\u00a0000');
   });
 
   it('changes what every cell prints when the document changes its scale', () => {
@@ -246,7 +246,7 @@ describe('board pack figures, R-P52', () => {
       <PackPagesView document={{ ...doc, numberConvention: { scale: 'R', currency: 'ZAR' } }} />,
     );
     const table = container.querySelector('#pack-page-6 .pack-table') as HTMLElement;
-    expect(table.textContent).toContain('4 200 000');
+    expect(table.textContent).toContain('4\u00a0200\u00a0000');
   });
 
   it('refuses to print at a scale no formatter knows, rather than printing unscaled', () => {

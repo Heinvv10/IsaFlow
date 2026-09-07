@@ -238,20 +238,44 @@ export function narrativeTitle(
     return `${scope}; none of them carries a single rand amount.`;
   }
   const largest = quantified.reduce((a, b) => (Math.abs(b.quantum!) > Math.abs(a.quantum!) ? b : a));
-  return `${scope}, the largest carrying ${inScale(money(largest.quantum!, scale), scale)} of exposure.`;
+  // ONE PLACEMENT FOR THE UNIT, and it is page 11's. This sentence put the
+  // scale clause INSIDE the phrase — "the largest carrying 1 869, in R'000 of
+  // exposure" — while page 11, the facing sheet, wrote "27 of them carrying
+  // 3 544 of exposure, in R'000". The same clause, two positions, on adjacent
+  // pages, in the largest type either page sets: that is what reads as a
+  // slot-filled string rather than as written prose. `inScale` takes the
+  // WHOLE phrase, so the unit ends the sentence in both places.
+  return `${scope}, the largest carrying ${inScale(`${money(largest.quantum!, scale)} of exposure`, scale)}.`;
 }
 
 /**
- * Page 6's title — how the result was EARNED, so it reads the margin and the
- * cost base rather than restating the profit page 5 already led with.
+ * Page 6's title — how the result was EARNED, so it reads the margin rather
+ * than restating the profit page 5 already led with.
+ *
+ * IT NAMES THE MARGIN'S OWN DENOMINATOR, AND NOTHING ELSE. Both branches used
+ * to end on the operating expenses — "Gross margin is a negative 1310.8%,
+ * carrying operating expenses of 227" and "Revenue of (5 535) carries no
+ * meaningful margin base against operating expenses of (3 717)" — and neither
+ * relation exists. A gross margin does not carry operating expenses: the two
+ * quantities are on opposite sides of the gross-profit line, and "carrying"
+ * and "against" were doing the work of a comma. The eleventh gate read both
+ * as template seams in the largest type on the page, which is what they were:
+ * a figure needed a companion and the next figure down the table was taken.
+ *
+ * Revenue IS the margin's relation — it is the denominator the percentage was
+ * computed on — so the sentence states a relation the figures are actually in
+ * and a reader can check off the table below it. The cost base is not lost:
+ * the caption under the same table names the line that moved most in money
+ * (`largestMoverCaption`), which is the question "carrying" was pretending to
+ * answer.
  */
 export function incomeStatementTitle(set: PackFigureSet, scale: MoneyScale): string {
   const { current } = set;
   const margin = marginPct(current.revenue - current.costOfSales, current.revenue);
-  const costs = `operating expenses of ${money(current.operatingExpenses, scale)}`;
   return margin === null
-    ? `Revenue of ${money(current.revenue, scale)} carries no meaningful margin base against ${costs}.`
-    : `Gross margin is ${pctWithWord(margin, 'a positive', 'a negative')}, carrying ${costs}.`;
+    ? `Revenue of ${money(current.revenue, scale)} gives no meaningful margin base.`
+    : `Gross margin is ${pctWithWord(margin, 'a positive', 'a negative')} on revenue of `
+      + `${money(current.revenue, scale)}.`;
 }
 
 /**

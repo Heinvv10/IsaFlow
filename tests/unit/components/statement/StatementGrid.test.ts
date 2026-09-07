@@ -36,16 +36,16 @@ const render = (props: Parameters<typeof StatementGrid>[0]) =>
 describe('StatementGrid', () => {
   it('renders figures through formatMoney: tabular, parentheses for negatives', () => {
     const html = render({ rows, columns: { prior: false, budget: false, variance: false, trend: false } });
-    expect(html).toContain('5 000 000');
-    expect(html).toContain('(120 000)');
+    expect(html).toContain('5\u00a0000\u00a0000');
+    expect(html).toContain('(120\u00a0000)');
     expect(html).not.toContain('-120 000');
   });
 
   it('shows prior and variance columns only when asked', () => {
     const without = render({ rows, columns: { prior: false, budget: false, variance: false, trend: false } });
-    expect(without).not.toContain('4 100 000');
+    expect(without).not.toContain('4\u00a0100\u00a0000');
     const withCols = render({ rows, columns: { prior: true, budget: false, variance: true, trend: false } });
-    expect(withCols).toContain('4 100 000');
+    expect(withCols).toContain('4\u00a0100\u00a0000');
     expect(withCols).toContain('+22.0%');
   });
 
@@ -119,7 +119,7 @@ describe('StatementGrid', () => {
     // Master's balance sheet showed `+R12 345` on every line and the first
     // migration to this grid dropped it, leaving the reader a bar and a
     // percentage with no amount.
-    expect(html).toContain('+900 000');
+    expect(html).toContain('+900\u00a0000');
     expect(html).toContain('Δ Prior');
   });
 

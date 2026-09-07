@@ -130,11 +130,11 @@ describe('page 10 prints the scale its claims are made against', () => {
   it('names the range that is left when the month that sets the scale goes', () => {
     const { panels, sharedRange } = buildTrendPanels(roundingSplit, PACK_SCALE);
     const netProfit = panels.find((p) => p.id === 'trend-net-profit')!;
-    expect(netProfit.title).toContain('Apr 2026 alone is 1 908');
+    expect(netProfit.title).toContain('Apr 2026 alone is 1\u00a0908');
 
     // The shared span, off the sheet's own words — "(1 621) to 1 908, a span
     // of 3 529 R'000".
-    expect(sharedRange).toContain('a span of 3 529');
+    expect(sharedRange).toContain('a span of 3\u00a0529');
 
     // The residual range, printed. Read back off the title rather than
     // asserted as a literal sentence, so a re-wording does not fail this and
@@ -180,7 +180,7 @@ describe('page 10 prints the scale its claims are made against', () => {
    */
   it('reproduces every printed share from the figures the sheet prints', () => {
     const { panels, sharedRange } = buildTrendPanels(roundingSplit, PACK_SCALE);
-    const span = Number(/a span of ([\d\u2009 ]+)/.exec(sharedRange!)![1]!.replace(/[^\d]/g, ''));
+    const span = Number(/a span of ([\d\u2009\u00a0 ]+)/.exec(sharedRange!)![1]!.replace(/[^\d]/g, ''));
     expect(span).toBeGreaterThan(0);
 
     // AND THE SPAN IS THE DIFFERENCE OF THE TWO EXTREMES THE SAME SENTENCE
@@ -203,7 +203,7 @@ describe('page 10 prints the scale its claims are made against', () => {
       // its end label and its two month labels; the ends are the numeric ones
       // that are not the end label's value.
       const numbers = painted(panel.svg)
-        .map((t) => t.replace(/\u2009| /g, ''))
+        .map((t) => t.replace(/[\u2009\u00a0 ]/g, ''))
         .filter((t) => /^\(?[\d]+\)?$|^\u2013$/.test(t))
         .map((t) => (t === '\u2013' ? 0 : Number(t.replace(/[()]/g, '')) * (t.startsWith('(') ? -1 : 1)));
       expect(numbers.length, `${panel.id} paints no axis ends`).toBeGreaterThanOrEqual(2);

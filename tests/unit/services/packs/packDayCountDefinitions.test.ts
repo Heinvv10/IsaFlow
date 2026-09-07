@@ -32,7 +32,7 @@ function statedDays(set: typeof demoSet, term: string): number {
     .find((d) => d.term === term);
   expect(definition, `page 12 prints no definition of "${term}"`).toBeDefined();
 
-  const match = /times (\d[\d\s]*)/.exec(definition!.definition);
+  const match = /times (\d[\d\s\u00a0]*)/.exec(definition!.definition);
   expect(
     match,
     `"${term}" does not state a day count a reader can multiply by: ${definition!.definition}`,

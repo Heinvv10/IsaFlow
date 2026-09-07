@@ -154,10 +154,10 @@ describe('the credit-month sentence', () => {
   /** Every bracketed or bare figure the sentence prints, in order, as
    *  numbers — the arithmetic a director takes off the row. */
   function figuresIn(sentence: string): number[] {
-    return [...sentence.matchAll(/\(?(\d[\d ]*(?:\.\d+)?)\)?/g)]
+    return [...sentence.matchAll(/\(?(\d[\d\u00a0 ]*(?:\.\d+)?)\)?/g)]
       .filter((m) => /[\d]/.test(m[1]!))
       .map((m) => {
-        const value = Number(m[1]!.replace(/ /g, ''));
+        const value = Number(m[1]!.replace(/[\u00a0 ]/g, ''));
         return m[0]!.startsWith('(') ? -value : value;
       });
   }

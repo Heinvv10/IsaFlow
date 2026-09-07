@@ -168,6 +168,29 @@ const LABEL_GAP_PX = 4;
 const LABEL_LINE_PX = 12;
 
 /**
+ * A NIL STEP IS STILL A STEP, AND IT HAS TO BE DRAWN WHERE IT HAPPENS.
+ *
+ * A step whose value is nil spans zero user units, so its rect is zero pixels
+ * tall and paints nothing. The label is still drawn, four pixels ABOVE that
+ * empty position and set from the baseline up, which puts the glyphs about a
+ * line of type clear of the running total they belong to. On Brightsphere's
+ * page 6 bridge — 21.25px per R1m, zero at y=818 — the nil cost-of-sales step
+ * belongs at y=935.6 and its `–` landed at y=923.5, ON THE (5 000) GRIDLINE.
+ * The table two inches above the chart says nil. Any director who reads a
+ * bridge against its axis took cost of sales as about five million.
+ *
+ * So a step that would paint nothing paints a rule instead, one pixel on the
+ * running total. That is the reading a nil step should get — the line did not
+ * move — and it re-anchors the label, which now sits four pixels above a mark
+ * that is actually there rather than above nothing.
+ *
+ * The floor is on the DRAWN height only. `y` is still the true position, so
+ * the label placement and the plot-top test are unchanged, and a rule cannot
+ * shift a step that has real height: `Math.max` is a no-op above one pixel.
+ */
+const NIL_STEP_RULE_PX = 1;
+
+/**
  * WHICH INK A LABEL DRAWN INSIDE A BAR IS SET IN — decided by contrast
  * against the fill, not assumed.
  *
@@ -202,6 +225,9 @@ function makeWaterfallRenderItem(
     const x = x1 - width / 2;
     const y = Math.min(y1, y2);
     const height = Math.abs(y1 - y2);
+    // See `NIL_STEP_RULE_PX`: a zero-height step paints a rule on its running
+    // total rather than nothing at all.
+    const drawnHeight = Math.max(height, NIL_STEP_RULE_PX);
 
     // The top of the plot, asked of the coordinate system rather than assumed
     // from `grid.top`: `containLabel` and the axis name both move it, and the
@@ -221,7 +247,7 @@ function makeWaterfallRenderItem(
       children: [
         {
           type: 'rect',
-          shape: { x, y, width, height },
+          shape: { x, y, width, height: drawnHeight },
           style: { fill: stepColour(step, palette) },
         },
         {

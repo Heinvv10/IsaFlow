@@ -276,7 +276,7 @@ describe('a rendered cell agrees with the header above it', () => {
   it('prints a thousands figure under a thousands caption', () => {
     const { container } = render(<ComparativeTable table={thousands} scale="R'000" />);
     expect(container.querySelector('caption')?.textContent).toBe("R'000");
-    expect(container.querySelector('tbody td:nth-child(2)')?.textContent).toBe('4 200');
+    expect(container.querySelector('tbody td:nth-child(2)')?.textContent).toBe('4\u00a0200');
   });
 
   it('scales the scorecard target with the actual it is a goal for', () => {
@@ -299,7 +299,7 @@ describe('a rendered cell agrees with the header above it', () => {
     }];
     const { container } = render(<ScorecardTable groups={groups} scale="R'000" />);
     const cells = [...container.querySelectorAll('tbody td')].map((td) => td.textContent);
-    expect(cells).toContain('4 200');
-    expect(cells).toContain('3 000');
+    expect(cells).toContain('4\u00a0200');
+    expect(cells).toContain('3\u00a0000');
   });
 });

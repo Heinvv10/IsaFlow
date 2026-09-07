@@ -102,7 +102,13 @@ function counterpartsByPage(panels: PackChartSpec[]): Array<{ page: string; meas
  * Null when no drawn panel has a counterpart — a page with nothing to
  * reconcile must not carry a paragraph reconciling it.
  */
-export function trendWindowNote(panels: PackChartSpec[]): PackDisclosureNote | null {
+export function trendWindowNote(
+  panels: PackChartSpec[],
+  /** Ratio panels ending on the part month, by name — see
+   *  `TrendPanels.ratiosEndingOnPartMonth`. Empty on a series that ends on a
+   *  whole month, and on a pack that draws no ratio panel. */
+  ratiosEndingOnPartMonth: readonly string[] = [],
+): PackDisclosureNote | null {
   const groups = counterpartsByPage(panels);
   if (groups.length === 0) return null;
 
@@ -126,12 +132,37 @@ export function trendWindowNote(panels: PackChartSpec[]): PackDisclosureNote | n
   // the sentence does not, and the comparative is a period by construction —
   // the basis page names its dates. Every measure and every page it points a
   // reader at is still here, in the same words.
+  // A PART MONTH IS A DIFFERENT WINDOW TOO, AND FOR A RATIO IT IS A DIFFERENT
+  // MEASUREMENT. The marker on the axis and in the panel title says WHICH
+  // month; it does not say that a ratio taken over seven of thirty days is an
+  // artefact of that window. Page 10 ended two panels on one — a 100.0% gross
+  // margin (seven days of revenue, no cost of sales posted yet) and 60 debtor
+  // days (a seven-day ratio annualised over a month) — and a director reads
+  // the first as a turnaround. Named panels, so the clause cannot claim it of
+  // a panel that ends on a whole month, and carried HERE because this note is
+  // already the page's statement about windows: a disclosure of its own is
+  // 6.5mm on a sheet that composes within 12 of its box.
+  //
+  // ONE CLAUSE, AND THE LENGTH IS AGAIN THE WHOLE OF THE DESIGN — the same
+  // lesson the `debtorDays` clause above records. The first wording named the
+  // panels ("Gross margin and Debtor days end on the part month: a ratio
+  // there is computed on the days posted, so its level is not comparable with
+  // the months before it") and ran to two lines, and `fitPageToBox` paid for
+  // them by dropping THIS ENTIRE NOTE from the live demo pack — so the sheet
+  // lost the whole month-versus-period reconciliation in order to qualify two
+  // ratios. The panels are not named because they do not need to be: each one
+  // already carries "(part)" in its own title and on its own last tick, which
+  // is where a reader meets the ratio. What was missing is what the marker
+  // MEANS for a ratio, and that is what this says.
+  const partRatios = ratiosEndingOnPartMonth.length === 0
+    ? ''
+    : ' A ratio ending in the part month is taken on the days posted, not a full one.';
   return {
     heading: 'Period',
     body:
       'Each panel plots one MONTH. The same measures print for the WHOLE reporting period, '
       + `against the comparative — ${inWords(where)}. Different windows: the two `
-      + `will not agree.${debtorDays}`,
+      + `will not agree.${debtorDays}${partRatios}`,
   };
 }
 

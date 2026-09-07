@@ -330,7 +330,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     return page(incomeStatementTitle(set, scale), 'Income statement', 'Financials', 'high', [
       { kind: 'table', table: income },
       { kind: 'chart', chart: bridge },
-      commentary(largestMoverCaption(income.rows)),
+      commentary(largestMoverCaption(income.rows, scale)),
       // The same treatment page 7 gives negative assets. Brightsphere heads
       // this page with revenue of (5 535) and said nothing about it, two
       // sheets before explaining a negative asset side at length.
@@ -501,6 +501,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     preparedBy: input.preparedBy,
     generatedAt,
     draftReasons: input.draftReasons,
+    partialMonth: partialMonthClauseFor(trend),
     scale,
     currency,
     basis,

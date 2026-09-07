@@ -67,6 +67,26 @@ export interface PackFrontMatter {
    * from – to –" — told a board it was FINAL. See `packDraftStatus.ts`.
    */
   draftReasons: PackDraftReason[];
+  /**
+   * The part-month sentence for this pack's series, or null where the period
+   * ends on a whole month — `partialMonthClauseFor`, the pack's ONE wording.
+   *
+   * ON THE COVER BECAUSE THE COVER IS WHERE THE TWO PACKS DIVERGED. Demo's
+   * cover says the pack is a draft because "the fiscal period it ends in is
+   * still open, so these figures can still move"; Brightsphere's, whose
+   * September period IS closed in the ledger, correctly drops that clause —
+   * and so its reader is never told anywhere on the front of the pack that
+   * the figures stop on the seventh of a thirty-day month. The eleventh gate
+   * read the two covers side by side and could not tell which fact each was
+   * reporting.
+   *
+   * The fix is not to drive "figures can still move" off the part month:
+   * a closed period means the posted figures will NOT move, so that sentence
+   * would be false on Brightsphere. The part month is a different fact — how
+   * much of the last month the figures cover — and it is now stated as
+   * itself, from the same rule, on both covers.
+   */
+  partialMonth: string | null;
   scale: MoneyScale;
   currency: string;
   basis: PackBasis;
@@ -90,6 +110,12 @@ export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
         // pack without saying what to wait for; a period that closes next
         // week and a commentary nobody has written are different waits.
         note('Preparation', `Prepared by ${f.preparedBy} on ${formatPackDate(f.generatedAt.slice(0, 10))}. ${draftStatusSentence(f.draftReasons)}`),
+        // THE SAME FACT ON BOTH COVERS, FROM THE SAME RULE — see
+        // `PackFrontMatter.partialMonth`. Its own note rather than appended
+        // to the preparation sentence: the cover is the lowest-density sheet
+        // in the pack (about 15% ink) and this is a statement about the
+        // FIGURES, not about who prepared them or when.
+        ...(f.partialMonth === null ? [] : [note('Period covered', f.partialMonth)]),
       ]),
     ]),
     page('Contents', 'Contents', 'Front', 'low', [

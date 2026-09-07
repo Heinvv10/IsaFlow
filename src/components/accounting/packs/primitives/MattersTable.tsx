@@ -24,7 +24,7 @@
  * the document for the same reason every other money column is: a quantum in
  * rands beside a statement in thousands is the 1000x misread, one page later.
  */
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, inScale, type MoneyScale } from '@/lib/format/money';
 import { mattersColumnPercents } from '@/modules/accounting/services/packs/pages/packMattersColumns';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatterFigure } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -150,7 +150,14 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
           first, then the largest by exposure.{' '}
           {omitted.quantum.value === null
             ? omitted.quantum.unavailable
-            : `They come to ${formatMoney(omitted.quantum.value, { scale })} ${scale} in total.`}
+            /* THE UNIT IN THE PACK'S ONE PROSE FORM — `inScale`. This wrote
+             * the banner token hard against the figure ("319 R'000 in
+             * total"), which is a THIRD position for the unit on a sheet
+             * whose own headline says "…of exposure, in R'000". The prose
+             * gate that refuses this shape only sees strings the MODEL
+             * composes, and this one is composed in the renderer, so it was
+             * the one copy of the defect no test could reach. */
+            : `In total they come to ${inScale(formatMoney(omitted.quantum.value, { scale }), scale)}.`}
         </p>
       )}
       {uniform.length > 0 && (

@@ -91,7 +91,7 @@ describe('assertPackIntegrity — statements', () => {
     expect(message).toContain('total liabilities');
     expect(message).toContain('total equity');
     // The gap itself, which is the one number a reader can chase.
-    expect(message).toContain('a difference of R 260 000.00');
+    expect(message).toContain('a difference of R 260\u00a0000.00');
     // And no internal identifier anywhere in it.
     expect(message).not.toMatch(/packFigureSet\.|packStatementTables\./);
   });

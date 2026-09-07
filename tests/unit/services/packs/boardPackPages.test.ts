@@ -382,7 +382,7 @@ describe('buildBoardPackPages', () => {
 
     const revenue = table.rows.find((r) => r.label === 'Revenue')!.figures.actual!;
     expect(revenue.value).toBe(4_200_000);
-    expect(formatFigureText(revenue, scale!)).toBe('4 200');
+    expect(formatFigureText(revenue, scale!)).toBe('4\u00a0200');
   });
 
   it('keeps every model figure RAW, so no display scale reaches the integrity gate', () => {

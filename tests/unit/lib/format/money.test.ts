@@ -3,19 +3,56 @@ import { formatDays, formatMoney, formatPct, formatPctLevel, formatRatio, pctWit
 
 describe('formatMoney', () => {
   it('uses thousands separators and no decimals by default', () => {
-    expect(formatMoney(4812345.67)).toBe('4 812 346');
+    expect(formatMoney(4812345.67)).toBe('4\u00a0812\u00a0346');
   });
   it('shows negatives in parentheses, never a minus', () => {
-    expect(formatMoney(-2190000)).toBe('(2 190 000)');
+    expect(formatMoney(-2190000)).toBe('(2\u00a0190\u00a0000)');
     expect(formatMoney(-2190000)).not.toContain('-');
   });
   it('shows cents when asked', () => {
-    expect(formatMoney(53787.07, { cents: true })).toBe('53 787.07');
+    expect(formatMoney(53787.07, { cents: true })).toBe('53\u00a0787.07');
   });
   it('prefixes the rand symbol when asked', () => {
-    expect(formatMoney(1000, { symbol: true })).toBe('R 1 000');
-    expect(formatMoney(-1000, { symbol: true })).toBe('(R 1 000)');
+    expect(formatMoney(1000, { symbol: true })).toBe('R 1\u00a0000');
+    expect(formatMoney(-1000, { symbol: true })).toBe('(R 1\u00a0000)');
   });
+  /**
+   * THE SEPARATOR IS NOT A SPACE A LINE CAN BREAK AT.
+   *
+   * The eleventh visual gate found `4 128` set as "4" at the end of one line
+   * and "128" at the start of the next, inside Brightsphere's governance
+   * table on a board pack. The separator was an ASCII space, which is a
+   * break opportunity, so ANY figure in prose can split at its own thousands
+   * mark — where it happens depends on where the wrap lands, so no fixture
+   * and no single render can prove it absent. The only thing that can is the
+   * character.
+   *
+   * Asserted on the CODE POINT and on the absence of every breaking
+   * alternative, on every formatter that emits a group separator. `toContain`
+   * of a rendered string would pass on U+0020 in a test file where the two
+   * are indistinguishable to the eye — which is exactly how this shipped.
+   */
+  it('separates thousands with a space that cannot break a line', () => {
+    for (const printed of [
+      formatMoney(4812345.67),
+      formatMoney(-2190000),
+      formatMoney(53787.07, { cents: true }),
+      formatMoney(1000, { symbol: true }),
+      formatMoney(4_200_000, { scale: "R'000" }),
+      formatDays(1035),
+    ]) {
+      // The group separator is present…
+      expect(printed).toMatch(/\d\u00a0\d/);
+      // …and no BREAKING space stands between two digits anywhere in it.
+      expect(printed).not.toMatch(/\d[\u0020\u2009\u2000-\u2006]\d/);
+    }
+    // U+202F is non-breaking too, and is what `Intl` hands over — but it is
+    // missing from many faces and would render as a notdef box or as nothing
+    // at all, which would turn `4 128` into `4128`. The one separator this
+    // module emits is U+00A0.
+    expect(formatMoney(4812345.67)).not.toContain('\u202f');
+  });
+
   it('renders zero as a dash', () => {
     expect(formatMoney(0)).toBe('–');
   });
@@ -127,7 +164,7 @@ describe('formatMoney scaling', () => {
   // R4.2bn. Nothing caught it because no assertion read a cell against its
   // own header.
   it("prints a thousands-scaled figure under an R'000 header", () => {
-    expect(formatMoney(4_200_000, { scale: "R'000" })).toBe('4 200');
+    expect(formatMoney(4_200_000, { scale: "R'000" })).toBe('4\u00a0200');
   });
 
   it('leaves every existing caller byte-identical when no scale is given', () => {
@@ -137,7 +174,7 @@ describe('formatMoney scaling', () => {
   });
 
   it('keeps the sign convention after scaling', () => {
-    expect(formatMoney(-4_200_000, { scale: "R'000" })).toBe('(4 200)');
+    expect(formatMoney(-4_200_000, { scale: "R'000" })).toBe('(4\u00a0200)');
   });
 
   it('distinguishes a figure that rounds to nothing from an actual zero', () => {

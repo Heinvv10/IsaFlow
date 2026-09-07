@@ -183,6 +183,44 @@ describe('buildMatters', () => {
       .toBe(forwards);
   });
 
+  /**
+   * THE PERCENTAGE MUST BE CHECKABLE OFF THE SHEET.
+   *
+   * The matter read "Blitz Fibre is 77.0% of total debtors owed" with a
+   * quantum of 3 192, and NO receivables figure prints anywhere in the twelve
+   * sheets — so the one percentage in the governance table was the one claim
+   * in the pack a director could not test. The eleventh gate could not either,
+   * and had to report it as undecidable from the paper: 3 192 is also
+   * Brightsphere's Total assets on page 7, so the sheet handed the reader a
+   * plausible base that is the wrong one.
+   *
+   * (Queried against the dev ledger: the two are R3 191 824 of aged trade
+   * receivables and R3 191 945.16 of total assets — different figures that
+   * round to the same R'000. The percentage is taken against
+   * `getAgingReport(...).totals.total`, so the number was never wrong; what
+   * was missing was its base.)
+   *
+   * So the base is stated, and this reproduces the division a director would
+   * do: the two printed figures must give the printed percentage.
+   */
+  it('prints the base its percentage is a share of, and the two reproduce it', async () => {
+    agingSpy.mockResolvedValue(agingWithConcentration(3_191_824, [488_225, 465_750, 172.5]));
+
+    const issue = (await buildMatters('c1', window))
+      .find((m) => m.issue.startsWith('Aged debtor concentration'))!.issue;
+
+    // Read back exactly as a reader does: the percentage, and the base.
+    const pct = Number(/is ([\d.]+)% of/.exec(issue)![1]);
+    const base = Number(/come to ([\d\u00a0 ]+)/.exec(issue)![1]!.replace(/[^\d]/g, ''));
+    expect(base, 'the matter states no base for its percentage').toBeGreaterThan(0);
+
+    // The quantum the table prints, at the pack's own scale.
+    const quantum = Math.round(3_191_824 / 1_000);
+    expect(base).toBe(Math.round(4_145_971.5 / 1_000));
+    expect((quantum / base) * 100, 'the printed figures do not give the printed percentage')
+      .toBeCloseTo(pct, 1);
+  });
+
   it('keeps the exception itself off the page and out of the log line', async () => {
     // The matter still appears — that is this file's rule. What came off the
     // PAGE is `String(error)`, which put a driver's message, and whatever a

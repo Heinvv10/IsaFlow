@@ -112,7 +112,7 @@ describe('SharedPackView', () => {
       },
     }));
     expect(future).toContain('North Region');
-    expect(future).toContain('640 000');
+    expect(future).toContain('640\u00a0000');
     expect(future).not.toContain('not a number');
   });
 
@@ -133,8 +133,8 @@ describe('SharedPackView', () => {
       },
     }));
     expect(smuggled).not.toContain('Operating Cash Flow');
-    expect(smuggled).not.toContain('333 111');
-    expect(smuggled).not.toContain('222 444');
+    expect(smuggled).not.toContain('333\u00a0111');
+    expect(smuggled).not.toContain('222\u00a0444');
     const at = smuggled.indexOf('data-section="cash_flow"');
     const next = smuggled.indexOf('data-section="', at + 1);
     expect(smuggled.slice(at, next)).toContain('Not included on shared links.');
@@ -186,7 +186,7 @@ describe('SharedPackView', () => {
       },
     }));
     expect(smuggled).not.toContain('-0.58');
-    expect(smuggled).not.toContain('1 819 000');
+    expect(smuggled).not.toContain('1\u00a0819\u00a0000');
     expect(smuggled).toContain('Not included on shared links.');
   });
 

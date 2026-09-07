@@ -311,15 +311,24 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
   } else if (panels.sharedScale.length === 1) {
     parts.push(`${panels.sharedScale[0]} is the only money panel on the shared y-scale.`);
   }
-  // AND EVERY PANEL PRINTS THE TWO NUMBERS THAT MAKE THAT CHECKABLE. The
-  // panels were bare — no axis value anywhere on the sheet — while two of
-  // their titles quoted a percentage of a range, so a director had nothing to
-  // hold either claim against. Said once, here, rather than six times on the
-  // panels.
-  if (panels.panels.length > 0) {
-    parts.push('Every panel labels the low and high of its own axis, so a share of the range can '
-      + 'be checked off the sheet.');
-  }
+  // WHAT WAS HERE, AND WHY IT IS NOT: "Every panel labels the low and high of
+  // its own axis, so a share of the range can be checked off the sheet."
+  //
+  // It was written when the panels WERE bare, and it is now a description of
+  // something the sheet shows six times over — every panel prints its own two
+  // axis values, and the caption directly above states the formula those
+  // values are checked against ("a panel's percentage of it is that panel's
+  // own high-to-low range over that span"). Nothing a reader can do with the
+  // sheet changes when the sentence goes.
+  //
+  // It is removed BECAUSE PAGE 10 HAD TO PAY FOR SOMETHING, and this is the
+  // only line on it that says what the page already shows. The part-month
+  // ratio clause below is a fact the pack did not state anywhere: two panels
+  // end on a seven-day month and a ratio taken there is a different
+  // measurement, not a smaller one. On the live demo company this sheet
+  // composes with 2.5mm of slack and a line of 9.5pt costs 4.94, so the
+  // clause and the sentence could not both stand. A fact that is not on the
+  // paper beats a sentence describing the paper.
   // THE TWO REASONS A PANEL IS OFF THE SHARED SCALE, IN ONE SENTENCE, AND
   // THAT SAVED PAGE 10 A LINE OF 9.5pt.
   //
@@ -403,7 +412,7 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
   // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is
   // printed on this page and on the income statement page" two centimetres
   // above a disclosure saying no gross-margin panel could be drawn.
-  const windowNote = trendWindowNote(drawn);
+  const windowNote = trendWindowNote(drawn, panels.ratiosEndingOnPartMonth);
   // THE SCALE NOTE FIRST, AND THAT IS A REVERSAL. It used to run second, so
   // that the fitter — which takes a disclosure's LAST note first — would take
   // it before the window note, on the reasoning that the window note explains

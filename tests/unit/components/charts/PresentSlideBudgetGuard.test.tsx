@@ -39,14 +39,14 @@ describe('PresentSlide income statement budget guard', () => {
     // The column header is always drawn (PresentSlide's COLUMNS is static),
     // but no row may carry the R1,000,000 budget figure — that would be the
     // "full-size unfavourable variance on a tenant with no budget" bug.
-    expect(container.textContent).not.toContain('1 000 000');
+    expect(container.textContent).not.toContain('1\u00a0000\u00a0000');
   });
 
   it('prints the budget figure when budgetedCount is greater than 0', () => {
     const { container } = render(
       <PresentSlide slide={SLIDE} income={INCOME} trends={null} trendsFailed={false} budget={BUDGET} budgetedCount={1} budgetFailed={false} />,
     );
-    expect(container.textContent).toContain('1 000 000');
+    expect(container.textContent).toContain('1\u00a0000\u00a0000');
   });
 });
 

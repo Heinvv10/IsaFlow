@@ -1,7 +1,7 @@
 /**
  * Statement figure formatting. One place, so a number looks the same on the
  * screen, in the pack and in the PDF. Conventions: thousands separated by a
- * narrow space (en-ZA), negatives in brackets, zero as an en dash.
+ * NON-BREAKING space (en-ZA), negatives in brackets, zero as an en dash.
  *
  * ONE NEGATIVE CONVENTION, FOR EVERY KIND OF NUMBER (spec §7.1 criterion 8).
  * A rendered board pack printed `(1 546)` for money, `−1348.0%` for a
@@ -87,6 +87,37 @@ export function toMoneyScale(value: string): MoneyScale | null {
   return Object.prototype.hasOwnProperty.call(MONEY_SCALES, value) ? (value as MoneyScale) : null;
 }
 
+/**
+ * THE THOUSANDS SEPARATOR IS A SPACE THAT CANNOT BREAK.
+ *
+ * `Intl` gives en-ZA a narrow no-break space (U+202F), and every formatter
+ * here replaced it with an ASCII space — chosen so one glyph would render
+ * identically in the browser, in Chromium's PDF and in a test fixture. An
+ * ASCII space is a LINE-BREAK OPPORTUNITY, so a figure in prose can split
+ * across two lines at its own separator: the eleventh visual gate found
+ * `4 128` set as "4" at the end of one line and "128" at the start of the
+ * next, inside Brightsphere's governance table, and read it as the defect a
+ * CFO would see first.
+ *
+ * It is DATA-DEPENDENT — it happens wherever the wrap lands, so no fixture
+ * and no single render proves its absence — which is why the fix is the
+ * separator and not the sentence. U+00A0 rather than U+202F: both are
+ * non-breaking, and U+00A0 is present in every font this pack can be set in,
+ * while U+202F is missing from many and renders as a notdef box or as
+ * nothing at all. A separator that silently disappears would turn `4 128`
+ * into `4128`, which is a worse failure than the one being fixed.
+ *
+ * Every reader of a formatted figure that splits or compares it must
+ * normalise U+00A0 as well as ASCII space — see `packTextLayer.ts` and the
+ * scale tests, which already did.
+ */
+export const GROUP_SEPARATOR = '\u00a0';
+
+/** Whatever separator `Intl` produced, as THIS module's one separator. */
+function separated(formatted: string): string {
+  return formatted.replace(/[\x20\xa0\u202f]/g, GROUP_SEPARATOR).replace(/,/g, '.');
+}
+
 const whole = new Intl.NumberFormat('en-ZA', { maximumFractionDigits: 0 });
 const cents = new Intl.NumberFormat('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -119,10 +150,7 @@ export function formatMoney(
   // float residue off a subtraction reads as the measured zero it is.
   const s = signOf(n);
   if (s === 'zero') return ZERO_DASH;
-  const body = (opts.cents ? cents : whole)
-    .format(Math.abs(scaled))
-    .replace(/[\xa0\u202f]/g, ' ')
-    .replace(/,/g, '.');
+  const body = separated((opts.cents ? cents : whole).format(Math.abs(scaled)));
   // A REAL amount that rounds to nothing at this scale is not `0`.
   //
   // The board pack's matters page listed journals for board decision with a
@@ -203,13 +231,10 @@ export function formatRatio(n: number, dp = 2): string {
  */
 export function formatDays(n: number, dp = 0): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
-  const digits = new Intl.NumberFormat('en-ZA', {
+  const digits = separated(new Intl.NumberFormat('en-ZA', {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
-  })
-    .format(Math.abs(n))
-    .replace(/[\xa0\u202f]/g, ' ')
-    .replace(/,/g, '.');
+  }).format(Math.abs(n)));
   const body = `${digits} days`;
   return n < 0 ? `(${body})` : body;
 }
