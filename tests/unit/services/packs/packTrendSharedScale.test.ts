@@ -215,9 +215,15 @@ describe("page 10's own-scale percentages", () => {
       expect(own.sharePct).toBeCloseTo(Math.round((range / span) * 1000) / 10, 5);
     }
 
-    // And the denominator is on the page, in figures.
+    // And the denominator is on the page, in figures — in the COMMENTARY
+    // block, which `fitPageToBox` never touches, rather than in the Scale
+    // note, which it may take. The note used to carry a second copy; that
+    // copy was a line on the tightest page in the pack, and the page needs
+    // the line more than the reader needs the number twice.
     expect(built.sharedRange).not.toBeNull();
-    expect(scale!.body).toContain(built.sharedRange!);
-    expect(scale!.body).toMatch(/a span of/);
+    const commentary = blocks.flatMap((b) => (b.kind === 'narrative' ? [b.narrative.body ?? ''] : []));
+    expect(commentary.some((body) => body.includes(built.sharedRange!)),
+      'no untrimmable block states the shared range the panels quote a share of').toBe(true);
+    expect(commentary.some((body) => /a span of/.test(body))).toBe(true);
   });
 });

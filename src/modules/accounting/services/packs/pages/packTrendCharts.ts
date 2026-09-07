@@ -56,12 +56,22 @@ import type { PackChartSpec } from './packPageModel';
  * money group's one y-domain painted at 0.74275 page pixels per user unit on
  * one panel and 0.85523 on the others, 13.2% apart, on a page whose caption
  * says the scale is shared. `heightMm` is now the PLOT BOX alone and the
- * caption is charged on top of it. 37.6mm is what a one-line caption left
- * inside 44 — the same panel, measured in Chromium — so a row whose captions
- * fit one line costs exactly what it did before, and only a row that wraps
- * grows the page.
+ * caption is charged on top of it.
+ *
+ * 30mm, DOWN FROM 37.6, AND THE PAGE'S TWO NOTES ARE WHAT IT BUYS. The
+ * six-panel sheet needed 273mm of a 255mm box once each panel's axis carried
+ * its own low and high and the two ratio panels said which scale they are on,
+ * so the fitter took both notes from "Reading these panels" and printed a line
+ * telling the board it had done so — on the one page whose own claims those
+ * notes make checkable. Three of the eighteen millimetres came off the caption
+ * (8.5pt over an 83mm measure, the pack's glossary size), and the rest come off
+ * the plot. It is still a third taller than the 22mm the landscape sheet's
+ * 36mm figure left after its caption, and the panels no longer need the height
+ * they were given: what made three of them draw one to two pixels of excursion
+ * was the shared domain, and `packTrendScale` moves a panel off it rather than
+ * growing the page.
  */
-const PANEL = { widthMm: 83, heightMm: 37.6 };
+const PANEL = { widthMm: 83, heightMm: 30 };
 
 /**
  * Page 10 — the small multiples.
@@ -93,6 +103,10 @@ interface RatioPanel {
   /** How the panel's own end-label formats a value — a percentage and a day
    *  count are not printed through `formatMoney`. */
   format: (n: number) => string;
+  /** The unit in words, for the panel's own "Own scale" clause — "a
+   *  percentage", "a day count". Named rather than derived from `format`,
+   *  because a formatter is not a noun. */
+  unit: string;
 }
 
 const MONEY_PANELS: MoneyPanel[] = [
@@ -103,8 +117,8 @@ const MONEY_PANELS: MoneyPanel[] = [
 ];
 
 const RATIO_PANELS: RatioPanel[] = [
-  { id: 'trend-gross-margin', name: 'Gross margin', pick: (p) => p.grossMarginPct, format: (n) => formatPctLevel(n) },
-  { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => formatDays(n, 1) },
+  { id: 'trend-gross-margin', name: 'Gross margin', pick: (p) => p.grossMarginPct, format: (n) => formatPctLevel(n), unit: 'a percentage' },
+  { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => formatDays(n, 1), unit: 'a day count' },
 ];
 
 function moneyPanel(
@@ -124,11 +138,18 @@ function moneyPanel(
   // page's scale note names it too; this is the half a reader meets while
   // looking at the line, which is where a rescaled axis actually misleads.
   if (!drawn.shared) {
-    // SHORT. A panel's title is drawn INSIDE its 44mm box, so every line of it
-    // is a line the chart does not get: the first wording ran to three lines
-    // and took a third of the plot with it. The page's Scale note carries the
-    // argument; this carries the fact.
-    clauses.push(`Own scale — ${drawn.ownSharePct}% of the shared range.`);
+    // SHORT. A panel's title is drawn INSIDE its 37.6mm box, so every line of
+    // it is a line the chart does not get: the first wording ran to three
+    // lines and took a third of the plot with it. The page's Scale note
+    // carries the argument; this carries the fact.
+    //
+    // "Own scale — 1.1% of the shared range" read as a contradiction: the
+    // panel appeared to claim both that it is off the shared scale and that
+    // it occupies a share of it. Both were true and the sentence did not say
+    // how — the percentage is WHY the panel is off, not where it sits. Said
+    // as the reason it is.
+    clauses.push(`Own scale: its range is ${drawn.ownSharePct}% of the shared one, too little to `
+      + 'show on it.');
   }
   // AND THE MONTH THAT SETS THE SCALE IS NAMED ON THE PANEL THAT CARRIES IT.
   // The rendered demo pack drew a spike of +1 908 in one month on a page
@@ -149,7 +170,7 @@ function moneyPanel(
     title: clauses.join(' '),
     kind: 'line',
     sharedScale: drawn.shared,
-    svg: renderChartSvg(smallMultipleOption(points, drawn.domain, money), PANEL),
+    svg: renderChartSvg(smallMultipleOption(points, drawn.domain, money, undefined, { endpoints: true }), PANEL),
     heightMm: PANEL.heightMm,
   };
 }
@@ -162,7 +183,7 @@ function moneyPanel(
  * series is honest, a zero is a claim about a debtor book that collected
  * nothing.
  */
-function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[]): PackChartSpec | null {
+function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[], scale: MoneyScale): PackChartSpec | null {
   const points = trend
     .filter((point) => panel.pick(point) !== null)
     .map((point) => ({ label: point.label, value: panel.pick(point) as number }));
@@ -172,16 +193,25 @@ function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[]): PackChartSpec |
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
   const prose = (n: number) => inProse(panel.format(n));
+  // AND IT SAYS SO, LIKE THE MONEY PANELS DO. A gross margin running from
+  // (4267.6%) to 100.0% and a debtor-day count from 0.0 to 60.5 cannot be on
+  // a scale spanning (1 621) to 1 908 R'000, and neither carried the note the
+  // two rescaled money panels carry — so silence read as membership, and the
+  // sheet presented four different scales as one shared scale plus two
+  // exceptions. The reason is different from a money panel's and is stated as
+  // such: this panel is not in rands at all.
+  const title = `${movementSentence(panel.name, prose(first), prose(last), points.length, last >= first)}`
+    + ` Own scale: ${panel.unit}, not ${scale}.`;
   return {
     id: panel.id,
-    title: movementSentence(panel.name, prose(first), prose(last), points.length, last >= first),
+    title,
     kind: 'line',
     // A ratio panel is in its OWN unit, so it never shared the money domain
     // and cannot be read against it. Reported rather than left undefined, so
     // the page's scale note is derived from the panels rather than from a
     // second list of which ones are money.
     sharedScale: false,
-    svg: renderChartSvg(smallMultipleOption(points, domain, panel.format), PANEL),
+    svg: renderChartSvg(smallMultipleOption(points, domain, panel.format, undefined, { endpoints: true }), PANEL),
     heightMm: PANEL.heightMm,
   };
 }
@@ -254,11 +284,11 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
   // cash, debtor days.
   const panels: PackChartSpec[] = [
     money[0]!,
-    ratioPanel(RATIO_PANELS[0]!, trend),
+    ratioPanel(RATIO_PANELS[0]!, trend, scale),
     money[1]!,
     money[2]!,
     money[3]!,
-    ratioPanel(RATIO_PANELS[1]!, trend),
+    ratioPanel(RATIO_PANELS[1]!, trend, scale),
   ].filter((p): p is PackChartSpec => p !== null);
 
   return {

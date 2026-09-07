@@ -65,22 +65,38 @@ export function sparklineOption(
  * @param formatValue How this panel's own unit prints. REQUIRED: a rand
  *   series, a percentage and a day count are three different units, and a
  *   panel row carries all three.
- * @param axis The scale a FULL-WIDTH line gets: tick labels in the panel's
- *   own unit, that unit named beside them, and a rule at zero. Omitted — the
- *   page-10 default — the value axis is bare, which is right for an 83mm
- *   panel read for direction beside five others and wrong for the 170mm cash
- *   line on page 8, which was six gridlines with no number anywhere on them:
- *   a director could not tell whether the trough was (600) or (6 000), or
- *   which side of zero the line sat on.
+ * @param axis The scale the value axis prints.
+ *
+ *   `{ unit }` is the FULL-WIDTH treatment: a tick at every gridline in the
+ *   panel's own unit, that unit named beside them, and a rule at zero. It is
+ *   right for the 170mm cash line on page 8, which was otherwise six
+ *   gridlines with no number anywhere on them — a director could not tell
+ *   whether the trough was (600) or (6 000), or which side of zero the line
+ *   sat on.
+ *
+ *   `{ endpoints: true }` labels the two ENDS of the domain and nothing
+ *   between them, and draws a gridline at each. That is the page-10 panel:
+ *   it was bare, on the reasoning that an 83mm panel read for direction beside
+ *   five others does not need a scale — and then two of its titles started
+ *   claiming a percentage OF that scale, and a reader had no way to check
+ *   either claim, or to see that two of the six panels were not on the shared
+ *   domain at all. Two labels is what a claim about a range costs; a full
+ *   ladder of ticks in an 83mm panel is a grey smear. It also settles the
+ *   gridline count, which ran 5, 8, 5 and 7 across four panels of one row
+ *   with no values attached — rules that were decoration.
+ *
+ *   Omitted, the axis is bare.
  */
 export function smallMultipleOption(
   points: TrendPoint[],
   domain: { min: number; max: number },
   formatValue: (value: number) => string,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
-  axis?: { unit: string },
+  axis?: { unit: string } | { endpoints: true },
 ): EChartsCoreOption {
   const last = points[points.length - 1]?.value ?? 0;
+  const unit = axis !== undefined && 'unit' in axis ? axis.unit : null;
+  const endpoints = axis !== undefined && 'endpoints' in axis;
   return {
     animation: false,
     grid: { left: 4, right: 64, top: 12, bottom: 28, containLabel: true },
@@ -97,18 +113,25 @@ export function smallMultipleOption(
       type: 'value',
       min: domain.min,
       max: domain.max,
-      ...(axis === undefined ? {} : {
+      // ONE INTERVAL, so the only ticks are the two ends of the domain. A
+      // degenerate domain would give ECharts an interval of zero and an
+      // infinite tick loop, so it keeps the default there.
+      ...(endpoints && domain.max > domain.min ? { interval: domain.max - domain.min } : {}),
+      ...(unit === null ? {} : {
         // The unit is NAMED on the axis rather than left to the caption: the
         // figures are in thousands and the only other place that is said on
         // this page is the table's own caption, a chart away.
-        name: axis.unit,
+        name: unit,
         nameLocation: 'end',
         nameGap: 8,
         nameTextStyle: { color: palette.axis, fontSize: 9, align: 'left' },
       }),
       axisLabel: axis === undefined
         ? { show: false }
-        : { show: true, color: palette.axis, fontSize: 9, formatter: (value: number) => formatValue(value) },
+        // 8pt in an 83mm panel against 9 on the 170mm cash line: the panel
+        // has to carry a five-character figure like `(1 621)` and still leave
+        // the plot something to draw in.
+        : { show: true, color: palette.axis, fontSize: endpoints ? 8 : 9, formatter: (value: number) => formatValue(value) },
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { lineStyle: { color: palette.prior } },
@@ -137,7 +160,12 @@ export function smallMultipleOption(
         // is a gridline: on a series that is negative throughout, which is
         // every month of the live demo company's cash, nothing on the picture
         // said where break-even was.
-        ...(axis === undefined ? {} : {
+        // ON THE FULL-WIDTH LINE ONLY. An endpoint axis already labels zero
+        // wherever zero is an end of the domain — which `sharedDomain` and
+        // `domainOf` make it on every series that does not cross it — and a
+        // second rule inside an 83mm panel is one more thing drawn over a
+        // line the panel exists to show.
+        ...(unit === null ? {} : {
           markLine: {
             silent: true,
             symbol: 'none',

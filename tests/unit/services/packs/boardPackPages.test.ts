@@ -420,13 +420,16 @@ describe('buildBoardPackPages', () => {
     // page measured 255.8mm in a 255mm box and dropped a disclosure to pay
     // for the 0.8. The sheet count in tests/unit/print/packSheetCount.test.ts
     // is what actually holds this.
-    // 37.6, not 44: a PANEL's `heightMm` is its PLOT BOX now, and its caption
-    // is charged on top of it. 37.6 is exactly what a one-line caption left
-    // inside the old 44mm figure, so a row of one-line captions costs what it
-    // always did — what changed is that a caption which WRAPS grows the row
-    // instead of shrinking the plot underneath it, which is what had the money
-    // group's shared y-domain painted at two different scales.
-    expect(panels.every((p) => p.heightMm === 37.6)).toBe(true);
+    // 30, DOWN FROM 37.6, AND THE PAGE'S TWO NOTES ARE WHAT IT BUYS. A PANEL's
+    // `heightMm` is its PLOT BOX and its caption is charged on top of it, so
+    // once every panel's axis printed its own low and high and the two ratio
+    // panels said which scale they are on, six panels at 37.6 measured
+    // 267.2mm in a 255mm box and `fitPageToBox` took BOTH notes from "Reading
+    // these panels" — on the one page whose own claims those notes make
+    // checkable. At 30 the same page measures 244.4mm and drops nothing. The
+    // 10mm left over is not slack: a caption that wraps grows its row, and
+    // these captions now carry an "Own scale" clause.
+    expect(panels.every((p) => p.heightMm === 30)).toBe(true);
     expect(panels.every((p) => p.heightMm < CHART_HEIGHT_MM.inline)).toBe(true);
   });
 

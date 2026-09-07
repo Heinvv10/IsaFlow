@@ -60,6 +60,12 @@ const CHART_TITLE_PT = 10;
 const CHART_TITLE_LINE_PT = 14;
 const CHART_TITLE_GAP_MM = 1.5;
 
+/** `.pack-small-multiples .pack-chart-title` — 8.5pt on a 12pt line. A page-10
+ *  panel's caption is set at the glossary size over an 83mm measure; see the
+ *  rule in `packPrint.css` for what the 10pt one cost that page. */
+const PANEL_TITLE_PT = 8.5;
+const PANEL_TITLE_LINE_PT = 12;
+
 /**
  * One block's printed height.
  *
@@ -88,9 +94,9 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       let total = 0;
       for (let i = 0; i < block.panels.length; i += 2) {
         const row = block.panels.slice(i, i + 2);
-        const captionLines = Math.max(1, ...row.map((p) => wrappedLines(p.title, CHART_TITLE_PT, measure)));
+        const captionLines = Math.max(1, ...row.map((p) => wrappedLines(p.title, PANEL_TITLE_PT, measure)));
         total += (i === 0 ? 0 : GUTTER_MM)
-          + lines(captionLines, CHART_TITLE_LINE_PT) + CHART_TITLE_GAP_MM
+          + lines(captionLines, PANEL_TITLE_LINE_PT) + CHART_TITLE_GAP_MM
           + Math.max(0, ...row.map((p) => p.heightMm));
       }
       return total;

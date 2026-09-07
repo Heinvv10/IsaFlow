@@ -488,6 +488,17 @@ html.print-mode .pack-pages {
  * `packPageMetrics` charges the row for its tallest caption; `packSheetCount`
  * is what holds that model to Chromium's own layout, and
  * `packSharedScale.test.ts` measures the painted scale itself. */
+/* A PANEL CAPTION IS SET SMALLER THAN A FULL-WIDTH CHART'S.
+ *
+ * 10pt over an 83mm measure gave the trends page's captions three lines each,
+ * and three rows of them cost 44mm — on the one page that has to carry six
+ * plots AND the two notes that make its own scale claims checkable. The page
+ * paid for the type size by dropping those notes and printing "Not printed on
+ * this page: 2 explanatory notes" instead, which is the renderer telling a
+ * board about its own overflow. 8.5pt on a 12pt line is the pack's glossary
+ * size, holds a fifth more words to the line, and gives the page back what
+ * the notes cost. */
+.pack-small-multiples .pack-chart-title { font-size: 8.5pt; line-height: 12pt; }
 .pack-small-multiples .pack-chart { height: auto; }
 .pack-small-multiples .pack-chart-svg { flex: none; height: var(--pack-panel-plot-mm); }
 /* Spec §4.A page 10: six panels on a PORTRAIT sheet, two across and three
