@@ -75,7 +75,13 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
         <thead>
           <tr>
             <th>Issue</th>
-            <th>Quantum</th>
+            {/* The scale, in the header of the one column that carries money.
+              * `ComparativeTable` states it above its own figure columns and
+              * this table stated it nowhere, so a quantum of `245` sat on a
+              * page with no unit anywhere near it — and the note below the
+              * table says what the matters not printed "come to", at the same
+              * scale. Spec §5.5: a table must read alone. */}
+            <th>Quantum ({scale})</th>
             {columns.map((c) => <th key={c.key}>{c.label}</th>)}
           </tr>
         </thead>
@@ -99,7 +105,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
           rand amount, first.{' '}
           {omitted.quantum.value === null
             ? omitted.quantum.unavailable
-            : `They come to ${formatMoney(omitted.quantum.value, { scale })} in total.`}
+            : `They come to ${formatMoney(omitted.quantum.value, { scale })} ${scale} in total.`}
         </p>
       )}
       {uniform.length > 0 && (

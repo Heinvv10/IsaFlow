@@ -156,7 +156,10 @@ describe('board pack page 11, the matters table', () => {
     expect(table).not.toBeNull();
 
     const headers = [...table.querySelectorAll('thead th')].map((th) => th.textContent);
-    expect(headers).toEqual(['Issue', 'Quantum', 'Owner', 'Movement', 'Decision required']);
+    // The quantum column names its SCALE. `ComparativeTable` states it above
+    // its own figure columns and this table stated it nowhere, so a quantum of
+    // `245` sat on a page with no unit anywhere near it.
+    expect(headers).toEqual(["Issue", "Quantum (R'000)", 'Owner', 'Movement', 'Decision required']);
 
     const cells = [...table.querySelectorAll('tbody tr')[0]!.querySelectorAll('td')]
       .map((td) => td.textContent ?? '');
