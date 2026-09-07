@@ -76,10 +76,15 @@ import {
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
 import { selectPrintedMatters } from './packMattersPrinted';
+// Debtor days printed 213 on the scorecard page and 63.7 on the trends
+// page, one sheet apart, with nothing on either saying that one is the
+// period and the other a month.
+import { periodWindowFootnotes } from './packTrendCrossReference';
 import { formatPackPeriod } from './packPeriodLabel';
 import {
   buildBasisPage,
   buildFrontPages,
+  numbered,
   page,
   type UnnumberedPage,
 } from './packFrontMatter';
@@ -87,7 +92,6 @@ import { disproportionatePlugSentence } from '@/modules/accounting/services/pack
 import type {
   PackComparativePeriod,
   PackNarrative,
-  PackPage,
   PackPageBlock,
   PackPagesDocument,
 } from './packPageModel';
@@ -113,20 +117,6 @@ export interface BoardPackInput {
 }
 
 const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
-
-/**
- * Page numbers, from position in the sequence.
- *
- * They used to be literals — `page(4, …)`, `page(12, …)`. The sequence is
- * fixed at twelve by spec §4.A (R-P57) and these agree with the spec's own
- * numbering, so nothing about the printed pack changes. What changes is that
- * the contents, the footer and page 2's "full basis on page N" now READ the
- * sequence instead of restating it: the rendered pack printed "Full basis on
- * page 12" while the basis was on sheet 19, and a literal cannot notice.
- */
-function numbered(pages: UnnumberedPage[]): PackPage[] {
-  return pages.map((p, index) => ({ ...p, number: index + 1 }));
-}
 
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, draft, generatedAt } = input;
@@ -166,7 +156,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
-  const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency);
+  const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency, comparativePeriod);
   const highlights = page(highlightsTitle(set, scale), 'Highlights', 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
 
   // Page 5 — the table every later number traces back to, and the five
@@ -186,9 +176,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const profitPlug = disproportionatePlugSentence(profitBridge, scale);
   const profitBridgeCaveat: PackPageBlock[] = profitPlug === null
     ? []
-    : [disclose('How much of this bridge is unexplained', [
-        note('Size of the unexplained step', profitPlug),
-      ])];
+    : [disclose('How much of this bridge is unexplained', [note('Size of the unexplained step', profitPlug)])];
 
   const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set, scale);
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
@@ -227,7 +215,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       { kind: 'chart', chart: profitBridge },
       commentary(largestMoverCaption(income.rows)),
       ...profitBridgeCaveat,
-    ], 'portrait', statementNotes),
+      // The reciprocal of the trends page's own window note rides in this
+      // page's FOOTNOTES, below — see `periodWindowFootnotes`.
+    ], 'portrait', [
+      ...statementNotes,
+      ...periodWindowFootnotes(panels, 'trend-gross-margin', statementNotes.length + 1),
+    ]),
     page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
     page(cashTitle(set, scale), 'Cash', 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
     page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
@@ -237,7 +230,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         note('Targets', 'Targets are the platform defaults; a metric with no target is shown unscored rather than assumed met.'),
         note('Not meaningful', 'A metric shown as not meaningful states its own reason — an unreportable ratio is never printed as a number.'),
       ]),
-    ]),
+    ], 'portrait', periodWindowFootnotes(panels, 'trend-debtor-days', 1)),
     // The one landscape page in the pack, per spec §4.A page 10 and R5: the
     // orientation is a PAGE-level property the print CSS keys off, never a
     // document-level flag, which would turn the whole pack sideways.

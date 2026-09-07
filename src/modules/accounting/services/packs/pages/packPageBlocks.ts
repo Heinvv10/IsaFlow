@@ -22,6 +22,7 @@ import {
   trendsCaption,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { TRENDS_PANELS_SPECIFIED, type PackCashBridge } from './packPageCharts';
+import { trendWindowNote } from './packTrendCrossReference';
 import type { MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_NOTE } from './packBasis';
@@ -31,6 +32,7 @@ import type { PackMatter } from './packMatters';
 import { omittedQuantum, type SelectedMatters } from './packMattersPrinted';
 import type {
   PackChartSpec,
+  PackComparativePeriod,
   PackDisclosureNote,
   PackFootnote,
   PackKpiTile,
@@ -72,6 +74,10 @@ export function buildHighlightsBlocks(
   tiles: PackKpiTile[],
   scale: MoneyScale,
   currency: string,
+  /** The comparative period the pack states on its basis page, or null where
+   *  there is none. The page says which of those two it is, ONCE, and every
+   *  tile caption is consistent with it — see `PackKpiDeltaAbsence`. */
+  comparative: PackComparativePeriod | null,
 ): { blocks: PackPageBlock[]; footnotes: PackFootnote[] } {
   const highlightTiles = tiles.map((tile) =>
     tile.sparklineSvg === null ? tile : { ...tile, trendFootnote: SPARKLINE_FOOTNOTE },
@@ -85,12 +91,27 @@ export function buildHighlightsBlocks(
       // repetition, which is the opposite of what spec §5.7 asks for.
       disclose('Commentary', highlightTiles.map((tile) => note(tile.label, tileCaption(tile)))),
       disclose('Reading these tiles', [
-        note('Comparison basis', 'Each movement is measured against the prior calendar period, stated on the tile itself.'),
-        note('Absent comparatives', 'A tile with no movement shown has no comparative period to measure against; it is never shown as a move from zero.'),
+        // ONE TRUTH ABOUT THE COMPARATIVE, AND IT IS THE DOCUMENT'S OWN.
+        //
+        // This note said "no comparative period to measure against" while the
+        // statement pages printed a prior column and the basis page named the
+        // comparative's dates — because a tile with no movement and a pack
+        // with no comparative period had been collapsed into one null. Both
+        // halves now read the SAME `comparativePeriod` the basis page prints,
+        // so the pack cannot say one thing on sheet 3 and another on sheet 12.
+        note('Comparison basis', comparative === null
+          ? 'This pack has no comparative period, so no tile shows a movement and none is shown as a move from zero.'
+          : `Each movement is measured against ${comparative.label} — the comparative period the basis page states, and the prior column the statement pages print.`),
+        ...(comparative === null ? [] : [note('Absent comparatives',
+          'A tile with no movement says why in its own caption — the comparative period carries no value for that measure, or its prior figure is not a positive base. A movement is never shown as a move from zero.')]),
         note('Scale', `Figures are in ${scale} (${currency}). ${ROUNDING_NOTE}`),
       ]),
     ],
-    footnotes: [{ number: SPARKLINE_FOOTNOTE, text: `Sparklines run over the pack's monthly trend series. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest have no monthly series behind them and show none rather than a line drawn from a single point.` }],
+    // AND THE SPARKLINE IS A DIFFERENT WINDOW FROM THE TILE IT SITS IN.
+    // The figure is the whole reporting period; the line beside it is a month
+    // at a time, which is the same month-versus-period divergence the trends
+    // page carries its own note about — see `trendWindowNote`.
+    footnotes: [{ number: SPARKLINE_FOOTNOTE, text: `Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the monthly trend series, a different window. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest have no monthly series behind them and show none rather than a line drawn from a single point.` }],
   };
 }
 
@@ -259,22 +280,18 @@ export function buildTrendBlocks(panels: PackChartSpec[]): PackPageBlock[] {
     ]));
   }
   trendBlocks.push(commentary(trendsCaption(panels)));
+  // The window note is DERIVED from the panels this page draws — see
+  // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is
+  // printed on this page and on the income statement page" two centimetres
+  // above a disclosure saying no gross-margin panel could be drawn.
+  const windowNote = trendWindowNote(panels);
   trendBlocks.push(disclose('Reading these panels', [
-    note('Scale', 'Revenue, operating expenses, net profit and cash share one y-scale, so a metric ten times the size of another cannot be mistaken for moving the same amount. Gross margin % and debtor days are different units, so each keeps its own scale.'),
-    // THE PACK PRINTS TWO GROSS MARGINS, AND BOTH ARE RIGHT.
-    //
-    // This page ended on +100.0% — one month whose cost of sales was nil —
-    // while the income statement page stated (1348.0%) for the period, on
-    // revenue of 99 against cost of sales of 1 431. Different windows and
-    // different bases, reconciled nowhere, and a CFO reading two gross
-    // margins of opposite sign in one document has no way to tell which is
-    // the measurement and which is the mistake. Neither figure moves; the
-    // page says what each of them is.
-    note('Period', 'Each panel plots one MONTH at a time, so a panel ends on the latest month on its own. Gross margin is printed on this page and on the income statement page: there it is the ratio for the whole reporting period, measured on the period totals, and here it is the last month alone. They are measurements of different windows and will not agree.'),
+    note('Scale', 'Revenue, operating expenses, net profit and cash share one y-scale, so a metric ten times the size of another cannot look like it moved as much. Gross margin % and debtor days are different units and keep their own.'),
+    ...(windowNote === null ? [] : [windowNote]),
   ]));
   if (panels.length < TRENDS_PANELS_SPECIFIED) {
     trendBlocks.push(disclose('Panels not drawn', [
-      note('Why', `Spec §4.A asks for ${TRENDS_PANELS_SPECIFIED} panels and ${panels.length} are drawn. A panel is omitted only when its figure is not meaningful for every period in the window — gross margin % and debtor days both require positive revenue, and no period here had any. Nothing is inferred from the period totals in its place.`),
+      note('Why', `Spec §4.A asks for ${TRENDS_PANELS_SPECIFIED} panels and ${panels.length} are drawn. A panel is omitted when its figure is not meaningful in every period of the window — gross margin % and debtor days both need positive revenue, and no period here had any. Nothing is inferred in its place.`),
     ]));
   }
   return trendBlocks;
