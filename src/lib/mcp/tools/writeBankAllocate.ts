@@ -33,6 +33,8 @@ export const allocateBankTransactionTool: McpTool = {
     + 'Identify the transaction by transaction_id OR by bank_reference — the reference printed on the statement '
     + '— so you can allocate straight from a statement without fetching ids first (optionally narrowed by bank_account_id). '
     + 'POSTS a journal entry. Every allocation is attributed to the agent and can be undone with reverse_bank_allocation. '
+    + 'DIRECTION FOLLOWS THE SIGN: a money-out line against a supplier is a payment (DR Accounts Payable / CR Bank) and a money-IN line is a supplier refund (DR Bank / CR Accounts Payable); a money-in line against a customer is a receipt and a money-out line is a customer refund. A refund is NOT applied to an invoice — name no invoice_id for one. '
+    + 'An invoice_id whose direction contradicts the line is REFUSED, never guessed. '
     + 'To allocate many transactions at once, use bulk_allocate_bank_transactions.',
   scope: 'write:bank-tx',
   write: true,

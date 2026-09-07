@@ -45,6 +45,7 @@ import type { DbRow } from '@/lib/neon';
 import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import { applyBankLineToSupplierInvoices } from '@/modules/accounting/services/ap/supplierBankPaymentService';
 import { fetchBankTransaction } from '@/modules/accounting/services/bank/bankMatchDbQueries';
+import { BankLineDirectionError } from '../bankLineDirectionError';
 
 /** The two allocation types that have a subledger document to apply to. */
 export type ApplyKind = 'customer' | 'supplier';
@@ -65,11 +66,46 @@ export function applyRouteFor(
   return null;
 }
 
-/** Absolute value of the bank line, which is the amount being allocated. */
-export async function bankLineAmount(companyId: string, txId: string): Promise<number> {
+/**
+ * The bank line's SIGNED amount — negative is money out, positive is money in.
+ *
+ * Signed, not absolute, and the distinction is the whole of the guard below.
+ * This used to return `Math.abs(...)`, which is what the apply services want,
+ * and the direction was simply gone by the time anything could check it.
+ */
+export async function bankLineSignedAmount(companyId: string, txId: string): Promise<number> {
   const tx = await fetchBankTransaction(txId, companyId);
   if (!tx) throw new Error(`Bank transaction ${txId} not found`);
-  return Math.abs(Number(tx.amount));
+  return Number(tx.amount);
+}
+
+/**
+ * A PRE-WRITE reason this line's SIGN contradicts the document it names, or
+ * null when the direction is consistent.
+ *
+ * Settling a bill is money going OUT; settling a customer invoice is money
+ * coming IN. `confirmReceiptMatch` and `applyBankLineToSupplierInvoices` both
+ * take the absolute value and apply it as a settlement, so a refund named
+ * against an invoice would settle that invoice by the refund's value — cash
+ * flowing the wrong way recorded as the document being paid.
+ *
+ * Pure, so the batch path and the single-line path cannot drift on the wording,
+ * and so `dry_run` reports exactly what the live call will do.
+ *
+ * A ZERO line is not a mismatch: it contradicts no direction, and what is wrong
+ * with it (nothing to settle) belongs to `skipReasonForInvoice`, which already
+ * refuses it against the outstanding balance. One rule, one owner.
+ */
+export function signMismatchReason(kind: ApplyKind, signedAmount: number): string | null {
+  if (kind === 'supplier' && signedAmount > 0) {
+    return `R${signedAmount.toFixed(2)} is money IN and cannot settle a bill — `
+      + 'drop invoice_id to book it as a supplier refund, or name a money-out line';
+  }
+  if (kind === 'customer' && signedAmount < 0) {
+    return `R${Math.abs(signedAmount).toFixed(2)} is money OUT and cannot settle a customer `
+      + 'invoice — drop invoice_id to book it as a customer refund, or name a money-in line';
+  }
+  return null;
 }
 
 /** What a batch needs to know about one invoice to decide if a line can post. */
@@ -180,7 +216,17 @@ export async function postAndApplyLine(args: {
   toolName: string;
 }): Promise<{ journalEntryId: string; transactionId: string }> {
   const { ctx, txId, kind, invoiceId, toolName } = args;
-  const amount = await bankLineAmount(ctx.companyId, txId);
+  const signedAmount = await bankLineSignedAmount(ctx.companyId, txId);
+
+  // BEFORE the first write, like every other refusal on this path — see the
+  // header. `postAndApplyLine` is the single-line route; the bulk route runs
+  // the same pure check in `partitionAllocationLines` and SKIPS instead, on the
+  // rule this file already states: the single caller named one invoice and one
+  // line, so the fault IS the request.
+  const wrongWay = signMismatchReason(kind, signedAmount);
+  if (wrongWay !== null) throw new BankLineDirectionError(txId, wrongWay);
+
+  const amount = Math.abs(signedAmount);
 
   // The FULL actor identity, not just the posting agent: `actorTokenJti`
   // (migration 530) is what keeps the posting inside the token-scoped view of

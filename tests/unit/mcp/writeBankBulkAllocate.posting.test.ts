@@ -119,12 +119,18 @@ beforeEach(() => {
   vi.mocked(createAllocationBatch).mockResolvedValue(BATCH);
   vi.mocked(recordAllocationBatchLines).mockResolvedValue(undefined);
   sqlMock.mockResolvedValue([]);
-  fetchBankTransaction.mockResolvedValue({ amount: 100, transactionDate: '2026-01-01' });
+  // Money OUT, and the two mocks agree on it. These lines are supplier
+  // payments and rent — an outflow — and since 2026-09-07 the direction is
+  // load-bearing: a money-IN line naming a bill is refused rather than
+  // applied at its magnitude. `findBankTransactionAllocationStates` carries
+  // the SIGNED amount for exactly that check, so a fixture that omits it
+  // sends the partition and the posting loop different facts.
+  fetchBankTransaction.mockResolvedValue({ amount: -100, transactionDate: '2026-01-01' });
   confirmReceiptMatch.mockResolvedValue({ journalEntryId: 'je-applied' });
   applyBankLineToSupplierInvoices.mockResolvedValue({ journalEntryId: 'je-applied' });
   vi.mocked(findBankTransactionAllocationStates).mockImplementation(
     async (_c: string, ids: readonly string[]) => new Map(
-      ids.map((id) => [id, { id, status: 'imported', matchedJournalLineId: null }]),
+      ids.map((id) => [id, { id, status: 'imported', matchedJournalLineId: null, amount: -100 }]),
     ),
   );
   vi.mocked(allocateTransaction).mockImplementation(
