@@ -193,6 +193,38 @@ describe('DEFAULT_CHART_PALETTE', () => {
       // The axis grey IS the theme's tertiary text colour — the same grey the
       // rest of the app uses for secondary labels.
       axis: FALLBACK.textTertiary,
+      // The categorical ramp is NOT one of the theme's semantic five — it is
+      // a scale, for a chart whose bands are categories rather than
+      // directions. Asserted separately below.
+      categorical: DEFAULT_CHART_PALETTE.categorical,
     });
+  });
+
+  /**
+   * BOARD PACKS GET PHOTOCOPIED. Sheet 7 distinguished liabilities from
+   * equity by the red/green pair alone — luminances of 83.5 and 99.4 out of
+   * 255, a six per cent separation — so in black and white it became two
+   * identical mid-grey blocks under a legend that could no longer be matched
+   * to them. The categorical ramp carries the distinction in LIGHTNESS, which
+   * is the one channel a photocopier keeps.
+   */
+  it('separates every categorical band in greyscale, not only in hue', () => {
+    const luminance = (hex: string): number => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const greys = DEFAULT_CHART_PALETTE.categorical.map(luminance);
+    expect(greys.length).toBeGreaterThanOrEqual(3);
+    for (let i = 1; i < greys.length; i += 1) {
+      expect(
+        Math.abs(greys[i]! - greys[i - 1]!),
+        `bands ${i - 1} and ${i} are ${greys[i - 1]!.toFixed(0)} and ${greys[i]!.toFixed(0)} `
+          + 'out of 255 — the same grey on a photocopy',
+      ).toBeGreaterThan(30);
+    }
+    // And the ramp is not the semantic pair under another name: neither the
+    // favourable green nor the unfavourable red may appear in it.
+    expect(DEFAULT_CHART_PALETTE.categorical).not.toContain(FALLBACK.fav);
+    expect(DEFAULT_CHART_PALETTE.categorical).not.toContain(FALLBACK.unfav);
   });
 });

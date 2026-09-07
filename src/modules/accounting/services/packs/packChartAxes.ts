@@ -31,7 +31,42 @@ export interface ChartPalette {
   unfav: string;
   prior: string;
   axis: string;
+  /**
+   * A NEUTRAL ramp, for a chart whose bands are CATEGORIES rather than
+   * movements — the balance sheet's assets, liabilities and equity.
+   *
+   * Two failures, one cause. The composition bar took its bands from
+   * `[ink, unfav, fav, prior]`, so on the demo pack negative equity of
+   * (4 088) — the worst number in the document — was drawn as the largest
+   * GREEN block on the sheet, in the same green sheet 6 uses for revenue and
+   * other income. Colour was carrying the opposite of its meaning. And
+   * because liabilities and equity were then separated by the red/green pair
+   * alone, with no hatch, border or direct label, the sheet became two
+   * identical mid-greys under a photocopier: the red and the green have
+   * relative luminances of 83.5 and 99.4 out of 255, a six per cent
+   * separation.
+   *
+   * The ramp is four steps of LIGHTNESS — 31, 110, 182 and 221 out of 255 —
+   * so the bands stay distinguishable, and stay matchable to their legend
+   * swatches, in black and white. It is the greyscale cue the rubric asks
+   * for, carried by the colour itself rather than added beside it.
+   *
+   * Sheets 6 and 8 keep the semantic red and green, because there the colour
+   * says which way a step MOVED and every bar is directly labelled with its
+   * own value in the pack's bracket convention — a reader who cannot tell the
+   * two greys apart still reads `(226)` on the bar.
+   */
+  categorical: readonly string[];
 }
+
+/**
+ * The neutral ramp — see `ChartPalette.categorical`. Four steps of lightness
+ * off the theme's own ink, so a photocopied band is still matchable to its
+ * legend swatch. Not in `theme.ts`'s FALLBACK because that is the app's
+ * semantic five and this is a categorical scale; the ink they start from is
+ * the same one.
+ */
+const CATEGORICAL_BANDS = ['#15202b', '#5b7185', '#a9b8c4', '#d7dee4'] as const;
 
 /** `axis` is the theme's `textTertiary`: the axis labels and ticks are the
  *  same grey as tertiary text everywhere else in the app. The other four map
@@ -42,6 +77,7 @@ export const DEFAULT_CHART_PALETTE: ChartPalette = {
   unfav: FALLBACK.unfav,
   prior: FALLBACK.prior,
   axis: FALLBACK.textTertiary,
+  categorical: CATEGORICAL_BANDS,
 };
 
 export function axisDomain(values: number[]): { min: number; max: number } {

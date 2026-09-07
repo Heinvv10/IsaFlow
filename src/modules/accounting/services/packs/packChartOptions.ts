@@ -192,12 +192,19 @@ export interface CompositionSeries {
   values: number[];
 }
 
-/** Band colours by position, so a caller cannot hand in a colour that
- *  contradicts the app's chart theme. */
-const COMPOSITION_BANDS = ['ink', 'unfav', 'fav', 'prior'] as const;
-
 /**
  * Spec §4.A page 7's composition bar — one stacked bar per period.
+ *
+ * ITS BANDS ARE CATEGORIES, SO ITS COLOURS ARE NEUTRAL. They were taken by
+ * position from `[ink, unfav, fav, prior]`, which drew the balance sheet's
+ * third band in the pack's favourable green: on the demo company that band is
+ * equity of (4 088), so the single biggest, greenest object on the sheet was
+ * the worst number in the pack — and liabilities and equity were then
+ * separated by the red/green pair alone, which is two identical mid-greys
+ * under a photocopier. Assets, liabilities and equity are categories; none of
+ * them is a good or a bad direction, and the semantic pair belongs to the two
+ * bridges, where a bar's colour says which way it moved and the bar carries
+ * its own value. See `ChartPalette.categorical`.
  *
  * Not a waterfall: nothing here bridges between two endpoints, so the
  * custom-series geometry `waterfallOption` needs (and the reason it exists)
@@ -227,7 +234,7 @@ export function compositionBarOption(
       name: band.name,
       type: 'bar',
       stack: band.stack,
-      itemStyle: { color: palette[COMPOSITION_BANDS[index % COMPOSITION_BANDS.length]!] },
+      itemStyle: { color: palette.categorical[index % palette.categorical.length]! },
       data: band.values,
     })),
   };
