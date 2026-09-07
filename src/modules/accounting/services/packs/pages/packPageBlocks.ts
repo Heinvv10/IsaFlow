@@ -27,7 +27,7 @@ import { ROUNDING_NOTE } from './packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatter } from './packMatters';
-import { omittedQuantum, selectPrintedMatters } from './packMattersPrinted';
+import { omittedQuantum, type SelectedMatters } from './packMattersPrinted';
 import type {
   PackChartSpec,
   PackDisclosureNote,
@@ -110,10 +110,10 @@ export function buildHighlightsBlocks(
  */
 export function buildCommentaryBlocks(
   narrative: PackNarrative,
-  matters: PackMatter[],
+  selection: SelectedMatters,
 ): PackPageBlock[] {
   return [
-    { kind: 'narrative', narrative, boardActions: boardActionItems(matters) },
+    { kind: 'narrative', narrative, boardActions: boardActionItems(selection) },
     disclose('How this page is prepared', [
       note('Commentary', 'The left column carries the board\'s own commentary on the period. It prints only once an approver has signed it; until then this page says so rather than printing unapproved text.'),
       note('Action panel', 'The right column is derived from the same checks the matters page tabulates — aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings — ordered by the size of the exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.'),
@@ -137,13 +137,19 @@ const NO_QUANTUM =
 const OMITTED_NOT_QUANTIFIED =
   'None of the matters not printed here carries a single rand amount, so they have no total to state.';
 
-export function buildMattersBlock(matters: PackMatter[], p: PackFigureProvenance): PackPageBlock {
+export function buildMattersBlock(selection: SelectedMatters, p: PackFigureProvenance): PackPageBlock {
   // What FITS on the sheet, and what is left over — see `packMattersPrinted`.
+  // The selection is made ONCE, by `buildBoardPackPages`, and page 4's action
+  // panel is handed the same object: the two pages cannot disagree about the
+  // board's action list because there is only one list.
+  //
   // The index a quantum is recorded under is the matter's rank in the FULL
-  // list, so a source is still unique per matter and still traces back to the
-  // same finding whether or not the page had room to print it.
-  const { printed, omitted } = selectPrintedMatters(matters);
-  const rank = new Map<PackMatter, number>(matters.map((matter, index) => [matter, index]));
+  // list as `buildMatters` returned it — `selection.source`, not the printing
+  // order — so a source is still unique per matter and still traces back to
+  // the same finding whether or not the page had room to print it, and it
+  // does not move when the printing order does.
+  const { printed, omitted, source } = selection;
+  const rank = new Map<PackMatter, number>(source.map((matter, index) => [matter, index]));
   const total = omittedQuantum(omitted);
 
   return {

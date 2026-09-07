@@ -22,6 +22,7 @@ import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { formatMoney, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
+import type { SelectedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
 import type {
   PackChartSpec,
   PackKpiTile,
@@ -152,9 +153,14 @@ export function cashCaption(set: PackFigureSet, residual: number | null, scale: 
  * approved, so the pack stays twelve pages either way (R-P57) instead of
  * changing shape according to an editorial state.
  *
- * ONE BULLET PER MATTER, largest quantum first — `buildMatters` orders them,
- * so first is largest. What a board needs from this panel is WHICH matters
- * are in front of it, not a summary of them.
+ * ONE BULLET PER MATTER, drawn from the SELECTION page 11 prints — not from
+ * the full matters list. The panel used to take its five from
+ * `buildMatters`'s own ranking, so it named JE-2026-00002 as a top matter on
+ * sheet 4 and sheet 11 did not list it anywhere: two pages, both claiming to
+ * be "derived from the same checks", disagreeing about what the board's
+ * action list is. Every bullet here is now a row a director can turn to.
+ * What a board needs from this panel is WHICH matters are in front of it,
+ * not a summary of them.
  *
  * THE DECISION IS STATED ONCE WHERE IT IS THE SAME FOR ALL OF THEM.
  * `buildMatters` gives every unusual journal the same `decisionRequired`, so
@@ -162,7 +168,7 @@ export function cashCaption(set: PackFigureSet, residual: number | null, scale: 
  * five times, which is the repetition already undone in the matters table
  * itself. Where the decisions differ, each bullet carries its own.
  *
- * NO PAGE NUMBER IN THE OVERFLOW LINE. It names the matters page in words:
+ * NO PAGE NUMBER IN THE OVERFLOW LINES. They name the matters page in words:
  * page numbers come from position now, and a literal here is the class of
  * cross-reference that sent a reader to the scorecard for the basis of
  * preparation.
@@ -212,10 +218,11 @@ function actionsThatFit(matters: PackMatter[]): PackMatter[] {
   return fits;
 }
 
-export function boardActionItems(matters: PackMatter[]): string[] {
-  if (matters.length === 0) return [];
+export function boardActionItems(selection: SelectedMatters): string[] {
+  const { printed, omitted } = selection;
+  if (printed.length === 0) return [];
 
-  const shown = actionsThatFit(matters);
+  const shown = actionsThatFit(printed);
   const decisions = new Set(shown.map((m) => m.decisionRequired));
   const uniform = shown.length > 1 && decisions.size === 1;
 
@@ -227,13 +234,17 @@ export function boardActionItems(matters: PackMatter[]): string[] {
     items.push(`Each of these needs the same decision: ${shown[0]!.decisionRequired} (${shown[0]!.owner}).`);
   }
 
-  const remaining = matters.length - shown.length;
-  if (remaining > 0) {
-    // NOT "listed, with their quanta, on the matters page": that page prints
-    // what fits on a sheet and states its own remainder, so a promise here
-    // that all of them are listed there is one this pack cannot keep for a
-    // company with twenty-eight matters. See `selectPrintedMatters`.
-    items.push(`${remaining} further ${remaining === 1 ? 'matter follows' : 'matters follow'} on the matters page, ranked by exposure.`);
+  // BOTH remainders, and both are read off the SAME selection page 11
+  // prints from — never recomputed from the full list. The panel used to say
+  // "23 further matters follow on the matters page" while that page listed
+  // six and disclosed twenty-two that follow nowhere: two derivations of one
+  // quantity, in the governance section, disagreeing two sheets apart.
+  const alsoOnPage = printed.length - shown.length;
+  if (alsoOnPage > 0) {
+    items.push(`${alsoOnPage} further ${alsoOnPage === 1 ? 'matter follows' : 'matters follow'} on the matters page.`);
+  }
+  if (omitted.length > 0) {
+    items.push(`${omitted.length} further ${omitted.length === 1 ? 'matter is' : 'matters are'} not printed in this pack; the matters page states what they come to.`);
   }
   return items;
 }

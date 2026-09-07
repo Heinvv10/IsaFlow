@@ -98,11 +98,22 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
           ))}
         </tbody>
       </table>
+      {/* WHY they are not printed, and it is not "no room on this page".
+        * The note used to say "not printed on this page", under six rows and
+        * above 45% of blank white — a page contradicting its own excuse. The
+        * table is held to a fixed depth so that a board pack is twelve sheets
+        * for every company, however busy its ledger; that is a different
+        * reason from running out of paper, and it is the true one.
+        *
+        * The ordering it states is the ordering `selectPrintedMatters` now
+        * prints: two AFS filings 739 and 374 days overdue used to rank fifth
+        * and sixth under a note saying they would come first. */}
       {omitted !== null && (
         <p className="pack-matters-omitted">
-          {omitted.count} further {omitted.count === 1 ? 'matter is' : 'matters are'} not printed
-          on this page: the pack lists the largest by exposure, and every matter with no single
-          rand amount, first.{' '}
+          {omitted.count} further {omitted.count === 1 ? 'matter is' : 'matters are'} not printed.
+          This table is held to a fixed depth so that a board pack is the same twelve sheets for
+          every company: matters with no single rand amount are listed first, then the largest by
+          exposure.{' '}
           {omitted.quantum.value === null
             ? omitted.quantum.unavailable
             : `They come to ${formatMoney(omitted.quantum.value, { scale })} ${scale} in total.`}

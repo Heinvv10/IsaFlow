@@ -1,7 +1,8 @@
 /**
  * The integrity checks that walk a page's BLOCKS rather than its figures —
  * spec §7.2 checks 4 (each bridge foots) and 6 (a column headed `prior` is
- * filled from prior-period readings).
+ * filled from prior-period readings), plus the cross-page consistency of the
+ * two pages that talk about the same matters.
  *
  * A sibling of `packFigureIntegrity.ts`, which is at the repo's 300-line
  * ceiling and owns the figure-level checks. The split is along the grain of
@@ -102,15 +103,90 @@ function checkChartClaims(
 }
 
 /**
- * Checks 4 and 6, both of which walk the page blocks rather than figures.
+ * Checks 4 and 6 and the matters cross-reference, all of which walk the page
+ * blocks rather than figures.
  *
  * `scale` is the document's own, narrowed by the caller: the plug disclosure
  * it re-derives prints a rand amount, and a sentence built at a different
  * scale from the one the page printed would never match the page's text —
  * the gate would refuse a pack that says exactly what it must.
  */
-export function checkBlocks(doc: PackPagesDocument, scale: MoneyScale): string[] {
+/**
+ * THE ACTION PANEL AND THE MATTERS TABLE ARE ONE LIST, AND THE DOCUMENT MUST
+ * SAY SO.
+ *
+ * Page 4 told the board "23 further matters follow on the matters page" and
+ * page 11 printed six, disclosing twenty-two that follow nowhere; page 4
+ * named JE-2026-00002 as a top matter and page 11 did not list it at all.
+ * Each page was internally correct. The cross-reference between them was
+ * false, in the governance section, two sheets apart — which is the one
+ * defect class a reader cannot check and a gate can.
+ *
+ * `selectPrintedMatters` now makes ONE selection that both pages read, so
+ * this cannot drift by accident. It is asserted anyway, on the COMPOSED
+ * document, because that is the artefact a director receives and because the
+ * next author to give page 4 its own ranking would otherwise reintroduce it
+ * silently.
+ *
+ * Structural, not a prose match: a bullet is matched against a printed
+ * matter's `issue` exactly, or as `<issue> — <decision>`; the two derived
+ * summary sentences are the ALLOW-LIST, and each carries the count it must
+ * carry. The counts are required rather than merely checked when present —
+ * a reworded sentence makes this red, not vacuous.
+ */
+const FOLLOW_ON = /^(\d+) further matters? follows? on the matters page\./;
+const NOT_PRINTED = /^(\d+) further matters? (?:is|are) not printed in this pack;/;
+const SAME_DECISION = /^Each of these needs the same decision: /;
+
+export function checkMattersCrossReference(doc: PackPagesDocument): string[] {
+  const blocks = doc.pages.flatMap((page) => page.blocks);
+  const table = blocks.find((b) => b.kind === 'matters');
+  const panel = blocks.find((b) => b.kind === 'narrative' && b.boardActions !== undefined);
+  if (table === undefined || table.kind !== 'matters') return [];
+  if (panel === undefined || panel.kind !== 'narrative' || panel.boardActions === undefined) return [];
+
+  const printed = table.matters.map((m) => m.issue);
+  const omittedCount = table.omitted?.count ?? 0;
   const failures: string[] = [];
+
+  let named = 0;
+  let followOn: number | null = null;
+  let notPrinted: number | null = null;
+  for (const item of panel.boardActions) {
+    const follow = FOLLOW_ON.exec(item);
+    if (follow !== null) { followOn = Number(follow[1]); continue; }
+    const rest = NOT_PRINTED.exec(item);
+    if (rest !== null) { notPrinted = Number(rest[1]); continue; }
+    if (SAME_DECISION.test(item)) continue;
+
+    named += 1;
+    const onTable = printed.some((issue) => item === issue || item.startsWith(`${issue} — `));
+    if (!onTable) {
+      failures.push(
+        `The action panel names a matter the matters page does not list: "${item}". `
+          + `Both pages are derived from the same checks and a director cannot look this one up.`,
+      );
+    }
+  }
+
+  const expectedFollowOn = printed.length - named;
+  if (expectedFollowOn > 0 && followOn !== expectedFollowOn) {
+    failures.push(
+      `The action panel says ${followOn ?? 'nothing'} about how many further matters follow on the `
+        + `matters page; that page lists ${printed.length} and the panel names ${named}, so ${expectedFollowOn} follow.`,
+    );
+  }
+  if (omittedCount > 0 && notPrinted !== omittedCount) {
+    failures.push(
+      `The action panel says ${notPrinted ?? 'nothing'} about matters not printed in this pack; `
+        + `the matters page discloses ${omittedCount}.`,
+    );
+  }
+  return failures;
+}
+
+export function checkBlocks(doc: PackPagesDocument, scale: MoneyScale): string[] {
+  const failures: string[] = [...checkMattersCrossReference(doc)];
   for (const page of doc.pages) {
     for (const block of page.blocks) {
       if (block.kind === 'table') {

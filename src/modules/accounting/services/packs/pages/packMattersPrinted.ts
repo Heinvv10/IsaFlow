@@ -119,31 +119,82 @@ export function mattersTableLines(matters: PackMatter[]): number {
 }
 
 /**
- * The lines page 11 has for the table.
+ * THE CEILING IS MEASURED ON PAPER, AND THE BUDGET IS THE CEILING LESS ITS
+ * SLACK — arithmetic, not prose.
  *
- * The sheet's 255mm content box carries the page header, the matters
- * commentary, the "What was checked" disclosure, the omitted-matters note and
- * the repeated-column notes — about 70mm — leaving ~185mm. A table line is
- * 11pt of leading, 3.9mm. That is 47; this is 40, and the eight lines of
- * slack are what the estimate above is allowed to be wrong by. Proved on the
- * printed sheet by `tests/unit/print/packSheetCount.test.ts`, on the live
- * demo company's twenty-eight matters and on both of the reviewer's overflow
- * shapes.
+ * The previous docblock said "That is 47; this is 40, and the eight lines of
+ * slack" while the constant beside it was 30: the one comment a reviewer has
+ * to trust about a fitted constant misstated its value by a third, in the
+ * conservative direction that costs a director rows on the page. A number
+ * whose documentation is a sentence drifts from it; these two cannot, because
+ * the budget is computed from the ceiling and both are pinned to printed
+ * sheets by `packSheetCount.test.ts`.
+ *
+ * HOW THE CEILING WAS MEASURED. The constant was swept from 30 to 44 in
+ * steps, and the whole print harness — seven fixtures, each rendered to a
+ * real PDF in Chromium at A4 with the transports' own margins and the real
+ * IBM Plex faces — was run at each value. Every fixture printed one sheet per
+ * model page up to and including 34; at 35 the "many short null-quantum
+ * matters" fixture printed thirteen sheets. So 34 is the largest budget this
+ * pack's own worst shape survives, and `theCeilingIsWhereItSays` re-runs both
+ * halves of that measurement (34 fits, 35 does not) on every CI run rather
+ * than leaving it as a claim in a comment. Exported so that test asserts THIS
+ * number rather than a copy of it.
  */
-export const MATTERS_PRINTED_LINE_BUDGET = 30;
+export const MATTERS_LINE_CEILING = 34;
 
+/**
+ * What the estimate above is allowed to be wrong by.
+ *
+ * `mattersTableLines` models a wrapped table with a character count and a
+ * per-row overhead; it is a good estimate and not a layout engine. Two lines
+ * is 7.8mm of the 255mm sheet — enough to absorb a row whose longest cell
+ * wraps once more than the model thought, and small enough that the page is
+ * not trimmed for a slack nothing has ever needed. Anything worse than two
+ * lines is a modelling error rather than an estimate error, and the harness
+ * is what catches it.
+ */
+const MATTERS_BUDGET_SLACK = 2;
+
+/** The lines page 11 has for the table. */
+export const MATTERS_PRINTED_LINE_BUDGET = MATTERS_LINE_CEILING - MATTERS_BUDGET_SLACK;
+
+/**
+ * ONE selection, read by BOTH pages that talk about the matters.
+ *
+ * Page 4's action panel and page 11's table are two views of one list, and
+ * they were derived independently: page 4 counted `matters.length - shown`
+ * and told the board "23 further matters follow on the matters page", while
+ * page 11 printed six and disclosed twenty-two that follow nowhere. Each
+ * count was right about its own page; the CROSS-REFERENCE between them was
+ * false, in the governance section of a document a director forwards to
+ * their bank. Two derivations of one quantity diverge the moment either
+ * page's rules change, and the page that changed is not the page that lies.
+ *
+ * So the selection is computed once, in `buildBoardPackPages`, and handed to
+ * both. Page 4 draws its bullets from `printed` — so every matter it names
+ * is on the matters page — and states the remainder from the same two
+ * arrays page 11 tabulates. `assertMattersCrossReference` holds them
+ * together at compose time.
+ */
 export interface SelectedMatters {
-  /** The matters the page prints, in the order `buildMatters` ranked them. */
+  /** The matters page 11 prints, in the order it prints them: matters with
+   *  no rand amount first, then by exposure, largest first. */
   printed: PackMatter[];
-  /** The rest, so the page can state how many and what they come to. */
+  /** The rest, in the same ranking, so the page can state how many and what
+   *  they come to. */
   omitted: PackMatter[];
+  /** The full list as `buildMatters` returned it — the order the provenance
+   *  map ranks a quantum's source by, which must not move when the printing
+   *  order does. */
+  source: PackMatter[];
 }
 
 export function selectPrintedMatters(
   matters: PackMatter[],
   budget: number = MATTERS_PRINTED_LINE_BUDGET,
 ): SelectedMatters {
-  if (matters.length === 0) return { printed: [], omitted: [] };
+  if (matters.length === 0) return { printed: [], omitted: [], source: matters };
 
   // Never dropped FIRST, but no longer never dropped: a matter with no rand
   // amount is a filing, a failed check or the "no matters" note, and the
@@ -168,10 +219,18 @@ export function selectPrintedMatters(
   // silent-omission defect this file exists to prevent, wearing a note.
   if (keep.length === 0) keep = ranked.slice(0, 1);
 
+  // IN THE RANKED ORDER, not the source order. The page states its own rule
+  // — matters with no rand amount first, then the largest by exposure — and
+  // it was selecting by that rule and then printing by `buildMatters`'s,
+  // which put two AFS filings 739 and 374 days overdue FIFTH and SIXTH,
+  // below four identical payroll journals. A note stating an order the rows
+  // beneath it break is worse than no note: it tells a director the top of
+  // the table is the top of the risk.
   const printed = new Set(keep);
   return {
-    printed: matters.filter((m) => printed.has(m)),
-    omitted: matters.filter((m) => !printed.has(m)),
+    printed: keep,
+    omitted: ranked.filter((m) => !printed.has(m)),
+    source: matters,
   };
 }
 
