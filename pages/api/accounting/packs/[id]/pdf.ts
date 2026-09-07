@@ -52,6 +52,7 @@ import { withRenderSlot } from '@/lib/pdf/withRenderSlot';
 import { sql, type DbRow } from '@/lib/neon';
 import { buildFooterHtml, buildPdfMetadata, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
+import { packRefusalMessages } from '@/modules/accounting/services/packs/packRefusal';
 import { formatPackPeriod } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
 import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
 import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
@@ -88,13 +89,13 @@ const PAGES_PACK_TYPE = 'board';
 async function packRefusalReason(
   packType: string,
   request: { companyId: string; from: string; to: string; preparedBy: string },
-): Promise<string | null> {
+): Promise<{ user: string; diagnostic: string } | null> {
   if (packType !== PAGES_PACK_TYPE) return null;
   try {
     await buildBoardPackDocument({ ...request, generatedAt: new Date().toISOString() });
     return null;
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    return packRefusalMessages(error);
   }
 }
 
@@ -163,15 +164,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const refusal = await packRefusalReason(id, { companyId, from, to, preparedBy });
     if (refusal === null) throw error;
     log.warn(
-      'Pack PDF refused by the figure integrity gate',
-      { companyId, userId: user.id, packType: id, from, to, refusal },
+      'Pack PDF refused by a compose-time gate',
+      { companyId, userId: user.id, packType: id, from, to, refusal: refusal.diagnostic },
       'packs',
     );
-    // 422, not 500: the pack is unrenderable because its own figures do not
-    // reconcile, which is a fact about this company's ledger rather than a
-    // fault in the renderer. The message is the gate's own, verbatim — a
-    // paraphrase would lose the amount and the account that name the break.
-    return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, refusal);
+    // 422, not 500: the pack is unrenderable because of something about this
+    // company's own pack rather than a fault in the renderer.
+    //
+    // TWO SENTENCES, NOT ONE. An integrity refusal is written for a reader
+    // already — "the balance sheet is out by R450 on …" is the whole value of
+    // the gate and a paraphrase would lose the amount and the account, so
+    // `packRefusalMessages` returns it unchanged. A LAYOUT refusal is not:
+    // `fitPageToBox` names itself and quotes millimetres, which is what
+    // diagnoses it and not what a person reading a failed download can act on.
+    // The full text is logged above either way.
+    return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, refusal.user);
   }
 
   log.info('Pack PDF downloaded', { companyId, userId: user.id, packType: id, from, to, bytes: pdf.length }, 'packs');

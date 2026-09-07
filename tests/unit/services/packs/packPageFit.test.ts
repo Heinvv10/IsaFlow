@@ -8,6 +8,7 @@
  * all, which it must refuse rather than hand back.
  */
 import { describe, expect, it } from 'vitest';
+import { PackRefusal, packRefusalMessages } from '@/modules/accounting/services/packs/packRefusal';
 import { fitPageReport, OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import type { PackDisclosureNote, PackPage, PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -99,6 +100,38 @@ describe('a page the composer cannot fit', () => {
     expect(pageMm(subject)).toBeGreaterThan(pageBoxMm(subject));
     expect(() => fitPageReport(subject)).toThrow(/Balance sheet/);
     expect(() => fitPageReport(subject)).toThrow(/nothing left on it that may be dropped/);
+  });
+
+  /**
+   * WHAT THE USER SEES IS NOT WHAT THE LOG SEES.
+   *
+   * Brightsphere's 422 reached the screen beginning "fitPageToBox:" and
+   * quoting 264.9mm against 255mm. The millimetres diagnose it; they are not
+   * something a person reading a failed download can act on, and the function
+   * name is nobody's business but ours.
+   */
+  it('refuses in two registers: millimetres for the log, a sentence for the reader', () => {
+    const huge: PackPageBlock = {
+      kind: 'disclosure',
+      disclosure: {
+        heading: 'Negative equity',
+        notes: [{ heading: 'Consequence', body: SENTENCE.repeat(40) }],
+        required: true,
+      },
+    };
+
+    let thrown: unknown;
+    try { fitPageReport(page([huge])); } catch (error) { thrown = error; }
+
+    expect(thrown).toBeInstanceOf(PackRefusal);
+    const { user, diagnostic } = packRefusalMessages(thrown);
+    expect(diagnostic).toMatch(/fitPageToBox/);
+    expect(diagnostic).toMatch(/mm/);
+    expect(user).not.toMatch(/fitPageToBox/);
+    expect(user).not.toMatch(/\d+(\.\d+)?mm/);
+    // It still names the page, because that is the one thing the reader can
+    // repeat back to whoever they ask.
+    expect(user).toMatch(/Balance sheet/);
   });
 
   it('returns the page untouched, and the same object, when it already fits', () => {

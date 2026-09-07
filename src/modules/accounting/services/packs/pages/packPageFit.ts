@@ -42,6 +42,7 @@ import {
   pageMm,
   type MeasurablePage,
 } from './packPageMetrics';
+import { PackRefusal } from '../packRefusal';
 import type { PackFootnote, PackPageBlock } from './packPageModel';
 
 /** The paper this page has left over, in millimetres. Negative where it does
@@ -294,10 +295,18 @@ function assertFits(original: MeasurablePage, fitted: MeasurablePage): void {
   const box = pageBoxMm(fitted);
   const mm = pageMm(fitted);
   if (mm <= box) return;
-  throw new Error(
+  // TWO SENTENCES FOR TWO READERS — see `PackRefusal`. The millimetres and the
+  // function name are what diagnoses this; they are not what a person reading
+  // a failed download needs, and they used to be all they got.
+  throw new PackRefusal(
     `fitPageToBox: "${original.navLabel}" needs ${mm.toFixed(1)}mm and its sheet gives `
       + `${box}mm, with nothing left on it that may be dropped — every remaining note is one `
       + 'this pack is required to make. Refusing to compose a page that would print on two '
       + 'sheets under a contents page that indexes one.',
+    `The "${original.navLabel}" page of this pack needs more room than one sheet gives it, and `
+      + 'every note left on it is one the pack is required to make. The pack has not been '
+      + 'produced, rather than printing that page across two sheets under a contents page that '
+      + 'indexes one. Your figures are not the problem and nothing has been left out of them — '
+      + 'please contact support with the period you asked for.',
   );
 }
