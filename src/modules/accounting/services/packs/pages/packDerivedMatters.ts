@@ -57,7 +57,7 @@ export function creditMonthMatters(trend: PackTrendPoint[]): PackMatter[] {
     issue: `${point.label}: expenses for the month are a net credit — more was reversed out of `
       + 'expense accounts than was posted into them, so the month reports a profit the period does '
       + 'not. The quantum is that credit; the trends panel plots the month\'s net profit, which is '
-      + 'larger by the month\'s revenue',
+      + 'larger by the month\'s revenue.',
     quantum: round2(Math.abs(point.expenses)),
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,

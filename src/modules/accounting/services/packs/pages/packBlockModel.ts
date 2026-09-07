@@ -228,6 +228,20 @@ export interface PackDefinition {
    *  the page or in a footnote. Absent for a definition of a plain IFRS term
    *  with nothing to reconcile. */
   reconciliation?: PackReconciliationStep[];
+  /**
+   * Why the bridge above does not add as PRINTED — set only when it does not.
+   *
+   * A reconciliation is the one table in a pack whose job is to add, and page
+   * 12 printed `(1 545) + 77 = (1 467)` where the printed operands give
+   * 1 468. Every figure is right: the steps are unrounded rands and the page
+   * rounds each of them to the nearest R'000 independently, so the sum of the
+   * roundings differs from the rounding of the sum by up to half a unit. The
+   * page carries a general rounding note in the same column, so the
+   * arithmetic is derivable — and "derivable" is the wrong standard for a
+   * three-line non-IFRS bridge a director is invited to foot. It says so on
+   * the line, in the figures it actually printed.
+   */
+  reconciliationNote?: string;
 }
 
 /**

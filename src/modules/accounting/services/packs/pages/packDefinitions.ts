@@ -42,6 +42,8 @@
  */
 import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
+import { formatMoney } from '@/lib/format/money';
+import { PACK_SCALE } from './packBasis';
 import { toFinancialData } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
@@ -52,6 +54,42 @@ import type { PackDefinition } from './packPageModel';
  *  sources for one number is what `assertConsistent` exists to refuse. */
 export const EBITDA_SOURCE = 'calculateExtendedRatios.ebitda';
 export const DEPRECIATION_SOURCE = 'packFigureSet.current.depreciation';
+
+/** A raw rand amount as the page PRINTS it — the unit a reader adds. Half
+ *  away from zero, which is what `Intl.NumberFormat` does inside
+ *  `formatMoney`, so this cannot disagree with the cell beside it. */
+function atPackScale(rands: number): number {
+  return Math.sign(rands) * Math.round(Math.abs(rands) / 1_000);
+}
+
+/**
+ * THE ONE TABLE IN A BOARD PACK WHOSE JOB IS TO ADD, SAYING SO WHEN IT DOES
+ * NOT ADD AS PRINTED.
+ *
+ * The three lines are unrounded rands and each is rounded to the nearest
+ * R'000 on its own, so the sum of the roundings and the rounding of the sum
+ * differ by a unit whenever the fractions carry it: the live demo pack printed
+ * operating profit (1 545), an add-back of 77 and EBITDA of (1 467), where the
+ * printed operands give (1 468). Nothing is wrong with any of the three
+ * figures, and page 12 already carries a general rounding note — but a
+ * director invited to foot a non-IFRS bridge should not have to reach for a
+ * caveat in another column to make it work. This states it on the line, in the
+ * unrounded figures, so the arithmetic is visibly right rather than merely
+ * derivable.
+ *
+ * Null where the printed lines add, which is most packs — a note explaining a
+ * discrepancy a reader cannot find is worse than no note.
+ */
+export function bridgeRoundingNote(operating: number, addBack: number, ebitda: number): string | undefined {
+  if (atPackScale(operating) + atPackScale(addBack) === atPackScale(ebitda)) return undefined;
+  const exact = (n: number) => formatMoney(n, { cents: true });
+  // IN RANDS, AND IT SAYS SO. Every other figure on this page is in R'000,
+  // and three unrounded amounts printed beside them with no unit named is a
+  // fourth way of reading the same column.
+  return `The three lines above are each rounded to the nearest ${PACK_SCALE}, so they differ by `
+    + `one unit from their own sum. In rands: ${exact(operating)} plus ${exact(addBack)} is `
+    + `${exact(ebitda)}.`;
+}
 
 /**
  * The convention, the two margins, and every ratio and day count the pack
@@ -70,8 +108,13 @@ const TERMS: PackDefinition[] = [
     // within a few rows of each other on one sheet — an accounting bracket, a
     // U+2212 and an ASCII hyphen for the same idea — and page 12 named none of
     // them. `src/lib/format/money.ts` is where the applying happens.
+    //
+    // AND THE EXAMPLE IS OBVIOUSLY AN EXAMPLE. It was `(1 546)` — one unit
+    // from the demo pack's headline loss of (1 545) and matching nothing in
+    // the document, so a director reads it as a figure and goes looking for
+    // it. A run of digits cannot be mistaken for a balance.
     term: 'Negative figures',
-    definition: 'In brackets — (1 546) — for currency, percentages and ratios alike. No minus sign is used anywhere in this pack.',
+    definition: 'In brackets — (12 345) — for currency, percentages and ratios alike. No minus sign is used anywhere in this pack.',
   },
   {
     // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatMoney`
@@ -219,6 +262,7 @@ export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): P
       { label: 'Add back: depreciation and amortisation', figure: p.figure(DEPRECIATION_SOURCE, current.depreciation, 'money') },
       { label: 'EBITDA', figure: p.figure(EBITDA_SOURCE, ebitda, 'money') },
     ],
+    reconciliationNote: bridgeRoundingNote(operating, current.depreciation, ebitda),
   };
 
   // EBITDA sits with the profitability terms rather than at the end: it is

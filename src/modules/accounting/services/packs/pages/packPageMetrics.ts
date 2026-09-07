@@ -143,7 +143,13 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       const heights = block.entries.map((e) =>
         lines(wrappedLines(e.term, 8.5, measure), 12)
         + lines(wrappedLines(e.definition, 8.5, measure - 4), 12)
-        + (e.reconciliation?.length ? 1 + e.reconciliation.length * DEFINITION_BRIDGE_ROW_MM : 0));
+        + (e.reconciliation?.length ? 1 + e.reconciliation.length * DEFINITION_BRIDGE_ROW_MM : 0)
+        // `.pack-definition-bridge-note` — 7.5pt over an 11pt line, 1mm clear
+        // of the bridge above it. Charged, because an entry that grows and is
+        // not measured is how a page takes a thirteenth sheet.
+        + (e.reconciliationNote === undefined
+          ? 0
+          : 1 + lines(wrappedLines(e.reconciliationNote, 7.5, measure - 4), 11)));
       // Chromium balances by finding the smallest height a greedy in-order
       // fill still clears, which with `break-inside: avoid` is the best
       // in-order split — `balancedLines` computes exactly that rather than

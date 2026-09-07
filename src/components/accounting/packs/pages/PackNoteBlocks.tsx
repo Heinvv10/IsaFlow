@@ -63,6 +63,9 @@ export function PackDefinitionsBlock({ entries, scale }: PackDefinitionsBlockPro
                 </tbody>
               </table>
             )}
+            {entry.reconciliationNote && (
+              <p className="pack-definition-bridge-note">{entry.reconciliationNote}</p>
+            )}
           </dd>
         </div>
       ))}

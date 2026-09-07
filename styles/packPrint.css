@@ -554,6 +554,15 @@ html.print-mode .pack-pages {
 .pack-definition-term { font-weight: 600; }
 .pack-definition-body { margin: 0 0 0 4mm; }
 .pack-definition-bridge { margin-top: 1mm; width: auto; min-width: 60mm; }
+/* Why the three lines above do not add as printed — see
+ * `bridgeRoundingNote`. 7.5pt grey, the size the pack sets every fact ABOUT a
+ * figure in, so it reads as a qualification of the bridge and not as a fourth
+ * line of it. */
+.pack-definition-bridge-note {
+  font-size: 7.5pt; line-height: 11pt;
+  color: var(--pack-grey-strong);
+  margin: 1mm 0 0;
+}
 
 /* Page 11's matters table. Four of its five columns are prose, so they are
  * left-aligned and proportional — the default `.pack-table td` rule right-
