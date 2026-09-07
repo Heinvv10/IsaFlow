@@ -163,12 +163,35 @@ function printedSharePct(own: Domain, sharedSpan: number, scale: MoneyScale): nu
   return Math.round((printedSpan(own, scale) / sharedSpan) * 1000) / 10;
 }
 
+/** A domain as the sheet prints its two ends — "(1 621) to 59". The same two
+ *  numbers the shared range is stated with, through the same formatter. */
+function printedRange(domain: Domain, scale: MoneyScale): string {
+  return `${inProse(formatMoney(domain.min, { scale }))} to `
+    + `${inProse(formatMoney(domain.max, { scale }))}`;
+}
+
+/** How much of the printed shared span the printed residual range gives up,
+ *  to one decimal — the subtraction a reader does on the sheet. */
+function printedShrinkPct(sharedSpan: number, residual: Domain, scale: MoneyScale): number {
+  if (sharedSpan === 0) return 0;
+  return Math.round(((sharedSpan - printedSpan(residual, scale)) / sharedSpan) * 1000) / 10;
+}
+
 function moneyPanel(
   panel: MoneyPanel,
   trend: PackTrendPoint[],
   scale: MoneyScale,
   drawn: { domain: Domain; shared: boolean; ownSharePct: number },
-  dominant: { label: string; value: number; sharePct: number; creditMonth: string | null } | null,
+  dominant: {
+    label: string;
+    value: number;
+    sharePct: number;
+    /** The range that is left when the point goes, AS PRINTED — the other
+     *  half of the shrink claim, so a reader can take the subtraction
+     *  themselves. See `ScaleDominator.residual`. */
+    residualRange: string;
+    creditMonth: string | null;
+  } | null,
 ): PackChartSpec {
   const points = trend.map((point) => ({ label: point.label, value: panel.pick(point) }));
   const first = points[0]!.value;
@@ -202,9 +225,15 @@ function moneyPanel(
     // "sets N% of the scale" was a THIRD percentage on a page already
     // carrying two, measuring something else again — how much of the shared
     // span goes away when this point does. Said as what it is.
+    // AND THE RANGE THAT IS LEFT IS PRINTED, not implied. "shrinks by 52.4%"
+    // stood on a sheet that stated the shared span and this month and nothing
+    // else, so the only way to check the percentage was to know a
+    // next-highest month of 59 that appeared nowhere in the pack — the one
+    // claim on the page a reader could not test, on a page whose argument is
+    // that they can test all of them.
     clauses.push(
-      `${dominant.label} alone is ${prose(dominant.value)}${because}; drop it and the shared `
-      + `range shrinks by ${dominant.sharePct}%.`,
+      `${dominant.label} alone is ${prose(dominant.value)}${because}; drop it and the range `
+      + `becomes ${dominant.residualRange}, ${dominant.sharePct}% narrower.`,
     );
   }
   return {
@@ -325,7 +354,12 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
       : {
         label: point.label,
         value: dominator.value,
-        sharePct: dominator.sharePct,
+        // THE PRINTED PERCENTAGE OFF THE PRINTED FIGURES, exactly as
+        // `printedSharePct` does for a panel's own share — see `atScale`. The
+        // reader subtracts the two ranges the sheet prints; the number beside
+        // them has to be the one that subtraction gives.
+        sharePct: printedShrinkPct(sharedSpan, dominator.residual, scale),
+        residualRange: printedRange(dominator.residual, scale),
         creditMonth: creditMonthClause(point),
       });
   });

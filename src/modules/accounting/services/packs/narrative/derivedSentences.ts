@@ -182,23 +182,6 @@ export function narrativeTitle(set: PackFigureSet, scale: MoneyScale): string {
 }
 
 /**
- * Page 5's title.
- *
- * The `Group results | ` prefix is gone for the reason page 9's is: the
- * page's name is the 16pt heading printed immediately above this sentence, so
- * the prefix said it twice and put the conclusion in second place.
- */
-export function resultsTitle(set: PackFigureSet, scale: MoneyScale): string {
-  const { current } = set;
-  // Was `?? current.netProfit`, which titled the page "operating profit of
-  // 512 000" above a table row reading 750 000. Same defect as above: net
-  // profit is a DIFFERENT line, not a fallback for this one.
-  const operating = operatingProfitOf(current);
-  const noun = operating < 0 ? 'An operating loss' : 'An operating profit';
-  return `${noun} of ${formatMoney(operating, { scale })} on revenue of ${formatMoney(current.revenue, { scale })}.`;
-}
-
-/**
  * Page 6's title — how the result was EARNED, so it reads the margin and the
  * cost base rather than restating the profit page 5 already led with.
  */

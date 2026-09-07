@@ -115,6 +115,44 @@ describe('page 10 prints the scale its claims are made against', () => {
     expect(painted(days.svg).some((t) => t.includes('days') || t === formatDays(0, 1))).toBe(true);
   });
 
+  /**
+   * THE SHRINK CLAIM IS THE ONE A READER CANNOT TAKE ON TRUST.
+   *
+   * The rendered pack printed "drop it and the shared range shrinks by 52.4%"
+   * on a sheet that states the shared span ((1 621) to 1 908) and the outlier
+   * (1 908) and nothing else, so checking it needed a second-highest month
+   * that appears nowhere in the document — the only claim on a page whose
+   * whole argument is that its claims are checkable that could not be. The
+   * range that is LEFT is printed now, and these hold both halves: that it is
+   * there, and that the percentage beside it is the one those two printed
+   * ranges give.
+   */
+  it('names the range that is left when the month that sets the scale goes', () => {
+    const { panels, sharedRange } = buildTrendPanels(roundingSplit, PACK_SCALE);
+    const netProfit = panels.find((p) => p.id === 'trend-net-profit')!;
+    expect(netProfit.title).toContain('Apr 2026 alone is 1 908');
+
+    // The shared span, off the sheet's own words — "(1 621) to 1 908, a span
+    // of 3 529 R'000".
+    expect(sharedRange).toContain('a span of 3 529');
+
+    // The residual range, printed. Read back off the title rather than
+    // asserted as a literal sentence, so a re-wording does not fail this and
+    // a DELETION does.
+    const stated = /the range becomes (.+?), ([\d.]+)% narrower/.exec(netProfit.title);
+    expect(stated, netProfit.title).not.toBeNull();
+    const [low, high] = stated![1]!.split(' to ');
+    expect(low).toBe(formatMoney(-1_621_400, { scale: PACK_SCALE }));
+    expect(high).toBe(formatMoney(58_400, { scale: PACK_SCALE }));
+
+    // AND THE READER'S OWN SUBTRACTION GIVES THE PRINTED PERCENTAGE. 1 908 −
+    // (1 621) = 3 529; 58 − (1 621) = 1 679; 1 − 1 679/3 529 = 52.4%.
+    const sharedSpan = 1_908 - -1_621;
+    const residualSpan = 58 - -1_621;
+    const shrink = Math.round(((sharedSpan - residualSpan) / sharedSpan) * 1000) / 10;
+    expect(Number(stated![2])).toBe(shrink);
+  });
+
   it('never says "of the shared range" without saying it is off that range', () => {
     const { panels } = buildTrendPanels(withRatios, PACK_SCALE);
     for (const panel of panels) {

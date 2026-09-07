@@ -288,8 +288,11 @@ describe('buildBoardPackPages', () => {
     expect(tiles.every((t) => (t.delta?.basis ?? '').trim() !== '')).toBe(true);
   });
 
+  // PAGES 6, 7 AND 8 — not 5. Page 5's table has rows that are MONTHS, so it
+  // has no comparative period to carry a column for; the reason it stopped
+  // being a comparative statement is in `packMonthlyResults.ts`.
   it('carries the prior column on the statement tables when there is a prior period', () => {
-    for (const n of [5, 6, 7, 8]) {
+    for (const n of [6, 7, 8]) {
       const tables = doc.pages.find((p) => p.number === n)!.blocks
         .flatMap((b) => (b.kind === 'table' ? [b.table] : []));
       expect(tables.length, `page ${n}`).toBeGreaterThan(0);
@@ -369,7 +372,11 @@ describe('buildBoardPackPages', () => {
     const scale = toMoneyScale(doc.numberConvention.scale);
     expect(scale, doc.numberConvention.scale).not.toBeNull();
 
-    const table = doc.pages.find((p) => p.number === 5)!.blocks
+    // PAGE 6. It was page 5 until that sheet stopped being a comparative
+    // statement; the assertion is the same one — a cell read against the
+    // header above it — on the first table in the pack that still has an
+    // `actual` column with a line called Revenue in it.
+    const table = doc.pages.find((p) => p.number === 6)!.blocks
       .flatMap((b) => (b.kind === 'table' ? [b.table] : []))[0]!;
     expect(table.scale).toBe(doc.numberConvention.scale);
 
@@ -600,7 +607,7 @@ describe('buildBoardPackPages', () => {
   // "Operating margin is 0.0%" beside a tile showing 750 000, and page 5's
   // said "operating profit of 512 000" above a row showing 750 000, because
   // two sentences still read the raw optional field with their own fallbacks.
-  it('agrees with the figure beside it in the titles of pages 3 and 5', () => {
+  it('agrees with the figure beside it in the titles of pages 3 and 6', () => {
     const noOperatingLine = buildBoardPackPages({
       ...demoInput,
       set: { ...demoSet, current: figures({ operatingProfit: undefined }) },
@@ -608,18 +615,15 @@ describe('buildBoardPackPages', () => {
     const tile = noOperatingLine.pages.find((p) => p.number === 3)!.blocks
       .flatMap((b) => (b.kind === 'kpiTiles' ? b.tiles : []))
       .find((t) => t.label === 'Operating profit')!;
-    const row = noOperatingLine.pages.find((p) => p.number === 5)!.blocks
+    // PAGE 6 CARRIES THE OPERATING PROFIT ROW NOW. Page 5's table is months,
+    // not lines, and its title states the spread of net profit across them —
+    // which is asserted against its own table below.
+    const row = noOperatingLine.pages.find((p) => p.number === 6)!.blocks
       .flatMap((b) => (b.kind === 'table' ? b.table.rows : []))
       .find((r) => r.label === 'Operating profit')!;
 
     expect(tile.figure.value).not.toBeNull();
     expect(row.figures.actual!.value).toBe(tile.figure.value);
-
-    // Page 5's title states the operating profit. It must be THAT number, at
-    // the scale the tile beside it prints — the title is prose and prose was
-    // the layer that printed raw rands under an R'000 header (R-P52).
-    expect(noOperatingLine.pages.find((p) => p.number === 5)!.title)
-      .toContain(formatMoney(tile.figure.value!, { scale: PACK_SCALE }));
 
     // Page 3's title states the operating margin. It must be THAT number over
     // this period's revenue, not a margin taken on a defaulted zero.

@@ -1,6 +1,7 @@
 /**
- * The four statement tables of the board pack: results snapshot (page 5),
- * income statement (page 6), financial position (page 7) and cash (page 8).
+ * Three statement tables of the board pack: the income statement (page 6),
+ * financial position (page 7) and cash (page 8). Page 5's is a different
+ * shape — rows are months, not lines — and lives in `packMonthlyResults.ts`.
  *
  * Nothing here reads the ledger. Every actual is copied off `PackFigureSet`
  * or off `calculateExtendedRatios`, and the only arithmetic is the change
@@ -29,11 +30,9 @@
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { calculateExtendedRatios } from '@/modules/accounting/services/reports/reportingEngineService';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
-import { toFinancialData } from './packScorecard';
 import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { PACK_SCALE } from './packBasis';
 // The n/m reason a cell prints, shared with page 3's tile captions — see
@@ -228,20 +227,7 @@ function buildTable(
 }
 
 const grossProfitOf = (f: ReportPackFigures): number => f.revenue - f.costOfSales;
-const ebitdaOf = (f: ReportPackFigures): number => calculateExtendedRatios(toFinancialData(f)).ebitda;
 
-
-/** Page 5 — the one table every later number traces back to. */
-export function buildResultsTable(set: PackFigureSet, p: PackFigureProvenance): PackTable {
-  const { current, prior } = set;
-  return buildTable(p, [
-    { label: 'Revenue', key: 'results.revenue', source: 'packFigureSet.current.revenue', actual: current.revenue, prior: prior?.revenue ?? null },
-    { label: 'Gross profit', key: 'results.grossProfit', source: 'packStatementTables.grossProfit', role: 'subtotal', actual: grossProfitOf(current), prior: prior ? grossProfitOf(prior) : null },
-    { label: 'Operating profit', key: 'results.operating', source: OPERATING_PROFIT_SOURCE, role: 'subtotal', actual: operatingProfitOf(current), prior: prior ? operatingProfitOf(prior) : null },
-    { label: 'EBITDA', key: 'results.ebitda', source: 'calculateExtendedRatios.ebitda', role: 'subtotal', actual: ebitdaOf(current), prior: prior ? ebitdaOf(prior) : null },
-    { label: 'Net profit', key: 'results.netProfit', source: 'packFigureSet.current.netProfit', role: 'total', actual: current.netProfit, prior: prior?.netProfit ?? null },
-  ], set, false);
-}
 
 /** Page 6 — the condensed P&L, six data columns being the ceiling. */
 export function buildIncomeStatementTable(set: PackFigureSet, p: PackFigureProvenance): PackTable {

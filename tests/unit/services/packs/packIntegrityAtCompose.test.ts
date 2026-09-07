@@ -100,7 +100,9 @@ describe('buildBoardPackPages calls the gate', () => {
       start: demoSet.priorWindow.start,
       end: demoSet.priorWindow.end,
     });
-    for (const number of [5, 6, 7, 8]) {
+    // 6, 7 AND 8 — page 5's table is months, so it declares no comparative
+    // column and must not head one with a period it does not print.
+    for (const number of [6, 7, 8]) {
       const notes = template.pages.find((pg) => pg.number === number)!.footnotes;
       expect(notes.some((f) => f.text.includes('1 September 2025 to 28 February 2026')), `page ${number}`).toBe(true);
     }

@@ -221,13 +221,17 @@ describe('board pack figures, R-P52', () => {
     const doc = demoDoc();
     expect(doc.numberConvention.scale).toBe("R'000");
     const { container } = render(<PackPagesView document={doc} />);
-    const page5 = container.querySelector('#pack-page-5')!;
+    // PAGE 6. Page 5's table is months now, and its revenue column is the
+    // monthly series rather than the period's 4 200 000 — see
+    // `packMonthlyResults.ts`. The income statement is where the period's
+    // revenue is a cell.
+    const page6 = container.querySelector('#pack-page-6')!;
 
     // Revenue is 4 200 000 in the ledger. Under R'000 the cell reads 4 200,
     // and the caption above it says so. Scoped to the TABLE, not the page:
-    // page 5's derived title quotes figures in full rands as prose, which is
-    // a separate house-style question already deferred to the visual gate.
-    const table = page5.querySelector('.pack-table') as HTMLElement;
+    // a derived title quotes figures in full rands as prose, which is a
+    // separate house-style question already deferred to the visual gate.
+    const table = page6.querySelector('.pack-table') as HTMLElement;
     expect(table.querySelector('caption')?.textContent).toBe("R'000");
     expect(table.textContent).toContain('4 200');
     expect(table.textContent).not.toContain('4 200 000');
@@ -241,7 +245,7 @@ describe('board pack figures, R-P52', () => {
     const { container } = render(
       <PackPagesView document={{ ...doc, numberConvention: { scale: 'R', currency: 'ZAR' } }} />,
     );
-    const table = container.querySelector('#pack-page-5 .pack-table') as HTMLElement;
+    const table = container.querySelector('#pack-page-6 .pack-table') as HTMLElement;
     expect(table.textContent).toContain('4 200 000');
   });
 

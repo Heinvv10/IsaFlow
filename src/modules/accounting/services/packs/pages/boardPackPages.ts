@@ -37,13 +37,12 @@ import {
   narrativeTitle,
   negativeRevenueSentence,
   positionTitle,
-  resultsTitle,
   scorecardCaption,
   scorecardScore,
   scorecardTitle,
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { buildBasis, statementFootnotes } from './packBasis';
+import { buildBasis, ROUNDING_FOOTNOTES, statementFootnotes } from './packBasis';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
@@ -60,8 +59,14 @@ import {
   buildCashTable,
   buildIncomeStatementTable,
   buildPositionTable,
-  buildResultsTable,
 } from './packStatementTables';
+import {
+  buildMonthlyResultsTable,
+  ebitdaMemoSentence,
+  monthlyResultsCaption,
+  monthlyResultsTitle,
+  trendWindowLabel,
+} from './packMonthlyResults';
 import {
   buildCashBlocks,
   bridgeSignFootnote,
@@ -167,7 +172,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const statementNotes = statementFootnotes(comparativePeriod);
 
   const tiles = buildHighlightTiles(set, trend, p);
-  const results = buildResultsTable(set, p);
+  const monthlyResults = buildMonthlyResultsTable(trend, p);
   const income = buildIncomeStatementTable(set, p);
   const position = buildPositionTable(set, p);
   const cash = buildCashTable(set, p);
@@ -200,38 +205,49 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency, comparativePeriod);
   const highlights = page(highlightsTitle(set, scale), 'Highlights', 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
 
-  // Page 5 — the table every later number traces back to.
-  //
-  // IT NO LONGER REPEATS PAGE 3'S TILES. It carried `tiles.slice(0, 5)` —
-  // literally the same five objects page 3 draws, in the same component, with
-  // the same sparklines, two sheets later and with nothing added on the second
-  // showing. Two pages printing one component twice is the signature of an
-  // assembled deck rather than a designed document, and it was doing no work:
-  // four of the five figures appear again in this page's own table three
-  // centimetres above, there with a comparative, a change and a change
-  // percentage the tiles cannot carry.
-  //
-  // So the two pages now have one job each. Page 3 is the tile page — the
-  // period in eight figures, each with its basis and its trend. Page 5 is the
-  // statement page — the same figures as a table a director can foot, against
-  // the prior period. Neither is a version of the other.
-  //
-  // WHAT PAGE 5 GAINS IN THE ROOM. Its table is the only one in the pack that
-  // prints a NON-IFRS measure — EBITDA, between operating profit and net
-  // profit — and a non-IFRS measure has to be identified as one where it is
-  // PRESENTED, not only where it happens to be defined. The reconciliation
-  // itself stays on page 12 with the other definitions, in figures a reader
-  // can add up; this says which row needs it and where to find it.
-  const snapshot = page(resultsTitle(set, scale), 'Group results', 'Financials', 'high', [
-    { kind: 'table', table: results },
-    mustDisclose('Non-IFRS measures in this table', [
-      note('EBITDA', 'Every other row of this table is an IFRS line. EBITDA is not: it is '
-        + 'operating profit plus the depreciation and amortisation charged in the period, and it '
-        + 'is presented because a board asks for it, not because a standard requires it. The '
-        + 'basis of preparation reconciles it to operating profit line by line.'),
+  // Page 5 — the result month by month. See `packMonthlyResults.ts` for why
+  // it is no longer the period statement sheet 6 prints again three
+  // centimetres of paper later.
+  // THE SERIES BLOCKS ARE WHAT VARIES; the EBITDA memorandum and the caption
+  // below are the period's and are on the sheet either way, which is also
+  // what keeps a company with no series above the three-block floor.
+  const monthlySeriesBlocks: PackPageBlock[] = trend.length === 0
+    ? [mustDisclose('No monthly series', [
+        note('Why', 'No monthly series covers this period, so the result cannot be shown month by '
+          + 'month. Nothing is inferred from the period totals in its place; the income statement '
+          + 'overleaf carries them.'),
+      ])]
+    : [
+      { kind: 'table', table: monthlyResults },
+      mustDisclose('Reading this table', [
+        // WHAT THE THREE EXPENSE COLUMNS ARE, because two of them are headed
+        // by a word the income statement does not use, and a heading set in
+        // 7pt caps over a 26mm measure cannot carry the definition itself.
+        note('The columns', 'Cost of sales, Operating and Other are the three bands every '
+          + 'expense of a month falls into: cost of sales, everything else above the operating '
+          + 'line, and everything below it — finance costs, tax and other expenses. Revenue less '
+          + 'the three of them is the month\'s net profit, so each row adds across.'),
+        // AND WHICH WINDOW THIS IS. The trend runs twelve months to the
+        // reporting date and the pack's period is whatever was asked for; the
+        // closing row states its own window, and this says why it is not the
+        // period total on the next sheet.
+        note('The window', `This table covers ${trendWindowLabel(trend)}, which is the series page `
+          + '10 draws. The reporting period is stated in the footer of every sheet, and the income '
+          + 'statement overleaf carries that period\'s own totals against the comparative.'),
+      ]),
+    ];
+  const monthlyBlocks: PackPageBlock[] = [
+    ...monthlySeriesBlocks,
+    // THE PACK'S ONE NON-IFRS MEASURE STAYS ON THIS SHEET — see
+    // `ebitdaMemoSentence` for why it is stated rather than tabulated, and
+    // why sheet 6 could not take it with the note that has to identify it.
+    mustDisclose('The reporting period\'s EBITDA', [
+      note('EBITDA', ebitdaMemoSentence(set, scale)),
     ]),
-    commentary(largestMoverCaption(results.rows)),
-  ], 'portrait', statementNotes);
+    commentary(monthlyResultsCaption(trend, scale)),
+  ];
+  const snapshot = page(monthlyResultsTitle(trend, scale), 'Group results', 'Financials', 'high',
+    monthlyBlocks, 'portrait', ROUNDING_FOOTNOTES);
 
   // The profit bridge reaches net profit through a step nothing measured —
   // interest and tax, which no field carries. Where that step is a material

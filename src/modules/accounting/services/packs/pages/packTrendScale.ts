@@ -124,6 +124,20 @@ export interface ScaleDominator {
   /** How much of the shared span disappears when the point does, to one
    *  decimal — the figure the page prints. */
   sharePct: number;
+  /**
+   * THE DOMAIN THAT IS LEFT once the point is dropped — the other end of the
+   * claim, and the reason it is here rather than derived again by the caller.
+   *
+   * The panel printed "drop it and the shared range shrinks by 52.4%" beside
+   * a sheet stating the shared span ((1 621) to 1 908) and the outlier
+   * (1 908) and NOTHING ELSE, so the percentage implied a next-highest month
+   * of 59 that appeared nowhere in the document. A reader who tried the one
+   * claim on the page that could not be checked has no way to tell it from
+   * one that is wrong. It is returned from the same subtraction the
+   * percentage is computed from, so the printed range and the printed
+   * percentage cannot disagree about which point was removed.
+   */
+  residual: Domain;
 }
 
 export function dominantPoint(series: number[][]): ScaleDominator | null {
@@ -143,9 +157,10 @@ export function dominantPoint(series: number[][]): ScaleDominator | null {
 
   const without = series.map((values, i) =>
     (i === found!.seriesIndex ? values.filter((_, j) => j !== found!.pointIndex) : values));
-  const reduction = (span - spanOf(domainOf(without.flat()))) / span;
+  const residual = domainOf(without.flat());
+  const reduction = (span - spanOf(residual)) / span;
   if (reduction <= DOMINANT_MONTH_SHARE) return null;
-  return { ...found, sharePct: Math.round(reduction * 1000) / 10 };
+  return { ...found, sharePct: Math.round(reduction * 1000) / 10, residual };
 }
 
 /**

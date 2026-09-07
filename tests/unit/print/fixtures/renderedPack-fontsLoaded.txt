@@ -190,91 +190,198 @@ Confidential — for board use · DRAFT
 
 FI N AN CI AL S
 
-An operating loss of (1 544) on revenue of 101.
+Net profit runs from (784) in Jan 2026 to 1 908 in Jul 2026 across the
+12 months.
 R'000
-ACTU AL
+COS T OF S AL E S
 
-PRI OR
+OPE RATI NG
 
-CHANG E
+OTHE R
 
-CHANG E %
+NE T PROFI T
 
-101
+Oct 2025
+
+2
+
+86
+
+15
 
 –
 
-101
+(99)
 
-n/m
+Nov 2025
 
-Gross profit
+2
 
-(1 329)
+119
 
-(805)
+17
 
-(524)
+–
 
-n/m
+(133)
 
-Operating profit
+Dec 2025
 
-(1 544)
+2
 
-(905)
+115
 
-(639)
+11
 
-n/m
+–
 
-EBITDA
+(124)
 
-(1 467)
+Jan 2026
 
-(905)
+1
 
-(562)
+774
 
-n/m
+11
 
-Net profit
+–
 
-(1 544)
+(784)
 
-(905)
+Feb 2026
 
-(639)
+1
 
-n/m
+420
 
-Revenue
+12
 
-a
+–
 
-a
-a
-a
-a
+(431)
 
-a n/m — The prior figure is not a positive base, so no percentage change is meaningful.
+Mar 2026
 
-Non-IFRS measures in this table
-EBITDA Every other row of this table is an IFRS line. EBITDA is not: it is operating profit plus the depreciation and
-amortisation charged in the period, and it is presented because a board asks for it, not because a standard
+1
+
+426
+
+16
+
+–
+
+(442)
+
+Apr 2026
+
+1
+
+437
+
+11
+
+–
+
+(447)
+
+May 2026
+
+1
+
+419
+
+15
+
+–
+
+(433)
+
+Jun 2026
+
+2
+
+445
+
+8
+
+–
+
+(452)
+
+Jul 2026
+Aug 2026
+Sep 2026
 
 DR
 AF
 T
 
-requires it. The basis of preparation reconciles it to operating profit line by line.
+RE VE NU E
+
+12 months to Sep 2026
+
+39
+
+(1 922)
+
+53
+
+–
+
+1 908
+
+37
+
+431
+
+58
+
+–
+
+(453)
+
+30
+
+–
+
+41
+
+–
+
+(11)
+
+119
+
+1 751
+
+269
+
+–
+
+(1 901)
+
+Reading this table
+
+The columns Cost of sales, Operating and Other are the three bands every expense of a month falls into: cost of
+sales, everything else above the operating line, and everything below it — finance costs, tax and other expenses.
+Revenue less the three of them is the month's net profit, so each row adds across.
+
+The window This table covers 12 months to Sep 2026, which is the series page 10 draws. The reporting period is
+stated in the footer of every sheet, and the income statement overleaf carries that period's own totals against the
+comparative.
+
+The reporting period's EBITDA
+
+EBITDA EBITDA for the reporting period is (1 467). The comparative period's is (905). It is operating profit plus
+the depreciation and amortisation charged in the period, and it is presented because a board asks for it, not
+because a standard requires it. Every other figure on this sheet is one month's; this one is the reporting period's,
+which the footer of every sheet states. The basis of preparation reconciles it to operating profit line by line.
 D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
-No line item on this page has a comparable percentage change. The prior figure is not a positive base, so no
-percentage change is meaningful.
-
+Jul 2026 carried the most revenue of any month, 39 of the 119 earned over 12 months to Sep 2026 — 32.8%
+of it.
 1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
-2 The prior column is the period 26 April 2025 to 31 December 2025.
 
 ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
 
@@ -1034,32 +1141,33 @@ Sep 2026
 
 Net profit rose from (99) to (11) over 12 periods. Jul 2026
 alone is 1 908 — a month whose expenses were a net credit;
-drop it and the shared range shrinks by 52.4%.
-1 908
+drop it and the range becomes (1 621) to 58, 52.4%
+narrower.
 
 58
 
-–
+41
+
+Oct 2025
 
 DR
 AF
 T
 
-41
+–
 
-(11)
+1 908
+
+Sep 2026
 
 (1 621)
 
 Oct 2025
 
-Sep 2026
-
 Cash fell from (115) to (531) over 12 periods.
 1 908
 
-Oct 2025
-
+(11)
 Sep 2026
 
 Debtor days rose from 0.0 days to 59.6 days over 12 periods.
@@ -1246,7 +1354,7 @@ Source system IsaFlow general ledger
 
 Rounding Figures are rounded to the nearest R'000, so
 components may not add exactly to the totals shown.
-Extracted at 7 September 2026 at 18:15 SAST
+Extracted at 7 September 2026 at 19:03 SAST
 Ledger version 7 September 2026 at 17:45 SAST
 
 Negative figures
@@ -1331,9 +1439,8 @@ figures cannot support is not meaningful. Neither counts as
 a pass or a miss.
 
 Caveats
-Caveat 1 No account in the chart of accounts is classified as inventory, so inventory could not be identified and the
-quick ratio does not exclude it: on these figures the quick ratio and the current ratio are the same number. Read it
-as a current ratio until the stock control account is classified.
+Caveat 1 No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be
+computed. This pack publishes no acid-test ratio; classify the stock control account for one.
 Caveat 2 This pack is a DRAFT — the fiscal period it ends in is still open, so these figures can still move and no
 commentary on this period has been approved, so nobody has signed off what it says.
 

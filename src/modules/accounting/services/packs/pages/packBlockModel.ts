@@ -103,7 +103,15 @@ export interface PackStatGroup {
   stats: PackStatItem[];
 }
 
-/** The columns a pack table may carry. Stated once per table, in `columns`. */
+/**
+ * The columns a pack table may carry. Stated once per table, in `columns`.
+ *
+ * TWO FAMILIES, AND A TABLE USES ONE OF THEM. The first seven are the
+ * COMPARATIVE columns — one measure per row, read across periods. The five
+ * below them are MEASURE columns, for a table whose rows are periods rather
+ * than lines: page 5's month-by-month results. A table mixing the two would
+ * be claiming a row is both a line and a month.
+ */
 export type PackTableColumnKey =
   | 'actual'
   | 'prior'
@@ -111,7 +119,12 @@ export type PackTableColumnKey =
   | 'changePct'
   | 'pctOfRevenue'
   | 'budget'
-  | 'variance';
+  | 'variance'
+  | 'revenue'
+  | 'costOfSales'
+  | 'monthOperatingExpenses'
+  | 'otherExpenses'
+  | 'netProfit';
 
 export interface PackTableRow {
   label: string;
@@ -140,6 +153,15 @@ export const PACK_TABLE_COLUMN_LABEL: Record<PackTableColumnKey, string> = {
   pctOfRevenue: '% of Revenue',
   budget: 'Budget',
   variance: 'Variance',
+  revenue: 'Revenue',
+  costOfSales: 'Cost of sales',
+  // SHORT, because a column heading is set in 7pt letter-spaced caps over a
+  // 26mm measure and `TABLE_HEAD_MM` budgets ONE line for it. "Operating
+  // expenses" takes two there; "Operating" does not, and the row it heads is
+  // named in full in the page's own note.
+  monthOperatingExpenses: 'Operating',
+  otherExpenses: 'Other',
+  netProfit: 'Net profit',
 };
 
 export interface PackTable {
