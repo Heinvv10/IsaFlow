@@ -161,7 +161,7 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
     // tx1. A total order over the locked rows makes that impossible: the batch
     // that gets there first simply blocks the other.
     const ordered = [...postable].sort((a, b) => (a.txId < b.txId ? -1 : a.txId > b.txId ? 1 : 0));
-    const { lines, raced } = await postPreparedLines(
+    const { lines, raced, vatCoerced } = await postPreparedLines(
       ctx, ordered, BULK_TOOL,
     );
     // Ordered by the agent's own line index: `skipped` is a list a human reads
@@ -207,6 +207,12 @@ export const bulkAllocateBankTransactionsTool: McpTool = {
       journal_entry_ids: lines.map((l) => l.journal_entry_id),
       lines,
       skipped: allSkipped,
+      // Only when something was actually dropped. Surfaced at batch level as
+      // well as per line: a caller reading the summary of a 500-line run would
+      // otherwise never see that 40 of them posted gross.
+      ...(vatCoerced.length > 0
+        ? { vat_coerced_count: vatCoerced.length, vat_coerced: vatCoerced }
+        : {}),
     });
   },
 };
