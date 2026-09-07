@@ -238,12 +238,22 @@ export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneySc
     { name: 'Equity', stack: 'funding', values: at((f) => f.totalEquity) },
   ];
 
+  // THE CHART GIVES THE HEIGHT BACK WHEN THE PAGE HAS SOMETHING TO SAY.
+  //
+  // Page 7 measured 253.6mm in a 255mm box on the live company — 1.4mm of
+  // slack — so the negative-assets disclosure it must carry had nowhere to
+  // go. Spec §5.6's rungs exist for exactly this, and page 8's cash line
+  // already steps down for the same reason. A stacked bar whose asset side is
+  // BELOW the axis is the least informative it ever is, and the sentence it
+  // makes room for is the one a director needs off this page.
+  const box = current.totalAssets < 0 ? HALF : FULL;
+
   return {
     id: 'position-composition',
     title: `Assets of ${formatMoney(current.totalAssets, { scale })} stand on liabilities of ${formatMoney(current.totalLiabilities, { scale })} and equity of ${formatMoney(current.totalEquity, { scale })}.`,
     kind: 'bar',
-    svg: renderChartSvg(compositionBarOption(periods, series, scale), FULL),
-    heightMm: FULL.heightMm,
+    svg: renderChartSvg(compositionBarOption(periods, series, scale), box),
+    heightMm: box.heightMm,
   };
 }
 

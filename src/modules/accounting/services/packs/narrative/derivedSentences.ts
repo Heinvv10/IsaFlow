@@ -216,3 +216,21 @@ export function trendsTitle(trend: PackTrendPoint[], drawn: number, planned: num
 export function negativeEquitySentence(equity: number, scale: MoneyScale): string {
   return `Total equity is ${formatMoney(equity, { scale })}. Liabilities exceed assets by this amount, which may affect covenant compliance and the going-concern assessment.`;
 }
+
+/**
+ * And the OTHER impossible number on the same sheet.
+ *
+ * The rendered pack printed total assets of (733). Negative equity got a
+ * callout underneath it; negative total assets got nothing, on the same page,
+ * from the same balance sheet. It is not a state a business can be in — a
+ * balance sheet whose asset side is negative is telling the reader about the
+ * ledger rather than about the company — and a sheet that explains the
+ * lesser anomaly and stays silent about the greater one reads as though the
+ * greater one is normal.
+ *
+ * It says what it is and what to do about it, and it does NOT restate the
+ * figure the table prints three centimetres away in different words.
+ */
+export function negativeAssetsSentence(assets: number, scale: MoneyScale): string {
+  return `Total assets are ${formatMoney(assets, { scale })}. An asset side below zero is not a position a business can hold; it means one or more asset accounts carry credit balances — commonly a bank account overdrawn beyond its recorded facility, or a control account posted against. The balance sheet still foots, so the pack reports it as the ledger states it; it should be traced to the accounts before this pack is relied on.`;
+}

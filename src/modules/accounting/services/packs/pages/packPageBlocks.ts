@@ -16,6 +16,7 @@ import {
   boardActionItems,
   cashCaption,
   positionCaption,
+  negativeAssetsSentence,
   negativeEquitySentence,
   tileCaption,
   trendsCaption,
@@ -186,6 +187,14 @@ export function buildPositionBlocks(
     { kind: 'chart', chart: compositionChart },
     commentary(positionCaption(set, scale)),
   ];
+  // The asset side FIRST where both apply: negative total assets is the
+  // stranger of the two, and it was the one the sheet said nothing about.
+  const assets = set.current.totalAssets;
+  if (assets < 0) {
+    positionBlocks.push(disclose('Negative total assets', [
+      note('What this means', negativeAssetsSentence(assets, scale)),
+    ]));
+  }
   const equity = set.current.totalEquity;
   if (equity < 0) {
     positionBlocks.push(disclose('Negative equity', [

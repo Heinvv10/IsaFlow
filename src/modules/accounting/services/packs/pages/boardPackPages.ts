@@ -160,10 +160,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const cashBridge = buildCashWaterfallChart(set, scale);
   const cashTrend = buildCashTrendChart(trend, scale);
   const panels = buildTrendPanels(trend, scale);
-
-  // ONE selection of the matters, read by page 4's action panel and page 11's
-  // table alike. Derived twice, the two pages contradicted each other about
-  // the board's own action list — see `SelectedMatters`.
+  // ONE selection, read by page 4's panel and page 11's table alike — derived
+  // twice, they contradicted each other. See `SelectedMatters`.
   const matters = selectPrintedMatters(input.matters);
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
