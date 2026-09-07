@@ -70,9 +70,13 @@ export function remainingPageMm(page: MeasurablePage): number {
  * millimetre conversion itself. There is nothing left for a margin to cover
  * that is not already covered where it belongs: `packPageMetrics` is
  * conservative by construction and `packSheetCount.test.ts` asserts that its
- * estimate never reads short of Chromium's own layout, on every page of every
- * fixture. Since the fit targets the ESTIMATE and the estimate is never below
- * the content, a page the fit passes is a page that fits.
+ * estimate never reads short of Chromium's own layout, on every CONTENT page
+ * of every fixture. Content pages, not all twelve: the cover and the contents
+ * are laid out by `PackCoverV2` and `PackContents` rather than from a block
+ * list, and neither passes through this function — so nothing unmeasured is
+ * being certified, and the two are excluded rather than unnoticed. Since the
+ * fit targets the ESTIMATE and the estimate is never below the content, a
+ * page the fit passes is a page that fits.
  *
  * WHAT WOULD DEFEAT IT: content whose layout this model has not seen, laid
  * out taller than it predicts — a font update that changes IBM Plex's
@@ -183,7 +187,7 @@ function dropNote(blocks: PackPageBlock[], index: number): void {
  * The page, trimmed until the model says it fits its sheet.
  *
  * Returned unchanged — the same object — when it already fits, which is
- * every page of every fixture the harness carries today. The trimming path
+ * every content page of every fixture the harness carries today. The trimming path
  * is the safety net for the company nobody sampled, which is the one that
  * has produced all three overflows so far.
  */
@@ -235,7 +239,9 @@ export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dro
   // anyway: 26mm of disclosure explaining an omission that had not happened,
   // on a page that then ran 12mm past the paper because of it. The note was
   // the overflow. This branch is also the FITS case above having been reached
-  // by a page that needed nothing, which is every page of every fixture.
+  // by a page that needed nothing, which is every content page of all seven
+  // fixtures — the trimming below runs on live data and on this file's own
+  // tests, never on a fixture.
   if (!tookSomething(dropped)) {
     assertFits(page, page);
     return { page, dropped: NOTHING };

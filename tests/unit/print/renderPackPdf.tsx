@@ -203,6 +203,21 @@ export interface PrintedPack {
    * and the height could not be trusted; this is the number that says which.
    */
   landscapeWidthMm: number | null;
+  /**
+   * Class tokens found INSIDE a `.pack-page` that are not the pack's own.
+   *
+   * The whole no-margin argument rests on this harness laying a page out the
+   * way the application does, and it loads everything the app loads EXCEPT
+   * Tailwind's compiled utilities. That is only safe while no utility reaches
+   * inside a page box — true today, and a promise about the future that only
+   * a reader of this file would ever check. This is the check.
+   *
+   * An ALLOW-LIST, not a list of known utilities: `pack-` for the pack's own
+   * classes and `is-` for its state classes. A deny-list would have to
+   * enumerate Tailwind, which generates class names on demand
+   * (`max-w-[210mm]`), and would pass the first one nobody thought of.
+   */
+  foreignClassNames: string[];
   pdf: Buffer;
 }
 
@@ -344,6 +359,27 @@ export async function printBoardPack(
       height: Math.round(LANDSCAPE_BOX_MM * PX_PER_MM),
     });
     const landscapePass = await page.evaluate(measure, geometry);
+    const foreignClassNames = await page.evaluate(() => {
+      const found = new Set<string>();
+      for (const box of Array.from(document.querySelectorAll('.pack-page'))) {
+        for (const el of [box, ...Array.from(box.querySelectorAll('*'))]) {
+          // Inside a chart's SVG the classes are ECharts' own
+          // (`zr005b9e3d-1`), generated per render and styled by nothing: the
+          // markup arrives pre-rendered from `renderChartSvg` with its
+          // presentation inline and its box fixed by the `<figure>`'s own
+          // height. No stylesheet reaches them, so their absence from this
+          // harness cannot change a measurement.
+          if (el.namespaceURI === 'http://www.w3.org/2000/svg') continue;
+          for (const token of (el.getAttribute('class') ?? '').split(/\s+/)) {
+            if (token === '') continue;
+            if (token.startsWith('pack-') || token.startsWith('is-')) continue;
+            found.add(token);
+          }
+        }
+      }
+      return [...found].sort();
+    });
+
     const landscapeWidthMm = await page.evaluate((pxPerMm) => {
       const el = document.querySelector('.pack-page[data-print-landscape]');
       if (el === null) return null;
@@ -434,7 +470,7 @@ export async function printBoardPack(
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
     return {
       sheets: total, sheetText: pages.map((p) => p.text), overflow, heights,
-      coverBand, pageNames, pendingNarrative, landscapeWidthMm, pdf,
+      coverBand, pageNames, pendingNarrative, landscapeWidthMm, foreignClassNames, pdf,
     };
   } finally {
     await page.close();

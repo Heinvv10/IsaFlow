@@ -232,6 +232,66 @@ describe('the printed board pack', () => {
   }, 300_000);
 
   /**
+   * A REQUIRED DISCLOSURE THE PAGE CANNOT FIT IS REFUSED, AND THE THING IT IS
+   * REFUSING IS A THIRTEENTH SHEET.
+   *
+   * `PackDisclosure.required` keeps §3.5's consequence and every "why this
+   * chart is not here" explanation on the page — the trimmer may abridge one
+   * but never take its first note. That protection is also the one hole in
+   * the page count: a page whose only prose is a required note taller than
+   * the sheet has no lever left, and the first version of `fitPageToBox`
+   * handed it back unchanged, reporting nothing dropped, with no footnote and
+   * no error. A sheet then appears that the Contents does not list.
+   *
+   * No fixture reaches it — every `mustDisclose` caller passes one sentence —
+   * so this builds the shape on purpose, and proves BOTH halves on paper: the
+   * page really does take a second sheet if it is printed unfitted, and the
+   * composer really does refuse rather than compose it. Without the first
+   * half the refusal would be a guard against nothing.
+   */
+  it('refuses a page whose required disclosure will not fit, rather than spilling', async () => {
+    const document = buildBoardPackPages(liveDemoInput);
+    const index = document.pages.findIndex((p) => p.navLabel === 'Trends');
+    expect(index).toBeGreaterThan(-1);
+    const trends = document.pages[index]!;
+
+    // The shape Brightsphere gets naturally, taken past the sheet: an
+    // absence explanation the pack must make, on a page with nothing optional
+    // left beside it.
+    const unfittable: PackPage = {
+      ...trends,
+      blocks: [{
+        kind: 'disclosure',
+        disclosure: {
+          heading: 'Panels not drawn',
+          notes: [{
+            heading: 'Why',
+            body: 'A panel is omitted when its figure is not meaningful in every period of the '
+              + 'window, and neither gross margin nor debtor days is meaningful without positive '
+              // Long enough to be unambiguous: the landscape page sets its
+              // notes in two balanced columns, so a note has to be twice the
+              // sheet before the block is.
+              + 'revenue. '.repeat(900),
+          }],
+          required: true,
+        },
+      }],
+    };
+
+    // It genuinely does not fit — printed as it stands, the pack is thirteen.
+    const spilled = await printBoardPack(
+      { ...document, pages: document.pages.map((p, i) => (i === index ? unfittable : p)) },
+      browser,
+    );
+    expect(spilled.sheets, 'the probe does not overflow, so the refusal guards nothing')
+      .toBeGreaterThan(document.pages.length);
+
+    // And the composer will not produce it.
+    expect(() => fitPageToBox(unfittable)).toThrow(/Trends/);
+    expect(() => fitPageToBox(unfittable)).toThrow(/nothing left on it that may be dropped/);
+  }, 300_000);
+
+  /**
    * PAGE 11'S TABLE IS BUDGETED IN THE PAPER THE PAGE HAS LEFT.
    *
    * The budget used to be a constant fitted by sweeping it against this
@@ -516,6 +576,37 @@ describe('the printed board pack', () => {
     expect(placeholderMm, 'the placeholder is sized to the column, not to its sentence')
       .toBeLessThan(70);
   }, 120_000);
+
+  it('carries no class inside a page box whose CSS this harness does not load', async () => {
+    // THE LAST LEG OF THE NO-MARGIN ARGUMENT, AND IT WAS A PROMISE.
+    //
+    // `fitPageToBox` targets the sheet with no safety margin, and the reason
+    // that is sound is that this harness lays a page out the way the
+    // application does — proved by both agreeing to 0.1mm on every page of
+    // two live companies. It loads everything `_app.tsx` loads EXCEPT
+    // Tailwind's compiled utilities, which would mean running the compiler
+    // inside a unit test. That exception is safe only while no utility
+    // reaches inside a page box, and until now that was a sentence in a
+    // docblock: true when written, checked by nobody.
+    //
+    // `max-w-[210mm]` is the reason it is not an academic point. It sat on
+    // the wrapper, one level OUTSIDE every `.pack-page`, and it still capped
+    // the landscape sheet at portrait width and cost a company a thirteenth
+    // sheet. A utility one level further in would do worse and this harness
+    // would not see it at all.
+    //
+    // Read off the rendered page rather than grepped out of the components:
+    // a class assembled at runtime, or arriving with a chart's markup, is
+    // invisible to a grep and present on the paper.
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      const printed = await printBoardPack(buildBoardPackPages(input), browser);
+      expect(
+        printed.foreignClassNames,
+        `${name} carries classes inside a page box that this harness does not style, so every `
+          + 'height it reports for those pages is a height no sheet has',
+      ).toEqual([]);
+    }
+  }, 300_000);
 
   it('sets the landscape page across the whole landscape sheet', async () => {
     // The trends page was laid out at 210mm on 261mm of paper, and the sheet
