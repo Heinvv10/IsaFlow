@@ -199,13 +199,13 @@ export function buildPositionBlocks(
  *  none), the closing-cash trend line (or why there is none), and commentary. */
 export function buildCashBlocks(
   cash: PackTable,
-  cashBridge: PackCashBridge | null,
+  cashBridge: PackCashBridge,
   cashTrend: PackChartSpec | null,
   set: PackFigureSet,
   scale: MoneyScale,
 ): PackPageBlock[] {
   const cashBlocks: PackPageBlock[] = [{ kind: 'table', table: cash }];
-  if (cashBridge) {
+  if (cashBridge.drawn) {
     cashBlocks.push({ kind: 'chart', chart: cashBridge.chart });
     // The bridge foots on a named plug, which is honest — but on these
     // figures the plug is larger than the net movement it sits inside, and a
@@ -220,8 +220,11 @@ export function buildCashBlocks(
     }
   }
   else {
-    cashBlocks.push(mustDisclose('No cash bridge', [
-      note('Why', 'Opening cash is the prior period\'s closing balance, and there is no prior period. A bridge opening at zero would assert the business started the period with an empty bank account.'),
+    // `why` is written for the reader on `buildCashWaterfallChart`, beside
+    // the decision it explains — a second wording here is how the page and
+    // the chart come to disagree about what the pack does not have.
+    cashBlocks.push(mustDisclose('Movement in cash, and why no bridge is drawn', [
+      note('This period', cashBridge.why),
     ]));
   }
   if (cashTrend) cashBlocks.push({ kind: 'chart', chart: cashTrend });
@@ -231,7 +234,7 @@ export function buildCashBlocks(
     ]));
   }
   cashBlocks.push(disclose('Commentary', [
-    note('This period', cashCaption(set, cashBridge?.residual ?? null, scale)),
+    note('This period', cashCaption(set, cashBridge.drawn ? cashBridge.residual : null, scale)),
   ]));
   return cashBlocks;
 }

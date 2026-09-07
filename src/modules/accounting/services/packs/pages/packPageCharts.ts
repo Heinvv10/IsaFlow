@@ -87,6 +87,25 @@ const HALF = { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline };
  */
 const MID = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
 
+/**
+ * HOW MANY GRIDLINE STEPS THIS BOX HAS ROOM FOR.
+ *
+ * `waterfallOption` defaults to six, which suits the 110mm rung and
+ * overprints on the 48mm one: the demo cash bridge drew seven tick labels
+ * with 11.8px between their centres at 12px type. The plot is the box less
+ * `grid.top` and `grid.bottom` (32 + 72 in `waterfallOption`), and 26px is
+ * comfortable for a 12px label — the same measure `packChartAxisLegibility`
+ * asserts against on the printed SVG.
+ */
+const PX_PER_MM = 96 / 25.4;
+const GRID_CHROME_PX = 32 + 72;
+const TICK_PITCH_PX = 26;
+
+function intervalsFor(box: { heightMm: number }): number {
+  const plot = box.heightMm * PX_PER_MM - GRID_CHROME_PX;
+  return Math.max(2, Math.floor(plot / TICK_PITCH_PX));
+}
+
 function barKind(step: WaterfallStep, index: number, count: number): PackWaterfallBar['kind'] {
   if (index === 0) return 'open';
   if (index === count - 1) return 'close';
@@ -177,38 +196,73 @@ export function buildProfitWaterfallChart(set: PackFigureSet, scale: MoneyScale)
     id: 'profit-bridge',
     title: `Revenue of ${formatMoney(f.revenue, { scale })} bridges to net profit of ${formatMoney(f.netProfit, { scale })}.`,
     kind: 'waterfall',
-    svg: renderChartSvg(waterfallOption(bridged, scale), box),
+    svg: renderChartSvg(waterfallOption(bridged, scale, undefined, intervalsFor(box)), box),
     heightMm: box.heightMm,
     waterfallBars: bars,
   };
 }
 
 /**
- * Page 8 — the cash bridge, or nothing.
+ * Page 8 — the cash bridge, OR THE STATEMENT THAT THERE IS NOT ONE.
+ *
+ * A BRIDGE WHOSE ONLY STEP IS A PLUG IS NOT A BRIDGE. The pack's figure set
+ * carries the period's cash totals; the operating, investing and financing
+ * splits a cash flow statement is made of are separate captures, and most
+ * companies here have none of them. Where that is so this used to draw three
+ * bars — opening, a single red step named "Unexplained movement" at 100% of
+ * the movement, and closing — under a heading calling it a bridge. Cash is
+ * the first page many directors turn to, and it said, in the largest object
+ * on the sheet, that the company could not account for its own cash. The
+ * accompanying sentence was honest about why, and being honest about a
+ * picture that should not have been drawn is not the same as not drawing it.
+ *
+ * The chart also cost more than it carried: 48mm of sheet, a squeezed plot
+ * with touching axis labels, to restate the two figures the table three
+ * centimetres above it already prints under ACTUAL and PRIOR, plus a
+ * difference it prints under CHANGE. Nothing is lost by omitting it and the
+ * page gets the room back — which is where page 8's dropped prose was going
+ * to come from.
+ *
+ * SO THE BRIDGE IS DRAWN WHEN THERE IS SOMETHING TO DECOMPOSE — at least one
+ * captured cash-flow category — and otherwise the page states the movement
+ * in words and says which figures would be needed to break it down. Where a
+ * category IS captured the residual is still drawn as its own named step,
+ * because a bridge that silently failed to reach its own closing bar would
+ * contradict the table above it.
  *
  * Opening cash is the prior period's closing balance, so a company with no
- * prior period has no bridge to draw and this returns null rather than
- * opening the bar at zero.
- *
- * The three cash categories the pack captures (operating, investing,
- * financing) do NOT in general reconcile opening cash to closing cash — the
- * figure set carries no reconciling items — so the residual is drawn as its
- * own named step. A bridge that silently failed to reach its own closing bar
- * would be a chart that contradicts the table above it; a bridge with an
- * unexplained-movement bar foots, and says what it does not know.
+ * prior period has no bridge either, and opening a bar at zero would assert
+ * the business started the period with an empty bank account.
  */
 export const CASH_UNCAPTURED_LABEL = 'Unexplained movement';
 
-export interface PackCashBridge {
-  chart: PackChartSpec;
-  /** The movement in cash the three captured categories do not account for.
-   *  Drawn as its own named bar, and the page must say what it is. */
-  residual: number;
-}
+/**
+ * Either the drawn bridge, or why the page does not carry one.
+ *
+ * `why` is READER COPY, not a diagnostic: it is printed on the sheet as a
+ * required disclosure, so it says what the movement was and what is missing
+ * rather than which branch the composer took.
+ */
+export type PackCashBridge =
+  | {
+      drawn: true;
+      chart: PackChartSpec;
+      /** The movement in cash the captured categories do not account for.
+       *  Drawn as its own named bar, and the page must say what it is. */
+      residual: number;
+    }
+  | { drawn: false; why: string };
 
-export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): PackCashBridge | null {
+export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): PackCashBridge {
   const { current, prior } = set;
-  if (prior === null) return null;
+  if (prior === null) {
+    return {
+      drawn: false,
+      why: 'Opening cash is the prior period’s closing balance, and there is no prior '
+        + 'period. A bridge opening at zero would assert the business started the period with '
+        + 'an empty bank account.',
+    };
+  }
 
   const opening = prior.cash;
   // Only categories the figure set actually CAPTURED get a bar. `?? 0` drew
@@ -220,6 +274,21 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
   if (current.operatingCashFlow !== undefined) movements.push({ label: 'Operating', value: current.operatingCashFlow });
   if (current.capitalExpenditure !== undefined) movements.push({ label: 'Investing', value: -current.capitalExpenditure });
   if (current.financingCashFlow !== undefined) movements.push({ label: 'Financing', value: current.financingCashFlow });
+
+  if (movements.length === 0) {
+    const movement = current.cash - opening;
+    return {
+      drawn: false,
+      why: `Cash moved ${formatMoney(opening, { scale })} to ${formatMoney(current.cash, { scale })} `
+        + `over the period, a movement of ${formatMoney(movement, { scale })}. No bridge is drawn `
+        + 'because there is nothing to bridge THROUGH: this pack’s figure set carries the '
+        + 'period’s cash totals and none of the operating, investing or financing figures a '
+        + 'cash flow statement is made of, so every step between the two balances would be one '
+        + 'unmeasured step the width of the whole movement. Ask for the cash flow statement for '
+        + 'the split.',
+    };
+  }
+
   const explained = movements.reduce((sum, m) => sum + m.value, 0);
   const residual = current.cash - opening - explained;
   if (residual !== 0) movements.push({ label: CASH_UNCAPTURED_LABEL, value: residual });
@@ -242,12 +311,13 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
   steps.push({ label: 'Closing cash', start: 0, end: current.cash, value: current.cash, isSubtotal: true, color: 'teal' });
 
   return {
+    drawn: true,
     residual,
     chart: {
       id: 'cash-bridge',
       title: `Cash moved from ${formatMoney(opening, { scale })} to ${formatMoney(current.cash, { scale })} over the period.`,
       kind: 'waterfall',
-      svg: renderChartSvg(waterfallOption(steps, scale), HALF),
+      svg: renderChartSvg(waterfallOption(steps, scale, undefined, intervalsFor(HALF)), HALF),
       heightMm: HALF.heightMm,
       waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL),
     },

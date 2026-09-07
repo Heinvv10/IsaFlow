@@ -57,6 +57,13 @@ export interface ChartPalette {
    * two greys apart still reads `(226)` on the bar.
    */
   categorical: readonly string[];
+  /** The sheet the chart is printed on. A bar label that has no room above
+   *  its bar is drawn INSIDE it (see `packChartOptions`), and in `ink` on an
+   *  ink-filled total bar that label is invisible — which is how sheets 6
+   *  and 8 came to print Gross Profit, Net Profit and both cash totals with
+   *  no value on them at all, leaving hue as the only thing separating an
+   *  increase from a decrease on the largest marks in the pack. */
+  paper: string;
 }
 
 /**
@@ -78,10 +85,70 @@ export const DEFAULT_CHART_PALETTE: ChartPalette = {
   prior: FALLBACK.prior,
   axis: FALLBACK.textTertiary,
   categorical: CATEGORICAL_BANDS,
+  paper: '#ffffff',
 };
 
-export function axisDomain(values: number[]): { min: number; max: number } {
-  return { min: Math.min(0, ...values), max: Math.max(0, ...values) };
+/** A value axis's bounds and the number of gridline steps between them.
+ *  Every field is an ECharts `yAxis` property, so `moneyValueAxis` spreads
+ *  the whole object. */
+export interface AxisDomain { min: number; max: number; splitNumber: number }
+
+/**
+ * A ROUND TICK STEP, chosen the way a hand-drawn axis chooses one: the
+ * 1/2/5×10ⁿ closest to the span divided by the number of steps asked for.
+ */
+function niceStep(span: number, intervals: number): number {
+  const rough = span / intervals;
+  const power = Math.pow(10, Math.floor(Math.log10(rough)));
+  const error = rough / power;
+  const factor = error >= Math.sqrt(50) ? 10 : error >= Math.sqrt(10) ? 5 : error >= Math.sqrt(2) ? 2 : 1;
+  return factor * power;
+}
+
+/**
+ * THE DOMAIN IS ROUNDED OUT TO THE NEXT WHOLE GRIDLINE, WHICH IS WHAT MAKES
+ * AN AXIS READ AS AN AXIS.
+ *
+ * It used to clamp exactly to the data, and both failure modes reached
+ * paper. Where the extreme was not round — the demo cash bridge closing at
+ * (548) — ECharts kept the domain and drew round ticks inside it, so the
+ * labelled ticks ran (100) … (500) and stopped, and the last bar carried on
+ * past the final labelled gridline: an axis that does not contain its own
+ * data, as far as a reader can see. Where the extreme WAS the boundary —
+ * Brightsphere's revenue of (5 535) — ECharts printed it as a tick, so the
+ * axis read (1 000), (2 000) … (5 000), (5 535): four round numbers and one
+ * observation, which invites the reader to take the extreme for a scale
+ * mark.
+ *
+ * Rounding out fixes both, and costs the thing the label-inside-the-plot rule
+ * in `packChartOptions` was protecting: a bar no longer reaches the top of
+ * the domain, so its height is a slightly smaller fraction of the plot than
+ * before. That was never the reading a bar carries — a reader compares bars
+ * with one another and with the gridlines, and the gridlines are now round
+ * numbers they can do arithmetic against.
+ *
+ * Zero is always in the domain: every chart here draws magnitudes from a
+ * zero baseline, and an axis starting elsewhere would exaggerate every bar.
+ *
+ * @param intervals How many gridline steps the plot has ROOM for. The pack
+ *   draws bridges at 48mm and at 110mm, and a tick count that suits the tall
+ *   one overprints on the short one: the cash bridge printed
+ *   `(100) (200) (300) (400) (500)` with 13.3px between 12pt labels. The
+ *   caller knows its own box; this turns that into a step.
+ */
+export function axisDomain(values: number[], intervals = 6): AxisDomain {
+  const low = Math.min(0, ...values);
+  const high = Math.max(0, ...values);
+  const span = high - low;
+  if (span === 0) return { min: 0, max: 0, splitNumber: 1 };
+  const step = niceStep(span, intervals);
+  const min = Math.floor(low / step) * step;
+  const max = Math.ceil(high / step) * step;
+  // Stated rather than left to ECharts' default of five, so the gridlines
+  // land on the step the bounds were rounded to. Without it a domain of
+  // (600) to nil is cut into five and the axis prints (120), (240), (360) —
+  // round bounds carrying unround gridlines.
+  return { min, max, splitNumber: Math.round((max - min) / step) };
 }
 
 /**
@@ -100,7 +167,7 @@ export function axisDomain(values: number[]): { min: number; max: number } {
 export function moneyValueAxis(
   palette: ChartPalette,
   scale: MoneyScale,
-  domain?: { min: number; max: number },
+  domain?: AxisDomain,
 ) {
   return {
     type: 'value' as const,

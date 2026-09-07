@@ -197,6 +197,11 @@ describe('DEFAULT_CHART_PALETTE', () => {
       // a scale, for a chart whose bands are categories rather than
       // directions. Asserted separately below.
       categorical: DEFAULT_CHART_PALETTE.categorical,
+      // Not one of the theme's five either: the app's charts are drawn on
+      // whatever surface the page gives them and never need to know. A
+      // printed pack's surface is the sheet, and a bar label set INSIDE an
+      // ink-filled total bar has to be set in it or it is invisible.
+      paper: '#ffffff',
     });
   });
 

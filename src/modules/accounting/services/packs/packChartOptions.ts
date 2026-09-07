@@ -66,29 +66,60 @@ export interface TrendPoint {
   value: number;
 }
 
-/** A movement's colour is the direction of the movement itself — favourable
- *  when it grows the running total, unfavourable when it shrinks it — never
- *  the legacy `color` hint on the step. A subtotal carries no variance of
- *  its own and stays actual ink regardless of whether it is a profit or a
- *  loss. */
+/**
+ * A MOVEMENT'S COLOUR IS ITS LINE CLASS, NOT THE ARITHMETIC SIGN OF THE
+ * PERIOD — because a colour that changes meaning between two companies is
+ * not carrying meaning at all.
+ *
+ * It was the direction the step moved the running total: favourable when it
+ * grew, unfavourable when it shrank. That reads correctly on a company in
+ * profit and inverts on one in loss. Brightsphere's income statement drew
+ * OPERATING EXPENSES OF 3 717 IN GREEN and REVENUE OF (5 535) IN RED, on the
+ * same rubric that draws cost of sales red and revenue green in the demo
+ * pack: the same line class, opposite colours, deciding by which way the
+ * books happened to run. The mechanism was right — negative expenses do
+ * increase profit — and the footnote explained it, and a director scanning
+ * the sheet still sees green expenses.
+ *
+ * So the colour comes off the step's `color` hint, which `buildProfitWaterfall`
+ * assigns by CLASS: green on revenue and other income, red on cost of sales
+ * and every expense band. Green is an income line and red is a cost line in
+ * every pack this platform prints. On the cash bridge the class IS the
+ * direction — an inflow is cash in — and the same hint carries it.
+ *
+ * WHICH WAY THE LINE MOVED IS STILL ON THE PAGE, and more precisely than a
+ * hue: every bar carries its own value in the pack's bracket convention, and
+ * `(1 431)` says "this took 1 431 off profit" in a way that survives a
+ * photocopier. A subtotal carries no class of its own and stays actual ink.
+ */
 function stepColour(step: WaterfallStep, palette: ChartPalette): string {
   if (step.isSubtotal) return palette.ink;
-  return step.end - step.start >= 0 ? palette.fav : palette.unfav;
+  return step.color === 'green' || step.color === 'teal' || step.color === 'blue'
+    ? palette.fav
+    : palette.unfav;
 }
 
 /**
- * A BAR'S LABEL, KEPT INSIDE THE PLOT.
+ * EVERY BAR CARRIES ITS OWN VALUE, AND THE LABEL GOES WHEREVER IT CAN BE READ.
  *
- * The label is drawn four pixels ABOVE the bar, and the axis domain runs to
- * the largest endpoint — so the bar that reaches the top of the domain has
- * its label off the top of the plot, where `clip: true` cuts it in half.
- * Brightsphere's cash bridge printed `(3 186)` with its lower half missing on
- * a pack that called itself final.
+ * The label is drawn four pixels ABOVE the bar. A bar with no room there —
+ * one whose top is within a line of the top of the plot, which is every
+ * total drawn from the axis — takes one of two fallbacks: INSIDE the bar in
+ * paper where the bar is tall enough to hold a line of type, and immediately
+ * BELOW it in ink where it is not. Neither is cosmetic:
  *
- * The label moves INSIDE the plot rather than the plot growing to fit it: a
- * padded domain would put the axis maximum somewhere no bar reaches, which
- * makes every bar's height a slightly different thing from the figure it
- * carries.
+ *   - Off the top, `clip: true` cuts the label in half. Brightsphere's cash
+ *     bridge printed `(3 186)` with its lower half missing on a pack that
+ *     called itself final.
+ *   - Inside the bar in INK is worse, because it fails silently: the bar is
+ *     ink-filled, so the label is drawn and invisible. Sheets 6 and 8 printed
+ *     Gross Profit, Net Profit, Opening cash and Closing cash — the four
+ *     largest marks in the pack — with no value on them at all, leaving hue
+ *     as the only cue for an increase against a decrease.
+ *   - Inside a SHORT bar in paper fails the same silent way, on white.
+ *
+ * A directly labelled bar is also the greyscale cue the rubric asks for:
+ * `(1 431)` reads under a photocopier and `red` does not.
  */
 const LABEL_GAP_PX = 4;
 const LABEL_LINE_PX = 12;
@@ -117,7 +148,13 @@ function makeWaterfallRenderItem(
     // domain's own maximum is where the plot ends.
     const [, plotTop = 0] = api.coord([params.dataIndex, domain.max]);
     const above = y - LABEL_GAP_PX;
-    const clipped = above - LABEL_LINE_PX < plotTop;
+    const noRoomAbove = above - LABEL_LINE_PX < plotTop;
+    // Inside the bar only if the bar is tall enough to hold a line of type.
+    // A short bar with no room above it — a near-nil step drawn at the top of
+    // the plot — would get paper-on-paper, so its label goes BELOW instead,
+    // where a bar drawn from the axis always has the whole plot.
+    const inside = noRoomAbove && height >= LABEL_LINE_PX + LABEL_GAP_PX * 2;
+    const below = noRoomAbove && !inside;
 
     return {
       type: 'group',
@@ -135,10 +172,18 @@ function makeWaterfallRenderItem(
             // A bar that reaches the top of the domain has no room above it,
             // so its label sits just inside the bar instead of half off the
             // paper. See `LABEL_GAP_PX`.
-            y: clipped ? y + LABEL_GAP_PX : above,
-            fill: palette.ink,
+            y: inside ? y + LABEL_GAP_PX : below ? y + height + LABEL_GAP_PX : above,
+            // INSIDE THE BAR IT IS SET IN PAPER, NOT INK. Every bar drawn
+            // from the axis reaches the top of its own plot, so `clipped` is
+            // true of every TOTAL — and ink on an ink-filled total bar is an
+            // invisible label. Sheets 6 and 8 printed Gross Profit, Net
+            // Profit, Opening cash and Closing cash — the largest marks in
+            // the pack — carrying no value at all, which left red/green hue
+            // as the only thing separating an increase from a decrease on
+            // them. The label was being drawn the whole time.
+            fill: inside ? palette.paper : palette.ink,
             align: 'center',
-            verticalAlign: clipped ? 'top' : 'bottom',
+            verticalAlign: inside || below ? 'top' : 'bottom',
           },
         },
       ],
@@ -157,8 +202,9 @@ export function waterfallOption(
   steps: WaterfallStep[],
   scale: MoneyScale,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
+  intervals = 6,
 ): EChartsCoreOption {
-  const domain = axisDomain(steps.flatMap((s) => [s.start, s.end]));
+  const domain = axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals);
   return {
     animation: false,
     grid: { left: 80, right: 24, top: 32, bottom: 72 },
