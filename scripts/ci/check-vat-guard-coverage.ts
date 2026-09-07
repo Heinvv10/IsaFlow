@@ -48,9 +48,9 @@ const ALLOWED: Record<string, string> = {
     + 'override into a no-op.',
   'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts':
     'Attended: someone approves one specific invoice, and the tax amount comes '
-    + 'from the captured document rather than being predicted. KNOWN GAP — no '
-    + 'supplier-invoice screen shows the warning the bank screens do, so the '
-    + '"attended" claim is weaker here than elsewhere. Tracked separately.',
+    + 'from the captured document rather than being predicted. The claim now '
+    + 'holds properly: BillLineItemsTable warns on a taxed line coded to a '
+    + 'non-supply account, which it did not when this entry was first written.',
   'pages/api/accounting/bank-match-confirm.ts':
     'Attended API action on one transaction the user is looking at.',
   'pages/api/accounting/bank-transactions-action.ts':

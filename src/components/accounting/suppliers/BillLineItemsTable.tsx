@@ -1,6 +1,10 @@
 /**
  * BillLineItemsTable — editable line-item grid for supplier bill creation.
  */
+import {
+  NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, classifyNonSupplyAccount,
+  type NonSupplyReason,
+} from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { Plus, Trash2 } from 'lucide-react';
 import { formatCurrency } from '@/utils/formatters';
 
@@ -22,6 +26,31 @@ export interface GLAccount {
   id: string;
   accountCode: string;
   accountName: string;
+}
+
+/**
+ * Why this line's account can never carry VAT, or null.
+ *
+ * `approveSupplierInvoice` posts `vatType: 'standard'` on every line whenever
+ * the invoice's tax amount is non-zero, against whatever account the line
+ * names — and until now no invoice screen said a word about it, while the bank
+ * screens have warned since the guard shipped. An approver clicking through a
+ * captured invoice miscoded to Salaries & Wages got no signal at all.
+ *
+ * WARNS, never blocks: same reasoning as the bank screens. The classification
+ * is matched on account NAME and a handful of real names are ambiguous —
+ * labour-broker wages, investment property, payroll software — so the choice
+ * stays the approver's. Unlike the bank screens there is no unattended twin
+ * here: nothing posts a supplier invoice on a schedule.
+ */
+function nonSupplyReason(
+  line: BillLineItem,
+  glAccounts: GLAccount[],
+): NonSupplyReason | null {
+  // No tax on the line means no claim to warn about, whatever the account is.
+  if (!(line.taxRate > 0)) return null;
+  const account = glAccounts.find(a => a.id === line.glAccountId);
+  return classifyNonSupplyAccount(account?.accountName ?? '');
 }
 
 interface Props {
@@ -103,6 +132,14 @@ export function BillLineItemsTable({ lines, glAccounts, onAdd, onUpdate, onRemov
                       </option>
                     ))}
                   </select>
+                  {nonSupplyReason(line, glAccounts) && (
+                    <span
+                      className="mt-0.5 block text-[10px] leading-tight text-amber-500"
+                      title={NON_SUPPLY_ADVICE[nonSupplyReason(line, glAccounts)!]}
+                    >
+                      ⚠ {NON_SUPPLY_LABEL[nonSupplyReason(line, glAccounts)!]} — no supply, so no VAT
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   <input
