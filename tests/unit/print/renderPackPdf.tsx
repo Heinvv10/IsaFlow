@@ -477,6 +477,91 @@ export async function printBoardPack(
   }
 }
 
+/** What one small-multiples panel is actually painted as, on paper. */
+export interface PaintedPanel {
+  title: string;
+  /** The plot box, in CSS pixels — what `.pack-chart-svg` got. */
+  plotPx: number;
+  /** How many PAGE pixels one SVG user unit buys, vertically. This is the
+   *  number a shared-scale claim is about: the domain can be shared in the
+   *  SVG's user space and still be painted at two scales. */
+  pxPerUserUnit: number;
+}
+
+/**
+ * THE PANELS ON PAGE 10, MEASURED ON THE PAINTED PAGE.
+ *
+ * The money group's y-domain is shared in the SVG's user space — that was
+ * measured by least squares over the plotted vertices and it is true to eight
+ * figures. It is also not the claim the page makes to a reader, who is looking
+ * at paper. `.pack-chart-svg` used to take `flex: 1` of what the caption left
+ * inside a fixed-height figure, so a panel with a two-line title was painted
+ * at 0.74275 page pixels per user unit against its neighbours' 0.85523: one
+ * domain, two scales, under a caption saying the scale is shared.
+ *
+ * `getScreenCTM` is what settles it — it is the transform the browser will
+ * actually paint with, viewBox, `preserveAspectRatio` and box size together.
+ * Every previous attempt to adjudicate this read gridlines off a raster and
+ * settled nothing.
+ */
+export async function measurePaintedPanels(
+  document: PackPagesDocument,
+  browser: Browser,
+): Promise<PaintedPanel[]> {
+  const body = renderToStaticMarkup(<PackPagesView document={document} />);
+  const html =
+    '<!doctype html><html class="print-mode"><head><meta charset="utf-8">' +
+    `<style>${printStylesheet()}</style></head><body>${body}</body></html>`;
+
+  const page = await browser.newPage({
+    viewport: {
+      width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM),
+      height: Math.round(CONTENT_BOX_MM * PX_PER_MM),
+    },
+  });
+  try {
+    await page.route(`${HOST}**`, async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/') {
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
+      }
+      if (url.pathname.startsWith('/fonts/')) {
+        return route.fulfill({
+          contentType: 'font/woff2',
+          body: readFileSync(path.join(ROOT, 'public', url.pathname)),
+        });
+      }
+      return route.abort();
+    });
+    await page.goto(HOST, { waitUntil: 'load' });
+    await page.emulateMedia({ media: 'print' });
+    await page.evaluate(() => document.fonts.ready);
+
+    return await page.evaluate(() => {
+      const panels = Array.from(document.querySelectorAll('.pack-small-multiples .pack-chart'));
+      return panels.map((figure) => {
+        const box = figure.querySelector('.pack-chart-svg') as HTMLElement;
+        const svg = box.querySelector('svg') as SVGSVGElement;
+        const ctm = svg.getScreenCTM()!;
+        const at = (y: number) => {
+          const point = svg.createSVGPoint();
+          point.x = 0;
+          point.y = y;
+          return point.matrixTransform(ctm).y;
+        };
+        const height = Number((svg.getAttribute('viewBox') ?? '0 0 0 1').split(/\s+/)[3]);
+        return {
+          title: figure.querySelector('.pack-chart-title')?.textContent ?? '',
+          plotPx: box.getBoundingClientRect().height,
+          pxPerUserUnit: (at(height) - at(0)) / height,
+        };
+      });
+    });
+  } finally {
+    await page.close();
+  }
+}
+
 export async function withChromium<T>(fn: (browser: Browser) => Promise<T>): Promise<T> {
   const browser = await chromium.launch();
   try {

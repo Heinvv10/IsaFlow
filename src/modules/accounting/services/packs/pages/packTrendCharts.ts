@@ -48,8 +48,20 @@ import type { PackChartSpec } from './packPageModel';
  * not printed" on the one page whose panels are drawn on two different
  * scales, which is the note a reader most needs. 44 leaves 12mm of headroom
  * and is still a fifth taller than the 36mm the landscape sheet allowed.
+ *
+ * AND 44 WAS THE FIGURE — CAPTION AND PLOT TOGETHER, WHICH IS WHY THE SHARED
+ * SCALE DID NOT REACH THE PAPER. The caption was drawn inside the fixed box
+ * and the plot took what was left, so net profit's two-line title gave it
+ * 123.3 page pixels of plot against the five one-line panels' 142.0 — the
+ * money group's one y-domain painted at 0.74275 page pixels per user unit on
+ * one panel and 0.85523 on the others, 13.2% apart, on a page whose caption
+ * says the scale is shared. `heightMm` is now the PLOT BOX alone and the
+ * caption is charged on top of it. 37.6mm is what a one-line caption left
+ * inside 44 — the same panel, measured in Chromium — so a row whose captions
+ * fit one line costs exactly what it did before, and only a row that wraps
+ * grows the page.
  */
-const PANEL = { widthMm: 83, heightMm: 44 };
+const PANEL = { widthMm: 83, heightMm: 37.6 };
 
 /**
  * Page 10 — the small multiples.

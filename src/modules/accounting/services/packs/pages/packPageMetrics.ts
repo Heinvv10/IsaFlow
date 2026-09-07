@@ -54,6 +54,12 @@ export type MeasurablePage = Omit<PackPage, 'number'>;
 /** `--pack-baseline`: the gap between two blocks. */
 export const BLOCK_GAP_MM = 4.5;
 
+/** `.pack-chart-title` in `packPrint.css`: 10pt on a 14pt line, 1.5mm clear
+ *  of the plot beneath it. */
+const CHART_TITLE_PT = 10;
+const CHART_TITLE_LINE_PT = 14;
+const CHART_TITLE_GAP_MM = 1.5;
+
 /**
  * One block's printed height.
  *
@@ -69,9 +75,25 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       return block.chart.heightMm;
     case 'smallMultiples': {
       // Two across (`repeat(2, 1fr)`), since the trends page became portrait.
-      const rows = Math.ceil(block.panels.length / 2);
-      const panel = Math.max(0, ...block.panels.map((p) => p.heightMm));
-      return rows * panel + Math.max(0, rows - 1) * GUTTER_MM;
+      //
+      // ROW BY ROW, AND THE CAPTION IS CHARGED SEPARATELY. A panel's
+      // `heightMm` is its PLOT BOX; the figure is that plus its caption, and
+      // the caption is the part that grows with the sentence. It used to be
+      // charged as one flat figure height, which was only correct while every
+      // caption fitted one line — and when one did not, the plot silently
+      // shrank instead, which is what put the money group's shared y-domain
+      // on two different painted scales. A grid row is as tall as the tallest
+      // figure IN IT, so the tallest caption in the row is what it costs.
+      const measure = (width - GUTTER_MM) / 2;
+      let total = 0;
+      for (let i = 0; i < block.panels.length; i += 2) {
+        const row = block.panels.slice(i, i + 2);
+        const captionLines = Math.max(1, ...row.map((p) => wrappedLines(p.title, CHART_TITLE_PT, measure)));
+        total += (i === 0 ? 0 : GUTTER_MM)
+          + lines(captionLines, CHART_TITLE_LINE_PT) + CHART_TITLE_GAP_MM
+          + Math.max(0, ...row.map((p) => p.heightMm));
+      }
+      return total;
     }
     case 'kpiTiles': {
       // A grid row is as tall as the tallest tile IN IT, not as the tallest

@@ -19,6 +19,7 @@
  * guards ran in `renderChartSvg`, which throws rather than returning unsafe
  * markup, and a second scan here would check shape rather than origin.
  */
+import type { CSSProperties } from 'react';
 import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface PackChartBlockProps {
@@ -40,11 +41,34 @@ export interface PackSmallMultiplesProps {
   panels: PackChartSpec[];
 }
 
+/**
+ * THE PANELS' PLOT BOXES ARE ONE HEIGHT, AND THE CAPTIONS TAKE WHAT THEY NEED.
+ *
+ * A small-multiples group makes a claim its captions can break. The four money
+ * panels share one y-domain in the SVG's user space — but `.pack-chart-svg`
+ * used to take `flex: 1` inside a fixed-height figure, so a panel whose title
+ * wrapped to two lines got a shorter plot box and painted the same rand amount
+ * shorter than the panel beside it. On the live demo pack that was 123.3px
+ * against 142.0px, 0.74275 page pixels per user unit against 0.85523: a
+ * thirteen-percent difference on a page that says the scale is shared.
+ *
+ * So `heightMm` on a PANEL is the plot box, not the figure, and the figure
+ * grows with its caption. See `packPrint.css` and `blockMm`'s `smallMultiples`
+ * case, which charges each row for its tallest caption.
+ */
 export function PackSmallMultiples({ panels }: PackSmallMultiplesProps) {
   return (
     <div className="pack-small-multiples">
       {panels.map((panel) => (
-        <PackChartBlock key={panel.id} chart={panel} />
+        <figure
+          key={panel.id}
+          data-pack-chart
+          className="pack-chart"
+          style={{ '--pack-panel-plot-mm': `${panel.heightMm}mm` } as CSSProperties}
+        >
+          <figcaption className="pack-chart-title">{panel.title}</figcaption>
+          <div className="pack-chart-svg" dangerouslySetInnerHTML={{ __html: panel.svg }} />
+        </figure>
       ))}
     </div>
   );
