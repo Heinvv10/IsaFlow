@@ -18,7 +18,15 @@ import {
 } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { basisPage, brightsphereInput, demoInput, demoSet, figures } from './fixtures/boardPackInputs';
+import {
+  basisPage,
+  brightsphereInput,
+  demoInput,
+  demoSet,
+  figures,
+  outOfBalanceInput,
+  OUT_OF_BALANCE_BY,
+} from './fixtures/boardPackInputs';
 import { liveDemoInput, liveDemoTrailingMonthInput } from './fixtures/liveDemoBoardPack';
 
 const template = buildBoardPackPages(demoInput);
@@ -29,6 +37,58 @@ describe('buildBoardPackPages calls the gate', () => {
     // test above would still pass with the call site deleted.
     const broken = { ...demoInput, set: { ...demoSet, current: figures({ totalEquity: 2_000_000 }) } };
     expect(() => buildBoardPackPages(broken)).toThrow(/integrity/i);
+  });
+
+  /**
+   * THE REFUSAL, AND THE WORDS A USER IS GIVEN — against a fixture, because
+   * the only thing that ever proved this end to end was a live company.
+   *
+   * Brightsphere in `isaflow_dev` was out of balance by R450 (a journal line
+   * pointing at another company's `gl_account`) and the pack route refused
+   * it. That line has since been removed: Brightsphere foots, renders twelve
+   * sheets, and the refusal path lost the only evidence anyone could point
+   * at. `outOfBalanceInput` reproduces the same break under our control.
+   *
+   * The MESSAGE is asserted, not just the throw. It propagates out of
+   * `buildBoardPackPages` through `withErrorHandler` to the caller of
+   * `/api/accounting/packs/[id]/pages`, so these are the words a director
+   * reads when a pack is refused — and the first version of this prose was a
+   * stack trace of provenance source paths, which is why the identity carries
+   * a `targetLabel` at all.
+   */
+  it('refuses an out-of-balance pack, and says which statement and by how much', () => {
+    expect(() => buildBoardPackPages(outOfBalanceInput)).toThrow();
+
+    let message = '';
+    try {
+      buildBoardPackPages(outOfBalanceInput);
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    // It is refused, and it says so as a refusal rather than as a crash.
+    expect(message).toContain('this render is refused');
+    // ONE problem, named — not a list the fixture happens to produce.
+    expect(message).toContain('1 problem');
+    expect(message).toContain('The balance sheet does not foot');
+    // In the reader's own words, with the gap stated at the document's own
+    // money formatting. No provenance source path reaches the page.
+    expect(message).toContain('total assets');
+    expect(message).toContain('total liabilities');
+    expect(message).toContain('total equity');
+    expect(message).toMatch(/a difference of R\s?450\.00/);
+    expect(message).not.toContain('packFigureSet.current.totalAssets');
+  });
+
+  it('builds the SAME pack once the break is repaired', () => {
+    // Otherwise "it throws" is satisfied by a gate that throws on everything,
+    // and by a fixture broken in some other way than the one it claims.
+    const repaired = {
+      ...outOfBalanceInput,
+      set: { ...outOfBalanceInput.set, current: demoSet.current },
+    };
+    expect(() => buildBoardPackPages(repaired)).not.toThrow();
+    expect(OUT_OF_BALANCE_BY).toBeGreaterThan(0);
   });
 
   it('heads the comparative column with the window the prior figures were read over', () => {

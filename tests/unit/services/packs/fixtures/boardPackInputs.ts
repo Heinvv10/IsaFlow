@@ -187,6 +187,44 @@ export const demoInput: BoardPackInput = {
 export const noRatioPanelsInput: BoardPackInput = { ...demoInput, trend: zeroRevenueTrend };
 
 /**
+ * THE PACK THE GATE MUST REFUSE — and the reason it is a fixture rather than
+ * a company.
+ *
+ * The refusal path was only ever proved against Brightsphere in
+ * `isaflow_dev`, whose balance sheet was out by R450 because one journal line
+ * pointed at another company's `gl_account`. Someone has since removed that
+ * line: Brightsphere now foots, renders a full twelve-sheet pack, and the
+ * only end-to-end evidence that spec §7.2 refuses anything went with it. A
+ * fixture cannot be repaired out from under the suite.
+ *
+ * The break is modelled on that one exactly — assets R450 short of
+ * liabilities plus equity, one cent being enough (`MONEY_TOLERANCE`) — and it
+ * is applied to `totalAssets` rather than to equity so that the failure names
+ * the identity a reader would recognise: the balance sheet does not foot.
+ *
+ * NOTHING ELSE IS CHANGED. A fixture broken in several places at once proves
+ * only that the gate throws on something; the refusal message this pins is a
+ * single, named, arithmetic failure.
+ */
+export const OUT_OF_BALANCE_BY = 450;
+
+export const outOfBalanceInput: BoardPackInput = {
+  ...demoInput,
+  set: {
+    ...demoSet,
+    current: figures({
+      totalAssets: demoSet.current.totalAssets - OUT_OF_BALANCE_BY,
+      // Both halves of the asset side move with the total, so the ONLY
+      // identity that breaks is the balance sheet's own. Leaving current
+      // assets alone would additionally break "non-current assets = total
+      // assets less current assets" and the message would carry two failures
+      // where the fixture models one.
+      currentAssets: demoSet.current.currentAssets - OUT_OF_BALANCE_BY,
+    }),
+  },
+};
+
+/**
  * Brightsphere: negative revenue, negative equity, no prior, no budget, and
  * no approved commentary on either narrative page.
  */
