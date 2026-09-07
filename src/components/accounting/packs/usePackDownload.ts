@@ -36,6 +36,41 @@ export interface PackDownload {
 }
 
 /**
+ * The name the server gave the file, or null.
+ *
+ * The server composes it with `packDownloadFilename`, which prefixes the
+ * company slug — and that name never reached the browser, because this hook
+ * set `a.download` to its own string and the header was read by nobody. Every
+ * company's pack therefore saved as `report-pack-board-<from>-to-<to>.pdf`, so
+ * a bureau user downloading packs for three clients gets three files with one
+ * name and, in most browsers, silently keeps only the last.
+ *
+ * `filename*` (RFC 5987) first: it is the encoded form, and a server that
+ * sends both means the plain `filename` as the ASCII fallback. Any path
+ * separator, and any leading dot, is stripped — the header is server-composed
+ * and already slugified, but `a.download` is not the place to find out that a
+ * company name reached it raw.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const encoded = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/i.exec(header);
+  const plain = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(header);
+  const raw = encoded ? safeDecode(encoded[1] ?? '') : (plain?.[1] ?? plain?.[2] ?? '');
+  const name = raw.trim().split(/[/\\]/).pop()?.replace(/^\.+/, '') ?? '';
+  return name === '' ? null : name;
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    // A malformed %-escape is not worth failing a download over; the
+    // composed fallback name takes over when this yields nothing usable.
+    return '';
+  }
+}
+
+/**
  * Fetch a generated document and hand it to the browser. The server names the
  * file (Content-Disposition); `fallbackName` is only reached when the blob
  * arrives without one, since an `<a download>` needs some name.
@@ -47,11 +82,12 @@ export interface PackDownload {
 async function downloadFile(url: string, fallbackName: string, failure: string): Promise<void> {
   const res = await apiFetch(url);
   await assertOk(res, failure);
+  const served = filenameFromDisposition(res.headers.get('Content-Disposition'));
   const blob = await res.blob();
   const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = objectUrl;
-  a.download = fallbackName;
+  a.download = served ?? fallbackName;
   a.click();
   URL.revokeObjectURL(objectUrl);
 }
@@ -67,6 +103,9 @@ export function usePackDownload(request: PackDownloadRequest): PackDownload {
     try {
       await downloadFile(
         `/api/accounting/packs/${packType}/${format}?from=${from}&to=${to}`,
+        // Reached only when the response carries no Content-Disposition —
+        // the company slug lives on the server side of this call, so a
+        // client-composed name cannot carry it.
         `report-pack-${packType}-${from}-to-${to}.${format}`,
         `${format.toUpperCase()} generation failed`,
       );
