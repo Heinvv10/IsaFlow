@@ -190,12 +190,36 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency, comparativePeriod);
   const highlights = page(highlightsTitle(set, scale), 'Highlights', 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
 
-  // Page 5 — the table every later number traces back to, and the five
-  // headline tiles beneath it. The tiles are the SAME objects page 3 carries,
-  // so the two pages cannot print different values for one figure.
+  // Page 5 — the table every later number traces back to.
+  //
+  // IT NO LONGER REPEATS PAGE 3'S TILES. It carried `tiles.slice(0, 5)` —
+  // literally the same five objects page 3 draws, in the same component, with
+  // the same sparklines, two sheets later and with nothing added on the second
+  // showing. Two pages printing one component twice is the signature of an
+  // assembled deck rather than a designed document, and it was doing no work:
+  // four of the five figures appear again in this page's own table three
+  // centimetres above, there with a comparative, a change and a change
+  // percentage the tiles cannot carry.
+  //
+  // So the two pages now have one job each. Page 3 is the tile page — the
+  // period in eight figures, each with its basis and its trend. Page 5 is the
+  // statement page — the same figures as a table a director can foot, against
+  // the prior period. Neither is a version of the other.
+  //
+  // WHAT PAGE 5 GAINS IN THE ROOM. Its table is the only one in the pack that
+  // prints a NON-IFRS measure — EBITDA, between operating profit and net
+  // profit — and a non-IFRS measure has to be identified as one where it is
+  // PRESENTED, not only where it happens to be defined. The reconciliation
+  // itself stays on page 12 with the other definitions, in figures a reader
+  // can add up; this says which row needs it and where to find it.
   const snapshot = page(resultsTitle(set, scale), 'Group results', 'Financials', 'high', [
     { kind: 'table', table: results },
-    { kind: 'kpiTiles', tiles: tiles.slice(0, 5) },
+    mustDisclose('Non-IFRS measures in this table', [
+      note('EBITDA', 'Every other row of this table is an IFRS line. EBITDA is not: it is '
+        + 'operating profit plus the depreciation and amortisation charged in the period, and it '
+        + 'is presented because a board asks for it, not because a standard requires it. The '
+        + 'basis of preparation reconciles it to operating profit line by line.'),
+    ]),
     commentary(largestMoverCaption(results.rows)),
   ], 'portrait', statementNotes);
 
