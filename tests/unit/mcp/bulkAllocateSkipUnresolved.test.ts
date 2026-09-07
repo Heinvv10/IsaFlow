@@ -28,6 +28,22 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
+// The allocation VAT guard reads the contra accounts before posting. This file
+// is about skip/race/batch semantics, not VAT, so the guard is stubbed to a
+// pass-through — its own behaviour is covered by allocationLineVatGuard and
+// allocationVatGuardBatch. Without these three the batch prefetch reaches a
+// real pg pool with the fixture's company id.
+vi.mock('@/modules/accounting/services/gl/ruleVatResolution', () => ({
+  resolveRuleVatCode: vi.fn(async (input: { requestedVatCode: string }) => ({
+    vatCode: input.requestedVatCode, denied: false, nonSupplyCoerced: false,
+  })),
+}));
+vi.mock('@/modules/accounting/services/gl/inputVatDenial', () => ({
+  fetchVatDenialFlags: vi.fn(async () => new Map()),
+}));
+vi.mock('@/modules/accounting/services/gl/nonSupplyVatGuard', () => ({
+  fetchAccountNames: vi.fn(async () => new Map()),
+}));
 vi.mock('@/modules/accounting/services/bank/bankAllocationService', () => ({
   allocateTransaction: vi.fn(),
   reverseReconciledTransaction: vi.fn(),
