@@ -12,21 +12,12 @@
 import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import type { MoneyScale } from '@/lib/format/money';
+import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packBlockModel';
 import type {
   PackTable,
   PackTableColumnKey,
   PackTableRow,
 } from '@/modules/accounting/services/packs/pages/packPageModel';
-
-const COLUMN_LABEL: Record<PackTableColumnKey, string> = {
-  actual: 'Actual',
-  prior: 'Prior',
-  change: 'Change',
-  changePct: 'Change %',
-  pctOfRevenue: '% of Revenue',
-  budget: 'Budget',
-  variance: 'Variance',
-};
 
 const ROW_ROLE_CLASS: Record<PackTableRow['role'], string | undefined> = {
   line: undefined,
@@ -72,7 +63,7 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
         <tr>
           <th />
           {columns.map((col) => (
-            <th key={col}>{COLUMN_LABEL[col]}</th>
+            <th key={col}>{PACK_TABLE_COLUMN_LABEL[col]}</th>
           ))}
         </tr>
       </thead>

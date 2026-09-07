@@ -35,12 +35,17 @@ describe('PackPagesView', () => {
     expect(container.querySelector('[data-print-ready="false"]')).not.toBeNull();
   });
 
-  it('becomes data-print-ready="true" once the document has loaded and there are no charts', () => {
+  // ASYNC NOW, AND IT HAS TO BE. The gate also waits for the pack's font
+  // faces (`packFontsLoaded`), which is a promise even where — as under
+  // happy-dom — there is no font-loading API to ask. A render followed by a
+  // synchronous assertion would read the frame before that settles.
+  it('becomes data-print-ready="true" once the document has loaded and there are no charts', async () => {
     const { container } = render(<PackPagesView document={doc} />);
+    await act(async () => {});
     expect(container.querySelector('[data-print-ready="true"]')).not.toBeNull();
   });
 
-  it('draws the declared chart and becomes ready only once its SVG is in the DOM', () => {
+  it('draws the declared chart and becomes ready only once its SVG is in the DOM', async () => {
     // The polling branch of usePrintReady (expectedCharts > 0), which is the
     // one a real board pack always exercises — the early-return shortcut
     // (expectedCharts === 0) is a different path, covered separately above.
@@ -56,6 +61,7 @@ describe('PackPagesView', () => {
       orientation: 'portrait', density: 'high', footnotes: [],
       blocks: [{ kind: 'chart', chart: { id: 'c1', title: 'Revenue up 12%', kind: 'line', svg: svg(), heightMm: 48 } }] }];
     const { container } = render(<PackPagesView document={{ ...doc, pages }} />);
+    await act(async () => {});
 
     expect(container.querySelectorAll('[data-pack-chart] svg')).toHaveLength(1);
     expect(container.querySelector('[data-print-ready="true"]')).not.toBeNull();

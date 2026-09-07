@@ -108,6 +108,24 @@ export interface PackTableRow {
   figures: Partial<Record<PackTableColumnKey, PackFigure>>;
 }
 
+/**
+ * The header each column prints, in the pack's own words.
+ *
+ * On the MODEL rather than in `ComparativeTable`, where it was: the rendered
+ * text layer is checked against these strings (`packTextLayer.ts`), and a gate
+ * that keeps its own copy of the labels is a gate that passes a table printing
+ * something else.
+ */
+export const PACK_TABLE_COLUMN_LABEL: Record<PackTableColumnKey, string> = {
+  actual: 'Actual',
+  prior: 'Prior',
+  change: 'Change',
+  changePct: 'Change %',
+  pctOfRevenue: '% of Revenue',
+  budget: 'Budget',
+  variance: 'Variance',
+};
+
 export interface PackTable {
   /** Stated once, in the header — e.g. "R'000" — never repeated per cell. */
   scale: string;

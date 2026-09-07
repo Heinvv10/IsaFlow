@@ -20,7 +20,7 @@
  *     the composed document's own convention.
  */
 import { describe, expect, it } from 'vitest';
-import { render, within } from '@testing-library/react';
+import { act, render, within } from '@testing-library/react';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { PackBlockView } from '@/components/accounting/packs/pages/PackBlocks';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
@@ -32,8 +32,11 @@ import {
 const demoDoc = () => buildBoardPackPages(demoInput);
 
 describe('board pack, rendered', () => {
-  it('renders twelve pages and becomes print-ready', () => {
+  it('renders twelve pages and becomes print-ready', async () => {
     const { container } = render(<PackPagesView document={demoDoc()} />);
+    // The gate waits for the pack's font faces too — a microtask, even under
+    // happy-dom, which has no font-loading API to ask.
+    await act(async () => {});
     expect(container.querySelectorAll('.pack-page')).toHaveLength(12);
     expect(container.querySelector('[data-print-ready="true"]')).not.toBeNull();
   });

@@ -17,12 +17,48 @@
 //   APP_URL=http://localhost:3200 PRINT_TOKEN_SECRET=<secret> \
 //     bun run scripts/pdf/render-pack.ts management 2026-01-01 2026-09-05 out.pdf
 
+import { execFile } from 'child_process';
 import { writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
+import { promisify } from 'util';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { chooseTransportName } from '@/lib/pdf/selectTransport';
 import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
+import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
+import { checkPackTextLayer } from '@/modules/accounting/services/packs/figures/packTextLayer';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * THE ARTEFACT IS READ BACK BEFORE THE SCRIPT CALLS THE RENDER A SUCCESS.
+ *
+ * A twelve-sheet pack with no figures on it is a well-formed PDF of the right
+ * length, and this script used to report exactly that as a win. So the bytes
+ * go back through `pdftotext` and the text layer is checked against the
+ * document the same figures compose — see `packTextLayer.ts` for what it
+ * looks for and why.
+ *
+ * Board packs only: they are the one pack type composed as a page model, so
+ * they are the only one whose expectations can be derived rather than guessed.
+ */
+async function verifyTextLayer(
+  outPath: string,
+  companyId: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  const doc = await buildBoardPackDocument({
+    companyId, from, to, preparedBy: 'render-pack', generatedAt: new Date().toISOString(),
+  });
+  // No `-layout`: see `checkPackTextLayer`.
+  const { stdout } = await execFileAsync('pdftotext', [outPath, '-']);
+  const failures = checkPackTextLayer(doc, stdout);
+  if (failures.length === 0) return;
+  throw new Error(
+    `the rendered pack is missing ${failures.length} things it must print:\n${failures.join('\n')}`,
+  );
+}
 import { log } from '@/lib/logger';
 
 const DEMO_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
@@ -46,6 +82,7 @@ async function main() {
 
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, pdf);
+  if (packType === 'board') await verifyTextLayer(outPath, companyId, from, to);
   log.info('render-pack: wrote PDF', {
     outPath, bytes: pdf.length, transport: chooseTransportName(process.env),
   }, 'pdf');
