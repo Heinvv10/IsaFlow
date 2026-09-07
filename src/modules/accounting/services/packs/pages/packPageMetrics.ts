@@ -165,11 +165,13 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
  *  the derived conclusion beneath, plus the `--pack-baseline` under the lot. */
 export function pageHeaderMm(page: MeasurablePage, orientation: PageOrientation): number {
   const width = PAGE_WIDTH_MM[orientation];
-  const namePt = orientation === 'landscape' ? 16 : 19;
-  const titleLead = orientation === 'landscape' ? 13 : 15;
-  const titlePt = orientation === 'landscape' ? 10.5 : 12;
+  // The eyebrow row — the page's name and its section, both 8pt on an 11pt
+  // line. One line always: two short small-caps labels at either end of the
+  // measure.
+  const titleLead = orientation === 'landscape' ? 16 : 18;
+  const titlePt = orientation === 'landscape' ? 13 : 15;
   const margin = orientation === 'landscape' ? 2 : BLOCK_GAP_MM;
-  return lines(1, namePt) + 0.5
+  return lines(1, 11) + 0.5
     + lines(wrappedLines(page.title, titlePt, width), titleLead) + 1.5 + 0.71 + margin;
 }
 

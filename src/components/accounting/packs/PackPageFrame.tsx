@@ -33,28 +33,33 @@ export function PackPageFrame({ page, children }: PackPageFrameProps) {
         * page title in the pack with it. See that rule for what the reader
         * received. */}
       <header className="pack-page-header">
-        {/* THE PAGE SAYS WHICH PAGE IT IS, in the words the Contents uses.
+        {/* THE CONCLUSION IS THE HEADING; THE PAGE'S NAME IS THE EYEBROW.
           *
-          * `title` is a CONCLUSION by rule (`assertPageTitleIsAMessage`) —
-          * "Gross margin is a negative 1348.0%, carrying operating expenses
-          * of 226." — and for four of the ten content sheets that conclusion
-          * never happened to begin with the page's name. A director turning
-          * to sheet 6 from a Contents page promising "Income statement" found
-          * nothing on it saying so.
+          * Both elements have been on the page for some time and only their
+          * type ranks were wrong. `navLabel` was the H1 and `title` — a
+          * CONCLUSION by rule (`assertPageTitleIsAMessage`) — was a standfirst
+          * beneath it at 12pt against 16pt, so the largest, darkest thing on
+          * every one of the ten content sheets was a category noun: a board
+          * read "Group results" first and "An operating loss of (1 545) on
+          * revenue of 101" second. The benchmark inverts that, and the spec
+          * asks for a title that states a conclusion about the period, which a
+          * half-size subtitle under a label is not.
           *
-          * So `navLabel` — the same string the Contents prints, not a second
-          * spelling of it — is the page's HEADING, and the derived conclusion
-          * is the standfirst beneath it. That also settles the hierarchy the
-          * re-review flagged: the heading was 13pt against 24pt KPI figures,
-          * which read as a caption. The section eyebrow moves onto the
-          * heading's own line, right-aligned, so the header still costs two
-          * lines of paper rather than three — the pack's slack is measured in
-          * millimetres. */}
+          * The name is not dropped, because a director turning to a sheet from
+          * a Contents page promising "Income statement" has to find it: it
+          * runs as the eyebrow, in the same small caps as the section beside
+          * it, in the same words the Contents prints. It keeps
+          * `.pack-page-name` so the print harness's positional guard still
+          * reads the page's name where the page's name now is.
+          *
+          * The header still costs two lines of paper — the eyebrow row is
+          * cheaper than the old 19pt heading line by about as much as the
+          * conclusion gains going up to 15pt. */}
         <div className="pack-page-heading-row">
-          <h2 className="pack-page-name">{page.navLabel}</h2>
+          <p className="pack-page-name">{page.navLabel}</p>
           <span className="pack-section-heading">{page.section}</span>
         </div>
-        <p className="pack-title">{page.title}</p>
+        <h2 className="pack-title">{page.title}</h2>
       </header>
       {children}
       {page.footnotes.length > 0 && (

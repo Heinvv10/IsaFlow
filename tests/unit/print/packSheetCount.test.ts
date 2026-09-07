@@ -438,6 +438,23 @@ describe('the printed board pack', () => {
         letters(printed.sheetText[index] ?? ''),
         `sheet ${index + 1}'s title position holds "${page.navLabel}" but the sheet does not print it`,
       ).toContain(letters(page.navLabel));
+
+      // AND THE CONCLUSION OUTRANKS THE LABEL, on the paper.
+      //
+      // Both strings printed in the right positions in the right order for
+      // several rounds while the CATEGORY NOUN was the largest, darkest thing
+      // on every content sheet and the conclusion sat beneath it at 12pt
+      // against 16pt. Nothing above could see that: the name is where the
+      // Contents promises it, the title is on the sheet, and the sheet fits.
+      // The rank is the assertion the spec's "the title states a conclusion"
+      // actually rests on.
+      const rank = printed.headingRanks[index];
+      expect(rank, `sheet ${index + 1} prints no header conclusion or no page name`).not.toBeNull();
+      expect(
+        rank!.titlePt,
+        `sheet ${index + 1} sets its page name at ${rank!.namePt}pt and its conclusion at `
+          + `${rank!.titlePt}pt — the category label outranks the message`,
+      ).toBeGreaterThan(rank!.namePt);
     }
   }, 120_000);
 

@@ -178,6 +178,20 @@ export interface PrintedPack {
    */
   pageNames: Array<string | null>;
   /**
+   * The type RANK of the two things in a content sheet's header, in points as
+   * the printing browser resolved them: the conclusion (`.pack-title`) and
+   * the page's own name (`.pack-page-name`).
+   *
+   * Measured because the defect it guards is invisible to every other probe
+   * here. Both strings printed on every sheet, in the right positions, in the
+   * right order — and the CATEGORY LABEL was the largest, darkest element on
+   * all ten content sheets while the conclusion sat under it at roughly half
+   * its size. A board read "Group results" first and "An operating loss of
+   * (1 545) on revenue of 101" second, which is the hierarchy the benchmark
+   * inverts. Null on a sheet missing either element.
+   */
+  headingRanks: Array<{ titlePt: number; namePt: number } | null>;
+  /**
    * The two columns of page 4, as the printing browser sized them: the
    * commentary (or its pending placeholder) and the derived action panel.
    *
@@ -404,6 +418,16 @@ export async function printBoardPack(
       });
     });
 
+    const headingRanks = await page.evaluate(() => {
+      const pt = (el: Element) => Number.parseFloat(getComputedStyle(el).fontSize) * (72 / 96);
+      return Array.from(document.querySelectorAll('.pack-page')).map((el) => {
+        const title = el.querySelector('.pack-page-header .pack-title');
+        const name = el.querySelector('.pack-page-header .pack-page-name');
+        if (title === null || name === null) return null;
+        return { titlePt: pt(title), namePt: pt(name) };
+      });
+    });
+
     // The cover's brand band, as the printing browser resolved it.
     //
     // Not a pixel count — this harness has no PNG decoder — but it is read
@@ -470,7 +494,7 @@ export async function printBoardPack(
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
     return {
       sheets: total, sheetText: pages.map((p) => p.text), overflow, heights,
-      coverBand, pageNames, pendingNarrative, landscapeWidthMm, foreignClassNames, pdf,
+      coverBand, pageNames, headingRanks, pendingNarrative, landscapeWidthMm, foreignClassNames, pdf,
     };
   } finally {
     await page.close();

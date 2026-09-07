@@ -166,8 +166,7 @@ html.print-mode .pack-pages {
  * header's own bottom margin halves — the page still names itself, at a size
  * that still outranks the panel captions under it. */
 .pack-page[data-print-landscape] .pack-page-header { margin-bottom: 2mm; }
-.pack-page[data-print-landscape] .pack-page-name { font-size: 13pt; line-height: 16pt; }
-.pack-page[data-print-landscape] .pack-title { font-size: 10.5pt; line-height: 13pt; }
+.pack-page[data-print-landscape] .pack-title { font-size: 13pt; line-height: 16pt; }
 
 .pack-grid {
   display: grid;
@@ -201,20 +200,24 @@ html.print-mode .pack-pages {
   display: flex; align-items: baseline; justify-content: space-between;
   gap: var(--pack-gutter); margin: 0 0 0.5mm;
 }
-/* The page's own name — "Income statement", the string the Contents prints.
- * 16pt against the 24pt KPI figure: a heading that reads as a heading and
- * still loses to the number it introduces, which is the order a board pack
- * wants. */
+/* The page's own name — "Income statement", the string the Contents prints —
+ * as an EYEBROW rather than as the heading. Set exactly like the section
+ * label it shares the line with, so the row reads as one navigational strip
+ * above the sentence that carries the page. */
 .pack-page-name {
-  font-size: 16pt; line-height: 19pt; font-weight: 600;
+  font-size: 8pt; line-height: 11pt; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--pack-grey-strong);
   margin: 0;
 }
-/* The derived conclusion, now a standfirst under the heading rather than the
- * heading itself. Lighter and one point smaller than it was, so the two-line
- * header did not grow when the name went above it. */
+/* THE CONCLUSION, AS THE HEADING. 15pt semibold in full ink: it wins the page
+ * against the 24pt KPI figure on weight and position rather than on size, and
+ * it is the first thing read on every content sheet. 15 rather than 16 is what
+ * keeps a two-line conclusion two lines on a 174mm measure — see
+ * `pageHeaderMm`, which charges the pack for every line of it. */
 .pack-title {
-  font-size: 12pt; line-height: 15pt; font-weight: 400;
-  color: var(--pack-grey-strong);
+  font-size: 15pt; line-height: 18pt; font-weight: 600;
+  color: var(--pack-ink);
   margin: 0; padding-bottom: 1.5mm;
   border-bottom: 2pt solid var(--pack-brand);
 }
