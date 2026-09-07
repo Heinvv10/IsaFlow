@@ -2,10 +2,20 @@
  * GET /api/accounting/packs/[id]/pdf?from=YYYY-MM-DD&to=YYYY-MM-DD
  *
  * Streams the pack as a PDF. The pack is not re-assembled here: the renderer
- * loads the same React page the user saw (?print=1) and photographs it, so a
- * figure can never differ between the screen and the document. The print
- * token that authorises the renderer's own headless-browser requests is
- * minted inside renderPagePdf and never leaves this process.
+ * loads the same React PAGE (?print=1) and photographs it, so no figure is
+ * computed twice. The print token that authorises the renderer's own
+ * headless-browser requests is minted inside renderPagePdf and never leaves
+ * this process.
+ *
+ * IT IS NOT THE SAME DOCUMENT THE USER PREVIEWED, and this comment used to
+ * claim it was. `?print=1` dispatches the BOARD pack to `PackPagesPrintPage`
+ * — the twelve-page fixed-layout document — while the interactive screen
+ * still renders the legacy five-section accordion for every pack type. A
+ * reader previews one document and downloads another, and the two do not
+ * even fail alike: the interactive board view renders Brightsphere happily
+ * while this route refuses it on the integrity gate. Moving the interactive
+ * screen onto the page model is its own piece of work; until then, do not
+ * reason about this route as if the screen and the PDF agreed.
  *
  * WHEN THE RENDER FAILS, THE REASON HAS TO REACH A HUMAN. The figure
  * integrity gate (spec §7.2) refuses a pack whose balance sheet does not
