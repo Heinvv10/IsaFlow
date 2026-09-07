@@ -215,6 +215,43 @@ const nullQuantumMatter = (issue: string): PackMatter => ({
   decisionRequired: 'Approve immediate filing and confirm any penalty exposure.',
 });
 
+/**
+ * THE SHAPE THAT MADE THE COMPOSER'S RULER READ SHORT — cash in the millions.
+ *
+ * `packPageMetrics` is only worth anything while it never under-estimates: a
+ * model that reads a page 3mm shorter than the browser lays it out passes a
+ * page that then takes a thirteenth sheet, which is the failure the model
+ * replaced. On the live Brightsphere ledger it does exactly that on sheet 8 —
+ * 195.6mm against 198.8mm on the paper — and no fixture could see it, because
+ * every one of them has cash in the hundreds of thousands.
+ *
+ * The block is the "Movement in cash, and why no bridge is drawn" disclosure,
+ * whose sentence quotes three cash figures. At Brightsphere's scale each of
+ * them formats with a thousands separator — "(3 453)" where the demo company
+ * prints "(531)" — which is four more characters across the paragraph, and
+ * four is enough: Chromium sets the sentence in FIVE lines at 426 characters
+ * and four at 422, while the model answers four at both. Measured, the model
+ * is 0.29% too generous on that string, which is a hair either side of a line
+ * break rather than a mis-weighted glyph.
+ *
+ * So the fixture is the live demo company with Brightsphere's cash: the only
+ * fields that change are the ones that lengthen the figures in that sentence.
+ */
+export const millionsCashInput: BoardPackInput = {
+  ...liveDemoInput,
+  set: {
+    ...liveDemoSet,
+    current: { ...liveDemoSet.current, cash: -3_453_000 },
+    prior: liveDemoSet.prior === null ? null : { ...liveDemoSet.prior, cash: -267_000 },
+  },
+  // The series ends on the pack's own closing cash or `assertPackIntegrity`
+  // refuses the render — page 8 may not state one quantity at two values. So
+  // the trend moves with the figure set rather than beside it.
+  trend: liveDemoTrend.map((point, i) => (i === liveDemoTrend.length - 1
+    ? { ...point, cash: -3_453_000 }
+    : point)),
+};
+
 export const manyLongNullQuantumMattersInput: BoardPackInput = {
   ...liveDemoInput,
   matters: Array.from({ length: 20 }, (_, i) =>

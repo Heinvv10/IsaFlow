@@ -103,7 +103,15 @@ const EM_CYRILLIC_GREEK = 0.62;
  */
 const EM_FULL = 1;
 /** Narrow glyphs: the letters set on a thin advance, and most punctuation. */
-const NARROW = new Set([...'ijltfr.,;:\'"!|()[]{}-–…/']);
+const NARROW = new Set([...'ijltfr.,;:\'"!|()[]{}-…/']);
+/**
+ * The en dash is NOT narrow, and it was in the set above.
+ *
+ * `formatMoney` prints every measured zero as one, so it is the single
+ * commonest non-alphabetic glyph in the pack's tables and prose. Measured at
+ * 0.632em in IBM Plex Sans at 9.5pt — the width of a digit, which is what an
+ * en is — against the 0.34 it was charged. It is charged as a digit below.
+ */
 /** The two letters set wider than an en — `m` and `w`, and their capitals. */
 const WIDE = new Set([...'mwMW']);
 
@@ -112,11 +120,23 @@ function charEms(ch: string): number {
   if (ch === ' ') return EM_SPACE;
   if (WIDE.has(ch)) return EM_WIDE;
   if (NARROW.has(ch)) return EM_NARROW;
-  if (ch >= '0' && ch <= '9') return EM_DIGIT;
+  if (ch >= '0' && ch <= '9' || ch === '\u2013') return EM_DIGIT;
   if (ch >= 'A' && ch <= 'Z') return EM_UPPER;
   if (ch <= '\u00ff') return EM_DEFAULT;
   if (ch >= '\u0370' && ch <= '\u04ff') return EM_CYRILLIC_GREEK;
   return EM_FULL;
+}
+
+/**
+ * How wide a string is, in ems, as this model believes.
+ *
+ * Exported for `packTextRulerCalibration.test.ts`, which divides Chromium's
+ * measured width by this to say how far off the em table is on the pack's own
+ * sentences. A test that re-implemented the sum would calibrate its own copy
+ * rather than the ruler the pages are budgeted with.
+ */
+export function textWidthEms(text: string): number {
+  return textEms(text);
 }
 
 /** How wide a string is, in ems. */
@@ -127,12 +147,34 @@ function textEms(text: string): number {
 }
 
 /**
- * The safety factor on every measure.
+ * The safety factor on every measure — AND IT IS NOT A SAFETY MARGIN. IT IS A
+ * CALIBRATION CONSTANT, AND IT IS SOMETIMES TOO SMALL.
  *
- * Eight per cent, and no more, because it is paid on every line of every page:
- * the accuracy is meant to come from the em table above and from wrapping on
- * WORDS, not from a fudge large enough to hide a modelling error. What it
- * covers is kerning and the semibold face a note's own lead-in is set in.
+ * It is documented as eight per cent of headroom over an em table meant to be
+ * accurate. Measured against Chromium in the real face at 9.5pt, the table is
+ * not accurate: it reads real pack prose 7.3% to 9.8% SHORT, so this factor is
+ * set in the middle of the error it is supposed to cover rather than above it.
+ * Six sentences the pack actually prints, as model-width over true width:
+ *
+ *   cash "no bridge is drawn"      0.9317   needs 1.073
+ *   the rounding note              0.9240   needs 1.082
+ *   the inventory caveat           0.9111   needs 1.098
+ *   the debtor-days definition     0.9159   needs 1.092
+ *   the scoring-basis pointer      0.9272   needs 1.079
+ *   the trends scale note          0.9153   needs 1.093
+ *
+ * Four of the six need more than 1.08. The model survives because a shortfall
+ * only costs a LINE when it tips a greedy fill over a break, which most
+ * paragraphs do not — but Brightsphere's cash page does, and `millionsCashInput`
+ * is that page: 195.6mm budgeted against 198.8mm of paper. See
+ * `packTextRulerCalibration.test.ts`, which pins these ratios, and task 26's
+ * fix report for why raising this constant is not a fix that can be taken here:
+ * at 1.10 every fixture stays green and the LIVE Brightsphere pack loses four
+ * basis-of-preparation facts, because page 12 has 1.8mm of headroom and a
+ * blanket 2% buys the correction out of the reader's document.
+ *
+ * The correction and the thirteenth sheet are one decision, and it is not this
+ * function's to take.
  */
 const WIDTH_SAFETY = 1.08;
 
