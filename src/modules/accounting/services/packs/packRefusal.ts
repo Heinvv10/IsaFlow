@@ -15,9 +15,18 @@
  *
  * So the two audiences are carried separately. `message` stays the full
  * diagnostic and is what gets logged; `userMessage` is the sentence the route
- * returns. Anything thrown that is NOT one of these keeps the old behaviour —
- * its message is the user's message — because the integrity gate's sentences
- * are written for a reader already.
+ * returns.
+ *
+ * AND ANYTHING THROWN THAT IS NOT ONE OF THESE GETS A FIXED SENTENCE. It used
+ * to get its own `error.message`, on the reasoning that the integrity gate's
+ * sentences are written for a reader already — but the gate's sentences all
+ * come through `PackRefusal`, and the fall-through was carrying every OTHER
+ * throwable in the compose stack to the client in a 422 body: a node-postgres
+ * driver error with its query text, a `TypeError` from a composition module,
+ * an assertion naming an internal function. `packs/[id]/pdf.ts` wraps the
+ * whole of `buildBoardPackDocument` in one catch, so the class of message was
+ * bounded by nothing. The raw text still goes to the log, on `diagnostic`,
+ * which is the field the route already logs.
  */
 export class PackRefusal extends Error {
   readonly userMessage: string;
@@ -35,5 +44,11 @@ export function packRefusalMessages(error: unknown): { user: string; diagnostic:
     return { user: error.userMessage, diagnostic: error.message };
   }
   const message = error instanceof Error ? error.message : String(error);
-  return { user: message, diagnostic: message };
+  return { user: UNEXPLAINED_FAILURE, diagnostic: message };
 }
+
+/** What a reader is told when the pack failed for a reason that was not
+ *  written for them. The engineer's version is on `diagnostic`. */
+export const UNEXPLAINED_FAILURE =
+  'This pack could not be built. The failure has been logged; please try again, and tell your '
+  + 'administrator if it keeps happening.';

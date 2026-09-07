@@ -24,6 +24,31 @@
 // remaining lever is to make the assumption VISIBLE: an operator who has
 // checked the running container sets GOTENBERG_ALLOW_LIST_VERIFIED=true, and
 // until then every boot that selects this transport says so in the log.
+//
+// WHAT THE ALLOW-LIST ACTUALLY FILTERS — measured, 2026-09-07, because a
+// blind security review's severity for the tenant `logoUrl` depended on it
+// and the flag is not assertable from this repo.
+//
+// It filters SUBRESOURCES, not only navigation. Gotenberg 8 does not hand the
+// pattern to Chromium at all: it runs Chromium behind its own pinning proxy
+// (`chromium.browser.pinning-proxy`) and refuses every CONNECT and every
+// forward whose URL does not match. Probed against `gotenberg/gotenberg:8`
+// with an allow-list pinned to one host, converting a page on that host that
+// carried two off-list `<img>` tags: both were refused by URL before any
+// request left the container —
+//
+//   'https://ssrf-probe-subresource.example.net/logo.png' does not match any
+//   expression from the allowed list: value filtered
+//   'http://169-254-169-254.sslip.io/latest/meta-data/' does not match any
+//   expression from the allowed list: value filtered
+//
+// — and the conversion still returned 200 with the images simply absent. So
+// on the Gotenberg path a tenant logo hosted anywhere but the app host is not
+// fetched at all, and an SSRF target certainly is not. The PLAYWRIGHT path has
+// no equivalent — its request interception is scoped to the API paths the
+// print page fetches and never sees an image load — which is why the logo URL
+// is re-checked at compose time in `packBrand.resolvePackBrandForRender`
+// rather than being left to the container.
 
 import { log } from '@/lib/logger';
 

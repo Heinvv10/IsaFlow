@@ -116,6 +116,27 @@ describe('window validation and method', () => {
     expect(buildDocumentMock).not.toHaveBeenCalled();
   });
 
+  /**
+   * A SHAPE IS NOT A DATE, AND THIS IS A READ PATH WITH NO SAVEPOINT.
+   *
+   * `2026-02-31` passes the ten-digit regex and reaches `${from}::date`,
+   * where Postgres raises 22008 — which aborts the whole request transaction
+   * rather than failing one query. `pdf.ts` runs the same check, above the
+   * render slot; see `src/lib/validation.ts` for why `Date.parse` is not it
+   * (it rolls 31 February forward to 3 March and returns a valid date).
+   */
+  it.each([
+    ['a day that does not exist', '2026-02-31'],
+    ['a month that does not exist', '2026-13-01'],
+    ['year zero, which Postgres has no calendar for', '0000-01-01'],
+  ])('refuses %s before it reaches a ::date cast', async (unused, from) => {
+    const res = mockRes();
+    await route(req({ ...OK_QUERY, from }), res);
+
+    expect(res.statusCode).toBe(400);
+    expect(buildDocumentMock).not.toHaveBeenCalled();
+  });
+
   it('refuses a non-GET', async () => {
     const res = mockRes();
     await route(req(OK_QUERY, 'POST'), res);

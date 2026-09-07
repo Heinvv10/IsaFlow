@@ -56,7 +56,15 @@ export async function getUnusualJournals(
       je.created_at,
       COALESCE(SUM(jl.debit), 0) AS amount
     FROM gl_journal_entries je
-    JOIN gl_journal_lines jl ON jl.journal_entry_id = je.id
+    -- THE LINES ARE SCOPED TOO, not only the entry they hang off. The FK
+    -- makes it redundant today and the root CLAUDE.md rule is "ALWAYS add
+    -- company_id to every DB query" for the day it is not: SUM(jl.debit)
+    -- feeds a matter printed on page 11 of a board pack, and every sibling
+    -- query on this branch (packTrendService, financialFiguresService)
+    -- scopes je, jl and ga alike.
+    JOIN gl_journal_lines jl
+      ON jl.journal_entry_id = je.id
+     AND jl.company_id = ${companyId}::UUID
     WHERE je.company_id = ${companyId}::UUID
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE

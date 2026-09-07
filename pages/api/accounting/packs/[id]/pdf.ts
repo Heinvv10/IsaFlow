@@ -48,6 +48,7 @@ import { apiResponse, ErrorCode } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
+import { isRealCalendarDate } from '@/lib/validation';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { withRenderSlot } from '@/lib/pdf/withRenderSlot';
 import { buildFooterHtml, buildPdfMetadata } from '@/lib/pdf/printFurniture';
@@ -113,6 +114,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) {
     return apiResponse.badRequest(res, 'from and to must be YYYY-MM-DD dates');
   }
+  // AND VALIDATED AS DATES, NOT AS SHAPES, BEFORE ANY RENDER IS ATTEMPTED.
+  //
+  // `ISO_DATE` matches ten digits in the right places, so `2026-02-31` and
+  // `2026-13-01` reached `${from}::date` in the trend query and Postgres
+  // raised 22008 — a driver error whose text was then returned to the caller
+  // in the 422 body (see `packRefusalMessages`). And the cost of getting
+  // there was not a millisecond: the renderer was already admitted, the print
+  // page's own fetch answered 400, `data-print-ready` was therefore never
+  // set, and `waitForSelector` ran its full 30 seconds. `withRenderSlot`'s
+  // bound of three is PER PROCESS and shared by every tenant, so one tenant's
+  // 25-per-15-minutes of knowingly-invalid requests could push other tenants'
+  // exports onto the 503 path. Both checks are cheap and both are here, above
+  // the rate-limit and the render, so an invalid window costs a 400.
+  //
+  // The backwards-window check is the one `pages.ts` has already had: a
+  // reversed window composes a pack with no ledger in it, which reads as a
+  // dormant company rather than as a mistyped URL.
+  if (!isRealCalendarDate(from) || !isRealCalendarDate(to)) {
+    return apiResponse.badRequest(res, 'from and to must be real calendar dates');
+  }
+  if (from > to) return apiResponse.badRequest(res, 'from must not be after to');
 
   if (!(await checkReportRateLimit(companyId, 'packs-pdf'))) {
     log.warn('Pack PDF rate limit exceeded', { companyId }, 'rateLimit');

@@ -27,6 +27,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
+import { isRealCalendarDate } from '@/lib/validation';
 import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
 import { serialisePackPagesDocument } from '@/modules/accounting/services/packs/pages/packDocumentWire';
 
@@ -50,6 +51,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const to = String(req.query.to ?? '');
   if (!ISO_DATE.test(from) || !ISO_DATE.test(to)) {
     return apiResponse.badRequest(res, 'from and to must be YYYY-MM-DD dates');
+  }
+  // SHAPE IS NOT A DATE. `2026-02-31` passes the regex above and reaches
+  // `${from}::date`, where Postgres raises 22008 — and this is a read path
+  // with no savepoint, so that error aborts the whole request transaction.
+  // Same check, same reason, in `pdf.ts`.
+  if (!isRealCalendarDate(from) || !isRealCalendarDate(to)) {
+    return apiResponse.badRequest(res, 'from and to must be real calendar dates');
   }
   // A backwards window silently produces a pack with no ledger in it, which
   // reads as a dormant company rather than as a mistyped URL.

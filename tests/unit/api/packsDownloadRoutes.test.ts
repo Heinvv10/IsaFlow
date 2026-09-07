@@ -136,6 +136,39 @@ describe('GET /api/accounting/packs/[id]/pdf', () => {
     expect(renderPagePdfMock).not.toHaveBeenCalled();
   });
 
+  /**
+   * A SHAPE IS NOT A DATE, AND AN INVALID ONE USED TO COST 30 SECONDS OF A
+   * PROCESS-WIDE, CROSS-TENANT RENDER POOL.
+   *
+   * `ISO_DATE` matches ten digits in the right places. `2026-02-31` and
+   * `2026-13-01` pass it, reach `${from}::date` in the trend query, and
+   * Postgres raises 22008 — but only after the renderer has been admitted to
+   * one of `withRenderSlot`'s three slots, the print page's own fetch has
+   * answered 400, `data-print-ready` has therefore never been set, and
+   * `waitForSelector` has run its full `PRINT_READY_TIMEOUT_MS`. The bound is
+   * per PROCESS and shared by every tenant, so 25 such requests in 15 minutes
+   * — the rate limit — could push other tenants' exports onto the 503 path.
+   */
+  it.each([
+    ['a day that does not exist', '2026-02-31'],
+    ['a month that does not exist', '2026-13-01'],
+    ['year zero, which Postgres has no calendar for', '0000-01-01'],
+  ])('rejects %s before a render slot is spent', async (unused, from) => {
+    const res = mockRes();
+    await pdfRoute(req({ id: 'board', from, to: '2026-09-05' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(renderPagePdfMock).not.toHaveBeenCalled();
+  });
+
+  /** The check `pages.ts` has had all along. A reversed window composes a pack
+   *  with no ledger in it, which reads as a dormant company. */
+  it('rejects a backwards window rather than rendering an empty pack', async () => {
+    const res = mockRes();
+    await pdfRoute(req({ id: 'board', from: '2026-12-31', to: '2026-01-01' }), res);
+    expect(res.statusCode).toBe(400);
+    expect(renderPagePdfMock).not.toHaveBeenCalled();
+  });
+
   it('refuses a POST', async () => {
     const res = mockRes();
     await pdfRoute(req({ id: 'board', from: '2026-01-01', to: '2026-09-05' }, 'POST'), res);

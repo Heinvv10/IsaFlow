@@ -171,6 +171,18 @@ async function overdueFilingMatters(companyId: string, window: PeriodWindow): Pr
   }));
 }
 
+/**
+ * What a swallowed exception is allowed to say in the log: its class and, for
+ * a Postgres error, its SQLSTATE. Never its message — see the call site.
+ */
+function errorClass(error: unknown): string {
+  if (!(error instanceof Error)) return typeof error;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)
+    ? `${error.name} (SQLSTATE ${code})`
+    : error.name;
+}
+
 /** One entry per spec §4.A source, in listed order. Pairs the normal builder
  *  with the label used when that source throws. */
 const SOURCES: ReadonlyArray<{
@@ -224,9 +236,16 @@ export async function buildMatters(companyId: string, window: PeriodWindow): Pro
     try {
       matters.push(...(await source.build(companyId, window)));
     } catch (error) {
+      // NOT `String(error)`, WHICH IS THE DRIVER'S OWN SENTENCE. A
+      // node-postgres message carries whatever the server put in it —
+      // "duplicate key value violates unique constraint … Key (email)=(…)"
+      // is a real one — so the free text is a tenant's data in a log line
+      // that outlives the request. The class and the SQLSTATE are what
+      // triage actually reads, and `source.label` is the stable identifier
+      // that says WHICH check failed.
       log.warn(
         'packMatters: source failed, recorded as a named matter rather than omitted',
-        { companyId, source: source.label, error: String(error) },
+        { companyId, source: source.label, error: errorClass(error) },
         'packs',
       );
       matters.push(failedSourceMatter(source.label));

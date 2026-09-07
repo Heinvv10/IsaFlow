@@ -26,7 +26,7 @@ import {
   getLedgerPostedThrough,
   NO_LEDGER_READ,
 } from '@/modules/accounting/services/reports/postedThroughService';
-import { resolvePackBrand } from '@/modules/accounting/services/packs/packBrand';
+import { resolvePackBrandForRender } from '@/modules/accounting/services/packs/packBrand';
 import { buildPackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
 import { buildMatters } from './packMatters';
@@ -61,7 +61,7 @@ export async function buildBoardPackDocument(
   const set = await buildPackFigureSet(companyId, companyLegalName, from, to);
   const trend = await getPackTrend(companyId, to, TREND_MONTHS);
   const matters = await buildMatters(companyId, set.currentWindow);
-  const brand = resolvePackBrand(await getBrandProfile(companyId));
+  const brand = await resolvePackBrandForRender(await getBrandProfile(companyId));
 
   // R-P46: the real ledger watermark, or an explicit absence — never a proxy.
   // `getLedgerPostedThrough` still returns the deprecated epoch sentinel when

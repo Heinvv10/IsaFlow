@@ -144,16 +144,38 @@ describe('buildMatters', () => {
     expect(warn).toHaveBeenCalled();
   });
 
-  it('keeps the exception itself off the page and in the log', async () => {
-    // The matter still appears — that is this file's rule. What came off is
-    // `String(error)`, which put a driver's message, and whatever a database
-    // chooses to put in one, into the issue column of a document a director
-    // forwards to their bank. The reader's decision is the same either way.
-    agingSpy.mockRejectedValue(new Error('connection terminated: pg_relation_size'));
+  it('keeps the exception itself off the page and out of the log line', async () => {
+    // The matter still appears — that is this file's rule. What came off the
+    // PAGE is `String(error)`, which put a driver's message, and whatever a
+    // database chooses to put in one, into the issue column of a document a
+    // director forwards to their bank. The reader's decision is the same
+    // either way.
+    //
+    // AND WHAT CAME OFF THE LOG LINE IS THE SAME TEXT, for the same reason
+    // one step further out: a node-postgres message carries whatever the
+    // server put in it — "duplicate key value violates unique constraint …
+    // Key (email)=(…)" is a real one — so the free text is a tenant's data in
+    // a line that outlives the request. What triage needs is the class, the
+    // SQLSTATE where there is one, and WHICH check failed; all three are
+    // there.
+    const pgError = Object.assign(
+      new Error('connection terminated: pg_relation_size'),
+      { code: '57P01' },
+    );
+    agingSpy.mockRejectedValue(pgError);
     const matters = await buildMatters('c1', window);
     const failed = matters.find((m) => m.issue.startsWith('aged debtors could not be assessed'))!;
     expect(failed.issue).not.toMatch(/pg_relation_size|Error:/);
-    expect(warn.mock.calls.at(-1)?.[1]).toMatchObject({ error: expect.stringContaining('pg_relation_size') });
+    const logged = warn.mock.calls.at(-1)?.[1] as { error: string; source: string };
+    expect(logged.error).not.toMatch(/pg_relation_size|connection terminated/);
+    expect(logged.error).toBe('Error (SQLSTATE 57P01)');
+    expect(logged.source).toBe('aged debtors');
+  });
+
+  it('names the class alone where the failure carries no SQLSTATE', async () => {
+    agingSpy.mockRejectedValue(new TypeError('cannot read properties of undefined'));
+    await buildMatters('c1', window);
+    expect((warn.mock.calls.at(-1)?.[1] as { error: string }).error).toBe('TypeError');
   });
 
   /**
