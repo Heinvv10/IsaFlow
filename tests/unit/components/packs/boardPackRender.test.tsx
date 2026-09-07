@@ -28,6 +28,7 @@ import {
   brightsphereInput,
   demoInput,
 } from '../../services/packs/fixtures/boardPackInputs';
+import { liveDemoInput } from '../../services/packs/fixtures/liveDemoBoardPack';
 
 const demoDoc = () => buildBoardPackPages(demoInput);
 
@@ -179,6 +180,27 @@ describe('board pack page 11, the matters table', () => {
     expect(cells[2]).toBe(matter.owner);
     expect(cells[3]).toBe(matter.movement);
     expect(cells[4]).toBe(matter.decisionRequired);
+  });
+
+  /**
+   * It printed "Not tracked — no prior board pack is stored to compare
+   * against. — the same for every matter listed above." A full stop and an em
+   * dash, because the joiner assumed a fragment and every value the pack
+   * actually produces is a sentence.
+   */
+  it('joins the uniform-column note to a value that already ends a sentence', async () => {
+    // The live fixture, not `demoInput`: a uniform-column note only appears
+    // where several matters share a value, and the demo pack carries one.
+    const { container } = render(<PackPagesView document={buildBoardPackPages(liveDemoInput)} />);
+    await act(async () => {});
+    const notes = [...container.querySelectorAll('#pack-page-11 .pack-table-notes dd')]
+      .map((dd) => dd.textContent ?? '');
+
+    expect(notes.length).toBeGreaterThan(0);
+    for (const note of notes) {
+      expect(note).not.toMatch(/[.!?]\s*—/);
+      expect(note).toContain('The same for every matter listed above.');
+    }
   });
 
   it('prints an en dash, never a zero, for a matter with no single amount', () => {

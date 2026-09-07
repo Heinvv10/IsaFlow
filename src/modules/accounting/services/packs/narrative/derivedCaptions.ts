@@ -41,14 +41,36 @@ export function scorecardCaption(groups: PackScorecardGroup[]): string {
   return `${met} of ${total} scored targets were met this period${missedClause}.`;
 }
 
+/**
+ * "NO LINE ITEM SHOWS A MEANINGFUL MOVEMENT" WAS A CLAIM ABOUT THE PACK, MADE
+ * BY A PAGE THAT HAD LOOKED AT ONE ROW.
+ *
+ * Sheet 5 printed it and sheet 6, the next page, printed "Cost of sales moved
+ * the most, up 77.8%." Both came from this function and each was right about
+ * its own table — sheet 5's summary carries exactly one `line` row, revenue,
+ * whose percentage change is not meaningful because the comparative is not a
+ * positive base. What was wrong was the sentence: an absent PERCENTAGE is not
+ * an absent MOVEMENT, and saying so put a denial two sheets from its own
+ * counter-example.
+ *
+ * So the empty case says what is actually true — that this page has no
+ * comparable percentage — and carries the reason the cells already give,
+ * rather than concluding something about the period from it.
+ */
 export function largestMoverCaption(rows: PackTableRow[]): string {
-  const movers = rows
-    .filter((r) => r.role === 'line')
+  const lineRows = rows.filter((r) => r.role === 'line');
+  const movers = lineRows
     .map((r) => ({ label: r.label, pct: r.figures.changePct?.value ?? null }))
     .filter((m): m is { label: string; pct: number } => m.pct !== null && Number.isFinite(m.pct));
 
   if (movers.length === 0) {
-    return 'No line item shows a meaningful period-on-period movement.';
+    const reason = lineRows
+      .map((r) => r.figures.changePct)
+      .find((f) => f !== undefined && f.value === null && f.unavailable !== undefined)
+      ?.unavailable;
+    return reason === undefined
+      ? 'No line item on this page carries a period-on-period percentage change.'
+      : `No line item on this page has a comparable percentage change. ${reason}`;
   }
 
   const largest = movers.reduce((a, b) => (Math.abs(b.pct) > Math.abs(a.pct) ? b : a));

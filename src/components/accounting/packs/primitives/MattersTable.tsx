@@ -64,6 +64,19 @@ function uniformColumns(matters: PackMatterFigure[]): ProseColumn[] {
     .map(({ key }) => key);
 }
 
+/**
+ * The uniform value as a finished sentence, so the clause after it starts one.
+ *
+ * It was joined with an em dash: "Not tracked — no prior board pack is stored
+ * to compare against. — the same for every matter listed above." A full stop
+ * and a dash, because the joiner assumed a fragment and every value the pack
+ * actually produces is a sentence.
+ */
+function asSentence(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
   const isLong = matters.length > ZEBRA_ROW_THRESHOLD;
   const uniform = uniformColumns(matters);
@@ -125,7 +138,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
           {PROSE_COLUMNS.filter((c) => uniform.includes(c.key)).map((c) => (
             <div key={c.key}>
               <dt>{c.label}</dt>
-              <dd>{matters[0]![c.key]} — the same for every matter listed above.</dd>
+              <dd>{asSentence(matters[0]![c.key])} The same for every matter listed above.</dd>
             </div>
           ))}
         </dl>

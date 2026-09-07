@@ -201,8 +201,27 @@ describe('largestMoverCaption', () => {
     expect(largestMoverCaption(rows)).toMatch(/Rent moved the most, up 3(\.0)?%/);
   });
 
-  it('says so plainly when no line has a comparative', () => {
-    expect(largestMoverCaption([line('Revenue', null)])).toMatch(/no line item/i);
+  /**
+   * Sheet 5 printed "No line item shows a meaningful period-on-period
+   * movement" and sheet 6, the next page, printed "Cost of sales moved the
+   * most, up 77.8%." Sheet 5's summary carries exactly one `line` row, whose
+   * percentage is not meaningful because the comparative is not a positive
+   * base — so the page had concluded something about the PERIOD from a missing
+   * PERCENTAGE, two sheets from its own counter-example.
+   */
+  it('says the percentage is missing, not that nothing moved', () => {
+    const caption = largestMoverCaption([line('Revenue', null)]);
+
+    expect(caption).toMatch(/no line item on this page/i);
+    // The claim it must NOT make: this page cannot see the other page's table.
+    expect(caption).not.toMatch(/meaningful period-on-period movement/);
+    // And it carries the cells' own reason rather than inventing one.
+    expect(caption).toContain('no comparative');
+  });
+
+  it('still says something when the column carries no reason either', () => {
+    const bare: PackTableRow = { label: 'Revenue', level: 0, role: 'line', figures: {} };
+    expect(largestMoverCaption([bare])).toMatch(/no line item on this page/i);
   });
 });
 
