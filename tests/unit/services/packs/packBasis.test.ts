@@ -92,7 +92,16 @@ describe('buildBasis', () => {
     });
     const basis = buildBasis(set, doc, [], 'v1', new PackFigureProvenance());
     expect(basis.caveats).toContain('Some subtypes were unclassified and defaulted to current.');
-    expect(basis.caveats).toContain('No inventory could be identified in the chart of accounts.');
+    // `inventoryCaveat` is a TRIGGER, not the printed sentence. Upstream it
+    // carries `inventoryWarning.board`, which qualifies a quick (acid-test)
+    // ratio — a measure this pack does not publish, so page 12 was qualifying
+    // something that appears nowhere in the document. The pack states the
+    // same fact against what it actually costs HERE. See `INVENTORY_CAVEAT`.
+    const inventory = basis.caveats.find((c) => /inventory/i.test(c));
+    expect(inventory).toBeDefined();
+    expect(inventory).not.toMatch(/quick ratio/i);
+    expect(inventory).toMatch(/cash conversion cycle cannot be computed/);
+    expect(inventory).toMatch(/no acid-test ratio/);
   });
 
   it('omits a caveat that is not present rather than emitting an empty one', () => {

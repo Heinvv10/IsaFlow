@@ -31,14 +31,33 @@ import type {
   PackTableRow,
 } from '@/modules/accounting/services/packs/pages/packPageModel';
 
+/**
+ * The scored-target sentence, WRITTEN ONCE.
+ *
+ * It was written twice — here and in `scorecardTitle` — and both copies read
+ * "0 of 1 scored targets were met this period", which is the page's largest
+ * type disagreeing with itself about number. The demo company hides it
+ * because it scores three; only a one-target company shows it, and
+ * Brightsphere is one. Two copies of a sentence is why one of them can be
+ * wrong, so there is one now and both callers use it.
+ *
+ * The noun and the verb both follow the TOTAL, not the met count: "0 of 1
+ * scored target was met" and "1 of 3 scored targets were met" both read as
+ * written English, where agreeing the verb with the met count gives "0 of 1
+ * scored target were met".
+ */
+export function scoredTargetsSentence(met: number, total: number): string {
+  if (total === 0) return 'No scorecard metric has a target to score against this period.';
+  const noun = total === 1 ? 'scored target was' : 'scored targets were';
+  return `${met} of ${total} ${noun} met this period`;
+}
+
 export function scorecardCaption(groups: PackScorecardGroup[]): string {
   const { met, total } = scorecardScore(groups);
-  if (total === 0) {
-    return 'No scorecard metric has a target to score against this period.';
-  }
+  if (total === 0) return scoredTargetsSentence(0, 0);
   const missed = total - met;
   const missedClause = missed > 0 ? `, with ${missed} missed` : '';
-  return `${met} of ${total} scored targets were met this period${missedClause}.`;
+  return `${scoredTargetsSentence(met, total)}${missedClause}.`;
 }
 
 /**

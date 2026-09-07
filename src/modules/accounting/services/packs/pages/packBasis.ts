@@ -38,6 +38,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import { formatPackTimestamp } from './packPeriodLabel';
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { buildDefinitions } from './packDefinitions';
+import { NO_INVENTORY_CLASSIFIED } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
 
@@ -45,11 +46,32 @@ export interface PackBasis {
   basisOfPreparation: PackBasisOfPreparation;
   numberConvention: PackNumberConvention;
   definitions: PackDefinition[];
-  /** `classificationCaveat` / `inventoryCaveat` off the current figures,
-   *  surfaced here rather than suppressed — see `reportPackDataService.ts`
-   *  for what each means. Includes the draft watermark when `doc.draft`. */
+  /** `classificationCaveat` off the current figures, this pack's own wording
+   *  of the inventory caveat (see `INVENTORY_CAVEAT`), and the draft status
+   *  when `doc.draft`. Surfaced rather than suppressed — see
+   *  `reportPackDataService.ts` for what each condition means. */
   caveats: string[];
 }
+
+/**
+ * A CAVEAT MUST QUALIFY SOMETHING THE PACK PRINTS.
+ *
+ * `inventoryCaveat` off `reportPackDataService` carries `inventoryWarning`'s
+ * `board` wording, which is written for a report that PUBLISHES a quick
+ * (acid-test) ratio: "the quick ratio does not exclude it … read it as a
+ * current ratio". This pack publishes no quick ratio — the scorecard's
+ * liquidity metric is the current ratio — so page 12 was qualifying a measure
+ * that appears nowhere in the document, which is a sentence about nothing.
+ *
+ * The underlying FACT is real and worth disclosing, and it does reach this
+ * pack: it is why the scorecard's cash conversion cycle prints its reason
+ * instead of a number (`NO_INVENTORY_CLASSIFIED`, shared rather than
+ * restated). So the caveat is reworded to state the fact and name what it
+ * actually costs HERE, rather than dropped.
+ */
+const INVENTORY_CAVEAT =
+  `${NO_INVENTORY_CLASSIFIED} This pack publishes no acid-test ratio; classify the stock control `
+  + `account for one.`;
 
 const STANDARD = 'IFRS for SMEs';
 const SOURCE_SYSTEM = 'IsaFlow general ledger';
@@ -116,7 +138,7 @@ export function buildBasis(
 ): PackBasis {
   const caveats: string[] = [];
   if (set.current.classificationCaveat) caveats.push(set.current.classificationCaveat);
-  if (set.current.inventoryCaveat) caveats.push(set.current.inventoryCaveat);
+  if (set.current.inventoryCaveat) caveats.push(INVENTORY_CAVEAT);
   // The SAME sentence the cover prints — one definition, because they are one
   // claim, and a pack whose cover says DRAFT while its caveats do not is a
   // pack that disagrees with itself about its own status.

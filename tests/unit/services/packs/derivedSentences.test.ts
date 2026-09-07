@@ -164,7 +164,22 @@ describe('scorecardCaption', () => {
     const groups: PackScorecardGroup[] = [
       { letter: 'A', name: 'Growth', rows: [row('met'), row('unscored'), row('notMeaningful')] },
     ];
-    expect(scorecardCaption(groups)).toMatch(/1 of 1 scored targets were met/);
+    expect(scorecardCaption(groups)).toMatch(/1 of 1 scored target was met/);
+  });
+
+  /**
+   * THE LARGEST TYPE ON SHEET 9 DISAGREED WITH ITSELF ABOUT NUMBER. Both the
+   * page title and this caption read "0 of 1 scored targets were met", and the
+   * demo company hides it because it scores three. Brightsphere scores one.
+   * Asserted on the title and the caption together because the sentence used to
+   * be written twice and both copies were wrong.
+   */
+  it('agrees noun and verb with the number of scored targets', () => {
+    const one: PackScorecardGroup[] = [{ letter: 'A', name: 'Growth', rows: [row('missed')] }];
+    expect(scorecardCaption(one)).toMatch(/^0 of 1 scored target was met this period, with 1 missed\.$/);
+    expect(scorecardTitle(0, 1)).toBe('0 of 1 scored target was met this period.');
+    expect(scorecardTitle(1, 3)).toBe('1 of 3 scored targets were met this period.');
+    expect(scorecardTitle(3, 3)).toBe('3 of 3 scored targets were met this period.');
   });
 
   it('says so plainly when nothing has a target', () => {

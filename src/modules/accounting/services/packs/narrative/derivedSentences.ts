@@ -46,6 +46,7 @@ import { formatMoney, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
+import { scoredTargetsSentence } from './derivedCaptions';
 
 export {
   boardActionItems,
@@ -54,6 +55,7 @@ export {
   positionCaption,
   scorecardCaption,
   scorecardScore,
+  scoredTargetsSentence,
   tileCaption,
   trendsCaption,
 } from './derivedCaptions';
@@ -158,8 +160,8 @@ export function cashTitle(set: PackFigureSet, scale: MoneyScale): string {
  * a reader is meant to land on to the right of a rule.
  */
 export function scorecardTitle(met: number, total: number): string {
-  if (total === 0) return 'No scorecard metric has a target to score against this period.';
-  return `${met} of ${total} scored targets were met this period.`;
+  if (total === 0) return scoredTargetsSentence(0, 0);
+  return `${scoredTargetsSentence(met, total)}.`;
 }
 
 /**

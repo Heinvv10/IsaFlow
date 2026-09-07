@@ -91,6 +91,15 @@ interface MetricSpec {
   read: (ratios: ExtendedRatioResult, raw: ReportPackFigures) => MetricRead;
 }
 
+/**
+ * What an unclassified chart of accounts costs this pack, in one sentence.
+ *
+ * Exported because page 12's caveat says the same thing about the same fact,
+ * and the pack must not describe one condition two ways.
+ */
+export const NO_INVENTORY_CLASSIFIED =
+  'No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.';
+
 const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[] }> = [
   {
     letter: 'A',
@@ -222,8 +231,7 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
           raw.inventoryCaveat !== null
             ? {
                 value: null,
-                unavailable:
-                  'No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.',
+                unavailable: NO_INVENTORY_CLASSIFIED,
               }
             : { value: r.cashConversionCycle },
       },

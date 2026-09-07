@@ -15,10 +15,17 @@
  *      declared at all. A pack for a first-period company shows one column,
  *      not four with three of them empty — and never a zeroed prior, which
  *      would print −100% against every real figure.
- *   2. Non-positive revenue means no "% of revenue" column. `marginPct`
- *      returns null on a non-positive base for a reason: the sign of the
+ *   2. Non-positive revenue does NOT remove the "% of revenue" column — it
+ *      makes every cell in it `n/m` against a stated reason. `marginPct`
+ *      returns null on a non-positive base for a good reason: the sign of the
  *      result stops tracking the sign of the story, so a cost line would
- *      print a flattering positive percentage of a negative turnover.
+ *      print a flattering positive percentage of a negative turnover. But
+ *      DELETING the column is not this pack's way of saying so anywhere else
+ *      — it prints the reason in place of the number — and Brightsphere's
+ *      sheet 6 silently lost a column the demo pack shows, which reads as a
+ *      pack with a different shape rather than a company with negative
+ *      turnover. Rule 1 is genuinely different: there the whole comparative
+ *      PERIOD is absent, so there is no column to have a reason about.
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
@@ -76,8 +83,12 @@ interface RowInput {
 }
 
 interface TableOptions {
-  /** Revenue for the "% of revenue" column, or null to omit that column. */
+  /** Revenue for the "% of revenue" column, or null where the table declares
+   *  the column but no cell in it can carry a number — see rule 2 above. */
   revenue: number | null;
+  /** Whether the table declares a "% of revenue" column at all. False only
+   *  where the statement has no such column by design (page 5, 7 and 8). */
+  hasPctOfRevenue: boolean;
   /** Whether this table declares prior/change/change-% columns at all. */
   hasPrior: boolean;
 }
@@ -90,6 +101,15 @@ interface TableOptions {
  */
 const NO_PRIOR_FIGURE =
   'The comparative period carries no figure for this line, so no change can be stated.';
+
+/**
+ * Why a "% of revenue" cell carries no number. The base is the CURRENT
+ * period's revenue, not a prior figure, so `NOT_A_POSITIVE_BASE` — which says
+ * "the prior figure" — would name the wrong number. Two reasons for two
+ * bases, rather than one wording that is wrong on one of them.
+ */
+const REVENUE_NOT_A_POSITIVE_BASE =
+  'Revenue for the period is not positive, so a share of it is not meaningful.';
 
 /**
  * The three comparative cells of a row that has no prior figure — printed as
@@ -151,16 +171,25 @@ function buildRow(p: PackFigureProvenance, input: RowInput, opts: TableOptions):
       : changeFigures(p, input, input.actual, input.prior));
   }
 
-  if (opts.revenue !== null && input.actual !== null) {
-    const pct = marginPct(input.actual, opts.revenue);
-    if (pct !== null) {
-      figures.pctOfRevenue = p.figure(
-        `packStatementTables.pctOfRevenue.${input.key}`,
-        pct,
-        'pct',
-        undefined,
-        { numerator: input.actual, denominator: opts.revenue },
-      );
+  // A DECLARED COLUMN ALWAYS CARRIES A FIGURE. The renderer's fallback for a
+  // declared column with no figure is the em dash, which this pack defines as
+  // a MEASURED NIL — so an omitted cell here would assert a share of nothing
+  // rather than say why there is no share to state.
+  if (opts.hasPctOfRevenue) {
+    const key = `packStatementTables.pctOfRevenue.${input.key}`;
+    const pct = opts.revenue === null || input.actual === null
+      ? null
+      : marginPct(input.actual, opts.revenue);
+    if (pct === null) {
+      const reason = opts.revenue === null
+        ? REVENUE_NOT_A_POSITIVE_BASE
+        : input.unavailable ?? 'This line was not captured for the period.';
+      figures.pctOfRevenue = p.figure(key, null, 'pct', reason);
+    } else {
+      figures.pctOfRevenue = p.figure(key, pct, 'pct', undefined, {
+        numerator: input.actual!,
+        denominator: opts.revenue!,
+      });
     }
   }
 
@@ -186,10 +215,14 @@ function buildTable(
   // whether the base is usable at all: null here means null for every row.
   const usableBase = withPctOfRevenue && marginPct(set.current.revenue, revenue) !== null;
   const hasPrior = set.prior !== null;
-  const opts: TableOptions = { revenue: usableBase ? revenue : null, hasPrior };
+  const opts: TableOptions = {
+    revenue: usableBase ? revenue : null,
+    hasPctOfRevenue: withPctOfRevenue,
+    hasPrior,
+  };
   return {
     scale: PACK_SCALE,
-    columns: columnsFor(hasPrior, usableBase),
+    columns: columnsFor(hasPrior, withPctOfRevenue),
     rows: inputs.map((input) => buildRow(p, input, opts)),
   };
 }
