@@ -8,13 +8,34 @@
  * `idempotency_key`, so an agent that has learned the single tool needs to
  * learn nothing new.
  *
- * ALL OR NOTHING, deliberately. Every element is parsed and every id is
- * ownership-checked before the first INSERT, so a malformed batch is refused
+ * ALL OR NOTHING for FAULTS, deliberately. Every element is parsed and every id
+ * is ownership-checked before the first INSERT, so a malformed batch is refused
  * with nothing written; and once writing starts a failure PROPAGATES, which
  * puts the registry's savepoint — not this handler — in charge of discarding
  * the half-built batch. A bulk create that committed the first 60 of 100 bills
  * and reported an error would leave an agent unable to tell which 40 to retry,
  * and retrying the whole batch would double-post the 60.
+ *
+ * A REPEATED ELEMENT IS NOT A FAULT. Two elements carrying the same
+ * (supplier_id, invoice_number) are one bill sent twice, and refusing the whole
+ * call over it cost the Velocity Fibre reload real work: the Sage export held
+ * 14 such pairs, so batches failed until every one had been found and
+ * renumbered by hand — the bisect-it-yourself labour this tool exists to
+ * remove. `bulk_allocate_bank_transactions` already draws the line correctly: a
+ * fact about the DATA is a skip with a reason and the rest of the batch runs.
+ *
+ * The skip is safe here for a reason that does NOT generalise to a mid-write
+ * one: it is decided in the PARSE pass, before the first INSERT, so an element
+ * set aside has written nothing and the handler still returns normally. A skip
+ * taken after writing had begun would release the registry's savepoint and
+ * commit a partial batch under a success-shaped reply.
+ *
+ * There is no books-level duplicate check, and that is deliberate too.
+ * `supplier_invoices` carries no unique index on `invoice_number` — only the
+ * primary key — and `idx_supplier_invoices_duplicate_fp` is explicitly NOT
+ * unique. The database accepts the same number twice, so refusing it here would
+ * be a rule this tool invented. In-batch repeats are the only duplicates that
+ * are unambiguously duplicates.
  */
 import type { McpTool } from '../types';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
@@ -110,7 +131,9 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
   description:
     'Create up to 100 DRAFT supplier invoices (bills) in ONE call. Each element takes the same payload as create_supplier_invoice, without its idempotency_key. '
     + 'Posts nothing to the ledger — approve each with approve_supplier_invoice (needs write:post). '
-    + 'ALL OR NOTHING: if any element is rejected or fails, none of them are created, so a retry on the same idempotency_key is safe. '
+    + 'ALL OR NOTHING for faults: if an element genuinely fails, none of them are created, so a retry on the same idempotency_key is safe. '
+    + 'A REPEAT IS NOT A FAULT: two elements with the same (supplier_id, invoice_number) are one bill sent twice — the first is created, the later ones are listed in "skipped" with a reason, and the rest of the batch still runs. '
+    + 'Note this is an in-batch check only: the database accepts the same invoice_number twice, so a bill already in the books is NOT detected here. '
     + 'Resolve supplier_id with list_suppliers and gl_account_id with list_gl_accounts first.',
   scope: 'write:invoices',
   write: true,
@@ -149,28 +172,48 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
     const batch = parseBatch(args.invoices);
     if (typeof batch === 'string') return toolError(batch);
 
-    const parsed: ParsedSupplierInvoice[] = [];
+    // The caller's own index rides with each element: once repeats are set
+    // aside, a position in `parsed` no longer matches a position in the
+    // payload, and `created[].index` is what an agent reconciles against its
+    // own list.
+    const parsed: { index: number; inv: ParsedSupplierInvoice }[] = [];
+    const skipped: Record<string, unknown>[] = [];
     const supplierIds = new Set<string>();
     const accountIds = new Set<string>();
     // (supplier, their own invoice number) twice in one batch is a duplicated
-    // element, not two bills: a supplier does not issue one number twice. It is
-    // caught here because the AP service has no such constraint and would
-    // cheerfully create both.
-    const seen = new Set<string>();
+    // element, not two bills: a supplier does not issue one number twice. The
+    // AP service has no such constraint and would cheerfully create both.
+    //
+    // The FIRST occurrence is kept and later ones are skipped — the caller's
+    // order is the only thing distinguishing them, so anything else would be a
+    // coin toss over which copy is real. The key is the PAIR: two suppliers may
+    // each issue their own INV-1, and collapsing those would silently drop a
+    // genuine bill, which is a worse failure than the one being fixed.
+    const seenAt = new Map<string, number>();
     for (let i = 0; i < batch.length; i++) {
       const one = parseSupplierInvoiceInput(batch[i]!);
+      // A malformed element is still a REFUSAL: it is a fault in the request,
+      // not a fact about the data, and the caller cannot act on a batch that
+      // half-ran because one payload was the wrong shape.
       if (typeof one === 'string') return toolError(`invoices[${i}].${one}`);
       const key = `${one.supplierId} ${one.invoiceNumber}`;
-      if (seen.has(key)) {
-        return toolError(
-          `invoices[${i}] repeats invoice_number ${JSON.stringify(one.invoiceNumber)} `
-          + 'for the same supplier — combine the lines',
-        );
+      const firstAt = seenAt.get(key);
+      if (firstAt !== undefined) {
+        skipped.push({
+          index: i,
+          invoice_number: one.invoiceNumber,
+          supplier_id: one.supplierId,
+          reason: `invoices[${firstAt}] already carries invoice_number `
+            + `${JSON.stringify(one.invoiceNumber)} for this supplier — `
+            + 'a supplier does not issue one number twice, so this element was '
+            + 'not created. Combine the lines if they belong on one bill.',
+        });
+        continue;
       }
-      seen.add(key);
+      seenAt.set(key, i);
       supplierIds.add(one.supplierId);
       for (const id of one.accountIds) accountIds.add(id);
-      parsed.push(one);
+      parsed.push({ index: i, inv: one });
     }
 
     // Ownership for the WHOLE batch, before the first write, over the DISTINCT
@@ -186,8 +229,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
     }
 
     const created: Record<string, unknown>[] = [];
-    for (let i = 0; i < parsed.length; i++) {
-      const p = parsed[i]!;
+    for (const { index, inv: p } of parsed) {
       try {
         const invoice = await createSupplierInvoice(
           ctx.companyId,
@@ -206,7 +248,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
           mcpPostingOpts(ctx, 'bulk_create_supplier_invoices'),
         );
         created.push({
-          index: i,
+          index,
           id: invoice.id,
           invoice_number: invoice.invoiceNumber,
           supplier_id: invoice.supplierId,
@@ -219,11 +261,16 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
         // INSERT, so this element wrote nothing — but the elements above it
         // did. Only a throw reaches the registry's savepoint and discards them;
         // a returned error RELEASES the savepoint and commits the partial run.
-        throw elementError(i, err, 'Failed to create supplier invoice.');
+        throw elementError(index, err, 'Failed to create supplier invoice.');
       }
     }
 
-    return ok({ created_count: created.length, invoices: created });
+    return ok({
+      created_count: created.length,
+      skipped_count: skipped.length,
+      invoices: created,
+      skipped,
+    });
   },
 };
 
