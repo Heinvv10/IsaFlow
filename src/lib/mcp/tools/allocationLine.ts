@@ -18,11 +18,25 @@ import {
   suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
+import {
+  resolveLineVatCode, type AllocationVatFacts, type VatCoercion,
+} from './allocationVatGuard';
 import { pickTxSelector, resolveTxId, resolveTxSelectors, type TxSelector } from './txSelectorResolve';
 import { mcpPostingOpts } from '../mcpActor';
 import { applyRouteFor, postAndApplyLine } from './allocationApplyRoute';
 import type { McpToolContext } from '../types';
 import { NOT_FOUND, guardCastableArgs } from './toolHelpers';
+
+/**
+ * What one posted line reports back. `vatCoerced` is present only when a guard
+ * actually changed the code — its absence means the caller's choice stood.
+ */
+export interface PostedAllocationLine {
+  journalEntryId: string;
+  transactionId: string;
+  /** Present only when a guard changed the code — absence means it stood. */
+  vatCoerced?: VatCoercion;
+}
 
 // Selector parsing and reference resolution moved to txSelectorResolve.ts when
 // resolution became batched (a 500-line bulk call must not issue 500 queries
@@ -227,7 +241,9 @@ export async function postAllocationLine(
   txId: string,
   line: AllocationLine,
   toolName: string,
-): Promise<{ journalEntryId: string; transactionId: string }> {
+  /** Pre-resolved account facts from the bulk caller; absent = look up here. */
+  facts?: AllocationVatFacts,
+): Promise<PostedAllocationLine> {
   // A line that names an invoice goes to the service that posts the journal
   // AND applies it. `allocateTransaction` is left alone deliberately:
   // `applyBankLineToSupplierInvoices` already calls it with an invoiceId, so
@@ -244,6 +260,13 @@ export async function postAllocationLine(
     });
   }
 
+  // The guard, and why this path has one, live in allocationVatGuard.ts.
+  // `facts` arrives pre-resolved from the bulk caller so a 500-line batch does
+  // not run two SELECTs per line; absent, the resolver looks them up itself.
+  const { effectiveVatCode, vatCoerced } = await resolveLineVatCode(
+    ctx.companyId, txId, line, toolName, facts,
+  );
+
   const result = await allocateTransaction(
     ctx.companyId,                                            // tenant from ctx ONLY
     txId,
@@ -252,12 +275,16 @@ export async function postAllocationLine(
     line.description,
     line.allocType,
     line.entityId || undefined,
-    line.vatCode,
+    effectiveVatCode,
     undefined,
     undefined,
     undefined,
     line.invoiceId,
     mcpPostingOpts(ctx, toolName),
   );
-  return { journalEntryId: result.journalEntryId, transactionId: result.bankTransaction.id };
+  return {
+    journalEntryId: result.journalEntryId,
+    transactionId: result.bankTransaction.id,
+    vatCoerced,
+  };
 }

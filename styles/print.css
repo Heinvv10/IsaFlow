@@ -1,19 +1,31 @@
+@import './packPrint.css';
+
 /**
  * print.css — rules for the Playwright PDF pipeline
  * (src/lib/pdf/renderPagePdf.ts).
  *
- * Scoped to `html.print-mode` — only the renderer ever adds that class
- * (via page.evaluate, right before page.pdf()), so an ordinary user's
- * browser Ctrl+P is completely unaffected by anything below.
+ * Scoped to `html.print-mode`, with ONE deliberate exception. The PAGE adds
+ * that class, not the renderer: `usePrintMode`
+ * (src/components/accounting/packs/usePrintMode.ts) sets it in a layout effect
+ * when it sees ?print=1. It has to be the page's job, because the Gotenberg
+ * transport cannot execute a script on our behalf the way Playwright's
+ * page.evaluate could. An ordinary user's browser Ctrl+P never sets the class,
+ * so every rule below leaves that user alone.
+ *
+ * The exception is page SIZE. `@page` cannot be scoped to a class, and the
+ * import above brings packPrint.css's `@page { size: A4 }` into the global
+ * stylesheet — so Ctrl+P on ANY IsaFlow page gets A4. That is intended:
+ * IsaFlow is a South African product and A4 is the correct default for
+ * anything printed from it.
  *
  * A page opts in by setting `data-print-ready="true"` on its root element
- * once its data has loaded; the renderer waits for that selector before
- * calling page.pdf().
+ * once its data has loaded; both transports wait for that selector before
+ * asking Chromium for the PDF.
  *
- * Light tokens: the renderer also strips `.dark` from <html> before
- * printing, so every `--ff-*` custom property (styles/globals.css) falls
- * back to its `:root` (light) definition on its own — no need to duplicate
- * that token set here, where it would drift as new tokens are added.
+ * Light tokens: the same hook also strips `.dark` from <html>, so every
+ * `--ff-*` custom property (styles/globals.css) falls back to its `:root`
+ * (light) definition on its own — no need to duplicate that token set here,
+ * where it would drift as new tokens are added.
  */
 
 @media print {
@@ -39,6 +51,32 @@
 
   /* Never split a table row across a page boundary. */
   html.print-mode tr {
+    break-inside: avoid;
+  }
+
+  /* Pack pagination. The cover and the contents each own a page; every
+     section already starts a new one via [data-print-break] above. */
+  html.print-mode [data-pack-cover],
+  html.print-mode [data-pack-toc] {
+    break-after: page;
+  }
+
+  /* Sections whose content is a chart wide enough to need the page turned.
+     A named page needs Chromium 111+; both transports ship a newer one. The
+     `page` property is what puts THIS section on a landscape sheet while the
+     rest of the pack stays portrait — page.pdf()'s own `landscape` flag would
+     turn the whole document. */
+  @page landscape-page {
+    size: A4 landscape;
+  }
+
+  html.print-mode [data-print-landscape] {
+    page: landscape-page;
+  }
+
+  /* A chart split across a page boundary is unreadable. */
+  html.print-mode svg,
+  html.print-mode [data-pack-chart] {
     break-inside: avoid;
   }
 }

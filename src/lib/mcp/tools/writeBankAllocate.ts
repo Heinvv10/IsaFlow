@@ -35,6 +35,10 @@ export const allocateBankTransactionTool: McpTool = {
     + 'POSTS a journal entry. Every allocation is attributed to the agent and can be undone with reverse_bank_allocation. '
     + 'DIRECTION FOLLOWS THE SIGN: a money-out line against a supplier is a payment (DR Accounts Payable / CR Bank) and a money-IN line is a supplier refund (DR Bank / CR Accounts Payable); a money-in line against a customer is a receipt and a money-out line is a customer refund. A refund is NOT applied to an invoice — name no invoice_id for one. '
     + 'An invoice_id whose direction contradicts the line is REFUSED, never guessed. '
+    + 'A vat_code of standard is REFUSED on accounts where no supply can arise (salaries and statutory deductions, '
+    + 'taxes and penalties, distributions, depreciation, donations, and exempt financial services such as interest, '
+    + 'loans and share investments) and on entertainment accounts where input tax is denied — the line still posts, '
+    + 'gross, and the response carries vat_coerced saying what was changed and why. '
     + 'To allocate many transactions at once, use bulk_allocate_bank_transactions.',
   scope: 'write:bank-tx',
   write: true,
@@ -87,6 +91,11 @@ export const allocateBankTransactionTool: McpTool = {
     return ok({
       journal_entry_id: result.journalEntryId,
       transaction_id: result.transactionId,
+      // Present only when a guard changed the code. Returned rather than
+      // swallowed so the agent can correct its next call — being silently
+      // overruled teaches it nothing, and it is the caller that will allocate
+      // the next hundred lines.
+      ...(result.vatCoerced ? { vat_coerced: result.vatCoerced } : {}),
     });
   },
 };

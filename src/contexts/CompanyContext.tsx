@@ -11,48 +11,14 @@ import {
 import { useAuth } from './AuthContext';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import {
+  mapCompanyRow, mapCompanyUsers, readStoredCompany, readStoredCompanyId,
+  writeStoredCompany, clearStoredCompany, type Company, type CompanyUser,
+} from './companyModel';
 
-const STORAGE_KEY = 'isaflow_active_company';
-
-export interface Company {
-  id: string;
-  name: string;
-  tradingName?: string;
-  registrationNumber?: string;
-  vatNumber?: string;
-  taxNumber?: string;
-  addressLine1?: string;
-  addressLine2?: string;
-  city?: string;
-  province?: string;
-  postalCode?: string;
-  country?: string;
-  phone?: string;
-  email?: string;
-  website?: string;
-  logoUrl?: string;
-  logoData?: string;
-  bankName?: string;
-  bankAccountNumber?: string;
-  bankBranchCode?: string;
-  bankAccountType?: string;
-  financialYearStart?: number;
-  vatPeriod?: string;
-  vatSystemType?: string;
-  defaultCurrency?: string;
-  isActive?: boolean;
-  // PRD-10 Layer 1: idle-timeout policy in minutes (default 480 = 8h).
-  idleTimeoutMinutes?: number;
-  // Demo tenant flag — persisted into localStorage so DemoBanner renders on first paint.
-  isDemo?: boolean;
-}
-
-export interface CompanyUser {
-  companyId: string;
-  companyName: string;
-  role: string;
-  isDefault: boolean;
-}
+// The shapes and the two pure translations live in companyModel.ts (300-line
+// ceiling). Re-exported so every existing import site is unchanged.
+export type { Company, CompanyUser } from './companyModel';
 
 interface CompanyContextType {
   activeCompany: Company | null;
@@ -64,7 +30,21 @@ interface CompanyContextType {
 
 const CompanyContext = createContext<CompanyContextType | undefined>(undefined);
 
-export function CompanyProvider({ children }: { children: ReactNode }) {
+interface CompanyProviderProps {
+  children: ReactNode;
+  /**
+   * Skip every fetch this provider would otherwise make and leave it in its
+   * empty state (no active company, no memberships, not loading). For a PDF
+   * print render (see printRenderQuery.ts): the print page needs no company
+   * context, and under a transport that cannot stub network calls
+   * (Gotenberg), the unauthorised `/api/accounting/companies` fetch this
+   * provider makes 401s and apiFetch's global redirect (src/lib/apiFetch.ts)
+   * navigates the whole render to /login before it can finish.
+   */
+  skipFetch?: boolean;
+}
+
+export function CompanyProvider({ children, skipFetch = false }: CompanyProviderProps) {
   const { isAuthenticated, user, loading: authLoading } = useAuth();
   const userRole = user?.role ?? null;
   const userId = user?.id ?? null;
@@ -72,20 +52,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   // has at least {id, name} — avoids a flash of the 'ISAFlow' fallback title
   // until the async /api/accounting/companies fetch resolves. The async fetch
   // that follows will enrich the company with the full profile.
-  const [activeCompany, setActiveCompany] = useState<Company | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      if (!stored) return null;
-      const parsed = JSON.parse(stored) as { id?: string; name?: string; isDemo?: boolean };
-      if (parsed?.id && parsed?.name) {
-        return { id: parsed.id, name: parsed.name, isDemo: parsed.isDemo ?? false };
-      }
-    } catch {
-      // Malformed entry — fall through to null and let the fetch drive state.
-    }
-    return null;
-  });
+  const [activeCompany, setActiveCompany] = useState<Company | null>(readStoredCompany);
   const [companies, setCompanies] = useState<CompanyUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [companyRole, setCompanyRole] = useState<string | null>(null);
@@ -97,42 +64,9 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         const c = data.data;
         if (c) {
-          const company: Company = {
-            id: c.id,
-            name: c.name,
-            tradingName: c.trading_name || c.tradingName,
-            registrationNumber: c.registration_number || c.registrationNumber,
-            vatNumber: c.vat_number || c.vatNumber,
-            taxNumber: c.tax_number || c.taxNumber,
-            addressLine1: c.address_line1 || c.addressLine1,
-            addressLine2: c.address_line2 || c.addressLine2,
-            city: c.city,
-            province: c.province,
-            postalCode: c.postal_code || c.postalCode,
-            country: c.country,
-            phone: c.phone,
-            email: c.email,
-            website: c.website,
-            logoUrl: c.logo_url || c.logoUrl,
-            logoData: c.logo_data || c.logoData,
-            bankName: c.bank_name || c.bankName,
-            bankAccountNumber: c.bank_account_number || c.bankAccountNumber,
-            bankBranchCode: c.bank_branch_code || c.bankBranchCode,
-            bankAccountType: c.bank_account_type || c.bankAccountType,
-            financialYearStart: c.financial_year_start || c.financialYearStart,
-            vatPeriod: c.vat_period || c.vatPeriod,
-            vatSystemType: c.vat_system_type || c.vatSystemType,
-            defaultCurrency: c.default_currency || c.defaultCurrency,
-            isActive: c.is_active ?? c.isActive ?? true,
-            idleTimeoutMinutes: c.idle_timeout_minutes ?? c.idleTimeoutMinutes,
-            isDemo: c.is_demo ?? c.isDemo ?? false,
-          };
+          const company = mapCompanyRow(c);
           setActiveCompany(company);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({
-            id: company.id,
-            name: company.name,
-            isDemo: company.isDemo ?? false,
-          }));
+          writeStoredCompany({ id: company.id, name: company.name, isDemo: company.isDemo ?? false });
           return company;
         }
       }
@@ -167,14 +101,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       const res = await apiFetch('/api/accounting/companies?action=user-companies');
       if (res.ok) {
         const data = await res.json();
-        const raw = data.data?.items ?? data.data ?? [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        list = (Array.isArray(raw) ? raw : []).map((c: any) => ({
-          companyId: (c.companyId || c.company_id) as string,
-          companyName: (c.companyName || c.company_name) as string,
-          role: c.role as string,
-          isDefault: Boolean(c.isDefault ?? c.is_default ?? false),
-        }));
+        list = mapCompanyUsers(data.data?.items ?? data.data ?? []);
       }
     } catch (e) {
       log.warn('Failed to load user companies', { error: e }, 'context');
@@ -182,16 +109,9 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
 
     setCompanies(list);
 
-    let storedId: string | null = null;
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as { id?: string };
-        if (parsed?.id) storedId = parsed.id;
-      }
-    } catch (e) {
-      log.warn('Failed to parse stored company data', { error: e }, 'context');
-    }
+    const storedId = readStoredCompanyId(
+      (e) => log.warn('Failed to parse stored company data', { error: e }, 'context'),
+    );
 
     // Determine which company to activate.
     // Regular users: localStorage id must be in their membership list.
@@ -209,7 +129,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     }
 
     if (!targetId) {
-      localStorage.removeItem(STORAGE_KEY);
+      clearStoredCompany();
       setActiveCompany(null);
       setLoading(false);
       return;
@@ -227,8 +147,12 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
   }, [authLoading, isAuthenticated, userRole, loadCompanyDetails]);
 
   useEffect(() => {
+    if (skipFetch) {
+      setLoading(false);
+      return;
+    }
     void loadUserCompanies();
-  }, [loadUserCompanies]);
+  }, [loadUserCompanies, skipFetch]);
 
   // Cross-tenant safety: when the authenticated user identity changes inside
   // the same provider instance (a soft-nav login after logout, or any future
@@ -251,7 +175,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
     setCompanies([]);
     setCompanyRole(null);
     if (typeof window !== 'undefined') {
-      try { localStorage.removeItem(STORAGE_KEY); } catch { /* best effort */ }
+      try { clearStoredCompany(); } catch { /* best effort */ }
     }
   }, [userId]);
 
@@ -292,7 +216,7 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       const newName = match?.companyName ?? '';
       // isDemo is not known for the target company at switch time — clear it so
       // loadCompanyDetails can re-hydrate the correct value after reload.
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: companyId, name: newName, isDemo: false }));
+      writeStoredCompany({ id: companyId, name: newName, isDemo: false });
       window.location.reload();
       return;
     }

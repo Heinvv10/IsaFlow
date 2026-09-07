@@ -16,6 +16,10 @@ import type { BalanceSheetReport } from '@/modules/accounting/types/gl.types';
 import { BalanceSheetBody } from '@/components/accounting/BalanceSheetBody';
 import { apiFetch } from '@/lib/apiFetch';
 import { EvidenceDrillModal } from '@/components/accounting/evidence/EvidenceDrillModal';
+import { ComparatorControls } from '@/components/accounting/reportControls/ComparatorControls';
+import { PresentLink } from '@/components/accounting/reportControls/PresentLink';
+import { useStatementComparatorState } from '@/components/accounting/reportControls/useStatementComparatorState';
+import { ComparatorNotices } from '@/components/accounting/reportControls/ComparatorNotices';
 
 interface CostCentre { id: string; code: string; name: string }
 
@@ -62,8 +66,18 @@ export default function BalanceSheetPage() {
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
   const [costCentres, setCostCentres] = useState<CostCentre[]>([]);
   const [costCentreId, setCostCentreId] = useState('');
-  const [showComparative, setShowComparative] = useState(false);
   const [evidenceTarget, setEvidenceTarget] = useState<{ accountId: string; accountName: string } | null>(null);
+  // No Budget checkbox here: a budget is a P&L figure, and its account codes
+  // match nothing on a balance sheet. The trend series is `balance`, not
+  // `movement` — a movement series drawn beside a printed balance is a shape
+  // about a different number.
+  const { columns, setColumns, companyWideUnavailable, apply, budgetState, trendFailed } =
+    useStatementComparatorState({
+      costCentreSelected: costCentreId !== '',
+      asOf: asAtDate, basis: 'balance', offersBudget: false,
+    });
+  const showComparative = columns.prior;
+  const anyColumn = columns.prior || columns.trend;
 
   useEffect(() => {
     apiFetch('/api/accounting/cost-centres?active_only=true', { credentials: 'include' })
@@ -128,6 +142,11 @@ export default function BalanceSheetPage() {
                 <h1 className="text-2xl font-bold text-[var(--ff-text-primary)]">Balance Sheet</h1>
               </div>
               <div className="flex items-center gap-2">
+                {/* The balance sheet is an as-at figure with no period start
+                    of its own. The deck's range is the same year-to-date
+                    window the account drill-down already uses, so the two
+                    surfaces cannot disagree about what "this period" means. */}
+                <PresentLink from={drillDownStart} to={drillDownEnd} />
                 <button onClick={handleXlsxExport} disabled={!report}
                   className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50">
                   <FileSpreadsheet className="h-4 w-4" /> Export Excel
@@ -141,7 +160,9 @@ export default function BalanceSheetPage() {
           </div>
         </div>
 
-        <div className="p-6 max-w-4xl space-y-6">
+        {/* Two grids side by side already; a comparator column on each needs
+            the wider container or both scroll horizontally. */}
+        <div className={`p-6 space-y-6 ${anyColumn ? 'max-w-7xl' : 'max-w-4xl'}`}>
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="block text-xs text-[var(--ff-text-tertiary)] mb-1">As at</label>
@@ -156,12 +177,14 @@ export default function BalanceSheetPage() {
                 ))}
               </select>
             </div>
-            <label className="flex items-center gap-2 text-sm text-[var(--ff-text-secondary)] cursor-pointer select-none pb-1">
-              <input type="checkbox" checked={showComparative} onChange={e => setShowComparative(e.target.checked)}
-                className="rounded border-[var(--ff-border-light)]" />
-              Compare prior year
-            </label>
+            <div className="pb-2">
+              <ComparatorControls value={columns} onChange={setColumns} comparators={['prior']}
+                companyWideUnavailable={companyWideUnavailable} />
+            </div>
           </div>
+
+          <ComparatorNotices budgetState={budgetState} trendFailed={trendFailed}
+            companyWideUnavailable={companyWideUnavailable} />
 
           {error && (
             <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
@@ -177,6 +200,8 @@ export default function BalanceSheetPage() {
             <BalanceSheetBody
               report={report}
               showComparative={showComparative}
+              columns={columns}
+              applyComparators={apply}
               expandedAccount={expandedAccount}
               onToggleAccount={toggleAccount}
               drillDownStart={drillDownStart}

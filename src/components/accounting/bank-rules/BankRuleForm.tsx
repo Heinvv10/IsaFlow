@@ -3,6 +3,9 @@
  * rules page so the page itself stays under the 300-line per-file budget.
  */
 
+import {
+  NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, shouldWarnOnNonSupply,
+} from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { Loader2 } from 'lucide-react';
 import type { VatCode } from './BankRuleRow';
 import type { PreviewState } from './useBankRules';
@@ -57,6 +60,11 @@ export function BankRuleForm({
 }: BankRuleFormProps) {
   const vatWarn = form.vatCode === 'standard'
     && accounts.find(a => a.id === form.glAccountId)?.vatInputDenied === true;
+  // Second guard, different statute — no supply arises on this account at all.
+  // Classified on NAME from the same pure module the sweep and the report use.
+  const nonSupply = vatWarn
+    ? null
+    : shouldWarnOnNonSupply(accounts.find(a => a.id === form.glAccountId)?.accountName, form.vatCode);
 
   return (
     <form
@@ -189,6 +197,12 @@ export function BankRuleForm({
             <p className="mt-1 text-[11px] leading-tight text-amber-500">
               ⚠ Entertainment account — input tax is denied (s17(2)(a)). Rules run
               unattended, so this rule will post the gross amount and report it.
+            </p>
+          )}
+          {nonSupply && (
+            <p className="mt-1 text-[11px] leading-tight text-amber-500">
+              ⚠ {NON_SUPPLY_LABEL[nonSupply]} — {NON_SUPPLY_ADVICE[nonSupply]} Rules
+              run unattended, so this rule will post the gross amount and report it.
             </p>
           )}
         </div>

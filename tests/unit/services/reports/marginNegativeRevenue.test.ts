@@ -9,6 +9,13 @@
  *
  * Each expectation below is the value the call site produced BEFORE the
  * convergence, so this file fails if any of the four moves again.
+ *
+ * EXCEPT reportPackService, deliberately changed 2026-09-06: it now carries
+ * marginPct2dp's `null` instead of coercing it to 0. "Gross margin 0.0%" on a
+ * loss period is a figure nothing else on the pack supports, and the pack is
+ * a document a director forwards to a bank. The surfaces print the reason
+ * (packDocument.NO_MARGIN_REASON) in place of a percentage. The other three
+ * call sites are unchanged and still pinned at 0 below.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -16,14 +23,14 @@ const sqlMock = vi.fn();
 vi.mock('@/lib/neon', () => ({ sql: (...a: unknown[]) => sqlMock(...a) }));
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() } }));
 
-import { buildReportPack, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
+import { buildReportPack, NO_MARGIN_SENTENCE, type ReportPackInput } from '@/modules/accounting/services/reports/reportPackService';
 import { getDashboardKPIs } from '@/modules/accounting/services/reports/kpiDashboardService';
 import { calculateKpis, DEFAULT_RAG_THRESHOLDS, type FinancialSnapshot } from '@/modules/accounting/services/afs/afsKpiService';
 import { getIncomeStatement } from '@/modules/accounting/services/reports/incomeStatementService';
 
 beforeEach(() => sqlMock.mockReset());
 
-describe('reportPackService — 0, as it always was', () => {
+describe('reportPackService — null, so no percentage is printed at all', () => {
   const input = (revenue: number): ReportPackInput => ({
     companyName: 'Reversal Co', period: '2026-01-01 to 2026-01-31',
     revenue, costOfSales: 0, operatingExpenses: 50, otherIncome: 0, otherExpenses: 0,
@@ -36,18 +43,20 @@ describe('reportPackService — 0, as it always was', () => {
 
   const margins = (revenue: number) => {
     const pack = buildReportPack('management', input(revenue), '2026-01-01', '2026-01-31');
-    return pack.sections.find(s => s.type === 'income_statement')!.data as Record<string, number>;
+    return pack.sections.find(s => s.type === 'income_statement')!.data as Record<string, number | null>;
   };
 
-  it('prints 0.00% on negative revenue, not a computed percentage', () => {
-    // The predecessor guard was `input.revenue > 0 ? … : 0`.
+  it('emits no margin at all on negative revenue, neither 0 nor a computed percentage', () => {
+    // Dividing a loss by negative turnover prints a healthy-looking POSITIVE
+    // percentage, which is why `marginPct` refuses it. The old `?? 0` turned
+    // that refusal back into a printable 0.0%.
     const m = margins(-100);
-    expect(m.grossMargin).toBe(0);
-    expect(m.netMargin).toBe(0);
+    expect(m.grossMargin).toBeNull();
+    expect(m.netMargin).toBeNull();
   });
 
-  it('still prints 0 on zero revenue and a real figure on positive revenue', () => {
-    expect(margins(0).grossMargin).toBe(0);
+  it('emits no margin on zero revenue and a real figure on positive revenue', () => {
+    expect(margins(0).grossMargin).toBeNull();
     expect(margins(200).grossMargin).toBeCloseTo(100, 10);
   });
 });
@@ -130,5 +139,57 @@ describe('incomeStatementService — computes through a negative, as it always d
     sqlMock.mockResolvedValue([glRow('6000', 'Rent', 'expense', 'operating_expenses', 50, 0)]);
     const r = await getIncomeStatement('c-1', '2026-01-01', '2026-01-31');
     expect(r.grossMarginPct).toBeNull();
+  });
+});
+
+/**
+ * The other two places the pack asserted a margin. The income_statement
+ * section was fixed first; `trends` and `commentary` kept `revenue > 0 ? … : 0`
+ * and so still claimed a 0% margin — the trends snapshot silently, the
+ * commentary in a sentence a director quotes verbatim.
+ */
+describe('reportPackService — trends and commentary on non-positive turnover', () => {
+  const build = (revenue: number, netProfit: number) =>
+    buildReportPack('management', {
+      companyName: 'Loss Co', period: '2026-01', revenue, costOfSales: 0,
+      operatingExpenses: 500, netProfit, totalAssets: 0, totalLiabilities: 0,
+      totalEquity: 0, currentAssets: 200, currentLiabilities: 100, cash: 0,
+      accountsReceivable: 0, accountsPayable: 0, inventory: 0,
+    }, '2026-01-01', '2026-01-31');
+
+  const sectionOf = (revenue: number, netProfit: number, type: string) =>
+    build(revenue, netProfit).sections.find(s => s.type === type)!.data;
+
+  it('nulls both trend margins on negative turnover, never 0', () => {
+    const cp = sectionOf(-1000, -1500, 'trends').currentPeriod as Record<string, unknown>;
+    expect(cp.grossMargin).toBeNull();
+    expect(cp.netMargin).toBeNull();
+  });
+
+  it('nulls both trend margins on zero turnover too', () => {
+    const cp = sectionOf(0, -500, 'trends').currentPeriod as Record<string, unknown>;
+    expect(cp.grossMargin).toBeNull();
+    expect(cp.netMargin).toBeNull();
+  });
+
+  it('still reports the real trend margins when turnover is positive', () => {
+    const cp = sectionOf(1000, 250, 'trends').currentPeriod as Record<string, unknown>;
+    expect(cp.grossMargin).toBe(100);
+    expect(cp.netMargin).toBe(25);
+    // currentRatio is not a margin and keeps its existing behaviour.
+    expect(cp.currentRatio).toBe(2);
+  });
+
+  it('the commentary says there is no margin rather than claiming 0%', () => {
+    const summary = String(sectionOf(-1000, -1500, 'commentary').summary);
+    expect(summary).toContain(NO_MARGIN_SENTENCE);
+    expect(summary).not.toMatch(/margin of\s+-?\d/);
+    expect(summary).not.toContain('0%');
+  });
+
+  it('the commentary still quotes a real margin when turnover is positive', () => {
+    const summary = String(sectionOf(1000, 250, 'commentary').summary);
+    expect(summary).toContain('net profit margin of 25%');
+    expect(summary).not.toContain(NO_MARGIN_SENTENCE);
   });
 });

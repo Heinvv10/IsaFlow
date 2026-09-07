@@ -89,7 +89,7 @@ describe('getFinancialFigures', () => {
     expect(text).toMatch(/je\.company_id/);
     expect(text).toMatch(/jl\.company_id/);
     const params = mockSql.mock.calls[0]!.slice(1);
-    expect(params).toEqual(['2026-01-01', '2026-01-01', COMPANY, COMPANY, '2026-12-31']);
+    expect(params).toEqual(['2026-01-01', '2026-01-01', COMPANY, COMPANY, COMPANY, '2026-12-31']);
   });
 
   it('splits period movement from cumulative balances off one query', async () => {

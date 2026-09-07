@@ -191,6 +191,73 @@ describe('sweep', () => {
     expect(statsCall![1]).toBe(1);
   });
 
+  // ── The unattended posting boundary ────────────────────────────────────
+  // allocateTransaction is the ATTENDED path and coerces nothing. This gate
+  // posts with nobody watching, so it must guard before it calls. Velocity's
+  // R237,021.60 of manufactured salary VAT is the shape being stopped.
+
+  const settingsRow = { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] };
+  const runRows = [
+    { match: /INSERT INTO bank_auto_post_runs/, rows: [{ id: 'run-1' }] },
+    { match: /UPDATE bank_transactions SET auto_post_run_id/, rows: [] },
+    { match: /UPDATE bank_auto_post_runs/, rows: [] },
+  ];
+  const txRow = (vat: string | null) => ({
+    match: /FROM bank_transactions\s+WHERE id = ANY/,
+    rows: [{ id: 't1', status: 'imported', amount: -1150, suggested_gl_account_id: 'gl-1', suggested_confidence: '0.99', suggested_vat_code: vat, description: 'Salary run' }],
+  });
+  const glAccount = (name: string, denied = false) => ({
+    match: /FROM gl_accounts/,
+    rows: [{ vat_input_denied: denied, account_code: '49784360', account_name: name }],
+  });
+  const vatArg = () => (allocateTransaction as ReturnType<typeof vi.fn>).mock.calls[0]![7];
+
+  it('drops a standard claim on a salary account before posting it', async () => {
+    routeSql([settingsRow, txRow('standard'), glAccount('Salaries & Wages - EX4000'), ...runRows]);
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-1' });
+
+    const r = await sweep('co-1', ['t1'], 'llm', 'u-1');
+
+    expect(r.posted).toBe(1);
+    expect(vatArg(), 'the gate must not post the salary claim').toBe('none');
+    expect(r.nonSupplyCoerced).toBe(1);
+    expect(r.vatDenied).toBe(0);
+  });
+
+  it('drops an entertainment claim too, and reports it as a denial', async () => {
+    routeSql([settingsRow, txRow('standard'), glAccount('Staff Welfare - EX5040', true), ...runRows]);
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-1' });
+
+    const r = await sweep('co-1', ['t1'], 'llm', 'u-1');
+
+    expect(vatArg()).toBe('none');
+    expect(r.vatDenied).toBe(1);
+    expect(r.nonSupplyCoerced).toBe(0);
+  });
+
+  it('posts a real supply claim untouched', async () => {
+    routeSql([settingsRow, txRow('standard'), glAccount('Bank Charges - EX5006'), ...runRows]);
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-1' });
+
+    const r = await sweep('co-1', ['t1'], 'llm', 'u-1');
+
+    expect(vatArg()).toBe('standard');
+    expect(r.nonSupplyCoerced).toBe(0);
+    expect(r.vatDenied).toBe(0);
+  });
+
+  it('passes an absent code through as undefined, exactly as before the guard', async () => {
+    // No claim, no lookup, no substitution — a row nobody objected to must
+    // post byte-identically to how it did before this guard existed.
+    routeSql([settingsRow, txRow(null), ...runRows]);
+    (allocateTransaction as ReturnType<typeof vi.fn>).mockResolvedValue({ journalEntryId: 'je-1' });
+
+    const r = await sweep('co-1', ['t1'], 'llm', 'u-1');
+
+    expect(vatArg()).toBeUndefined();
+    expect(r.nonSupplyCoerced).toBe(0);
+  });
+
   it('records a skip and never creates a run when nothing qualifies', async () => {
     routeSql([
       { match: /FROM bank_auto_post_settings/, rows: [{ enabled: true, min_confidence: '0.9', amount_cap: '10000', llm_enabled: false, llm_min_confidence: '0.95', llm_amount_cap: '2000' }] },

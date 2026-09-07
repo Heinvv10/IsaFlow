@@ -9,6 +9,9 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Check, X, Undo2, Search, Scissors, SearchCheck, RotateCcw, Paperclip, BookmarkPlus, Plus, Clock, MessageCircle } from 'lucide-react';
 import { useBankTxKeyboardNav } from '@/components/accounting/useBankTxKeyboardNav';
+import {
+  NON_SUPPLY_ADVICE, NON_SUPPLY_LABEL, shouldWarnOnNonSupply,
+} from '@/modules/accounting/services/gl/nonSupplyAccounts';
 import { AllocatedAccountCell } from './BankTxAllocatedAccountCell';
 
 export type AllocType = 'account' | 'supplier' | 'customer' | 'transfer';
@@ -327,6 +330,16 @@ export function BankTxTable(props: Props) {
               const vatDenied = rowType === 'account' && !!sel?.entityId
                 && getOptionsForType('account').find(o => o.id === sel.entityId)?.vatInputDenied === true;
               const vatWarn = vatDenied && (sel?.vatCode || 'none') === 'standard';
+              // Second guard, different statute: no supply arises on this
+              // account at all. Classified on NAME, in the browser, from the
+              // same pure module the report and the posting guard use — so a
+              // pattern change cannot make the screen and the ledger disagree.
+              const nonSupply = rowType === 'account' && !!sel?.entityId
+                ? shouldWarnOnNonSupply(
+                    getOptionsForType('account').find(o => o.id === sel.entityId)?.name,
+                    sel?.vatCode,
+                  )
+                : null;
               const options = (isOpen && !search) ? sortByDescriptionMatch(rawOptions, tx.description || '') : rawOptions;
   
               const isExcluded = tx.status === 'excluded';
@@ -548,6 +561,14 @@ export function BankTxTable(props: Props) {
                             title="VAT Act s17(2)(a). Claim it only if this business continuously supplies entertainment for a charge."
                           >
                             ⚠ Entertainment — input tax normally denied
+                          </span>
+                        )}
+                        {!vatWarn && nonSupply && (
+                          <span
+                            className="mt-0.5 block text-[10px] leading-tight text-amber-500"
+                            title={NON_SUPPLY_ADVICE[nonSupply]}
+                          >
+                            ⚠ {NON_SUPPLY_LABEL[nonSupply]} — no supply, so no VAT
                           </span>
                         )}
                       </>

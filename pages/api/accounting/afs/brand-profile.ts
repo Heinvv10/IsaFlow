@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type CompanyAuthedRequest } from '@/lib/auth';
+import { BrandPrimaryError } from '@/lib/brand/contrast';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
 import { checkPublicUrl } from '@/lib/safeFetch';
@@ -53,15 +54,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (reason) return apiResponse.badRequest(res, `logoUrl is not allowed: ${reason}`);
     }
 
-    const profile = await upsertBrandProfile(companyId, {
-      primaryColour: parsed.data.primaryColour ?? '#000000',
-      secondaryColour: parsed.data.secondaryColour ?? '#000000',
-      fontFamily: parsed.data.fontFamily ?? 'professional',
-      coverStyle: parsed.data.coverStyle ?? 'classic',
-      logoUrl: parsed.data.logoUrl ?? null,
-      reportFooterText: parsed.data.reportFooterText ?? null,
-    });
-    return apiResponse.success(res, profile);
+    // A brand colour too pale to carry text (or to be seen as a band on the
+    // page) is a user mistake, not a server fault: only BrandPrimaryError is
+    // mapped to a 400 here, so any other failure still reaches withErrorHandler
+    // and is reported as the 500 it is.
+    try {
+      const profile = await upsertBrandProfile(companyId, {
+        primaryColour: parsed.data.primaryColour ?? '#000000',
+        secondaryColour: parsed.data.secondaryColour ?? '#000000',
+        fontFamily: parsed.data.fontFamily ?? 'professional',
+        coverStyle: parsed.data.coverStyle ?? 'classic',
+        logoUrl: parsed.data.logoUrl ?? null,
+        reportFooterText: parsed.data.reportFooterText ?? null,
+      });
+      return apiResponse.success(res, profile);
+    } catch (err) {
+      if (err instanceof BrandPrimaryError) {
+        log.warn('Rejected brand primary colour', { companyId, problem: err.problem }, 'afs-brand-profile-api');
+        return apiResponse.badRequest(res, err.message);
+      }
+      throw err;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method ?? 'UNKNOWN', ['GET', 'PUT']);

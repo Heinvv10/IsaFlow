@@ -16,12 +16,12 @@ import {
 } from '../gl/journalEntryService';
 import { buildAutoCreateLines, getPeriodStatusForDate, type RuleAllocType } from './bankRulesMatchingHelpers';
 import { lockBankTransactionForUpdate } from './bankTxLock';
-import { applyVatDenial, resolveVatCodeForAccount } from '../gl/inputVatDenial';
+import { resolveRuleVatCode } from '../gl/ruleVatResolution';
 
 const SA_VAT_RATE_PCT = 15; // Standard SA VAT rate; update if SARS changes the statutory rate
 
 export type AutoPostOutcome =
-  | { kind: 'posted'; journalEntryId: string; vatDenied: boolean }
+  | { kind: 'posted'; journalEntryId: string; vatDenied: boolean; nonSupplyCoerced: boolean }
   /** The row was allocated (or removed) between the candidate query and the lock. */
   | { kind: 'raced' }
   /** Its date falls in a closed/locked period - re-open the period to post it. */
@@ -42,6 +42,14 @@ export interface AutoPostLineInput {
    * so reading it here would be one redundant SELECT per transaction.
    */
   ruleGlAccountVatDenied?: boolean;
+  /**
+   * `account_name` for `ruleGlAccountId`, resolved in the same one-per-sweep
+   * query as the denial flag. The non-supply guard classifies on NAME, so the
+   * batched branch below cannot run it without this — and an omitted name
+   * silently disables a guard, which is why the branch falls back to the
+   * per-line resolver rather than treating undefined as "nothing to check".
+   */
+  ruleGlAccountName?: string | null;
   ruleName: string;
   allocType: RuleAllocType;
   ruleGlAccountId: string | null;
@@ -103,11 +111,16 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
   // omits it (undefined, as opposed to an explicit null meaning "no default")
   // gets the lookup done here instead: this guard is a statutory one, and a
   // caller forgetting to pass an argument must not silently turn it off.
-  const { vatCode, denied: vatDenied } = allocType !== 'account'
-    ? { vatCode: requestedVatCode, denied: false }
-    : input.ruleGlAccountVatDenied !== undefined
-      ? applyVatDenial(input.ruleGlAccountVatDenied, requestedVatCode, denialContext)
-      : await resolveVatCodeForAccount(companyId, ruleGlAccountId, requestedVatCode, denialContext);
+  const { vatCode, denied: vatDenied, nonSupplyCoerced } = await resolveRuleVatCode({
+    allocType,
+    companyId,
+    requestedVatCode,
+    glAccountId: ruleGlAccountId,
+    ruleGlAccountVatDenied: input.ruleGlAccountVatDenied,
+    ruleGlAccountName: input.ruleGlAccountName,
+    denialContext,
+    guardContext: { bankTxId: String(tx.id), ruleName, glAccountId: ruleGlAccountId ?? undefined },
+  });
   const hasVat = vatCode === 'standard';
   const netAmount = hasVat ? Math.round((totalAmount * 100 / (100 + SA_VAT_RATE_PCT)) * 100) / 100 : totalAmount;
   const vatAmount = hasVat ? Math.round((totalAmount - netAmount) * 100) / 100 : 0;
@@ -193,7 +206,7 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
     `;
   }
 
-  return { kind: 'posted', journalEntryId: je.id, vatDenied };
+  return { kind: 'posted', journalEntryId: je.id, vatDenied, nonSupplyCoerced };
 }
 
 /** "<code> <name>" for a GL account, or null when the rule carries no account. */

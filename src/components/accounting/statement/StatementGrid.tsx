@@ -19,10 +19,13 @@ export interface StatementGridProps {
   /** Opens the evidence drill for an account. Rendered as a button inside the
    * expanded drill row; omit it and no evidence affordance appears. */
   onEvidence?: (accountCode: string) => void;
+  /** Opens the note thread for a row. Omit it and no note marker appears, which
+   * is what the share and PDF surfaces do — annotations are internal. */
+  onOpenNote?: (rowId: string) => void;
   cents?: boolean;
 }
 
-export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, cents = false }: StatementGridProps) {
+export function StatementGrid({ rows, columns, title, expandedAccount, onToggleAccount, renderDrill, onEvidence, onOpenNote, cents = false }: StatementGridProps) {
   const active = COMPARATORS.filter(c => columns[c.key]);
   // One bar scale PER COMPARATOR. Sharing one scale across prior and budget
   // would draw a small budget movement at the size of a large prior one.
@@ -65,6 +68,7 @@ export function StatementGrid({ rows, columns, title, expandedAccount, onToggleA
                 expanded={expanded}
                 onToggle={onToggleAccount}
                 onEvidence={onEvidence}
+                onOpenNote={onOpenNote}
                 // Only the expanded row's drill is built. Building one per
                 // coded row and discarding it fetches nothing, but it is a
                 // render's worth of work per account on a long statement.

@@ -6,27 +6,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
 import {
   ArrowLeft, LayoutDashboard, TrendingUp, TrendingDown, Minus,
   AlertTriangle, AlertCircle, CheckCircle, Loader2,
 } from 'lucide-react';
-import { apiFetch } from '@/lib/apiFetch';
+import { apiFetch, assertOk } from '@/lib/apiFetch';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
   type InventoryWarning,
 } from '@/components/accounting/DataQualityNotice';
 import { KpiTile } from '@/components/accounting/kpi/KpiTile';
+import { CashPositionChart } from '@/components/accounting/charts/CashPositionChart';
 import { log } from '@/lib/logger';
-
-const BarChart = dynamic(() => import('recharts').then(m => m.BarChart), { ssr: false });
-const Bar = dynamic(() => import('recharts').then(m => m.Bar), { ssr: false });
-const XAxis = dynamic(() => import('recharts').then(m => m.XAxis), { ssr: false });
-const YAxis = dynamic(() => import('recharts').then(m => m.YAxis), { ssr: false });
-const CartesianGrid = dynamic(() => import('recharts').then(m => m.CartesianGrid), { ssr: false });
-const Tooltip = dynamic(() => import('recharts').then(m => m.Tooltip), { ssr: false });
-const ResponsiveContainer = dynamic(() => import('recharts').then(m => m.ResponsiveContainer), { ssr: false });
+import { DensityToggle } from '@/components/accounting/reportControls/DensityToggle';
+import { useDensity } from '@/components/accounting/reportControls/useDensity';
 
 interface ExecutiveKPIs {
   revenue: number;
@@ -64,24 +58,42 @@ export default function ExecutiveDashboardPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [scorecard, setScorecard] = useState<Array<{ ratioKey: string; name: string; value: number | null; target: number; status: 'green' | 'amber' | 'red' | 'not_meaningful'; reason?: string }>>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [unclassified, setUnclassified] = useState<UnclassifiedWarning | null>(null);
   const [inventory, setInventory] = useState<InventoryWarning | null>(null);
   const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
   const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
+  // Density changes what is SHOWN and never what a figure IS: the owner view
+  // hides the four ratio tiles and the scorecard, and computes nothing
+  // differently.
+  const { density, setDensity, error: densityError } = useDensity();
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
-      const [sumRes, scRes] = await Promise.all([
-        apiFetch(`/api/accounting/reports-executive-summary?from=${from}&to=${to}`).then(r => r.json()),
-        apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`).then(r => r.json()),
+      const [sumRawRes, scRawRes] = await Promise.all([
+        apiFetch(`/api/accounting/reports-executive-summary?from=${from}&to=${to}`),
+        apiFetch(`/api/accounting/reports-kpi-scorecard?from=${from}&to=${to}`),
       ]);
+      // apiFetch resolves on a 4xx/5xx status — a rejected promise here would
+      // only ever be a network failure. Without this check, a failed request
+      // (e.g. an expired session) reads .json() on an error body and renders
+      // "No financial data available for the selected period", which claims
+      // the ledger has nothing for the range instead of reporting the
+      // failure that actually happened.
+      await assertOk(sumRawRes, 'Failed to load the executive summary');
+      await assertOk(scRawRes, 'Failed to load the KPI scorecard');
+      const sumRes = await sumRawRes.json();
+      const scRes = await scRawRes.json();
       if (sumRes.data?.summary) setSummary(sumRes.data.summary);
       if (sumRes.data) setUnclassified(sumRes.data.unclassifiedAccounts ?? null);
       if (scRes.data?.scorecard) setScorecard(scRes.data.scorecard);
       if (scRes.data) setInventory(scRes.data.inventory ?? null);
-    } catch (err) { log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) }); }
-    finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load the executive dashboard');
+      log.error('Failed to load executive summary', { error: err instanceof Error ? err.message : String(err) });
+    } finally { setLoading(false); }
   }, [from, to]);
 
   useEffect(() => { void loadData(); }, [loadData]);
@@ -107,7 +119,11 @@ export default function ExecutiveDashboardPage() {
           <Link href="/accounting/reports" className="inline-flex items-center gap-1 text-sm text-[var(--ff-text-secondary)] hover:text-teal-400 mb-2">
             <ArrowLeft className="h-4 w-4" /> Back to Reports
           </Link>
-          <div className="flex items-center justify-between">
+          {/* Both rows wrap. The density toggle is a third control in a row
+              that already held two date inputs, and without wrapping it pushed
+              the "to" date off the right edge at 375 — where the page body
+              does not scroll horizontally, so the control was unreachable. */}
+          <div className="flex flex-wrap items-center justify-between gap-y-3">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-teal-500/10"><LayoutDashboard className="h-6 w-6 text-teal-500" /></div>
               <div>
@@ -115,16 +131,25 @@ export default function ExecutiveDashboardPage() {
                 <p className="text-sm text-[var(--ff-text-secondary)]">KPI overview, cash position & alerts</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 gap-y-2">
+              <DensityToggle density={density} onChange={setDensity} />
               <input type="date" value={from} onChange={e => setFrom(e.target.value)} className="ff-input text-sm" />
               <span className="text-[var(--ff-text-secondary)]">to</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)} className="ff-input text-sm" />
             </div>
           </div>
+          {densityError && (
+            <p role="alert" className="mt-2 text-xs text-red-400">{densityError}</p>
+          )}
         </div>
 
         <div className="p-6 space-y-6 max-w-7xl">
           <DataQualityNotice unclassifiedAccounts={unclassified} inventory={inventory} />
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4" /> {error}
+            </div>
+          )}
           {loading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 text-teal-500 animate-spin" /></div>
           ) : summary ? (
@@ -145,31 +170,24 @@ export default function ExecutiveDashboardPage() {
               )}
 
               {/* KPI Cards */}
-              <div className="grid grid-cols-3 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <KpiTile label="Revenue" value={summary.kpis.revenue} kind="money" deltaPct={summary.kpis.revenueGrowth} favourable={favourableGrowth(summary.kpis.revenueGrowth)} />
                 <KpiTile label="Net profit" value={summary.kpis.netProfit} kind="money" deltaPct={summary.kpis.profitGrowth} favourable={favourableGrowth(summary.kpis.profitGrowth)} />
-                <KpiTile label="Gross margin" value={summary.kpis.grossProfitMargin} kind="pct" />
-                <KpiTile label="Net margin" value={summary.kpis.netProfitMargin} kind="pct" />
                 <KpiTile label="Cash balance" value={summary.kpis.cashBalance} kind="money" />
-                <KpiTile label="Current ratio" value={summary.kpis.currentRatio} kind="ratio" unavailable={notMeaningful.get('currentRatio') ? 'Not meaningful' : undefined} />
-                <KpiTile label="Debt/equity" value={summary.kpis.debtToEquity} kind="ratio" unavailable={notMeaningful.get('debtToEquity') ? 'Not meaningful' : undefined} />
                 <KpiTile label="NWC" value={summary.cashPosition.netWorkingCapital} kind="money" />
+                {density === 'accountant' && (
+                  <>
+                    <KpiTile label="Gross margin" value={summary.kpis.grossProfitMargin} kind="pct" />
+                    <KpiTile label="Net margin" value={summary.kpis.netProfitMargin} kind="pct" />
+                    <KpiTile label="Current ratio" value={summary.kpis.currentRatio} kind="ratio" unavailable={notMeaningful.get('currentRatio') ? 'Not meaningful' : undefined} />
+                    <KpiTile label="Debt/equity" value={summary.kpis.debtToEquity} kind="ratio" unavailable={notMeaningful.get('debtToEquity') ? 'Not meaningful' : undefined} />
+                  </>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Cash Position Chart */}
-                <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
-                  <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">Cash Position</h2>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={cashChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#888' }} />
-                      <YAxis tick={{ fontSize: 10, fill: '#888' }} width={60} tickFormatter={v => `R${(v / 1000).toFixed(0)}K`} />
-                      <Tooltip contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} formatter={(v) => [`R ${Number(v).toLocaleString('en-ZA')}`, '']} />
-                      <Bar dataKey="value" fill="#14b8a6" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <CashPositionChart points={cashChartData} />
 
                 {/* Highlights */}
                 <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
@@ -186,7 +204,7 @@ export default function ExecutiveDashboardPage() {
               </div>
 
               {/* KPI Scorecard */}
-              {scorecard.length > 0 && (
+              {density === 'accountant' && scorecard.length > 0 && (
                 <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] p-5">
                   <h2 className="text-sm font-semibold text-[var(--ff-text-primary)] mb-4">KPI Scorecard</h2>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -215,7 +233,7 @@ export default function ExecutiveDashboardPage() {
                 </div>
               )}
             </>
-          ) : (
+          ) : error ? null : (
             <div className="flex flex-col items-center justify-center py-20 text-[var(--ff-text-secondary)]">
               <LayoutDashboard className="h-12 w-12 mb-3 opacity-30" />
               <p>No financial data available for the selected period.</p>

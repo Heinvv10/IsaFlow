@@ -1,6 +1,7 @@
 // src/modules/accounting/services/afs/brandProfileService.ts
 import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import { assertUsableBrandPrimary } from '@/lib/brand/contrast';
 import type { BrandProfile, UpsertBrandProfileInput } from './afsTypes';
 
 const HEX_COLOUR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -46,6 +47,12 @@ export async function upsertBrandProfile(
 ): Promise<BrandProfile> {
   validateHex(input.primaryColour);
   validateHex(input.secondaryColour);
+  // Only the primary is gated: it is the colour that fills the cover band and
+  // table header rows and carries their text. The secondary is an accent that
+  // never carries reversed text, so gating it would reject legitimate light
+  // accents. The rule is the SAME predicate the renderer applies — see
+  // src/lib/brand/contrast.ts.
+  assertUsableBrandPrimary(input.primaryColour, 'primaryColour');
 
   log.info('brandProfileService.upsertBrandProfile', { companyId });
 
