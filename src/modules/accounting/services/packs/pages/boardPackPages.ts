@@ -77,8 +77,8 @@ import {
   buildMattersBlock,
   buildMattersSupportBlocks,
   mattersBudgetMm,
+  mattersTitle,
   MATTERS_NAV_LABEL,
-  MATTERS_TITLE,
 } from './packMattersPage';
 // Debtor days printed 213 on the scorecard page and 63.7 on the trends
 // page, one sheet apart, with nothing on either saying that one is the
@@ -125,7 +125,7 @@ const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, draft, generatedAt } = input;
   const p = new PackFigureProvenance();
-  const basis = buildBasis(set, { draft, generatedAt }, input.ledgerVersion);
+  const basis = buildBasis(set, { draft, generatedAt }, input.ledgerVersion, p);
   const { scale, currency } = basis.numberConvention;
 
   // The comparative is the window the PRIOR FIGURES were read over, and it
@@ -164,7 +164,11 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // page 11's table alike: derived twice, they contradicted each other. See
   // `SelectedMatters` and `mattersBudgetMm`.
   const mattersSupport = buildMattersSupportBlocks(input.mattersCommentary ?? pending);
-  const matters = selectPrintedMatters(input.matters, mattersBudgetMm(mattersSupport));
+  // The title first, from the FULL list: the budget the table spends depends
+  // on how much paper the header leaves, and the headline must not change
+  // when a row moves off the page.
+  const mattersHeadline = mattersTitle(input.matters, scale);
+  const matters = selectPrintedMatters(input.matters, mattersBudgetMm(mattersSupport, mattersHeadline));
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
@@ -247,7 +251,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // orientation is a PAGE-level property the print CSS keys off, never a
     // document-level flag, which would turn the whole pack sideways.
     page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Trends', 'Performance', 'high', trendBlocks, 'landscape'),
-    page(MATTERS_TITLE, MATTERS_NAV_LABEL, 'Governance', 'medium', [
+    page(mattersHeadline, MATTERS_NAV_LABEL, 'Governance', 'medium', [
       // Spec §4.A page 11 asks for a TABLE — issue, quantum, owner, movement,
       // decision required. Prose notes carried the same five facts but a
       // director scanning for "which of these needs me" had to read every

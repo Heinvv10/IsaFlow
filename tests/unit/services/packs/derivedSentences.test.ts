@@ -136,7 +136,7 @@ describe('cashTitle', () => {
 
 describe('scorecardTitle', () => {
   it('reads as a judgement, not a label', () => {
-    expect(scorecardTitle(6, 9)).toBe('Scorecard | 6 of 9 targets met');
+    expect(scorecardTitle(6, 9)).toBe('6 of 9 scored targets were met this period.');
   });
 });
 

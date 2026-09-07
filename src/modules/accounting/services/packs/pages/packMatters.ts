@@ -31,8 +31,26 @@ import { round2 } from '@/modules/accounting/services/reconciliation/reconciliat
 import { formatPackDate } from './packPeriodLabel';
 import type { PeriodWindow } from '@/modules/accounting/services/reports/priorPeriod';
 
+/**
+ * WHAT KIND OF LINE THIS IS, as data rather than as a sentence to re-parse.
+ *
+ * Page 11's title has to state a conclusion about the period — how many
+ * matters are open and what they come to — and "no matters this period" is a
+ * `PackMatter` too, as is "this check could not be run". Deriving that from
+ * the issue text would make the page's headline depend on a string match
+ * against prose the next author is free to reword.
+ */
+export type PackMatterKind =
+  /** A real finding: a concentration, an unreconciled balance, a journal, a filing. */
+  | 'finding'
+  /** The explicit "every check ran clean" line (§7.1 criterion 3). */
+  | 'none'
+  /** A source that threw. It is a matter precisely because it is not a clean result. */
+  | 'checkFailed';
+
 /** One line of page 11 — a decision a director must make. */
 export interface PackMatter {
+  kind: PackMatterKind;
   issue: string;
   /** Rand value behind the matter. Null for a matter with no single amount
    *  (a filing overdue, or the "no matters" / "check failed" fallbacks).
@@ -77,6 +95,7 @@ async function agedDebtorConcentrationMatters(
   if (pct < CONCENTRATION_THRESHOLD_PCT) return [];
 
   return [{
+    kind: 'finding',
     issue: `Aged debtor concentration: ${largest.entityName} is ${pct.toFixed(1)}% of total debtors owed`,
     quantum: round2(largest.total),
     owner: 'Credit control',
@@ -93,6 +112,7 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
 
   const accountCount = rows.filter((r) => Number(r.unreconciled_count ?? 0) > 0).length;
   return [{
+    kind: 'finding',
     // NO RAND AMOUNT IN THE SENTENCE. `toLocaleString('en-ZA')` printed
     // `R1,234,567.89` — comma-separated, in rands, unbracketed — beside a
     // quantum column stated in R'000 with spaces and brackets: one figure,
@@ -112,6 +132,7 @@ async function unusualJournalMatters(
 ): Promise<PackMatter[]> {
   const flags = await getUnusualJournals(companyId, window);
   return flags.map((f) => ({
+    kind: 'finding' as const,
     issue: `Journal ${f.entryNumber ?? f.entryId} (${
       f.reason === 'round_number' ? 'large round-number amount' : 'recorded well after its entry date'
     }): ${f.description ?? 'no description on the entry'}`,
@@ -125,6 +146,7 @@ async function unusualJournalMatters(
 async function overdueFilingMatters(companyId: string): Promise<PackMatter[]> {
   const filings = await getOverdueStatutoryFilings(companyId);
   return filings.map((f) => ({
+    kind: 'finding' as const,
     // The deadline as a DATE, not as an ISO string. `2024-08-28` in a
     // sentence on a governance page is the pack showing a reader its storage
     // format; every other date in the document is set in words.
@@ -162,6 +184,7 @@ const SOURCES: ReadonlyArray<{
  */
 function failedSourceMatter(label: string): PackMatter {
   return {
+    kind: 'checkFailed',
     issue: `${label} could not be assessed — the check failed and was not silently skipped`,
     quantum: null,
     owner: 'Finance',
@@ -171,6 +194,7 @@ function failedSourceMatter(label: string): PackMatter {
 }
 
 const NO_MATTERS: PackMatter = {
+  kind: 'none',
   issue: 'No matters require board attention this period — every check ran clean.',
   quantum: null,
   owner: 'Finance',

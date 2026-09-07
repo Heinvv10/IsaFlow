@@ -14,12 +14,49 @@ import { remainingPageMm } from './packPageFit';
 import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatter } from './packMatters';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import type { PackNarrative, PackPageBlock } from './packPageModel';
 
-/** The page's own title and its short name in the Contents — read by the
- *  page itself and by the probe that measures what it has left. */
-export const MATTERS_TITLE = 'Matters requiring board attention';
+/** The page's short name in the Contents, and the 16pt heading it prints
+ *  above its title. */
 export const MATTERS_NAV_LABEL = 'Matters for the board';
+
+/**
+ * PAGE 11'S TITLE, WHICH USED TO BE ITS OWN CATEGORY LABEL TWICE.
+ *
+ * The sheet read "Matters for the board" over "Matters requiring board
+ * attention" — the page's name restated as the page's name — on a page whose
+ * own body carries the conclusion: twenty-eight matters, five printed, R658k
+ * of exposure not printed, two statutory filings overdue. Every other content
+ * page's title is a sentence about the period; this one asked a director to
+ * read the table to find out whether it mattered.
+ *
+ * Derived from the FULL matters list rather than from the printed selection,
+ * because the selection depends on how much paper the title leaves — the
+ * headline must not change when a row moves off the page, and the page must
+ * still state what is not on it.
+ */
+export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
+  const findings = matters.filter((m) => m.kind === 'finding');
+  const failed = matters.filter((m) => m.kind === 'checkFailed').length;
+  const failedClause = failed === 0
+    ? ''
+    : ` ${failed === 1 ? 'One check' : `${failed} checks`} could not be run and ${failed === 1 ? 'is' : 'are'} listed as a matter.`;
+
+  if (findings.length === 0) {
+    // "0 matters", not "No matter": `assertPageTitleIsAMessage` refuses a
+    // title with no figure and no direction word in it, and it is right to —
+    // a page that says nothing happened should say so with the count.
+    return `0 matters require a board decision this period.${failedClause || ' Every check ran clean.'}`;
+  }
+  const quantified = findings.filter((m) => m.quantum !== null);
+  const total = quantified.reduce((sum, m) => sum + Math.abs(m.quantum ?? 0), 0);
+  const noun = findings.length === 1 ? 'matter requires' : 'matters require';
+  const exposure = quantified.length === 0
+    ? 'none of them carrying a single rand amount'
+    : `${quantified.length} of them carrying ${formatMoney(total, { scale })} of exposure`;
+  return `${findings.length} ${noun} a board decision, ${exposure}.${failedClause}`;
+}
 
 /**
  * Page 11 — the matters, with each quantum recorded through the provenance
@@ -104,8 +141,8 @@ export function buildMattersSupportBlocks(commentary: PackNarrative): PackPageBl
  * discovered: the probe below carries an empty table, and the moment the
  * selection leaves a matter out the block grows that note.
  */
-export function mattersBudgetMm(support: PackPageBlock[]): number {
-  return remainingPageMm(page(MATTERS_TITLE, MATTERS_NAV_LABEL, 'Governance', 'medium', [
+export function mattersBudgetMm(support: PackPageBlock[], title: string): number {
+  return remainingPageMm(page(title, MATTERS_NAV_LABEL, 'Governance', 'medium', [
     { kind: 'matters', matters: [], omitted: null },
     ...support,
   ])) - MATTERS_OMITTED_NOTE_MM;

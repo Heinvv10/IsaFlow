@@ -95,7 +95,16 @@ export function buildBasisPage(
   scale: MoneyScale,
   currency: string,
 ): UnnumberedPage {
-  return page('Basis of preparation and definitions', 'Basis of preparation', 'Governance', 'medium', [
+  // A CONCLUSION, not the page's own name restated. It read "Basis of
+  // preparation" over "Basis of preparation and definitions"; what a director
+  // needs from the headline is what standard the figures were prepared under,
+  // at what scale, and whether anything qualifies them.
+  const caveats = basis.caveats.length === 0
+    ? 'no caveat qualifies these figures'
+    : `${basis.caveats.length === 1 ? 'one caveat qualifies' : `${basis.caveats.length} caveats qualify`} these figures`;
+  const title = `Prepared under ${basis.basisOfPreparation.standard} from the `
+    + `${basis.basisOfPreparation.sourceSystem}, in ${scale}; ${caveats}.`;
+  return page(title, 'Basis of preparation', 'Governance', 'medium', [
     disclose('Basis of preparation', [
       note('Standard', basis.basisOfPreparation.standard),
       note('Period', period),

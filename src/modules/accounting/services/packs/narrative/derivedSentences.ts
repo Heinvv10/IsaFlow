@@ -149,8 +149,17 @@ export function cashTitle(set: PackFigureSet, scale: MoneyScale): string {
   return `Cash is ${change} to ${formatMoney(cash, { scale })}.`;
 }
 
+/**
+ * Page 9's title.
+ *
+ * It was `Scorecard | 0 of 3 targets met` — the page's own name, then a pipe,
+ * then the conclusion. The name is already printed as the 16pt heading
+ * directly above this line, so the prefix restated it and pushed the sentence
+ * a reader is meant to land on to the right of a rule.
+ */
 export function scorecardTitle(met: number, total: number): string {
-  return `Scorecard | ${met} of ${total} targets met`;
+  if (total === 0) return 'No scorecard metric has a target to score against this period.';
+  return `${met} of ${total} scored targets were met this period.`;
 }
 
 /**
@@ -170,15 +179,21 @@ export function narrativeTitle(set: PackFigureSet, scale: MoneyScale): string {
     : `${level}, ${change} on the prior period.`;
 }
 
-/** Page 5's title. Spec §4.A fixes the "Group results | …" prefix. */
+/**
+ * Page 5's title.
+ *
+ * The `Group results | ` prefix is gone for the reason page 9's is: the
+ * page's name is the 16pt heading printed immediately above this sentence, so
+ * the prefix said it twice and put the conclusion in second place.
+ */
 export function resultsTitle(set: PackFigureSet, scale: MoneyScale): string {
   const { current } = set;
   // Was `?? current.netProfit`, which titled the page "operating profit of
   // 512 000" above a table row reading 750 000. Same defect as above: net
   // profit is a DIFFERENT line, not a fallback for this one.
   const operating = operatingProfitOf(current);
-  const noun = operating < 0 ? 'operating loss' : 'operating profit';
-  return `Group results | ${noun} of ${formatMoney(operating, { scale })} on revenue of ${formatMoney(current.revenue, { scale })}.`;
+  const noun = operating < 0 ? 'An operating loss' : 'An operating profit';
+  return `${noun} of ${formatMoney(operating, { scale })} on revenue of ${formatMoney(current.revenue, { scale })}.`;
 }
 
 /**
