@@ -256,6 +256,44 @@ describe('bulk_create_supplier_invoices — same number, different bill is REFUS
     expect(text).not.toMatch(/accountIds/);
   });
 
+  // A FALSE refusal is the mirror of the HIGH: it blocks a batch that is
+  // legitimately a duplicate, which is the friction this tool exists to remove.
+  // `tax_rate` omitted and `tax_rate: 15` produce the SAME bill — the service
+  // applies `?? DEFAULT_SUPPLIER_TAX_RATE` — so the comparison resolves that one
+  // constant default before comparing. The constant is imported from the module
+  // both readers share, never restated here or in the guard.
+  it('treats an omitted tax_rate as the default, not as a difference', async () => {
+    const out = body(await call([
+      invoice(SUPPLIER_A, 'INV-1'),
+      { ...invoice(SUPPLIER_A, 'INV-1'), tax_rate: 15 },
+    ]));
+    expect(out.created_count).toBe(1);
+    expect(out.skipped).toHaveLength(1);
+    expect(createSupplierInvoice).toHaveBeenCalledTimes(1);
+  });
+
+  it('still refuses when the tax rate genuinely differs', async () => {
+    const text = errText(await call([
+      invoice(SUPPLIER_A, 'INV-1'),
+      { ...invoice(SUPPLIER_A, 'INV-1'), tax_rate: 0 },
+    ]));
+    expect(text).toMatch(/not the same bill/i);
+    expect(text).toMatch(/taxRate/);
+  });
+
+  // A COMPUTED default is deliberately not resolved: dueDate comes from
+  // calculateDueDate(invoiceDate, paymentTerms), and reimplementing that to
+  // compare two elements would be a second copy of a business rule. An omitted
+  // vs explicitly-equal due date stays a refusal — the safe direction, and the
+  // message names the field.
+  it('does not try to resolve the computed dueDate default', async () => {
+    const text = errText(await call([
+      invoice(SUPPLIER_A, 'INV-1'),
+      { ...invoice(SUPPLIER_A, 'INV-1'), due_date: '2026-03-31' },
+    ]));
+    expect(text).toMatch(/dueDate/);
+  });
+
   it('still skips a byte-identical re-send, which is the case it exists for', async () => {
     const out = body(await call([invoice(SUPPLIER_A, 'INV-1'), invoice(SUPPLIER_A, 'INV-1')]));
     expect(out.created_count).toBe(1);

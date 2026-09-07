@@ -28,6 +28,7 @@
  */
 
 import { parseSupplierInvoiceInput, type ParsedSupplierInvoice } from './invoiceCreateArgs';
+import { DEFAULT_SUPPLIER_TAX_RATE } from '@/modules/accounting/constants/supplierInvoiceDefaults';
 
 /** One element that will be created, carrying the CALLER's index. */
 export interface KeptInvoice {
@@ -91,7 +92,29 @@ export interface PartitionedBatch {
  * from it. Key order is fixed by the parser, so `JSON.stringify` is stable.
  */
 function fingerprint(inv: ParsedSupplierInvoice): string {
-  return JSON.stringify(inv);
+  return JSON.stringify(normalise(inv));
+}
+
+/**
+ * Resolve the ONE default that makes two different payloads the same bill.
+ *
+ * `tax_rate` omitted and `tax_rate: 15` produce identical invoices — the
+ * service applies `?? DEFAULT_SUPPLIER_TAX_RATE` — so comparing the raw parsed
+ * elements refused a pair that WAS a duplicate. A false refusal blocks a
+ * legitimate batch, which is the friction this tool exists to remove.
+ *
+ * The constant is IMPORTED, never restated: a local `?? 15` here would drift
+ * silently the day the service's default changed, and re-deriving values is the
+ * mistake this file already refuses to make with totals.
+ *
+ * Only the CONSTANT default is resolved. `dueDate` is also defaulted, but from
+ * `calculateDueDate(invoiceDate, paymentTerms)` — reimplementing that to
+ * compare two elements would be a second implementation of a business rule, so
+ * an omitted vs explicitly-equal due date stays a refusal. It is the safe
+ * direction: a refusal writes nothing and now names the field.
+ */
+function normalise(inv: ParsedSupplierInvoice): ParsedSupplierInvoice {
+  return { ...inv, taxRate: inv.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE };
 }
 
 /**
@@ -108,10 +131,12 @@ function fingerprint(inv: ParsedSupplierInvoice): string {
  * dropped rather than reported as a second, redundant difference.
  */
 function differingFields(a: ParsedSupplierInvoice, b: ParsedSupplierInvoice): string[] {
-  const keys = Object.keys(a) as (keyof ParsedSupplierInvoice)[];
+  // The NORMALISED pair, or the message names a field the comparison ignores.
+  const [x, y] = [normalise(a), normalise(b)];
+  const keys = Object.keys(x) as (keyof ParsedSupplierInvoice)[];
   return keys
     .filter((k) => k !== 'accountIds')
-    .filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+    .filter((k) => JSON.stringify(x[k]) !== JSON.stringify(y[k]));
 }
 
 export function partitionSupplierInvoiceBatch(
