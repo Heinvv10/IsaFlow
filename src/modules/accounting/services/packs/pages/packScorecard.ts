@@ -32,8 +32,10 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
 import {
   DEBTOR_DAYS_SOURCE,
+  CREDITOR_DAYS_SOURCE,
   DEBT_TO_EQUITY_SOURCE,
   operatingProfitOf,
+  readCreditorDays,
   readDebtToEquity,
   readDebtorDays,
   readOverCurrentLiabilities,
@@ -66,6 +68,11 @@ export function toFinancialData(f: ReportPackFigures): FinancialData {
     cash: f.cash,
     operatingCashFlow: f.operatingCashFlow,
     capitalExpenditure: f.capitalExpenditure,
+    // EBITDA is `ebit + depreciation + amortisation`, and this field was
+    // never handed over — so every pack printed an EBITDA row equal to the
+    // operating line to the rand. `accountSubtypes` folds amortisation into
+    // the same `depreciation_expense` band, so one field carries both.
+    depreciation: f.depreciation,
   };
 }
 
@@ -154,9 +161,9 @@ const GROUPS: ReadonlyArray<{ letter: string; name: string; metrics: MetricSpec[
       {
         metric: 'Creditor days',
         format: 'days',
-        source: 'calculateExtendedRatios.creditorDays',
+        source: CREDITOR_DAYS_SOURCE,
         lowerIsBetter: true,
-        read: (r) => ({ value: r.creditorDays }),
+        read: readCreditorDays,
       },
     ],
   },

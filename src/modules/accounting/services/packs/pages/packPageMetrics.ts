@@ -30,6 +30,7 @@ import {
   type PageOrientation,
 } from './packTextMetrics';
 import {
+  balancedLines,
   disclosureMm,
   GUTTER_MM,
   kpiTileHeight,
@@ -109,12 +110,25 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       return narrativeMm(block.narrative, block.boardActions ?? [], orientation);
     case 'disclosure':
       return disclosureMm(block.disclosure, orientation);
-    case 'definitions':
-      return block.entries.reduce((sum, e, i) =>
-        sum + (i === 0 ? 0 : 2)
-        + lines(wrappedLines(e.term, 9.5, width), 14)
-        + lines(wrappedLines(e.definition, 9.5, width - 4), 14)
-        + (e.reconciliation?.length ? 1 + e.reconciliation.length * TABLE_ROW_MM : 0), 0);
+    case 'definitions': {
+      // A GLOSSARY IN TWO COLUMNS (`column-count: 2`). Sixteen terms set
+      // across the full measure came to 312mm on a 255mm sheet. Each entry is
+      // `break-inside: avoid`, so the block is as tall as the taller column
+      // AND never shorter than its tallest single entry — EBITDA's carries a
+      // three-row reconciliation table that cannot split.
+      const measure = (width - GUTTER_MM) / 2;
+      const heights = block.entries.map((e) =>
+        lines(wrappedLines(e.term, 8.5, measure), 12)
+        + lines(wrappedLines(e.definition, 8.5, measure - 4), 12)
+        + (e.reconciliation?.length ? 1 + e.reconciliation.length * TABLE_ROW_MM : 0));
+      // Chromium balances by finding the smallest height a greedy in-order
+      // fill still clears, which with `break-inside: avoid` is the best
+      // in-order split — `balancedLines` computes exactly that rather than
+      // approximating it. `total / 2` reads short by up to a whole entry;
+      // `total / 2 + the tallest` cost the page forty millimetres it did not
+      // have.
+      return balancedLines(heights.map((h, i) => (i === 0 ? h : h + 2)));
+    }
   }
 }
 

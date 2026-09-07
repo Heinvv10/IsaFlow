@@ -41,9 +41,15 @@ import type {
 
 export const note = (heading: string, body: string): PackDisclosureNote => ({ heading, body });
 
-export const disclose = (heading: string, notes: PackDisclosureNote[]): PackPageBlock => ({
+export const disclose = (
+  heading: string,
+  notes: PackDisclosureNote[],
+  /** Two columns for a disclosure whose notes are a LIST rather than an
+   *  argument — see `PackDisclosure.columns`. */
+  columns?: 2,
+): PackPageBlock => ({
   kind: 'disclosure',
-  disclosure: { heading, notes },
+  disclosure: columns === undefined ? { heading, notes } : { heading, notes, columns },
 });
 
 /**

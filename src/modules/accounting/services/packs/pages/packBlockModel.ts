@@ -166,6 +166,18 @@ export interface PackDisclosure {
   heading: string;
   notes: PackDisclosureNote[];
   /**
+   * Set on a disclosure whose notes are a LIST rather than an argument —
+   * page 12's seven basis-of-preparation facts, each a label and a value.
+   *
+   * Set across the full 174mm measure they cost 62mm of a 255mm sheet, most
+   * of it white space to the right of "Standard IFRS for SMEs"; in two
+   * columns they cost half that, and the page has a sixteen-term glossary to
+   * fit beneath them. Landscape pages already column their disclosures
+   * unconditionally (`packPrint.css`); this is the same treatment, asked for
+   * rather than inferred from the paper.
+   */
+  columns?: 2;
+  /**
    * True where the pack is not free to leave this note off the page.
    *
    * §3.5's negative-equity consequence, the negative-assets note beside it,

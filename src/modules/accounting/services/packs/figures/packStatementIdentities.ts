@@ -24,6 +24,7 @@ import type { PackPagesDocument } from '../pages/packPageModel';
 // would trip a guard this file does not break; and an identity keyed to a
 // COPY of a source name silently stops checking anything the day that source
 // is renamed.
+import { DEPRECIATION_SOURCE, EBITDA_SOURCE } from '../pages/packDefinitions';
 import { OPERATING_PROFIT_SOURCE } from './packMetricReads';
 import { MONEY_TOLERANCE } from './packWaterfallIntegrity';
 
@@ -84,20 +85,24 @@ const IDENTITIES: readonly Identity[] = [
     ],
   },
   {
-    // I-2. EBITDA is a DERIVED subtotal here in the strictest sense: the pack
-    // hands `calculateExtendedRatios` no depreciation or amortisation field,
-    // so `ebitda = ebit + dep + amort` reduces to the operating line, rounded
-    // to two decimals. That identity is worth pinning precisely because it is
-    // invisible on the page — a reader sees "EBITDA" and reads a different
-    // measure from the one above it. If a depreciation figure is ever added
-    // to `toFinancialData`, this check FAILS, which is the correct alarm:
-    // EBITDA would then genuinely differ from EBIT and this identity must
-    // gain the term rather than be deleted.
+    // I-2. EBITDA IS THE PACK'S ONE NON-IFRS MEASURE, so the identity behind
+    // it is the one a reader is most entitled to. It was `ebitda === the
+    // operating line`, because the pack handed `calculateExtendedRatios` no
+    // depreciation field and `ebit + dep + amort` therefore reduced to EBIT —
+    // an identity worth pinning precisely because a reader sees "EBITDA" and
+    // reads a different measure from the one above it. That comment said the
+    // check would FAIL if a depreciation figure were ever added, "which is the
+    // correct alarm"; it did, it was, and this is the extra term rather than a
+    // deletion. Page 12 now prints the same three lines as a reconciliation a
+    // director can add up.
     statement:
-      'EBITDA does not equal the operating line. The pack captures no depreciation or amortisation, so the two cannot differ — if one has been added, this identity needs the extra term',
-    target: 'calculateExtendedRatios.ebitda',
+      'EBITDA does not equal the operating line plus the depreciation and amortisation added back to it',
+    target: EBITDA_SOURCE,
     targetLabel: 'EBITDA',
-    terms: [{ source: OPERATING_PROFIT_SOURCE, label: 'the operating line', sign: 1 }],
+    terms: [
+      { source: OPERATING_PROFIT_SOURCE, label: 'the operating line', sign: 1 },
+      { source: DEPRECIATION_SOURCE, label: 'depreciation and amortisation', sign: 1 },
+    ],
   },
   {
     statement: 'Gross profit does not equal revenue less cost of sales',

@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import { DEPRECIATION_SOURCE, EBITDA_SOURCE } from '@/modules/accounting/services/packs/pages/packDefinitions';
 import { OPERATING_PROFIT_SOURCE } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type {
@@ -101,22 +102,37 @@ describe('assertPackIntegrity — statements', () => {
     expect(() => assertPackIntegrity(docOf(p))).not.toThrow();
   });
 
-  it('fails when EBITDA does not equal the operating line (I-2)', () => {
+  it('fails when EBITDA does not equal the operating line plus the add-back (I-2)', () => {
     const p = new PackFigureProvenance();
     balanced(p);
     p.figure(OPERATING_PROFIT_SOURCE, 735_000, 'money');
-    p.figure('calculateExtendedRatios.ebitda', 800_000, 'money');
+    p.figure(DEPRECIATION_SOURCE, 96_000, 'money');
+    p.figure(EBITDA_SOURCE, 800_000, 'money');
     expect(() => assertPackIntegrity(docOf(p))).toThrow(/EBITDA does not equal the operating line/);
   });
 
-  it('accepts EBITDA equal to the operating line, within the rounding', () => {
+  it('accepts EBITDA as the operating line plus depreciation, within the rounding', () => {
     // `calculateExtendedRatios` rounds EBITDA to two decimals, so the two
     // legitimately differ by up to half a cent.
     const p = new PackFigureProvenance();
     balanced(p);
     p.figure(OPERATING_PROFIT_SOURCE, 735_000.004, 'money');
-    p.figure('calculateExtendedRatios.ebitda', 735_000, 'money');
+    p.figure(DEPRECIATION_SOURCE, 96_000, 'money');
+    p.figure(EBITDA_SOURCE, 831_000, 'money');
     expect(() => assertPackIntegrity(docOf(p))).not.toThrow();
+  });
+
+  it('fails an EBITDA that ignores a depreciation charge the ledger carries', () => {
+    // The defect this identity gained its second term for: the pack printed
+    // an EBITDA row equal to the operating line to the rand, on a company
+    // that charged depreciation, because the charge was never handed to the
+    // engine. Without this the old one-term identity would still pass.
+    const p = new PackFigureProvenance();
+    balanced(p);
+    p.figure(OPERATING_PROFIT_SOURCE, 735_000, 'money');
+    p.figure(DEPRECIATION_SOURCE, 96_000, 'money');
+    p.figure(EBITDA_SOURCE, 735_000, 'money');
+    expect(() => assertPackIntegrity(docOf(p))).toThrow(/EBITDA/);
   });
 
   it('fails a comparative column filled from a current-period reading', () => {

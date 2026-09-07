@@ -45,6 +45,28 @@ export function readDebtorDays(ratios: ExtendedRatioResult, raw: ReportPackFigur
   return { value: ratios.debtorDays };
 }
 
+/**
+ * `creditorDays` is payables over COST OF SALES. `safeDiv` returns 0 on a
+ * zero denominator, so a company with no cost of sales printed `0 days`
+ * against R5 792k of current liabilities — the one figure on Brightsphere's
+ * scorecard that looked like a measurement and was an artefact of the guard,
+ * on a page where every other unavailable metric states a reason.
+ *
+ * Zero creditor days says the company pays on the day it buys. Nothing on
+ * those figures says that.
+ */
+export const CREDITOR_DAYS_SOURCE = 'calculateExtendedRatios.creditorDays';
+
+export function readCreditorDays(ratios: ExtendedRatioResult, raw: ReportPackFigures): PackMetricRead {
+  if (raw.costOfSales <= 0) {
+    return {
+      value: null,
+      unavailable: 'Cost of sales is not positive, so days of purchases outstanding cannot be measured.',
+    };
+  }
+  return { value: ratios.creditorDays };
+}
+
 export const DEBT_TO_EQUITY_SOURCE = 'calculateExtendedRatios.debtToEquity';
 
 /**

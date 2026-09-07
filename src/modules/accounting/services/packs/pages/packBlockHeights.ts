@@ -81,9 +81,17 @@ function noteMeasureMm(orientation: PageOrientation): number {
 /** `.pack-disclosure` — a 15pt heading, then one 14pt paragraph per note. */
 export function disclosureMm(disclosure: PackDisclosure, orientation: PageOrientation): number {
   const heading = lines(wrappedLines(disclosure.heading, 11, PAGE_WIDTH_MM[orientation]), 15);
-  const noteLines = disclosure.notes.map((n) =>
-    wrappedLines(`${n.heading} ${n.body}`, 9.5, noteMeasureMm(orientation)));
+  const twoColumn = disclosure.columns === 2 && orientation === 'portrait';
+  const measure = twoColumn ? (PAGE_WIDTH_MM.portrait - GUTTER_MM) / 2 : noteMeasureMm(orientation);
+  const noteLines = disclosure.notes.map((n) => wrappedLines(`${n.heading} ${n.body}`, 9.5, measure));
   const total = noteLines.reduce((a, b) => a + b, 0);
+  if (twoColumn) {
+    // Each note is `break-inside: avoid`, so the block is the taller of the
+    // two columns under Chromium's own in-order balance — the same model
+    // `blockMm` uses for the glossary, and for the same reason.
+    return heading + 1.5 + lines(balancedLines(noteLines), 14)
+      + Math.max(0, disclosure.notes.length - 1) * 1.5;
+  }
   if (orientation === 'portrait') return heading + disclosure.notes.length * 1.5 + lines(total, 14);
   // Landscape sets the notes in two balanced columns (`column-count: 2`) and
   // the block is as tall as the taller one. Chromium balances by LINE across
@@ -176,3 +184,26 @@ export function tableMm(
   return headMm + body + notMeaningfulNotesMm(figures, widthMm);
 }
 
+
+
+/**
+ * The taller of two balanced columns of unbreakable items, in the items' own
+ * units.
+ *
+ * Chromium balances a `column-count: 2` block by finding the SMALLEST height
+ * at which a greedy top-to-bottom fill still fits in two columns; with
+ * `break-inside: avoid` on every item, that is exactly the best in-order
+ * split. Modelled rather than approximated: a `total / 2` reads short by up
+ * to a whole item, and `total / 2 + the tallest item` — the safe fudge — cost
+ * page 12 forty millimetres it did not have.
+ */
+export function balancedLines(items: number[]): number {
+  const total = items.reduce((a, b) => a + b, 0);
+  let best = total;
+  let head = 0;
+  for (const item of items) {
+    head += item;
+    best = Math.min(best, Math.max(head, total - head));
+  }
+  return best;
+}

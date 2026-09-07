@@ -23,7 +23,7 @@ export interface PackDisclosureBlockProps {
 
 export function PackDisclosureBlock({ disclosure }: PackDisclosureBlockProps) {
   return (
-    <div className="pack-disclosure">
+    <div className={disclosure.columns === 2 ? 'pack-disclosure is-two-column' : 'pack-disclosure'}>
       <h3 className="pack-disclosure-heading">{disclosure.heading}</h3>
       {disclosure.notes.map((note, index) => (
         <p key={`${note.heading}-${index}`} className="pack-disclosure-body">

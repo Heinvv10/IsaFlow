@@ -333,6 +333,20 @@ html.print-mode .pack-pages {
 
 /* Task 14 — a disclosure block (e.g. negative equity, spec §3.5). */
 .pack-disclosure { display: flex; flex-direction: column; gap: 1.5mm; }
+/* A disclosure whose notes are a LIST rather than an argument — page 12's
+ * basis of preparation. Same treatment landscape pages give every disclosure,
+ * asked for by the model rather than inferred from the paper. */
+.pack-disclosure.is-two-column {
+  display: block;
+  column-count: 2;
+  column-gap: var(--pack-gutter);
+}
+.pack-disclosure.is-two-column .pack-disclosure-heading {
+  column-span: all;
+  margin-bottom: 1.5mm;
+}
+.pack-disclosure.is-two-column .pack-disclosure-body { break-inside: avoid; }
+.pack-disclosure.is-two-column .pack-disclosure-body + .pack-disclosure-body { margin-top: 1.5mm; }
 .pack-disclosure-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0; }
 .pack-disclosure-body { font-size: 9.5pt; line-height: 14pt; margin: 0; }
 /* Negative equity (spec §3.5) is the one disclosure the pack cannot let a
@@ -489,8 +503,22 @@ html.print-mode .pack-pages {
  * body so a five-note block does not become five headed sections. */
 .pack-disclosure-note-heading { font-weight: 600; }
 
-/* Page 12's definitions, each with its optional reconciliation bridge. */
-.pack-definitions { margin: 0; font-size: 9.5pt; line-height: 14pt; }
+/* Page 12's definitions, each with its optional reconciliation bridge.
+ *
+ * TWO COLUMNS, because it is a glossary. Sixteen terms set across the full
+ * 174mm measure came to 312mm on a 255mm sheet — the page refused to compose
+ * — and a one-line definition set across ninety characters is a bad measure
+ * anyway. `break-inside: avoid` keeps a term with its own definition, and
+ * keeps EBITDA's reconciliation table whole; without it Chromium will split a
+ * three-row bridge across the column break. */
+.pack-definitions {
+  /* 8.5pt over 12, a step below body prose: this is reference matter a reader
+   * consults rather than reads through, and sixteen terms at body size do not
+   * fit the sheet the pack is contracted to. */
+  margin: 0; font-size: 8.5pt; line-height: 12pt;
+  column-count: 2; column-gap: var(--pack-gutter);
+}
+.pack-definition { break-inside: avoid; }
 .pack-definition + .pack-definition { margin-top: 2mm; }
 .pack-definition-term { font-weight: 600; }
 .pack-definition-body { margin: 0 0 0 4mm; }
