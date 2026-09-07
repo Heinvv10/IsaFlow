@@ -13,7 +13,8 @@
  */
 import { checkWaterfall, disproportionatePlugSentence } from './packWaterfallIntegrity';
 import { checkColumns } from './packStatementIntegrity';
-import type { MoneyScale } from '@/lib/format/money';
+import { EXPOSURE_CLAUSE } from '../pages/packMattersPage';
+import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import type { PackChartSpec, PackPagesDocument } from '../pages/packPageModel';
 
 /**
@@ -133,6 +134,16 @@ function checkChartClaims(
  * summary sentences are the ALLOW-LIST, and each carries the count it must
  * carry. The counts are required rather than merely checked when present —
  * a reworded sentence makes this red, not vacuous.
+ *
+ * AND THE AMOUNTS, WHICH IT NEVER COVERED. The rule this gate enforces was
+ * written about COUNTING, so the two sentences on page 11 that state an
+ * AMOUNT were outside it: the headline totalled every quantified matter and
+ * the note under the table totalled the ones not printed, and the two used
+ * different sign conventions to do it. On the live pack they happened to
+ * decompose — 1 675 = 1 017 printed + 658 omitted — and one negative quantum
+ * would have parted them with nothing to notice. `checkMattersAmounts` holds
+ * the headline to the table beneath it: whatever the page says the exposure
+ * is, it is the printed rows plus the omitted note, in the page's own words.
  */
 const FOLLOW_ON = /^(\d+) further matters? follows? on the matters page\./;
 const NOT_PRINTED = /^(\d+) further matters? (?:is|are) not printed in this pack;/;
@@ -185,8 +196,41 @@ export function checkMattersCrossReference(doc: PackPagesDocument): string[] {
   return failures;
 }
 
+/**
+ * The page's headline exposure, re-derived from the table under it.
+ *
+ * The title is a SENTENCE, so the check is that the sentence contains the
+ * amount — formatted at the document's own scale, because a figure built at
+ * another scale would never match the page's text and the gate would refuse a
+ * pack that says exactly what it must (the same reasoning as the plug
+ * disclosure above).
+ */
+export function checkMattersAmounts(doc: PackPagesDocument, scale: MoneyScale): string[] {
+  const page = doc.pages.find((p) => p.blocks.some((b) => b.kind === 'matters'));
+  const table = page?.blocks.find((b) => b.kind === 'matters');
+  if (page === undefined || table === undefined || table.kind !== 'matters') return [];
+
+  // Only where the page STATES an exposure. A pack whose matters carry no rand
+  // amount says so in words, and a gate that invented a zero to compare
+  // against would refuse it for printing the truth.
+  if (!page.title.includes(EXPOSURE_CLAUSE)) return [];
+
+  const printed = table.matters
+    .map((m) => m.quantum.value)
+    .filter((v): v is number => v !== null);
+  const omitted = table.omitted?.quantum.value ?? 0;
+  const total = printed.reduce((sum, v) => sum + Math.abs(v), 0) + Math.abs(omitted);
+  const stated = formatMoney(total, { scale });
+  if (page.title.includes(stated)) return [];
+  return [
+    `Page ${page.number} says "${page.title}" over a table whose printed rows and omitted note `
+      + `come to ${stated} ${scale}. A sentence that totals something states the total of the `
+      + 'matters it describes, never a second derivation of it.',
+  ];
+}
+
 export function checkBlocks(doc: PackPagesDocument, scale: MoneyScale): string[] {
-  const failures: string[] = [...checkMattersCrossReference(doc)];
+  const failures: string[] = [...checkMattersCrossReference(doc), ...checkMattersAmounts(doc, scale)];
   for (const page of doc.pages) {
     for (const block of page.blocks) {
       if (block.kind === 'table') {

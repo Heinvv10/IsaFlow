@@ -134,6 +134,14 @@ export const liveDemoTrend: PackTrendPoint[] = Array.from({ length: 12 }, (_, i)
  */
 export const liveDemoMatters: PackMatter[] = [
   ...Array.from({ length: 26 }, (_, i) => ({
+    // `kind` IS REQUIRED ON `PackMatter` AND THIS FIXTURE OMITTED IT — tests
+    // are outside `tsconfig`'s `include`, so nothing said so. `mattersTitle`
+    // counts `kind === 'finding'`, so the fixture named after the live pack
+    // composed a page 11 headed "0 matters require a board decision this
+    // period" where the live pack prints "28 matters require a board decision,
+    // 26 of them carrying 1 675 R'000 of exposure" — and the amount check in
+    // `checkMattersAmounts` had nothing to check.
+    kind: 'finding' as const,
     issue: `Journal JE-2026-${String(15 - (i % 15)).padStart(5, '0')} (recorded well after its entry date): ${
       ['Interest Income', 'Bank Charges', 'repro after fix', 'repro'][i % 4]
     } - 2026/${String((i % 9) + 1).padStart(2, '0')}`,
@@ -144,6 +152,7 @@ export const liveDemoMatters: PackMatter[] = [
     decisionRequired: 'Confirm supporting evidence for this entry or refer it for reversal.',
   })),
   ...[2024, 2026].map((fy) => ({
+    kind: 'finding' as const,
     issue: `Annual Financial Statements for FY${fy} is ${fy === 2024 ? 739 : 10} day(s) overdue (due ${fy === 2024 ? '2024-08-28' : '2026-08-27'})`,
     quantum: null,
     owner: 'Company secretary',

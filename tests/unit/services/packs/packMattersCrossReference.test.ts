@@ -13,7 +13,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { checkMattersCrossReference } from '@/modules/accounting/services/packs/figures/packBlockIntegrity';
+import { checkMattersAmounts, checkMattersCrossReference } from '@/modules/accounting/services/packs/figures/packBlockIntegrity';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { selectPrintedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -134,5 +135,59 @@ describe('the compose-time gate', () => {
   it('refuses a panel silent about matters the matters page says are missing', () => {
     const failures = checkMattersCrossReference(contradicting([one.issue], [one], 22));
     expect(failures.join(' ')).toContain('the matters page discloses 22');
+  });
+});
+
+/**
+ * THE SENTENCES THAT STATE AN AMOUNT, WHICH THE COUNT GATE NEVER COVERED.
+ *
+ * Page 11 states its exposure twice: the headline totals every quantified
+ * matter, and the note under the table totals the ones not printed. The rule
+ * R-P64 was written about COUNTING, so these two were outside it — and they
+ * were derived by two different functions, one summing absolute quanta and one
+ * summing signed ones. On the live pack they decomposed by luck (1 675 = 3 x
+ * 339 printed + 658 omitted); one negative quantum would have parted them with
+ * nothing in the pipeline able to see it.
+ */
+describe('the two sentences on page 11 that state an amount', () => {
+  const doc = buildBoardPackPages(liveDemoInput);
+
+  it('states an exposure the table under it adds up to', () => {
+    expect(checkMattersAmounts(doc, PACK_SCALE)).toEqual([]);
+  });
+
+  it('states it with the scale it is measured in', () => {
+    const page = doc.pages.find((p) => p.blocks.some((b) => b.kind === 'matters'));
+    // "26 of them carrying 1 675 of exposure" over a note reading "They come
+    // to 658 R'000 in total" reads as one quantity at two values. It is two
+    // quantities, and only one of them said so.
+    expect(page?.title).toContain(`${PACK_SCALE} of exposure`);
+  });
+
+  /**
+   * The condition the two derivations differed on. Every live quantum happens
+   * to be positive, so absolute and signed agreed and the split was invisible;
+   * one credit journal flagged as unusual is all it takes.
+   */
+  it('still decomposes when a matter carries a negative quantum', () => {
+    const withCredit = buildBoardPackPages({
+      ...liveDemoInput,
+      matters: liveDemoMatters.map((m, i) => (i === 3 ? { ...m, quantum: -180_000 } : m)),
+    });
+
+    expect(checkMattersAmounts(withCredit, PACK_SCALE)).toEqual([]);
+  });
+
+  it('goes red when the headline and the table disagree', () => {
+    const page = doc.pages.find((p) => p.blocks.some((b) => b.kind === 'matters'))!;
+    const wrong = {
+      ...doc,
+      pages: doc.pages.map((p) => (p === page
+        ? { ...p, title: p.title.replace(/[\d ]+(?= R)/, ' 9 999 ') }
+        : p)),
+    };
+
+    expect(checkMattersAmounts(wrong, PACK_SCALE)).toHaveLength(1);
+    expect(checkMattersAmounts(wrong, PACK_SCALE)[0]).toMatch(/never a second derivation/);
   });
 });

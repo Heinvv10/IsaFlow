@@ -213,11 +213,33 @@ export function selectPrintedMatters(
   };
 }
 
-/** What the omitted matters come to, for the note under the table. Null when
- *  none of them carries a rand amount — a count with no total, rather than a
- *  zero that would read as "worth nothing". */
-export function omittedQuantum(omitted: PackMatter[]): number | null {
-  const quantified = omitted.filter((m): m is PackMatter & { quantum: number } => m.quantum !== null);
+/**
+ * WHAT A SET OF MATTERS COMES TO — one function, because page 11 states this
+ * quantity twice and used to compute it twice.
+ *
+ * The headline totalled `Math.abs(quantum)` over every quantified matter and
+ * the note under the table totalled the SIGNED quantum over the ones not
+ * printed. Two conventions for one word: with every quantum positive the two
+ * sentences decompose (1 675 = 1 017 printed + 658 omitted, on the live demo
+ * pack) and with one negative quantum they silently stop, on a page whose two
+ * numbers a director is invited to subtract.
+ *
+ * ABSOLUTE, and that settles it in the direction the word already points:
+ * "exposure" is a magnitude, the ranking that chooses which matters print is
+ * `Math.abs`, and a credit journal flagged as unusual is not negative
+ * exposure. `checkMattersAmounts` now holds the page's two sentences to this
+ * one function.
+ *
+ * Null when none of them carries a rand amount — a count with no total, rather
+ * than a zero that would read as "worth nothing".
+ */
+export function mattersExposure(matters: PackMatter[]): number | null {
+  const quantified = matters.filter((m): m is PackMatter & { quantum: number } => m.quantum !== null);
   if (quantified.length === 0) return null;
-  return quantified.reduce((sum, m) => sum + m.quantum, 0);
+  return quantified.reduce((sum, m) => sum + Math.abs(m.quantum), 0);
+}
+
+/** What the omitted matters come to, for the note under the table. */
+export function omittedQuantum(omitted: PackMatter[]): number | null {
+  return mattersExposure(omitted);
 }

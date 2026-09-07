@@ -9,7 +9,7 @@
  */
 import { page } from './packFrontMatter';
 import { disclose, note } from './packPageBlocks';
-import { omittedQuantum, type SelectedMatters } from './packMattersPrinted';
+import { mattersExposure, omittedQuantum, type SelectedMatters } from './packMattersPrinted';
 import { remainingPageMm } from './packPageFit';
 import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -20,6 +20,16 @@ import type { PackNarrative, PackPageBlock } from './packPageModel';
 /** The page's short name in the Contents, and the 16pt heading it prints
  *  above its title. */
 export const MATTERS_NAV_LABEL = 'Matters for the board';
+
+/**
+ * The clause the headline states its exposure in, when it states one at all —
+ * a page whose matters carry no rand amount says so in words instead.
+ *
+ * Exported so `checkMattersAmounts` looks for the same string the page prints
+ * rather than a second spelling of it, and so it stays silent on the page that
+ * states no amount rather than inventing one to check.
+ */
+export const EXPOSURE_CLAUSE = ' of exposure';
 
 /**
  * PAGE 11'S TITLE, WHICH USED TO BE ITS OWN CATEGORY LABEL TWICE.
@@ -50,11 +60,18 @@ export function mattersTitle(matters: PackMatter[], scale: MoneyScale): string {
     return `0 matters require a board decision this period.${failedClause || ' Every check ran clean.'}`;
   }
   const quantified = findings.filter((m) => m.quantum !== null);
-  const total = quantified.reduce((sum, m) => sum + Math.abs(m.quantum ?? 0), 0);
+  // THE SAME FUNCTION THE NOTE UNDER THE TABLE USES. The headline totalled
+  // absolute quanta and the note totalled signed ones, so the page stated one
+  // word — exposure — under two conventions. See `mattersExposure`.
+  const total = mattersExposure(findings) ?? 0;
   const noun = findings.length === 1 ? 'matter requires' : 'matters require';
+  // WITH ITS UNIT. It read "26 of them carrying 1 675 of exposure" over a note
+  // reading "They come to 658 R'000 in total" — two figures about two
+  // different sets, one of which said what it was measured in. A reader with
+  // no scale on the larger number reads the pair as a contradiction.
   const exposure = quantified.length === 0
     ? 'none of them carrying a single rand amount'
-    : `${quantified.length} of them carrying ${formatMoney(total, { scale })} of exposure`;
+    : `${quantified.length} of them carrying ${formatMoney(total, { scale })} ${scale}${EXPOSURE_CLAUSE}`;
   return `${findings.length} ${noun} a board decision, ${exposure}.${failedClause}`;
 }
 
