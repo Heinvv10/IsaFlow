@@ -131,11 +131,13 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
       </table>
       {/* WHY they are not printed, and it is not "no room on this page".
         * The note used to say "not printed on this page", under six rows and
-        * above 45% of blank white — a page contradicting its own excuse. The
-        * table is held to the paper this page has left after its heading,
-        * commentary and disclosure, so that a board pack is twelve sheets for
-        * every company however busy its ledger; that is a different reason
-        * from the sheet being full, and it is the true one.
+        * above 45% of blank white — a page contradicting its own excuse. Then
+        * it led with "held to what the page has room for", which is the same
+        * excuse one clause later: a reviewer read it over a page 45% white and
+        * called it the pack apologising for its layout engine. The binding
+        * constraint is the TWELVE SHEETS, so that is what it now leads with;
+        * the paper this page has left is how that constraint is spent, not
+        * why it exists.
         *
         * The ordering it states is the ordering `selectPrintedMatters` now
         * prints: two AFS filings 739 and 10 days overdue used to rank fifth
@@ -143,9 +145,9 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
       {omitted !== null && (
         <p className="pack-matters-omitted">
           {omitted.count} further {omitted.count === 1 ? 'matter is' : 'matters are'} not printed.
-          This table is held to what the page has room for, so that a board pack is the same twelve
-          sheets for every company: matters with no single rand amount are listed first, then the
-          largest by exposure.{' '}
+          A board pack is the same twelve sheets for every company however busy its ledger, so this
+          table is held to the paper this page has: matters with no single rand amount are listed
+          first, then the largest by exposure.{' '}
           {omitted.quantum.value === null
             ? omitted.quantum.unavailable
             : `They come to ${formatMoney(omitted.quantum.value, { scale })} ${scale} in total.`}
