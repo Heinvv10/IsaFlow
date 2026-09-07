@@ -186,5 +186,10 @@ export function buildCashTrendChart(trend: PackTrendPoint[], scale: MoneyScale):
     kind: 'line',
     svg: renderChartSvg(smallMultipleOption(points, domain, money), CASH_TREND_FULL),
     heightMm: CASH_TREND_FULL.heightMm,
+    // What that sentence ASSERTS, as a number, so the gate can hold it
+    // against the cash table's own `Closing cash` row on the same page. The
+    // rendered pack stated `(532)` in the table and `(752)` here, and nothing
+    // in the pipeline could see it — see `checkChartClaims`.
+    claims: [{ label: 'Closing cash', value: last }],
   };
 }

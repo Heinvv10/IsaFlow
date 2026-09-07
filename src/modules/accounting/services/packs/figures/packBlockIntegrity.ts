@@ -51,6 +51,57 @@ function checkPlugDisclosure(
 }
 
 /**
+ * ONE QUANTITY, ONE FIGURE, PER PAGE.
+ *
+ * Sheet 8 of the rendered board pack stated closing cash as `(532)` in its
+ * table and `(752)` in the closing-cash line's own title — one page, one
+ * quantity, two values, both at R'000, nothing on the page explaining a
+ * difference in basis. The gate passed it: `checkColumns` reads a table's
+ * columns and `checkWaterfall` reads a bridge's bars, and a chart TITLE is
+ * prose that neither of them looks at.
+ *
+ * So a chart carries the figures its title states, as `claims` (numbers, not
+ * a sentence to re-parse), and this holds them against the table on the same
+ * page. A claim whose label matches no row is left alone: a chart may state
+ * something the page tabulates nowhere.
+ *
+ * The comparison is on the RAW figures, to the cent. Two readings of closing
+ * cash that differ by a rounding step are still a pack that contradicts
+ * itself in front of a board; the two windows they were measured over is
+ * what actually differed here, and that is not a rounding step.
+ */
+const CLAIM_TOLERANCE = 0.005;
+
+function tabulatedActuals(page: PackPagesDocument['pages'][number]): Map<string, number> {
+  const actuals = new Map<string, number>();
+  for (const block of page.blocks) {
+    if (block.kind !== 'table') continue;
+    for (const row of block.table.rows) {
+      const value = row.figures.actual?.value;
+      if (value !== null && value !== undefined) actuals.set(row.label, value);
+    }
+  }
+  return actuals;
+}
+
+function checkChartClaims(
+  page: PackPagesDocument['pages'][number],
+  chart: PackChartSpec,
+): string[] {
+  const actuals = tabulatedActuals(page);
+  return (chart.claims ?? []).flatMap((claim) => {
+    const tabulated = actuals.get(claim.label);
+    if (tabulated === undefined) return [];
+    if (Math.abs(tabulated - claim.value) <= CLAIM_TOLERANCE) return [];
+    return [
+      `Page ${page.number} states '${claim.label}' twice at two values: the table ` +
+        `says ${tabulated} and chart '${chart.id}' says ${claim.value}. One page may ` +
+        `state one figure for one quantity.`,
+    ];
+  });
+}
+
+/**
  * Checks 4 and 6, both of which walk the page blocks rather than figures.
  *
  * `scale` is the document's own, narrowed by the caller: the plug disclosure
@@ -65,12 +116,14 @@ export function checkBlocks(doc: PackPagesDocument, scale: MoneyScale): string[]
       if (block.kind === 'table') {
         failures.push(...checkColumns(block.table, `Page ${page.number} table`));
       } else if (block.kind === 'chart') {
+        failures.push(...checkChartClaims(page, block.chart));
         if (block.chart.kind === 'waterfall') {
           failures.push(...checkWaterfall(block.chart));
           failures.push(...checkPlugDisclosure(page, block.chart, scale));
         }
       } else if (block.kind === 'smallMultiples') {
         for (const panel of block.panels) {
+          failures.push(...checkChartClaims(page, panel));
           if (panel.kind === 'waterfall') {
             failures.push(...checkWaterfall(panel));
             failures.push(...checkPlugDisclosure(page, panel, scale));

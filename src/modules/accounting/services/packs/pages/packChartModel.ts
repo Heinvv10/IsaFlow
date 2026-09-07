@@ -39,6 +39,24 @@ export interface PackWaterfallBar {
   uncaptured?: boolean;
 }
 
+/**
+ * A figure a chart's own TITLE states, carried as data.
+ *
+ * Page 8 printed closing cash twice — `(532)` in the cash table and `(752)`
+ * in the closing-cash line's title — and the integrity gate saw neither,
+ * because it walks figures and bars and a chart title is prose. Re-parsing
+ * the sentence would be a second, undeclared formatter; this is the claim
+ * itself, so the gate compares NUMBERS against the table on the same page.
+ *
+ * `label` must match the table row it is a claim about, exactly. A claim
+ * that matches no row on the page is not checked — a chart may legitimately
+ * state something the page tabulates nowhere.
+ */
+export interface PackChartClaim {
+  label: string;
+  value: number;
+}
+
 export interface PackChartSpec {
   /** Stable id for this chart within its page — how a later task addresses
    *  it (e.g. the integrity gate reporting which chart failed). */
@@ -51,4 +69,6 @@ export interface PackChartSpec {
   /** Populated only when `kind === 'waterfall'`; that is what the bars-sum-
    *  to-endpoints check reads instead of the SVG string. */
   waterfallBars?: PackWaterfallBar[];
+  /** The figures this chart's title asserts — see `PackChartClaim`. */
+  claims?: PackChartClaim[];
 }

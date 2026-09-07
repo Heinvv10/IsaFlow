@@ -19,6 +19,7 @@ import {
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { basisPage, brightsphereInput, demoInput, demoSet, figures } from './fixtures/boardPackInputs';
+import { liveDemoInput, liveDemoTrailingMonthInput } from './fixtures/liveDemoBoardPack';
 
 const template = buildBoardPackPages(demoInput);
 
@@ -160,5 +161,31 @@ describe('buildBoardPackPages calls the gate', () => {
     expect(bars[bars.length - 2]!.end).toBe(demoSet.current.netProfit);
     expect(bars[bars.length - 1]!.end).toBe(demoSet.current.netProfit);
     expect(bars.some((b) => b.kind === 'subtotal')).toBe(true);
+  });
+});
+
+describe('one quantity, one figure, per page', () => {
+  it('refuses a pack whose cash line and cash table state different closing cash', () => {
+    // Sheet 8 of the rendered pack said closing cash was `(532)` in its table
+    // and `(752)` in the closing-cash line's own title. One page, one
+    // quantity, two values, both at R'000, nothing explaining the difference
+    // — and the gate passed it, because it walks a table's columns and a
+    // bridge's bars and a chart title is neither.
+    //
+    // The cause was `getPackTrend`: its last bucket ran to the end of the
+    // calendar month containing the reporting date, so a pack run to 7
+    // September read cash as at 30 September. That is fixed at the query, and
+    // this is the gate that would have caught it — driven by the live demo
+    // company's own trend with the trailing month put back.
+    expect(() => buildBoardPackPages(liveDemoTrailingMonthInput))
+      .toThrow(/states 'Closing cash' twice at two values/);
+  });
+
+  it('builds the same pack once the series stops at the reporting date', () => {
+    // The other direction: the check must not refuse an honest pack. Same
+    // company, same twenty-eight matters, same four cash-page footnotes — the
+    // only difference is that the last point of the cash series is the
+    // period's own closing cash rather than a month-end past it.
+    expect(() => buildBoardPackPages(liveDemoInput)).not.toThrow();
   });
 });

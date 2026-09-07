@@ -120,6 +120,24 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
   const first = slots[0]!;
   const last = slots[slots.length - 1]!;
 
+  /**
+   * The series stops at the REPORTING DATE, not at the end of the calendar
+   * month containing it.
+   *
+   * `cash` and `accountsReceivable` are cumulative positions, so the last
+   * month's bucket carried every posting to that month's last day — and a
+   * board pack run to 7 September read cash as at 30 September. Sheet 8 of
+   * the rendered pack stated closing cash as `(532)` in its table and
+   * `(752)` in the closing-cash line's own title, on the same page, both at
+   * R'000, with nothing to say the two were measured over different windows.
+   * A pack must not report a position it is not yet reporting on.
+   *
+   * `monthSlots` still gives every month its real last day — that is what a
+   * month IS, and its own test says so. Only the query's upper bound is
+   * clamped, and only when `to` falls mid-month.
+   */
+  const upperBound = to < last.to ? to : last.to;
+
   const rows = (await sql`
     SELECT
       CASE WHEN je.entry_date < ${first.from}::date THEN ${OPENING_BUCKET}
@@ -137,7 +155,7 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
       AND  jl.company_id = ${companyId}::UUID
       AND  ga.company_id = ${companyId}::UUID
       AND  je.status     = 'posted'
-      AND  je.entry_date <= ${last.to}::date
+      AND  je.entry_date <= ${upperBound}::date
     GROUP  BY 1
   `) as Row[];
 

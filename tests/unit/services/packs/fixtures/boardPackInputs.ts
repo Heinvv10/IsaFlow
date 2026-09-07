@@ -49,7 +49,23 @@ export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigure
   };
 }
 
-export const trend: PackTrendPoint[] = Array.from({ length: 13 }, (_, i) => {
+/**
+ * A thirteen-month series whose LAST cash point is the closing cash of the
+ * pack it belongs to.
+ *
+ * It has to be a function of that figure. Page 8 carries both the cash table
+ * (closing cash from `PackFigureSet.current.cash`) and the closing-cash line
+ * drawn from this series, and a fixture whose series ends somewhere else is a
+ * fixture in which the pack states one quantity twice at two values —
+ * precisely the defect `checkChartClaims` now refuses, and precisely what the
+ * rendered pack did on paper. The two are the same position measured at the
+ * same date; they cannot be invented independently.
+ */
+export function trendEndingAt(closingCash: number): PackTrendPoint[] {
+  return Array.from({ length: 13 }, (_, i) => trendPoint(i, closingCash));
+}
+
+function trendPoint(i: number, closingCash: number): PackTrendPoint {
   const revenue = 600_000 + i * 12_000;
   const costOfSales = 330_000 + i * 6_000;
   return {
@@ -61,11 +77,14 @@ export const trend: PackTrendPoint[] = Array.from({ length: 13 }, (_, i) => {
     costOfSales,
     operatingExpenses: 190_000 + i * 3_000,
     grossMarginPct: Math.round(((revenue - costOfSales) / revenue) * 10000) / 100,
-    cash: 590_000 + i * 5_000,
+    cash: closingCash - (12 - i) * 5_000,
     accountsReceivable: 700_000 + i * 4_000,
     debtorDays: Math.round(((700_000 + i * 4_000) / revenue) * 30 * 100) / 100,
   };
-});
+}
+
+/** The demo company's series — `demoSet.current.cash` is 610 000. */
+export const trend: PackTrendPoint[] = trendEndingAt(610_000);
 
 /**
  * Every month has zero revenue, so `grossMarginPct` and `debtorDays` are both
@@ -307,6 +326,8 @@ export const denseInput: BoardPackInput = {
   period: '1 January 2026 to 7 September 2026',
   draft: true,
   set: denseSet,
+  // Its own closing cash, not the demo company's — see `trendEndingAt`.
+  trend: trendEndingAt(denseSet.current.cash),
   matters: denseMatters,
   // Nothing in this codebase stores board-matter commentary, so the real pack
   // printed the pending placeholder on page 11 — and page 4's commentary was

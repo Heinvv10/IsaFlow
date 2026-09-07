@@ -68,6 +68,26 @@ describe('getPackTrend', () => {
     ]);
   });
 
+  it('stops the series at the REPORTING DATE, not at the end of the month containing it', async () => {
+    // `cash` and `accountsReceivable` are cumulative positions, so the last
+    // bucket carried every posting up to that month's last day: a pack run to
+    // 7 September read cash as at 30 September. Sheet 8 of the rendered board
+    // pack then stated closing cash as `(532)` in its table and `(752)` in
+    // the closing-cash line's title, on the same page, both at R'000, with
+    // nothing to say the two were measured over different windows.
+    sqlMock.mockResolvedValue([]);
+    await getPackTrend(COMPANY, '2026-09-07', 12);
+    const params = sqlMock.mock.calls[0]!.slice(1);
+    expect(params).toContain('2026-09-07');
+    expect(params).not.toContain('2026-09-30');
+
+    // And a `to` that IS a month end is left exactly as it was.
+    sqlMock.mockReset();
+    sqlMock.mockResolvedValue([]);
+    await getPackTrend(COMPANY, '2026-09-30', 12);
+    expect(sqlMock.mock.calls[0]!.slice(1)).toContain('2026-09-30');
+  });
+
   it('clamps months to the 1-12 range', async () => {
     sqlMock.mockResolvedValue([]);
     expect(await getPackTrend(COMPANY, '2026-03-31', 99)).toHaveLength(12);
