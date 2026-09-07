@@ -94,6 +94,26 @@ function fingerprint(inv: ParsedSupplierInvoice): string {
   return JSON.stringify(inv);
 }
 
+/**
+ * Which fields two same-numbered elements actually disagree on.
+ *
+ * The refusal used to assert they "differ in their amounts, dates or lines"
+ * because those are the differences worth refusing over — but the comparison is
+ * the WHOLE element, so a pair differing only in `notes` was refused with a
+ * message naming three fields that were identical. A refusal an agent cannot
+ * act on is the defect class this connector exists to remove, so the message
+ * names what actually differs.
+ *
+ * `accountIds` is derived from `items` and never differs on its own, so it is
+ * dropped rather than reported as a second, redundant difference.
+ */
+function differingFields(a: ParsedSupplierInvoice, b: ParsedSupplierInvoice): string[] {
+  const keys = Object.keys(a) as (keyof ParsedSupplierInvoice)[];
+  return keys
+    .filter((k) => k !== 'accountIds')
+    .filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+}
+
 export function partitionSupplierInvoiceBatch(
   batch: readonly Record<string, unknown>[],
 ): PartitionedBatch | string {
@@ -101,7 +121,7 @@ export function partitionSupplierInvoiceBatch(
   const skipped: Record<string, unknown>[] = [];
   const supplierIds = new Set<string>();
   const accountIds = new Set<string>();
-  const seenAt = new Map<string, { index: number; fingerprint: string }>();
+  const seenAt = new Map<string, { index: number; inv: ParsedSupplierInvoice; fingerprint: string }>();
 
   for (let i = 0; i < batch.length; i++) {
     const one = parseSupplierInvoiceInput(batch[i]!);
@@ -117,10 +137,11 @@ export function partitionSupplierInvoiceBatch(
       // IDENTICAL, or it is not a repeat. Same number with a different amount
       // is two different bills, and skipping one of those loses money silently.
       if (fingerprint(one) !== first.fingerprint) {
+        const differs = differingFields(first.inv, one);
         return `invoices[${i}] and invoices[${first.index}] both carry invoice_number `
           + `${JSON.stringify(one.invoiceNumber)} for the same supplier but are NOT the `
-          + 'same bill — they differ in their amounts, dates or lines. One number cannot '
-          + 'name two bills: correct the numbering, or combine them if they belong on one.';
+          + `same bill — they differ in: ${differs.join(', ')}. One number cannot name `
+          + 'two bills: correct the numbering, or combine them if they belong on one.';
       }
       skipped.push({
         index: i,
@@ -132,7 +153,7 @@ export function partitionSupplierInvoiceBatch(
       });
       continue;
     }
-    seenAt.set(key, { index: i, fingerprint: fingerprint(one) });
+    seenAt.set(key, { index: i, inv: one, fingerprint: fingerprint(one) });
     supplierIds.add(one.supplierId);
     for (const id of one.accountIds) accountIds.add(id);
     kept.push({ index: i, inv: one });

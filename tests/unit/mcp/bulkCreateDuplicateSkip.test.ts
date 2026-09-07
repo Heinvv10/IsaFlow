@@ -48,6 +48,7 @@ import { bulkCreateSupplierInvoicesTool } from '@/lib/mcp/tools/writeBulkInvoice
 
 const SUPPLIER_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SUPPLIER_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const ACCOUNT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const ctx = {
   companyId: '11111111-1111-4111-8111-111111111111',
   userId: '99999999-9999-4999-8999-999999999999',
@@ -221,16 +222,38 @@ describe('bulk_create_supplier_invoices — same number, different bill is REFUS
     expect(createSupplierInvoice).not.toHaveBeenCalled();
   });
 
+  // The refusal NAMES what differs. It used to assert the pair differed "in
+  // their amounts, dates or lines" whatever the actual difference was — so a
+  // batch differing only in `notes` was refused with a message listing three
+  // fields that were identical. An agent cannot act on that.
   it.each([
-    ['a different date', { invoice_date: '2026-04-01' }],
-    ['a different quantity', { lines: [{ description: 'Fibre', quantity: 2, unit_price: 100 }] }],
-    ['a different description', { lines: [{ description: 'Other', quantity: 1, unit_price: 100 }] }],
-  ])('refuses on %s', async (_label, override) => {
-    expect(errText(await call([
+    ['a different date', { invoice_date: '2026-04-01' }, /invoiceDate/],
+    ['a different quantity', { lines: [{ description: 'Fibre', quantity: 2, unit_price: 100 }] }, /items/],
+    ['a different description', { lines: [{ description: 'Other', quantity: 1, unit_price: 100 }] }, /items/],
+    ['a different note only', { notes: 'second copy' }, /notes/],
+    ['a different reference only', { reference: 'PO-99' }, /reference/],
+  ])('refuses on %s and names the field', async (_label, override, named) => {
+    const text = errText(await call([
       invoice(SUPPLIER_A, 'INV-1'),
       { ...invoice(SUPPLIER_A, 'INV-1'), ...override },
-    ]))).toMatch(/not the same bill/i);
+    ]));
+    expect(text).toMatch(/not the same bill/i);
+    expect(text).toMatch(named);
     expect(createSupplierInvoice).not.toHaveBeenCalled();
+  });
+
+  // `accountIds` is derived from `items`, so reporting it beside `items` would
+  // name the same difference twice.
+  it('does not report the derived accountIds as a difference of its own', async () => {
+    const text = errText(await call([
+      invoice(SUPPLIER_A, 'INV-1'),
+      {
+        ...invoice(SUPPLIER_A, 'INV-1'),
+        lines: [{ description: 'Fibre', quantity: 1, unit_price: 100, gl_account_id: ACCOUNT }],
+      },
+    ]));
+    expect(text).toMatch(/items/);
+    expect(text).not.toMatch(/accountIds/);
   });
 
   it('still skips a byte-identical re-send, which is the case it exists for', async () => {
