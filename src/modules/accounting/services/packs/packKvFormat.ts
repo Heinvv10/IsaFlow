@@ -7,7 +7,7 @@
  * Lives in the service layer rather than in PackSectionView so the PPTX route
  * can reuse it without pulling React and ECharts into an API bundle.
  */
-import { formatMoney, formatPct } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPct, formatRatio } from '@/lib/format/money';
 import type { KPIScorecardItem } from '@/modules/accounting/services/reports/kpiScorecardService';
 import type { PackKvItem } from './packDocument';
 
@@ -23,8 +23,8 @@ export function formatPackKv(item: PackKvItem): string {
   if (item.value === null) return NO_FIGURE;
   switch (item.format) {
     case 'pct': return formatPct(item.value);
-    case 'ratio': return item.value.toFixed(2);
-    case 'days': return `${item.value.toFixed(0)} days`;
+    case 'ratio': return formatRatio(item.value);
+    case 'days': return formatDays(item.value);
     case 'money': return formatMoney(item.value, { cents: true });
   }
 }
@@ -54,7 +54,7 @@ export function scorecardFigure(item: KPIScorecardItem): ScorecardFigure {
   // `formatPackKv` applies to an unavailable KV item, and the same string the
   // executive dashboard's KpiTile shows for the same ratio.
   if (item.value === null) return { scored: false, reason: item.reason ?? NO_FIGURE };
-  return { scored: true, value: item.value.toFixed(2), target: item.target };
+  return { scored: true, value: formatRatio(item.value), target: item.target };
 }
 
 /** The same decision as one line of text, for the deck. */

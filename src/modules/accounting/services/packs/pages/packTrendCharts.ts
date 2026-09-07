@@ -10,7 +10,7 @@
  * every name here, so existing import paths still resolve.
  */
 
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPctLevel, type MoneyScale } from '@/lib/format/money';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -76,8 +76,8 @@ const MONEY_PANELS: MoneyPanel[] = [
 ];
 
 const RATIO_PANELS: RatioPanel[] = [
-  { id: 'trend-gross-margin', name: 'Gross margin', pick: (p) => p.grossMarginPct, format: (n) => `${n.toFixed(1)}%` },
-  { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => `${n.toFixed(1)} days` },
+  { id: 'trend-gross-margin', name: 'Gross margin', pick: (p) => p.grossMarginPct, format: (n) => formatPctLevel(n) },
+  { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => formatDays(n, 1) },
 ];
 
 function moneyPanel(
@@ -180,9 +180,17 @@ export function buildCashTrendChart(trend: PackTrendPoint[], scale: MoneyScale):
   const last = points[points.length - 1]!.value;
   const direction = last >= first ? 'rose' : 'fell';
   const money = (n: number) => formatMoney(n, { scale });
+  // NAMED PERIODS, not just a count. This panel shares a sheet with the cash
+  // table, whose Opening cash is the START OF THE REPORTING PERIOD, while this
+  // series opens wherever the twelve-month window does — (125) at 1 January
+  // against (115) at the previous October, two different numbers for the word
+  // "opening", with nothing on the sheet saying they were different series.
+  // The endpoints carry their own months now, so the reader can see that.
   return {
     id: 'cash-trend',
-    title: `Closing cash ${direction} from ${money(first)} to ${money(last)} over ${points.length} periods.`,
+    title:
+      `Closing cash ${direction} from ${money(first)} at ${points[0]!.label} ` +
+      `to ${money(last)} at ${points[points.length - 1]!.label}, over ${points.length} periods.`,
     kind: 'line',
     svg: renderChartSvg(smallMultipleOption(points, domain, money), CASH_TREND_FULL),
     heightMm: CASH_TREND_FULL.heightMm,

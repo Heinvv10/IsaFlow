@@ -100,6 +100,17 @@ const LEDGER_VERSION_UNAVAILABLE =
  *  definition belongs here WITH a `reconciliation`, per §7.1 criterion 12. */
 const RATIO_DEFINITIONS: PackDefinition[] = [
   {
+    // STATED, because §7.1 criterion 8 asks for one number convention stated
+    // and applied. A rendered pack showed `(1 546)`, `−1348.0%` and `-0.14`
+    // within a few rows of each other on one sheet — an accounting bracket, a
+    // U+2212 and an ASCII hyphen for the same idea — and page 12 named none of
+    // them. `src/lib/format/money.ts` is where the applying happens.
+    term: 'Negative figures',
+    definition:
+      'Shown in brackets — (1 546) — for currency, percentages and ratios alike. '
+      + 'No minus sign is used anywhere in this pack.',
+  },
+  {
     term: 'Gross margin',
     definition: 'Gross profit (revenue less cost of sales), as a percentage of revenue.',
   },

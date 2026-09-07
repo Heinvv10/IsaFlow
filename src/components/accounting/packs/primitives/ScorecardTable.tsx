@@ -14,7 +14,7 @@ import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import type { MoneyScale } from '@/lib/format/money';
 import { FootnoteMarker } from './FootnoteMarker';
-import { formatMoney, formatPct } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPct, formatRatio } from '@/lib/format/money';
 import type {
   PackFigureFormat,
 } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -69,8 +69,8 @@ function formatTarget(target: number | null, format: PackFigureFormat, scale: Mo
     // in the one column a reader uses to judge whether the actual passed.
     case 'money': return formatMoney(target, { scale });
     case 'pct': return formatPct(target);
-    case 'ratio': return target.toFixed(2);
-    case 'days': return `${target.toFixed(0)} days`;
+    case 'ratio': return formatRatio(target);
+    case 'days': return formatDays(target);
   }
 }
 

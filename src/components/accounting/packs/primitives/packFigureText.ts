@@ -6,13 +6,12 @@
  * definitions.
  *
  * `formatMoney`/`formatPct` (src/lib/format/money.ts) are the only money/pct
- * formatters in this codebase and are used as-is. `ratio`/`days` have no
- * dedicated formatter there yet, so they fall back to the same convention
- * already reviewed and shipped for the legacy pack KV items
- * (`src/modules/accounting/services/packs/packKvFormat.ts`) rather than
- * inventing a new one here.
+ * formatters in this codebase and are used as-is. `formatRatio`/`formatDays` are
+ * theirs, added to that same module when a scorecard printed `-0.14` from a
+ * bare `toFixed(2)` on a sheet whose money column read `(1 546)` — an ASCII
+ * hyphen and an accounting bracket for the same idea, two rows apart.
  */
-import { formatMoney, formatPct, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPct, formatRatio, type MoneyScale } from '@/lib/format/money';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 
 /**
@@ -38,7 +37,7 @@ export function formatFigureText(figure: PackFigure, scale: MoneyScale): string 
   switch (figure.format) {
     case 'money': return formatMoney(figure.value, { scale });
     case 'pct': return formatPct(figure.value);
-    case 'ratio': return figure.value.toFixed(2);
-    case 'days': return `${figure.value.toFixed(0)} days`;
+    case 'ratio': return formatRatio(figure.value);
+    case 'days': return formatDays(figure.value);
   }
 }
