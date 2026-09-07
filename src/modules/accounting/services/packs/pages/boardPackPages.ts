@@ -101,6 +101,7 @@ import { formatPackPeriod } from './packPeriodLabel';
 import {
   buildBasisPage,
   buildFrontPages,
+  BASIS_NAV_LABEL,
   fitContentsPage,
   numbered,
   page,
@@ -496,7 +497,11 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // the basis page's standfirst counts them and says where they are — a
   // count composed before the contents page is held to its sheet is a count
   // that fit can falsify. See `fitContentsPage`.
-  const fittedContents = fitContentsPage(contents!, total);
+  // THE LABELS, not the count: the index wraps a long one onto a second line
+  // and the reserve has to know. Page 12 is not composed yet — it is composed
+  // FROM this fit — so it is named by its constant.
+  const fittedContents = fitContentsPage(
+    contents!, [cover!, contents!, ...body].map((p2) => p2.navLabel).concat(BASIS_NAV_LABEL));
   const basisPage = buildBasisPage(
     basis, input.period, comparativePeriod, scale, currency, printedCaveats(fittedContents, basis),
   );

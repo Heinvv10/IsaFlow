@@ -73,10 +73,10 @@ function build(basis: PackBasis) {
     basis,
     basisPageNumber: 12,
   });
-  const fittedContents = fitContentsPage(contents!, 12);
+  const fittedContents = fitContentsPage(contents!, NAV_LABELS);
   return {
     contents: fittedContents,
-    listMm: contentsListMm(12),
+    listMm: contentsListMm(NAV_LABELS),
     basisPage: fitPageToBox(buildBasisPage(
       basis, '1 January 2026 to 7 September 2026', null, PACK_SCALE, 'ZAR',
       printedCaveats(fittedContents, basis),
@@ -91,13 +91,23 @@ function printedOn(page: UnnumberedPage): number {
   return printedCaveats(page, basisWith(0, 1));
 }
 
+/** The twelve names the board pack's index prints, as `buildBoardPackPages`
+ *  composes them. The reserve is measured off the LABELS — a long one wraps
+ *  and costs the sheet a line — so the strings are what this fixture carries
+ *  rather than a count. */
+const NAV_LABELS = [
+  'Cover', 'Contents', 'Highlights', 'Commentary and actions', 'Group results',
+  'Income statement', 'Balance sheet', 'Cash', 'Scorecard', 'Trends',
+  'Matters for the board', 'Basis of preparation',
+];
+
 /** More long caveats than a contents sheet can hold beside its index. */
 const MANY_CAVEATS = 12;
 
 describe("the basis page's caveat count", () => {
   it('states the two the contents page prints when there is room for both', () => {
     const { contents, basisPage } = build(basisWith(4, 2));
-    expect(pageMm(contents) + contentsListMm(12)).toBeLessThanOrEqual(pageBoxMm(contents));
+    expect(pageMm(contents) + contentsListMm(NAV_LABELS)).toBeLessThanOrEqual(pageBoxMm(contents));
     expect(pageMm(basisPage)).toBeLessThanOrEqual(pageBoxMm(basisPage));
     expect(printedOn(contents)).toBe(2);
     expect(basisPage.title).toContain('2 caveats qualify these figures, printed with the contents');
@@ -115,7 +125,7 @@ describe("the basis page's caveat count", () => {
     // THE INDEX COUNTS. `PackContents` draws it off the page list rather than
     // out of a block, so a page held only to `pageMm` would run onto a
     // thirteenth sheet under an index that says twelve.
-    expect(pageMm(contents) + contentsListMm(12)).toBeLessThanOrEqual(pageBoxMm(contents));
+    expect(pageMm(contents) + contentsListMm(NAV_LABELS)).toBeLessThanOrEqual(pageBoxMm(contents));
     const count = printedOn(contents);
     expect(count, 'this fixture is meant to cost the page a caveat').toBeLessThan(MANY_CAVEATS);
     expect(basisPage.title).toContain(count === 1 ? 'one caveat qualifies' : `${count} caveats qualify`);
@@ -129,5 +139,35 @@ describe("the basis page's caveat count", () => {
     if (printedOn(contents) < MANY_CAVEATS) {
       expect(said, 'the contents page took a caveat and did not say so').toBeDefined();
     }
+  });
+});
+
+/**
+ * THE INDEX IS MEASURED OFF ITS LABELS, NOT OFF A COUNT.
+ *
+ * `contentsListMm` assumed one line per entry and never saw the strings. The
+ * board pack's twelve labels are short enough that the assumption held; an
+ * eighteen-page management pack with longer ones is the next document on
+ * these primitives, and a wrapped label makes the reserve UNDER-read — the
+ * one direction that puts a page on a thirteenth sheet under an index saying
+ * twelve.
+ */
+describe('the contents reserve measures the labels it will print', () => {
+  it('charges a label that wraps for the second line it takes', () => {
+    const short = contentsListMm(['Cash']);
+    const wrapped = contentsListMm([
+      'Cash, and the bridge between the opening and closing balances that this '
+      + 'pack does not carry the operating, investing and financing figures to draw',
+    ]);
+    // One 16pt line of the contents list is 5.6mm. A count-times-a-row model
+    // returns the same number for both of these.
+    expect(wrapped - short).toBeGreaterThan(5);
+  });
+
+  it('does not inflate the twelve the board pack actually prints', () => {
+    // The other direction: every real label fits one line, so the reserve is
+    // the twelve rows the sheet draws and not a pessimistic multiple of them.
+    const oneLineEach = contentsListMm(['Cash']) + 11 * (contentsListMm(['Cash', 'Cash']) - contentsListMm(['Cash']));
+    expect(contentsListMm(NAV_LABELS)).toBeCloseTo(oneLineEach, 5);
   });
 });

@@ -73,8 +73,22 @@ interface Located {
   where: string;
 }
 
-/** Every figure a page actually prints. Charts carry no `PackFigure`; their
- *  arithmetic is checked as bars instead. */
+/**
+ * Every figure a page actually prints.
+ *
+ * EXHAUSTIVE BY CONSTRUCTION, and it was not. It ended `default: break`, so a
+ * new figure-bearing block kind would have been collected by nothing,
+ * resolved against no provenance and recomputed by no quotient check — and
+ * §7.2's first rule is that EVERY figure on EVERY page resolves through
+ * provenance. It was true only by coincidence of the block list: the four
+ * kinds that carry no `PackFigure` today happen to be the four the switch
+ * fell through to. Adding a fifth would have been silent.
+ *
+ * The kinds with no figure are now named, with where their numbers ARE
+ * checked, and the fall-through is a `never` — the same fix `blockMm` and
+ * `adoptBlock` already use, and the reason is the same: a new block kind
+ * should not compile until someone has decided where its figures are checked.
+ */
 function locateFigures(doc: PackPagesDocument): Located[] {
   const found: Located[] = [];
   for (const page of doc.pages) {
@@ -103,6 +117,14 @@ function locateFigures(doc: PackPagesDocument): Located[] {
         case 'matters':
           for (const matter of block.matters)
             found.push({ figure: matter.quantum, where: at(`matter '${matter.issue.slice(0, 40)}'`) });
+          // AND THE EXPOSURE THE PAGE STATES FOR THE ONES IT DID NOT PRINT.
+          // It is a money figure in the page's own words — "N further matters
+          // … totalling X" — so §7.2's first rule admits no exception for it
+          // either. `checkBlocks` already foots it against the printed rows;
+          // this is what resolves it against the service that issued it.
+          if (block.omitted !== null) {
+            found.push({ figure: block.omitted.quantum, where: at('matters omission note') });
+          }
           break;
         case 'definitions':
           for (const entry of block.entries)
@@ -119,8 +141,24 @@ function locateFigures(doc: PackPagesDocument): Located[] {
               }
             }
           break;
-        default:
+        // NO `PackFigure` ON THESE FOUR, and each says where its numbers go
+        // instead. A chart's arithmetic is bars, checked by `checkBlocks` and
+        // `checkWaterfall`; a narrative and a disclosure carry prose, checked
+        // by `checkProse`. Listed rather than defaulted so that a fifth kind
+        // is a compile error here.
+        case 'chart':
+        case 'smallMultiples':
+        case 'narrative':
+        case 'disclosure':
           break;
+        default: {
+          const unknownKind: never = block;
+          throw new Error(
+            'locateFigures: a block kind was added without deciding where its figures are '
+              + `checked — ${JSON.stringify((unknownKind as { kind?: unknown }).kind)}. `
+              + 'Spec §7.2: every figure on every page resolves through provenance.',
+          );
+        }
       }
     }
   }

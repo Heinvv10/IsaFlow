@@ -13,7 +13,7 @@ import { ROUNDING_NOTE } from './packBasis';
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { disclose, mustDisclose, note } from './packPageBlocks';
 import { fitPageToBox } from './packPageFit';
-import { PT_MM } from './packTextMetrics';
+import { lines, PAGE_WIDTH_MM, PT_MM, wrappedLines } from './packTextMetrics';
 import { PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import type { PackBasis } from './packBasis';
 import type { MoneyScale } from '@/lib/format/money';
@@ -168,7 +168,7 @@ export function buildBasisPage(
   // needs from the headline is what standard the figures were prepared under,
   // at what scale, and whether anything qualifies them.
   const title = basisTitle(basis, scale, caveatsPrinted);
-  return page(title, 'Basis of preparation', 'Governance', 'medium', [
+  return page(title, BASIS_NAV_LABEL, 'Governance', 'medium', [
     disclose('Basis of preparation', [
       note('Standard', basis.basisOfPreparation.standard),
       // AND WHICH PART OF IT THE MONTHLY SERIES DOES NOT COVER IN FULL. The
@@ -239,9 +239,23 @@ function basisTitle(basis: PackBasis, scale: MoneyScale, caveats: number): strin
  * caller fits this page FIRST and hands `printedCaveats` to
  * `buildBasisPage` — see `boardPackPages`.
  */
-export function fitContentsPage(page: UnnumberedPage, pageCount: number): UnnumberedPage {
-  return fitPageToBox(page, contentsListMm(pageCount));
+export function fitContentsPage(page: UnnumberedPage, navLabels: string[]): UnnumberedPage {
+  return fitPageToBox(page, contentsListMm(navLabels));
 }
+
+/** The name page 12 goes by in the index. A constant because the contents
+ *  page is measured before that page is composed — see `contentsListMm`. */
+export const BASIS_NAV_LABEL = 'Basis of preparation';
+
+/**
+ * The measure a contents row sets its LABEL across.
+ *
+ * `.pack-contents-item` is a flex row: the page number, then the label, then
+ * the space between them. The number is one or two figures at 10pt with a 3mm
+ * margin — under 8mm — and 10 is the pessimistic reading of it, because the
+ * direction that matters here is the one that spills a sheet.
+ */
+const CONTENTS_LABEL_MM = PAGE_WIDTH_MM.portrait - 10;
 
 /**
  * The paper `PackContents` draws that this page's BLOCKS do not account for:
@@ -254,8 +268,19 @@ export function fitContentsPage(page: UnnumberedPage, pageCount: number): Unnumb
  * `.pack-contents-item` in `packPrint.css`: a 4mm top margin, then per row a
  * 10pt line at 16pt leading, 1mm of padding either side and a half-point
  * rule.
+ *
+ * IT TAKES THE LABELS, NOT A COUNT, AND THAT IS THE CORRECTION. It assumed
+ * one line per entry and never saw the strings. Twelve short labels — "Income
+ * statement", "Matters" — fit that assumption; an eighteen-page management
+ * pack with longer ones does not, and a wrapped label makes this formula
+ * UNDER-read, which is the one direction that puts a page on a second sheet
+ * under an index that says otherwise. It is now measured the way every other
+ * block on every other page is measured, through `wrappedLines`, and
+ * `packSheetCount.test.ts` holds page 2 to Chromium's own layout like the
+ * ten pages after it.
  */
-export function contentsListMm(pageCount: number): number {
-  const row = 16 * PT_MM + 2 + 0.5 * PT_MM;
-  return 4 + pageCount * row;
+export function contentsListMm(navLabels: string[]): number {
+  const rowLines = navLabels.reduce(
+    (sum, label) => sum + wrappedLines(label, 10, CONTENTS_LABEL_MM), 0);
+  return 4 + lines(rowLines, 16) + navLabels.length * (2 + 0.5 * PT_MM);
 }

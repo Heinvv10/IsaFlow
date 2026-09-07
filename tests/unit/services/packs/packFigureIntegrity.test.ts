@@ -227,6 +227,10 @@ describe('assertPackIntegrity', () => {
         movement: 'Not tracked.',
         decisionRequired: 'Approve escalation.',
       }],
+      // Required by `PackPageBlock`, and it was missing: `tests/**` is outside
+      // `tsconfig`, so a fixture may omit a required field and neither
+      // `tsc --noEmit` nor vitest notices. `locateFigures` now reads it.
+      omitted: null,
     };
     expect(() => assertPackIntegrity(docOf(recorded, [block])))
       .toThrow(/no service issued|provenance map/i);

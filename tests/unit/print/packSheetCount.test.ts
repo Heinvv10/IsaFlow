@@ -25,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser } from 'playwright';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { isContentPage } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { contentsListMm } from '@/modules/accounting/services/packs/pages/packFrontMatter';
 import {
   brightsphereInput,
   brightsphereLiveInput,
@@ -181,11 +182,24 @@ describe('the printed board pack', () => {
       const document = buildBoardPackPages(input);
       const printed = await printBoardPack(document, browser);
       for (const [index, page] of document.pages.entries()) {
-        // Pages 1 and 2 are the cover and the contents: their layout is not a
-        // block list and `PackCoverV2`/`PackContents` size them themselves.
-        if (!isContentPage(page.number)) continue;
+        // Page 1 is the cover: `PackCoverV2` sizes it itself off no block
+        // list at all, and nothing on it grows with data.
+        //
+        // PAGE 2 IS IN. It used to be excluded with the cover, and it is the
+        // one page with a SECOND height authority: `PackContents` draws the
+        // index off the page list rather than out of a block, so `pageMm`
+        // reads this sheet at a fraction of its height and `contentsListMm`
+        // is what the composer reserves for the rest. That reserve was a
+        // count times a row — one line per entry, never seeing the label
+        // strings — and a wrapped label makes it UNDER-read, which is the
+        // direction that spills a sheet. It is measured through
+        // `wrappedLines` now, and it is held to Chromium here like every
+        // other page rather than taken on trust.
+        if (page.number === 1) continue;
         const measured = printed.heights[index]!;
-        const estimate = pageMm(page);
+        const estimate = pageMm(page) + (page.number === 2
+          ? contentsListMm(document.pages.map((p2) => p2.navLabel))
+          : 0);
         const matters = page.blocks.some((b) => b.kind === 'matters');
         expect(
           Math.round(estimate * 10) / 10,
