@@ -270,6 +270,7 @@ export const liveDemoRenderedInput: BoardPackInput = {
  * `String(error)`; the short one is the overdue-filing wording above.
  */
 const nullQuantumMatter = (issue: string): PackMatter => ({
+  kind: 'finding',
   issue,
   quantum: null,
   owner: 'Finance',

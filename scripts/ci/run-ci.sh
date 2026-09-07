@@ -21,6 +21,15 @@ run_step() {
 }
 
 run_step "type-check"        bun run type-check
+# `tsconfig.json` excludes `tests/**`, so a FIXTURE may omit a required field
+# of the model it claims to be and neither `tsc --noEmit` nor vitest notices.
+# It is not hypothetical: `PackMatter.kind` was missing from every matter in
+# `boardPackInputs`, and page 11 of the demo pack composed the headline
+# "0 matters require a board decision this period. Every check ran clean."
+# over a table listing one matter and 245 of exposure. This narrows the check
+# to the pack fixtures — the composed documents every pack test is written
+# against — without pulling the rest of `tests/**` into the program.
+run_step "pack-fixture-types" bun run type-check:pack-fixtures
 run_step "lint"              bun run lint
 run_step "agent-docs"        bun run agent-docs:check
 run_step "security-guards"   bash scripts/ci/check-internal-apis.sh

@@ -127,6 +127,14 @@ export const brand: PackBrand = {
 
 export const matters: PackMatter[] = [
   {
+    // `kind` was missing from every matter in this file, and `PackMatter`
+    // requires it: `tests/**` is outside `tsconfig`, so `tsc --noEmit` never
+    // saw these objects. It is not decoration — `mattersTitle` counts
+    // `kind === 'finding'` and `kind === 'checkFailed'`, so page 11 of the
+    // demo pack was headlined "0 matters require a board decision this
+    // period. Every check ran clean." over a table listing one matter and
+    // 245 of exposure. See `tsconfig.packfixtures.json`.
+    kind: 'finding',
     issue: 'Aged debtor concentration: Acme Holdings is 34.0% of total debtors owed',
     quantum: 244_800,
     owner: 'Credit control',
@@ -288,6 +296,7 @@ export const brightsphereInput: BoardPackInput = {
   trend: [],
   matters: [
     {
+      kind: 'none',
       issue: 'No matters require board attention this period — every check ran clean.',
       quantum: null,
       owner: 'Finance',
@@ -418,6 +427,7 @@ export const denseSet: PackFigureSet = {
 
 /** Fifteen unusual-journal matters, worded as `buildMatters` words them. */
 export const denseMatters: PackMatter[] = Array.from({ length: 15 }, (_, i) => ({
+  kind: 'finding',
   issue: `Journal JE-2026-000${String(i + 61).padStart(2, '0')} (recorded well after its entry date): Payroll run 2026-0${(i % 9) + 1}`,
   quantum: 340_000 - i * 21_000,
   owner: 'Finance',
