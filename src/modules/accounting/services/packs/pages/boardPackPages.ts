@@ -94,6 +94,7 @@ import {
   type UnnumberedPage,
 } from './packFrontMatter';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
+import type { PackDraftReason } from './packDraftStatus';
 import type {
   PackComparativePeriod,
   PackNarrative,
@@ -107,13 +108,25 @@ export interface BoardPackInput {
   /** Human-readable period, e.g. '1 March 2026 to 31 August 2026'. */
   period: string;
   generatedAt: string;
-  draft: boolean;
+  /**
+   * Every reason this pack is not final, from `draftReasons(...)`. Empty
+   * means final.
+   *
+   * NOT a boolean. "The fiscal period is closed" and "a human approved the
+   * commentary" are two facts, and one flag carrying both is how the
+   * Brightsphere pack — no approved commentary, inverted colours, three panel
+   * titles reading "rose from – to –" — told a board it was FINAL while the
+   * demo pack, from the same command on the same day, said DRAFT.
+   */
+  draftReasons: PackDraftReason[];
   preparedBy: string;
   brand: PackBrand;
   set: PackFigureSet;
   trend: PackTrendPoint[];
   matters: PackMatter[];
-  /** Page 4's board commentary. Null renders the pending placeholder (R7). */
+  /** Page 4's board commentary. Null renders the pending placeholder (R7),
+   *  and is also one of the two things that keep a pack a DRAFT — see
+   *  `draftReasons`. */
   commentary: PackNarrative | null;
   /** Page 11's commentary on the matters. Null renders the placeholder. */
   mattersCommentary: PackNarrative | null;
@@ -124,9 +137,10 @@ export interface BoardPackInput {
 const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
 
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
-  const { set, trend, draft, generatedAt } = input;
+  const { set, trend, generatedAt } = input;
+  const draft = input.draftReasons.length > 0;
   const p = new PackFigureProvenance();
-  const basis = buildBasis(set, { draft, generatedAt }, input.ledgerVersion, p);
+  const basis = buildBasis(set, { generatedAt }, input.draftReasons, input.ledgerVersion, p);
   const { scale, currency } = basis.numberConvention;
 
   // The comparative is the window the PRIOR FIGURES were read over, and it
@@ -288,7 +302,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       period: input.period,
       preparedBy: input.preparedBy,
       generatedAt,
-      draft,
+      draftReasons: input.draftReasons,
       scale,
       currency,
       basis,

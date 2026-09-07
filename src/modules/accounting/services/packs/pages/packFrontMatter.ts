@@ -10,6 +10,7 @@
  */
 import { formatPackDate } from './packPeriodLabel';
 import { ROUNDING_NOTE } from './packBasis';
+import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { disclose, note } from './packPageBlocks';
 import { PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import type { PackBasis } from './packBasis';
@@ -56,7 +57,14 @@ export interface PackFrontMatter {
   period: string;
   preparedBy: string;
   generatedAt: string;
-  draft: boolean;
+  /**
+   * Every reason this pack is not final, or empty where it is. Not a
+   * boolean: "the ledger is closed" and "a human has read this" are two
+   * facts, and one flag carrying both is how Brightsphere's pack — no
+   * approved commentary, inverted colours, three panel titles reading "rose
+   * from – to –" — told a board it was FINAL. See `packDraftStatus.ts`.
+   */
+  draftReasons: PackDraftReason[];
   scale: MoneyScale;
   currency: string;
   basis: PackBasis;
@@ -76,12 +84,15 @@ export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
         // THE DATE IN WORDS. `.slice(0, 10)` put `2026-09-07` on the cover of
         // a board pack — the storage format, on the first line a director
         // reads, in a document whose every other date is set in words.
-        note('Preparation', `Prepared by ${f.preparedBy} on ${formatPackDate(f.generatedAt.slice(0, 10))}. This pack is ${f.draft ? 'a DRAFT — figures are not final' : 'FINAL'}.`),
+        // AND IT SAYS WHICH. "DRAFT" alone tells a director to distrust the
+        // pack without saying what to wait for; a period that closes next
+        // week and a commentary nobody has written are different waits.
+        note('Preparation', `Prepared by ${f.preparedBy} on ${formatPackDate(f.generatedAt.slice(0, 10))}. ${draftStatusSentence(f.draftReasons)}`),
       ]),
     ]),
     page('Contents', 'Contents', 'Front', 'low', [
       disclose('Basis of preparation', [
-        note('In short', `${f.basis.basisOfPreparation.standard}. ${f.period}. Figures in ${f.scale} (${f.currency}), ${f.draft ? 'draft' : 'final'}. Full basis on page ${f.basisPageNumber}.`),
+        note('In short', `${f.basis.basisOfPreparation.standard}. ${f.period}. Figures in ${f.scale} (${f.currency}), ${f.draftReasons.length > 0 ? 'draft' : 'final'}. Full basis on page ${f.basisPageNumber}.`),
       ]),
     ]),
   ];

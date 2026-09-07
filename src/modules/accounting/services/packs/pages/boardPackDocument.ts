@@ -21,6 +21,7 @@
 import { log } from '@/lib/logger';
 import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 import { getBrandProfile } from '@/modules/accounting/services/afs/brandProfileService';
+import { draftReasons } from './packDraftStatus';
 import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
 import {
   getLedgerPostedThrough,
@@ -102,15 +103,21 @@ export async function buildBoardPackDocument(
   const postedThrough = await getLedgerPostedThrough(companyId, to, from);
   const ledgerVersion = postedThrough === NO_LEDGER_READ ? null : postedThrough;
 
-  // A pack is FINAL only when the period the window ends in is closed or
-  // locked. An open period — or no fiscal period at all — means these figures
-  // can still move, and a board pack that does not say so is the more
-  // dangerous of the two errors.
-  const draft = (await getPeriodStatusForDate(companyId, to)) !== 'closed';
+  // A PACK HAS TO EARN "FINAL". It was `periodStatus !== 'closed'`, which
+  // measures whether the FIGURES can still move and then asserted something
+  // else on the cover — that the pack is finished. Brightsphere's September
+  // period is closed in the ledger, so its pack told a board it was FINAL
+  // while carrying no approved commentary at all, on the same day the demo
+  // pack said DRAFT. Both facts are now stated, and the absence of either
+  // produces a draft. See `packDraftStatus.ts`.
+  const reasons = draftReasons(
+    await getPeriodStatusForDate(companyId, to),
+    commentary !== null,
+  );
 
   log.info(
     'buildBoardPackDocument',
-    { companyId, from, to, draft, matters: matters.length, trend: trend.length },
+    { companyId, from, to, draftReasons: reasons, matters: matters.length, trend: trend.length },
     'packs',
   );
 
@@ -118,7 +125,7 @@ export async function buildBoardPackDocument(
     companyLegalName,
     period: formatPackPeriod(from, to),
     generatedAt: request.generatedAt,
-    draft,
+    draftReasons: reasons,
     preparedBy: request.preparedBy,
     brand,
     set,

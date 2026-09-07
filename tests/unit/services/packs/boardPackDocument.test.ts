@@ -154,9 +154,37 @@ describe('draft, commentary and period', () => {
     expect((await buildBoardPackDocument(request())).draft).toBe(true);
   });
 
-  it('marks the pack FINAL once that period is closed', async () => {
+  /**
+   * A PACK HAS TO EARN "FINAL", AND A CLOSED LEDGER IS ONLY HALF OF IT.
+   *
+   * Brightsphere's cover printed "This pack is FINAL." and the demo pack's,
+   * from the same command on the same day, printed DRAFT — because
+   * Brightsphere's September fiscal period is closed. It also had no approved
+   * commentary, an inverted colour language and three trend titles reading
+   * "rose from – to –", and it told a board it was final. One boolean was
+   * measuring whether the FIGURES could move and asserting that the PACK was
+   * finished.
+   */
+  it('will not call a pack FINAL on a closed period nobody has signed off', async () => {
     getPeriodStatusForDate.mockResolvedValue('closed');
+    listCommentary.mockResolvedValue([]);
+    expect((await buildBoardPackDocument(request())).draft).toBe(true);
+  });
+
+  it('marks the pack FINAL once the period is closed AND commentary is approved', async () => {
+    getPeriodStatusForDate.mockResolvedValue('closed');
+    listCommentary.mockResolvedValue([
+      { status: 'approved', approvedText: 'The board reviewed these figures.', draftText: null },
+    ]);
     expect((await buildBoardPackDocument(request())).draft).toBe(false);
+  });
+
+  it('stays a DRAFT on an open period even with commentary approved', async () => {
+    getPeriodStatusForDate.mockResolvedValue('open');
+    listCommentary.mockResolvedValue([
+      { status: 'approved', approvedText: 'The board reviewed these figures.', draftText: null },
+    ]);
+    expect((await buildBoardPackDocument(request())).draft).toBe(true);
   });
 
   it('prints only commentary a human approved, never a draft sentence', async () => {

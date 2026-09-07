@@ -452,7 +452,7 @@ describe('the printed board pack', () => {
     // On the DRAFT fixture specifically: on a final pack the band was fine,
     // which is why it survived a review.
     const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
-    expect(liveDemoInput.draft, 'this only fails on a draft pack').toBe(true);
+    expect(liveDemoInput.draftReasons.length, 'this only fails on a draft pack').toBeGreaterThan(0);
     expect(printed.coverBand).not.toBeNull();
     // AND IT SAYS SOMETHING. The band printed as a bare navy rectangle — no
     // logo, no name, no mark — at the top of the first page of a document a

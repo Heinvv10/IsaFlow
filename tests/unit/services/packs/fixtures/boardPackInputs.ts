@@ -166,7 +166,9 @@ export const demoInput: BoardPackInput = {
   companyLegalName: 'ISAFlow Demo (Pty) Ltd',
   period: '1 March 2026 to 31 August 2026',
   generatedAt: '2026-09-07T06:00:00.000Z',
-  draft: false,
+  // FINAL: the period is closed AND a human approved commentary. Both, and
+  // never a boolean — see `packDraftStatus.ts`.
+  draftReasons: [],
   preparedBy: 'Finance',
   brand,
   set: demoSet,
@@ -368,7 +370,7 @@ export const denseMatters: PackMatter[] = Array.from({ length: 15 }, (_, i) => (
 export const denseInput: BoardPackInput = {
   ...demoInput,
   period: '1 January 2026 to 7 September 2026',
-  draft: true,
+  draftReasons: ['openPeriod'],
   set: denseSet,
   // Its own closing cash, not the demo company's — see `trendEndingAt`.
   trend: trendEndingAt(denseSet.current.cash),

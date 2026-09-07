@@ -36,6 +36,7 @@ import type {
 } from './packPageModel';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { formatPackTimestamp } from './packPeriodLabel';
+import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { buildDefinitions } from './packDefinitions';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
@@ -105,7 +106,8 @@ const LEDGER_VERSION_UNAVAILABLE =
  */
 export function buildBasis(
   set: PackFigureSet,
-  doc: Pick<PackPagesDocument, 'draft' | 'generatedAt'>,
+  doc: Pick<PackPagesDocument, 'generatedAt'>,
+  draftReasons: PackDraftReason[],
   ledgerVersion: string | null,
   /** The document's provenance map — EBITDA's reconciliation is made of
    *  FIGURES, and a figure on a page that no service issued is what the
@@ -115,7 +117,10 @@ export function buildBasis(
   const caveats: string[] = [];
   if (set.current.classificationCaveat) caveats.push(set.current.classificationCaveat);
   if (set.current.inventoryCaveat) caveats.push(set.current.inventoryCaveat);
-  if (doc.draft) caveats.push('This pack is a DRAFT — figures are not final.');
+  // The SAME sentence the cover prints — one definition, because they are one
+  // claim, and a pack whose cover says DRAFT while its caveats do not is a
+  // pack that disagrees with itself about its own status.
+  if (draftReasons.length > 0) caveats.push(draftStatusSentence(draftReasons));
 
   return {
     basisOfPreparation: {

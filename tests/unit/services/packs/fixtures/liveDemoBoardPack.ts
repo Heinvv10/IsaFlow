@@ -155,7 +155,7 @@ export const liveDemoMatters: PackMatter[] = [
 export const liveDemoInput: BoardPackInput = {
   ...demoInput,
   period: '1 January 2026 to 7 September 2026',
-  draft: true,
+  draftReasons: ['openPeriod', 'unapprovedCommentary'],
   set: liveDemoSet,
   trend: liveDemoTrend,
   matters: liveDemoMatters,

@@ -44,7 +44,7 @@ function setWith(overrides: Partial<PackFigureSet> = {}): PackFigureSet {
   };
 }
 
-const doc = { draft: false, generatedAt: '2026-02-01T00:00:00.000Z' };
+const doc = { generatedAt: '2026-02-01T00:00:00.000Z' };
 
 describe('buildBasis', () => {
   // R-P46: ledgerVersion is a VALUE the caller supplies (typically
@@ -55,7 +55,7 @@ describe('buildBasis', () => {
   // against"). Both branches are pinned so an always-unavailable
   // implementation cannot pass silently.
   it('renders a supplied ledger version', () => {
-    const basis = buildBasis(setWith(), doc, '2026-01-31T10:00:00.000Z', new PackFigureProvenance());
+    const basis = buildBasis(setWith(), doc, [], '2026-01-31T10:00:00.000Z', new PackFigureProvenance());
     // IN WORDS, ON THE COMPANY'S CLOCK. The page printed the raw ISO-8601 to
     // the millisecond in UTC, on a document whose every other date is set in
     // words — and 10:00Z is 12:00 to everyone who reads it.
@@ -63,7 +63,7 @@ describe('buildBasis', () => {
   });
 
   it('states the gap explicitly, never a blank or an invented identifier, when no ledger version is supplied', () => {
-    const basis = buildBasis(setWith(), doc, null, new PackFigureProvenance());
+    const basis = buildBasis(setWith(), doc, [], null, new PackFigureProvenance());
     expect(basis.basisOfPreparation.ledgerVersion).toMatch(/unavailable/i);
     expect(basis.basisOfPreparation.ledgerVersion).not.toBe('');
     expect(basis.basisOfPreparation.ledgerVersion).not.toBe(doc.generatedAt);
@@ -78,7 +78,7 @@ describe('buildBasis', () => {
         postedThrough: '2026-01-31T10:00:00.000Z',
       },
     });
-    const basis = buildBasis(set, doc, null, new PackFigureProvenance());
+    const basis = buildBasis(set, doc, [], null, new PackFigureProvenance());
     expect(basis.basisOfPreparation.ledgerVersion).not.toBe('2026-01-31T10:00:00.000Z');
     expect(basis.basisOfPreparation.ledgerVersion).toMatch(/unavailable/i);
   });
@@ -90,24 +90,40 @@ describe('buildBasis', () => {
         inventoryCaveat: 'No inventory could be identified in the chart of accounts.',
       }),
     });
-    const basis = buildBasis(set, doc, 'v1', new PackFigureProvenance());
+    const basis = buildBasis(set, doc, [], 'v1', new PackFigureProvenance());
     expect(basis.caveats).toContain('Some subtypes were unclassified and defaulted to current.');
     expect(basis.caveats).toContain('No inventory could be identified in the chart of accounts.');
   });
 
   it('omits a caveat that is not present rather than emitting an empty one', () => {
     const set = setWith({ current: figures({ classificationCaveat: null, inventoryCaveat: null }) });
-    const basis = buildBasis(set, doc, 'v1', new PackFigureProvenance());
+    const basis = buildBasis(set, doc, [], 'v1', new PackFigureProvenance());
     expect(basis.caveats).toHaveLength(0);
   });
 
-  it('flags a draft pack in the caveats', () => {
-    const basis = buildBasis(setWith(), { ...doc, draft: true }, 'v1', new PackFigureProvenance());
-    expect(basis.caveats.some((c) => /draft/i.test(c))).toBe(true);
+  it('flags a draft pack in the caveats, and says WHY it is a draft', () => {
+    const basis = buildBasis(setWith(), doc, ['openPeriod'], 'v1', new PackFigureProvenance());
+    const caveat = basis.caveats.find((c) => /draft/i.test(c));
+    expect(caveat).toBeDefined();
+    // "DRAFT" alone tells a director to distrust the pack without saying what
+    // to wait for; a period that closes next week and a commentary nobody has
+    // written are different waits.
+    expect(caveat!).toMatch(/fiscal period it ends in is still open/);
+  });
+
+  it('states FINAL only when the ledger is closed AND the commentary is approved', () => {
+    // Brightsphere's pack said FINAL on a company with no approved
+    // commentary, because one boolean carried two facts. Empty reasons is the
+    // only route to that sentence, and `draftReasons` only returns empty when
+    // both are true — see `packDraftStatus.ts`.
+    expect(buildBasis(setWith(), doc, [], 'v1', new PackFigureProvenance()).caveats
+      .some((c) => /draft/i.test(c))).toBe(false);
+    expect(buildBasis(setWith(), doc, ['unapprovedCommentary'], 'v1', new PackFigureProvenance()).caveats
+      .some((c) => /nobody has signed off/.test(c))).toBe(true);
   });
 
   it('defines every non-IFRS measure the pack prints, and reconciles the one that needs it', () => {
-    const basis = buildBasis(setWith(), doc, 'v1', new PackFigureProvenance());
+    const basis = buildBasis(setWith(), doc, [], 'v1', new PackFigureProvenance());
     const terms = basis.definitions.map((d) => d.term);
     // Page 12 defined four terms while the pack printed ten more, EBITDA
     // among them — the measure an audit committee chair asks about first,
@@ -136,7 +152,7 @@ describe('buildBasis', () => {
   });
 
   it('states the standard, source system and currency the whole pack rests on', () => {
-    const basis = buildBasis(setWith(), doc, 'v1', new PackFigureProvenance());
+    const basis = buildBasis(setWith(), doc, [], 'v1', new PackFigureProvenance());
     expect(basis.basisOfPreparation.standard).toBe('IFRS for SMEs');
     expect(basis.basisOfPreparation.sourceSystem).toBe('IsaFlow general ledger');
     expect(basis.basisOfPreparation.extractedAt).toBe('1 February 2026 at 02:00 SAST');
