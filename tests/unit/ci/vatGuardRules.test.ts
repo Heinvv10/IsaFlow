@@ -54,6 +54,24 @@ describe('inspectVatGuardCoverage — what is in scope', () => {
     expect(inspectVatGuardCoverage(src)?.kinds).toContain('vat_field_on_a_posting_path');
   });
 
+  it('catches a namespace import destructured into a local const', () => {
+    // `import * as svc` is normal style for a service with many exports, and
+    // grabbing the one function you need into a const is normal too. Together
+    // they leave no `createJournalEntry(` anywhere — but the namespace access
+    // still names it, which is what this catches.
+    const src = "import * as journalService from '../gl/journalEntryService';\n"
+      + 'const l = { vatType: r.vat };\n'
+      + 'const doPost = journalService.createJournalEntry;\n'
+      + 'await doPost(companyId, { lines: [l] }, userId);';
+    expect(inspectVatGuardCoverage(src)?.kinds).toContain('vat_field_on_a_posting_path');
+  });
+
+  it('catches an aliased import reassigned a second time', () => {
+    const src = "import { createJournalEntry as _cje } from '../gl/journalEntryService';\n"
+      + 'const post = _cje;\nconst l = { vatType: c };\nawait post(companyId, { lines: [l] }, userId);';
+    expect(inspectVatGuardCoverage(src)?.kinds).toContain('vat_field_on_a_posting_path');
+  });
+
   it('does not treat an unrelated function called `post` as a posting call', () => {
     const src = 'const l = { vatType: c };\nawait post(body);';
     expect(callsAPostingFunction(src)).toBe(false);

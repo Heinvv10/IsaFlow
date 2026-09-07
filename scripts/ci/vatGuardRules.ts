@@ -60,11 +60,23 @@ const RAW_INSERT = /INSERT\s+INTO\s+gl_journal_lines/i;
  * — no finding, no allowlist entry, silently skipped. Aliasing an import is
  * ordinary TypeScript, not evasion.
  *
- * KNOWN LIMIT, stated rather than chased with a bigger regex: a computed
- * property key (`line[FIELD_MAP.vat] = code`) never puts `vatType` next to a
- * `:` or `=`, so a generic field-mapper can still slip past VAT_FIELD. That
- * shape is exactly what bulk-import code looks like. This gate narrows the
- * ways a poster hides; it does not eliminate them.
+ * KNOWN LIMITS, stated rather than chased with a bigger regex — a text scanner
+ * cannot resolve a binding graph, and pretending it can is worse than saying
+ * where it stops:
+ *
+ *   - A computed property key (`line[FIELD_MAP.vat] = code`) never puts
+ *     `vatType` next to a `:` or `=`, so a generic field-mapper slips past
+ *     VAT_FIELD. That shape is exactly what bulk-import code looks like.
+ *   - A RE-EXPORT FACADE hides the canonical name from the consumer:
+ *     `export { createJournalEntry as post } from '...'` in one file, then
+ *     `import { post } from './facade'` in another. The facade itself is
+ *     caught; the consumer is not.
+ *   - A DEFAULT import carries no name to match. Not a live risk here — the
+ *     posting services all use named exports — but it is a hole.
+ *
+ * Following a binding through an arbitrary chain of reassignment and re-export
+ * is an AST/type-checker job, not a regex one. This gate narrows the ways a
+ * poster hides; it does not eliminate them.
  */
 export function callsAPostingFunction(strippedSource: string): boolean {
   if (RAW_INSERT.test(strippedSource)) return true;
@@ -77,7 +89,13 @@ export function callsAPostingFunction(strippedSource: string): boolean {
       if (imported && POSTING_FNS.includes(imported) && alias) names.add(alias);
     }
   }
-  return [...names].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(strippedSource));
+  // A REFERENCE, not a call. `const doPost = journalService.createJournalEntry`
+  // and `const post = _cje` both put the function in a local const with no `(`
+  // after the name, and both are ordinary style — a namespace import for a
+  // service with many exports, and grabbing the one function you need. Matching
+  // the bare name catches the mention in the namespace access and in the import
+  // statement itself, which is what those two variants cannot avoid having.
+  return [...names].some((n) => new RegExp(`\\b${n}\\b`).test(strippedSource));
 }
 
 /** Handing a vat code to the poster that deliberately enforces nothing. */
