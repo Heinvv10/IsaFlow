@@ -34,8 +34,20 @@
  * retry writes it again. `confirmReceiptMatch` re-runs its plan post-write as a
  * race guard, so it genuinely can throw after writing — catching that here
  * would commit a journal while reporting nothing happened. Every refusal must
- * therefore come from `invoiceSkipReason` BEFORE the first write; after that,
- * everything propagates.
+ * therefore be raised BEFORE the first write; after that, everything propagates.
+ *
+ * WHAT ACTUALLY REFUSES, on each path — this header used to name one function
+ * that neither path calls. The BATCH path runs `skipReasonForInvoice` and
+ * `signMismatchReason` inside `partitionAllocationLines`, pre-write, and skips.
+ * The SINGLE-LINE path runs `signMismatchReason` in `postAndApplyLine` below,
+ * and otherwise relies on the apply services' own pre-write validation
+ * (`validateBankSupplierPayment` / `validateBankReceiptApplication`), which
+ * throw before they write. `invoiceSkipReason` is the single-line convenience
+ * wrapper that was meant to close the wording gap between the two and is called
+ * by NOTHING — it was already dead before this file was last touched. Left in
+ * place rather than removed: wiring it up is a real behaviour change (a
+ * mid-write throw becomes a pre-write refusal with better wording) and belongs
+ * to whoever decides that, not to a comment correction.
  */
 
 import type { McpToolContext } from '../types';
@@ -45,9 +57,17 @@ import type { DbRow } from '@/lib/neon';
 import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import { applyBankLineToSupplierInvoices } from '@/modules/accounting/services/ap/supplierBankPaymentService';
 import { fetchBankTransaction } from '@/modules/accounting/services/bank/bankMatchDbQueries';
+import { BankLineDirectionError } from '../bankLineDirectionError';
+// The rule lives in the bank module, not here: `bank-match-confirm` settles
+// documents through the same arithmetic and must give the identical answer.
+import {
+  signMismatchReason,
+  type SettlementKind,
+} from '@/modules/accounting/services/bank/bankLineDirection';
 
 /** The two allocation types that have a subledger document to apply to. */
-export type ApplyKind = 'customer' | 'supplier';
+export type ApplyKind = SettlementKind;
+export { signMismatchReason };
 
 /**
  * Which apply path a line takes, or null for "post a plain journal".
@@ -65,12 +85,19 @@ export function applyRouteFor(
   return null;
 }
 
-/** Absolute value of the bank line, which is the amount being allocated. */
-export async function bankLineAmount(companyId: string, txId: string): Promise<number> {
+/**
+ * The bank line's SIGNED amount — negative is money out, positive is money in.
+ *
+ * Signed, not absolute, and the distinction is the whole of the guard below.
+ * This used to return `Math.abs(...)`, which is what the apply services want,
+ * and the direction was simply gone by the time anything could check it.
+ */
+export async function bankLineSignedAmount(companyId: string, txId: string): Promise<number> {
   const tx = await fetchBankTransaction(txId, companyId);
   if (!tx) throw new Error(`Bank transaction ${txId} not found`);
-  return Math.abs(Number(tx.amount));
+  return Number(tx.amount);
 }
+
 
 /** What a batch needs to know about one invoice to decide if a line can post. */
 export interface InvoiceState {
@@ -180,7 +207,17 @@ export async function postAndApplyLine(args: {
   toolName: string;
 }): Promise<{ journalEntryId: string; transactionId: string }> {
   const { ctx, txId, kind, invoiceId, toolName } = args;
-  const amount = await bankLineAmount(ctx.companyId, txId);
+  const signedAmount = await bankLineSignedAmount(ctx.companyId, txId);
+
+  // BEFORE the first write, like every other refusal on this path — see the
+  // header. `postAndApplyLine` is the single-line route; the bulk route runs
+  // the same pure check in `partitionAllocationLines` and SKIPS instead, on the
+  // rule this file already states: the single caller named one invoice and one
+  // line, so the fault IS the request.
+  const wrongWay = signMismatchReason(kind, signedAmount);
+  if (wrongWay !== null) throw new BankLineDirectionError(txId, wrongWay);
+
+  const amount = Math.abs(signedAmount);
 
   // The FULL actor identity, not just the posting agent: `actorTokenJti`
   // (migration 530) is what keeps the posting inside the token-scoped view of

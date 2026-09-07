@@ -115,20 +115,46 @@ export async function buildAutoCreateLines(args: BuildLinesArgs): Promise<Journa
     const id = await getSystemAccountId(vatAccountKey, companyId);
     return { glAccountId: id, debit: 0, credit: 0, description: 'VAT @ 15%', vatType: 'standard' as const };
   };
+  // `isDeposit` reached this function and only the `account` arm below used it.
+  // The supplier arm always emitted the PAYMENT direction and the customer arm
+  // always the RECEIPT direction, so a refund posted as its own opposite and
+  // the bank moved the wrong way by twice the line — the same defect
+  // `allocateTransaction` carried, on the one path with no human in the loop.
+  // `findMatchingTxs` filters on account, status and an ILIKE and has no sign
+  // filter, so any rule that matches a name matches its refunds too.
   if (allocType === 'supplier') {
-    const lines: JournalLineInput[] = [
-      { glAccountId: apAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
-      { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
-    ];
-    if (hasVat) lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
+    const lines: JournalLineInput[] = isDeposit
+      ? [
+        { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+        { glAccountId: apAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
+      ]
+      : [
+        { glAccountId: apAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
+        { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+      ];
+    if (hasVat) {
+      // A refund REVERSES the input tax the purchase claimed, so the same
+      // vat_input account is credited rather than debited. The key itself is
+      // already alloc-type-derived upstream (bankRuleAutoPostLine).
+      if (isDeposit) lines.push({ ...await vatLine(), credit: vatAmount });
+      else lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
+    }
     return lines;
   }
   if (allocType === 'customer') {
-    const lines: JournalLineInput[] = [
-      { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
-      { glAccountId: arAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
-    ];
-    if (hasVat) lines.push({ ...await vatLine(), credit: vatAmount });
+    const lines: JournalLineInput[] = isDeposit
+      ? [
+        { glAccountId: bankGlAccountId, debit: totalAmount, credit: 0, description: entryDesc },
+        { glAccountId: arAccountId!, debit: 0, credit: netAmount, description: entryDesc, vatType },
+      ]
+      : [
+        { glAccountId: arAccountId!, debit: netAmount, credit: 0, description: entryDesc, vatType },
+        { glAccountId: bankGlAccountId, debit: 0, credit: totalAmount, description: entryDesc },
+      ];
+    if (hasVat) {
+      if (isDeposit) lines.push({ ...await vatLine(), credit: vatAmount });
+      else lines.splice(1, 0, { ...await vatLine(), debit: vatAmount });
+    }
     return lines;
   }
   if (isDeposit) {

@@ -13,6 +13,7 @@ import type { McpTool, McpToolContext, McpToolResult } from './types';
 import { acquireIdempotencyLock, findIdempotentReplay, hashArgs, recordToolCall } from './audit';
 import { debitForTool, refundForTool } from './flowMetering';
 import { BulkAllocationLineError, bulkAllocationLineErrorText } from './bulkAllocationLineError';
+import { BankLineDirectionError, bankLineDirectionErrorText } from './bankLineDirectionError';
 import {
   MissingSystemAccountError,
   missingSystemAccountText,
@@ -278,6 +279,14 @@ export class McpRegistry {
       // already unwound and the call is refunded and audited like any failure.
       if (err instanceof MissingSystemAccountError) {
         return errorResult(missingSystemAccountText(name, err));
+      }
+      // A line whose sign contradicts the invoice it names is the third. The
+      // refusal has to say WHICH way to go — drop invoice_id and it posts as a
+      // refund — because "the operation failed" on a payload the agent believes
+      // is a routine settlement invites the retry that keeps failing. Nothing
+      // in the message but the caller's own transaction id.
+      if (err instanceof BankLineDirectionError) {
+        return errorResult(bankLineDirectionErrorText(name, err));
       }
       return errorResult(GENERIC_FAILURE);
     }
