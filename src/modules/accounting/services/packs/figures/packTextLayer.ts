@@ -56,7 +56,7 @@ export interface PackTextExpectation {
  *  than from a block list, and neither prints a page name or an eyebrow. */
 const FIRST_CONTENT_PAGE = 3;
 
-function expectationsForPage(page: PackPage): PackTextExpectation[] {
+function expectationsForPage(page: PackPage, doc: PackPagesDocument): PackTextExpectation[] {
   const out: PackTextExpectation[] = [];
   const expect = (what: string, text: string) => {
     if (text.trim().length > 0) out.push({ page: page.number, what, text });
@@ -65,6 +65,14 @@ function expectationsForPage(page: PackPage): PackTextExpectation[] {
   if (page.number >= FIRST_CONTENT_PAGE) {
     expect('the page name', page.navLabel);
     expect('the section eyebrow', page.section);
+    // THE RUNNING FOOTER, WHICH IS NOT DRAWN BY THE PAGE. Chromium paints it
+    // into the bottom margin from the `footerHtml` the CALLER passes, so a
+    // caller that omits it — `render-pack.ts` did, and every clean-room render
+    // in `evidence/` came out of it — produces sheets a director cannot
+    // attribute to a company or a period, with every in-page gate still green.
+    // Asserted on the paper because there is nowhere else it can be seen.
+    expect('the running footer company name', doc.companyName);
+    expect('the running footer period', doc.period);
   }
 
   for (const block of page.blocks) {
@@ -87,7 +95,7 @@ function expectationsForPage(page: PackPage): PackTextExpectation[] {
 
 /** Everything the rendered pack has to show, read off the composed document. */
 export function packTextExpectations(doc: PackPagesDocument): PackTextExpectation[] {
-  return doc.pages.flatMap(expectationsForPage);
+  return doc.pages.flatMap((page) => expectationsForPage(page, doc));
 }
 
 function squash(text: string): string {

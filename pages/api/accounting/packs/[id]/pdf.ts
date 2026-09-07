@@ -29,13 +29,14 @@
  * process and reporting what it refuses on. Only on the failure path: the
  * happy path composes nothing extra.
  *
- * THE FOOTER AND THE PDF METADATA ARE BUILT HERE TOO. `buildFooterHtml` and
- * `buildPdfMetadata` existed with no caller at all, so every pack printed
- * Chromium's bare `n / m` and `pdfinfo` reported no metadata — a document a
- * director forwards to their bank with no company, no period and no
- * confidentiality mark on any page. Neither can be CSS: Blink implements
- * neither `@bottom-center` margin boxes nor `position: running()`, and both
- * would draw nothing silently.
+ * THE FOOTER AND THE PDF METADATA COME FROM `buildPackFurniture`, which the
+ * proof script `scripts/pdf/render-pack.ts` calls too. They were derived
+ * inline here, and the script passed neither — so every clean-room render in
+ * `evidence/` printed Chromium's bare `n / m` and reported `Creator:
+ * Chromium`, and the sheets a reviewer read carried no company, no period and
+ * no confidentiality mark. Neither can be CSS: Blink implements neither
+ * `@bottom-center` margin boxes nor `position: running()`, and both would
+ * draw nothing silently.
  *
  * `landscape` is deliberately NOT passed. It turns the WHOLE document
  * sideways; page 10 alone is landscape, through the named `@page` rule in
@@ -49,14 +50,12 @@ import { log } from '@/lib/logger';
 import { checkReportRateLimit } from '@/lib/rateLimit';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { withRenderSlot } from '@/lib/pdf/withRenderSlot';
-import { sql, type DbRow } from '@/lib/neon';
-import { buildFooterHtml, buildPdfMetadata, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
+import { buildFooterHtml, buildPdfMetadata } from '@/lib/pdf/printFurniture';
 import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
 import { packRefusalMessages } from '@/modules/accounting/services/packs/packRefusal';
-import { formatPackPeriod } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
-import { readPackDraftState } from '@/modules/accounting/services/packs/pages/packDraftState';
+import { buildPackFurniture } from '@/modules/accounting/services/packs/pages/packFurniture';
 import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
-import { PACK_LABELS, packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
+import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 
 const VALID_TYPES: PackType[] = ['board', 'management', 'monthly'];
@@ -99,11 +98,6 @@ async function packRefusalReason(
   }
 }
 
-async function getCompanyName(companyId: string): Promise<string> {
-  const rows = (await sql`SELECT name FROM companies WHERE id = ${companyId}::uuid LIMIT 1`) as DbRow[];
-  return rows[0]?.name ? String(rows[0].name) : '';
-}
-
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || '', ['GET']);
 
@@ -135,25 +129,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // not holding a pool connection or an open transaction while it waited. By
   // the time this handler runs, the process has decided it has capacity.
   const preparedBy = user.email ?? 'IsaFlow';
-  const companyName = await getCompanyName(companyId);
 
-  // THE SAME ANSWER THE PAGES READ, not a second derivation of it. This was
-  // `(await getPeriodStatusForDate(companyId, to)) !== 'closed'`, which is one
-  // of the two reasons a pack is a draft: Brightsphere's period IS closed and
-  // its commentary is NOT approved, so its cover said DRAFT and every sheet
-  // carried the watermark while the footers said only `Confidential — for
-  // board use` and `pdfinfo` reported `Board Pack for …`. A pack is read as
-  // loose sheets — the footer travels with a forwarded page and the metadata
-  // is what a document system indexes — so a status that reaches some surfaces
-  // and not others is the whole defect. See `packDraftState.ts`.
-  const draftState = await readPackDraftState(companyId, id as PackType, from, to);
-  const furniture = {
-    companyName,
-    packLabel: PACK_LABELS[id as PackType],
-    period: formatPackPeriod(from, to),
-    confidentiality: PACK_CONFIDENTIALITY,
-    draft: draftState.reasons.length > 0,
-  };
+  // The running footer and the Info dictionary, built where the proof script
+  // builds them too — see `packFurniture.ts` for why that is one function.
+  const furniture = await buildPackFurniture(companyId, id as PackType, from, to);
 
   let pdf: Buffer;
   try {
@@ -189,7 +168,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   log.info('Pack PDF downloaded', { companyId, userId: user.id, packType: id, from, to, bytes: pdf.length }, 'packs');
 
-  const filename = packDownloadFilename(companyName, id, from, to, 'pdf');
+  const filename = packDownloadFilename(furniture.companyName, id, from, to, 'pdf');
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.setHeader('Content-Length', pdf.length);

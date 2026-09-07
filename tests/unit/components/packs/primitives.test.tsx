@@ -231,6 +231,19 @@ describe('FootnoteList', () => {
     expect(screen.getByText('Second note')).toBeInTheDocument();
   });
 
+  // THE LABEL IS THE HALF THE MARKER POINTS AT. The test above asserted only
+  // the prose and passed while the list printed no numbers at all: Tailwind
+  // preflight strips the `<ol>` marker app-wide, so sheet 3's `Revenue¹`
+  // referenced an unlabelled grey block. Asserted on the rendered element
+  // rather than the `<ol>` type, because the type is what was already true.
+  it('prints each footnote label, so an inline marker resolves to it', () => {
+    const { container } = render(
+      <FootnoteList footnotes={[{ number: 1, text: 'First note' }, { number: 2, text: 'Second note' }]} />,
+    );
+    const labels = Array.from(container.querySelectorAll('.pack-footnote-number')).map((n) => n.textContent);
+    expect(labels).toEqual(['1', '2']);
+  });
+
   it('renders nothing for an empty list', () => {
     const { container } = render(<FootnoteList footnotes={[]} />);
     expect(container).toBeEmptyDOMElement();

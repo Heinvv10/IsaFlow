@@ -14,6 +14,7 @@
  */
 import type { ReactNode } from 'react';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
+import { FootnoteList } from './primitives/FootnoteList';
 
 export interface PackPageFrameProps {
   page: PackPage;
@@ -62,13 +63,7 @@ export function PackPageFrame({ page, children }: PackPageFrameProps) {
         <h2 className="pack-title">{page.title}</h2>
       </header>
       {children}
-      {page.footnotes.length > 0 && (
-        <ol className="pack-footnotes">
-          {page.footnotes.map((footnote) => (
-            <li key={footnote.number}>{footnote.text}</li>
-          ))}
-        </ol>
-      )}
+      <FootnoteList footnotes={page.footnotes} />
     </section>
   );
 }

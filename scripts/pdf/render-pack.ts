@@ -22,9 +22,11 @@ import { writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { promisify } from 'util';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
+import { buildFooterHtml, buildPdfMetadata } from '@/lib/pdf/printFurniture';
 import { chooseTransportName } from '@/lib/pdf/selectTransport';
 import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
 import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
+import { buildPackFurniture } from '@/modules/accounting/services/packs/pages/packFurniture';
 import { checkPackTextLayer } from '@/modules/accounting/services/packs/figures/packTextLayer';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
 
@@ -72,12 +74,21 @@ async function main() {
   const companyId = process.env.PDF_COMPANY_ID ?? DEMO_COMPANY_ID;
   const userId = process.env.PDF_USER_ID ?? DEMO_USER_ID;
 
+  // THE SAME FURNITURE THE DOWNLOAD ROUTE PASSES. Without it this script
+  // renders a pack the product never ships: Chromium's bare `n / m` in place
+  // of the running footer, and an Info dictionary saying `Creator: Chromium`.
+  // Every clean-room render in `evidence/` is produced here, so a proof that
+  // omits it is a proof of a different document — see `packFurniture.ts`.
+  const furniture = await buildPackFurniture(companyId, packType, from, to);
+
   const pdf = await renderPagePdf({
     companyId,
     userId,
     path: '/accounting/reports/report-packs',
     query: { pack: packType, from, to },
     apiPaths: packPrintApiPaths(packType),
+    footerHtml: buildFooterHtml(furniture),
+    metadata: buildPdfMetadata(furniture),
   });
 
   await mkdir(dirname(outPath), { recursive: true });

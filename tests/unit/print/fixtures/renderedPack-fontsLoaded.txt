@@ -18,6 +18,10 @@ Preparation Prepared by IsaFlow on 7 September 2026. This pack is a DRAFT — th
 open, so these figures can still move and no commentary on this period has been approved, so nobody has signed
 off what it says.
 
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
+
 1 / 12
 
 Contents
@@ -44,21 +48,25 @@ Basis of preparation
 In short IFRS for SMEs. 1 January 2026 to 7 September 2026. Figures in R'000 (ZAR), draft. Full basis on page
 12.
 
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
+
 2 / 12
 
-Highlights
+H I G H L I G H TS
 
 PE RFO RMAN CE
 
-Revenue has no positive comparative base for a percentage change. Operating margin is a
-negative 1551.3%.
+Revenue has no positive comparative base for a percentage change.
+Operating margin is a negative 1522.9%.
 Revenue
 
 1
 
 Gross margin
 
-100
+101
 
 Cash
 
@@ -70,11 +78,11 @@ Operating profit
 
 Net profit
 
-(1336.3%)
+(1310.8%)
 
-(1 545)
+(1 544)
 
-(1 545)
+(1 544)
 
 Debt-to-equity
 
@@ -92,13 +100,13 @@ ranked.
 
 Working capital
 
-(3 822)
+(3 821)
 
 DR
 AF
 T
 
-(532)
+(531)
 
 1
 
@@ -112,7 +120,6 @@ Cash The prior figure is not a positive base, so no percentage change is meaning
 
 Debt-to-equity Not available. Equity is negative — liabilities exceed assets, so this ratio inverts and cannot be
 ranked.
-
 Debtor days The comparative period carries no value for this measure, so no movement is shown.
 Working capital The prior figure is not a positive base, so no percentage change is meaningful.
 
@@ -123,18 +130,21 @@ Absent comparatives A tile with no movement says why in its own caption — the 
 value for that measure, or its prior figure is not a positive base. A movement is never shown as a move from zero.
 Scale Figures are in R'000 (ZAR). Figures are rounded to the nearest R'000, so components may not add exactly
 to the totals shown.
-
-Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the monthly trend series, a different window. 5 of 8 tiles
+1 Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the monthly trend series, a different window. 5 of 8 tiles
 carry one; the rest have no monthly series behind them and show none rather than a line drawn from a single point.
+
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 3 / 12
 
-Commentary and actions
+C O M M E N TA R Y A N D A C T I O N S
 
 PE RFO RMAN CE
 
-Net profit of (1 545); the comparative net profit figure is negative, so the percentage
-change is not meaningful.
+Net profit of (1 544); the comparative net profit figure is negative, so
+the percentage change is not meaningful.
 Commentary pending approval.
 
 For the board
@@ -146,40 +156,41 @@ exposure.
 Annual Financial Statements for FY2026 is 10 days overdue (due 27
 August 2026) — Approve immediate filing and confirm any penalty
 exposure.
-Journal JE-2026-00073 (recorded well after its entry date): Payroll
-run 2026-01 — Confirm supporting evidence for this entry or refer it
-for reversal.
-Journal JE-2026-00075 (recorded well after its entry date): Payroll
+Jul 2026: expenses for the month are a net credit — more was
+reversed out of expense accounts than was posted into them, so the
+month reports a profit the period does not. The quantum is that
+credit; the trends panel plots the month's net profit, which is larger
+by the month's revenue. Identify the reversals behind the credit and
 
 DR
 AF
 T
 
-run 2026-03 — Confirm supporting evidence for this entry or refer it
-for reversal.
-Journal JE-2026-00074 (recorded well after its entry date): Payroll
-run 2026-02 — Confirm supporting evidence for this entry or refer it
-for reversal.
-
-23 further matters are not printed in this pack; the matters page
+confirm the period they belong to.
+4 further matters follow on the matters page.
+22 further matters are not printed in this pack; the matters page
 states what they come to.
 
 How this page is prepared
 
 Commentary The left column carries the board's own commentary on the period. It prints only once an approver
 has signed it; until then this page says so rather than printing unapproved text.
-
 Action panel The right column is derived from the same checks the matters page tabulates — aged debtor
-concentration, unreconciled bank items, unusual journals and overdue statutory filings — ordered by the size of
-the exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.
+concentration, unreconciled bank items, unusual journals and overdue statutory filings — in the order the matters
+page prints them: matters with no single rand amount first, then the largest by exposure. It is machine-written
+and states the decision each matter is waiting on, never a recommendation.
+
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 4 / 12
 
-Group results
+G R O U P R E S U LT S
 
 FI N AN CI AL S
 
-An operating loss of (1 545) on revenue of 100.
+An operating loss of (1 544) on revenue of 101.
 R'000
 ACTU AL
 
@@ -189,51 +200,51 @@ CHANG E
 
 CHANG E %
 
-100
+101
 
 –
 
-100
+101
 
 n/m
 
 Gross profit
 
-(1 331)
+(1 329)
 
 (805)
 
-(526)
+(524)
 
 n/m
 
 Operating profit
 
-(1 545)
+(1 544)
 
 (905)
 
-(640)
+(639)
 
 n/m
 
 EBITDA
 
-(1 468)
+(1 467)
 
 (905)
 
-(563)
+(562)
 
 n/m
 
 Net profit
 
-(1 545)
+(1 544)
 
 (905)
 
-(640)
+(639)
 
 n/m
 
@@ -241,51 +252,42 @@ Revenue
 
 a
 
+a
+a
+a
+a
+
 a n/m — The prior figure is not a positive base, so no percentage change is meaningful.
 
-Gross margin
-
-Operating profit
-
-Net profit
-
-100
-
-(1336.3%)
-
-(1 545)
-
-(1 545)
-
-Cash
-
-(532)
+Non-IFRS measures in this table
+EBITDA Every other row of this table is an IFRS line. EBITDA is not: it is operating profit plus the depreciation and
+amortisation charged in the period, and it is presented because a board asks for it, not because a standard
 
 DR
 AF
 T
 
-Revenue
-
+requires it. The basis of preparation reconciles it to operating profit line by line.
 D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
-No line item shows a meaningful period-on-period movement.
+No line item on this page has a comparable percentage change. The prior figure is not a positive base, so no
+percentage change is meaningful.
 
-Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
-The prior column is the period 26 April 2025 to 31 December 2025.
+1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
+2 The prior column is the period 26 April 2025 to 31 December 2025.
+
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 5 / 12
 
-a
-a
-a
-a
-
-Income statement
+I N C O M E S TAT E M E N T
 
 FI N AN CI AL S
 
-Gross margin is a negative 1336.3%, carrying operating expenses of 226.
+Gross margin is a negative 1310.8%, carrying operating expenses of
+227.
 R'000
 ACTU AL
 
@@ -303,11 +305,11 @@ CHANG E %
 
 a
 
-100
+101
 
 –
 
-100
+101
 
 n/m
 
@@ -321,29 +323,29 @@ n/m
 
 +77.8%
 
-+1436.3%
++1410.8%
 
 a
 
-(1 331)
+(1 329)
 
 (805)
 
-(526)
+(524)
 
 n/m
 
 Operating expenses
 
-226
+227
 
 112
 
-114
+115
 
-+101.3%
++102.1%
 
-+226.9%
++223.7%
 
 Other income
 
@@ -355,142 +357,156 @@ Other income
 
 (2.9%)
 
-+11.9%
-
-Other expenses
-
-–
++11.6%
 
 Operating profit
 
-–
-
-(1 545)
-
 Net profit
-
-(905)
-
-(1 545)
-
-(905)
-
-(1336.3%)
 
 a
 
+(1 544)
+
+(905)
+
+(639)
+
+n/m
+
+–
+
+–
+
 –
 
 n/m
 
-(640)
+(1 544)
+
+(905)
+
+(639)
 
 n/m
 
-(640)
+Other expenses
 
-n/m
+(1310.8%)
+
+(1522.9%)
+
+a
 
 0.0%
 
 a
 
-(1551.3%)
-
-a
-
-(1551.3%)
-
-a n/m — The prior figure is not a positive base, so no percentage change is meaningful.
+(1522.9%)
 
 DR
 AF
 T
 
-Revenue of 100 bridges to net profit of (1 545).
+a n/m — The prior figure is not a positive base, so no percentage change is meaningful.
+
+Revenue of 101 bridges to net profit of (1 544).
 R'000
-100
+
+200
+
 –
 
-100
+(200)
 
-(1 331)
+101
 
 (1 431)
 
-(1 545)
+(1 329)
 
-(300)
+(1 544)
 
+(400)
 (600)
-
-(900)
-
+(800)
+(1 000)
 (1 200)
 
-(226)
+(227)
+
+(1 400)
+(1 600)
+
 12
 
-(1 500)
 e
 nu
 ve
-Re
+e
+R
 
 les
 Sa
-of
-t
-s
+f
+o
+st
 Co
 
+fit
+Pro
 s
 os
 Gr
 
-fit
-Pro
+g
+tin
+era
+p
+O
 
-es
-ns
-pe
-x
-E
-ing
-rat
-e
-Op
+s
+se
+en
+p
+Ex
 
-e
-om
-Inc
+me
+co
+n
+I
 r
 he
 Ot
 
-fit
-Pro
-t
-Ne
+it
+rof
+tP
+e
+N
 
 D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
-Operating expenses moved the most, up 101.3%.
+Operating expenses moved the most, up 102.1%.
+1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
+2 The prior column is the period 26 April 2025 to 31 December 2025.
+3 The table states each line as the ledger carries it. The bridge below POSITIONS each bar by its effect on net profit — up where the line added to
+it, down where it took away — and COLOURS it by what the line is: green for income, red for cost, in every pack and whichever way the period
+ran. Cost of Sales of 1 431 in the table is drawn as (1 431) on the bar — the amount by which it reduces profit — and in red, because it is a cost
+line. The two signs are the same fact read two ways.
+4 Gross margin on this page — the income statement page — is the figure for the WHOLE reporting period, measured on the period totals; the
+trends page plots the same measure one month at a time. Different windows: the two will not agree.
 
-Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
-The prior column is the period 26 April 2025 to 31 December 2025.
-The table states each line as the ledger carries it; the bridge below draws each line by its EFFECT on net profit. Cost of Sales of 1 431 in the table is
-drawn as (1 431) on the bar — the amount by which it reduces profit. The two signs are the same fact read two ways.
-Gross margin on this page — the income statement page — is the figure for the WHOLE reporting period, measured on the period totals; the trends
-page plots the same measure one month at a time. Different windows: the two will not agree.
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 6 / 12
 
-Balance sheet
+BAL AN CE S H E E T
 
 FI N AN CI AL S
 
-Balance sheet position: negative equity of (4 088).
+Balance sheet position: negative equity of (4 087).
 R'000
 ACTU AL
 
@@ -502,11 +518,11 @@ CHANG E %
 
 Current assets
 
-(466)
+(464)
 
 (125)
 
-(341)
+(339)
 
 n/m
 
@@ -520,21 +536,21 @@ Non-current assets
 
 n/m
 
-(732)
+(730)
 
 (262)
 
-(470)
+(468)
 
 n/m
 
-3 356
+3 357
 
 2 281
 
-1 075
+1 076
 
-+47.1%
++47.2%
 
 –
 
@@ -546,21 +562,21 @@ n/m
 
 Total liabilities
 
-3 356
+3 357
 
 2 281
 
-1 075
+1 076
 
-+47.1%
++47.2%
 
 Total equity
 
-(4 088)
+(4 087)
 
 (2 543)
 
-(1 545)
+(1 544)
 
 n/m
 
@@ -573,13 +589,18 @@ a
 
 a
 
+a
+
+a
+
 a n/m — The prior figure is not a positive base, so no percentage change is meaningful.
+
+Assets of (730) stand on liabilities of 3 357 and equity of (4 087).
 
 DR
 AF
 T
 
-Assets of (732) stand on liabilities of 3 356 and equity of (4 088).
 R'000
 
 4 000
@@ -607,34 +628,32 @@ Equity
 
 D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
-Current assets cover current liabilities at negative 13.9%; working
-capital stands at (3 822).
+Current assets cover current liabilities at negative 13.8%; working capital stands at (3 821).
 
 Negative total assets
-What this means Total assets are (732). An asset side below zero is not a position a business can hold; it means
+What this means Total assets are (730). An asset side below zero is not a position a business can hold; it means
 one or more asset accounts carry credit balances — commonly a bank account overdrawn beyond its recorded
 facility, or a control account posted against. The balance sheet still foots, so the pack reports it as the ledger
 states it; it should be traced to the accounts before this pack is relied on.
 
 Negative equity
-Consequence Total equity is (4 088). Liabilities exceed assets by this amount, which may affect covenant
+Consequence Total equity is (4 087). Liabilities exceed assets by this amount, which may affect covenant
 compliance and the going-concern assessment.
+1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
+2 The prior column is the period 26 April 2025 to 31 December 2025.
 
-Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
-The prior column is the period 26 April 2025 to 31 December 2025.
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 7 / 12
 
-a
-
-a
-
-Cash
+CAS H
 
 FI N AN CI AL S
 
-Cash stands at (532); the comparative cash figure is negative, so the percentage change is
-not meaningful.
+Cash stands at (531); the comparative cash figure is negative, so the
+percentage change is not meaningful.
 R'000
 ACTU AL
 
@@ -642,31 +661,11 @@ PRI OR
 
 CHANG E
 
-CHANG E %
-
-(125)
-
-–
-
-–
-
-–
-
-–
-
-–
-
-–
-
-–
-
-–
-
-–
-
-Opening cash
+a
 
 a
+
+(125)
 
 Operating cash flow
 
@@ -676,107 +675,125 @@ Investing cash flow
 
 n/m
 
-b
-c
-
 Financing cash flow
 
 n/m
 
-–
+n/m
 
-–
+n/m
 
-–
+n/m
 
 Closing cash
 
-(532)
+(531)
 
 (125)
 
-(407)
+(406)
+
+n/m
+
+c
+
+d
+
+n/m
+
+b
+
+n/m
+
+a
+
+Opening cash
+
+b
+
+n/m
+
+CHANG E %
+
+b
+
+n/m
+
+b
+
+n/m
+
+c
+
+n/m
+
+c
+
+n/m
+
+c
 
 n/m
 
 d
 
-a n/m — No operating cash flow figure was captured for this period.
-b n/m — No capital expenditure figure was captured for this period.
-c n/m — No financing cash flow figure was captured for this period.
-d n/m — The prior figure is not a positive base, so no percentage change is meaningful.
+n/m
+
+d
+
+d
+e
+
+a n/m — The period before the comparative period is not in this pack, so there is no earlier opening cash balance to measure this one against.
+b n/m — No operating cash flow figure was captured for this period.
+c n/m — No capital expenditure figure was captured for this period.
+d n/m — No financing cash flow figure was captured for this period.
+e n/m — The prior figure is not a positive base, so no percentage change is meaningful.
 
 DR
 AF
 T
 
-Cash moved from (125) to (532) over the period.
+Movement in cash, and why no bridge is drawn
+
+This period Cash moved (125) to (531) over the period, a movement of (406). No bridge is drawn because there is
+nothing to bridge THROUGH: this pack’s figure set carries the period’s cash totals and none of the operating,
+investing or financing figures a cash flow statement is made of, so every step between the two balances would be
+one unmeasured step the width of the whole movement. Ask for the cash flow statement for the split.
+
+Closing cash fell from (115) at Oct 2025 to (531) at Sep 2026, over 12 periods.
 R'000
 
 –
-(100)
-(200)
+
 (300)
-(400)
-(500)
+(600)
 
-(407)
+(531)
 
-(125)
-
-h
-as
-gc
-n
-i
-en
-Op
-
-nt
-me
-ve
-o
-dm
-ine
-a
-l
-p
-ex
-Un
-
-(532)
-
-h
-as
-gc
-n
-i
-s
-Clo
-
-How much of this bridge is unexplained
-
-Size of the unexplained step 'Unexplained movement' accounts for 407 of this bridge — 100% of what it
-bridges. It is not a category anything measured: this pack's figure set carries the period's totals rather than the
-operating, investing and financing splits a cash flow statement is made of, so the step holds everything those
-three would have shown. Read the bridge as the shape of the period, and ask for the cash flow statement before
-relying on the split.
-
-Closing cash fell from (115) at Oct 2025 to (532) at Sep 2026, over 12 periods.
-(532)
+(900)
+(1 200)
+(1 500)
+(1 800)
 
 Oct 2025
 
 Sep 2026
 
-Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
-The prior column is the period 26 April 2025 to 31 December 2025.
-This page had room for its figures and not for all of its prose: 1 explanatory note — from "Commentary" is not printed. Every figure, table and chart
-on the page is complete.
+Commentary
+This period No operating cash flow figure was captured for this period.
+1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
+2 The prior column is the period 26 April 2025 to 31 December 2025.
+3 Opening cash in the table above is the balance at the START of the reporting period. The closing-cash line below it plots 12 months to the
+period end and opens at Oct 2025, so it starts from the balance at that month instead. Different windows: the two will not agree.
+
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 8 / 12
 
-Scorecard
+S CO RE CARD
 
 PE RFO RMAN CE
 
@@ -794,7 +811,7 @@ S TATU S
 
 Gross margin
 
-(1336.3%)
+(1310.8%)
 
 +35.0%
 
@@ -802,7 +819,7 @@ n/m
 
 Operating margin
 
-(1551.3%)
+(1522.9%)
 
 –
 
@@ -848,34 +865,13 @@ Cash ratio
 U NSCORE D
 
 C. Working capital
-
-Debtor days
-Creditor days
-
-D. Leverage
-ME TRI C
-
 ACTU AL
-
-Debt-to-equity
-Interest cover
-
-E. Cash flow
-ME TRI C
 
 TARG E T
 
 PRI OR
 
-DR
-AF
-T
-
-ME TRI C
-
-b
-
-S TATU S
+Debtor days
 
 213 days
 
@@ -885,7 +881,7 @@ n/m
 
 MISSE D
 
-788 days
+789 days
 
 –
 
@@ -893,13 +889,40 @@ MISSE D
 
 U NSCORE D
 
-ACTU AL
+Creditor days
 
-TARG E T
+D. Leverage
+ME TRI C
+
+DR
+AF
+T
+
+ME TRI C
+
+Debt-to-equity
+Interest cover
+
+E. Cash flow
+ME TRI C
+
+Operating cash flow
+
+Cash conversion cycle
+
+ACTU AL
 
 c
 
 n/m
+
+d
+
+TARG E T
+
+S TATU S
+
+b
 
 PRI OR
 
@@ -907,8 +930,6 @@ c
 
 0.50
 
-d
-
 n/m
 
 d
@@ -932,29 +953,25 @@ PRI OR
 
 S TATU S
 
-–
-
-n/m
-
-–
-
-n/m
-
 e
-
-Operating cash flow
-
-n/m
-
-Cash conversion cycle
 
 n/m
 
 f
 
+n/m
+
 e
 
+–
+
+n/m
+
 f
+
+–
+
+n/m
 
 NOT ME ANINGFU L
 NOT ME ANINGFU L
@@ -969,70 +986,98 @@ D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
 0 of 3 scored targets were met this period, with 3 missed.
 
-Debtor days on this page — the scorecard page — is the figure for the WHOLE reporting period, measured on the period totals; the trends page
+Scoring basis
+Definitions Each metric is scored against the platform's default target. The basis page defines the terms and
+every formula used here.
+1 Debtor days on this page — the scorecard page — is the figure for the WHOLE reporting period, measured on the period totals; the trends page
 plots the same measure one month at a time. Different windows: the two will not agree.
-This page had room for its figures and not for all of its prose: 1 explanatory note — from "Scoring basis" is not printed. Every figure, table and
-chart on the page is complete.
+
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 9 / 12
 
-Trends
+TRE N D S
 
 PE RFO RMAN CE
 
-Revenue is up 1322.0% from the first month of the 12-month series to the last; 6 of 6
-panels are drawn.
-Revenue rose from 2 to 28 over 12 periods. Own
-scale — 1.1% of the shared range.
+Revenue is up 1413.5% from the first month of the 12-month series to
+the last; 6 of 6 panels are drawn.
+Revenue rose from 2 to 30 over 12 periods. Own scale: its
+range is 1.1% of the shared one, too little to show on it.
 
-Gross margin rose from (4267.6%) to 100.0% over
-12 periods.
+Gross margin rose from (4267.6%) to 100.0% over 12
+periods. Own scale: a percentage, not R'000.
+5069.7%
+
+39
+
 100.0%
 
-28
+30
+–
+
+(66076.9%)
 
 Oct 2025
 
 Sep 2026
 
-Oct 2025
+Operating expenses rose from 15 to 41 over 12 periods. Own
+scale: its range is 1.6% of the shared one, too little to show on
+it.
 
-Operating expenses rose from 15 to 40 over 12
-periods. Own scale — 1.7% of the shared range.
+Oct 2025
 
 Sep 2026
 
-Net profit rose from (99) to (12) over 12 periods. Jul
-2026 alone is 1 908 — a month whose expenses
-were a net credit — and sets 52.4% of the scale.
+Net profit rose from (99) to (11) over 12 periods. Jul 2026
+alone is 1 908 — a month whose expenses were a net credit;
+drop it and the shared range shrinks by 52.4%.
+1 908
 
-Oct 2025
+58
+
+–
 
 DR
 AF
 T
 
-40
+41
 
-Sep 2026
+(11)
 
-Oct 2025
-
-Cash fell from (115) to (532) over 12 periods.
-
-(12)
-
-Sep 2026
-
-Debtor days rose from 0.0 days to 62.4 days over 12
-periods.
-62.4 days
-
-(532)
+(1 621)
 
 Oct 2025
 
 Sep 2026
+
+Cash fell from (115) to (531) over 12 periods.
+1 908
+
+Oct 2025
+
+Sep 2026
+
+Debtor days rose from 0.0 days to 59.6 days over 12 periods.
+Own scale: a day count, not R'000.
+
+59.6 days
+
+59.6 days
+
+(531)
+
+(1 621)
+
+Oct 2025
+
+Sep 2026
+
+0.0 days
 
 Oct 2025
 
@@ -1040,176 +1085,205 @@ Sep 2026
 
 D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
-6 metrics are tracked over the period; each panel states where it
-started and where it ended.
+6 metrics are tracked over the period; each panel states where it started and where it ended. The shared yscale spans (1 621) to 1 908, a span of 3 529 R'000; a panel's percentage of it is that panel's own high-to-low
+range over that span.
 
 Reading these panels
+Scale Net profit and Cash share one y-scale, so neither of them can look like it moved more than it did. Every
+panel labels the low and high of its own axis, so a share of the range can be checked off the sheet. Revenue
+(1.1%) and Operating expenses (1.6%) are drawn on their OWN scales — each has too little of its own range to
+register on the shared one, and says so in its own title. Their slopes are not comparable with the panels above.
+Gross margin and Debtor days are different units and keep their own.
 Period Each panel plots one MONTH at a time. The same measures print for the WHOLE reporting period —
 revenue, gross margin and operating expenses on the income statement page, net profit on the group results
 page, cash on the cash page and debtor days on the scorecard page — against the comparative period. Different
 windows: the two will not agree.
-Scale Net profit and Cash share one y-scale, so none of them can look like it moved more than it did. Revenue
-(1.1%) and Operating expenses (1.7%) are drawn on their OWN scales — each covers too little of the shared
-range to register on it, and says so in its own title. Their slopes are not comparable with the panels above. Gross
-margin and Debtor days are different units and keep their own.
+
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 10 / 12
 
-Matters for the board
+M AT T E R S F O R T H E B O A R D
 
 G O VE RN AN CE
 
-28 matters require a board decision, 26 of them carrying 1 675 R'000 of exposure.
+29 matters require a board decision, 27 of them carrying 3 544 R'000
+of exposure.
 ISSUE
 
 QU ANTU M (R'0 0 0 )
 
+Annual Financial Statements for FY2024 is 739
+days overdue (due 28 August 2024)
+
+n/m
+
 OWNE R
 
-D E CI S I ON RE QU I RE D
+Company secretary
 
-Annual Financial Statements for FY2024 is
-739 days overdue (due 28 August 2024)
+D E CI S I ON
+RE QU I RE D
 
-–
+Approve immediate
+filing and confirm any
+penalty exposure.
 
-Company
-secretary
+Annual Financial Statements for FY2026 is 10
+days overdue (due 27 August 2026)
 
-Approve immediate filing and
-confirm any penalty exposure.
+n/m
 
-Annual Financial Statements for FY2026 is
+Jul 2026: expenses for the month are a net
+credit — more was reversed out of expense
 
-–
+1 869
 
-Company
+Company secretary
 
-Approve immediate filing and
-
-secretary
-
-confirm any penalty exposure.
-
-10 days overdue (due 27 August 2026)
-Journal JE-2026-00073 (recorded well
-after its entry date): Payroll run 2026-01
-
-339
+Approve immediate
+filing and confirm any
+penalty exposure.
 
 Finance
 
-Confirm supporting evidence for
-this entry or refer it for reversal.
+Identify the reversals
+behind the credit and
 
-Journal JE-2026-00075 (recorded well
-after its entry date): Payroll run 2026-03
+accounts than was posted into them, so the
+month reports a profit the period does not.
+The quantum is that credit; the trends panel
 
-339
-
-Finance
-
-Confirm supporting evidence for
-this entry or refer it for reversal.
-
-Journal JE-2026-00074 (recorded well
-after its entry date): Payroll run 2026-02
-
-339
-
-Finance
-
-Confirm supporting evidence for
-this entry or refer it for reversal.
-
-23 further matters are not printed. This table is held to what the page has room for, so that a board pack is the same twelve sheets for every
-company: matters with no single rand amount are listed first, then the largest by exposure. They come to 658 R'000 in total.
+confirm the period
+they belong to.
 
 DR
 AF
 T
 
-Movement Not tracked — no prior board pack is stored to compare against. — the same for every matter listed above.
+plots the month's net profit, which is larger by
+the month's revenue.
+Journal JE-2026-00073 (recorded well after
+its entry date): Payroll run 2026-01
+
+339
+
+Finance
+
+Confirm supporting
+evidence for this
+entry or refer it for
+reversal.
+
+Journal JE-2026-00075 (recorded well after
+its entry date): Payroll run 2026-03
+
+339
+
+Finance
+
+Confirm supporting
+evidence for this
+
+Journal JE-2026-00074 (recorded well after
+
+339
+
+Finance
+
+its entry date): Payroll run 2026-02
+
+Journal JE-2026-00085 (recorded well after
+its entry date): Payroll run 2026-01
+
+339
+
+Finance
+
+entry or refer it for
+reversal.
+Confirm supporting
+evidence for this
+entry or refer it for
+reversal.
+Confirm supporting
+evidence for this
+entry or refer it for
+reversal.
+
+22 further matters are not printed. A board pack is the same twelve sheets for every company however busy its ledger, so this table is held to the
+paper this page has: matters with no single rand amount are listed first, then the largest by exposure. They come to 319 R'000 in total.
+Movement Not tracked — no prior board pack is stored to compare against. The same for every matter listed above.
 
 Commentary pending approval.
 
 What was checked
-
 Sources Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A
 source that fails appears as a named matter, never as a silent omission.
 Movement No prior board pack is stored, so movement since the last meeting is stated as untracked rather than
 computed from a period comparison, which would answer a different question.
 
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
+
 11 / 12
 
-Basis of preparation
+B A S I S O F P R E PA R AT I O N
 
 G O VE RN AN CE
 
-Prepared under IFRS for SMEs from the IsaFlow general ledger, in R'000; 2 caveats qualify
-these figures.
+Prepared under IFRS for SMEs from the IsaFlow general ledger, in
+R'000; 2 caveats qualify these figures.
 Basis of preparation
 Standard IFRS for SMEs
-
+Period 1 January 2026 to 7 September 2026
+Comparative period 26 April 2025 to 31 December 2025
+Currency and rounding ZAR, figures in R'000.
 Source system IsaFlow general ledger
 
-Period 1 January 2026 to 7 September 2026
-
-Rounding Figures are rounded to the nearest R'000,
-
-Comparative period 26 April 2025 to 31 December
-2025
-
-so components may not add exactly to the totals
-shown.
-
-Currency and rounding ZAR, figures in R'000.
-
-Extracted at 7 September 2026 at 11:55 SAST
-Ledger version 7 September 2026 at 11:40 SAST
+Rounding Figures are rounded to the nearest R'000, so
+components may not add exactly to the totals shown.
+Extracted at 7 September 2026 at 18:15 SAST
+Ledger version 7 September 2026 at 17:45 SAST
 
 Negative figures
-In brackets — (1 546) — for currency, percentages and
+In brackets — (12 345) — for currency, percentages and
 ratios alike. No minus sign is used anywhere in this pack.
 
 Cash ratio
 Cash and cash equivalents divided by current liabilities.
-Debt-to-equity
-Total liabilities divided by total equity. Not reported on
-negative equity: the quotient inverts.
 
 Not meaningful (n/m)
 A measure the figures cannot support. The pack prints the
 reason rather than a number, and never a zero — which
 would say the measure was taken and found to be nothing.
-
-DR
-AF
-T
+A dash (–) is that zero: a figure measured and nil, never a
+figure the pack does not have.
 
 Interest cover
 Operating profit divided by net interest expense. This pack
 captures no interest expense line, so it is reported as not
 meaningful.
 
+DR
+AF
+T
+
 Gross margin
 Gross profit (revenue less cost of sales), as a percentage of
 revenue.
 
-Debtor days
-Trade receivables over revenue, times the days in the
-window — the reporting period on the scorecard and
-highlights, one month on the trends page. That is why the
-two differ.
+Debt-to-equity
+Total liabilities divided by total equity. Not reported on
+negative equity: the quotient inverts.
 
 Operating margin
 Operating profit as a percentage of revenue.
 Net profit margin
 Net profit, as a percentage of revenue.
-
-Creditor days
-Trade payables over cost of sales, times the days in the
-period. Not reported where there is no cost of sales.
 
 EBITDA
 Earnings before interest, tax, depreciation and amortisation
@@ -1222,30 +1296,39 @@ Operating profit (IFRS)
 
 Add back: depreciation and amortisation
 EBITDA
+Working capital
+Current assets less current liabilities, in rand.
+Current ratio
+Current assets divided by current liabilities.
 
-Cash conversion cycle
-Debtor days plus inventory days, less creditor days. Not
-reported where no account is classified as inventory.
-Operating cash flow
-Cash generated by operations before investing and financing
-activities.
-
-(1 545)
+(1 544)
 
 77
 
-(1 468)
+(1 467)
 
+Debtor days
+Trade receivables over revenue, times 365 — an annualised
+figure on the scorecard and highlights, whatever the length
+of the reporting period. The trends page instead multiplies
+each month's ratio by the days in that month, so the two do
+not agree.
+Creditor days
+Trade payables over cost of sales, times 365 — annualised,
+whatever the length of the reporting period. Not reported
+where there is no cost of sales.
+Cash conversion cycle
+Debtor days plus inventory days, less creditor days — each
+annualised on 365 days, as above. Not reported where no
+account is classified as inventory.
+Operating cash flow
+Cash generated by operations before investing and financing
+activities.
 Scored, unscored and not meaningful
 Scored against the platform's default target. A metric with
 no target is unscored rather than assumed met; one the
 figures cannot support is not meaningful. Neither counts as
 a pass or a miss.
-
-Working capital
-Current assets less current liabilities, in rand.
-Current ratio
-Current assets divided by current liabilities.
 
 Caveats
 Caveat 1 No account in the chart of accounts is classified as inventory, so inventory could not be identified and the
@@ -1253,6 +1336,10 @@ quick ratio does not exclude it: on these figures the quick ratio and the curren
 as a current ratio until the stock control account is classified.
 Caveat 2 This pack is a DRAFT — the fiscal period it ends in is still open, so these figures can still move and no
 commentary on this period has been approved, so nobody has signed off what it says.
+
+ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
+
+Confidential — for board use · DRAFT
 
 12 / 12
 

@@ -250,7 +250,14 @@ html.print-mode .pack-pages {
  * fact that no commentary has been approved); a hole is a layout failure.
  * Removing the auto margin can only move the strip UP, so no page's measured
  * height changes — see `packSheetCount.test.ts`. */
-.pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: 0; padding-top: 2mm; }
+.pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: 0; padding-top: 2mm; list-style: none; padding-left: 0; }
+/* THE FOOTNOTE PRINTS ITS OWN NUMBER. Tailwind preflight strips the `<ol>`'s
+ * marker app-wide, so `Revenue¹` on sheet 3 pointed at an unlabelled grey
+ * block. The marker column is ~3mm at 7.5pt including the gap, inside the 6mm
+ * `footnotesMm` already withholds from the text width — so the height estimate
+ * stays at or above what Chromium lays out. */
+.pack-footnotes > li { display: flex; gap: 1.5mm; }
+.pack-footnote-number { font-weight: 600; }
 
 /* Task 13 — the KPI tile, its delta and its inline sparkline. The delta's
  * colour (favourable/unfavourable) is never the ONLY cue: `.pack-kpi-delta-cue`
