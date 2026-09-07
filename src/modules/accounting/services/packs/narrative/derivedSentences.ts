@@ -77,15 +77,24 @@ function pctChangeClause(current: number, prior: number): string | null {
 }
 
 /**
- * The shared "no comparative base" clause, worded for `subject` as it reads
- * at the START of a sentence (capitalised). `midSentence` returns the same
- * wording lower-cased for use after a semicolon instead.
+ * The shared "no comparative base" clause. `measure` NAMES the measure —
+ * 'revenue', 'net profit', 'cash' — in lower case, and this composes the
+ * sentence around it. `midSentence` leaves the first word lower-cased for use
+ * after a semicolon; otherwise the sentence is capitalised.
+ *
+ * IT TAKES THE MEASURE, NOT A WHOLE SUBJECT PHRASE, and that is the fix
+ * rather than a wording preference. Callers used to hand in the subject, and
+ * two of them handed in one that already named the base — so the negative
+ * branch composed a base measured against a base, printed as the second
+ * sentence a director reads on sheets 4 and 8. With the measure as the
+ * argument there is no phrasing a caller can pass that makes the sentence eat
+ * itself.
  */
-function noComparativeBaseSentence(subject: string, base: number, midSentence = false): string {
+function noComparativeBaseSentence(measure: string, base: number, midSentence = false): string {
   const s = base < 0
-    ? `${subject} is measured against a negative comparative base, so the percentage change is not meaningful.`
-    : `${subject} has no positive comparative base for a percentage change.`;
-  return midSentence ? `${s.charAt(0).toLowerCase()}${s.slice(1)}` : s;
+    ? `the comparative ${measure} figure is negative, so the percentage change is not meaningful.`
+    : `${measure} has no positive comparative base for a percentage change.`;
+  return midSentence ? s : `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 }
 
 export function highlightsTitle(set: PackFigureSet, scale: MoneyScale): string {
@@ -96,7 +105,7 @@ export function highlightsTitle(set: PackFigureSet, scale: MoneyScale): string {
   } else {
     const change = pctChangeClause(current.revenue, prior.revenue);
     revenueClause = change === null
-      ? noComparativeBaseSentence('Revenue', prior.revenue)
+      ? noComparativeBaseSentence('revenue', prior.revenue)
       : `Revenue ${change} against the prior period.`;
   }
 
@@ -135,7 +144,7 @@ export function cashTitle(set: PackFigureSet, scale: MoneyScale): string {
   }
   const change = pctChangeClause(cash, set.prior.cash);
   if (change === null) {
-    return `Cash stands at ${formatMoney(cash, { scale })}; ${noComparativeBaseSentence('the comparative cash base', set.prior.cash, true)}`;
+    return `Cash stands at ${formatMoney(cash, { scale })}; ${noComparativeBaseSentence('cash', set.prior.cash, true)}`;
   }
   return `Cash is ${change} to ${formatMoney(cash, { scale })}.`;
 }
@@ -157,7 +166,7 @@ export function narrativeTitle(set: PackFigureSet, scale: MoneyScale): string {
   if (prior === null) return `${level} for the period, with no comparative.`;
   const change = pctChangeClause(current.netProfit, prior.netProfit);
   return change === null
-    ? `${level}; ${noComparativeBaseSentence('the comparative profit base', prior.netProfit, true)}`
+    ? `${level}; ${noComparativeBaseSentence('net profit', prior.netProfit, true)}`
     : `${level}, ${change} on the prior period.`;
 }
 
@@ -195,14 +204,21 @@ export function incomeStatementTitle(set: PackFigureSet, scale: MoneyScale): str
  */
 export function trendsTitle(trend: PackTrendPoint[], drawn: number, planned: number): string {
   if (trend.length === 0) {
-    return `No trend series covers this period, so 0 of ${planned} panels are drawn.`;
+    return `No monthly series covers this period, so 0 of ${planned} panels are drawn.`;
   }
   const first = trend[0]!.revenue;
   const last = trend[trend.length - 1]!.revenue;
   const change = pctChangeClause(last, first);
+  // NAMED WINDOW, not a bare percentage. "Revenue is up 1281.4% across 12
+  // periods" sat against "Revenue has no positive comparative base for a
+  // percentage change" on the highlights and group-results pages — the same
+  // measure, two movements, and nothing saying that this one runs from the
+  // first MONTH of the series to the last while that one covers the whole
+  // period against the comparative. The page's own `Period` disclosure says
+  // it in full; the title must not contradict it in the meantime.
   const lead = change === null
-    ? `Revenue has no usable base at the start of the ${trend.length}-period series`
-    : `Revenue is ${change} across ${trend.length} periods`;
+    ? `Revenue has no usable base in the first month of the ${trend.length}-month series`
+    : `Revenue is ${change} from the first month of the ${trend.length}-month series to the last`;
   return `${lead}; ${drawn} of ${planned} panels are drawn.`;
 }
 

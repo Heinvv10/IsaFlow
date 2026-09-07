@@ -33,7 +33,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { sparklineOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
-import type { PackKpiDelta, PackKpiTile } from './packPageModel';
+import type { PackKpiTile } from './packPageModel';
 
 /** The tile's sparkline is inline-sized — the smallest of the pack's three
  *  chart heights (`CHART_HEIGHT_MM`), at a KPI-tile width. */
@@ -56,15 +56,37 @@ function pctChange(current: number, prior: number): number | null {
   return marginPct(current - prior, prior);
 }
 
-/** `lowerIsBetter` is why this cannot be `value > 0` for every tile: debtor
- *  days and debt-to-equity rising is a WORSE period, and a green arrow on a
- *  lengthening debtor book is a false statement in the direction that
- *  flatters — the same failure class as AN-07 on the scorecard. */
-function deltaFor(current: number, prior: number | null, lowerIsBetter: boolean): PackKpiDelta | null {
-  if (prior === null) return null;
+/**
+ * The movement a tile shows, or WHY it shows none.
+ *
+ * The absence is returned rather than collapsed into a null, because the
+ * three ways a delta can be missing are three different statements to a
+ * director and the pack printed the strongest of them for all three: every
+ * tile on the live demo pack read "No comparative period" while four
+ * statement pages printed a prior column. The comparative was there; prior
+ * revenue was nil and prior net profit was (905), so `marginPct` refused the
+ * base. See `PackKpiDeltaAbsence`.
+ *
+ * `lowerIsBetter` is why `favourable` cannot be `value > 0` for every tile:
+ * debtor days and debt-to-equity rising is a WORSE period, and a green arrow
+ * on a lengthening debtor book is a false statement in the direction that
+ * flatters — the same failure class as AN-07 on the scorecard.
+ */
+function movementFor(
+  current: number | null,
+  prior: number | null,
+  lowerIsBetter: boolean,
+  hasComparativePeriod: boolean,
+): Pick<PackKpiTile, 'delta' | 'deltaAbsence'> {
+  if (current === null) return { delta: null, deltaAbsence: 'noCurrentValue' };
+  if (!hasComparativePeriod) return { delta: null, deltaAbsence: 'noComparativePeriod' };
+  if (prior === null) return { delta: null, deltaAbsence: 'noPriorValue' };
   const value = pctChange(current, prior);
-  if (value === null) return null;
-  return { value, basis: 'prior period', favourable: lowerIsBetter ? value < 0 : value > 0 };
+  if (value === null) return { delta: null, deltaAbsence: 'unusableBase' };
+  return {
+    delta: { value, basis: 'prior period', favourable: lowerIsBetter ? value < 0 : value > 0 },
+    deltaAbsence: null,
+  };
 }
 
 function sparklineFor(points: PackTrendPoint[], series: (p: PackTrendPoint) => number): PackKpiTile['sparklineSvg'] {
@@ -95,12 +117,13 @@ function buildTile(
   figure: PackFigure,
   prior: number | null,
   sparklineSvg: PackKpiTile['sparklineSvg'],
+  hasComparativePeriod: boolean,
   lowerIsBetter = false,
 ): PackKpiTile {
   return {
     label,
     figure,
-    delta: figure.value === null ? null : deltaFor(figure.value, prior, lowerIsBetter),
+    ...movementFor(figure.value, prior, lowerIsBetter, hasComparativePeriod),
     // No footnote index is allocated at this level — the page that assembles
     // this tile strip owns the page's `footnotes` array.
     trendFootnote: null,
@@ -160,19 +183,24 @@ export function buildHighlightTiles(
   const debtorDays = recordRead(p, DEBTOR_DAYS_SOURCE, readDebtorDays(ratios, current), 'days');
   const workingCapital = p.figure('calculateExtendedRatios.workingCapital', ratios.workingCapital, 'money');
 
+  // Whether a comparative PERIOD exists at all — the same fact
+  // `buildBoardPackPages` derives `comparativePeriod` from, and the thing a
+  // tile with no movement must not confuse with an unusable base.
+  const hasComparative = prior !== null;
+
   return [
-    buildTile('Revenue', revenue, prior?.revenue ?? null, sparklineFor(trend, (t) => t.revenue)),
-    buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, sparklineForNullable(trend, (t) => t.grossMarginPct)),
+    buildTile('Revenue', revenue, prior?.revenue ?? null, sparklineFor(trend, (t) => t.revenue), hasComparative),
+    buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, sparklineForNullable(trend, (t) => t.grossMarginPct), hasComparative),
     // No monthly otherIncome series exists, so no monthly operating-profit
     // series can be derived without inventing one — this tile stays without
     // a sparkline.
-    buildTile('Operating profit', operatingProfit, prior ? operatingProfitOf(prior) : null, null),
-    buildTile('Net profit', netProfit, prior?.netProfit ?? null, sparklineFor(trend, (t) => t.netProfit)),
-    buildTile('Cash', cash, prior?.cash ?? null, sparklineFor(trend, (t) => t.cash)),
+    buildTile('Operating profit', operatingProfit, prior ? operatingProfitOf(prior) : null, null, hasComparative),
+    buildTile('Net profit', netProfit, prior?.netProfit ?? null, sparklineFor(trend, (t) => t.netProfit), hasComparative),
+    buildTile('Cash', cash, prior?.cash ?? null, sparklineFor(trend, (t) => t.cash), hasComparative),
     // No monthly totalEquity series exists — same reason as operating profit.
-    buildTile('Debt-to-equity', leverage, priorRatios?.debtToEquity ?? null, null, true),
-    buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, sparklineForNullable(trend, (t) => t.debtorDays), true),
+    buildTile('Debt-to-equity', leverage, priorRatios?.debtToEquity ?? null, null, hasComparative, true),
+    buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, sparklineForNullable(trend, (t) => t.debtorDays), hasComparative, true),
     // No monthly working-capital series exists — same reason as above.
-    buildTile('Working capital', workingCapital, priorRatios?.workingCapital ?? null, null),
+    buildTile('Working capital', workingCapital, priorRatios?.workingCapital ?? null, null, hasComparative),
   ];
 }

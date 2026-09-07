@@ -28,6 +28,7 @@ export type {
   PackDisclosureNote,
   PackFootnote,
   PackKpiDelta,
+  PackKpiDeltaAbsence,
   PackKpiTile,
   PackMatterFigure,
   PackNarrative,

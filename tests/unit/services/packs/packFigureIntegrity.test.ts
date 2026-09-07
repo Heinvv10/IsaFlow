@@ -66,7 +66,7 @@ function docOf(
 
 const tile = (label: string, figure: PackFigure): PackPageBlock => ({
   kind: 'kpiTiles',
-  tiles: [{ label, figure, delta: null, trendFootnote: null, sparklineSvg: null }],
+  tiles: [{ label, figure, delta: null, deltaAbsence: 'noComparativePeriod', trendFootnote: null, sparklineSvg: null }],
 });
 
 function tableOf(columns: PackTableColumnKey[], figures: PackTable['rows'][number]['figures']): PackPageBlock {
@@ -115,7 +115,7 @@ describe('assertPackIntegrity', () => {
     const p = new PackFigureProvenance();
     balanced(p);
     const figure = p.figure('marginPct.grossMargin', 45, 'pct', undefined, { numerator: 400, denominator: 1000 });
-    const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Gross margin', figure, delta: null, trendFootnote: null, sparklineSvg: null }] };
+    const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Gross margin', figure, delta: null, deltaAbsence: 'noComparativePeriod', trendFootnote: null, sparklineSvg: null }] };
     expect(() => assertPackIntegrity(docOf(p, [block]))).toThrow(/recompute|does not/i);
   });
 
@@ -123,7 +123,7 @@ describe('assertPackIntegrity', () => {
     const p = new PackFigureProvenance();
     balanced(p);
     const figure = p.figure('marginPct.grossMargin', 40, 'pct', undefined, { numerator: 400, denominator: 1000 });
-    const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Gross margin', figure, delta: null, trendFootnote: null, sparklineSvg: null }] };
+    const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Gross margin', figure, delta: null, deltaAbsence: 'noComparativePeriod', trendFootnote: null, sparklineSvg: null }] };
     expect(() => assertPackIntegrity(docOf(p, [block]))).not.toThrow();
   });
 
@@ -165,7 +165,7 @@ describe('assertPackIntegrity', () => {
       const p = new PackFigureProvenance();
       balanced(p);
       const figure = p.figure('calculateExtendedRatios.currentRatio', 1.97, format);
-      const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Current ratio', figure, delta: null, trendFootnote: null, sparklineSvg: null }] };
+      const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Current ratio', figure, delta: null, deltaAbsence: 'noComparativePeriod', trendFootnote: null, sparklineSvg: null }] };
       expect(() => assertPackIntegrity(docOf(p, [block])), format)
         .toThrow(/states no numerator and denominator/i);
     }
@@ -180,7 +180,7 @@ describe('assertPackIntegrity', () => {
       const p = new PackFigureProvenance();
       balanced(p);
       const figure = p.figure('calculateExtendedRatios.debtorDays', 62.6, format);
-      const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Debtor days', figure, delta: null, trendFootnote: null, sparklineSvg: null }] };
+      const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Debtor days', figure, delta: null, deltaAbsence: 'noComparativePeriod', trendFootnote: null, sparklineSvg: null }] };
       expect(() => assertPackIntegrity(docOf(p, [block])), format).not.toThrow();
     }
   });
@@ -196,7 +196,7 @@ describe('assertPackIntegrity', () => {
     p.figure('packFigureSet.current.costOfSales', 120_000, 'money');
     p.figure('packStatementTables.grossProfit', null, 'money', 'Nothing was captured for this line.');
     const figure = p.figure('marginPct.grossMargin', null, 'pct', 'Revenue is not positive, so there is no turnover to take a margin of.', { numerator: 0, denominator: 0 });
-    const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Gross margin', figure, delta: null, trendFootnote: null, sparklineSvg: null }] };
+    const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Gross margin', figure, delta: null, deltaAbsence: 'noComparativePeriod', trendFootnote: null, sparklineSvg: null }] };
     expect(() => assertPackIntegrity(docOf(p, [block]))).not.toThrow();
   });
 

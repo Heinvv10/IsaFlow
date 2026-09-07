@@ -35,10 +35,41 @@ export interface PackKpiDelta {
   favourable: boolean;
 }
 
+/**
+ * WHY a tile shows no movement — required whenever `delta` is null, because
+ * the four reasons are not the same statement and the pack printed the
+ * strongest of them for all four.
+ *
+ * Every tile on the live demo pack read "No comparative period, so no
+ * movement is shown against this figure." while four statement pages printed
+ * a prior column and page 12 named the comparative's dates. The comparative
+ * existed; what did not exist was a usable percentage BASE — prior revenue of
+ * nil, prior net profit of (905). One null on `delta` was carrying all of
+ * "there is no prior period", "this measure has no prior value" and "the
+ * prior figure is not a base a percentage can be taken off", and the caption
+ * had no way to tell them apart.
+ *
+ * `unusableBase` is worded on the page in the same terms as the statement
+ * tables' own n/m footnote, so the tile and the table under it say one thing.
+ */
+export type PackKpiDeltaAbsence =
+  /** `PackFigureSet.prior` is null — a first-period company (R3). */
+  | 'noComparativePeriod'
+  /** A comparative period exists, but this measure has no value in it. */
+  | 'noPriorValue'
+  /** Both figures exist; the prior one is not a positive base, so `marginPct`
+   *  refuses a percentage change off it. */
+  | 'unusableBase'
+  /** The tile's own figure is unavailable, so there is nothing to move. The
+   *  tile prints `figure.unavailable` instead of a movement. */
+  | 'noCurrentValue';
+
 export interface PackKpiTile {
   label: string;
   figure: PackFigure;
   delta: PackKpiDelta | null;
+  /** Exactly one of `delta` and `deltaAbsence` is non-null. */
+  deltaAbsence: PackKpiDeltaAbsence | null;
   /** Index into the page's `footnotes`, or null when the trend needs none. */
   trendFootnote: number | null;
   /** Pre-rendered sparkline markup, or null when there is no series to show. */

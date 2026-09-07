@@ -25,6 +25,7 @@ import type { PackMatter } from '@/modules/accounting/services/packs/pages/packM
 import type { SelectedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
 import type {
   PackChartSpec,
+  PackKpiDeltaAbsence,
   PackKpiTile,
   PackScorecardGroup,
   PackTableRow,
@@ -101,11 +102,36 @@ export function tileCaption(tile: PackKpiTile): string {
     return `Not available. ${tile.figure.unavailable ?? ''}`.trim();
   }
   if (tile.delta === null) {
-    return 'No comparative period, so no movement is shown against this figure.';
+    return DELTA_ABSENCE[tile.deltaAbsence ?? 'noCurrentValue'];
   }
   const judgement = tile.delta.favourable ? 'a favourable' : 'an unfavourable';
   return `${pctWithWord(tile.delta.value, 'Up', 'Down')} on the ${tile.delta.basis} — ${judgement} movement.`;
 }
+
+/**
+ * The pack's ONE comparative statement, per reason — see
+ * `PackKpiDeltaAbsence`, which is where the reasons are distinguished.
+ *
+ * Every one of these used to be the first line: "No comparative period, so no
+ * movement is shown against this figure.", printed seven times on sheet 3 of
+ * a pack whose sheets 5, 6, 7 and 8 carried a prior column and whose sheet 12
+ * named the comparative's dates. `unusableBase` is worded in the same terms
+ * as `NOT_A_POSITIVE_BASE`, the statement tables' own n/m footnote, so a tile
+ * and the table two sheets later say one thing about one figure.
+ *
+ * A `Record` keyed by the union, so adding a reason is a compile error here
+ * rather than a tile that silently prints the wrong one — which is the defect
+ * this replaces.
+ */
+export const NOT_A_POSITIVE_BASE =
+  'The prior figure is not a positive base, so no percentage change is meaningful.';
+
+const DELTA_ABSENCE: Record<PackKpiDeltaAbsence, string> = {
+  noComparativePeriod: 'No comparative period, so no movement is shown against this figure.',
+  noPriorValue: 'The comparative period carries no value for this measure, so no movement is shown.',
+  unusableBase: NOT_A_POSITIVE_BASE,
+  noCurrentValue: 'This figure is not available for the period, so there is no movement to show.',
+};
 
 /**
  * Page 7's caption. Deliberately NOT `positionTitle`, which is the page's own

@@ -29,6 +29,10 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 import { toFinancialData } from './packScorecard';
 import { OPERATING_PROFIT_SOURCE, operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { PACK_SCALE } from './packBasis';
+// The n/m reason a cell prints, shared with page 3's tile captions — see
+// `NOT_A_POSITIVE_BASE`. Two wordings of it is how a tile and the table two
+// sheets later stop saying the same thing about one figure.
+import { NOT_A_POSITIVE_BASE } from '@/modules/accounting/services/packs/narrative/derivedCaptions';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 
 /**
@@ -80,7 +84,7 @@ function changeFigures(
             `packStatementTables.changePct.${input.key}`,
             null,
             'pct',
-            'The prior figure is not a positive base, so a percentage change would not track the direction of the movement.',
+            NOT_A_POSITIVE_BASE,
           )
         : p.figure(`packStatementTables.changePct.${input.key}`, pct, 'pct', undefined, {
             numerator: change,

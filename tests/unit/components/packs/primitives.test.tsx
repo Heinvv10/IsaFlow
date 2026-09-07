@@ -33,6 +33,7 @@ describe('KpiTileWithSparkline', () => {
   const tile = {
     label: 'Revenue', figure: { value: 1_120_000, format: 'money' as const, source: 's.revenue' },
     delta: { value: 12, basis: 'vs prior period', favourable: true },
+    deltaAbsence: null,
     trendFootnote: 1, sparklineSvg,
   };
 
