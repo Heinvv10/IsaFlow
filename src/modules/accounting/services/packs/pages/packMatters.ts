@@ -64,7 +64,7 @@ export interface PackMatter {
 }
 
 const CONCENTRATION_THRESHOLD_PCT = 20;
-const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is stored to compare against.';
+export const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is stored to compare against.';
 
 /**
  * EVERY MATTER ON THIS PAGE IS A SENTENCE A DIRECTOR READS, so it is written

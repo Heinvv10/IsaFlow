@@ -73,6 +73,7 @@ import {
   note,
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
+import { withDerivedMatters } from './packDerivedMatters';
 import { selectPrintedMatters } from './packMattersPrinted';
 import { fitPageToBox } from './packPageFit';
 import {
@@ -184,8 +185,11 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // The title first, from the FULL list: the budget the table spends depends
   // on how much paper the header leaves, and the headline must not change
   // when a row moves off the page.
-  const mattersHeadline = mattersTitle(input.matters, scale);
-  const matters = selectPrintedMatters(input.matters, mattersBudgetMm(mattersSupport, mattersHeadline));
+  // The checks that reach this page all read the ledger; one anomaly is
+  // visible only in the SERIES — see `creditMonthMatters`.
+  const allMatters = withDerivedMatters(input.matters, trend);
+  const mattersHeadline = mattersTitle(allMatters, scale);
+  const matters = selectPrintedMatters(allMatters, mattersBudgetMm(mattersSupport, mattersHeadline));
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
