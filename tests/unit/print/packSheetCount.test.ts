@@ -484,6 +484,36 @@ describe('the printed board pack', () => {
     expect(sheet).toContain('Commentary pending approval');
   }, 120_000);
 
+  it('gives the measure to the action panel when commentary is pending', async () => {
+    // R-P57's other half. Page 4's commentary column ran at 2fr and held one
+    // italic line — "Commentary pending approval." — over 98.2% white, while
+    // the derived action panel beside it was squeezed into a third of the
+    // measure and ran the depth of the sheet.
+    //
+    // `.pack-narrative-columns.is-pending` sizes the placeholder to its own
+    // sentence and gives the rest to the panel, and NOTHING referenced that
+    // class: deleting the CSS rule and the className together left 302 unit
+    // tests, 447 component tests and this file green. `thinSheets` cannot see
+    // it either — it counts characters per SHEET, and a sheet that is full
+    // down one side and empty down the other passes.
+    //
+    // So it is measured on the laid-out page, as a ratio of the two columns
+    // rather than as a pixel count: the placeholder is one sentence at
+    // `max-content`, the panel gets what is left, and 2fr/1fr is the mutation
+    // this must go red on.
+    const printed = await printBoardPack(buildBoardPackPages(brightsphereInput), browser);
+    expect(brightsphereInput.commentary, 'this only means anything on a pending pack').toBeNull();
+
+    expect(printed.pendingNarrative, 'page 4 does not carry a pending narrative').not.toBeNull();
+    const { placeholderMm, panelMm } = printed.pendingNarrative!;
+    expect(panelMm, `the panel has ${panelMm}mm against the placeholder's ${placeholderMm}mm`)
+      .toBeGreaterThan(placeholderMm);
+    // At 2fr/1fr the placeholder takes 110mm of the 174mm measure. Its own
+    // sentence is about 50mm, so anything past 70mm is the old layout.
+    expect(placeholderMm, 'the placeholder is sized to the column, not to its sentence')
+      .toBeLessThan(70);
+  }, 120_000);
+
   it('prints the landscape page on ONE landscape sheet', async () => {
     // `.pack-page`'s min-height is 255mm — the PORTRAIT box. A landscape
     // sheet's box is 168mm, so page 10 was 87mm taller than the paper it was

@@ -7,9 +7,15 @@ import {
   positionTitle,
   scorecardCaption,
   scorecardTitle,
+  tileCaption,
   trendsCaption,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import type { PackTableRow, PackChartSpec, PackScorecardGroup } from '@/modules/accounting/services/packs/pages/packPageModel';
+import type {
+  PackChartSpec,
+  PackKpiTile,
+  PackScorecardGroup,
+  PackTableRow,
+} from '@/modules/accounting/services/packs/pages/packPageModel';
 
 const set = (revenue: number, priorRevenue: number | null, operatingProfit: number) => ({
   current: { revenue, operatingProfit, totalEquity: 1_000_000, cash: 200_000 },
@@ -217,5 +223,33 @@ describe('trendsCaption', () => {
 
   it('says so plainly when there are no panels', () => {
     expect(trendsCaption([])).toMatch(/no trend panels/i);
+  });
+});
+
+describe("a tile's caption, where the tile shows no movement", () => {
+  /** A tile with a figure, and whatever the caller says about its delta. */
+  const tile = (delta: PackKpiTile['delta'], deltaAbsence: PackKpiTile['deltaAbsence']): PackKpiTile => ({
+    label: 'Revenue',
+    figure: { source: 'set.current.revenue', value: 99, kind: 'money', unavailable: null },
+    delta,
+    deltaAbsence,
+    trendFootnote: null,
+    sparklineSvg: null,
+  });
+
+  it('states the reason the tile gives', () => {
+    expect(tileCaption(tile(null, 'unusableBase'))).toMatch(/not a positive base/i);
+  });
+
+  it('REFUSES a tile that shows no movement and states no reason', () => {
+    // `PackKpiTile` says exactly one of `delta` and `deltaAbsence` is
+    // non-null, and this used to be spelt `?? 'noCurrentValue'` — a fallback
+    // that prints "This tile has no figure for the period, so there is
+    // nothing to move" beside a tile that has just printed 99. The state is
+    // unreachable from `buildHighlightTiles` today, which is exactly why the
+    // invariant needs a gate rather than a default: the next builder is the
+    // one that breaks it, and a caption that is false on a board pack is
+    // worse than a render that stops.
+    expect(() => tileCaption(tile(null, null))).toThrow(/states no reason/);
   });
 });

@@ -102,7 +102,20 @@ export function tileCaption(tile: PackKpiTile): string {
     return `Not available. ${tile.figure.unavailable ?? ''}`.trim();
   }
   if (tile.delta === null) {
-    return DELTA_ABSENCE[tile.deltaAbsence ?? 'noCurrentValue'];
+    // REFUSED, NOT DEFAULTED. `PackKpiTile` states that exactly one of `delta`
+    // and `deltaAbsence` is non-null, and this used to spell the missing half
+    // `?? 'noCurrentValue'` — which prints "This tile has no figure for the
+    // period, so there is nothing to move" under a tile that has just printed
+    // its figure, because the branch above already returned for a null one.
+    // A caption that is false on a board pack is worse than a render that
+    // stops, and a fallback is how an invariant stops being one.
+    if (tile.deltaAbsence === null) {
+      throw new Error(
+        `tileCaption: "${tile.label}" shows no movement and states no reason. Exactly one of `
+          + 'delta and deltaAbsence must be set; refusing to print a reason this tile did not give.',
+      );
+    }
+    return DELTA_ABSENCE[tile.deltaAbsence];
   }
   const judgement = tile.delta.favourable ? 'a favourable' : 'an unfavourable';
   return `${pctWithWord(tile.delta.value, 'Up', 'Down')} on the ${tile.delta.basis} — ${judgement} movement.`;

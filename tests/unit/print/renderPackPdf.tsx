@@ -131,6 +131,22 @@ export interface PrintedPack {
    * that is exactly the mutation this must go red on.
    */
   pageNames: Array<string | null>;
+  /**
+   * The two columns of page 4, as the printing browser sized them: the
+   * commentary (or its pending placeholder) and the derived action panel.
+   *
+   * Measured because nothing else could see the fix. The placeholder column
+   * ran at 2fr and held one italic line over 1 130 blank pixel-rows;
+   * `.pack-narrative-columns.is-pending` gives the measure to the panel
+   * instead. `thinSheets` counts characters per SHEET, so a sheet that is
+   * full down one side and empty down the other passes it, and no test
+   * referenced `is-pending` at all — deleting the CSS rule and the className
+   * together left the whole suite green.
+   *
+   * Null where the pack's commentary is approved, which is the case this does
+   * not describe.
+   */
+  pendingNarrative: { placeholderMm: number; panelMm: number } | null;
   pdf: Buffer;
 }
 
@@ -316,6 +332,18 @@ export async function printBoardPack(
       };
     });
 
+    // Page 4's two columns, on the fixture whose commentary is pending.
+    const pendingNarrative = await page.evaluate((pxPerMm) => {
+      const columns = document.querySelector('.pack-narrative-columns.is-pending');
+      if (columns === null) return null;
+      const placeholder = columns.querySelector('.pack-narrative-pending');
+      const panel = columns.querySelector('.pack-narrative-actions');
+      if (placeholder === null || panel === null) return null;
+      const mmOf = (el: Element) =>
+        Math.round((el.getBoundingClientRect().width / pxPerMm) * 10) / 10;
+      return { placeholderMm: mmOf(placeholder), panelMm: mmOf(panel) };
+    }, PX_PER_MM);
+
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -343,7 +371,10 @@ export async function printBoardPack(
       };
     };
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
-    return { sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, coverBand, pageNames, pdf };
+    return {
+      sheets: total, sheetText: pages.map((p) => p.text), overflow, heights,
+      coverBand, pageNames, pendingNarrative, pdf,
+    };
   } finally {
     await page.close();
   }
