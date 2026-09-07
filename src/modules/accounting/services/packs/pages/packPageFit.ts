@@ -181,9 +181,16 @@ function omissionText(dropped: Dropped): string {
     + 'about them, and it can be asked for.';
 }
 
-/** The omission footnote, numbered after whatever survives on the page. */
+/**
+ * The omission footnote, numbered past every number still on the page.
+ *
+ * PAST THE HIGHEST, not after the count. A surviving footnote keeps the
+ * number the table's own superscript points at, so the trimmer leaves GAPS —
+ * take note 2 of three and 1 and 3 remain. Numbering off the length then
+ * issued a second 3, and the page printed two footnotes under one marker.
+ */
 function omissionFootnote(dropped: Dropped, footnotes: PackFootnote[]): PackFootnote {
-  return { number: footnotes.length + 1, text: omissionText(dropped) };
+  return { number: Math.max(0, ...footnotes.map((f) => f.number)) + 1, text: omissionText(dropped) };
 }
 
 /**

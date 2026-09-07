@@ -14,6 +14,7 @@
 import { checkWaterfall, disproportionatePlugSentence } from './packWaterfallIntegrity';
 import { checkColumns } from './packStatementIntegrity';
 import { EXPOSURE_CLAUSE } from '../pages/packMattersPage';
+import { joinDecision } from '../narrative/derivedCaptions';
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import type { PackChartSpec, PackPagesDocument } from '../pages/packPageModel';
 
@@ -156,7 +157,7 @@ export function checkMattersCrossReference(doc: PackPagesDocument): string[] {
   if (table === undefined || table.kind !== 'matters') return [];
   if (panel === undefined || panel.kind !== 'narrative' || panel.boardActions === undefined) return [];
 
-  const printed = table.matters.map((m) => m.issue);
+  const printed = table.matters;
   const omittedCount = table.omitted?.count ?? 0;
   const failures: string[] = [];
 
@@ -171,7 +172,14 @@ export function checkMattersCrossReference(doc: PackPagesDocument): string[] {
     if (SAME_DECISION.test(item)) continue;
 
     named += 1;
-    const onTable = printed.some((issue) => item === issue || item.startsWith(`${issue} — `));
+    // THE PANEL'S OWN JOINER, not a second spelling of it. This matched
+    // `${issue} — ` literally, and the panel stopped using an em dash after an
+    // issue that ends in a full stop (see `joinDecision`) — so the one matter
+    // whose issue is prose rather than a noun phrase read as a matter the
+    // table does not list, and the render was refused. Matched exactly rather
+    // than by prefix, which is also stricter than what it replaces.
+    const onTable = printed.some((m) => item === m.issue
+      || item === joinDecision(m.issue, m.decisionRequired));
     if (!onTable) {
       failures.push(
         `The action panel names a matter the matters page does not list: "${item}". `

@@ -54,10 +54,10 @@ export type MeasurablePage = Omit<PackPage, 'number'>;
 /** `--pack-baseline`: the gap between two blocks. */
 export const BLOCK_GAP_MM = 4.5;
 
-/** `.pack-chart-title` in `packPrint.css`: 10pt on a 14pt line, 1.5mm clear
- *  of the plot beneath it. */
-const CHART_TITLE_PT = 10;
-const CHART_TITLE_LINE_PT = 14;
+/** `.pack-chart-title` in `packPrint.css`: 1.5mm clear of the plot beneath it.
+ *  Only the SMALL MULTIPLES charge a caption here — a full-width chart draws
+ *  its own inside its stated `heightMm`, so the 10pt/14pt pair that rule sets
+ *  is not a number this model needs. */
 const CHART_TITLE_GAP_MM = 1.5;
 
 /** `.pack-small-multiples .pack-chart-title` — 8.5pt on a 12pt line. A page-10

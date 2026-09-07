@@ -140,6 +140,44 @@ export const liveDemoTrend: PackTrendPoint[] = Array.from({ length: 12 }, (_, i)
 });
 
 /**
+ * THE SAME TWELVE MONTHS AS THE RENDERED PACK, WITH THE FOUR SERIES
+ * `liveDemoTrend` LEAVES NULL.
+ *
+ * `liveDemoTrend` carries zero revenue in every month, so gross margin and
+ * debtor days are not meaningful and the trends sheet draws FOUR panels. The
+ * rendered pack draws SIX — the live company's revenue is small, not absent —
+ * and six panels are what put that sheet past its box and made it drop both
+ * of the notes its own percentage claims are checked against. No fixture
+ * could see that, because no fixture reached six panels on a page that also
+ * carries prose.
+ *
+ * The endpoints are the rendered sheet's own, read off the render: revenue
+ * 2 to 29, gross margin (4267.6%) to 100.0%, operating expenses 15 to 41, net
+ * profit (99) to (12) with Jul 2026 alone at 1 908, cash (115) to (531),
+ * debtor days 0.0 to 60.5 — a shared money domain of (1 621) to 1 908 R'000.
+ */
+export const liveDemoRenderedTrend: PackTrendPoint[] = liveDemoTrend.map((point, i) => {
+  // Revenue climbs from 2 to 29 R'000, flat until the last quarter.
+  const revenue = i < 9 ? 2_000 + i * 400 : 5_600 + (i - 8) * 7_800;
+  // One month whose expenses were a net credit — the +1 908 spike the sheet
+  // names — and one at the bottom of the shared domain.
+  const netProfit = i === 9 ? 1_908_000 : (i === 6 ? -1_621_000 : -99_000 + i * 7_000);
+  return {
+    ...point,
+    revenue,
+    // Jul 2026's expenses are a NET CREDIT — R1 869 169.85 reversed out of
+    // expense accounts — which is what puts the credit-month matter on sheets
+    // 4 and 11 and the +1 908 spike on sheet 10. The two differ by the
+    // month's revenue, and `packDerivedMatters` asserts that identity.
+    expenses: i === 9 ? -1_869_169.85 : point.expenses,
+    operatingExpenses: 15_000 + i * 2_364,
+    netProfit,
+    grossMarginPct: i === 0 ? -4_267.6 : -4_267.6 + ((i / 11) * 4_367.6),
+    debtorDays: i < 9 ? 0 : (i - 8) * 20.166,
+  };
+});
+
+/**
  * Twenty-eight matters, worded as `buildMatters` words them.
  *
  * Twenty-six unusual journals ranked by quantum — the tail of them worth a
@@ -186,6 +224,13 @@ export const liveDemoInput: BoardPackInput = {
   // printed the pending placeholder — as they did on the live render.
   commentary: null,
   mattersCommentary: null,
+};
+
+/** The live demo company as it actually renders: six trend panels, not four.
+ *  See `liveDemoRenderedTrend`. */
+export const liveDemoRenderedInput: BoardPackInput = {
+  ...liveDemoInput,
+  trend: liveDemoRenderedTrend,
 };
 
 /**

@@ -279,6 +279,24 @@ function actionsThatFit(matters: PackMatter[]): PackMatter[] {
   return fits;
 }
 
+/**
+ * AN EM DASH JOINS A PHRASE TO A CLAUSE. IT DOES NOT FOLLOW A FULL STOP.
+ *
+ * Most matters state their issue as a noun phrase — "29 unreconciled bank
+ * items across 3 bank accounts" — and `issue — decision` reads as one line.
+ * The credit-month matter is three sentences of prose and ends in a full
+ * stop, so the panel printed "…larger by the month's revenue. — Identify the
+ * reversals…", which is a punctuation mark that means nothing after a
+ * sentence has already ended.
+ *
+ * The matters TABLE has the same two shapes in its Issue column and does not
+ * hit this, because it puts the decision in its own column; only the panel
+ * runs the two together.
+ */
+export function joinDecision(issue: string, decision: string): string {
+  return /[.!?]$/.test(issue) ? `${issue} ${decision}` : `${issue} — ${decision}`;
+}
+
 export function boardActionItems(selection: SelectedMatters): string[] {
   const { printed, omitted } = selection;
   if (printed.length === 0) return [];
@@ -288,7 +306,7 @@ export function boardActionItems(selection: SelectedMatters): string[] {
   const uniform = shown.length > 1 && decisions.size === 1;
 
   const items = shown.map((matter) =>
-    uniform ? matter.issue : `${matter.issue} — ${matter.decisionRequired}`,
+    uniform ? matter.issue : joinDecision(matter.issue, matter.decisionRequired),
   );
 
   if (uniform) {
