@@ -74,8 +74,19 @@ const TERMS: PackDefinition[] = [
     definition: 'In brackets — (1 546) — for currency, percentages and ratios alike. No minus sign is used anywhere in this pack.',
   },
   {
+    // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatMoney`
+    // prints a measured zero as an en dash, and `ComparativeTable` printed the
+    // same dash in a cell it had no figure for — so sheet 6's "Other expenses
+    // – – –" (a real zero, 0.0% of revenue beside it) and sheet 8's prior and
+    // change columns on three rows whose actual is n/m read identically. The
+    // table now prints n/m in a derived cell of a not-meaningful row, which
+    // leaves the dash one meaning; this is the sentence that states it.
+    //
+    // Said HERE rather than as a seventeenth term, beside the convention it
+    // is most often mistaken for. A reader looking at a dash and wondering
+    // whether it is a zero is reading this entry already.
     term: 'Not meaningful (n/m)',
-    definition: 'A measure the figures cannot support. The pack prints the reason rather than a number, and never a zero — which would say the measure was taken and found to be nothing.',
+    definition: 'A measure the figures cannot support. The pack prints the reason rather than a number, and never a zero — which would say the measure was taken and found to be nothing. A dash (–) is that zero: a figure measured and nil, never a figure the pack does not have.',
   },
   {
     term: 'Gross margin',

@@ -48,11 +48,32 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
   const isLong = table.rows.length > ZEBRA_ROW_THRESHOLD;
   const notes = collectReasons(table.rows.flatMap((row) => columns.map((col) => row.figures[col])));
 
-  /** A cell: the figure, or the mark that points at its not-meaningful note. */
-  const cell = (figure: PackTableRow['figures'][PackTableColumnKey]) => {
-    if (figure === undefined) return '–';
-    if (figure.value !== null) return formatFigureText(figure, scale);
-    return <NotMeaningfulCell figure={figure} reasons={notes} />;
+  /**
+   * A cell: the figure, or the mark that points at its not-meaningful note.
+   *
+   * A DASH IS A NIL, AND A ROW WITH NO VALUE HAS NO NILS IN IT. `formatMoney`
+   * prints a measured zero as an en dash, so the same glyph meant two
+   * incompatible things one page apart: on the income statement "Other
+   * expenses – – –" is a genuine zero, and on the cash page the same dash
+   * filled the prior, change and change-% cells of three rows whose ACTUAL is
+   * n/m because nothing was captured. A director adding that column read "no
+   * movement" for three measures that have no value at all.
+   *
+   * So a derived cell of a row whose actual is not meaningful prints `n/m`,
+   * carrying the actual's own mark to the actual's own reason: nothing was
+   * measured, so nothing derived from it can be.
+   */
+  const cell = (row: PackTableRow, col: PackTableColumnKey) => {
+    const figure = row.figures[col];
+    if (figure !== undefined) {
+      if (figure.value !== null) return formatFigureText(figure, scale);
+      return <NotMeaningfulCell figure={figure} reasons={notes} />;
+    }
+    const actual = row.figures.actual;
+    if (col !== 'actual' && actual !== undefined && actual.value === null) {
+      return <NotMeaningfulCell figure={actual} reasons={notes} />;
+    }
+    return '–';
   };
 
   return (
@@ -72,7 +93,7 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
           <tr key={`${row.label}-${index}`} className={ROW_ROLE_CLASS[row.role]}>
             <td style={{ paddingLeft: `${row.level * INDENT_MM_PER_LEVEL}mm` }}>{row.label}</td>
             {columns.map((col) => (
-              <td key={col}>{cell(row.figures[col])}</td>
+              <td key={col}>{cell(row, col)}</td>
             ))}
           </tr>
         ))}

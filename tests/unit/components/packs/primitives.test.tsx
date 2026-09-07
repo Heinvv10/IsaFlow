@@ -106,6 +106,36 @@ describe('ComparativeTable', () => {
     expect(screen.getByText('–')).toBeInTheDocument();
   });
 
+  /**
+   * A DASH IS A NIL AND AN n/m ROW HAS NO NILS IN IT.
+   *
+   * The cash page printed the same en dash `formatMoney` uses for a measured
+   * zero into the prior, change and change-% cells of three rows whose actual
+   * is n/m because nothing was captured — so a director adding the change
+   * column read "no movement" for three measures with no value at all.
+   */
+  it('prints n/m, not a dash, in the derived cells of a not-meaningful row', () => {
+    render(<ComparativeTable scale="R" table={{ ...table, rows: [
+      { label: 'Operating cash flow', level: 0, role: 'line',
+        figures: {
+          actual: { value: null, format: 'money', source: 's.ocf',
+            unavailable: 'No cash flow statement has been captured for the period.' },
+        } },
+      // A row that DOES have figures keeps the columns on the table.
+      { label: 'Cash', level: 0, role: 'line',
+        figures: {
+          actual: { value: 100, format: 'money', source: 's.cash' },
+          prior: { value: 0, format: 'money', source: 's.priorCash' },
+          change: { value: 100, format: 'money', source: 's.cashChange' },
+          changePct: { value: 100, format: 'pct', source: 's.cashChangePct' },
+        } },
+    ] }} />);
+    const row = screen.getByText('Operating cash flow').closest('tr');
+    expect(row).not.toBeNull();
+    expect(within(row!).queryByText('–')).toBeNull();
+    expect(within(row!).getAllByText(/n\/m/).length).toBe(4);
+  });
+
   it('drops the prior and change columns when no row has a prior', () => {
     // Not a column of dashes: an absent comparative is an absent column.
     const { container } = render(<ComparativeTable scale="R" table={{ ...table, rows: table.rows.map(

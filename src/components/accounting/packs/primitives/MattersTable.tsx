@@ -116,10 +116,14 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
           {matters.map((matter, index) => (
             <tr key={`${matter.issue}-${index}`} className="pack-matters-row">
               <td>{matter.issue}</td>
-              {/* An en dash, not a zero: a filing that is overdue has no rand
-               *  amount, and "R0" would say the exposure was measured and
-               *  found to be nothing. */}
-              <td>{matter.quantum.value === null ? '–' : formatMoney(matter.quantum.value, { scale })}</td>
+              {/* `n/m`, not a dash and not a zero: a filing that is overdue
+                * has no rand amount. "R0" would say the exposure was measured
+                * and found to be nothing, and the dash says exactly that
+                * everywhere else in the pack — `formatMoney` prints a
+                * measured zero as an en dash and page 12 now defines it that
+                * way. A quantum that does not exist is the pack's other
+                * convention, which page 12 also defines. */}
+              <td>{matter.quantum.value === null ? 'n/m' : formatMoney(matter.quantum.value, { scale })}</td>
               {columns.map((c) => <td key={c.key}>{matter[c.key]}</td>)}
             </tr>
           ))}

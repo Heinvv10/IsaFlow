@@ -203,13 +203,16 @@ describe('board pack page 11, the matters table', () => {
     }
   });
 
-  it('prints an en dash, never a zero, for a matter with no single amount', () => {
+  it('prints n/m, never a dash and never a zero, for a matter with no single amount', () => {
     // Brightsphere's only matter is the explicit "no matters" item, whose
-    // quantum is null. "R0" would say the exposure was measured at nothing.
+    // quantum is null. "R0" would say the exposure was measured at nothing —
+    // and so, now, does a dash: `formatMoney` prints a measured zero as an en
+    // dash and page 12 states that, so the one glyph cannot also mean "there
+    // is no amount".
     const { container } = render(<PackPagesView document={buildBoardPackPages(brightsphereInput)} />);
     const cells = [...container.querySelectorAll('.pack-matters tbody td')]
       .map((td) => td.textContent);
-    expect(cells[1]).toBe('–');
+    expect(cells[1]).toBe('n/m');
   });
 });
 
