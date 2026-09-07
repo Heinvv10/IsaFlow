@@ -10,6 +10,7 @@ import {
   FOOTER_HTML, HEADER_HTML, PDF_MARGIN_MM, PRINT_READY_SELECTOR, PRINT_READY_TIMEOUT_MS,
   mm, type PdfRenderRequest, type PdfTransport,
 } from '../pdfTransport';
+import { writePdfInfoDictionary } from '../pdfInfoDictionary';
 import { log } from '@/lib/logger';
 
 // One Chromium for the life of the process, not one per render. A launch is
@@ -37,25 +38,18 @@ async function getBrowser(): Promise<Browser> {
 
 export const playwrightTransport: PdfTransport = {
   name: 'playwright',
-  // page.pdf() exposes no document information dictionary at all — there is no
-  // option to pass and no post-processing step in this path.
-  capabilities: { metadata: false },
+  // page.pdf() exposes no metadata OPTION, which is not the same as this
+  // transport being unable to write metadata. It said `false`, the call site
+  // dutifully passed a title, an author and a subject anyway, and this file
+  // logged that it was throwing them away: `pdfinfo` on the rendered board
+  // pack read `Creator: Chromium` with no title at all, on a document a
+  // director forwards to their bank. `writePdfInfoDictionary` appends the
+  // Info dictionary as an incremental update to the bytes Chromium returns —
+  // see that file for why an incremental update cannot damage the page
+  // content, and for what it refuses to touch.
+  capabilities: { metadata: true },
   async render(request: PdfRenderRequest): Promise<Buffer> {
     const { hostname } = new URL(request.url);
-    if (request.metadata) {
-      // WARN, not throw, and deliberately so. Metadata here is descriptive
-      // rather than load-bearing, and this transport is the INCIDENT FALLBACK:
-      // turning a cosmetic gap into a total PDF outage on the day production
-      // switches to it is the wrong trade. A requirement that really is
-      // load-bearing (PDF/A for archival retention) belongs at the call site,
-      // gated on `transport.capabilities.metadata` — which exists for exactly
-      // that, so nobody has to hope this line was read.
-      log.warn(
-        'playwrightTransport: dropping PDF metadata — this transport supports none',
-        { dropped: Object.keys(request.metadata), url: request.url },
-        'pdf',
-      );
-    }
     const browser = await getBrowser();
     const context = await browser.newContext();
     try {
@@ -99,8 +93,9 @@ export const playwrightTransport: PdfTransport = {
         headerTemplate: HEADER_HTML,
         footerTemplate: request.footerHtml ?? FOOTER_HTML,
       });
-      log.info('playwrightTransport: rendered', { url: request.url, bytes: pdf.length }, 'pdf');
-      return pdf;
+      const written = request.metadata ? writePdfInfoDictionary(pdf, request.metadata) : pdf;
+      log.info('playwrightTransport: rendered', { url: request.url, bytes: written.length }, 'pdf');
+      return written;
     } finally {
       // The context goes, the browser stays. Closing the context releases the
       // page, its cookies and its route handlers; leaking one would keep this
