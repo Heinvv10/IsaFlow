@@ -21,20 +21,18 @@
 import { log } from '@/lib/logger';
 import { getCompanyName } from '@/modules/accounting/services/reports/companyName';
 import { getBrandProfile } from '@/modules/accounting/services/afs/brandProfileService';
-import { draftReasons } from './packDraftStatus';
-import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
+import { readPackDraftState } from './packDraftState';
 import {
   getLedgerPostedThrough,
   NO_LEDGER_READ,
 } from '@/modules/accounting/services/reports/postedThroughService';
-import { listCommentary } from '@/modules/accounting/services/commentary/commentaryService';
 import { resolvePackBrand } from '@/modules/accounting/services/packs/packBrand';
 import { buildPackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
 import { buildMatters } from './packMatters';
 import { formatPackPeriod } from './packPeriodLabel';
 import { buildBoardPackPages } from './boardPackPages';
-import type { PackNarrative, PackPagesDocument } from './packPageModel';
+import type { PackPagesDocument } from './packPageModel';
 
 /** Re-exported: both formatters moved to `packPeriodLabel.ts` so
  *  `boardPackPages.ts` can head its comparative column with the same words
@@ -43,34 +41,6 @@ import type { PackNarrative, PackPagesDocument } from './packPageModel';
 export { formatPackDate, formatPackPeriod } from './packPeriodLabel';
 
 const TREND_MONTHS = 12;
-
-/**
- * Page 4's commentary, from the rows a human actually approved for THIS pack.
- *
- * Commentary is filed against `(type, from, to)` — the pack as a whole — so
- * the approved sentences for the board pack over this period are the board's
- * commentary on this period. Only `approved` rows are read: a draft is
- * machine-written text nobody signed, and R7 is explicit that a board pack
- * shows a visible "pending approval" placeholder rather than unapproved
- * prose. `null` (no approved row) is what renders that placeholder.
- *
- * `approvedText` rather than `draftText`, and never a fallback between them:
- * the approved column is the text the approver put their name to, which is
- * not necessarily the text that was drafted for them.
- */
-async function approvedCommentary(
-  companyId: string,
-  from: string,
-  to: string,
-): Promise<PackNarrative | null> {
-  const rows = await listCommentary(companyId, { type: 'board', from, to });
-  const approved = rows
-    .filter((row) => row.status === 'approved')
-    .map((row) => (row.approvedText ?? '').trim())
-    .filter((text) => text !== '');
-  if (approved.length === 0) return null;
-  return { status: 'approved', body: approved.join(' '), actions: [] };
-}
 
 export interface BoardPackDocumentRequest {
   companyId: string;
@@ -92,7 +62,6 @@ export async function buildBoardPackDocument(
   const trend = await getPackTrend(companyId, to, TREND_MONTHS);
   const matters = await buildMatters(companyId, set.currentWindow);
   const brand = resolvePackBrand(await getBrandProfile(companyId));
-  const commentary = await approvedCommentary(companyId, from, to);
 
   // R-P46: the real ledger watermark, or an explicit absence — never a proxy.
   // `getLedgerPostedThrough` still returns the deprecated epoch sentinel when
@@ -109,11 +78,12 @@ export async function buildBoardPackDocument(
   // period is closed in the ledger, so its pack told a board it was FINAL
   // while carrying no approved commentary at all, on the same day the demo
   // pack said DRAFT. Both facts are now stated, and the absence of either
-  // produces a draft. See `packDraftStatus.ts`.
-  const reasons = draftReasons(
-    await getPeriodStatusForDate(companyId, to),
-    commentary !== null,
-  );
+  // produces a draft. Read from `packDraftState.ts` rather than derived here,
+  // because the PDF footer and the Info dictionary read the same answer and
+  // a second derivation is how they came to disagree with this one. The
+  // approved commentary page 4 prints comes back with it: it is the same
+  // rows the `unapprovedCommentary` reason is decided on.
+  const { reasons, commentary } = await readPackDraftState(companyId, 'board', from, to);
 
   log.info(
     'buildBoardPackDocument',

@@ -28,12 +28,18 @@ const getPackTrendMock = vi.fn(async () => []);
 vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({
   getPackTrend: (...a: unknown[]) => getPackTrendMock(...a),
 }));
-// FINAL vs DRAFT in the running footer comes from the same period status the
-// pack body's watermark uses, so the two cannot disagree. Stubbed, not left to
-// the mocked `sql`, so each case below states which one it is testing.
+// FINAL vs DRAFT in the running footer is read from `readPackDraftState`, the
+// same answer the pack body's cover and watermark use, so the two cannot
+// disagree. Both facts it derives from are stubbed — not left to the mocked
+// `sql` — so each case below states which one it is testing. Brightsphere is
+// the case that matters: a CLOSED period with NO approved commentary.
 const periodStatusMock = vi.fn(async () => 'open' as string);
 vi.mock('@/modules/accounting/services/gl/periodStatusService', () => ({
   getPeriodStatusForDate: (...a: unknown[]) => periodStatusMock(...a),
+}));
+const listCommentaryMock = vi.fn(async () => [] as unknown[]);
+vi.mock('@/modules/accounting/services/commentary/commentaryService', () => ({
+  listCommentary: (...a: unknown[]) => listCommentaryMock(...a),
 }));
 const renderPackPptxMock = vi.fn(async () => Buffer.from('PK-pptx-bytes'));
 vi.mock('@/modules/accounting/services/packs/pptxExportService', () => ({
@@ -376,6 +382,7 @@ describe('GET /api/accounting/packs/[id]/pdf — running footer and metadata', (
 
   beforeEach(() => {
     periodStatusMock.mockResolvedValue('open');
+    listCommentaryMock.mockResolvedValue([]);
     rateLimitMock.mockResolvedValue(true);
     sqlMock.mockResolvedValue([{ name: 'Acme Fibre (Pty) Ltd' }]);
     // Without a usable secret the route answers 503 before it ever renders.
@@ -412,15 +419,39 @@ describe('GET /api/accounting/packs/[id]/pdf — running footer and metadata', (
     expect(options.metadata?.title).toContain('Board Pack');
   });
 
-  it('marks the footer DRAFT while the period is still open, and not once it is closed', async () => {
+  const approvedRow = [{ status: 'approved', approvedText: 'The board reviewed these figures.' }];
+
+  it('marks the footer DRAFT while the period is still open', async () => {
     // The same rule the pack body's watermark uses. A footer that said FINAL
     // over figures that can still move is the more dangerous of the two
     // errors, and the two must never disagree on one sheet of paper.
     expect((await render()).footerHtml).toContain('DRAFT');
     expect((await render()).metadata?.subject).toMatch(/draft/i);
+  });
 
+  it('marks the footer DRAFT on a CLOSED period whose commentary nobody approved', async () => {
+    // Brightsphere, exactly: its period is closed, so the footer said only
+    // `Confidential — for board use` and `pdfinfo` reported `Board Pack for
+    // …` — over a cover reading "This pack is a DRAFT" and a watermark on
+    // every sheet. A pack is read as loose pages; the footer is the line that
+    // travels with a forwarded sheet.
     periodStatusMock.mockResolvedValue('closed');
-    expect((await render()).footerHtml).not.toContain('DRAFT');
+    const options = await render();
+    expect(options.footerHtml).toContain('DRAFT');
+    expect(options.metadata?.subject).toMatch(/draft/i);
+  });
+
+  it('says FINAL only when the period is closed AND commentary is approved', async () => {
+    periodStatusMock.mockResolvedValue('closed');
+    listCommentaryMock.mockResolvedValue(approvedRow);
+    const options = await render();
+    expect(options.footerHtml).not.toContain('DRAFT');
+    expect(options.metadata?.subject).not.toMatch(/draft/i);
+  });
+
+  it('stays DRAFT on an open period even with commentary approved', async () => {
+    listCommentaryMock.mockResolvedValue(approvedRow);
+    expect((await render()).footerHtml).toContain('DRAFT');
   });
 
   it('never turns the whole document landscape', async () => {

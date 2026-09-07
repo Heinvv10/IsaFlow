@@ -54,7 +54,7 @@ import { buildFooterHtml, buildPdfMetadata, PACK_CONFIDENTIALITY } from '@/lib/p
 import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
 import { packRefusalMessages } from '@/modules/accounting/services/packs/packRefusal';
 import { formatPackPeriod } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
-import { getPeriodStatusForDate } from '@/modules/accounting/services/gl/periodStatusService';
+import { readPackDraftState } from '@/modules/accounting/services/packs/pages/packDraftState';
 import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
 import { PACK_LABELS, packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
@@ -137,16 +137,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const preparedBy = user.email ?? 'IsaFlow';
   const companyName = await getCompanyName(companyId);
 
-  // The same rule the pack itself applies (`boardPackDocument.ts`): FINAL only
-  // when the period the window ends in is closed. A footer that said FINAL
-  // over figures that can still move is the more dangerous of the two errors,
-  // and the body watermark and the footer must not disagree.
+  // THE SAME ANSWER THE PAGES READ, not a second derivation of it. This was
+  // `(await getPeriodStatusForDate(companyId, to)) !== 'closed'`, which is one
+  // of the two reasons a pack is a draft: Brightsphere's period IS closed and
+  // its commentary is NOT approved, so its cover said DRAFT and every sheet
+  // carried the watermark while the footers said only `Confidential — for
+  // board use` and `pdfinfo` reported `Board Pack for …`. A pack is read as
+  // loose sheets — the footer travels with a forwarded page and the metadata
+  // is what a document system indexes — so a status that reaches some surfaces
+  // and not others is the whole defect. See `packDraftState.ts`.
+  const draftState = await readPackDraftState(companyId, id as PackType, from, to);
   const furniture = {
     companyName,
     packLabel: PACK_LABELS[id as PackType],
     period: formatPackPeriod(from, to),
     confidentiality: PACK_CONFIDENTIALITY,
-    draft: (await getPeriodStatusForDate(companyId, to)) !== 'closed',
+    draft: draftState.reasons.length > 0,
   };
 
   let pdf: Buffer;
