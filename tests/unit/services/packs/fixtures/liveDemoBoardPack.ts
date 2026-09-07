@@ -61,6 +61,20 @@ export const liveDemoSet: PackFigureSet = {
     operatingCashFlow: undefined,
     capitalExpenditure: undefined,
     financingCashFlow: undefined,
+    // THE SECOND CAVEAT, WHICH IS WHY PAGE 12 WAS NEVER TESTED AT ITS REAL
+    // HEIGHT. The live demo company has no account classified as inventory,
+    // so `buildPackFigureSet` returns this caveat on every render; the pack
+    // then prints TWO caveats — this and the draft sentence the two
+    // `draftReasons` below produce — where this fixture printed one. Page 12
+    // is the tightest prose page in the pack and a caveat is five lines of
+    // it, so the fixture was six centimetres short of the page it claimed to
+    // model, and no test in the suite could see the basis of preparation
+    // losing five of its eight facts on the live company. Copied verbatim
+    // from `isaflow_dev` on 2026-09-07.
+    inventoryCaveat: 'No account in the chart of accounts is classified as inventory, so inventory '
+      + 'could not be identified and the quick ratio does not exclude it: on these figures the '
+      + 'quick ratio and the current ratio are the same number. Read it as a current ratio until '
+      + 'the stock control account is classified.',
   }),
   currentWindow: { start: '2026-01-01', end: '2026-09-07' },
   // Revenue of zero is not a positive base, so every change cell on every
