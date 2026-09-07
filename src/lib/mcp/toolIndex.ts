@@ -68,10 +68,8 @@ import {
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
 } from './tools/writeSupplierInvoices';
-import {
-  bulkCreateSupplierInvoicesTool,
-  bulkCreateCustomerInvoicesTool,
-} from './tools/writeBulkInvoices';
+import { bulkCreateSupplierInvoicesTool } from './tools/writeBulkInvoices';
+import { bulkCreateCustomerInvoicesTool } from './tools/writeBulkCustomerInvoices';
 import { voidReceiptTool, voidPaymentTool } from './tools/writeVoidPayments';
 import { listBankRulesTool, getBankRuleTool } from './tools/bankRules';
 import { listCreditNotesTool, getCreditNoteTool } from './tools/creditNotes';
