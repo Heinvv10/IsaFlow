@@ -67,15 +67,34 @@ describe('ScorecardTable', () => {
         status: 'unscored' as const, trend: null, trendSvg: null, bulletSvg: null },
     ] }];
     const { container } = render(<ScorecardTable scale="R" groups={noTrendGroups} />);
-    const trendCell = container.querySelector('.pack-scorecard-trend');
-    expect(trendCell).not.toBeNull();
-    expect(trendCell!.textContent).toBe('');
+    // No row can fill a Trend cell, so the column is not printed at all —
+    // the same data-driven rule `ComparativeTable` applies. A headed column
+    // of empty cells reads as data that failed to load rather than as a
+    // series the pack does not have. Either way, no direction is inferred,
+    // which is what R-P43 is about.
+    expect(container.querySelector('.pack-scorecard-trend')).toBeNull();
+    const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
+    expect(headers).not.toContain('Trend');
+    expect(container.textContent).not.toMatch(/[▲▼]/);
+  });
+
+  it('prints the Trend column when a row actually has one', () => {
+    // The other side of the boundary: dropping the column must depend on the
+    // DATA, not be a permanent removal of the feature.
+    const withTrend = [{ letter: 'B', name: 'Efficiency', rows: [
+      { metric: 'Cash conversion', actual: { value: 40, format: 'days' as const, source: 'r.cc' },
+        target: null, prior: null,
+        status: 'unscored' as const, trend: 'up' as const, trendSvg: null, bulletSvg: null },
+    ] }];
+    const { container } = render(<ScorecardTable scale="R" groups={withTrend} />);
+    expect(container.querySelector('.pack-scorecard-trend')).not.toBeNull();
+    expect([...container.querySelectorAll('thead th')].map((th) => th.textContent)).toContain('Trend');
   });
 });
 
 describe('NegativeEquityBlock', () => {
   it('states the amount and the consequence, not just the number', () => {
-    render(<NegativeEquityBlock equity={-250_000} />);
+    render(<NegativeEquityBlock equity={-250_000} scale="R" />);
     expect(screen.getByText(/\(250 000\)/)).toBeInTheDocument();
     expect(screen.getByText(/liabilities exceed/i)).toBeInTheDocument();
   });

@@ -74,10 +74,12 @@ function formatTarget(target: number | null, format: PackFigureFormat, scale: Mo
   }
 }
 
-function ScorecardRowView({ row, scale, reasons }: {
+function ScorecardRowView({ row, scale, reasons, showsTrend }: {
   row: PackScorecardRow;
   scale: MoneyScale;
   reasons: string[];
+  /** Whether the scorecard prints a Trend column at all — see the caller. */
+  showsTrend: boolean;
 }) {
   return (
     <tr className="pack-scorecard-row">
@@ -101,7 +103,7 @@ function ScorecardRowView({ row, scale, reasons }: {
         : row.prior.value === null
           ? <NotMeaningfulCell figure={row.prior} reasons={reasons} />
           : formatFigureText(row.prior, scale)}</td>
-      <td className="pack-scorecard-trend">
+      {showsTrend && <td className="pack-scorecard-trend">
         {row.bulletSvg ? (
           <span
             className="pack-scorecard-trend-svg"
@@ -115,7 +117,7 @@ function ScorecardRowView({ row, scale, reasons }: {
         ) : row.trend ? (
           TREND_GLYPH[row.trend]
         ) : null}
-      </td>
+      </td>}
       <td className={`pack-scorecard-status is-${row.status}`}>{STATUS_LABEL[row.status]}</td>
     </tr>
   );
@@ -137,6 +139,14 @@ export function ScorecardTable({ groups, scale }: ScorecardTableProps) {
   const rows = groups.flatMap((group) => group.rows);
   const reasons = collectReasons(rows.flatMap((row) => [row.actual, row.prior]));
 
+  // The TREND column is dropped when no row can fill it — the same
+  // data-driven rule `ComparativeTable` applies to its own columns. R-P43
+  // says no per-metric monthly series reaches the scorecard, so on today's
+  // pack every cell is empty and the printed page carried a headed column of
+  // nothing. A blank column reads as data that failed to load rather than as
+  // a series the pack does not have.
+  const showsTrend = rows.some((row) => row.trend !== null || row.trendSvg !== null || row.bulletSvg !== null);
+
   return (
     <div className="pack-scorecard">
       {groups.map((group) => (
@@ -148,13 +158,19 @@ export function ScorecardTable({ groups, scale }: ScorecardTableProps) {
               <th>Actual</th>
               <th>Target</th>
               <th>Prior</th>
-              <th>Trend</th>
+              {showsTrend && <th>Trend</th>}
               <th>Status</th>
             </tr>
           </thead>
           <tbody>
             {group.rows.map((row, index) => (
-              <ScorecardRowView key={`${row.metric}-${index}`} row={row} scale={scale} reasons={reasons} />
+              <ScorecardRowView
+                key={`${row.metric}-${index}`}
+                row={row}
+                scale={scale}
+                reasons={reasons}
+                showsTrend={showsTrend}
+              />
             ))}
           </tbody>
         </table>
