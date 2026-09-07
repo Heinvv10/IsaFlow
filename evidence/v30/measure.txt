@@ -1,0 +1,33 @@
+# Ink coverage, v29 -> v30
+#
+# Mean 8-bit luminance of each page rastered at 72dpi, as a percentage of white.
+# LOWER is more ink. Both columns measured by the same script off the two sets of
+# PDFs. The only change between them is two characters on page 10 of the demo
+# pack ("1%" -> "1.0%", twice); criterion 9 is a PASS being held.
+
+===== demo =====
+p-01 Cover                      v29  96.1%   v30  96.1%   +0.0
+p-02 Contents                   v29  98.5%   v30  98.5%   +0.0
+p-03 Highlights                 v29  96.7%   v30  96.7%   +0.0
+p-04 Commentary and actions     v29  97.2%   v30  97.2%   +0.0
+p-05 Group results              v29  96.4%   v30  96.4%   +0.0
+p-06 Income statement           v29  96.1%   v30  96.1%   +0.0
+p-07 Balance sheet              v29  96.5%   v30  96.5%   +0.0
+p-08 Cash                       v29  97.0%   v30  97.0%   +0.0
+p-09 Scorecard                  v29  97.3%   v30  97.3%   +0.0
+p-10 Trends                     v29  96.4%   v30  96.4%   -0.0
+p-11 Matters for the board      v29  97.0%   v30  97.0%   +0.0
+p-12 Basis of preparation       v29  95.3%   v30  95.3%   +0.0
+===== brightsphere =====
+p-01 Cover                      v29  96.0%   v30  96.0%   +0.0
+p-02 Contents                   v29  98.6%   v30  98.6%   +0.0
+p-03 Highlights                 v29  96.6%   v30  96.6%   +0.0
+p-04 Commentary and actions     v29  97.1%   v30  97.1%   +0.0
+p-05 Group results              v29  96.4%   v30  96.4%   +0.0
+p-06 Income statement           v29  96.6%   v30  96.6%   +0.0
+p-07 Balance sheet              v29  94.0%   v30  94.0%   +0.0
+p-08 Cash                       v29  96.9%   v30  96.9%   +0.0
+p-09 Scorecard                  v29  97.4%   v30  97.4%   +0.0
+p-10 Trends                     v29  97.3%   v30  97.3%   +0.0
+p-11 Matters for the board      v29  97.1%   v30  97.1%   +0.0
+p-12 Basis of preparation       v29  95.2%   v30  95.2%   +0.0

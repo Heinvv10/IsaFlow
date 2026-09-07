@@ -311,6 +311,54 @@ describe('the share page 10 prints is the share page 10 defines', () => {
       .not.toContain('high-to-low');
   });
 
+  /**
+   * A WHOLE-NUMBER SHARE IS STILL A ONE-DECIMAL FIGURE.
+   *
+   * `printedSharePct` returns a NUMBER rounded to one decimal, and a number
+   * has no trailing zero: a panel whose share is exactly one per cent printed
+   * "1%" two centimetres from a sibling printing "1.6%", on the sheet whose
+   * whole argument is that its figures are meant to be checked. Page 12
+   * states one precision for percentages and the pack keeps it everywhere
+   * else, through `formatPctLevel`.
+   *
+   * The fixture is built to LAND ON THE WHOLE NUMBER — revenue's axis is 10
+   * against a shared span of 1 000 — because every other trend in this file
+   * rounds to something with a visible decimal and would pass either way.
+   */
+  const wholeShare: PackTrendPoint[] = liveDemoTrend.map((point, i) => ({
+    ...point,
+    revenue: i === 11 ? 10_000 : 1_000,
+    operatingExpenses: i === 11 ? 16_000 : 1_000,
+    netProfit: i === 11 ? 900_000 : 100_000,
+    cash: i === 0 ? -100_000 : -50_000,
+  }));
+
+  it('prints a share of exactly one per cent as "1.0%", not "1%"', () => {
+    const { panels, ownScale } = buildTrendPanels(wholeShare, PACK_SCALE);
+    const revenue = panels.find((p) => p.id === 'trend-revenue')!;
+    expect(revenue.title, 'the fixture no longer lands on a whole-number share')
+      .toContain('its axis is 1.0% of the shared one');
+    // And its sibling, which never had the problem, is unchanged — the two
+    // read as one convention only if BOTH carry the decimal.
+    expect(panels.find((p) => p.id === 'trend-operating-expenses')!.title)
+      .toContain('its axis is 1.6% of the shared one');
+    expect(ownScale.map((p) => p.sharePct)).toEqual([1, 1.6]);
+  });
+
+  it('states every share it prints to one decimal, in the titles and in the note', () => {
+    const built = buildTrendPanels(wholeShare, PACK_SCALE);
+    const printed = [
+      ...built.panels.map((p) => p.title),
+      ...buildTrendBlocks(built)
+        .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes.map((n) => n.body) : [])),
+    ].join(' ');
+    const shares = [...printed.matchAll(/(\d+(?:\.\d+)?)%/g)].map((m) => m[1]!);
+    expect(shares.length, 'nothing on the page quotes a percentage').toBeGreaterThan(2);
+    for (const share of shares) {
+      expect(share, `"${share}%" is not stated to one decimal`).toMatch(/^\d+\.\d$/);
+    }
+  });
+
   it('paints both ends of that axis, so the division has both of its terms', () => {
     const { panels } = buildTrendPanels(roundingSplit, PACK_SCALE);
     const panel = panels.find((p) => p.id === 'trend-operating-expenses')!;

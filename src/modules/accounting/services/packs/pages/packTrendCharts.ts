@@ -252,8 +252,15 @@ function moneyPanel(
     // it occupies a share of it. Both were true and the sentence did not say
     // how — the percentage is WHY the panel is off, not where it sits. Said
     // as the reason it is.
-    clauses.push(`Own scale: its axis is ${drawn.ownSharePct}% of the shared one, too little to `
-      + 'show on it.');
+    // THROUGH THE PACK'S OWN PERCENTAGE FORMATTER, not `${n}%`. A share of
+    // exactly one per cent printed "1%" beside a sibling reading "1.6%",
+    // because `Math.round(x * 1000) / 10` is a NUMBER and a number has no
+    // trailing zero — two panels apart, on the sheet whose argument is that
+    // its figures are checked. `formatPctLevel` is the same one-decimal
+    // level the rest of the pack prints, so the drift cannot come back by a
+    // third call site interpolating its own.
+    clauses.push(`Own scale: its axis is ${formatPctLevel(drawn.ownSharePct)} of the shared one, `
+      + 'too little to show on it.');
   }
   // AND THE MONTH THAT SETS THE SCALE IS NAMED ON THE PANEL THAT CARRIES IT.
   // The rendered demo pack drew a spike of +1 908 in one month on a page
@@ -272,7 +279,7 @@ function moneyPanel(
     // that they can test all of them.
     clauses.push(
       `${dominant.label} alone is ${prose(dominant.value)}${because}; drop it and the range `
-      + `becomes ${dominant.residualRange}, ${dominant.sharePct}% narrower.`,
+      + `becomes ${dominant.residualRange}, ${formatPctLevel(dominant.sharePct)} narrower.`,
     );
   }
   return {

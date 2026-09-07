@@ -24,7 +24,7 @@ import {
 import { TRENDS_PANELS_SPECIFIED, type PackCashBridge, type TrendPanels } from './packPageCharts';
 import type { SelectedMatters } from './packMattersPrinted';
 import { trendWindowNote } from './packTrendCrossReference';
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, formatPctLevel, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_NOTE } from './packBasis';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -343,7 +343,10 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
   // that gains a reader something.
   const offShared: string[] = [];
   if (panels.ownScale.length > 0) {
-    const named = inWords(panels.ownScale.map((p) => `${p.name} (${p.sharePct}%)`));
+    // `formatPctLevel`, not `${n}%` — see `moneyPanel`: the panel title and
+    // this note print the SAME share two centimetres apart, and one of them
+    // was dropping a trailing zero.
+    const named = inWords(panels.ownScale.map((p) => `${p.name} (${formatPctLevel(p.sharePct)})`));
     // WHAT THE PERCENTAGE IS OF, IN THE SENTENCE THAT MAKES THE CLAIM. The
     // page asserted "1.1% of the shared range" and printed nothing a reader
     // could check it against, so a reviewer took the spans off the two
