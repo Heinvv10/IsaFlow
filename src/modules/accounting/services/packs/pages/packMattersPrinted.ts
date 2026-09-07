@@ -25,7 +25,8 @@
  * distinction that made the previous cap not a cap.
  */
 import type { PackMatter } from './packMatters';
-import { linesForChars } from './packTextMetrics';
+import { wrappedLines } from './packTextMetrics';
+import { MATTERS_CELL_PADDING_MM, MATTERS_TABLE_MM, mattersColumnsMm } from './packMattersColumns';
 
 /**
  * THE BUDGET IS THE PAPER THE PAGE HAS LEFT, NOT A ROW COUNT AND NOT A
@@ -56,37 +57,17 @@ import { linesForChars } from './packTextMetrics';
  * selection stops when the table would outgrow that space.
  */
 
-/**
- * The table's own text width, in characters of the printed face.
- *
- * `.pack-matters` runs the full content box: A4 less the 18mm side margins is
- * 174mm, and the table's 8pt sans averages about 1.85mm per character across
- * this prose, so ~94 characters span the table. Cell padding and the column
- * rules take the rest.
- */
-const TABLE_CHARS = 72;
-/** The quantum column is numeric and narrow — "Quantum (R'000)" is its widest
- *  cell. Taken off the top before the prose columns share what is left. */
-const QUANTUM_CHARS = 15;
-/** The issue column carries the matter itself and is set wider than the prose
- *  columns beside it; this is its share when the shares are divided. */
-const ISSUE_SHARE = 2;
-
-/** `.pack-table th` on this table wraps — "Quantum (R'000)" takes two lines —
- *  so the header is budgeted at two. */
+/** `.pack-table` sets its cells at 9pt over a 13pt leading. */
+const MATTERS_CELL_PT = 9;
+/** `.pack-table th` on this table wraps — a prose column's heading takes two
+ *  lines at its own measure — so the header is budgeted at two. Measured at
+ *  7.4mm unwrapped and 11.6mm wrapped. */
 const MATTERS_HEAD_MM = 12;
 /** One line of a `.pack-matters` row: 13pt of leading. */
 const MATTERS_LINE_MM = 13 * (25.4 / 72);
 /** What a row costs beyond its text: 1.2mm of cell padding top and bottom,
- *  and the 0.5pt rule under it. */
+ *  and the 0.5pt rule under it. Measured at 2.6mm, budgeted at 2.9. */
 const MATTERS_ROW_PADDING_MM = 2.9;
-
-/** Lines a string of `text` takes in a column `chars` wide. At least one: an
- *  empty cell is still a row. Word by word — see `packPageMetrics`'s own
- *  `wrappedLines` for why a division under-counts. */
-function wrappedLines(text: string, chars: number): number {
-  return linesForChars(text, chars);
-}
 
 /**
  * Which of the three prose columns actually print for THIS set of matters.
@@ -104,6 +85,16 @@ function wrappedLines(text: string, chars: number): number {
  */
 const PROSE_KEYS = ['owner', 'movement', 'decisionRequired'] as const;
 
+/** The heading `MattersTable` prints each collapsed column under. */
+const PROSE_LABELS: Record<(typeof PROSE_KEYS)[number], string> = {
+  owner: 'Owner',
+  movement: 'Movement',
+  decisionRequired: 'Decision required',
+};
+
+/** The sentence `MattersTable` appends to a collapsed column's one value. */
+const SAME_FOR_EVERY = ' The same for every matter listed above.';
+
 /**
  * The cells a row's height depends on — its prose, and nothing else.
  *
@@ -119,20 +110,51 @@ function printedProseKeys(matters: MeasurableMatter[]): ReadonlyArray<(typeof PR
   return PROSE_KEYS.filter((key) => !matters.every((m) => m[key] === matters[0]![key]));
 }
 
-/** The millimetres this exact set of matters takes as a table, header
- *  included. Zero for an empty set — `MattersTable` draws no table at all. */
+/**
+ * The millimetres this exact set of matters takes as a table, header
+ * included. Zero for an empty set — `MattersTable` draws no table at all.
+ *
+ * Each cell is wrapped to the column `packMattersColumns` gives it and the
+ * `<colgroup>` prints it at, so this is the table the browser lays out rather
+ * than a notional one. It was a character division against an `auto` layout,
+ * and it over-charged the live demo company's page by 78mm.
+ */
 export function mattersTableMm(matters: MeasurableMatter[]): number {
   if (matters.length === 0) return 0;
   const prose = printedProseKeys(matters);
-  const shares = ISSUE_SHARE + prose.length;
-  const unit = (TABLE_CHARS - QUANTUM_CHARS) / shares;
-  const issueChars = unit * ISSUE_SHARE;
+  const collapsed = collapsedNotesMm(matters, prose);
+  const columns = mattersColumnsMm(prose.length);
+  const issueMm = columns.issue - MATTERS_CELL_PADDING_MM;
+  const proseMm = columns.prose - MATTERS_CELL_PADDING_MM;
   const rowMm = (m: MeasurableMatter): number =>
     MATTERS_ROW_PADDING_MM + MATTERS_LINE_MM * Math.max(
-      wrappedLines(m.issue, issueChars),
-      ...prose.map((key) => wrappedLines(m[key], unit)),
+      wrappedLines(m.issue, MATTERS_CELL_PT, issueMm),
+      ...prose.map((key) => wrappedLines(m[key], MATTERS_CELL_PT, proseMm)),
     );
-  return MATTERS_HEAD_MM + matters.reduce((sum, m) => sum + rowMm(m), 0);
+  return MATTERS_HEAD_MM + matters.reduce((sum, m) => sum + rowMm(m), 0) + collapsed;
+}
+
+/**
+ * `.pack-table-notes` — the columns every row answers identically, printed
+ * once under the table instead of in every row.
+ *
+ * CHARGED, because they are the other half of the collapse. `MattersTable`
+ * takes a column out of the table and puts its one value below it as a
+ * definition list, and this file measured only the half that got smaller: on
+ * the twenty-long-matters fixture the table came in 3mm under the paper, and
+ * a model that reads short is what puts a page on a thirteenth sheet. It was
+ * invisible while the table itself was over-charged by seventy.
+ */
+function collapsedNotesMm(
+  matters: MeasurableMatter[],
+  printed: ReadonlyArray<(typeof PROSE_KEYS)[number]>,
+): number {
+  const collapsed = PROSE_KEYS.filter((key) => !printed.includes(key));
+  if (collapsed.length === 0) return 0;
+  const first = matters[0]!;
+  const noteLines = collapsed.reduce((sum, key) => sum + wrappedLines(
+    `${PROSE_LABELS[key]} ${first[key]}${SAME_FOR_EVERY}`, 7.5, MATTERS_TABLE_MM - 6), 0);
+  return 1.5 + noteLines * 11 * (25.4 / 72);
 }
 
 /**

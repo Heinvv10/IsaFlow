@@ -553,6 +553,13 @@ html.print-mode .pack-pages {
 /* Four of five columns are prose, so they WRAP — `.pack-table td`'s
  * `white-space: nowrap` is right for a statement's figure columns and would
  * run a sentence clean off the right edge of the paper here. */
+/* FIXED, so the height model and the browser size the columns the same way.
+ * Under `auto` the widths follow the content, and the model that has to
+ * budget this page before it is printed cannot know them without laying the
+ * table out — it charged the live demo company 78mm for a 95mm table and
+ * withheld twenty-three board matters to pay for it. The widths themselves
+ * are in `packMattersColumns.ts`, which the `<colgroup>` prints from. */
+.pack-matters { table-layout: fixed; }
 .pack-matters td { text-align: left; font-family: var(--pack-font-sans); vertical-align: top; white-space: normal; }
 .pack-matters th { text-align: left; }
 .pack-matters td:nth-child(2), .pack-matters th:nth-child(2) {

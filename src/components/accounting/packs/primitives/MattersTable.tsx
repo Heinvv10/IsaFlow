@@ -25,6 +25,7 @@
  * rands beside a statement in thousands is the 1000x misread, one page later.
  */
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { mattersColumnPercents } from '@/modules/accounting/services/packs/pages/packMattersColumns';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatterFigure } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -85,6 +86,19 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
   return (
     <>
       <table className={isLong ? 'pack-table pack-matters is-long' : 'pack-table pack-matters'}>
+        {/* THE COLUMNS ARE STATED, NOT NEGOTIATED WITH THE CONTENT.
+          * `table-layout: auto` sizes a column from what is in it, which
+          * means the height model could not know a cell's measure without
+          * laying the table out — and it did not: it charged the live demo
+          * company's page 78mm for a table Chromium set in 95, so five of
+          * twenty-eight matters printed under half a sheet of white space.
+          * The widths come from `packMattersColumns`, the same file the
+          * ruler wraps its cells to. */}
+        <colgroup>
+          {mattersColumnPercents(columns.length).map((width, i) => (
+            <col key={width + String(i)} style={{ width }} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
             <th>Issue</th>
