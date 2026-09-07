@@ -234,14 +234,32 @@ export function tableMm(
  * split. Modelled rather than approximated: a `total / 2` reads short by up
  * to a whole item, and `total / 2 + the tallest item` — the safe fudge — cost
  * page 12 forty millimetres it did not have.
+ *
+ * @param gap The space BETWEEN two items in the same column, in the items'
+ *   own units — `.pack-definition + .pack-definition`'s 2mm, and zero for a
+ *   list that has none.
+ *
+ *   It is charged per COLUMN, not per item, because the item that starts the
+ *   second column does not print it: a `margin-top` at the top of a
+ *   fragmentainer is truncated, and Chromium truncates this one. Baking it
+ *   into every item but the first — which is what the caller used to do —
+ *   therefore charges one gap that never reaches paper. Two millimetres,
+ *   measured: the live demo company's glossary lays out at 155.7mm under the
+ *   print harness against 157.7mm of estimate, and page 12 was 0.67mm over
+ *   its box, so those two millimetres were costing the sheet FOUR of its
+ *   eight provenance facts.
  */
-export function balancedLines(items: number[]): number {
+export function balancedLines(items: number[], gap = 0): number {
   const total = items.reduce((a, b) => a + b, 0);
-  let best = total;
+  let best = Infinity;
   let head = 0;
-  for (const item of items) {
-    head += item;
-    best = Math.min(best, Math.max(head, total - head));
+  for (let i = 0; i < items.length; i += 1) {
+    head += items[i]!;
+    // Items 0..i in the first column, the rest in the second; each column
+    // pays for the gaps BETWEEN its own items and none above its first.
+    const first = head + i * gap;
+    const second = (total - head) + Math.max(0, items.length - i - 2) * gap;
+    best = Math.min(best, Math.max(first, second));
   }
   return best;
 }

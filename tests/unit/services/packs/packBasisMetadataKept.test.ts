@@ -31,7 +31,8 @@ import {
   denseInput,
   noRatioPanelsInput,
 } from './fixtures/boardPackInputs';
-import { liveDemoInput } from './fixtures/liveDemoBoardPack';
+import { liveDemoBridgeInput, liveDemoInput } from './fixtures/liveDemoBoardPack';
+import { balancedLines } from '@/modules/accounting/services/packs/pages/packBlockHeights';
 
 const FIXTURES: Record<string, BoardPackInput> = {
   demo: demoInput,
@@ -44,6 +45,13 @@ const FIXTURES: Record<string, BoardPackInput> = {
   // is five lines of the tightest prose page in the pack. Six centimetres of
   // page 12 the suite could not see. See its `inventoryCaveat`.
   live: liveDemoInput,
+  // AND THE ONE THAT TOOK FOUR OF THEM BACK. Every fixture above has an
+  // EBITDA bridge that adds as printed, so none of them carries
+  // `bridgeRoundingNote` — 7.4mm of glossary that the live ledger's own
+  // operating profit and depreciation do put on the page. It measured 255.7mm
+  // against a 255mm box and dropped Source system, Rounding, Extracted at and
+  // Ledger version; the paper says 249.3mm. See `balancedLines` below.
+  'live, with the EBITDA bridge that rounds': liveDemoBridgeInput,
 };
 
 /** Every fact `buildBasisPage` puts on the page, by the heading it prints. */
@@ -104,4 +112,39 @@ describe('page 10 states the range its percentages are taken against', () => {
       ).toMatch(/shared y-scale spans/);
     });
   }
+});
+
+/**
+ * AND THE TWO MILLIMETRES THAT TOOK THEM: A GAP THAT IS NOT ON THE PAPER.
+ *
+ * `.pack-definition + .pack-definition` sets 2mm of `margin-top`, and the
+ * model charged it to every entry but the first — which charges the entry
+ * that STARTS the second column for a margin Chromium truncates at the top of
+ * a fragmentainer. One gap, two millimetres, on a page that was 0.67mm over.
+ * The print harness measures the live glossary at 155.7mm against the 157.7mm
+ * the old model read.
+ *
+ * Mutation: charge the gap per item (`items.map((h, i) => i === 0 ? h : h + 2)`
+ * with no gap argument) and the live bridge fixture above goes back to
+ * dropping four facts.
+ */
+describe('a two-column list pays for the gaps between its own items', () => {
+  it('charges each column one gap fewer than it has items', () => {
+    // Four items of 10 split 2/2: each column has ONE 2mm gap in it, so the
+    // taller column is 22 — not 24, which is what baking the gap into every
+    // item but the first gives.
+    expect(balancedLines([10, 10, 10, 10], 2)).toBe(22);
+  });
+
+  it('charges nothing above the first item of either column', () => {
+    // Three items split 1/2: the first column has no gap in it at all and the
+    // second has one, so the taller column is 10 + 10 + 2.
+    expect(balancedLines([10, 10, 10], 2)).toBe(22);
+    // And a single item never pays a gap, in either direction.
+    expect(balancedLines([10], 2)).toBe(10);
+  });
+
+  it('is unchanged for a list with no gap between its items', () => {
+    expect(balancedLines([10, 10, 10, 10])).toBe(20);
+  });
 });

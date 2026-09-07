@@ -33,6 +33,7 @@ import {
   noRatioPanelsInput,
 } from '../services/packs/fixtures/boardPackInputs';
 import {
+  liveDemoBridgeInput,
   liveDemoInput,
   manyLongNullQuantumMattersInput,
   manyShortNullQuantumMattersInput,
@@ -82,6 +83,13 @@ const FIXTURES = {
   // three lines. The bridge on it prints at the bottom rung, so this is also
   // the only fixture that holds the 48mm profit bridge to Chromium's layout.
   'Brightsphere as the live route composed it': brightsphereLiveInput,
+  // THE SHEET THAT LOST FOUR PROVENANCE FACTS TO TWO MILLIMETRES OF MARGIN
+  // THAT NEVER PRINT. The only fixture whose EBITDA bridge does not add as
+  // printed, so the only one carrying `bridgeRoundingNote` — 7.4mm of
+  // glossary that took page 12 to 255.7mm of estimate against 249.3mm of
+  // paper. It is here because the model's own error, not the page, is what
+  // dropped the facts, and this is the shape that shows it.
+  'the live demo company whose EBITDA bridge rounds': liveDemoBridgeInput,
 } as const;
 
 let browser: Browser;

@@ -28,6 +28,7 @@ import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPag
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import { brightsphereInput, brightsphereLiveInput, demoInput } from './fixtures/boardPackInputs';
 import {
+  liveDemoBridgeInput,
   liveDemoInput,
   liveDemoRenderedInput,
   millionsCashInput,
@@ -35,6 +36,9 @@ import {
 
 const FIXTURES: [string, BoardPackInput][] = [
   ['the live demo company as it renders', liveDemoRenderedInput],
+  // Its own EBITDA bridge, which does not add as printed — the sheet-12 note
+  // that costs the glossary 7.4mm. See `liveDemoBridgeInput`.
+  ['the live demo company whose EBITDA bridge rounds', liveDemoBridgeInput],
   ['the live demo company', liveDemoInput],
   ['the demo company', demoInput],
   ['Brightsphere', brightsphereInput],

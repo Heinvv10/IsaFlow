@@ -259,8 +259,11 @@ function inWords(items: string[]): string {
 function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
   const parts: string[] = [];
   if (panels.sharedScale.length > 1) {
+    // "none of them" of TWO panels, which is what the live demo pack printed
+    // once Revenue and Operating expenses moved to their own scales.
+    const every = panels.sharedScale.length === 2 ? 'neither of them' : 'none of them';
     parts.push(
-      `${inWords(panels.sharedScale)} share one y-scale, so none of them can look like it moved `
+      `${inWords(panels.sharedScale)} share one y-scale, so ${every} can look like it moved `
       + 'more than it did.',
     );
   } else if (panels.sharedScale.length === 1) {

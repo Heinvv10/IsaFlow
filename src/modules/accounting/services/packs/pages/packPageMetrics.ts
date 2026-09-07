@@ -162,7 +162,9 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
       // approximating it. `total / 2` reads short by up to a whole entry;
       // `total / 2 + the tallest` cost the page forty millimetres it did not
       // have.
-      return balancedLines(heights.map((h, i) => (i === 0 ? h : h + 2)));
+      // 2mm is `.pack-definition + .pack-definition`'s margin, charged per
+      // column rather than per entry — see `balancedLines`.
+      return balancedLines(heights, 2);
     }
   }
 }

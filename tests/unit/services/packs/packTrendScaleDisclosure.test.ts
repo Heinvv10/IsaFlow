@@ -19,7 +19,9 @@ import { describe, expect, it } from 'vitest';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packTrendCharts';
 import { formatDays, formatMoney, formatPctLevel } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
-import { liveDemoTrend } from './fixtures/liveDemoBoardPack';
+import { liveDemoRenderedInput, liveDemoTrend } from './fixtures/liveDemoBoardPack';
+import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { demoInput } from './fixtures/boardPackInputs';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
 /** Every `<text>` the panel paints — the axis ends among them. */
@@ -111,5 +113,33 @@ describe('page 10 prints the scale its claims are made against', () => {
     expect(sharedRange!).toContain(PACK_SCALE);
     expect(sharedRange!).not.toMatch(/\d{7}/);
     expect(formatMoney(0, { scale: PACK_SCALE })).toBeTruthy();
+  });
+});
+
+/**
+ * AND THE SENTENCE AGREES WITH ITS OWN SUBJECT.
+ *
+ * The live demo pack printed "Net profit and Cash share one y-scale, so none
+ * of them can look like it moved more than it did." — "none" of two, on a
+ * sheet a board reads. The count is derived, so the pronoun is too.
+ */
+describe('the Scale note counts the panels it is about', () => {
+  const noteOf = (input: BoardPackInput): string => {
+    const trends = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Trends')!;
+    return trends.blocks
+      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes.map((n) => n.body) : []))
+      .join(' ');
+  };
+
+  it('says "neither of them" where two panels share the scale', () => {
+    const text = noteOf(liveDemoRenderedInput);
+    expect(text).toMatch(/share one y-scale/);
+    expect(text).toMatch(/neither of them can look like it moved/);
+    expect(text).not.toMatch(/none of them can look like it moved/);
+  });
+
+  it('says "none of them" where more than two do', () => {
+    const text = noteOf(demoInput);
+    expect(text).toMatch(/none of them can look like it moved/);
   });
 });

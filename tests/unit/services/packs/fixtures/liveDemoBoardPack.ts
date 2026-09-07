@@ -325,3 +325,34 @@ export const liveDemoTrailingMonthInput: BoardPackInput = {
   trend: liveDemoTrend.map((point, i) =>
     i === liveDemoTrend.length - 1 ? { ...point, cash: -752_000 } : point),
 };
+
+/**
+ * THE LIVE DEMO COMPANY'S OWN OPERATING PROFIT AND DEPRECIATION — the two
+ * figures that put the EBITDA reconciliation note on page 12.
+ *
+ * `liveDemoSet` above rounds operating profit to (1 545 540) and takes the
+ * shared fixture's 96 000 of depreciation, and on those two numbers the
+ * three-line EBITDA bridge adds up as printed, so `bridgeRoundingNote`
+ * returns undefined and page 12 measures 248.3mm. The ledger's own figures
+ * are (1 544 539.88) and 77 203.04: rounded to R'000 they print (1 545) plus
+ * 77 = (1 467) where the printed operands give (1 468), the note fires, and
+ * the glossary grows by 7.4mm — which takes the basis page to 255.7mm in a
+ * 255mm box and costs FOUR of its eight provenance facts to `fitPageToBox`.
+ *
+ * A unit in the second decimal of one figure, and no fixture in the suite
+ * could see it.
+ */
+export const liveDemoBridgeSet: PackFigureSet = {
+  ...liveDemoSet,
+  current: {
+    ...liveDemoSet.current,
+    operatingProfit: -1_544_539.88,
+    netProfit: -1_544_539.88,
+    depreciation: 77_203.04,
+  },
+};
+
+export const liveDemoBridgeInput: BoardPackInput = {
+  ...liveDemoRenderedInput,
+  set: liveDemoBridgeSet,
+};
