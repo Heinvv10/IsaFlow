@@ -70,6 +70,11 @@ function call(invoices: Record<string, unknown>[]) {
   );
 }
 
+/** A refusal carries plain text, not JSON — `toolError`, not `ok`. */
+function errText(result: unknown): string {
+  return (result as { content: { text: string }[] }).content[0]!.text;
+}
+
 /** `ok()` wraps the payload; read it back the way a caller would. */
 function body(result: unknown): Record<string, unknown> {
   const text = (result as { content: { text: string }[] }).content[0]!.text;
@@ -105,6 +110,38 @@ describe('bulk_create_supplier_invoices — a repeat is skipped, not fatal', () 
     expect(skipped[0]!.reason).toMatch(/invoices\[0\]/);
   });
 
+  // THE HEADLINE CLAIM, and it had no coverage until an adversarial review
+  // pointed that out: `created[].index` is the CALLER's index, not the position
+  // in the filtered list. It only diverges when a skip lands BEFORE a create,
+  // so a batch shaped [dup, dup, unique] is the only shape that pins it —
+  // reverting to a running counter over the kept list would report index 1 for
+  // the third element and an agent would attribute the bill to the wrong
+  // payload entry.
+  it('reports the CALLER index on created invoices, not the kept-list position', async () => {
+    const out = body(await call([
+      invoice(SUPPLIER_A, 'INV-1'),
+      invoice(SUPPLIER_A, 'INV-1'),
+      invoice(SUPPLIER_A, 'INV-2'),
+    ]));
+    expect((out.invoices as { index: number }[]).map((i) => i.index)).toEqual([0, 2]);
+    expect((out.skipped as { index: number }[]).map((i) => i.index)).toEqual([1]);
+  });
+
+  // Same divergence on the THROW path: elementError names the caller's index.
+  it('names the CALLER index when an element fails after a skip', async () => {
+    createSupplierInvoice
+      .mockResolvedValueOnce({
+        id: 'inv-1', invoiceNumber: 'INV-1', supplierId: SUPPLIER_A,
+        invoiceDate: '2026-03-01', totalAmount: 100, status: 'draft',
+      })
+      .mockRejectedValueOnce(new Error('boom'));
+    await expect(call([
+      invoice(SUPPLIER_A, 'INV-1'),
+      invoice(SUPPLIER_A, 'INV-1'),
+      invoice(SUPPLIER_A, 'INV-2'),
+    ])).rejects.toThrow(/invoices\[2\]/);
+  });
+
   it('keeps the FIRST occurrence, not the last', async () => {
     await call([invoice(SUPPLIER_A, 'INV-1'), invoice(SUPPLIER_A, 'INV-1')]);
     expect(createSupplierInvoice).toHaveBeenCalledTimes(1);
@@ -122,13 +159,32 @@ describe('bulk_create_supplier_invoices — a repeat is skipped, not fatal', () 
     expect(out.skipped).toHaveLength(0);
   });
 
-  it('refuses when every element is a repeat, rather than reporting an empty success', async () => {
-    const result = await call([invoice(SUPPLIER_A, 'INV-1'), invoice(SUPPLIER_A, 'INV-1')]);
-    const out = body(result);
-    expect(out.created_count).toBe(1);
-
-    const all = await call([invoice(SUPPLIER_A, 'INV-1')]);
-    expect(body(all).created_count).toBe(1);
+  // `bulkAllocationSkip` needs a `nothingToPostText` refusal because every line
+  // in a batch can legitimately be skipped, leaving a batch id that reverses
+  // nothing. This tool cannot reach that state: the FIRST occurrence of every
+  // key is always kept, so a batch that parses always creates at least one
+  // invoice however many repeats it carries. Asserted rather than assumed —
+  // if the partition ever started skipping a first occurrence, an empty
+  // success would be the symptom and nothing else here would catch it.
+  it('always creates at least one — a batch of pure repeats cannot arise', async () => {
+    for (const n of [2, 5, 20]) {
+      vi.clearAllMocks();
+      supplierBelongsToCompany.mockResolvedValue(true);
+      accountsBelongToCompany.mockResolvedValue(true);
+      createSupplierInvoice.mockResolvedValue({
+        id: 'inv-1', invoiceNumber: 'INV-1', supplierId: SUPPLIER_A,
+        invoiceDate: '2026-03-01', totalAmount: 100, status: 'draft',
+      });
+      const out = body(await call(Array.from({ length: n }, () => invoice(SUPPLIER_A, 'INV-1'))));
+      expect(out.created_count).toBe(1);
+      expect(out.skipped).toHaveLength(n - 1);
+      // Every element of the caller's payload is accounted for exactly once.
+      const indices = [
+        ...(out.invoices as { index: number }[]).map((i) => i.index),
+        ...(out.skipped as { index: number }[]).map((i) => i.index),
+      ].sort((a, b) => a - b);
+      expect(indices).toEqual(Array.from({ length: n }, (_, i) => i));
+    }
   });
 
   // The skip is a PARSE-pass decision, so nothing has been written when an
@@ -137,5 +193,50 @@ describe('bulk_create_supplier_invoices — a repeat is skipped, not fatal', () 
   it('still throws — never returns — when an element genuinely fails', async () => {
     createSupplierInvoice.mockRejectedValueOnce(new Error('boom'));
     await expect(call([invoice(SUPPLIER_A, 'INV-1')])).rejects.toThrow(/invoices\[0\]/);
+  });
+});
+
+describe('bulk_create_supplier_invoices — same number, different bill is REFUSED', () => {
+  /**
+   * The hole an adversarial review found in the first version of this guard.
+   *
+   * Keying on (supplier_id, invoice_number) alone made
+   * `[{A, "INV-1001", R1,000}, {A, "INV-1001", R48,500}]` create the R1,000
+   * bill and silently discard the R48,500 one under an HTTP 200, with nothing
+   * to find it by. Those are two different bills under one number — a numbering
+   * error in the source — not a duplicated element.
+   *
+   * The books already define it this way: migration 412 fingerprints a supplier
+   * invoice on (vat_number, invoice_number, total_amount). A guard weaker than
+   * the one the ledger uses is not a guard.
+   */
+  it('refuses two bills under one number rather than dropping the larger', async () => {
+    const small = invoice(SUPPLIER_A, 'INV-1001');
+    const large = {
+      ...invoice(SUPPLIER_A, 'INV-1001'),
+      lines: [{ description: 'Fibre', quantity: 1, unit_price: 48500 }],
+    };
+    expect(errText(await call([small, large]))).toMatch(/not the same bill/i);
+    // Nothing created: a refusal, not a partial run.
+    expect(createSupplierInvoice).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a different date', { invoice_date: '2026-04-01' }],
+    ['a different quantity', { lines: [{ description: 'Fibre', quantity: 2, unit_price: 100 }] }],
+    ['a different description', { lines: [{ description: 'Other', quantity: 1, unit_price: 100 }] }],
+  ])('refuses on %s', async (_label, override) => {
+    expect(errText(await call([
+      invoice(SUPPLIER_A, 'INV-1'),
+      { ...invoice(SUPPLIER_A, 'INV-1'), ...override },
+    ]))).toMatch(/not the same bill/i);
+    expect(createSupplierInvoice).not.toHaveBeenCalled();
+  });
+
+  it('still skips a byte-identical re-send, which is the case it exists for', async () => {
+    const out = body(await call([invoice(SUPPLIER_A, 'INV-1'), invoice(SUPPLIER_A, 'INV-1')]));
+    expect(out.created_count).toBe(1);
+    expect(out.skipped).toHaveLength(1);
+    expect((out.skipped as { reason: string }[])[0]!.reason).toMatch(/identical/i);
   });
 });

@@ -10,49 +10,29 @@
  *
  * ALL OR NOTHING for FAULTS, deliberately. Every element is parsed and every id
  * is ownership-checked before the first INSERT, so a malformed batch is refused
- * with nothing written; and once writing starts a failure PROPAGATES, which
- * puts the registry's savepoint — not this handler — in charge of discarding
- * the half-built batch. A bulk create that committed the first 60 of 100 bills
- * and reported an error would leave an agent unable to tell which 40 to retry,
- * and retrying the whole batch would double-post the 60.
+ * with nothing written; once writing starts a failure PROPAGATES, putting the
+ * registry's savepoint in charge of discarding the half-built batch. A bulk
+ * create that committed 60 of 100 bills and reported an error would leave an
+ * agent unable to tell which 40 to retry, and a retry would double-post the 60.
  *
- * A REPEATED ELEMENT IS NOT A FAULT. Two elements carrying the same
- * (supplier_id, invoice_number) are one bill sent twice, and refusing the whole
- * call over it cost the Velocity Fibre reload real work: the Sage export held
- * 14 such pairs, so batches failed until every one had been found and
- * renumbered by hand — the bisect-it-yourself labour this tool exists to
- * remove. `bulk_allocate_bank_transactions` already draws the line correctly: a
- * fact about the DATA is a skip with a reason and the rest of the batch runs.
+ * A REPEATED ELEMENT IS NOT A FAULT — it is one bill sent twice, so it is
+ * skipped and the rest of the batch runs. That decision, and why it is only
+ * safe because it is taken before the first INSERT, lives in
+ * `bulkInvoiceDuplicateSkip.ts`.
  *
- * The skip is safe here for a reason that does NOT generalise to a mid-write
- * one: it is decided in the PARSE pass, before the first INSERT, so an element
- * set aside has written nothing and the handler still returns normally. A skip
- * taken after writing had begun would release the registry's savepoint and
- * commit a partial batch under a success-shaped reply.
- *
- * There is no books-level duplicate check, and that is deliberate too.
- * `supplier_invoices` carries no unique index on `invoice_number` — only the
- * primary key — and `idx_supplier_invoices_duplicate_fp` is explicitly NOT
- * unique. The database accepts the same number twice, so refusing it here would
- * be a rule this tool invented. In-batch repeats are the only duplicates that
- * are unambiguously duplicates.
+ * There is no books-level duplicate check, deliberately: `supplier_invoices`
+ * carries NO unique index on `invoice_number` (only the primary key) and
+ * `idx_supplier_invoices_duplicate_fp` is explicitly not unique, so the
+ * database accepts the same number twice and refusing it here would be a rule
+ * this tool invented.
  */
 import type { McpTool } from '../types';
 import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
-import {
-  createDraftCustomerInvoice,
-  InvoiceLineValidationError,
-} from '@/modules/accounting/services/ar/customerInvoiceCreateService';
-import { supplierBelongsToCompany, customerBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
+import { supplierBelongsToCompany } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
 import { mcpPostingOpts } from '../mcpActor';
-import {
-  MAX_LINES,
-  parseCustomerInvoiceInput,
-  parseSupplierInvoiceInput,
-  type ParsedCustomerInvoice,
-  type ParsedSupplierInvoice,
-} from './invoiceCreateArgs';
+import { MAX_LINES } from './invoiceCreateArgs';
+import { partitionSupplierInvoiceBatch } from './bulkInvoiceDuplicateSkip';
 import { NOT_FOUND, ok, safeErrorText, toolError } from './toolHelpers';
 import { MissingSystemAccountError } from '@/modules/accounting/services/gl/systemAccountKeys';
 
@@ -66,7 +46,7 @@ import { MissingSystemAccountError } from '@/modules/accounting/services/gl/syst
 export const MAX_INVOICES = 100;
 
 /** Pull `args.invoices` out as a list of records, or return the refusal. */
-function parseBatch(raw: unknown): Record<string, unknown>[] | string {
+export function parseBatch(raw: unknown): Record<string, unknown>[] | string {
   if (!Array.isArray(raw) || raw.length === 0) {
     return 'invoices must be a non-empty array';
   }
@@ -98,30 +78,20 @@ const SUPPLIER_LINE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const CUSTOMER_LINE_SCHEMA = {
-  type: 'object',
-  properties: {
-    description: { type: 'string' },
-    quantity: { type: 'number', exclusiveMinimum: 0 },
-    unit_price: { type: 'number', minimum: 0 },
-  },
-  required: ['description', 'unit_price'],
-  additionalProperties: false,
-} as const;
 
 
 /**
  * Name the failing element without destroying the error.
  *
- * `registry.ts` dispatches on `instanceof MissingSystemAccountError` (and
+ * `registry.ts` dispatches on typed errors (`MissingSystemAccountError`,
  * `BulkAllocationLineError`) to turn an unactionable GENERIC_FAILURE into a
  * message naming what to fix. Wrapping in a bare `new Error` threw that class
  * away, so a bulk create against a chart missing a system account came back as
- * "please try again" — advice that cannot work, the chart being the same on the
- * retry. Typed errors pass through untouched; only an untyped one is wrapped,
- * and it keeps the original as `cause`.
+ * "please try again" — advice that cannot work, the chart being identical on
+ * the retry. Typed errors pass through; only an untyped one is wrapped, keeping
+ * the original as `cause`.
  */
-function elementError(index: number, err: unknown, fallback: string): unknown {
+export function elementError(index: number, err: unknown, fallback: string): unknown {
   if (err instanceof MissingSystemAccountError) return err;
   return new Error(`invoices[${index}]: ${safeErrorText(err, fallback)}`, { cause: err });
 }
@@ -172,49 +142,12 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
     const batch = parseBatch(args.invoices);
     if (typeof batch === 'string') return toolError(batch);
 
-    // The caller's own index rides with each element: once repeats are set
-    // aside, a position in `parsed` no longer matches a position in the
-    // payload, and `created[].index` is what an agent reconciles against its
-    // own list.
-    const parsed: { index: number; inv: ParsedSupplierInvoice }[] = [];
-    const skipped: Record<string, unknown>[] = [];
-    const supplierIds = new Set<string>();
-    const accountIds = new Set<string>();
-    // (supplier, their own invoice number) twice in one batch is a duplicated
-    // element, not two bills: a supplier does not issue one number twice. The
-    // AP service has no such constraint and would cheerfully create both.
-    //
-    // The FIRST occurrence is kept and later ones are skipped — the caller's
-    // order is the only thing distinguishing them, so anything else would be a
-    // coin toss over which copy is real. The key is the PAIR: two suppliers may
-    // each issue their own INV-1, and collapsing those would silently drop a
-    // genuine bill, which is a worse failure than the one being fixed.
-    const seenAt = new Map<string, number>();
-    for (let i = 0; i < batch.length; i++) {
-      const one = parseSupplierInvoiceInput(batch[i]!);
-      // A malformed element is still a REFUSAL: it is a fault in the request,
-      // not a fact about the data, and the caller cannot act on a batch that
-      // half-ran because one payload was the wrong shape.
-      if (typeof one === 'string') return toolError(`invoices[${i}].${one}`);
-      const key = `${one.supplierId} ${one.invoiceNumber}`;
-      const firstAt = seenAt.get(key);
-      if (firstAt !== undefined) {
-        skipped.push({
-          index: i,
-          invoice_number: one.invoiceNumber,
-          supplier_id: one.supplierId,
-          reason: `invoices[${firstAt}] already carries invoice_number `
-            + `${JSON.stringify(one.invoiceNumber)} for this supplier — `
-            + 'a supplier does not issue one number twice, so this element was '
-            + 'not created. Combine the lines if they belong on one bill.',
-        });
-        continue;
-      }
-      seenAt.set(key, i);
-      supplierIds.add(one.supplierId);
-      for (const id of one.accountIds) accountIds.add(id);
-      parsed.push({ index: i, inv: one });
-    }
+    // Repeats are set aside here, before any write — see
+    // bulkInvoiceDuplicateSkip.ts for why that is a skip and not a refusal, and
+    // why doing it any later would be unsafe.
+    const partitioned = partitionSupplierInvoiceBatch(batch);
+    if (typeof partitioned === 'string') return toolError(partitioned);
+    const { kept, skipped, supplierIds, accountIds } = partitioned;
 
     // Ownership for the WHOLE batch, before the first write, over the DISTINCT
     // ids rather than one pair of queries per element. NOT_FOUND rather than
@@ -229,7 +162,7 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
     }
 
     const created: Record<string, unknown>[] = [];
-    for (const { index, inv: p } of parsed) {
+    for (const { index, inv: p } of kept) {
       try {
         const invoice = await createSupplierInvoice(
           ctx.companyId,
@@ -271,85 +204,5 @@ export const bulkCreateSupplierInvoicesTool: McpTool = {
       invoices: created,
       skipped,
     });
-  },
-};
-
-export const bulkCreateCustomerInvoicesTool: McpTool = {
-  name: 'bulk_create_customer_invoices',
-  description:
-    'Create up to 100 DRAFT customer invoices in ONE call. Each element takes the same payload as create_draft_invoice, without its idempotency_key. '
-    + 'Reserves an invoice number for each; posts nothing to the GL — approve each with finalize_invoice (needs write:post). '
-    + 'ALL OR NOTHING: if any element is rejected or fails, none of them are created, so a retry on the same idempotency_key is safe.',
-  scope: 'write:invoices',
-  write: true,
-  inputSchema: {
-    type: 'object',
-    properties: {
-      invoices: {
-        type: 'array',
-        minItems: 1,
-        maxItems: MAX_INVOICES,
-        items: {
-          type: 'object',
-          properties: {
-            customer_id: { type: 'string' },
-            items: {
-              type: 'array', minItems: 1, maxItems: MAX_LINES, items: CUSTOMER_LINE_SCHEMA,
-            },
-            invoice_date: { type: 'string', format: 'date' },
-            due_date: { type: 'string', format: 'date' },
-            tax_rate: { type: 'number', minimum: 0 },
-            notes: { type: 'string' },
-          },
-          required: ['customer_id', 'items'],
-          additionalProperties: false,
-        },
-      },
-      idempotency_key: { type: 'string' },
-    },
-    required: ['invoices', 'idempotency_key'],
-    additionalProperties: false,
-  },
-  handler: async (args, ctx) => {
-    const batch = parseBatch(args.invoices);
-    if (typeof batch === 'string') return toolError(batch);
-
-    const parsed: ParsedCustomerInvoice[] = [];
-    const customerIds = new Set<string>();
-    for (let i = 0; i < batch.length; i++) {
-      const one = parseCustomerInvoiceInput(batch[i]!);
-      if (typeof one === 'string') return toolError(`invoices[${i}].${one}`);
-      customerIds.add(one.customerId);
-      parsed.push(one);
-    }
-
-    for (const customerId of customerIds) {
-      if (!(await customerBelongsToCompany(ctx.companyId, customerId))) return toolError(NOT_FOUND);
-    }
-
-    const created: Record<string, unknown>[] = [];
-    for (let i = 0; i < parsed.length; i++) {
-      const p = parsed[i]!;
-      try {
-        const result = await createDraftCustomerInvoice(ctx.companyId, ctx.userId, {
-          clientId: p.customerId,
-          items: p.items,
-          invoiceDate: p.invoiceDate,
-          dueDate: p.dueDate,
-          taxRate: p.taxRate,
-          notes: p.notes,
-        }, mcpPostingOpts(ctx, 'bulk_create_customer_invoices'));
-        created.push({ index: i, ...(result as unknown as Record<string, unknown>) });
-      } catch (err) {
-        // Same reasoning as the AP arm above: rethrow so the savepoint discards
-        // every element, including the ones already committed.
-        if (err instanceof InvoiceLineValidationError) {
-          throw new Error(`invoices[${i}]: ${err.message}`, { cause: err });
-        }
-        throw elementError(i, err, 'Failed to create customer invoice.');
-      }
-    }
-
-    return ok({ created_count: created.length, invoices: created });
   },
 };

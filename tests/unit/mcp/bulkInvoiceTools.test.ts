@@ -40,10 +40,8 @@ import {
   customerBelongsToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import {
-  bulkCreateSupplierInvoicesTool,
-  bulkCreateCustomerInvoicesTool,
-} from '@/lib/mcp/tools/writeBulkInvoices';
+import { bulkCreateSupplierInvoicesTool } from '@/lib/mcp/tools/writeBulkInvoices';
+import { bulkCreateCustomerInvoicesTool } from '@/lib/mcp/tools/writeBulkCustomerInvoices';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
