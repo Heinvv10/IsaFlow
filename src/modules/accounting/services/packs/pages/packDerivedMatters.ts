@@ -11,7 +11,41 @@ import { round2 } from '@/modules/accounting/services/reconciliation/reconciliat
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { NO_PRIOR_MEETING_RECORD, type PackMatter } from './packMatters';
 import { monthLabel } from './packPartialMonth';
+import {
+  profitStanding,
+  type ProfitStanding,
+} from '@/modules/accounting/services/packs/narrative/statedRelation';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
+
+/**
+ * WHAT THE CREDIT DID TO THE MONTH'S RESULT, AGAINST THE PERIOD'S — one
+ * clause per case, and the case is COMPUTED from the two net profits rather
+ * than inferred from the fact that expenses were a credit.
+ *
+ * The first of these is the sentence the tenth visual gate blocked on. It
+ * printed on Brightsphere, whose April net profit is (1 408) against a period
+ * net profit of (1 408) — the same loss — while page 5's table, page 5's own
+ * title ("lowest at (1 408) in Apr 2026") and page 6 each disprove it. The
+ * clause fired whenever expenses were a net credit and never tested whether
+ * the month was in profit; it was true on the demo pack, which is the only
+ * reason it survived three reviews.
+ *
+ * Every one of the four states a relation between two figures the pack
+ * prints — page 5 carries the month, page 6 carries the period — so a
+ * director can check any of them off the paper. None of them claims the
+ * credit CAUSED the standing: the credit's size is the row's quantum and the
+ * addition is stated after this clause, which is as far as the figures go.
+ *
+ * A `Record` over the union rather than a chain of `if`s: a fifth case cannot
+ * be added without a wording, and the case a fixture never reaches is one the
+ * author had to write down. See `statedRelation.ts`.
+ */
+const CREDIT_MONTH_STANDING: Record<ProfitStanding, string> = {
+  profitWherePeriodHasNone: 'so the month reports a profit the period does not',
+  profitAsThePeriodDoes: 'so the month reports a profit, as the period does',
+  lossWherePeriodHasProfit: 'so the month reports a loss the period does not',
+  lossAsThePeriodDoes: 'so the month reports a loss even with the credit, as the period does',
+};
 
 /**
  * A MONTH WHOSE EXPENSES ARE A NET CREDIT IS A MATTER, AND NO DATABASE CHECK
@@ -36,7 +70,15 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
  * on the panel — one derivation, two pages, so the largest visual event in the
  * document stops being one the governance page has never heard of.
  */
-export function creditMonthMatters(trend: PackTrendPoint[], scale: MoneyScale): PackMatter[] {
+export function creditMonthMatters(
+  trend: PackTrendPoint[],
+  scale: MoneyScale,
+  /** The PERIOD's net profit — the figure page 6 prints. Required, because
+   *  the clause below states how the month stands against it and a sentence
+   *  that states a comparison must take the comparison's result as an input.
+   *  See `CREDIT_MONTH_STANDING`. */
+  periodNetProfit: number,
+): PackMatter[] {
   const money = (n: number) => inProse(formatMoney(n, { scale }));
   return trend.filter((point) => point.expenses < 0).map((point) => ({
     kind: 'finding' as const,
@@ -71,14 +113,15 @@ export function creditMonthMatters(trend: PackTrendPoint[], scale: MoneyScale): 
     // plots, and every word added there is a line the chart loses. The column
     // that says nothing about what its number is, is this one.
     issue: `${monthLabel(point)}: expenses for the month are a net credit — more was reversed out of `
-      + 'expense accounts than was posted into them, so the month reports a profit the period does '
+      + 'expense accounts than was posted into them, '
+      + `${CREDIT_MONTH_STANDING[profitStanding(point.netProfit, periodNetProfit)]}`
       // AND IT IS NO LONGER THAN THE SENTENCE IT REPLACES, WHICH IS NOT A
       // STYLE POINT. Page 11's table is budgeted in LINES of paper
       // (`mattersBudgetMm`), so a longer issue prints one fewer matter and
       // moves a real R339k exposure into the unprinted tail — the first
       // draft of this cost the demo pack a row. Three figures and the
       // addition between them, in the words the row already had.
-      + `not. The quantum is that credit, ${money(creditOf(point))}; the trends panel's net profit `
+      + `. The quantum is that credit, ${money(creditOf(point))}; the trends panel's net profit `
       + `of ${money(point.netProfit)} is that credit plus revenue and other income of `
       + `${money(incomeOf(point))}.`,
     quantum: round2(creditOf(point)),
@@ -110,8 +153,9 @@ export function withDerivedMatters(
   matters: PackMatter[],
   trend: PackTrendPoint[],
   scale: MoneyScale,
+  periodNetProfit: number,
 ): PackMatter[] {
-  const derived = creditMonthMatters(trend, scale);
+  const derived = creditMonthMatters(trend, scale, periodNetProfit);
   if (derived.length === 0) return matters;
   return [...matters.filter((m) => m.kind !== 'none'), ...derived];
 }

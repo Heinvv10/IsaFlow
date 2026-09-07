@@ -160,4 +160,4 @@ export { assertPageTitleIsAMessage, isContentPage } from './packPageRules';
 /** The chart data types, split to `packChartModel.ts` for the 300-line cap
  *  when `PackWaterfallBar` gained its `uncaptured` flag. Re-exported because
  *  every existing caller imports them from this module. */
-export type { PackChartClaim, PackChartSpec, PackWaterfallBar } from './packChartModel';
+export type { PackChartClaim, PackChartSpec, PackWaterfallBar, PlugReason } from './packChartModel';

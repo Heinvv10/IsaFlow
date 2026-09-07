@@ -67,7 +67,7 @@ function docOfPages(p: PackFigureProvenance, pages: PackPage[]): PackPagesDocume
 const LEANING_BARS: PackWaterfallBar[] = [
   { label: 'Opening cash', start: 0, end: 486_000, kind: 'open' },
   { label: 'Operating', start: 486_000, end: 876_000, kind: 'increase' },
-  { label: 'Unexplained movement', start: 876_000, end: 610_000, kind: 'decrease', uncaptured: true },
+  { label: 'Unexplained movement', start: 876_000, end: 610_000, kind: 'decrease', uncaptured: 'cashFlowSplits' },
   { label: 'Closing cash', start: 0, end: 610_000, kind: 'close' },
 ];
 
@@ -194,7 +194,7 @@ describe('assertPackIntegrity — bridges', () => {
     const bars: PackWaterfallBar[] = [
       { label: 'Opening cash', start: 0, end: 486_000, kind: 'open' },
       { label: 'Operating', start: 486_000, end: 876_000, kind: 'increase' },
-      { label: 'Unexplained movement', start: 876_000, end: 610_000, kind: 'decrease', uncaptured: true },
+      { label: 'Unexplained movement', start: 876_000, end: 610_000, kind: 'decrease', uncaptured: 'cashFlowSplits' },
       { label: 'Closing cash', start: 0, end: 610_000, kind: 'close' },
     ];
     const chart = chartOf('cash-bridge', bars);
@@ -209,7 +209,7 @@ describe('assertPackIntegrity — bridges', () => {
     const bars: PackWaterfallBar[] = [
       { label: 'Opening cash', start: 0, end: 486_000, kind: 'open' },
       { label: 'Operating', start: 486_000, end: 876_000, kind: 'increase' },
-      { label: 'Unexplained movement', start: 876_000, end: 610_000, kind: 'decrease', uncaptured: true },
+      { label: 'Unexplained movement', start: 876_000, end: 610_000, kind: 'decrease', uncaptured: 'cashFlowSplits' },
       { label: 'Closing cash', start: 0, end: 610_000, kind: 'close' },
     ];
     const chart = chartOf('cash-bridge', bars);
@@ -237,7 +237,7 @@ describe('assertPackIntegrity — bridges', () => {
     const bars: PackWaterfallBar[] = [
       { label: 'Opening cash', start: 0, end: 486_000, kind: 'open' },
       { label: 'Operating', start: 486_000, end: 622_000, kind: 'increase' },
-      { label: 'Unexplained movement', start: 622_000, end: 610_000, kind: 'decrease', uncaptured: true },
+      { label: 'Unexplained movement', start: 622_000, end: 610_000, kind: 'decrease', uncaptured: 'cashFlowSplits' },
       { label: 'Closing cash', start: 0, end: 610_000, kind: 'close' },
     ];
     const chart = chartOf('cash-bridge', bars);
@@ -254,7 +254,7 @@ describe('assertPackIntegrity — bridges', () => {
     const bars: PackWaterfallBar[] = [
       { label: 'Opening cash', start: 0, end: 9_876_000, kind: 'open' },
       { label: 'Operating', start: 9_876_000, end: 10_266_000, kind: 'increase' },
-      { label: 'Unexplained movement', start: 10_266_000, end: 10_000_000, kind: 'decrease', uncaptured: true },
+      { label: 'Unexplained movement', start: 10_266_000, end: 10_000_000, kind: 'decrease', uncaptured: 'cashFlowSplits' },
       { label: 'Closing cash', start: 0, end: 10_000_000, kind: 'close' },
     ];
     // 266,000 is 2.7% of the R10m endpoint — invisible — but 214% of the

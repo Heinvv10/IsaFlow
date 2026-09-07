@@ -576,9 +576,17 @@ export const brightsphereLiveTrend: PackTrendPoint[] = [
 ].map((label, i) => {
   const trading = i === 6;
   const opened = i >= 6;
+  // The reporting date is 7 September 2026, so the last of the twelve months
+  // is a seven-day stub — see `liveDemoTrend` for what the fixture was hiding
+  // by leaving these three fields off.
+  const daysInMonth = [31, 30, 31, 31, 28, 31, 30, 31, 30, 31, 31, 30][i]!;
+  const partial = i === 11;
   return {
     month: `${label.slice(4)}-${String(((i + 9) % 12) + 1).padStart(2, '0')}`,
     label,
+    partial,
+    daysCovered: partial ? 7 : daysInMonth,
+    daysInMonth,
     // TURNOVER AND OTHER INCOME AS THE LIVE TENANT CARRIES THEM: the ledger
     // holds (5 535 000) on the turnover account and (1 000) on other income.
     // The fixture used to carry the unbanded (5 536 000) as `revenue`, which

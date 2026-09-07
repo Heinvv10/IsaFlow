@@ -30,7 +30,7 @@ import {
 } from '@/modules/accounting/services/packs/pages/packTrendCrossReference';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
-import { cashTitle, narrativeComparativeFootnote, narrativeTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
+import { cashTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { brightsphereInput, demoInput, noRatioPanelsInput } from './fixtures/boardPackInputs';
@@ -204,16 +204,12 @@ describe('the no-comparative-base sentence', () => {
     expect(cash).not.toMatch(/base is measured against .* base/i);
     expect(cash).toMatch(/comparative .* figure is negative/i);
 
-    // SHEET 4 SAYS IT UNDER THE RULE. The ninth visual gate rejected a
-    // headline that spent its second half on a missing denominator on a page
-    // whose figures are a real loss; the clause is unchanged and it is now a
-    // footnote of that page. Both halves are pinned — the note carries it,
-    // and the headline does not.
-    const narrative = narrativeTitle(liveDemoSet, PACK_SCALE);
-    expect(narrative).not.toMatch(/base is measured against .* base/i);
-    expect(narrative).not.toMatch(/comparative/i);
-    expect(narrativeComparativeFootnote(liveDemoSet))
-      .toMatch(/comparative .* figure is negative/i);
+    // SHEET 4 NO LONGER HAS A DENOMINATOR TO APOLOGISE FOR. Its headline was
+    // a net-profit level with the missing-percentage clause behind it; the
+    // tenth gate failed it on criterion 1, because the page's payload is a
+    // panel of board decisions and the value was already headlined twice
+    // elsewhere. `narrativeTitle` is now about the matters this sheet prints,
+    // so neither the clause nor the footnote that carried it exists.
     // Both fixtures exercise the negative branch, so neither passes vacuously.
     expect(liveDemoSet.prior!.netProfit).toBeLessThan(0);
     expect(liveDemoSet.prior!.cash).toBeLessThan(0);

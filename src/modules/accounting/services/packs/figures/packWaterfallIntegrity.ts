@@ -27,7 +27,7 @@
  */
 
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
-import type { PackChartSpec, PackWaterfallBar } from '../pages/packPageModel';
+import type { PackChartSpec, PackWaterfallBar, PlugReason } from '../pages/packPageModel';
 
 /** One cent. Money figures are raw rands (R-P52), so this is absolute. */
 export const MONEY_TOLERANCE = 0.01;
@@ -147,7 +147,7 @@ export const UNCAPTURED_SHARE_LIMIT = 0.1;
 /** The plug as a share of what it is plugging, or null where there is none. */
 export function uncapturedShare(bars: PackWaterfallBar[]): number | null {
   const plug = bars
-    .filter((bar) => bar.uncaptured === true)
+    .filter((bar) => bar.uncaptured !== undefined)
     .reduce((sum, bar) => sum + Math.abs(bar.end - bar.start), 0);
   if (plug <= MONEY_TOLERANCE) return null;
 
@@ -176,7 +176,7 @@ export function disproportionatePlugSentence(chart: PackChartSpec, scale: MoneyS
   const share = uncapturedShare(bars);
   if (share === null || share < UNCAPTURED_SHARE_LIMIT) return null;
 
-  const plug = bars.filter((bar) => bar.uncaptured === true);
+  const plug = bars.filter((bar) => bar.uncaptured !== undefined);
   const labels = plug.map((bar) => `'${bar.label}'`).join(' and ');
   // `formatMoney`, not the raw `money` above: this sentence is printed on the
   // page, where a director reads it, while the failure messages in this file
@@ -199,15 +199,68 @@ export function disproportionatePlugSentence(chart: PackChartSpec, scale: MoneyS
   // the step was, which on a bridge whose plug is the whole movement reads as
   // a shrug: a chart category called "unexplained" tells a reader the pack
   // could not do the arithmetic. What is actually true is narrower and
-  // actionable — the pack's figure set carries period TOTALS, not the
-  // operating, investing and financing splits a cash flow statement is made
-  // of, so this step is everything those three would have shown.
+  // actionable, and it is DIFFERENT ON THE TWO BRIDGES — see `PLUG_REASON`.
   return (
     `${labels} accounts for ${amount} of this bridge — ${pct} of what ` +
-    `it bridges. It is not a category anything measured: this pack's figure ` +
-    `set carries the period's totals rather than the operating, investing and ` +
-    `financing splits a cash flow statement is made of, so the step holds ` +
-    `everything those three would have shown. Read the bridge as the shape of ` +
-    `the period, and ask for the cash flow statement before relying on the split.`
+    `it bridges. It is not a category anything measured: ${PLUG_REASON[reasonOf(plug)]}`
   );
+}
+
+/**
+ * WHAT IS IN THE STEP, PER BRIDGE — and why one sentence could not serve both.
+ *
+ * The second half of this sentence used to be a single string, written for
+ * page 8: "this pack's figure set carries the period's totals rather than the
+ * operating, investing and financing splits a cash flow statement is made of,
+ * so the step holds everything those three would have shown … ask for the cash
+ * flow statement before relying on the split." Page 6 prints the same sentence
+ * under an INCOME STATEMENT bridge, where the plug is interest and tax — so a
+ * director was told an income statement's unexplained step held cash flow
+ * categories, and sent to ask for a statement that would not answer the
+ * question.
+ *
+ * This is the defect class this branch keeps closing:
+ * `NO_OPERATING_MARGIN_SENTENCE` is kept separate from `NO_MARGIN_SENTENCE`
+ * for exactly this reason, and the note there says why — "naming the wrong
+ * line in a fallback sentence is the same false-statement defect this pack was
+ * rejected for". A `Record` over the union rather than a branch, so a third
+ * bridge cannot be drawn without a reason of its own.
+ */
+const PLUG_REASON: Record<PlugReason, string> = {
+  cashFlowSplits:
+    "this pack's figure set carries the period's cash totals rather than the operating, "
+    + 'investing and financing splits a cash flow statement is made of, so the step holds '
+    + 'everything those three would have shown. Read the bridge as the shape of the period, '
+    + 'and ask for the cash flow statement before relying on the split.',
+  belowTheOperatingLine:
+    'interest, tax and anything else falling between the operating line and net profit are '
+    + 'not carried as separate figures in this pack, so the step holds all of them together. '
+    + 'Read the bridge as the shape of the period, and ask for the interest and tax detail '
+    + 'before relying on the split.',
+};
+
+/**
+ * The reason the plug bars agree on, or a refusal.
+ *
+ * Two plug bars on one bridge with two different reasons is a chart whose gap
+ * cannot be explained in one sentence, and inventing a joint explanation is
+ * the thing this whole module exists to stop. Neither bridge draws more than
+ * one plug today; the throw is what keeps that true.
+ */
+function reasonOf(plug: PackWaterfallBar[]): PlugReason {
+  const reasons = new Set(plug.map((bar) => bar.uncaptured));
+  const [only] = [...reasons];
+  // AND IT HAS TO BE A REASON THIS FILE HAS A SENTENCE FOR. `uncaptured` was
+  // a boolean until the two bridges were told apart, and an old `true`
+  // reaching `PLUG_REASON` indexes to `undefined` — which composes the string
+  // "undefined" into a board pack's disclosure. `packProseIntegrity` catches
+  // that one, but only after the pack has been built; refusing here names the
+  // bar instead of the sentence.
+  if (reasons.size !== 1 || only === undefined || !(only in PLUG_REASON)) {
+    throw new Error(
+      `disproportionatePlugSentence: a bridge's uncaptured bars must agree on one reason; `
+        + `got ${JSON.stringify([...reasons])}. One sentence cannot explain two different gaps.`,
+    );
+  }
+  return only;
 }

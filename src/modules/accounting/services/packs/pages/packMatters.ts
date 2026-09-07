@@ -143,14 +143,26 @@ async function unusualJournalMatters(
   }));
 }
 
-async function overdueFilingMatters(companyId: string): Promise<PackMatter[]> {
-  const filings = await getOverdueStatutoryFilings(companyId);
+async function overdueFilingMatters(companyId: string, window: PeriodWindow): Promise<PackMatter[]> {
+  // AS AT THE REPORTING DATE, not the clock. The pack printed "739 days
+  // overdue" under a cover, a footer and a period line all reading 7
+  // September — 739 is the count to the 6th, and it moved with the hour the
+  // render ran. See `wholeDaysBetween`.
+  const filings = await getOverdueStatutoryFilings(companyId, window.end);
   return filings.map((f) => ({
     kind: 'finding' as const,
     // The deadline as a DATE, not as an ISO string. `2024-08-28` in a
     // sentence on a governance page is the pack showing a reader its storage
     // format; every other date in the document is set in words.
-    issue: `${f.filingType} for FY${f.fiscalYear} is ${plural(f.daysOverdue, 'day')} overdue `
+    // NO VERB BETWEEN THE FILING AND ITS COUNT. It read "<type> for FY2024 is
+    // N days overdue", and `filingType` is ledger text: "Annual Financial
+    // Statements is 739 days overdue" printed four times per pack, in the
+    // first action item a director reads. A verb cannot agree with a subject
+    // this module does not choose — "are" is wrong for VAT201 the moment that
+    // filing type is tracked — so the sentence takes the colon and states the
+    // count, which is number-agnostic and one word shorter on a page budgeted
+    // in lines of paper.
+    issue: `${f.filingType} for FY${f.fiscalYear}: ${plural(f.daysOverdue, 'day')} overdue `
       + `(due ${formatPackDate(String(f.deadline))})`,
     quantum: null,
     owner: 'Company secretary',
@@ -168,7 +180,7 @@ const SOURCES: ReadonlyArray<{
   { label: 'aged debtors', build: agedDebtorConcentrationMatters },
   { label: 'unreconciled bank items', build: (companyId) => unreconciledBankMatters(companyId) },
   { label: 'unusual journals', build: unusualJournalMatters },
-  { label: 'overdue statutory filings', build: (companyId) => overdueFilingMatters(companyId) },
+  { label: 'overdue statutory filings', build: overdueFilingMatters },
 ];
 
 /**

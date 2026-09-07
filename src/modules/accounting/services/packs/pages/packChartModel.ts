@@ -13,6 +13,18 @@ import type { TrustedChartSvg } from '@/lib/charts/ssrSvg';
 /** One bar of a waterfall chart, carried as data so the integrity gate can
  *  check that the bars actually sum to their endpoints without re-parsing
  *  the rendered SVG. */
+/**
+ * WHY A BRIDGE HAS TO PLUG — one member per bridge, because the two bridges
+ * have different gaps and one explanation for both is a false statement on
+ * whichever page it was not written for.
+ *
+ * `cashFlowSplits` — page 8: the figure set carries the period's cash totals
+ * and none of the operating/investing/financing detail.
+ * `belowTheOperatingLine` — page 6: interest and tax sit between operating
+ * profit and net profit and no field carries them.
+ */
+export type PlugReason = 'cashFlowSplits' | 'belowTheOperatingLine';
+
 export interface PackWaterfallBar {
   label: string;
   start: number;
@@ -35,8 +47,18 @@ export interface PackWaterfallBar {
    * different about it is that no service measured it. The proportion check
    * reads this, and a label match would break the moment either bar is
    * re-worded.
+   *
+   * IT CARRIES THE REASON RATHER THAN `true`, and that is the fix for a
+   * sentence that explained an income statement as a cash flow statement.
+   * `disproportionatePlugSentence` served both bridges from one string, whose
+   * second half said the step "holds everything the operating, investing and
+   * financing splits a cash flow statement is made of would have shown" — true
+   * of page 8, and told a director to go and ask for the cash flow statement
+   * about page 6's bridge, where the plug is interest and tax. With the reason
+   * on the bar there is no `true` to mark a plug with, so a new plug cannot be
+   * added without saying what is in it.
    */
-  uncaptured?: boolean;
+  uncaptured?: PlugReason;
   /**
    * WHICH INK THE BAR IS ACTUALLY DRAWN IN, carried as data for the same
    * reason `kind` is: the sheet makes a claim about the colour rule in

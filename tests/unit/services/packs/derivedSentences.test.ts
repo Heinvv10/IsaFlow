@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   cashTitle,
-  highlightsComparativeFootnote,
   highlightsTitle,
   incomeStatementTitle,
   largestMoverCaption,
@@ -45,19 +44,14 @@ describe('highlightsTitle', () => {
     expect(title).toMatch(/Revenue of \(50 000\)/);
   });
 
-  it('moves the reason there is no percentage into a footnote on the page', () => {
+  it('keeps the reason there is no percentage off the headline', () => {
     // WHERE THE CLAUSE WENT. It is a disclosure the page still owes the
-    // reader — a tile with no movement beside it needs saying why — and it
-    // now prints under the rule with the page's other apparatus rather than
-    // as the first line a director reads. Both halves are asserted: the
-    // footnote says it, and the title above does not.
-    const noBase = set(-50_000, -100_000, -20_000);
-    expect(highlightsComparativeFootnote(noBase))
-      .toMatch(/comparative revenue figure is negative/i);
-    expect(highlightsTitle(noBase)).not.toMatch(/comparative/i);
-    // And nothing is footnoted where the page states the movement itself.
-    expect(highlightsComparativeFootnote(set(1_120_000, 1_000_000, 50_000))).toBeNull();
-    expect(highlightsComparativeFootnote(set(1_120_000, null, 50_000))).toBeNull();
+    // reader — a tile with no movement beside it needs saying why — and it is
+    // the revenue TILE's own caption that carries it, anchored to the tile by
+    // position. It was page 3's footnote 2, with no superscript on the sheet
+    // to attach it to; `packPresentationConventions.test.ts` holds the
+    // caption. What is pinned here is that the headline does not carry it.
+    expect(highlightsTitle(set(-50_000, -100_000, -20_000))).not.toMatch(/comparative/i);
   });
 
   it('never prints a margin of 0% on non-positive turnover', () => {

@@ -42,8 +42,9 @@
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { formatMoney, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, inProse, inScale, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { monthLabel } from '@/modules/accounting/services/packs/pages/packPartialMonth';
@@ -51,6 +52,7 @@ import { scoredTargetsSentence } from './derivedCaptions';
 
 export {
   boardActionItems,
+  boardActionMatters,
   cashCaption,
   largestMoverCaption,
   positionCaption,
@@ -71,6 +73,26 @@ export {
  */
 const NO_OPERATING_MARGIN_SENTENCE =
   'There is no meaningful operating margin on non-positive turnover.';
+
+/**
+ * A MONEY FIGURE ON ITS WAY INTO A SENTENCE — always through `inProse`.
+ *
+ * `formatMoney` prints a measured zero as an en dash, which is right in a
+ * money COLUMN and is not a word. Five titles here interpolated it raw, and
+ * the consequence was not a dash on paper: `packProseIntegrity`'s zero-glyph
+ * rule reads `page.title`, and `assertPackIntegrity` THROWS on a hit — so a
+ * company whose net profit, cash or working capital is nil received no pack
+ * at all, surfacing as a 422. Reachability is ordinary: a dormant company, a
+ * bank account exactly drawn down, current assets equal to current
+ * liabilities, or — because the dash covers anything under half a unit of the
+ * scale — any of those under five rand at `R'000`.
+ *
+ * One helper for the whole file rather than eleven `inProse(formatMoney(...))`
+ * call sites, because the one that gets forgotten is the eleventh.
+ */
+function money(n: number, scale: MoneyScale): string {
+  return inProse(formatMoney(n, { scale }));
+}
 
 /** "up 12.0%" / "down 7.0%", or null when the base is not usable. */
 function pctChangeClause(current: number, prior: number): string | null {
@@ -110,33 +132,17 @@ function noComparativeBaseSentence(measure: string, base: number, midSentence = 
   return midSentence ? s : `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
 }
 
-/**
- * WHY A PERCENTAGE COULD NOT BE FORMED, FOR THE PAGE THAT STATES A LEVEL
- * INSTEAD — or null where the page states the movement and owes no note.
- *
- * One function per page rather than one shared one, because the measure
- * differs and a note that names the wrong measure is the false-statement
- * defect this pack has already been rejected for once.
- */
-export function highlightsComparativeFootnote(set: PackFigureSet): string | null {
-  const { current, prior } = set;
-  if (prior === null) return null;
-  return pctChangeClause(current.revenue, prior.revenue) === null
-    ? noComparativeBaseSentence('revenue', prior.revenue)
-    : null;
-}
-
 export function highlightsTitle(set: PackFigureSet, scale: MoneyScale): string {
   const { current, prior } = set;
   let revenueClause: string;
   if (prior === null) {
-    revenueClause = `Revenue is ${formatMoney(current.revenue, { scale })}, with no comparative period.`;
+    revenueClause = `Revenue is ${money(current.revenue, scale)}, with no comparative period.`;
   } else {
     const change = pctChangeClause(current.revenue, prior.revenue);
     // THE LEVEL, NOT THE REASON THERE IS NO PERCENTAGE. The reason is a
     // footnote on this page — see `highlightsComparativeFootnote`.
     revenueClause = change === null
-      ? `Revenue of ${formatMoney(current.revenue, { scale })}.`
+      ? `Revenue of ${money(current.revenue, scale)}.`
       : `Revenue ${change} against the prior period.`;
   }
 
@@ -157,27 +163,27 @@ export function highlightsTitle(set: PackFigureSet, scale: MoneyScale): string {
 export function positionTitle(set: PackFigureSet, scale: MoneyScale): string {
   const equity = set.current.totalEquity;
   if (equity < 0) {
-    return `Balance sheet position: negative equity of ${formatMoney(equity, { scale })}.`;
+    return `Negative equity of ${money(equity, scale)}.`;
   }
   if (set.prior) {
     const change = pctChangeClause(equity, set.prior.totalEquity);
     if (change !== null) {
-      return `Equity is ${change} to ${formatMoney(equity, { scale })}.`;
+      return `Equity is ${change} to ${money(equity, scale)}.`;
     }
   }
-  return `Balance sheet position: equity of ${formatMoney(equity, { scale })}.`;
+  return `Equity of ${money(equity, scale)}.`;
 }
 
 export function cashTitle(set: PackFigureSet, scale: MoneyScale): string {
   const cash = set.current.cash;
   if (set.prior === null) {
-    return `Cash stands at ${formatMoney(cash, { scale })}, with no comparative period.`;
+    return `Cash stands at ${money(cash, scale)}, with no comparative period.`;
   }
   const change = pctChangeClause(cash, set.prior.cash);
   if (change === null) {
-    return `Cash stands at ${formatMoney(cash, { scale })}; ${noComparativeBaseSentence('cash', set.prior.cash, true)}`;
+    return `Cash stands at ${money(cash, scale)}; ${noComparativeBaseSentence('cash', set.prior.cash, true)}`;
   }
-  return `Cash is ${change} to ${formatMoney(cash, { scale })}.`;
+  return `Cash is ${change} to ${money(cash, scale)}.`;
 }
 
 /**
@@ -194,35 +200,45 @@ export function scorecardTitle(met: number, total: number): string {
 }
 
 /**
- * Page 4's title. The page itself carries the approved CEO commentary; this
- * is the conclusion above it, and it is derived so that a pack whose
- * commentary is still pending approval still gets a title that says
- * something about the period rather than the word "Commentary" — the exact
- * bare label the rejected pack shipped.
+ * Page 4's title — ABOUT THE PAGE'S OWN PAYLOAD.
+ *
+ * It was `Net profit of ${…} for the period.` on both companies: a value
+ * restatement, of a figure already headlined on page 3 and page 6, on a sheet
+ * whose payload is the board's commentary beside a panel of decisions the
+ * board is being asked to take. The tenth visual gate failed criterion 1 on
+ * it in both packs ("the reader is told the net profit … and nothing about
+ * the six or seven decisions the page exists to raise"), and cited it again
+ * under 15.
+ *
+ * So it counts what is ON THIS SHEET, against what the pack raises in total,
+ * and names the largest of them. Both halves are checkable off the paper: the
+ * panel below lists the first number, and page 11's own title carries the
+ * second. Scoped explicitly — "N of the M matters" — because page 11 says
+ * "29 matters require a board decision" and a bare "3 matters" on the sheet
+ * before it reads as a contradiction rather than as a selection.
+ *
+ * `shown` is the panel's OWN list, from `boardActionMatters`, not
+ * `selection.printed`: matters that fit page 11 but not this panel are
+ * carried by the panel's "N further matters follow" line and are not on this
+ * sheet, so counting them here would title the page after content it does not
+ * print — the two-pages-disagreeing defect one page over.
  */
-export function narrativeTitle(set: PackFigureSet, scale: MoneyScale): string {
-  const { current, prior } = set;
-  const level = `Net profit of ${formatMoney(current.netProfit, { scale })}`;
-  if (prior === null) return `${level} for the period, with no comparative.`;
-  const change = pctChangeClause(current.netProfit, prior.netProfit);
-  // AND THE APOLOGY FOR THE MISSING RATIO GOES UNDER THE RULE. It read "Net
-  // profit of (1 544); the comparative net profit figure is negative, so the
-  // percentage change is not meaningful." — half a headline spent on a
-  // denominator, on the page a board actually reads.
-  return change === null
-    ? `${level} for the period.`
-    : `${level}, ${change} on the prior period.`;
-}
-
-/** The clause sheet 4's headline used to carry — see `narrativeTitle`. Null
- *  where the page states a movement, or where there is no comparative at all
- *  and the title says so itself. */
-export function narrativeComparativeFootnote(set: PackFigureSet): string | null {
-  const { current, prior } = set;
-  if (prior === null) return null;
-  return pctChangeClause(current.netProfit, prior.netProfit) === null
-    ? noComparativeBaseSentence('net profit', prior.netProfit)
-    : null;
+export function narrativeTitle(
+  shown: PackMatter[],
+  raised: number,
+  scale: MoneyScale,
+): string {
+  if (raised === 0) {
+    return '0 matters require a board decision this period; this page carries the commentary on it.';
+  }
+  const scope = `${shown.length} of ${raised} matters requiring a board decision `
+    + `${shown.length === 1 ? 'is' : 'are'} put to the board on this page`;
+  const quantified = shown.filter((m) => m.quantum !== null);
+  if (quantified.length === 0) {
+    return `${scope}; none of them carries a single rand amount.`;
+  }
+  const largest = quantified.reduce((a, b) => (Math.abs(b.quantum!) > Math.abs(a.quantum!) ? b : a));
+  return `${scope}, the largest carrying ${inScale(money(largest.quantum!, scale), scale)} of exposure.`;
 }
 
 /**
@@ -232,9 +248,9 @@ export function narrativeComparativeFootnote(set: PackFigureSet): string | null 
 export function incomeStatementTitle(set: PackFigureSet, scale: MoneyScale): string {
   const { current } = set;
   const margin = marginPct(current.revenue - current.costOfSales, current.revenue);
-  const costs = `operating expenses of ${formatMoney(current.operatingExpenses, { scale })}`;
+  const costs = `operating expenses of ${money(current.operatingExpenses, scale)}`;
   return margin === null
-    ? `Revenue of ${formatMoney(current.revenue, { scale })} carries no meaningful margin base against ${costs}.`
+    ? `Revenue of ${money(current.revenue, scale)} carries no meaningful margin base against ${costs}.`
     : `Gross margin is ${pctWithWord(margin, 'a positive', 'a negative')}, carrying ${costs}.`;
 }
 
@@ -285,13 +301,12 @@ export function trendsTitle(
   if (change !== null) {
     return `Revenue is ${change} from the first month of the ${trend.length}-month series to the last.`;
   }
-  const money = (n: number) => inProse(formatMoney(n, { scale }));
   // The terminal month is NAMED, and marked where it is a stub — the same
   // marking every panel's own movement sentence carries, so a headline
   // quoting a seven-day month cannot read as a full one.
   if (first.revenue !== last.revenue) {
-    return `Revenue runs from ${money(first.revenue)} in ${monthLabel(first)} `
-      + `to ${money(last.revenue)} in ${monthLabel(last)}, `
+    return `Revenue runs from ${money(first.revenue, scale)} in ${monthLabel(first)} `
+      + `to ${money(last.revenue, scale)} in ${monthLabel(last)}, `
       + `across the ${trend.length}-month series.`;
   }
   // ENDS THE SAME AS IT STARTED IS NOT "NOTHING HAPPENED", and on the one
@@ -304,10 +319,10 @@ export function trendsTitle(
   const extreme = trend.reduce((far, point) =>
     Math.abs(point.revenue - first.revenue) > Math.abs(far.revenue - first.revenue) ? point : far, first);
   if (extreme.revenue === first.revenue) {
-    return `Revenue is ${money(first.revenue)} in every month of the ${trend.length}-month series.`;
+    return `Revenue is ${money(first.revenue, scale)} in every month of the ${trend.length}-month series.`;
   }
-  return `Revenue is ${money(first.revenue)} in both the first and last of the ${trend.length} months, `
-    + `and ${money(extreme.revenue)} at its furthest, in ${monthLabel(extreme)}.`;
+  return `Revenue is ${money(first.revenue, scale)} in both the first and last of the ${trend.length} months, `
+    + `and ${money(extreme.revenue, scale)} at its furthest, in ${monthLabel(extreme)}.`;
 }
 
 
@@ -319,7 +334,7 @@ export function trendsTitle(
  * them stops matching what the pack actually shows.
  */
 export function negativeEquitySentence(equity: number, scale: MoneyScale): string {
-  return `Total equity is ${formatMoney(equity, { scale })}. Liabilities exceed assets by this amount, which may affect covenant compliance and the going-concern assessment.`;
+  return `Total equity is ${money(equity, scale)}. Liabilities exceed assets by this amount, which may affect covenant compliance and the going-concern assessment.`;
 }
 
 /**
@@ -337,7 +352,7 @@ export function negativeEquitySentence(equity: number, scale: MoneyScale): strin
  * figure the table prints three centimetres away in different words.
  */
 export function negativeAssetsSentence(assets: number, scale: MoneyScale): string {
-  return `Total assets are ${formatMoney(assets, { scale })}. An asset side below zero is not a position a business can hold; it means one or more asset accounts carry credit balances — commonly a bank account overdrawn beyond its recorded facility, or a control account posted against. The balance sheet still foots, so the pack reports it as the ledger states it; it should be traced to the accounts before this pack is relied on.`;
+  return `Total assets are ${money(assets, scale)}. An asset side below zero is not a position a business can hold; it means one or more asset accounts carry credit balances — commonly a bank account overdrawn beyond its recorded facility, or a control account posted against. The balance sheet still foots, so the pack reports it as the ledger states it; it should be traced to the accounts before this pack is relied on.`;
 }
 
 /**
@@ -359,5 +374,5 @@ export function negativeAssetsSentence(assets: number, scale: MoneyScale): strin
  * the rest of the pack, and that the ledger is reported as it stands.
  */
 export function negativeRevenueSentence(revenue: number, scale: MoneyScale): string {
-  return `Revenue is ${formatMoney(revenue, { scale })}. Turnover below zero is not a period a business can trade — it means the revenue accounts are in net debit, commonly credit notes or reversals exceeding the period's invoicing, or a receipt posted to an income account the wrong way round. Every margin in this pack divides by revenue, so each of them is reported as not meaningful rather than computed off a negative base. The pack reports the ledger as it stands; the revenue accounts should be traced before it is relied on.`;
+  return `Revenue is ${money(revenue, scale)}. Turnover below zero is not a period a business can trade — it means the revenue accounts are in net debit, commonly credit notes or reversals exceeding the period's invoicing, or a receipt posted to an income account the wrong way round. Every margin in this pack divides by revenue, so each of them is reported as not meaningful rather than computed off a negative base. The pack reports the ledger as it stands; the revenue accounts should be traced before it is relied on.`;
 }

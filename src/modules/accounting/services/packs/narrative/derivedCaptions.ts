@@ -19,7 +19,7 @@
  */
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
-import { formatMoney, pctWithWord, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { SelectedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
@@ -201,7 +201,7 @@ export function positionCaption(set: PackFigureSet, scale: MoneyScale): string {
   const coverClause = cover === null
     ? 'Current liabilities are not a positive base, so no cover percentage is meaningful'
     : `Current assets cover current liabilities ${pctWithWord(cover, 'at', 'at negative')}`;
-  return `${coverClause}; working capital stands at ${formatMoney(workingCapital, { scale })}.`;
+  return `${coverClause}; working capital stands at ${inProse(formatMoney(workingCapital, { scale }))}.`;
 }
 
 /**
@@ -216,9 +216,9 @@ export function cashCaption(set: PackFigureSet, residual: number | null, scale: 
   const ocf = set.current.operatingCashFlow;
   const lead = ocf === undefined
     ? 'No operating cash flow figure was captured for this period.'
-    : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${formatMoney(Math.abs(ocf), { scale })}.`;
+    : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${inProse(formatMoney(Math.abs(ocf), { scale }))}.`;
   if (residual === null || residual === 0) return lead;
-  return `${lead} ${formatMoney(Math.abs(residual), { scale })} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
+  return `${lead} ${inProse(formatMoney(Math.abs(residual), { scale }))} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
 }
 
 /**
@@ -316,11 +316,26 @@ export function joinDecision(issue: string, decision: string): string {
   return /[.!?]$/.test(issue) ? `${issue} ${decision}` : `${issue} — ${decision}`;
 }
 
+/**
+ * THE MATTERS THIS PAGE ACTUALLY PRINTS — one derivation, two readers.
+ *
+ * The panel below and page 4's TITLE both have to be about the same set. Page
+ * 4 titled itself "Net profit of (1 544) for the period." — a value already
+ * headlined on pages 3 and 6, on a sheet whose payload is a panel of board
+ * decisions — and the tenth visual gate failed criteria 1, 9 and 15 on it.
+ * Titling it by its payload means counting the payload, and a second count
+ * derived from `selection.printed` would be the page-4-versus-page-11
+ * disagreement `checkMattersCrossReference` exists to refuse, one page over.
+ */
+export function boardActionMatters(selection: SelectedMatters): PackMatter[] {
+  return actionsThatFit(selection.printed);
+}
+
 export function boardActionItems(selection: SelectedMatters): string[] {
   const { printed, omitted } = selection;
   if (printed.length === 0) return [];
 
-  const shown = actionsThatFit(printed);
+  const shown = boardActionMatters(selection);
   const decisions = new Set(shown.map((m) => m.decisionRequired));
   const uniform = shown.length > 1 && decisions.size === 1;
 

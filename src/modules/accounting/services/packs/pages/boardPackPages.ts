@@ -31,12 +31,11 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 import {
   cashTitle,
-  highlightsComparativeFootnote,
   highlightsTitle,
   incomeStatementTitle,
   largestMoverCaption,
-  narrativeComparativeFootnote,
   narrativeTitle,
+  boardActionMatters,
   negativeRevenueSentence,
   positionTitle,
   scorecardCaption,
@@ -83,7 +82,7 @@ import {
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
 import { withDerivedMatters } from './packDerivedMatters';
-import { partialMonthClauseFor } from './packPartialMonth';
+import { partialMonthClauseFor, partialMonthOf } from './packPartialMonth';
 import { selectPrintedMatters } from './packMattersPrinted';
 import { fitPageToBox } from './packPageFit';
 import { pageBoxMm, pageMm } from './packPageMetrics';
@@ -200,23 +199,29 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // when a row moves off the page.
   // The checks that reach this page all read the ledger; one anomaly is
   // visible only in the SERIES — see `creditMonthMatters`.
-  const allMatters = withDerivedMatters(input.matters, trend, scale);
+  // THE PERIOD'S NET PROFIT IS AN ARGUMENT, not a fact the derived sentence
+  // infers from the branch it is written in — see `CREDIT_MONTH_STANDING`.
+  const allMatters = withDerivedMatters(input.matters, trend, scale, set.current.netProfit);
   const mattersHeadline = mattersTitle(allMatters, scale);
   const matters = selectPrintedMatters(allMatters, mattersBudgetMm(mattersSupport, mattersHeadline));
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
-  const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency, comparativePeriod);
-  // THE HEADLINE STATES THE FINDING; THE REASON A PERCENTAGE COULD NOT BE
-  // FORMED IS A NOTE UNDER THE RULE — see `highlightsComparativeFootnote`.
-  // REQUIRED, because dropping it would leave the page stating a level with
-  // nothing saying why no movement is shown beside it, which is the absence
-  // the pack's whole footnote apparatus exists to name.
-  const revenueBaseNote = highlightsComparativeFootnote(set);
+  const { blocks: highlightBlocks, footnotes: highlightFootnotes } =
+    buildHighlightsBlocks(tiles, scale, currency, comparativePeriod, partialMonthOf(trend));
+  // ONE FOOTNOTE ON THIS SHEET, AND IT IS ANCHORED.
+  //
+  // The page carried a second, `highlightsComparativeFootnote` — "Revenue has
+  // no positive comparative base for a percentage change." — with no
+  // superscript anywhere on the sheet to attach it to, beside a footnote 1
+  // correctly anchored to five tiles. That made the orphan conspicuous rather
+  // than invisible, and the sentence was already on the page anyway: the
+  // revenue tile's own caption prints `NOT_A_POSITIVE_BASE` in exactly the
+  // condition that footnote fired in (`PackKpiDeltaAbsence.unusableBase`),
+  // anchored to the tile by position. Two statements of one fact, one of them
+  // pointing at nothing.
   const highlights = page(highlightsTitle(set, scale), 'Highlights', 'Performance', 'high', highlightBlocks, 'portrait',
-    revenueBaseNote === null
-      ? highlightFootnotes
-      : [...highlightFootnotes, { number: highlightFootnotes.length + 1, text: revenueBaseNote, required: true as const }]);
+    highlightFootnotes);
 
   // Page 5 — the result month by month. See `packMonthlyResults.ts` for why
   // it is no longer the period statement sheet 6 prints again three
@@ -388,17 +393,23 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   //
   // The placeholder STAYS. Filling the panel is not a way to stop saying that
   // commentary is owed and unwritten.
-  const netProfitBaseNote = narrativeComparativeFootnote(set);
+  //
+  // THE TITLE IS ABOUT THIS PAGE'S PAYLOAD — see `narrativeTitle`, and note
+  // that `boardActionMatters` is the same list the panel below prints, not a
+  // second count of the selection.
+  //
+  // Its footnote went with the old title: `narrativeComparativeFootnote`
+  // existed to explain why the headline's net-profit percentage could not be
+  // formed, and the headline no longer states one. It was also the second
+  // unanchored footnote in the pack.
   const narrativePage = page(
-    narrativeTitle(set, scale),
+    narrativeTitle(boardActionMatters(matters), matters.printed.length + matters.omitted.length, scale),
     'Commentary and actions',
     'Performance',
     'medium',
     buildCommentaryBlocks(input.commentary ?? pending, matters),
     'portrait',
-    // The clause the headline used to end on, under the rule with the page's
-    // other apparatus. Required for the same reason page 3's is.
-    netProfitBaseNote === null ? [] : [{ number: 1, text: netProfitBaseNote, required: true as const }],
+    [],
   );
 
   const body: UnnumberedPage[] = [

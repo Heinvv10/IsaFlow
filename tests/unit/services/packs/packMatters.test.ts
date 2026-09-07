@@ -180,8 +180,13 @@ describe('buildMatters', () => {
       expect(issues.some((i) => i.includes('(s)'))).toBe(false);
       expect(issues.some((i) => i.includes('12 unreconciled bank items across 2 bank accounts'))).toBe(true);
       // Both branches of every plural, in one fixture: 739 days and 1 day.
-      expect(issues.some((i) => i.includes('is 739 days overdue'))).toBe(true);
-      expect(issues.some((i) => i.includes('is 1 day overdue'))).toBe(true);
+      // NO VERB BEFORE THE COUNT. "Annual Financial Statements is 739 days
+      // overdue" printed four times per pack, in the first action item a
+      // director reads; `filingType` is ledger text, so no verb this module
+      // writes can agree with it.
+      expect(issues.some((i) => i.includes('for FY2024: 739 days overdue'))).toBe(true);
+      expect(issues.some((i) => i.includes('for FY2026: 1 day overdue'))).toBe(true);
+      expect(issues.some((i) => /Statements is \d/.test(i))).toBe(false);
     });
 
     it('sets a deadline in words, not in the storage format', async () => {

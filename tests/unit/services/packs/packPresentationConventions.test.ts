@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { brightsphereInput, demoInput } from './fixtures/boardPackInputs';
+import { brightsphereInput, brightsphereLiveInput, demoInput } from './fixtures/boardPackInputs';
 import { liveDemoInput } from './fixtures/liveDemoBoardPack';
 import type { PackPage, PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -139,20 +139,47 @@ describe('no page title narrates the renderer', () => {
  * live demo company, and both must still say so — under the rule, with the
  * rest of the page's apparatus.
  */
-describe('the comparative-base disclosure survives the move to the footnotes', () => {
+describe('the comparative-base disclosure survives the move off the headline', () => {
   const [, live] = PACKS[0]!;
 
-  for (const navLabel of ['Highlights', 'Commentary and actions']) {
-    it(`${navLabel} footnotes why no percentage change is shown`, () => {
-      const page = pageNamed(live, navLabel);
-      const said = page.footnotes.map((f) => f.text).join('\n');
-      expect(said).toMatch(/comparative .* figure is negative|no positive comparative base/i);
-      // REQUIRED, so `fitPageToBox` cannot pay for a tight page with the one
-      // sentence explaining why a movement is missing.
-      const note = page.footnotes.find((f) => /comparative/i.test(f.text));
-      expect(note?.required, 'the disclosure is droppable prose').toBe(true);
-    });
-  }
+  /**
+   * IT IS ON THE TILE IT IS ABOUT, ANCHORED BY POSITION.
+   *
+   * It used to be page 3's footnote 2, with no superscript anywhere on the
+   * sheet to attach it to, beside a footnote 1 correctly anchored to five
+   * tiles — an orphan the tenth gate called conspicuous. The sentence was
+   * already on the page: the revenue tile's own caption carries
+   * `NOT_A_POSITIVE_BASE` in the same condition. This asserts the caption
+   * states it and that the sheet no longer carries the loose second copy.
+   */
+  it('Highlights states on the revenue tile itself why no percentage change is shown', () => {
+    const page = pageNamed(live, 'Highlights');
+    const captions = page.blocks
+      .filter((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Commentary')
+      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []));
+    const revenue = captions.find((n) => /^revenue$/i.test(n.heading));
+    expect(revenue?.body, 'the revenue tile says nothing about its missing movement')
+      .toMatch(/not a positive base/i);
+    // And the loose second copy is gone: every footnote this sheet prints is
+    // one a tile carries a superscript for.
+    expect(page.footnotes.map((f) => f.number)).toEqual([1]);
+  });
+
+  /**
+   * PAGE 4 CARRIES NO FOOTNOTE AT ALL NOW.
+   *
+   * `narrativeComparativeFootnote` explained why the headline's net-profit
+   * percentage could not be formed, and the headline no longer states one —
+   * it states what the page's own panel puts to the board. A footnote about a
+   * sentence that is not on the sheet is the second unanchored footnote in
+   * the pack.
+   */
+  it('Commentary and actions is titled by its payload, not by net profit', () => {
+    const page = pageNamed(live, 'Commentary and actions');
+    expect(page.title).toMatch(/matters requiring a board decision/i);
+    expect(page.title).not.toMatch(/net profit/i);
+    expect(page.footnotes).toEqual([]);
+  });
 });
 
 /**
@@ -234,6 +261,78 @@ describe('the pack states one palette, and its caveats with the contents', () =>
         basis.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Caveats'),
         'the caveats print twice',
       ).toBe(false);
+    });
+  }
+});
+
+
+/**
+ * THE HIGHLIGHTS PAGE IS THE ONE MOST OFTEN FORWARDED ON ITS OWN, AND IT SAID
+ * NOTHING ABOUT THE PART MONTH.
+ *
+ * Every tile on sheet 3 — both margins, net profit, working capital, debtor
+ * days — is measured over a period whose final month is a stub, and pages 5,
+ * 8, 10 and 12 each say so about their own figures while this one did not.
+ * It is a NOTE rather than a footnote: it is about every tile on the sheet
+ * rather than one of them, and page 3 already carries an anchored footnote 1.
+ *
+ * Held on the COMPOSED page, so it also proves `fitPageToBox` did not pay for
+ * the note by dropping it again.
+ */
+describe('the highlights page states its part month', () => {
+  // BOTH LIVE PACKS, because they are the two that HAVE a part month. Until
+  // this round no fixture in the suite carried one at all — `partial` was
+  // simply absent from `liveDemoTrend` and `brightsphereLiveTrend`, so every
+  // "(part)" marker the rendered packs print was invisible to the composer
+  // tests, and a note added to sheet 3 could push the live sheet past its box
+  // with the whole suite green. It did.
+  const live: Array<[string, PackPagesDocument]> = [
+    ['the live demo company', PACKS[0]![1]],
+    ['live Brightsphere', buildBoardPackPages(brightsphereLiveInput)],
+  ];
+
+  for (const [name, doc] of live) {
+    it(`${name}`, () => {
+      const page = pageNamed(doc, 'Highlights');
+      const said = stringsOn(page).join(' ');
+      expect(said).toMatch(/Every tile covers the whole period, whose last month — \w+ \d+ — is \d+ of its \d+ days/);
+      // AND IT DID NOT PAY FOR IT WITH ANOTHER NOTE. Live Brightsphere's
+      // sheet 3 composes at 98.7% of its box; the first draft of this note
+      // ran to two lines and the sheet dropped the Scale note to carry it.
+      expect(page.footnotes.filter((f) => /Not printed on this page/.test(f.text))).toEqual([]);
+      expect(said).toMatch(/Figures are in R'000/);
+    });
+  }
+
+  it('says nothing where the period ends on a whole month', () => {
+    // The negative pin: `demoInput`'s series is twelve whole months, and a
+    // pack that invented a part-month statement would be worse than silent.
+    const page = pageNamed(PACKS[1]![1], 'Highlights');
+    expect(stringsOn(page).join(' ')).not.toMatch(/part month/i);
+  });
+});
+
+/**
+ * THE FOURTH NOTATION, DECLARED.
+ *
+ * The basis page defined brackets, the dash and `n/m`, and the statements
+ * print a fourth — `<1`, in brackets where negative — for a real amount that
+ * rounds to nothing at the stated scale. It sat on sheet 6 beside a dash
+ * convention that means the opposite.
+ */
+describe('every notation the pack prints is declared on the basis page', () => {
+  for (const [name, doc] of PACKS) {
+    it(`${name}`, () => {
+      const basis = stringsIn(doc).join('\n');
+      // The declaration is unconditional — a basis of preparation that
+      // changed shape with the month is not a basis of preparation — so this
+      // holds whether or not this company's figures reach the notation.
+      expect(basis).toMatch(/too small to show at this scale prints as <1/);
+      // And it survives the fitter: page 12 composes within 2mm of its box on
+      // live Brightsphere, so a definition that is dropped is a notation the
+      // pack prints and does not declare.
+      const page = doc.pages[doc.pages.length - 1]!;
+      expect(stringsOn(page).join(' ')).toMatch(/prints as <1, or \(<1\) where it is negative/);
     });
   }
 });

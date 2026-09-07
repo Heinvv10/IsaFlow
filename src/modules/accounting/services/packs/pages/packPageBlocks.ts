@@ -27,6 +27,7 @@ import { trendWindowNote } from './packTrendCrossReference';
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_NOTE } from './packBasis';
+import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type {
   PackChartSpec,
@@ -98,6 +99,10 @@ export function buildHighlightsBlocks(
    *  there is none. The page says which of those two it is, ONCE, and every
    *  tile caption is consistent with it — see `PackKpiDeltaAbsence`. */
   comparative: PackComparativePeriod | null,
+  /** The stub at the end of the monthly series, or null where the period ends
+   *  on a whole month. Page 3's tiles cover the WHOLE period, whose last month
+   *  is this one — see the note below. */
+  partial: PackTrendPoint | null,
 ): { blocks: PackPageBlock[]; footnotes: PackFootnote[] } {
   const highlightTiles = tiles.map((tile) =>
     tile.sparklineSvg === null ? tile : { ...tile, trendFootnote: SPARKLINE_FOOTNOTE },
@@ -124,6 +129,29 @@ export function buildHighlightsBlocks(
           : `Each movement is measured against ${comparative.label} — the comparative period the basis page states, and the prior column the statement pages print.`),
         ...(comparative === null ? [] : [note('Absent comparatives',
           'A tile with no movement says why in its own caption — the comparative period carries no value for that measure, or its prior figure is not a positive base. A movement is never shown as a move from zero.')]),
+        // AND THAT THE PERIOD STOPS PART-WAY THROUGH ITS LAST MONTH.
+        //
+        // Page 3 was the only substantive sheet in the pack with no
+        // part-month statement, and it is the sheet a director reads first
+        // and the one most often forwarded on its own. Every tile on it — the
+        // two margins, net profit, working capital, debtor days — is measured
+        // over a period whose final month is a stub, and pages 5, 8, 10 and
+        // 12 each say so about their own figures while this page said
+        // nothing.
+        //
+        // A NOTE, NOT A FOOTNOTE. It is about every tile on the sheet rather
+        // than about one of them, and page 3 already carries one anchored
+        // footnote; a second, unanchored, superscript beside it is the orphan
+        // the tenth gate called conspicuous.
+        //
+        // AND IT IS ONE LINE. The first draft ran to two and Brightsphere's
+        // sheet 3, which composes at 98.7% of its box, paid for it by dropping
+        // the Scale note and printing "2 explanatory notes are not printed" —
+        // buying a new statement with an old one, which is what every round on
+        // this branch has been caught doing.
+        ...(partial === null ? [] : [note('Part month',
+          `Every tile covers the whole period, whose last month — ${partial.label} — `
+          + `is ${partial.daysCovered} of its ${partial.daysInMonth} days.`)]),
         note('Scale', `Figures are in ${scale} (${currency}). ${ROUNDING_NOTE}`),
       ]),
     ],

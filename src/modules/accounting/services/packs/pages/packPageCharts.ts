@@ -30,7 +30,7 @@
  * beyond being a chart.
  */
 
-import { formatMoney, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { buildProfitWaterfall, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import {
@@ -45,7 +45,7 @@ import {
   uncapturedShare,
 } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import type { PackChartSpec, PackWaterfallBar } from './packPageModel';
+import type { PackChartSpec, PackWaterfallBar, PlugReason } from './packPageModel';
 
 /** Page 10's panels and page 8's cash line, re-exported so every existing
  *  `packPageCharts` import path still resolves after the split. */
@@ -171,7 +171,15 @@ function barKind(step: WaterfallStep, index: number, count: number): PackWaterfa
  *   Marked on the bar rather than matched by label downstream: the
  *   proportion check must not break when either plug is re-worded.
  */
-function toBars(steps: WaterfallStep[], uncapturedLabel: string | null): PackWaterfallBar[] {
+function toBars(
+  steps: WaterfallStep[],
+  uncapturedLabel: string | null,
+  /** WHY that step exists, carried onto the bar — the two bridges plug for
+   *  different reasons and the sentence that explains one is false of the
+   *  other. Required alongside the label, so a plug cannot be marked without
+   *  one. See `PlugReason`. */
+  uncapturedReason: PlugReason,
+): PackWaterfallBar[] {
   return steps.map((step, index) => {
     const paint = stepPaint(step);
     return {
@@ -179,7 +187,7 @@ function toBars(steps: WaterfallStep[], uncapturedLabel: string | null): PackWat
       start: step.start,
       end: step.end,
       kind: barKind(step, index, steps.length),
-      ...(step.label === uncapturedLabel ? { uncaptured: true } : {}),
+      ...(step.label === uncapturedLabel ? { uncaptured: uncapturedReason } : {}),
       ...(paint === null ? {} : { paint }),
     };
   });
@@ -244,7 +252,7 @@ export function buildProfitWaterfallChart(
     netProfit: f.netProfit,
   });
   const bridged = withUncapturedStep(steps, f.netProfit);
-  const bars = toBars(bridged, PROFIT_UNCAPTURED_LABEL);
+  const bars = toBars(bridged, PROFIT_UNCAPTURED_LABEL, 'belowTheOperatingLine');
   // AND THE SAME RULE AS PAGE 7: the chart gives a rung back when the page
   // has something to say. Where the plug breaches `UNCAPTURED_SHARE_LIMIT`
   // this page must also carry the unexplained-step disclosure, and on the
@@ -278,7 +286,7 @@ export function buildProfitWaterfallChart(
   const box = rung ?? (crowded ? MID : FULL);
   return {
     id: 'profit-bridge',
-    title: `Revenue of ${formatMoney(f.revenue, { scale })} bridges to net profit of ${formatMoney(f.netProfit, { scale })}.`,
+    title: `Revenue of ${inProse(formatMoney(f.revenue, { scale }))} bridges to net profit of ${inProse(formatMoney(f.netProfit, { scale }))}.`,
     kind: 'waterfall',
     svg: renderChartSvg(waterfallOption(bridged, scale, undefined, intervalsFor(box), isCompact(box)), box),
     heightMm: box.heightMm,
@@ -363,8 +371,8 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
     const movement = current.cash - opening;
     return {
       drawn: false,
-      why: `Cash moved ${formatMoney(opening, { scale })} to ${formatMoney(current.cash, { scale })} `
-        + `over the period, a movement of ${formatMoney(movement, { scale })}. No bridge is drawn `
+      why: `Cash moved ${inProse(formatMoney(opening, { scale }))} to ${inProse(formatMoney(current.cash, { scale }))} `
+        + `over the period, a movement of ${inProse(formatMoney(movement, { scale }))}. No bridge is drawn `
         + 'because there is nothing to bridge THROUGH: this pack’s figure set carries the '
         + 'period’s cash totals and none of the operating, investing or financing figures a '
         + 'cash flow statement is made of, so every step between the two balances would be one '
@@ -399,11 +407,11 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
     residual,
     chart: {
       id: 'cash-bridge',
-      title: `Cash moved from ${formatMoney(opening, { scale })} to ${formatMoney(current.cash, { scale })} over the period.`,
+      title: `Cash moved from ${inProse(formatMoney(opening, { scale }))} to ${inProse(formatMoney(current.cash, { scale }))} over the period.`,
       kind: 'waterfall',
       svg: renderChartSvg(waterfallOption(steps, scale, undefined, intervalsFor(HALF), isCompact(HALF)), HALF),
       heightMm: HALF.heightMm,
-      waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL),
+      waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL, 'cashFlowSplits'),
     },
   };
 }
@@ -425,7 +433,10 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
  * not just assets: equity of (4 087) does not stand under anything either.
  */
 function positionCompositionTitle(current: PackFigureSet['current'], scale: MoneyScale): string {
-  const money = (n: number) => formatMoney(n, { scale });
+  // `inProse`: this is a SENTENCE, and a nil asset side or nil equity is
+  // ordinary. A raw dash here refuses the whole pack — see `money` in
+  // `derivedSentences.ts`.
+  const money = (n: number) => inProse(formatMoney(n, { scale }));
   const funding = `liabilities of ${money(current.totalLiabilities)} and equity of ${money(current.totalEquity)}`;
   const structural = current.totalAssets >= 0
     && current.totalLiabilities >= 0

@@ -91,6 +91,11 @@ export function partialMonthClauseFor(trend: PackTrendPoint[]): string | null {
  * it prints is the marker's own job, on the pages that carry it.
  */
 export function partialMonthBasisNote(point: PackTrendPoint): string {
-  return `The monthly series ends on a part month: ${point.label} covers ${point.daysCovered} of `
-    + `its ${point.daysInMonth} days, to the reporting date.`;
+  // SHORTER STILL, BY ONE CLAUSE. "…, to the reporting date" restated what
+  // the Period fact it EXTENDS has already said two lines above, and the
+  // sentence is charged against a page that composes within 2mm of its box on
+  // the live company: with the fixtures finally carrying the part month, the
+  // one that also rounds its EBITDA bridge lost the colour key to it.
+  return `The series ends on a part month: ${point.label} covers ${point.daysCovered} of its `
+    + `${point.daysInMonth} days.`;
 }

@@ -155,8 +155,18 @@ const TERMS: PackDefinition[] = [
     // Said HERE rather than as a seventeenth term, beside the convention it
     // is most often mistaken for. A reader looking at a dash and wondering
     // whether it is a zero is reading this entry already.
+    // AND THE FOURTH NOTATION, WHICH THIS PAGE DECLARED THREE OF.
+    //
+    // The statements print `<1` — in brackets where negative — for a real
+    // amount that rounds to nothing at the stated scale, and page 12 named
+    // brackets, the dash and n/m and not this. It sat on sheet 6 beside a
+    // dash convention that means the opposite (a figure measured and nil), so
+    // the one notation a reader is most likely to mistake for the dash was
+    // the one not defined. Appended here rather than given a seventeenth
+    // term: page 12 composes within 2mm of its box on live Brightsphere, and
+    // this is the entry a reader looking at a small figure is already in.
     term: 'Not meaningful (n/m)',
-    definition: 'A measure the figures cannot support. The pack prints the reason rather than a number, and never a zero — which would say the measure was taken and found to be nothing. A dash (–) is that zero: a figure measured and nil, never a figure the pack does not have.',
+    definition: 'A measure the figures cannot support. The pack prints the reason rather than a number, and never a zero — which would say the measure was taken and found to be nothing. A dash (–) is that zero: a figure measured and nil, never a figure the pack does not have. A real amount too small to show at this scale prints as <1, or (<1) where it is negative — an amount smaller than one unit of the scale in the column header, not a nil.',
   },
   {
     term: 'Gross margin',

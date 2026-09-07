@@ -124,9 +124,25 @@ export const liveDemoTrend: PackTrendPoint[] = Array.from({ length: 12 }, (_, i)
     -115_000, -118_000, -240_000, -300_000, -372_000, -455_000,
     -520_000, -610_000, -690_000, -430_000, -470_000, -532_332,
   ];
+  // AND THE LAST MONTH IS THE STUB THE PACK IS RUN OVER.
+  //
+  // The reporting date is 7 September 2026, so the twelfth point covers seven
+  // of September's thirty days — and this fixture carried none of the three
+  // fields that say so, leaving `partial` undefined. Every "(part)" marker in
+  // the pack, on sheet 5's rows, both of sheet 8's axes, six panel captions
+  // on sheet 10, sheet 12's Period fact and sheet 3's reading note, was
+  // therefore absent from the fixture that claims to BE the live render — so
+  // no test in the suite could measure a page carrying them, which is how a
+  // note added to sheet 3 could push live Brightsphere's sheet 3 over its box
+  // with the whole suite green.
+  const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][monthIndex]!;
+  const partial = i === 11;
   return {
     month: `${year}-${String(monthIndex + 1).padStart(2, '0')}`,
     label: `${names[monthIndex]} ${year}`,
+    partial,
+    daysCovered: partial ? 7 : daysInMonth,
+    daysInMonth,
     revenue: 0,
     otherIncome: 0,
     expenses: 120_000 + i * 4_000,
