@@ -83,6 +83,18 @@ export interface PrintedPack {
    * and guess. A page 3mm over is a padding change and a page 60mm over is a
    * page carrying more than fits — the two need opposite fixes.
    */
+  /**
+   * The cover's brand band as the printing browser resolved it — see the
+   * `page.evaluate` below for why these five properties and not a pixel
+   * count. Null when the pack has no cover.
+   */
+  coverBand: {
+    background: string;
+    heightPx: number;
+    top: string;
+    opacity: number;
+    colorAdjust: string;
+  } | null;
   heights: Array<{
     id: string; mm: number; boxMm: number; overMm: number;
     /** Each direct child of the page box and its own height, for a page that
@@ -191,6 +203,26 @@ export async function printBoardPack(
       });
     }, { px: PX_PER_MM, portrait: CONTENT_BOX_MM, landscape: LANDSCAPE_BOX_MM });
 
+    // The cover's brand band, as the printing browser resolved it.
+    //
+    // Not a pixel count — this harness has no PNG decoder — but it is read
+    // off the LAID-OUT page under print media, and it is the exact set of
+    // properties that failed: the band shared a pseudo-element with the DRAFT
+    // watermark, so it printed at 6% opacity, rotated, in the middle of the
+    // sheet. `opacity` and `top` are what say which of the two won.
+    const coverBand = await page.evaluate(() => {
+      const el = document.querySelector('.pack-cover');
+      if (el === null) return null;
+      const band = getComputedStyle(el, '::after');
+      return {
+        background: band.backgroundColor,
+        heightPx: Number.parseFloat(band.height),
+        top: band.top,
+        opacity: Number.parseFloat(band.opacity),
+        colorAdjust: band.printColorAdjust,
+      };
+    });
+
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
@@ -218,7 +250,7 @@ export async function printBoardPack(
       };
     };
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
-    return { sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, pdf };
+    return { sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, coverBand, pdf };
   } finally {
     await page.close();
   }

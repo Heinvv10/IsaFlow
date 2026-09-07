@@ -74,6 +74,27 @@ describe('assertPackIntegrity — statements', () => {
       .toThrow(/assets.*liabilities.*equity|does not foot/i);
   });
 
+  it('says what failed in words a director can act on, not in source paths', () => {
+    // The refusal reaches the SCREEN — a Brightsphere pack was refused,
+    // correctly, and the reader was handed
+    // "'packFigureSet.current.totalAssets' states 3191495.16 but +
+    // packFigureSet.current.totalLiabilities 5368200.63 …". The first sentence
+    // was fine and the rest was a stack trace in prose, in unrounded rands,
+    // with nothing in it a reader could act on and no statement of the gap.
+    const p = new PackFigureProvenance();
+    balanced(p, { equity: 2_000_000 });
+    let message = '';
+    try { assertPackIntegrity(docOf(p)); } catch (error) { message = (error as Error).message; }
+
+    expect(message).toContain('total assets');
+    expect(message).toContain('total liabilities');
+    expect(message).toContain('total equity');
+    // The gap itself, which is the one number a reader can chase.
+    expect(message).toContain('a difference of R 260 000.00');
+    // And no internal identifier anywhere in it.
+    expect(message).not.toMatch(/packFigureSet\.|packStatementTables\./);
+  });
+
   it('accepts the same balance sheet when it foots', () => {
     const p = new PackFigureProvenance();
     balanced(p);

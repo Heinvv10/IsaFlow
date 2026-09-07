@@ -257,15 +257,23 @@ html.print-mode {
   gap: 4mm; min-height: 255mm; text-align: center;
   position: relative;
 }
-/* Spec §5.4's brand band. The rendered cover had ZERO coloured pixels on it
- * — the brand colour reached the rule under every page title and the chart
- * palette, and the one page a reader sees first carried none of it. A band
- * rather than a tint: `print-color-adjust: exact` is already set above, so it
- * prints, and a solid band survives a photocopier where a tint does not.
+/* Spec §5.4's brand band.
  *
- * `::before`, so the band needs no element in the component and cannot be
- * mistaken for content — nothing in it is a figure. */
-.pack-cover::before {
+ * `::after`, NOT `::before`, and that is the whole fix. `PackCoverV2` renders
+ * one element carrying both `pack-page` and `pack-cover`, and the DRAFT
+ * watermark below is `[data-pack-draft] .pack-page::before` — the same
+ * pseudo-element, at higher specificity. On a draft pack the band therefore
+ * inherited the watermark's `top: 50%`, its rotation and, fatally, its
+ * `opacity: 0.06`: the rendered cover measured 1 972 pixels of rgb(241,243,245)
+ * where a 12mm band of brand colour should have been, which reads as white
+ * paper and was reported as "zero coloured pixels". Two marks, two
+ * pseudo-elements.
+ *
+ * A band rather than a tint: `print-color-adjust: exact` is already set above,
+ * so it prints, and a solid band survives a photocopier where a tint does not.
+ * A pseudo-element rather than an element, so the band needs nothing in the
+ * component and cannot be mistaken for content — nothing in it is a figure. */
+.pack-cover::after {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;

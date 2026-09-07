@@ -108,6 +108,29 @@ describe('the printed board pack', () => {
     }
   }, 120_000);
 
+  it('prints the brand band on the cover of a DRAFT pack', async () => {
+    // The rendered cover measured 1 972 pixels of rgb(241,243,245) where a
+    // 12mm band of brand colour belonged — white paper, to a reader, and
+    // reported as zero coloured pixels. The band and the DRAFT watermark were
+    // the same pseudo-element: `PackCoverV2` puts `pack-page` and
+    // `pack-cover` on one element, and `[data-pack-draft] .pack-page::before`
+    // outranks `.pack-cover::before`, so the band was drawn at the
+    // watermark's 6% opacity, rotated, in the middle of the sheet.
+    //
+    // On the DRAFT fixture specifically: on a final pack the band was fine,
+    // which is why it survived a review.
+    const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
+    expect(liveDemoInput.draft, 'this only fails on a draft pack').toBe(true);
+    expect(printed.coverBand).not.toBeNull();
+    expect(printed.coverBand!.background).toBe('rgb(31, 78, 121)'); // the fixture's brand
+    expect(printed.coverBand!.opacity).toBe(1);
+    expect(printed.coverBand!.top).toBe('0px');
+    expect(printed.coverBand!.heightPx).toBeGreaterThan(30); // 12mm at 96dpi
+    // And it must actually be printed rather than dropped by Chromium's
+    // ink-saving default, which is what washes a band out on paper.
+    expect(printed.coverBand!.colorAdjust).toBe('exact');
+  }, 120_000);
+
   it('runs the company, the pack, the period and the confidentiality mark along every sheet', async () => {
     // `buildFooterHtml` and `buildPdfMetadata` were written, reviewed and
     // merged with NO CALLER: `pdf.ts` asked for a render and never passed

@@ -17,6 +17,7 @@
  * on every correct pack, which is the fastest way to teach a team to bypass it.
  */
 
+import { formatMoney } from '@/lib/format/money';
 import type { PackPagesDocument, PackTable, PackTableColumnKey } from '../pages/packPageModel';
 import { formatPackPeriod } from '../pages/packPeriodLabel';
 // The CONSTANT, not the string it holds. Two reasons: `packOperatingProfitReading`
@@ -40,32 +41,48 @@ interface Identity {
   /** What fails, in the sentence a reader sees. */
   statement: string;
   target: string;
-  terms: ReadonlyArray<{ source: string; sign: 1 | -1 }>;
+  /**
+   * What the target is CALLED on the page, for that same reader.
+   *
+   * The refusal reaches a director's screen — the Brightsphere pack was
+   * refused, correctly, and the message they were given read
+   * "'packFigureSet.current.totalAssets' states 3191495.16 but +
+   * packFigureSet.current.totalLiabilities 5368200.63 …". The first sentence
+   * was fine and the rest was a stack trace in prose, with nothing in it a
+   * reader could act on. The source paths stay in the code, where the person
+   * who needs them is; the sentence names the figures the way the statement
+   * does and states the gap.
+   */
+  targetLabel: string;
+  terms: ReadonlyArray<{ source: string; label: string; sign: 1 | -1 }>;
 }
 
 const IDENTITIES: readonly Identity[] = [
   {
     statement: 'The balance sheet does not foot: assets do not equal liabilities plus equity',
     target: 'packFigureSet.current.totalAssets',
+    targetLabel: 'total assets',
     terms: [
-      { source: 'packFigureSet.current.totalLiabilities', sign: 1 },
-      { source: 'packFigureSet.current.totalEquity', sign: 1 },
+      { source: 'packFigureSet.current.totalLiabilities', label: 'total liabilities', sign: 1 },
+      { source: 'packFigureSet.current.totalEquity', label: 'total equity', sign: 1 },
     ],
   },
   {
     statement: 'Non-current assets do not equal total assets less current assets',
     target: 'packStatementTables.nonCurrentAssets',
+    targetLabel: 'non-current assets',
     terms: [
-      { source: 'packFigureSet.current.totalAssets', sign: 1 },
-      { source: 'packFigureSet.current.currentAssets', sign: -1 },
+      { source: 'packFigureSet.current.totalAssets', label: 'total assets', sign: 1 },
+      { source: 'packFigureSet.current.currentAssets', label: 'current assets', sign: -1 },
     ],
   },
   {
     statement: 'Non-current liabilities do not equal total liabilities less current liabilities',
     target: 'packStatementTables.nonCurrentLiabilities',
+    targetLabel: 'non-current liabilities',
     terms: [
-      { source: 'packFigureSet.current.totalLiabilities', sign: 1 },
-      { source: 'packFigureSet.current.currentLiabilities', sign: -1 },
+      { source: 'packFigureSet.current.totalLiabilities', label: 'total liabilities', sign: 1 },
+      { source: 'packFigureSet.current.currentLiabilities', label: 'current liabilities', sign: -1 },
     ],
   },
   {
@@ -81,14 +98,16 @@ const IDENTITIES: readonly Identity[] = [
     statement:
       'EBITDA does not equal the operating line. The pack captures no depreciation or amortisation, so the two cannot differ — if one has been added, this identity needs the extra term',
     target: 'calculateExtendedRatios.ebitda',
-    terms: [{ source: OPERATING_PROFIT_SOURCE, sign: 1 }],
+    targetLabel: 'EBITDA',
+    terms: [{ source: OPERATING_PROFIT_SOURCE, label: 'the operating line', sign: 1 }],
   },
   {
     statement: 'Gross profit does not equal revenue less cost of sales',
     target: 'packStatementTables.grossProfit',
+    targetLabel: 'gross profit',
     terms: [
-      { source: 'packFigureSet.current.revenue', sign: 1 },
-      { source: 'packFigureSet.current.costOfSales', sign: -1 },
+      { source: 'packFigureSet.current.revenue', label: 'revenue', sign: 1 },
+      { source: 'packFigureSet.current.costOfSales', label: 'cost of sales', sign: -1 },
     ],
   },
 ];
@@ -127,12 +146,17 @@ export function checkStatements(doc: PackPagesDocument): string[] {
 
     const expected = terms.reduce((sum, term) => sum + term.sign * (term.value as number), 0);
     if (Math.abs(target - expected) > MONEY_TOLERANCE) {
+      const money = (n: number) => formatMoney(n, { cents: true, symbol: true });
       const detail = terms
-        .map((term) => `${term.sign === 1 ? '+' : '-'} ${term.source} ${(term.value as number).toFixed(2)}`)
+        .map((term, index) => {
+          const word = index === 0 ? '' : term.sign === 1 ? 'plus ' : 'less ';
+          return `${word}${term.label} of ${money(term.value as number)}`;
+        })
         .join(' ');
       failures.push(
-        `${identity.statement}. '${identity.target}' states ${target.toFixed(2)} ` +
-          `but ${detail} comes to ${expected.toFixed(2)}.`,
+        `${identity.statement}. The pack states ${identity.targetLabel} as ${money(target)}; ` +
+          `${detail} adds up to ${money(expected)}, a difference of ` +
+          `${money(Math.abs(target - expected))}.`,
       );
     }
   }
