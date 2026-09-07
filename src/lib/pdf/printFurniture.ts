@@ -44,11 +44,33 @@ export function buildFooterHtml(f: PackFurniture): string {
   );
 }
 
+/**
+ * The prefix every non-standard Info key carries.
+ *
+ * Namespaced because the Info dictionary is a flat namespace shared with
+ * whatever the renderer wrote: a bare `/Period` is one upstream change away
+ * from meaning something else. `pdfinfo` prints these under `Custom
+ * Metadata`, which is the line that still read `no` after Title, Subject,
+ * Author and Creator all started arriving — the standard keys do not count
+ * as custom however many of them are set.
+ */
+const CUSTOM_PREFIX = 'IsaFlow';
+
 export function buildPdfMetadata(f: PackFurniture): PdfMetadata {
   return {
     title: `${f.companyName} — ${f.packLabel} — ${f.period}`,
     author: f.companyName,
     subject: f.draft ? `${f.packLabel} (draft) for ${f.period}` : `${f.packLabel} for ${f.period}`,
     creator: 'IsaFlow',
+    // Each of these answers a question the title string cannot be parsed for
+    // by a document management system indexing a forwarded pack: which
+    // document type, over what period, final or not, and who may read it.
+    custom: {
+      [`${CUSTOM_PREFIX}Pack`]: f.packLabel,
+      [`${CUSTOM_PREFIX}Company`]: f.companyName,
+      [`${CUSTOM_PREFIX}Period`]: f.period,
+      [`${CUSTOM_PREFIX}Status`]: f.draft ? 'DRAFT' : 'FINAL',
+      [`${CUSTOM_PREFIX}Confidentiality`]: f.confidentiality,
+    },
   };
 }

@@ -151,10 +151,16 @@ describe('playwrightTransport — metadata reaches the file', () => {
   const metadata = {
     title: 'Acme — Management pack — 2026',
     author: 'Acme', subject: 'Management pack for 2026', creator: 'IsaFlow',
+    custom: { IsaFlowPack: 'Management pack', IsaFlowStatus: 'FINAL' },
   };
 
-  it('claims the metadata capability, because it now has it', () => {
-    expect(playwrightTransport.capabilities.metadata).toBe(true);
+  it('claims BEST-EFFORT metadata, which is what it can honestly promise', () => {
+    // Not `true`. `writePdfInfoDictionary` returns the file unchanged for any
+    // PDF whose cross-reference section it does not recognise, and the
+    // capability's own docblock tells call sites to gate PDF/A on it — a
+    // promise this transport cannot keep for every input. Gotenberg's renderer
+    // takes the metadata itself and is `guaranteed`.
+    expect(playwrightTransport.capabilities.metadata).toBe('best-effort');
   });
 
   it('writes the metadata into the returned bytes', async () => {
@@ -164,6 +170,10 @@ describe('playwrightTransport — metadata reaches the file', () => {
     expect(written.length).toBeGreaterThan(pdfBytes.length);
     // The title, encoded — the em dashes in it make it a UTF-16 hex string.
     expect(written.toString('latin1')).toMatch(/\/Title <FEFF[0-9A-F]+>/);
+    // And the non-standard keys, which are the ones `pdfinfo` counts under
+    // `Custom Metadata` — the line the acceptance check reads.
+    expect(written.toString('latin1')).toContain('/IsaFlowPack (Management pack)');
+    expect(written.toString('latin1')).toContain('/IsaFlowStatus (FINAL)');
     // The original bytes are untouched underneath it: an incremental update
     // appends a revision, it never rewrites the page content.
     expect(written.subarray(0, pdfBytes.length).equals(pdfBytes)).toBe(true);

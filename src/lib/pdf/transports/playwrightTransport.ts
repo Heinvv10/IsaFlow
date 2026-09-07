@@ -47,7 +47,15 @@ export const playwrightTransport: PdfTransport = {
   // Info dictionary as an incremental update to the bytes Chromium returns —
   // see that file for why an incremental update cannot damage the page
   // content, and for what it refuses to touch.
-  capabilities: { metadata: true },
+  //
+  // BEST-EFFORT, not a guarantee, and the difference is the whole reason the
+  // capability stopped being a boolean. The writer declines — unchanged bytes,
+  // a log line — for a PDF whose cross-reference section it does not
+  // recognise, and a `true` here told a call site gating PDF/A on this that
+  // the metadata was certainly there. Chromium's Skia writer emits a classic
+  // xref table today, so the practical risk is small; the claim was wrong at
+  // any risk level.
+  capabilities: { metadata: 'best-effort' },
   async render(request: PdfRenderRequest): Promise<Buffer> {
     const { hostname } = new URL(request.url);
     const browser = await getBrowser();
@@ -93,9 +101,20 @@ export const playwrightTransport: PdfTransport = {
         headerTemplate: HEADER_HTML,
         footerTemplate: request.footerHtml ?? FOOTER_HTML,
       });
-      const written = request.metadata ? writePdfInfoDictionary(pdf, request.metadata) : pdf;
-      log.info('playwrightTransport: rendered', { url: request.url, bytes: written.length }, 'pdf');
-      return written;
+      // `metadataWritten` reaches the log rather than being swallowed: this
+      // transport is the incident fallback, and "the pack came out without a
+      // title" is a thing whoever is on the incident needs to be able to see
+      // afterwards. It does not throw — declining is a cosmetic gap and a
+      // cosmetic gap must not become a PDF outage; the honest capability
+      // above is what stops a caller assuming otherwise.
+      const result = request.metadata ? writePdfInfoDictionary(pdf, request.metadata) : null;
+      const out = result?.pdf ?? pdf;
+      log.info(
+        'playwrightTransport: rendered',
+        { url: request.url, bytes: out.length, metadataWritten: result?.written ?? null },
+        'pdf',
+      );
+      return out;
     } finally {
       // The context goes, the browser stays. Closing the context releases the
       // page, its cookies and its route handlers; leaking one would keep this

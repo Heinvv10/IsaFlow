@@ -67,8 +67,10 @@ function htmlPart(html: string): Blob {
 export const gotenbergTransport: PdfTransport = {
   name: 'gotenberg',
   // Gotenberg's Chromium route takes the document information dictionary as a
-  // form field (see gotenbergForm.ts), so metadata survives the render.
-  capabilities: { metadata: true },
+  // form field (see gotenbergForm.ts), so the RENDERER writes it: if the
+  // render succeeded, the metadata is in the file. That is the guarantee the
+  // Playwright transport's post-processing cannot make.
+  capabilities: { metadata: 'guaranteed' },
   async render(request: PdfRenderRequest): Promise<Buffer> {
     const base = process.env.GOTENBERG_URL;
     if (!base) throw new Error('GOTENBERG_URL is not set');

@@ -92,6 +92,10 @@ describe('gotenbergTransport — capabilities', () => {
   it('claims the metadata capability it actually has', () => {
     // Load-bearing metadata (PDF/A for archival retention) must be enforced at
     // the CALL SITE by reading this flag, not hoped for.
-    expect(gotenbergTransport.capabilities.metadata).toBe(true);
+    // `guaranteed`, not merely truthy: Gotenberg's Chromium route takes the
+    // Info dictionary as a form field, so a successful render IS a file with
+    // the metadata in it. The Playwright transport post-processes the bytes
+    // and can decline, which is `best-effort`.
+    expect(gotenbergTransport.capabilities.metadata).toBe('guaranteed');
   });
 });

@@ -27,13 +27,31 @@
 import { log } from '@/lib/logger';
 import type { PdfMetadata } from './pdfTransport';
 
-/** The Info keys this writer sets, in the order a reader tends to want them. */
-const KEYS: ReadonlyArray<[keyof PdfMetadata, string]> = [
+/** The standard Info keys this writer sets, in the order a reader tends to
+ *  want them. `metadata.custom` is written after these — see `PdfMetadata`
+ *  for why a standard-only dictionary still reads `Custom Metadata: no`. */
+const KEYS: ReadonlyArray<[keyof Omit<PdfMetadata, 'custom'>, string]> = [
   ['title', 'Title'],
   ['author', 'Author'],
   ['subject', 'Subject'],
   ['creator', 'Creator'],
 ];
+
+/**
+ * A custom key's NAME, as a PDF name object.
+ *
+ * A name is written `/Foo`, and the delimiters and whitespace that would end
+ * it (`/`, `(`, `<`, `[`, `%`, a space…) have to be escaped `#xx` or they
+ * silently truncate the dictionary — the same class of corruption this file
+ * refuses everywhere else. Only the ASCII graphic range is admitted;
+ * anything else is dropped rather than guessed at, and a key that survives
+ * to nothing is skipped by the caller.
+ */
+export function pdfName(key: string): string {
+  return key.replace(/[^\x21-\x7e]/g, '').replace(/[#()<>\[\]{}/%]/g, (c) =>
+    `#${c.charCodeAt(0).toString(16).padStart(2, '0')}`,
+  );
+}
 
 /**
  * A PDF string.
@@ -100,21 +118,50 @@ function readObjectDictionary(pdf: string, objectNumber: number): string | null 
   return pdf.slice(open + 2, close);
 }
 
-/** The existing entries, minus the ones this writer is about to set. */
-function keepExisting(dictionary: string): string {
-  return KEYS.reduce(
-    (text, [, name]) => text.replace(new RegExp(`/${name}\\s*(\\([^)]*\\)|<[0-9A-Fa-f]*>)`, 'g'), ''),
+/**
+ * The existing entries, minus the ones this writer is about to set.
+ *
+ * An escape-aware literal-string pattern rather than `[^)]*`: a
+ * value containing an ESCAPED close paren — `/Producer (Skia\) x)`, which is
+ * legal and which this file already preserves elsewhere — ended at the first
+ * `)` and left ` x)` behind as garbage inside the new dictionary. Unreachable
+ * with today's Chromium, which writes only `/Creator (Chromium)`, but
+ * unreachable by luck about an upstream writer rather than by construction.
+ *
+ * A name is escaped into the pattern: `pdfName` admits `.`, `*`, `+` and the
+ * rest of the ASCII graphic range, all of which are legal in a PDF name and
+ * none of which may reach a regex unquoted.
+ */
+function keepExisting(dictionary: string, names: string[]): string {
+  return names.reduce(
+    (text, name) => text.replace(
+      new RegExp(`/${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(\\((?:\\\\.|[^\\\\()])*\\)|<[0-9A-Fa-f]*>)`, 'g'),
+      '',
+    ),
     dictionary,
   ).trim();
 }
 
 /**
+ * What `writePdfInfoDictionary` did.
+ *
+ * The bytes, and whether the metadata actually reached them. It used to
+ * return the buffer alone and `log.warn` when it declined, which is how
+ * `capabilities.metadata` came to claim something this file cannot promise —
+ * see `PdfMetadataSupport`. A caller that must know now can.
+ */
+export interface PdfInfoWriteResult {
+  pdf: Buffer;
+  written: boolean;
+}
+
+/**
  * Append `metadata` to `pdf` as a new revision of its Info dictionary.
  *
- * Returns the input unchanged, having logged why, for any file this cannot
- * safely amend.
+ * Returns the input unchanged, with `written: false` and a log line saying
+ * why, for any file this cannot safely amend.
  */
-export function writePdfInfoDictionary(pdf: Buffer, metadata: PdfMetadata): Buffer {
+export function writePdfInfoDictionary(pdf: Buffer, metadata: PdfMetadata): PdfInfoWriteResult {
   // latin1, so one byte is one character and every offset computed against
   // this string is a byte offset into the file. utf8 would silently shift
   // every offset past the first non-ASCII byte in a content stream.
@@ -122,15 +169,26 @@ export function writePdfInfoDictionary(pdf: Buffer, metadata: PdfMetadata): Buff
   const trailer = readTrailer(text);
   if (trailer === null) {
     log.warn('writePdfInfoDictionary: no classic trailer, leaving the PDF unchanged', {}, 'pdf');
-    return pdf;
+    return { pdf, written: false };
   }
 
+  // A custom key whose name escapes to nothing has no name to write under.
+  const custom = Object.entries(metadata.custom)
+    .map(([key, value]) => [pdfName(key), value] as const)
+    .filter(([name]) => name !== '');
+
   const objectNumber = trailer.infoObject ?? trailer.size;
-  const existing = trailer.infoObject === null ? '' : keepExisting(readObjectDictionary(text, objectNumber) ?? '');
-  const written = KEYS.map(([key, name]) => `/${name} ${pdfString(metadata[key])}`).join(' ');
+  const names = [...KEYS.map(([, name]) => name), ...custom.map(([name]) => name)];
+  const existing = trailer.infoObject === null
+    ? ''
+    : keepExisting(readObjectDictionary(text, objectNumber) ?? '', names);
+  const entries = [
+    ...KEYS.map(([key, name]) => `/${name} ${pdfString(metadata[key])}`),
+    ...custom.map(([name, value]) => `/${name} ${pdfString(value)}`),
+  ].join(' ');
 
   // A revision starts at the end of the file it revises.
-  const body = `\n${objectNumber} 0 obj\n<< ${[existing, written].filter(Boolean).join(' ')} >>\nendobj\n`;
+  const body = `\n${objectNumber} 0 obj\n<< ${[existing, entries].filter(Boolean).join(' ')} >>\nendobj\n`;
   const xrefAt = pdf.length + Buffer.byteLength(body, 'latin1');
   const size = Math.max(trailer.size, objectNumber + 1);
 
@@ -146,7 +204,7 @@ export function writePdfInfoDictionary(pdf: Buffer, metadata: PdfMetadata): Buff
     `trailer\n<< ${keepTrailerEntries(trailer.entries)} /Size ${size} ` +
     `/Info ${objectNumber} 0 R /Prev ${trailer.prev} >>\nstartxref\n${xrefAt}\n%%EOF\n`;
 
-  return Buffer.concat([pdf, Buffer.from(body + xref, 'latin1')]);
+  return { pdf: Buffer.concat([pdf, Buffer.from(body + xref, 'latin1')]), written: true };
 }
 
 /** The previous trailer's entries with the three this revision restates

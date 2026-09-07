@@ -91,11 +91,16 @@ export function buildGotenbergFields(
     // so a form snapshot without it never implies "metadata cleared".
     ...(request.metadata
       ? {
+          // The custom keys go in the same dictionary as the standard four —
+          // spread LAST but under names that cannot collide with them, so the
+          // two transports produce the same Info dictionary and `pdfinfo`
+          // reports `Custom Metadata: yes` on either.
           metadata: JSON.stringify({
             Title: request.metadata.title,
             Author: request.metadata.author,
             Subject: request.metadata.subject,
             Creator: request.metadata.creator,
+            ...request.metadata.custom,
           }),
         }
       : {}),
