@@ -72,7 +72,10 @@ const ALLOWED: Record<string, string> = {
     + 'warning, the codes come from a document rather than a considered '
     + 'decision, and it writes in bulk. That is the same shape as the MCP bulk '
     + 'allocation tool, which turned out to have posted every non-supply line '
-    + 'in production. A candidate for the same treatment; flagged, not fixed.',
+    + 'in production. A blind reviewer checked the screen — `gl-import.tsx` is '
+    + 'a column mapper with no preview and no per-row VAT display — and called '
+    + 'it a fifth candidate for COERCION rather than a fourth attended path. '
+    + 'On that reading this entry is a stay of execution, not a verdict.',
 
   // ── NO CLAIM DECIDED ──────────────────────────────────────────────────────
   'src/modules/accounting/services/ar/writeOffService.ts':

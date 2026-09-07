@@ -8,7 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  importsAndUsesGuard, inspectVatGuardCoverage, stripComments,
+  callsAPostingFunction, importsAndUsesGuard, inspectVatGuardCoverage, stripComments,
 } from '../../../scripts/ci/vatGuardRules';
 
 const POSTS = 'await createJournalEntry(companyId, entry, userId);';
@@ -42,6 +42,21 @@ describe('inspectVatGuardCoverage — what is in scope', () => {
   it('counts a raw INSERT as posting, not only the service functions', () => {
     const src = 'line.vatType = c;\nawait sql`INSERT INTO gl_journal_lines (vat_type) VALUES (${c})`;';
     expect(inspectVatGuardCoverage(src)?.kinds).toContain('vat_field_on_a_posting_path');
+  });
+
+  it('catches a posting function called under an import ALIAS', () => {
+    // `import { createJournalEntry as post }` and a `post(` call site left the
+    // file not merely unguarded but INVISIBLE — no finding, no allowlist
+    // entry, silently skipped. The guard side already followed aliases; the
+    // posting side did not.
+    const src = "import { createJournalEntry as post } from '../gl/journalEntryService';\n"
+      + 'const l = { vatType: r.vat };\nawait post(companyId, { lines: [l] }, userId);';
+    expect(inspectVatGuardCoverage(src)?.kinds).toContain('vat_field_on_a_posting_path');
+  });
+
+  it('does not treat an unrelated function called `post` as a posting call', () => {
+    const src = 'const l = { vatType: c };\nawait post(body);';
+    expect(callsAPostingFunction(src)).toBe(false);
   });
 
   it('catches handing a code to the poster that enforces nothing', () => {

@@ -42,12 +42,43 @@ const RATE_CONSTANTS = /\b\w*VAT_(RATE|PCT)\w*\b/;
 const VAT_FIELD = /\b(vatType|vat_type)\s*[:=]/;
 
 /**
- * Getting a line into the ledger. `vat_type` alone is not a defect — reports
- * read it constantly — so the field only puts a file in scope when the file
- * also posts.
+ * The functions that get a line into the ledger. `vat_type` alone is not a
+ * defect — reports read it constantly — so the field only puts a file in scope
+ * when the file also posts.
  */
-const POSTING_CALL =
-  /\b(createJournalEntry|postJournalEntry|allocateTransaction)\s*\(|INSERT\s+INTO\s+gl_journal_lines/i;
+const POSTING_FNS = ['createJournalEntry', 'postJournalEntry', 'allocateTransaction'];
+
+/** A raw write, which no import alias can disguise. */
+const RAW_INSERT = /INSERT\s+INTO\s+gl_journal_lines/i;
+
+/**
+ * Does this file call a posting function, under ANY name it imported it as?
+ *
+ * Matching the canonical names alone left the same alias hole this file had
+ * closed on the guard side: `import { createJournalEntry as post }` and the
+ * call site says `post(`, so the file went not merely unguarded but INVISIBLE
+ * — no finding, no allowlist entry, silently skipped. Aliasing an import is
+ * ordinary TypeScript, not evasion.
+ *
+ * KNOWN LIMIT, stated rather than chased with a bigger regex: a computed
+ * property key (`line[FIELD_MAP.vat] = code`) never puts `vatType` next to a
+ * `:` or `=`, so a generic field-mapper can still slip past VAT_FIELD. That
+ * shape is exactly what bulk-import code looks like. This gate narrows the
+ * ways a poster hides; it does not eliminate them.
+ */
+export function callsAPostingFunction(strippedSource: string): boolean {
+  if (RAW_INSERT.test(strippedSource)) return true;
+  const names = new Set(POSTING_FNS);
+  const re = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s+['"][^'"]*['"]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(strippedSource)) !== null) {
+    for (const spec of m[1]!.split(',')) {
+      const [imported, alias] = spec.split(/\sas\s/).map((x) => x.trim());
+      if (imported && POSTING_FNS.includes(imported) && alias) names.add(alias);
+    }
+  }
+  return [...names].some((n) => new RegExp(`\\b${n}\\s*\\(`).test(strippedSource));
+}
 
 /** Handing a vat code to the poster that deliberately enforces nothing. */
 const ALLOCATE_CALL = /\ballocateTransaction\s*\(/;
@@ -66,7 +97,7 @@ export function inspectVatGuardCoverage(source: string): VatGuardFinding | null 
   const code = stripComments(source);
   const kinds: VatDecisionKind[] = [];
   if (RATE_CONSTANTS.test(code)) kinds.push('rate_constant');
-  if (VAT_FIELD.test(code) && POSTING_CALL.test(code)) kinds.push('vat_field_on_a_posting_path');
+  if (VAT_FIELD.test(code) && callsAPostingFunction(code)) kinds.push('vat_field_on_a_posting_path');
   if (ALLOCATE_CALL.test(code)) kinds.push('allocate_call');
   if (kinds.length === 0) return null;
   return { kinds, guarded: importsAndUsesGuard(code) };
