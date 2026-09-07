@@ -17,6 +17,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packTrendCharts';
+import { buildTrendBlocks } from '@/modules/accounting/services/packs/pages/packPageBlocks';
 import { formatDays, formatMoney, formatPctLevel } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { liveDemoRenderedInput, liveDemoTrend } from './fixtures/liveDemoBoardPack';
@@ -198,7 +199,7 @@ describe('page 10 prints the scale its claims are made against', () => {
     const quoted = panels.filter((p) => /% of the shared one/.test(p.title));
     expect(quoted.length, 'no panel quotes a share, so nothing was checked').toBeGreaterThan(0);
     for (const panel of quoted) {
-      const claimed = Number(/its range is ([\d.]+)% of the shared one/.exec(panel.title)![1]!);
+      const claimed = Number(/its axis is ([\d.]+)% of the shared one/.exec(panel.title)![1]!);
       // The axis ends, as painted. A money panel paints its two domain ends,
       // its end label and its two month labels; the ends are the numeric ones
       // that are not the end label's value.
@@ -247,5 +248,77 @@ describe('the Scale note counts the panels it is about', () => {
   it('says "none of them" where more than two do', () => {
     const text = noteOf(demoInput);
     expect(text).toMatch(/none of them can look like it moved/);
+  });
+});
+
+/**
+ * THE PANEL WHOSE LOW IS NOT NIL, WHICH IS THE ONLY ONE THAT CAN TELL THE
+ * PAGE'S DEFINITION FROM THE PAGE'S ARITHMETIC.
+ *
+ * Page 10 defined a panel's percentage as "that panel's own high-to-low range
+ * over that span" and computed the span of the panel's own AXIS, which floors
+ * at nil. Where a panel's low IS nil the two are the same number, so the
+ * caption stood through eleven visual gates: the revenue panel runs from nil
+ * and reproduces either way. The twelfth checked operating expenses, which
+ * runs 8 to 58 against a shared span of 3 529 — high-to-low 1.4%, axis 1.6%,
+ * and 1.6% is what the page printed. A director who checked it the way the
+ * page told them to got a different answer from the page.
+ *
+ * The DEFINITION moved, not the arithmetic, because a panel prints its two
+ * axis ends and nothing else: the axis reading is the only one reproducible
+ * off the sheet, and it is the quantity the shared/own split is decided on.
+ * So this fixes both halves in one place — the printed figure is the axis
+ * over the span, and the caption says axis. Either half reverting fails it.
+ */
+describe('the share page 10 prints is the share page 10 defines', () => {
+  /** The operating-expenses series of `roundingSplit`, whose low is 4 000 —
+   *  the only fixture in this file where the two readings differ. */
+  const opex = roundingSplit.map((p) => p.operatingExpenses);
+
+  it('is measured on a panel whose low is NOT nil, or it proves nothing', () => {
+    expect(Math.min(...opex)).toBeGreaterThan(0);
+  });
+
+  it("prints the panel's own AXIS over the span, not its high-to-low travel", () => {
+    const { panels, sharedRange } = buildTrendPanels(roundingSplit, PACK_SCALE);
+    const span = Number(/a span of ([\d   ]+)/.exec(sharedRange!)![1]!.replace(/[^\d]/g, ''));
+
+    const panel = panels.find((p) => p.id === 'trend-operating-expenses')!;
+    const claimed = Number(/its axis is ([\d.]+)% of the shared one/.exec(panel.title)![1]!);
+
+    // Both readings, in the units the sheet prints. The axis contains nil;
+    // the travel does not.
+    const printed = (n: number) => Math.round(n / 1_000);
+    const axis = printed(Math.max(0, ...opex)) - printed(Math.min(0, ...opex));
+    const travel = printed(Math.max(...opex)) - printed(Math.min(...opex));
+    const pct = (n: number) => Math.round((n / span) * 1000) / 10;
+
+    expect(pct(axis), 'the fixture cannot tell the two readings apart').not.toBe(pct(travel));
+    expect(claimed).toBe(pct(axis));
+    expect(claimed).not.toBe(pct(travel));
+  });
+
+  it('defines that percentage as the axis, in the caption above the panels', () => {
+    const built = buildTrendPanels(roundingSplit, PACK_SCALE);
+    const caption = buildTrendBlocks(built)
+      .flatMap((b) => (b.kind === 'narrative' ? [b.narrative.body] : []))
+      .join(' ');
+    expect(caption, 'the page states no definition at all').toContain('percentage of it is');
+    expect(caption).toContain('own axis, both ends printed');
+    // The wording the arithmetic disproves, gone: it is the sentence a
+    // director reads before doing the division.
+    expect(caption, 'the caption defines a range the page does not compute')
+      .not.toContain('high-to-low');
+  });
+
+  it('paints both ends of that axis, so the division has both of its terms', () => {
+    const { panels } = buildTrendPanels(roundingSplit, PACK_SCALE);
+    const panel = panels.find((p) => p.id === 'trend-operating-expenses')!;
+    const numbers = painted(panel.svg)
+      .map((t) => t.replace(/[   ]/g, ''))
+      .filter((t) => /^\(?\d+\)?$|^–$/.test(t))
+      .map((t) => (t === '–' ? 0 : Number(t.replace(/[()]/g, '')) * (t.startsWith('(') ? -1 : 1)));
+    expect(Math.min(...numbers)).toBe(0);
+    expect(Math.max(...numbers)).toBe(Math.round(Math.max(...opex) / 1_000));
   });
 });

@@ -318,7 +318,7 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
   // something the sheet shows six times over — every panel prints its own two
   // axis values, and the caption directly above states the formula those
   // values are checked against ("a panel's percentage of it is that panel's
-  // own high-to-low range over that span"). Nothing a reader can do with the
+  // own axis, both ends printed, over that span"). Nothing a reader can do with the
   // sheet changes when the sentence goes.
   //
   // It is removed BECAUSE PAGE 10 HAD TO PAY FOR SOMETHING, and this is the
@@ -349,17 +349,29 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
     // could check it against, so a reviewer took the spans off the two
     // figures in each panel's own title — 2 to 29 against 15 to 41 — got
     // near-identical numbers, and reported the two claims as irreconcilable.
-    // They are not: the percentage is a panel's whole high-to-low range over
-    // the shared span, not the movement between the months its title names.
+    // They are not: the percentage is the span of a panel's own AXIS over the
+    // shared span, not the movement between the months its title names.
     // But a share of an unstated number is not a disclosure, whether or not
     // the arithmetic behind it is right.
+    //
+    // AND THE AXIS IS THE READING BECAUSE THE AXIS IS WHAT IS PRINTED. The
+    // page said "high-to-low range" and computed the axis, and the two agree
+    // on every panel whose low is nil — which is every panel any gate had
+    // checked until the twelfth read the operating-expenses panel, whose
+    // series runs 8 to 58: high-to-low is 50 (1.4% of 3 529) and the printed
+    // figure was 1.6%. The definition moved rather than the arithmetic,
+    // because a panel prints its two AXIS ends and nothing else, so the axis
+    // reading is the only one a director can reproduce off the sheet — which
+    // is the whole point of printing the denominator. It is also the quantity
+    // the split is decided on (`OWN_SCALE_SHARE`): how much of the shared
+    // plot this panel would occupy if it stayed.
     //
     // NO SECOND COPY OF THE RANGE. It was stated here as well, because the
     // fitter may take this note and the percentages would then cite an
     // undisclosed denominator. The commentary block above — which the fitter
     // never touches — carries the range, and every panel now prints the ends
     // of its own axis, so the number is on the sheet twice already.
-    offShared.push(`${named} (too little range to register on it)`);
+    offShared.push(`${named} (too little of it to register)`);
   }
   if (panels.ownUnits.length > 0) {
     offShared.push(`${inWords(panels.ownUnits)} (different units)`);
@@ -406,7 +418,7 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
   const citesShare = panels.ownScale.length > 0 && panels.sharedRange !== null;
   trendBlocks.push(commentary(citesShare
     ? `${trendsCaption(drawn)} The shared y-scale spans ${panels.sharedRange}; a panel's `
-      + 'percentage of it is that panel\'s own high-to-low range over that span.'
+      + 'percentage of it is its own axis, both ends printed, over that span.'
     : trendsCaption(drawn)));
   // The window note is DERIVED from the panels this page draws — see
   // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is

@@ -19,7 +19,7 @@
  * all.
  *
  * SO THE SPLIT IS STATED RATHER THAN THE SCALE ABANDONED. A panel whose own
- * range is a twentieth or less of the shared range is drawn on its own
+ * axis is a twentieth or less of the shared range is drawn on its own
  * domain and SAYS SO in its own title, and page 10's scale note is derived
  * from which panels ended up where. That is the IBCS answer to a scale
  * difference — indicate it, do not hide it — and it is the one presentation
@@ -38,8 +38,9 @@ export interface Domain {
 }
 
 /**
- * A panel whose own range is at or under this share of the shared range is
- * drawn on its own scale.
+ * A panel whose own AXIS is at or under this share of the shared range is
+ * drawn on its own scale. The axis, because that is the figure the panel
+ * prints and the caption defines — see `PanelScale.ownSharePct`.
  *
  * A twentieth, because that is roughly where a 36mm panel stops being able to
  * show anything: a series with 5% of the domain has 1.8mm of travel, and the
@@ -74,8 +75,20 @@ export interface PanelScale {
   domain: Domain;
   /** True where that domain is the money group's shared one. */
   shared: boolean;
-  /** This panel's own range as a percentage of the shared range, to one
-   *  decimal — what the panel's title states when it is on its own scale. */
+  /**
+   * The span of THIS PANEL'S OWN AXIS as a percentage of the shared range, to
+   * one decimal — what the panel's title states when it is on its own scale.
+   *
+   * The AXIS, not the series' high-to-low travel, and the page's caption says
+   * so. The two differ only where a panel's low is not nil — the axis always
+   * contains zero (see `domainOf`) — which is why "high-to-low range" stood
+   * in the caption through eleven gates and failed on the twelfth: operating
+   * expenses run 8 to 58 against a shared span of 3 529, so high-to-low gives
+   * 1.4% and the printed figure was 1.6%. A panel prints its two AXIS ends
+   * and nothing else, so the axis is the only reading a director can check
+   * off the sheet, and it is also the quantity the split below is decided on:
+   * how much of the shared plot this panel would occupy if it stayed on it.
+   */
   ownSharePct: number;
 }
 

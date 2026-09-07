@@ -18,6 +18,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
+import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
 import type { PackBrand } from '@/modules/accounting/services/packs/packBrand';
 
 export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
@@ -135,11 +136,11 @@ export const matters: PackMatter[] = [
     // period. Every check ran clean." over a table listing one matter and
     // 245 of exposure. See `tsconfig.packfixtures.json`.
     kind: 'finding',
-    issue: 'Aged debtor concentration: Acme Holdings is 34.0% of total debtors owed',
+    issue: "Aged debtor concentration: Acme Holdings owes 245, 34.0% of all debtors owed, which come to 720, in R'000",
     quantum: 244_800,
     owner: 'Credit control',
     movement: 'Not tracked — no prior board pack is stored to compare against.',
-    decisionRequired: 'Approve escalation, a credit hold, or a write-off review for this account.',
+    decisionRequired: BOARD_DECISIONS.agedDebtorConcentration,
   },
 ];
 
@@ -432,7 +433,7 @@ export const denseMatters: PackMatter[] = Array.from({ length: 15 }, (_, i) => (
   quantum: 340_000 - i * 21_000,
   owner: 'Finance',
   movement: 'Not tracked — no prior board pack is stored to compare against.',
-  decisionRequired: 'Confirm supporting evidence for this entry or refer it for reversal.',
+  decisionRequired: BOARD_DECISIONS.unusualJournal,
 }));
 
 export const denseInput: BoardPackInput = {

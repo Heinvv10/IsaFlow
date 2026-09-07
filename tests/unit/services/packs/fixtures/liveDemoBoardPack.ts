@@ -27,6 +27,7 @@
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
+import { BOARD_DECISIONS } from '@/modules/accounting/services/packs/pages/packMatterDecisions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { demoInput, figures } from './boardPackInputs';
 
@@ -218,7 +219,7 @@ export const liveDemoMatters: PackMatter[] = [
     quantum: Math.max(400, 244_800 - i * 9_600),
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
-    decisionRequired: 'Confirm supporting evidence for this entry or refer it for reversal.',
+    decisionRequired: BOARD_DECISIONS.unusualJournal,
   })),
   ...[2024, 2026].map((fy) => ({
     kind: 'finding' as const,
@@ -226,7 +227,7 @@ export const liveDemoMatters: PackMatter[] = [
     quantum: null,
     owner: 'Company secretary',
     movement: NO_PRIOR_MEETING_RECORD,
-    decisionRequired: 'Approve immediate filing and confirm any penalty exposure.',
+    decisionRequired: BOARD_DECISIONS.overdueFiling,
   })),
 ];
 
@@ -275,7 +276,7 @@ const nullQuantumMatter = (issue: string): PackMatter => ({
   quantum: null,
   owner: 'Finance',
   movement: NO_PRIOR_MEETING_RECORD,
-  decisionRequired: 'Approve immediate filing and confirm any penalty exposure.',
+  decisionRequired: BOARD_DECISIONS.overdueFiling,
 });
 
 /**

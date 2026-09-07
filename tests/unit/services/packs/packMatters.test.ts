@@ -202,23 +202,45 @@ describe('buildMatters', () => {
    *
    * So the base is stated, and this reproduces the division a director would
    * do: the two printed figures must give the printed percentage.
+   *
+   * AND THE NUMERATOR IS STATED TOO, WHICH IS THE TWELFTH GATE'S WORST
+   * DEFECT. The sentence printed the share and the base and left this
+   * matter's own exposure to page 11's quantum column — a column page 4's
+   * action panel does not have. Brightsphere's page 4 therefore headlined
+   * "the largest carrying 4 128 of exposure" over a panel whose largest
+   * printed figure was 4 146, the debtors BASE: the headline was true, its
+   * subject (3 192) was two sheets away, and the figure that WAS on the sheet
+   * pointed at the other conclusion. A page whose standard is that every
+   * claim is checkable where it is made cannot rank a matter by a number it
+   * does not print, so all three figures are in the sentence.
    */
   it('prints the base its percentage is a share of, and the two reproduce it', async () => {
     agingSpy.mockResolvedValue(agingWithConcentration(3_191_824, [488_225, 465_750, 172.5]));
 
-    const issue = (await buildMatters('c1', window))
-      .find((m) => m.issue.startsWith('Aged debtor concentration'))!.issue;
+    const matter = (await buildMatters('c1', window))
+      .find((m) => m.issue.startsWith('Aged debtor concentration'))!;
+    const { issue } = matter;
 
-    // Read back exactly as a reader does: the percentage, and the base.
-    const pct = Number(/is ([\d.]+)% of/.exec(issue)![1]);
-    const base = Number(/come to ([\d\u00a0 ]+)/.exec(issue)![1]!.replace(/[^\d]/g, ''));
+    // Read back exactly as a reader does: this account's own exposure, the
+    // percentage, and the base.
+    const owed = Number(/owes ([\d\u2009\u00a0 ]+),/.exec(issue)![1]!.replace(/[^\d]/g, ''));
+    const pct = Number(/([\d.]+)% of all debtors owed/.exec(issue)![1]);
+    const base = Number(/come to ([\d\u2009\u00a0 ]+)/.exec(issue)![1]!.replace(/[^\d]/g, ''));
     expect(base, 'the matter states no base for its percentage').toBeGreaterThan(0);
 
-    // The quantum the table prints, at the pack's own scale.
+    // The quantum the table prints, at the pack's own scale — and the
+    // sentence states the SAME figure, because page 4 has no column to read
+    // it from.
     const quantum = Math.round(3_191_824 / 1_000);
+    expect(owed, 'the matter does not print its own exposure').toBe(quantum);
+    expect(Math.round(matter.quantum! / 1_000)).toBe(owed);
     expect(base).toBe(Math.round(4_145_971.5 / 1_000));
-    expect((quantum / base) * 100, 'the printed figures do not give the printed percentage')
+    expect((owed / base) * 100, 'the printed figures do not give the printed percentage')
       .toBeCloseTo(pct, 1);
+
+    // AND THE EXPOSURE IS THE SMALLER OF THE TWO FIGURES IT SITS BESIDE,
+    // which is the fact page 4 was unable to show.
+    expect(owed).toBeLessThan(base);
   });
 
   it('keeps the exception itself off the page and out of the log line', async () => {

@@ -31,6 +31,7 @@ import { getUnusualJournals } from '@/modules/accounting/services/reports/unusua
 import { getOverdueStatutoryFilings } from '@/modules/accounting/services/reports/statutoryFilingsService';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { formatPackDate } from './packPeriodLabel';
+import { BOARD_DECISIONS } from './packMatterDecisions';
 import type { PeriodWindow } from '@/modules/accounting/services/reports/priorPeriod';
 
 /**
@@ -120,14 +121,24 @@ async function agedDebtorConcentrationMatters(
   // stated in the pack's ONE prose form for a unit (`inScale`) because the
   // quantum column beside it is headed in R'000 and an unmarked figure in the
   // issue column would be read in rands.
+  // AND THE NUMERATOR TOO, BECAUSE PAGE 4 HAS NO QUANTUM COLUMN. The sentence
+  // stated the share and the base and left this matter's own exposure to page
+  // 11's column, so Brightsphere's page 4 headlined "the largest carrying
+  // 4 128 of exposure" over a panel whose largest printed figure was 4 146 —
+  // the debtors BASE — with the 3 192 that ranks the row two sheets away. The
+  // headline was true and the sheet's own biggest number argued against it;
+  // the twelfth gate called it the pack's most damaging defect. Three figures,
+  // all three named. It repeats page 11's quantum column deliberately, as the
+  // credit-month matter does: a row quoting a ratio carries its numerator.
   return [{
     kind: 'finding',
-    issue: `Aged debtor concentration: ${largest.entityName} is ${pct.toFixed(1)}% of all debtors `
-      + `owed, which come to ${inScale(formatMoney(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}`,
+    issue: `Aged debtor concentration: ${largest.entityName} owes `
+      + `${formatMoney(round2(largest.total), { scale: PACK_SCALE })}, ${pct.toFixed(1)}% of all `
+      + `debtors owed, which come to ${inScale(formatMoney(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}`,
     quantum: round2(largest.total),
     owner: 'Credit control',
     movement: NO_PRIOR_MEETING_RECORD,
-    decisionRequired: 'Approve escalation, a credit hold, or a write-off review for this account.',
+    decisionRequired: BOARD_DECISIONS.agedDebtorConcentration,
   }];
 }
 
@@ -149,7 +160,7 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
     quantum: round2(total),
     owner: 'Bookkeeping',
     movement: NO_PRIOR_MEETING_RECORD,
-    decisionRequired: 'Approve time and resource to clear the reconciliation backlog.',
+    decisionRequired: BOARD_DECISIONS.unreconciledBank,
   }];
 }
 
@@ -166,7 +177,7 @@ async function unusualJournalMatters(
     quantum: round2(f.amount),
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
-    decisionRequired: 'Confirm supporting evidence for this entry or refer it for reversal.',
+    decisionRequired: BOARD_DECISIONS.unusualJournal,
   }));
 }
 
@@ -194,7 +205,7 @@ async function overdueFilingMatters(companyId: string, window: PeriodWindow): Pr
     quantum: null,
     owner: 'Company secretary',
     movement: NO_PRIOR_MEETING_RECORD,
-    decisionRequired: 'Approve immediate filing and confirm any penalty exposure.',
+    decisionRequired: BOARD_DECISIONS.overdueFiling,
   }));
 }
 
@@ -240,10 +251,12 @@ function failedSourceMatter(label: string): PackMatter {
     quantum: null,
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
-    decisionRequired: 'Re-run this check before the meeting; do not treat the omission as clean.',
+    decisionRequired: BOARD_DECISIONS.checkFailed,
   };
 }
 
+// NOT IN `BOARD_DECISIONS`, deliberately — see that module: this row says
+// there is nothing to decide, and phrasing that as a decision would invent one.
 const NO_MATTERS: PackMatter = {
   kind: 'none',
   issue: 'No matters require board attention this period — every check ran clean.',

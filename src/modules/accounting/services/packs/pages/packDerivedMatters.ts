@@ -10,6 +10,7 @@
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { NO_PRIOR_MEETING_RECORD, type PackMatter } from './packMatters';
+import { BOARD_DECISIONS } from './packMatterDecisions';
 import { monthLabel } from './packPartialMonth';
 import {
   profitStanding,
@@ -127,7 +128,7 @@ export function creditMonthMatters(
     quantum: round2(creditOf(point)),
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
-    decisionRequired: 'Identify the reversals behind the credit and confirm the period they belong to.',
+    decisionRequired: BOARD_DECISIONS.creditMonth,
   }));
 }
 

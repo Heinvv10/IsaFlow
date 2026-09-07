@@ -252,7 +252,7 @@ function moneyPanel(
     // it occupies a share of it. Both were true and the sentence did not say
     // how — the percentage is WHY the panel is off, not where it sits. Said
     // as the reason it is.
-    clauses.push(`Own scale: its range is ${drawn.ownSharePct}% of the shared one, too little to `
+    clauses.push(`Own scale: its axis is ${drawn.ownSharePct}% of the shared one, too little to `
       + 'show on it.');
   }
   // AND THE MONTH THAT SETS THE SCALE IS NAMED ON THE PANEL THAT CARRIES IT.
@@ -387,8 +387,9 @@ export interface TrendPanels {
    * printed nothing a reader could check them against; a reviewer took the
    * spans off the two figures in each panel's own title (2 to 29, 15 to 41),
    * got near-identical numbers, and reported the claims as irreconcilable.
-   * They are not — the percentage is a panel's whole HIGH-TO-LOW range over
-   * the shared span, not the movement between its first and last month — but
+   * They are not — the percentage is the span of a panel's own AXIS, whose
+   * two ends the panel prints, over the shared span, not the movement
+   * between its first and last month — but
    * a claim a reader cannot check is a disclosure failure whether or not the
    * arithmetic is right.
    *
