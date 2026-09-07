@@ -162,6 +162,28 @@ describe('formatMoney scaling', () => {
     expect(formatMoney(1_400, { scale: "R'000" })).toBe('1');
   });
 
+  it('reaches the bound for the amounts the pack actually carries', () => {
+    // THE GUARD USED TO STOP ONE RUNG SHORT OF ITS OWN DEFECT. The zero test
+    // read the SCALED number, and `signOf` answers 'zero' under half a printed
+    // unit — so at `R'000` every amount below R5 printed the dash, which is
+    // this formatter's word for a MEASURED zero, and `<1` was unreachable
+    // there. R400 (above) was inside the window; R4 was not, and the matters
+    // page's quantum column is where an exposure of R4 lands.
+    expect(formatMoney(4, { scale: "R'000" })).toBe('<1');
+    expect(formatMoney(-4, { scale: "R'000" })).toBe('(<1)');
+    expect(formatMoney(0.01, { scale: "R'000" })).toBe('<1');
+    // At millions the same window is a thousand times wider.
+    expect(formatMoney(4_000, { scale: "R'm" })).toBe('<1');
+
+    // AND THE OTHER DIRECTION, which is why the tolerance did not move: half a
+    // cent is not an amount. A statement total is a subtraction, and float
+    // residue off one must read as the measured zero it is rather than as
+    // money too small to show.
+    expect(formatMoney(0.004, { scale: "R'000" })).toBe('–');
+    expect(formatMoney(-0.004)).toBe('–');
+    expect(formatMoney(0)).toBe('–');
+  });
+
   it('scales millions too', () => {
     expect(formatMoney(4_200_000, { scale: "R'm" })).toBe('4');
     expect(MONEY_SCALES["R'm"]).toBe(1_000_000);

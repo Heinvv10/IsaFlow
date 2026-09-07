@@ -105,10 +105,19 @@ export function formatMoney(
   n: number,
   opts: { cents?: boolean; symbol?: boolean; scale?: MoneyScale } = {},
 ): string {
-  // Scaled BEFORE the sign is read, so the sign and the zero test both apply
-  // to the number actually printed. An actual zero prints the dash.
   const scaled = opts.scale ? n / MONEY_SCALES[opts.scale] : n;
-  const s = signOf(scaled);
+  // THE ZERO TEST IS ON THE AMOUNT MEASURED, NOT ON THE NUMBER PRINTED, and
+  // that is the correction. It read `signOf(scaled)`, which answers 'zero' for
+  // anything under half a printed unit — at `R'000` that is EVERY amount under
+  // R5 — so the dash, this formatter's word for a measured zero, was printed
+  // over real money and the `<1` branch below could not be reached under R5.
+  // The pack's basis page declares `<1` as one of the four notations it
+  // prints; an R4 exposure in the matters page's quantum column made that
+  // declaration false.
+  //
+  // The tolerance itself does not move: half a cent is still nothing, so
+  // float residue off a subtraction reads as the measured zero it is.
+  const s = signOf(n);
   if (s === 'zero') return ZERO_DASH;
   const body = (opts.cents ? cents : whole)
     .format(Math.abs(scaled))
