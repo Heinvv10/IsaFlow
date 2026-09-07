@@ -41,6 +41,23 @@ const withRatios: PackTrendPoint[] = liveDemoTrend.map((point, i) => ({
   debtorDays: 30 + i * 2,
 }));
 
+/**
+ * A TREND WHOSE ROUNDED AND UNROUNDED ARITHMETIC DISAGREE, which is the only
+ * kind of month series that can tell the two apart.
+ *
+ * Operating expenses run to 58 400 against a shared domain of (1 621 400) to
+ * 1 908 400. On the raw rands that is 1.654% — printed 1.7%. On the figures
+ * the sheet actually prints, 58 over a span of 3 529, it is 1.6%. The live
+ * demo trend rounds the same either way, which is why it could not see this.
+ */
+const roundingSplit: PackTrendPoint[] = liveDemoTrend.map((point, i) => ({
+  ...point,
+  revenue: 0,
+  operatingExpenses: i === 6 ? 58_400 : 4_000 + i * 100,
+  netProfit: i === 6 ? 1_908_400 : -100_000 - i * 1_000,
+  cash: i === 11 ? -1_621_400 : -200_000 - i * 5_000,
+}));
+
 describe('page 10 prints the scale its claims are made against', () => {
   it('labels both ends of every panel\'s own domain', () => {
     const { panels } = buildTrendPanels(withRatios, PACK_SCALE);
@@ -104,6 +121,57 @@ describe('page 10 prints the scale its claims are made against', () => {
       if (!panel.title.includes('% of the shared')) continue;
       expect(panel.title, `${panel.id} quotes a share of a scale it does not say it is off`)
         .toContain('Own scale');
+    }
+  });
+
+  /**
+   * THE CHECK THE PAGE INVITES, DONE THE WAY A READER WOULD DO IT.
+   *
+   * Page 10 says "Every panel labels the low and high of its own axis, so a
+   * share of the range can be checked off the sheet." A reviewer did exactly
+   * that on the live pack: operating expenses printed an axis of 58 and –
+   * against a stated shared span of 3 528, divided them, got 1.6%, and read
+   * 1.7% on the panel. Neither figure was wrong — the shares were computed on
+   * unrounded rands — but the page dared the reader to check it and the check
+   * did not reproduce.
+   *
+   * So this takes the four numbers off the SHEET, not out of the model: the
+   * two axis labels the panel paints and the span the note states. Nothing
+   * here recomputes the share the way the source does, so a share derived
+   * from raw values again fails it.
+   */
+  it('reproduces every printed share from the figures the sheet prints', () => {
+    const { panels, sharedRange } = buildTrendPanels(roundingSplit, PACK_SCALE);
+    const span = Number(/a span of ([\d\u2009 ]+)/.exec(sharedRange!)![1]!.replace(/[^\d]/g, ''));
+    expect(span).toBeGreaterThan(0);
+
+    // AND THE SPAN IS THE DIFFERENCE OF THE TWO EXTREMES THE SAME SENTENCE
+    // STATES. Rounded separately it is not: the live page published "1 908",
+    // "(1 621)" and "a span of 3 528", three figures a reader cannot make
+    // agree with a subtraction.
+    const ends = /^(.*) to (.*), a span of/.exec(sharedRange!)!;
+    const asNumber = (t: string): number => {
+      const digits = Number(t.replace(/[^\d]/g, ''));
+      return t.startsWith('(') ? -digits : digits;
+    };
+    expect(asNumber(ends[2]!) - asNumber(ends[1]!), 'the stated span is not the stated range')
+      .toBe(span);
+
+    const quoted = panels.filter((p) => /% of the shared one/.test(p.title));
+    expect(quoted.length, 'no panel quotes a share, so nothing was checked').toBeGreaterThan(0);
+    for (const panel of quoted) {
+      const claimed = Number(/its range is ([\d.]+)% of the shared one/.exec(panel.title)![1]!);
+      // The axis ends, as painted. A money panel paints its two domain ends,
+      // its end label and its two month labels; the ends are the numeric ones
+      // that are not the end label's value.
+      const numbers = painted(panel.svg)
+        .map((t) => t.replace(/\u2009| /g, ''))
+        .filter((t) => /^\(?[\d]+\)?$|^\u2013$/.test(t))
+        .map((t) => (t === '\u2013' ? 0 : Number(t.replace(/[()]/g, '')) * (t.startsWith('(') ? -1 : 1)));
+      expect(numbers.length, `${panel.id} paints no axis ends`).toBeGreaterThanOrEqual(2);
+      const own = Math.max(...numbers) - Math.min(...numbers);
+      expect(Math.round((own / span) * 1000) / 10, `${panel.id}: the sheet's own arithmetic`)
+        .toBe(claimed);
     }
   });
 

@@ -207,11 +207,19 @@ describe('buildBoardPackPages', () => {
     for (const [name, input] of [['demo', demoInput], ['brightsphere', brightsphereInput]] as const) {
       const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Income statement')!;
       const note = page.footnotes.map((f) => f.text).join(' ');
-      expect(note, `${name} does not explain its bridge's sign`).toMatch(/EFFECT on net profit/);
+      // BOTH RULES, because the bar is drawn by two of them: the sheet said
+      // only that each bar is drawn by its effect on net profit, while the
+      // colour keys off the line's class — which on a company with negative
+      // revenue puts a green bar below the axis under a footnote a reader
+      // can only take as promising the opposite.
+      expect(note, `${name} does not say how the bridge is positioned`)
+        .toMatch(/POSITIONS each bar by its effect on net profit/);
+      expect(note, `${name} does not say how the bridge is coloured`)
+        .toMatch(/COLOURS it by what the line is: green for income, red for cost/);
       // It NAMES a line and both of its figures, so a reader can check the
       // rule against the page rather than take it on trust — and the line it
       // names is one the table on that page actually carries.
-      const named = /profit\. (.*) of .* in the table is drawn as/.exec(note)?.[1];
+      const named = /ran\. (.+) of .+ in the table is drawn as/.exec(note)?.[1];
       expect(named, 'the footnote names no line').toBeDefined();
       const rows = page.blocks.flatMap((b) => (b.kind === 'table' ? b.table.rows.map((r) => r.label.toLowerCase()) : []));
       expect(rows).toContain(named!.toLowerCase());
@@ -223,6 +231,40 @@ describe('buildBoardPackPages', () => {
     expect(page.footnotes.map((f) => f.number)).toEqual(
       page.footnotes.map((_, index) => index + 1),
     );
+  });
+
+  /**
+   * AND THE INK THE FOOTNOTE NAMES IS THE INK THE BAR IS DRAWN IN.
+   *
+   * The sentence tells a director that the named line is green because it is
+   * an income line, or red because it is a cost line. That is a claim about
+   * the picture beside it, so it is checked against the picture's own model
+   * rather than against a second copy of the rule.
+   */
+  it('names the colour the bar it points at is actually drawn in', () => {
+    for (const [name, input] of [['demo', demoInput], ['brightsphere', brightsphereInput]] as const) {
+      const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Income statement')!;
+      const note = page.footnotes.map((f) => f.text).join(' ');
+      const named = /ran\. (.+) of .+ in the table is drawn as|ran\. (.+) is drawn in/.exec(note);
+      expect(named, `${name}: the footnote names no line`).not.toBeNull();
+      const label = (named![1] ?? named![2])!;
+      const ink = /is drawn in (green|red)|and in (green|red), because/.exec(note);
+      expect(ink, `${name}: the footnote names no ink`).not.toBeNull();
+      const word = (ink![1] ?? ink![2])!;
+
+      const bar = page.blocks.flatMap((b) => (b.kind === 'chart' ? b.chart.waterfallBars ?? [] : []))
+        .find((b) => b.label === label);
+      expect(bar, `${name}: the footnote names a line the bridge does not draw`).toBeDefined();
+      expect(bar!.paint, `${name}: the sheet describes ink the bar was not given`)
+        .toBe(word === 'green' ? 'favourable' : 'unfavourable');
+      // Every movement bar carries its class, or the next footnote to read
+      // one would be describing an absence.
+      const movements = page.blocks
+        .flatMap((b) => (b.kind === 'chart' ? b.chart.waterfallBars ?? [] : []))
+        .filter((b) => b.kind === 'increase' || b.kind === 'decrease');
+      expect(movements.length).toBeGreaterThan(0);
+      expect(movements.every((b) => b.paint !== undefined), `${name}: a bar carries no class`).toBe(true);
+    }
   });
 
   it('turns no sheet sideways — twelve portrait pages', () => {
@@ -700,6 +742,43 @@ describe('Brightsphere as the live route composed it', () => {
     const chart = incomeStatement().blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
     expect(chart.id).toBe('profit-bridge');
     expect(chart.heightMm).toBe(48);
+  });
+
+  /**
+   * PAGE 8'S CHART IS SIZED BY THE SHEET IT IS ON, the way page 6's is.
+   *
+   * It was a fixed 36mm, chosen when this page also carried a cash bridge and
+   * was printing on two sheets. On a company with no bridge to draw the page
+   * then ended at two thirds of the paper with its only picture of cash in a
+   * band under half the plot depth of the two charts before it.
+   */
+  it('gives page 8 the tallest cash line the sheet has room for', () => {
+    const cash = buildBoardPackPages(liveDemoRenderedInput)
+      .pages.find((page) => page.navLabel === 'Cash')!;
+    const line = cash.blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))
+      .find((c) => c.id === 'cash-trend')!;
+    // On the height grid, and not on the bottom of it: this page draws no
+    // bridge, so there is nothing for the line to give height back to.
+    expect([110, 72, 48]).toContain(line.heightMm);
+    // A rung taller would not fit — which is what makes this the tallest and
+    // not merely a bigger constant.
+    expect(pageMm(cash)).toBeLessThanOrEqual(pageBoxMm(cash));
+    expect(cash.footnotes.some((f) => f.text.startsWith(OMISSION_MARK))).toBe(false);
+  });
+
+  it('steps the cash line down where the sheet also carries a bridge', () => {
+    // The dense fixture's page 8 carries a cash bridge, two disclosures and a
+    // five-row table with four footnotes. The line is the one thing on it
+    // with a height to give, and it must not be bought with the sentence
+    // saying part of the movement is unexplained.
+    const cash = buildBoardPackPages(demoInput).pages.find((page) => page.navLabel === 'Cash')!;
+    const charts = cash.blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart] : []));
+    const line = charts.find((c) => c.id === 'cash-trend');
+    if (line !== undefined) {
+      expect(line.heightMm).toBeLessThanOrEqual(48);
+      expect(pageMm(cash)).toBeLessThanOrEqual(pageBoxMm(cash));
+    }
+    expect(cash.footnotes.some((f) => f.text.startsWith(OMISSION_MARK))).toBe(false);
   });
 
   it('leaves a page that already fits at the height its predicates chose', () => {

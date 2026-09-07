@@ -37,6 +37,19 @@ export interface PackWaterfallBar {
    * re-worded.
    */
   uncaptured?: boolean;
+  /**
+   * WHICH INK THE BAR IS ACTUALLY DRAWN IN, carried as data for the same
+   * reason `kind` is: the sheet makes a claim about the colour rule in
+   * words, and a claim about a drawing has to be checkable against the
+   * drawing rather than against a second copy of the rule.
+   *
+   * It mirrors `stepColour` in `packChartOptions.ts` exactly — favourable
+   * ink on an income line, unfavourable on a cost line, whichever way the
+   * period ran — and `bridgeSignFootnote` reads it to say, on the page,
+   * which of the two the named bar is. Absent on a subtotal, which carries
+   * no class of its own and stays actual ink.
+   */
+  paint?: 'favourable' | 'unfavourable';
 }
 
 /**

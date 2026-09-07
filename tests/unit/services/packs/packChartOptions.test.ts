@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { waterfallOption, trendOption, DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
+import { waterfallOption, trendOption, stepPaint, DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 import { FALLBACK } from '@/lib/charts/theme';
 import { formatMoney } from '@/lib/format/money';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
@@ -83,6 +83,36 @@ describe('waterfallOption', () => {
     expect(rectColour(series, 0)).toBe(DEFAULT_CHART_PALETTE.fav);
     expect(rectColour(series, 1)).toBe(DEFAULT_CHART_PALETTE.unfav);
     expect(rectColour(series, 2)).toBe(DEFAULT_CHART_PALETTE.ink);
+  });
+
+  /**
+   * THE BAR MODEL AND THE DRAWING CANNOT DISAGREE ABOUT THE INK.
+   *
+   * Page 6's footnote now tells a director which colour a named bar is drawn
+   * in and why — a claim about the picture, made in words beside it. It reads
+   * `PackWaterfallBar.paint`, which is `stepPaint`; this holds `stepPaint` to
+   * the colour the same step is actually painted, so the two cannot drift
+   * into a sheet that describes a bar it did not draw.
+   */
+  it('reports the same class it paints, step by step', () => {
+    const opt = waterfallOption(steps) as unknown as { series: CustomSeries[] };
+    const series = opt.series[0]!;
+    steps.forEach((step, index) => {
+      const expected = stepPaint(step) === null
+        ? DEFAULT_CHART_PALETTE.ink
+        : stepPaint(step) === 'favourable'
+          ? DEFAULT_CHART_PALETTE.fav
+          : DEFAULT_CHART_PALETTE.unfav;
+      expect(rectColour(series, index), `${step.label} is not painted as it is reported`)
+        .toBe(expected);
+    });
+    // And a cost line keeps its class when the period runs the other way: a
+    // net-credit expense band is still drawn as a cost, which is the whole
+    // reason the footnote has to say so.
+    expect(stepPaint({
+      label: 'Operating Expenses', start: 0, end: 3_717_000, value: -3_717_000,
+      isSubtotal: false, color: 'red',
+    })).toBe('unfavourable');
   });
 
   it('draws a bar that spans both sides of zero when the running total crosses it', () => {

@@ -35,6 +35,7 @@ import { buildProfitWaterfall, type WaterfallStep } from '@/modules/accounting/s
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import {
   compositionBarOption,
+  stepPaint,
   waterfallOption,
   type CompositionSeries,
 } from '@/modules/accounting/services/packs/packChartOptions';
@@ -49,6 +50,7 @@ import type { PackChartSpec, PackWaterfallBar } from './packPageModel';
  *  `packPageCharts` import path still resolves after the split. */
 export {
   buildCashTrendChart,
+  shorterCashTrendChart,
   buildTrendPanels,
   TRENDS_PANELS_SPECIFIED,
 } from './packTrendCharts';
@@ -163,13 +165,17 @@ function barKind(step: WaterfallStep, index: number, count: number): PackWaterfa
  *   proportion check must not break when either plug is re-worded.
  */
 function toBars(steps: WaterfallStep[], uncapturedLabel: string | null): PackWaterfallBar[] {
-  return steps.map((step, index) => ({
-    label: step.label,
-    start: step.start,
-    end: step.end,
-    kind: barKind(step, index, steps.length),
-    ...(step.label === uncapturedLabel ? { uncaptured: true } : {}),
-  }));
+  return steps.map((step, index) => {
+    const paint = stepPaint(step);
+    return {
+      label: step.label,
+      start: step.start,
+      end: step.end,
+      kind: barKind(step, index, steps.length),
+      ...(step.label === uncapturedLabel ? { uncaptured: true } : {}),
+      ...(paint === null ? {} : { paint }),
+    };
+  });
 }
 
 /**

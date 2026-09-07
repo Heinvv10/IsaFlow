@@ -402,7 +402,8 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
 
 
 /**
- * WHY THE BRIDGE LABELS A LINE THE OPPOSITE WAY THE TABLE DOES.
+ * WHAT THE BRIDGE IS DOING WITH POSITION AND WHAT IT IS DOING WITH COLOUR —
+ * because the page stated one rule and drew by two.
  *
  * Sheet 6 prints operating expenses of `226` in the table and `(226)` on the
  * bar six centimetres below it. Both are right and they are not the same
@@ -415,11 +416,29 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
  * the table `(3 717)`, and the chart appears to state the opposite sign to
  * the table on the same sheet. Nothing on the page said which was which.
  *
- * DERIVED FROM A ROW THAT ACTUALLY DIVERGES, not printed as boilerplate: the
- * footnote names one line whose bar and cell carry opposite signs, with both
- * figures, so a reader can check the rule against the page in front of them.
- * Null when no line diverges — a pack whose bridge and table agree
- * everywhere needs no note, and one that printed it anyway would be
+ * AND THE SENTENCE THAT SAID IT WAS HALF THE RULE. It read "the bridge draws
+ * each line by its EFFECT on net profit", which is true of where a bar is
+ * drawn and false of what colour it is: colour keys off the line's CLASS —
+ * income green, cost red, in every pack, whichever way the period ran (see
+ * `stepColour`). On Brightsphere that produced a green bar pointing DOWN
+ * 5 535 and two red bars pointing UP, under a footnote a reader could only
+ * read as promising the opposite. Two reviewers have objected to the palette
+ * and the class rule has survived both on the merits — a colour that means
+ * one thing on a profitable company and another on a distressed one is not
+ * carrying meaning — so what was wrong was the sentence. It now states both
+ * rules, and names a bar on the page to check each against.
+ *
+ * DERIVED FROM A BAR THAT ACTUALLY LOOKS WRONG, not printed as boilerplate.
+ * Two things make a bar look wrong, and either one puts this note on the
+ * page:
+ *
+ *   1. its bar and its table cell carry opposite signs (Demo's cost of
+ *      sales, Brightsphere's operating expenses);
+ *   2. its ink and its direction disagree — a green bar that points down, a
+ *      red one that points up (Brightsphere's revenue).
+ *
+ * Null when neither happens, because a pack whose bridge nowhere surprises
+ * the reader needs no note, and one that printed it anyway would be
  * explaining a contradiction the reader cannot find.
  */
 export function bridgeSignFootnote(
@@ -430,25 +449,52 @@ export function bridgeSignFootnote(
 ): PackFootnote[] {
   const bars = chart.waterfallBars ?? [];
   const rows = new Map(table.rows.map((row) => [row.label.toLowerCase(), row.figures.actual?.value ?? null]));
-  for (const bar of bars) {
-    if (bar.kind === 'subtotal' || bar.kind === 'open' || bar.kind === 'close') continue;
+
+  const movements = bars.filter((bar) => bar.kind !== 'subtotal' && bar.kind !== 'open' && bar.kind !== 'close');
+  // The sign divergence first, where there is one: it is the harder of the
+  // two to read off the page unaided, because it needs the table AND the
+  // chart, and it explains the colour case in passing.
+  const diverged = movements.find((bar) => {
     const cell = rows.get(bar.label.toLowerCase());
-    if (cell === null || cell === undefined || cell === 0) continue;
+    if (cell === null || cell === undefined || cell === 0) return false;
     const step = bar.end - bar.start;
-    if (step === 0 || Math.sign(step) === Math.sign(cell)) continue;
-    return [{
-      number,
-      // REQUIRED — see `PackFootnote.required`. This is the only thing on the
-      // sheet that reconciles a table cell with the bar drawn from it, and on
-      // Brightsphere the fitter took it, leaving a chart that appears to state
-      // the opposite sign to the table beside it.
-      required: true as const,
-      text:
-        `The table states each line as the ledger carries it; the bridge below draws each line by `
-        + `its EFFECT on net profit. ${bar.label} of ${formatMoney(cell, { scale })} in the table is `
-        + `drawn as ${formatMoney(step, { scale })} on the bar — the amount by which it `
-        + `${step < 0 ? 'reduces' : 'increases'} profit. The two signs are the same fact read two ways.`,
-    }];
-  }
-  return [];
+    return step !== 0 && Math.sign(step) !== Math.sign(cell);
+  });
+  const contrary = movements.find((bar) => {
+    const step = bar.end - bar.start;
+    if (step === 0 || bar.paint === undefined) return false;
+    return (bar.paint === 'favourable' && step < 0) || (bar.paint === 'unfavourable' && step > 0);
+  });
+  const named = diverged ?? contrary;
+  if (named === undefined) return [];
+
+  const step = named.end - named.start;
+  const klass = named.paint === 'favourable' ? 'an income line' : 'a cost line';
+  const ink = named.paint === 'favourable' ? 'green' : 'red';
+  const moved = step < 0 ? 'reduces' : 'increases';
+  const cell = rows.get(named.label.toLowerCase());
+  // The example reconciles the TABLE with the bar where the two diverge, and
+  // the DIRECTION with the ink where they do not: a reader given the second
+  // sentence for a bar whose table cell agrees with it would be sent to
+  // check an agreement.
+  const example = diverged !== undefined && cell !== null && cell !== undefined
+    ? `${named.label} of ${formatMoney(cell, { scale })} in the table is drawn as `
+      + `${formatMoney(step, { scale })} on the bar — the amount by which it ${moved} profit — `
+      + `and in ${ink}, because it is ${klass}. The two signs are the same fact read two ways.`
+    : `${named.label} is drawn in ${ink}, because it is ${klass}, and points `
+      + `${step < 0 ? 'DOWN' : 'UP'}, because that is the direction it moved profit this period.`;
+
+  return [{
+    number,
+    // REQUIRED — see `PackFootnote.required`. This is the only thing on the
+    // sheet that reconciles a table cell with the bar drawn from it, and on
+    // Brightsphere the fitter took it, leaving a chart that appears to state
+    // the opposite sign to the table beside it.
+    required: true as const,
+    text:
+      `The table states each line as the ledger carries it. The bridge below POSITIONS each bar `
+      + `by its effect on net profit — up where the line added to it, down where it took away — `
+      + `and COLOURS it by what the line is: green for income, red for cost, in every pack and `
+      + `whichever way the period ran. ${example}`,
+  }];
 }

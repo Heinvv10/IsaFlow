@@ -10,8 +10,8 @@
  * every name here, so existing import paths still resolve.
  */
 
-import { formatDays, formatMoney, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
-import { renderChartSvg } from '@/lib/charts/ssrSvg';
+import { formatDays, formatMoney, formatPctLevel, inProse, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
+import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import {
@@ -120,6 +120,48 @@ const RATIO_PANELS: RatioPanel[] = [
   { id: 'trend-gross-margin', name: 'Gross margin', pick: (p) => p.grossMarginPct, format: (n) => formatPctLevel(n), unit: 'a percentage' },
   { id: 'trend-debtor-days', name: 'Debtor days', pick: (p) => p.debtorDays, format: (n) => formatDays(n, 1), unit: 'a day count' },
 ];
+
+/**
+ * A FIGURE AS THE SHEET PRINTS IT, in the scale's own units.
+ *
+ * Page 10 invites the reader to check a share off the sheet — every panel
+ * labels the ends of its own axis and the note states the shared span — and
+ * the invitation did not survive the arithmetic. The shares were computed on
+ * raw rands and the axes print thousands: an operating-expenses range of
+ * 58 452 over a shared span of 3 528 000 is 1.66%, printed 1.7%, while the
+ * reader divides the 58 and the 3 528 in front of them and gets 1.6%. The
+ * figure was not wrong; the check the page asked for did not reproduce, and
+ * on a page whose whole argument is that its scales are checkable that is
+ * the more expensive of the two.
+ *
+ * So every number in that arithmetic is now the number the reader can see:
+ * the shared span is the difference of the two PRINTED extremes (not a
+ * separately rounded difference, which is how "1 908" and "(1 621)" came to
+ * be published beside a span of 3 528 rather than 3 529), and each panel's
+ * share is its own printed range over that. Nothing else moves — which
+ * panels sit on the shared scale is still decided on the unrounded spans in
+ * `packTrendScale`, because a threshold that wobbles with a rounding is a
+ * threshold that changes a drawing for no reason.
+ */
+function atScale(value: number, scale: MoneyScale): number {
+  const divisor = MONEY_SCALES[scale];
+  // Away from zero at the half, which is what `Intl.NumberFormat` does and
+  // `Math.round` does not for a negative.
+  return Math.sign(value) * Math.round(Math.abs(value) / divisor);
+}
+
+/** The printed span of a domain, in the scale's units. */
+function printedSpan(domain: Domain, scale: MoneyScale): number {
+  return atScale(domain.max, scale) - atScale(domain.min, scale);
+}
+
+/** A panel's own printed range as a percentage of the printed shared span,
+ *  to one decimal — the number the panel's title states, reproducible from
+ *  the four figures the sheet prints. */
+function printedSharePct(own: Domain, sharedSpan: number, scale: MoneyScale): number {
+  if (sharedSpan === 0) return 100;
+  return Math.round((printedSpan(own, scale) / sharedSpan) * 1000) / 10;
+}
 
 function moneyPanel(
   panel: MoneyPanel,
@@ -264,8 +306,16 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
   // domain when its own range is too small to register on it, and it says so
   // when it does. See `packTrendScale.ts`.
   const series = MONEY_PANELS.map((panel) => trend.map(panel.pick));
-  const { shared, panels: scales } = moneyPanelScales(series);
+  const { shared, panels: rawScales } = moneyPanelScales(series);
   const dominator: ScaleDominator | null = dominantPoint(series);
+
+  // EVERY PERCENTAGE THIS PAGE PRINTS IS THE ONE THE PRINTED FIGURES GIVE —
+  // see `atScale`. The domains, and which panel sits on which, are untouched.
+  const sharedSpan = printedSpan(shared, scale);
+  const scales = rawScales.map((panelScale) => ({
+    ...panelScale,
+    ownSharePct: printedSharePct(panelScale.domain, sharedSpan, scale),
+  }));
 
   const money = MONEY_PANELS.map((panel, i) => {
     const carriesDominator = dominator !== null && dominator.seriesIndex === i;
@@ -299,23 +349,49 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
       .filter((p) => !p.shared)
       .map(({ name, sharePct }) => ({ name, sharePct })),
     ownUnits: RATIO_PANELS.filter((p) => panels.some((drawn) => drawn.id === p.id)).map((p) => p.name),
+    // The span is the difference of the two extremes AS PRINTED, so the
+    // subtraction a reader does on the sheet gives the number the sheet
+    // states. `shared.max - shared.min` rounded separately does not: the
+    // live demo page published "1 908", "(1 621)" and "a span of 3 528".
     sharedRange: `${inProse(formatMoney(shared.min, { scale }))} to `
       + `${inProse(formatMoney(shared.max, { scale }))}, a span of `
-      + `${inProse(formatMoney(shared.max - shared.min, { scale }))} ${scale}`,
+      + `${inProse(formatMoney(sharedSpan * MONEY_SCALES[scale], { scale }))} ${scale}`,
   };
 }
 
 /**
- * Page 8's closing-cash line — 36mm, the same height as a trends panel.
+ * Page 8's closing-cash line, ON SPEC §5.6's HEIGHT GRID and no longer on a
+ * height of its own.
  *
- * It shares the busiest page in the pack with a statement table that can
- * carry four footnotes, a bridge, and two disclosures, and that page printed
- * on two sheets for the live demo company. This chart is a CONTEXT strip —
- * where cash has been standing over twelve periods — beside a bridge that
- * answers the period's own question, so it is the one to give the height
- * back. See `HALF` in `packPageCharts.ts` for the bridge's own rung.
+ * It was a fixed 36mm — chosen when this chart shared the busiest page in
+ * the pack with a cash bridge, four footnotes and two disclosures, and that
+ * page was printing on two sheets. The cost of that fix outlived the problem
+ * it fixed: on a company with no bridge to draw, page 8 ends at two thirds
+ * of the sheet with its only picture of cash in a band under half the plot
+ * depth of the charts on the two sheets before it, on a measure the other
+ * two do not use. Three charts, three geometries, in a document whose
+ * furniture is otherwise identical page to page.
+ *
+ * So it steps the same 110 / 72 / 48 rungs the profit bridge steps, and the
+ * page it is on decides which — by composing and measuring, exactly as page
+ * 6 does (see `boardPackPages`). A page with a bridge and two disclosures
+ * still lands on the bottom rung; a page without them gets a chart the size
+ * of the paper it has.
  */
-const CASH_TREND_FULL = { widthMm: 170, heightMm: 36 };
+const CASH_TREND_RUNGS = [
+  { widthMm: 170, heightMm: CHART_HEIGHT_MM.full },
+  { widthMm: 170, heightMm: CHART_HEIGHT_MM.half },
+  { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline },
+  // AND ONE BELOW THE GRID, FOR THE PAGE THAT CARRIES A BRIDGE AS WELL.
+  // 36mm is the height this line held before it had a grid to step, kept as
+  // the bottom rung rather than deleted: where page 8 also carries a cash
+  // bridge, two charts, a five-row table with four footnotes and two
+  // disclosures do not fit at 48, and `fitPageToBox` pays the difference by
+  // dropping the sentence saying part of the movement is unexplained —
+  // measured, in `boardPackPages.test.ts`. A rung off the grid on the
+  // crowded page is a smaller cost than a chart bought with that sentence.
+  { widthMm: 170, heightMm: 36 },
+] as const;
 
 /**
  * Page 8 — the closing-cash line spec §4.A page 8 asks for, drawn from the
@@ -327,7 +403,11 @@ const CASH_TREND_FULL = { widthMm: 170, heightMm: 36 };
  * Null when there is no trend series to plot — the same "say why, don't
  * invent" rule the rest of this file follows rather than opening at zero.
  */
-export function buildCashTrendChart(trend: PackTrendPoint[], scale: MoneyScale): PackChartSpec | null {
+export function buildCashTrendChart(
+  trend: PackTrendPoint[],
+  scale: MoneyScale,
+  box: { widthMm: number; heightMm: number } = CASH_TREND_RUNGS[0],
+): PackChartSpec | null {
   if (trend.length === 0) return null;
   const points = trend.map((p) => ({ label: p.label, value: p.cash }));
   const domain = sharedDomain([points.map((p) => p.value)]);
@@ -352,13 +432,26 @@ export function buildCashTrendChart(trend: PackTrendPoint[], scale: MoneyScale):
       // only picture of cash a director gets; bare, it was six gridlines
       // carrying one number.
       smallMultipleOption(points, domain, (n) => formatMoney(n, { scale }), undefined, { unit: scale }),
-      CASH_TREND_FULL,
+      box,
     ),
-    heightMm: CASH_TREND_FULL.heightMm,
+    heightMm: box.heightMm,
     // What that sentence ASSERTS, as a number, so the gate can hold it
     // against the cash table's own `Closing cash` row on the same page. The
     // rendered pack stated `(532)` in the table and `(752)` here, and nothing
     // in the pipeline could see it — see `checkChartClaims`.
     claims: [{ label: 'Closing cash', value: last }],
   };
+}
+
+/** The next rung down for page 8's cash line, or null at the bottom — the
+ *  same shape `shorterProfitBridge` gives page 6, so both pages choose a
+ *  chart height by measuring the sheet rather than by predicting it. */
+export function shorterCashTrendChart(
+  trend: PackTrendPoint[],
+  scale: MoneyScale,
+  current: PackChartSpec,
+): PackChartSpec | null {
+  const rung = CASH_TREND_RUNGS.findIndex((b) => b.heightMm === current.heightMm);
+  const next = rung === -1 ? undefined : CASH_TREND_RUNGS[rung + 1];
+  return next === undefined ? null : buildCashTrendChart(trend, scale, next);
 }

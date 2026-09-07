@@ -94,9 +94,20 @@ export interface TrendPoint {
  */
 function stepColour(step: WaterfallStep, palette: ChartPalette): string {
   if (step.isSubtotal) return palette.ink;
+  return stepPaint(step) === 'favourable' ? palette.fav : palette.unfav;
+}
+
+/**
+ * The classification above, WITHOUT the palette — so the bar model carried
+ * beside the drawing and the drawing itself cannot disagree about which ink
+ * a line got. `toBars` puts it on `PackWaterfallBar.paint` and page 6's
+ * footnote reads it back; there is no second copy of the rule anywhere.
+ */
+export function stepPaint(step: WaterfallStep): 'favourable' | 'unfavourable' | null {
+  if (step.isSubtotal) return null;
   return step.color === 'green' || step.color === 'teal' || step.color === 'blue'
-    ? palette.fav
-    : palette.unfav;
+    ? 'favourable'
+    : 'unfavourable';
 }
 
 /**
