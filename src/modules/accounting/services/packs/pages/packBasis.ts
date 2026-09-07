@@ -4,9 +4,10 @@
  * What makes every number on the other eleven pages auditable: the standard
  * applied, the source system, when the ledger was read, and which ledger
  * state the pack was rendered against. Spec §7.1 criterion 12 fails a pack
- * where a non-IFRS measure has no reconciliation bridge — this pack does not
- * currently compute one (see `RATIO_DEFINITIONS` below), so the criterion is
- * satisfied by there being nothing unreconciled, not by an empty exemption.
+ * where a non-IFRS measure has no reconciliation bridge. The pack prints ONE
+ * — EBITDA — and `packDefinitions.ts` builds it as figures, line by line,
+ * against the same sources page 5's table prints. Every other measure on this
+ * page is a ratio or a formula with nothing to bridge from.
  *
  * `ledgerVersion` is the traceability anchor a reader could use to reproduce
  * this exact render. This function is deliberately synchronous — the model
@@ -34,6 +35,9 @@ import type {
   PackPagesDocument,
 } from './packPageModel';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import { formatPackTimestamp } from './packPeriodLabel';
+import { buildDefinitions } from './packDefinitions';
+import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { MoneyScale } from '@/lib/format/money';
 
 export interface PackBasis {
@@ -92,37 +96,6 @@ export function statementFootnotes(comparative: PackComparativePeriod | null): P
 const LEDGER_VERSION_UNAVAILABLE =
   'unavailable — no ledger watermark was supplied for this pack render';
 
-/** Plain IFRS-adjacent ratios used elsewhere in the pack. Percentages and
- *  ratios are formulas, not non-IFRS dollar measures, so none of these
- *  carries a `reconciliation` — there is nothing to bridge from an IFRS
- *  figure to an adjusted one. If a genuinely adjusted measure (e.g. an
- *  "adjusted EBITDA") is ever introduced elsewhere in the pack, its
- *  definition belongs here WITH a `reconciliation`, per §7.1 criterion 12. */
-const RATIO_DEFINITIONS: PackDefinition[] = [
-  {
-    // STATED, because §7.1 criterion 8 asks for one number convention stated
-    // and applied. A rendered pack showed `(1 546)`, `−1348.0%` and `-0.14`
-    // within a few rows of each other on one sheet — an accounting bracket, a
-    // U+2212 and an ASCII hyphen for the same idea — and page 12 named none of
-    // them. `src/lib/format/money.ts` is where the applying happens.
-    term: 'Negative figures',
-    definition:
-      'Shown in brackets — (1 546) — for currency, percentages and ratios alike. '
-      + 'No minus sign is used anywhere in this pack.',
-  },
-  {
-    term: 'Gross margin',
-    definition: 'Gross profit (revenue less cost of sales), as a percentage of revenue.',
-  },
-  {
-    term: 'Net profit margin',
-    definition: 'Net profit, as a percentage of revenue.',
-  },
-  {
-    term: 'Current ratio',
-    definition: 'Current assets divided by current liabilities.',
-  },
-];
 
 /**
  * @param ledgerVersion The ledger state this pack was rendered against —
@@ -134,6 +107,10 @@ export function buildBasis(
   set: PackFigureSet,
   doc: Pick<PackPagesDocument, 'draft' | 'generatedAt'>,
   ledgerVersion: string | null,
+  /** The document's provenance map — EBITDA's reconciliation is made of
+   *  FIGURES, and a figure on a page that no service issued is what the
+   *  integrity gate exists to refuse. */
+  p: PackFigureProvenance,
 ): PackBasis {
   const caveats: string[] = [];
   if (set.current.classificationCaveat) caveats.push(set.current.classificationCaveat);
@@ -144,11 +121,15 @@ export function buildBasis(
     basisOfPreparation: {
       standard: STANDARD,
       sourceSystem: SOURCE_SYSTEM,
-      extractedAt: doc.generatedAt,
-      ledgerVersion: ledgerVersion ?? LEDGER_VERSION_UNAVAILABLE,
+      // BOTH IN WORDS, ON THE COMPANY'S OWN CLOCK. The page printed
+      // `2026-09-07T06:22:04.572Z` — a machine's format, to the millisecond,
+      // in a timezone nobody in the business is on. See `formatPackTimestamp`;
+      // it leaves the "no ledger watermark" sentence alone.
+      extractedAt: formatPackTimestamp(doc.generatedAt),
+      ledgerVersion: formatPackTimestamp(ledgerVersion ?? LEDGER_VERSION_UNAVAILABLE),
     },
     numberConvention: { scale: PACK_SCALE, currency: CURRENCY },
-    definitions: RATIO_DEFINITIONS,
+    definitions: buildDefinitions(set, p),
     caveats,
   };
 }

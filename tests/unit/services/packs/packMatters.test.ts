@@ -144,6 +144,67 @@ describe('buildMatters', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it('keeps the exception itself off the page and in the log', async () => {
+    // The matter still appears — that is this file's rule. What came off is
+    // `String(error)`, which put a driver's message, and whatever a database
+    // chooses to put in one, into the issue column of a document a director
+    // forwards to their bank. The reader's decision is the same either way.
+    agingSpy.mockRejectedValue(new Error('connection terminated: pg_relation_size'));
+    const matters = await buildMatters('c1', window);
+    const failed = matters.find((m) => m.issue.startsWith('aged debtors could not be assessed'))!;
+    expect(failed.issue).not.toMatch(/pg_relation_size|Error:/);
+    expect(warn.mock.calls.at(-1)?.[1]).toMatchObject({ error: expect.stringContaining('pg_relation_size') });
+  });
+
+  /**
+   * THE ISSUE COLUMN IS PROSE A DIRECTOR READS, and it is the one place the
+   * document-wide prose gate cannot help: `packProseIntegrity` skips these
+   * fields because they interpolate journal descriptions and entity names
+   * straight out of a company's ledger, and refusing to render a board pack
+   * because a bookkeeper typed "Item(s) received" is a worse failure than the
+   * leak it would catch. So the TEMPLATES are held here, at the source, where
+   * the pack's words and the ledger's are still separable.
+   */
+  describe('the sentences this page composes', () => {
+    it('counts in words rather than hedging with a developer\'s plural', async () => {
+      bankSpy.mockResolvedValue([
+        { unreconciled_count: 1, unreconciled_balance: 4_000 },
+        { unreconciled_count: 11, unreconciled_balance: 91_000 },
+      ]);
+      filingSpy.mockResolvedValue([
+        { filingType: 'Annual Financial Statements', fiscalYear: 2024, deadline: '2024-08-28', daysOverdue: 739 },
+        { filingType: 'Annual Return', fiscalYear: 2026, deadline: '2026-08-27', daysOverdue: 1 },
+      ] as OverdueFiling[]);
+      const issues = (await buildMatters('c1', window)).map((m) => m.issue);
+
+      expect(issues.some((i) => i.includes('(s)'))).toBe(false);
+      expect(issues.some((i) => i.includes('12 unreconciled bank items across 2 bank accounts'))).toBe(true);
+      // Both branches of every plural, in one fixture: 739 days and 1 day.
+      expect(issues.some((i) => i.includes('is 739 days overdue'))).toBe(true);
+      expect(issues.some((i) => i.includes('is 1 day overdue'))).toBe(true);
+    });
+
+    it('sets a deadline in words, not in the storage format', async () => {
+      filingSpy.mockResolvedValue([
+        { filingType: 'Annual Financial Statements', fiscalYear: 2024, deadline: '2024-08-28', daysOverdue: 739 },
+      ] as OverdueFiling[]);
+      const issue = (await buildMatters('c1', window)).map((m) => m.issue).join(' ');
+      expect(issue).toContain('due 28 August 2024');
+      expect(issue).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    });
+
+    it('leaves the rand amount to the quantum column rather than restating it in another convention', async () => {
+      // `toLocaleString('en-ZA')` printed `R1,234,567.89` — comma-separated,
+      // in rands, unbracketed — in the same table row as a quantum column
+      // stated in R'000 with spaces and brackets.
+      bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 1_234_567.89 }]);
+      const matter = (await buildMatters('c1', window))
+        .find((m) => m.issue.includes('unreconciled bank item'))!;
+      expect(matter.issue).not.toMatch(/R\s?1[ ,]?234/);
+      expect(matter.quantum).toBeCloseTo(1_234_567.89, 2);
+    });
+  });
+
   it('does not let one failed source suppress the matters from the others', async () => {
     agingSpy.mockRejectedValue(new Error('timeout'));
     bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 15_000 }]);

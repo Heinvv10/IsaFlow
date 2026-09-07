@@ -50,6 +50,19 @@ export interface ReportPackFigures extends ReportPackInput {
    * partly a default rather than a statement of fact.
    */
   classificationCaveat: string | null;
+  /**
+   * The period's depreciation and amortisation charge, from the classifier's
+   * `depreciation_expense` band (which `accountSubtypes` maps both words onto).
+   *
+   * Carried so EBITDA is a MEASURE rather than a label. `calculateExtendedRatios`
+   * computes `ebitda = ebit + depreciation + amortisation`, and this field was
+   * never supplied — so the board pack printed a row headed EBITDA whose value
+   * was the operating line to the rand, undefined and unreconciled, on a page
+   * where an audit committee chair asks about it first. Required, not optional:
+   * a defaulted zero is indistinguishable from a company that genuinely charges
+   * none, and page 12's reconciliation prints the add-back either way.
+   */
+  depreciation: number;
 }
 
 export async function getReportPackInput(
@@ -94,7 +107,11 @@ export async function getReportPackInput(
     accountsReceivable: data.accountsReceivable,
     accountsPayable: data.accountsPayable,
     inventory: data.inventory,
-    inventoryCaveat: inventory === null ? null : inventory.message,
-    classificationCaveat: unclassified === null ? null : unclassified.message,
+    // `.board`, NOT `.message`: these two strings reach a board pack's basis
+    // page, and the operator wording names a database column and tells the
+    // reader to go and set it. See `FigureCaveat`.
+    depreciation: figures.period.depreciation,
+    inventoryCaveat: inventory === null ? null : inventory.board,
+    classificationCaveat: unclassified === null ? null : unclassified.board,
   };
 }

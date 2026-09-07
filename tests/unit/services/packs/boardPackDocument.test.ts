@@ -127,7 +127,7 @@ describe('the ledger version (R-P46)', () => {
 
     const doc = await buildBoardPackDocument(request());
 
-    expect(doc.basisOfPreparation.ledgerVersion).toBe('2026-08-31T10:00:00.000Z');
+    expect(doc.basisOfPreparation.ledgerVersion).toBe('31 August 2026 at 12:00 SAST');
     // Read over the window, not just up to it: a watermark for all of time
     // would not change when the period does.
     expect(getLedgerPostedThrough).toHaveBeenCalledWith(COMPANY, '2026-08-31', '2026-03-01');

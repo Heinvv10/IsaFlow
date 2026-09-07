@@ -8,6 +8,7 @@
  * prepared, and reads no figure set at all. `boardPackPages.ts` keeps the
  * pages that report the period.
  */
+import { formatPackDate } from './packPeriodLabel';
 import { ROUNDING_NOTE } from './packBasis';
 import { disclose, note } from './packPageBlocks';
 import { PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
@@ -72,7 +73,10 @@ export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
   return [
     page(f.companyLegalName, 'Cover', 'Front', 'low', [
       disclose(PACK_CONFIDENTIALITY, [
-        note('Preparation', `Prepared by ${f.preparedBy} on ${f.generatedAt.slice(0, 10)}. This pack is ${f.draft ? 'a DRAFT — figures are not final' : 'FINAL'}.`),
+        // THE DATE IN WORDS. `.slice(0, 10)` put `2026-09-07` on the cover of
+        // a board pack — the storage format, on the first line a director
+        // reads, in a document whose every other date is set in words.
+        note('Preparation', `Prepared by ${f.preparedBy} on ${formatPackDate(f.generatedAt.slice(0, 10))}. This pack is ${f.draft ? 'a DRAFT — figures are not final' : 'FINAL'}.`),
       ]),
     ]),
     page('Contents', 'Contents', 'Front', 'low', [
@@ -103,7 +107,11 @@ export function buildBasisPage(
       note('Rounding', ROUNDING_NOTE),
       note('Extracted at', basis.basisOfPreparation.extractedAt),
       note('Ledger version', basis.basisOfPreparation.ledgerVersion),
-    ]),
+    // TWO COLUMNS. Eight label-and-value facts set across the full 174mm
+    // measure cost 62mm of the sheet, most of it white to the right of
+    // "Standard IFRS for SMEs" — on the one page that also has to carry a
+    // sixteen-term glossary.
+    ], 2),
     { kind: 'definitions', entries: basis.definitions },
     disclose('Caveats', basis.caveats.length > 0
       ? basis.caveats.map((caveat, index) => note(`Caveat ${index + 1}`, caveat))

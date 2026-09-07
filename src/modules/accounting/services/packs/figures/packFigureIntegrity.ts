@@ -48,6 +48,7 @@ import {
   checkStatements,
 } from './packStatementIntegrity';
 import { checkBlocks } from './packBlockIntegrity';
+import { checkProse } from './packProseIntegrity';
 
 /** One basis point, in the percentage POINTS a `pct` figure is stated in. */
 const PCT_TOLERANCE = 0.01;
@@ -228,6 +229,12 @@ export function assertPackIntegrity(doc: PackPagesDocument): void {
   failures.push(...checkQuotients(located));
   failures.push(...checkCashBridgeEndpoints(doc));
   failures.push(...checkComparativePeriod(doc));
+  // 7. The pack does not show a reader how it is built. Six leaks on the
+  //    rendered proofs — a column name, a spec clause, three `(s)` plurals, a
+  //    millisecond timestamp — were one defect: prose written for a developer
+  //    on the paths a flattering fixture never reaches. See
+  //    `packProseIntegrity.ts`.
+  failures.push(...checkProse(doc));
 
   // The document's own scale, narrowed. An unrecognised one is refused rather
   // than defaulted: every figure on the pack is FORMATTED at this scale, and

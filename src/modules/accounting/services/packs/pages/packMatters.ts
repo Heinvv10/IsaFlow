@@ -28,6 +28,7 @@ import { getBankAccountsStatus } from '@/modules/accounting/services/bank/bankAc
 import { getUnusualJournals } from '@/modules/accounting/services/reports/unusualJournalsService';
 import { getOverdueStatutoryFilings } from '@/modules/accounting/services/reports/statutoryFilingsService';
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
+import { formatPackDate } from './packPeriodLabel';
 import type { PeriodWindow } from '@/modules/accounting/services/reports/priorPeriod';
 
 /** One line of page 11 — a decision a director must make. */
@@ -46,6 +47,21 @@ export interface PackMatter {
 
 const CONCENTRATION_THRESHOLD_PCT = 20;
 const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is stored to compare against.';
+
+/**
+ * EVERY MATTER ON THIS PAGE IS A SENTENCE A DIRECTOR READS, so it is written
+ * the way a sentence is written.
+ *
+ * The rendered pack printed "is 739 day(s) overdue", "12 unreconciled bank
+ * item(s)" and "across 3 account(s)" on the two governance pages: a
+ * developer's plural, three times, in the part of the pack whose whole
+ * purpose is to be read rather than scanned. `(s)` is what a template writes
+ * when nobody has decided whether the sentence is about one thing or several,
+ * and this model always knows which.
+ */
+function plural(n: number, one: string, many: string = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
 
 async function agedDebtorConcentrationMatters(
   companyId: string,
@@ -77,7 +93,12 @@ async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]>
 
   const accountCount = rows.filter((r) => Number(r.unreconciled_count ?? 0) > 0).length;
   return [{
-    issue: `${count} unreconciled bank item(s) totalling R${round2(total).toLocaleString('en-ZA')} across ${accountCount} account(s)`,
+    // NO RAND AMOUNT IN THE SENTENCE. `toLocaleString('en-ZA')` printed
+    // `R1,234,567.89` — comma-separated, in rands, unbracketed — beside a
+    // quantum column stated in R'000 with spaces and brackets: one figure,
+    // two conventions, in the same table row. The amount IS the quantum, and
+    // the quantum column prints it in the pack's own convention.
+    issue: `${plural(count, 'unreconciled bank item')} across ${plural(accountCount, 'bank account')}`,
     quantum: round2(total),
     owner: 'Bookkeeping',
     movement: NO_PRIOR_MEETING_RECORD,
@@ -104,7 +125,11 @@ async function unusualJournalMatters(
 async function overdueFilingMatters(companyId: string): Promise<PackMatter[]> {
   const filings = await getOverdueStatutoryFilings(companyId);
   return filings.map((f) => ({
-    issue: `${f.filingType} for FY${f.fiscalYear} is ${f.daysOverdue} day(s) overdue (due ${f.deadline})`,
+    // The deadline as a DATE, not as an ISO string. `2024-08-28` in a
+    // sentence on a governance page is the pack showing a reader its storage
+    // format; every other date in the document is set in words.
+    issue: `${f.filingType} for FY${f.fiscalYear} is ${plural(f.daysOverdue, 'day')} overdue `
+      + `(due ${formatPackDate(String(f.deadline))})`,
     quantum: null,
     owner: 'Company secretary',
     movement: NO_PRIOR_MEETING_RECORD,
@@ -124,9 +149,20 @@ const SOURCES: ReadonlyArray<{
   { label: 'overdue statutory filings', build: (companyId) => overdueFilingMatters(companyId) },
 ];
 
-function failedSourceMatter(label: string, error: unknown): PackMatter {
+/**
+ * A FAILED CHECK IS A MATTER, AND THE EXCEPTION IS NOT PART OF IT.
+ *
+ * The matter still appears — that is this file's whole rule, and it is why
+ * the pack cannot present a timed-out query as a clean page. What came off is
+ * `String(error)`, which put a driver's message, and whatever a database
+ * chooses to put in one, into the issue column of a document a director
+ * forwards to their bank. The reader's decision is the same either way: re-run
+ * the check. The exception is logged, where the person who can act on it
+ * looks.
+ */
+function failedSourceMatter(label: string): PackMatter {
   return {
-    issue: `${label} could not be assessed — the check failed and was not silently skipped (${String(error)})`,
+    issue: `${label} could not be assessed — the check failed and was not silently skipped`,
     quantum: null,
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
@@ -157,7 +193,7 @@ export async function buildMatters(companyId: string, window: PeriodWindow): Pro
         { companyId, source: source.label, error: String(error) },
         'packs',
       );
-      matters.push(failedSourceMatter(source.label, error));
+      matters.push(failedSourceMatter(source.label));
     }
   }
 

@@ -181,7 +181,7 @@ describe('buildBoardPackPages', () => {
   });
 
   it('renders the supplied ledger version on the basis page, not an invented one', () => {
-    expect(doc.basisOfPreparation.ledgerVersion).toBe('posted-through 2026-08-31');
+    expect(doc.basisOfPreparation.ledgerVersion).toBe('31 August 2026 at 12:00 SAST');
   });
 
   it('survives a company with no prior period, no budget and negative revenue', () => {

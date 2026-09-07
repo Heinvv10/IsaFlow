@@ -43,6 +43,9 @@ export function figures(overrides: Partial<ReportPackFigures>): ReportPackFigure
     operatingCashFlow: 690_000,
     capitalExpenditure: 180_000,
     financingCashFlow: -120_000,
+    // A real charge, so the fixtures exercise the EBITDA add-back rather
+    // than a nil one that any implementation would satisfy.
+    depreciation: 96_000,
     inventoryCaveat: null,
     classificationCaveat: null,
     ...overrides,
@@ -179,7 +182,10 @@ export const demoInput: BoardPackInput = {
     body: 'One concentration matter carries forward from the last meeting.',
     actions: [],
   },
-  ledgerVersion: 'posted-through 2026-08-31',
+  // The shape `getLedgerPostedThrough` actually returns — an ISO timestamp.
+  // It was a made-up `posted-through 2026-08-31`, which is the only reason
+  // every fixture built a page 12 carrying a bare ISO date in a sentence.
+  ledgerVersion: '2026-08-31T10:00:00.000Z',
 };
 
 /** Same as `demoInput` in every other respect, but its trend genuinely draws
