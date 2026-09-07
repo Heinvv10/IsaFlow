@@ -52,17 +52,19 @@ import {
 /** One basis point, in the percentage POINTS a `pct` figure is stated in. */
 const PCT_TOLERANCE = 0.01;
 /**
- * One unit of the last digit a ratio prints.
+ * Half the last printed digit, plus the second rounding.
  *
- * NOT half of it, which is what a single rounding would need.
  * `reportingEngineService` rounds a ratio TWICE — `safeDiv` to four decimals
  * and then `r2` to two — so the printed value can sit 0.00505 from the true
- * quotient (0.724951 becomes 0.7250 becomes 0.73), and a half-unit tolerance
- * would refuse an honest ratio computed exactly as the engine computes it.
- * A discrepancy smaller than one printed unit is also invisible to the reader
- * on the page, which is the standard this gate holds a figure to.
+ * quotient (0.724951 becomes 0.7250 becomes 0.73). A flat half-unit (0.005)
+ * would refuse a ratio computed exactly as the engine computes it; this is
+ * that half-unit plus the 0.00005 the first rounding can add, nudged up by a
+ * hair so a difference landing exactly on the bound is not refused by the way
+ * a float represents it. It is deliberately NOT a round 0.01: a ratio prints
+ * to two decimals, so an error of 0.009 shows 0.73 where the truth is 0.74 —
+ * visible on the page, and not something this gate should pass.
  */
-const RATIO_TOLERANCE = 0.01;
+const RATIO_TOLERANCE = 0.0051;
 
 /** A figure and where in the document it was found, for the failure message. */
 interface Located {

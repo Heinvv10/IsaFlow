@@ -49,9 +49,31 @@ function balanced(p: PackFigureProvenance): void {
   p.figure('packFigureSet.current.totalEquity', 2_260_000, 'money');
 }
 
-function page(blocks: PackPageBlock[]): PackPage {
-  return { number: 7, title: 'Cash rose to 610', section: 'Financials', orientation: 'portrait', density: 'high', blocks, footnotes: [] };
+function page(blocks: PackPageBlock[], number = 7): PackPage {
+  return { number, title: 'Cash rose to 610', section: 'Financials', orientation: 'portrait', density: 'high', blocks, footnotes: [] };
 }
+
+/** A document of SEVERAL pages. Every other fixture here has exactly one, and
+ *  a one-page document cannot exercise a rule about WHICH page a disclosure
+ *  is on — the same shape as a single matter that cannot collide with itself.
+ *  `checkPlugDisclosure` is per-page, and letting any page in the document
+ *  satisfy any bridge passes every other test in this file. */
+function docOfPages(p: PackFigureProvenance, pages: PackPage[]): PackPagesDocument {
+  return { ...template, provenance: p, pages, comparativePeriod: null };
+}
+
+/** A bridge that foots and leans on its plug — 214% of the movement. */
+const LEANING_BARS: PackWaterfallBar[] = [
+  { label: 'Opening cash', start: 0, end: 486_000, kind: 'open' },
+  { label: 'Operating', start: 486_000, end: 876_000, kind: 'increase' },
+  { label: 'Unexplained movement', start: 876_000, end: 610_000, kind: 'decrease', uncaptured: true },
+  { label: 'Closing cash', start: 0, end: 610_000, kind: 'close' },
+];
+
+const saying = (body: string): PackPageBlock => ({
+  kind: 'disclosure',
+  disclosure: { heading: 'How much of this bridge is unexplained', notes: [{ heading: 'Size', body }] },
+});
 
 function docOf(
   p: PackFigureProvenance,
@@ -234,4 +256,36 @@ describe('assertPackIntegrity — bridges', () => {
     expect(disproportionatePlugSentence(chartOf('cash-bridge', bars))).not.toBeNull();
   });
 
+  it('does not let a disclosure on another page cover this page\'s bridge', () => {
+    // The per-page half of the rule, and it takes TWO pages to exist at all.
+    // Page 8 draws a bridge leaning on its plug and says nothing; page 9
+    // carries the exact sentence page 8 owes. A gate searching the whole
+    // document would find it and pass — and the reader of page 8 would still
+    // be looking at an unexplained R266,000 with no explanation beside it.
+    const p = new PackFigureProvenance();
+    balanced(p);
+    const chart = chartOf('cash-bridge', LEANING_BARS);
+    const said = disproportionatePlugSentence(chart)!;
+    const doc = docOfPages(p, [
+      page([{ kind: 'chart', chart }], 8),
+      page([saying(said)], 9),
+    ]);
+    expect(() => assertPackIntegrity(doc))
+      .toThrow(/Page 8's bridge 'cash-bridge' leans on an unmeasured step/);
+  });
+
+  it('accepts the same two pages when the disclosure sits with its bridge', () => {
+    // The pin that stops the rule being satisfied by throwing on every
+    // multi-page document: move the one sentence back to page 8, change
+    // nothing else.
+    const p = new PackFigureProvenance();
+    balanced(p);
+    const chart = chartOf('cash-bridge', LEANING_BARS);
+    const said = disproportionatePlugSentence(chart)!;
+    const doc = docOfPages(p, [
+      page([{ kind: 'chart', chart }, saying(said)], 8),
+      page([], 9),
+    ]);
+    expect(() => assertPackIntegrity(doc)).not.toThrow();
+  });
 });

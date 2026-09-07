@@ -17,7 +17,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { assertPackIntegrity } from '@/modules/accounting/services/packs/figures/packFigureIntegrity';
-import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import {
+  PackFigureProvenance,
+  type PackFigure,
+} from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type {
   PackComparativePeriod,
@@ -60,6 +63,11 @@ function docOf(
 ): PackPagesDocument {
   return { ...template, provenance: p, pages: [page(blocks)], comparativePeriod };
 }
+
+const tile = (label: string, figure: PackFigure): PackPageBlock => ({
+  kind: 'kpiTiles',
+  tiles: [{ label, figure, delta: null, trendFootnote: null, sparklineSvg: null }],
+});
 
 function tableOf(columns: PackTableColumnKey[], figures: PackTable['rows'][number]['figures']): PackPageBlock {
   return {
@@ -117,6 +125,34 @@ describe('assertPackIntegrity', () => {
     const figure = p.figure('marginPct.grossMargin', 40, 'pct', undefined, { numerator: 400, denominator: 1000 });
     const block: PackPageBlock = { kind: 'kpiTiles', tiles: [{ label: 'Gross margin', figure, delta: null, trendFootnote: null, sparklineSvg: null }] };
     expect(() => assertPackIntegrity(docOf(p, [block]))).not.toThrow();
+  });
+
+  it('pins the ratio tolerance from both sides', () => {
+    // Nothing distinguished 0.005 from 0.01 before this — the tolerance was
+    // a number no test held, which is how one gets widened later "because
+    // nothing broke". Both bounds are now load-bearing.
+    //
+    // Below: the engine's double rounding at its worst. 724951/1000000 is
+    // 0.724951; `safeDiv` makes it 0.7250 and `r2` prints 0.73, which is
+    // 0.005049 away — an HONEST ratio a half-unit tolerance would refuse.
+    const honest = new PackFigureProvenance();
+    balanced(honest);
+    const printed = honest.figure('calculateExtendedRatios.currentRatio', 0.73, 'ratio', undefined, {
+      numerator: 724_951,
+      denominator: 1_000_000,
+    });
+    expect(() => assertPackIntegrity(docOf(honest, [tile('Current ratio', printed)]))).not.toThrow();
+
+    // Above: a ratio prints to two decimals, so 0.009 of error shows 0.74
+    // where the truth is 0.73. Visible on the page, and refused.
+    const wrong = new PackFigureProvenance();
+    balanced(wrong);
+    const misprinted = wrong.figure('calculateExtendedRatios.currentRatio', 0.74, 'ratio', undefined, {
+      numerator: 731,
+      denominator: 1_000,
+    });
+    expect(() => assertPackIntegrity(docOf(wrong, [tile('Current ratio', misprinted)])))
+      .toThrow(/does not recompute/);
   });
 
   it('fails a percentage or ratio that states no numerator and denominator (I-1)', () => {
