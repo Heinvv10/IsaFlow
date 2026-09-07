@@ -48,9 +48,13 @@ const ALLOWED: Record<string, string> = {
     + 'override into a no-op.',
   'src/modules/accounting/services/ap/supplierInvoiceWorkflowService.ts':
     'Attended: someone approves one specific invoice, and the tax amount comes '
-    + 'from the captured document rather than being predicted. The claim now '
-    + 'holds properly: BillLineItemsTable warns on a taxed line coded to a '
-    + 'non-supply account, which it did not when this entry was first written.',
+    + 'from the captured document rather than being predicted. '
+    + 'BillLineItemsTable now warns on a taxed line coded to a non-supply '
+    + 'account, which it did not before — but be precise about what that '
+    + 'covers: `approveSupplierInvoice` posts ONE combined VAT line from the '
+    + 'stored header `taxAmount`, not per line, so the screen warns on the '
+    + 'creation path (where the header is the sum of the lines) and does not '
+    + 'verify what approval ultimately posts on an invoice captured elsewhere.',
   'pages/api/accounting/bank-match-confirm.ts':
     'Attended API action on one transaction the user is looking at.',
   'pages/api/accounting/bank-transactions-action.ts':
@@ -58,10 +62,23 @@ const ALLOWED: Record<string, string> = {
   'pages/api/accounting/bank-transactions-manual.ts':
     'Attended API action on one transaction the user is looking at.',
 
+  'src/modules/accounting/services/gl/journalEntryCrudService.ts':
+    'Manual journal CRUD. The vat_type on each line is typed by whoever is '
+    + 'writing the journal — the oldest and broadest trust boundary in the '
+    + 'ledger, and not one this guard was scoped to change.',
+  'src/modules/accounting/services/gl/glImportExecuteService.ts':
+    'GL import: `vatCode` comes from the file a user uploaded and confirmed. '
+    + 'THE WEAKEST "attended" claim on this list — nobody is shown a per-line '
+    + 'warning, the codes come from a document rather than a considered '
+    + 'decision, and it writes in bulk. That is the same shape as the MCP bulk '
+    + 'allocation tool, which turned out to have posted every non-supply line '
+    + 'in production. A candidate for the same treatment; flagged, not fixed.',
+
   // ── NO CLAIM DECIDED ──────────────────────────────────────────────────────
-  'src/modules/accounting/services/bank/bankRulesMatchingHelpers.ts':
-    'Builds the journal line from whatever code its already-guarded caller '
-    + 'resolved. Decides nothing itself.',
+  'src/modules/accounting/services/ar/writeOffService.ts':
+    'Posts a bad-debt write-off with the fixed code `bad_debt` (VAT201 box '
+    + '17). Not an account-dependent claim — the code does not vary with which '
+    + 'account the write-off hits.',
   'src/modules/accounting/services/reports/drcVatService.ts':
     'Reports on already-posted balances. Chooses no account\'s claim.',
   'src/modules/accounting/services/reports/vat201ReportService.ts':

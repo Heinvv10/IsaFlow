@@ -42,6 +42,16 @@ export interface GLAccount {
  * labour-broker wages, investment property, payroll software — so the choice
  * stays the approver's. Unlike the bank screens there is no unattended twin
  * here: nothing posts a supplier invoice on a schedule.
+ *
+ * WHAT THIS DOES NOT COVER, stated because the correspondence is not exact.
+ * `approveSupplierInvoice` posts ONE combined VAT line from the invoice's
+ * stored header `taxAmount` — the expense lines it builds carry no vatType at
+ * all — so the posting decision is invoice-wide and blind to which line's
+ * account is non-supply. On THIS screen the two agree, because the header tax
+ * is the sum of the per-line tax (`new.tsx`, totalTax). On an invoice captured
+ * or edited elsewhere they need not, and clearing every visible warning here
+ * is not proof that the posted claim is clean. The exceptions report is what
+ * checks the posted side.
  */
 function nonSupplyReason(
   line: BillLineItem,

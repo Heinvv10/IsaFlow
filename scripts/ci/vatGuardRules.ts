@@ -23,26 +23,36 @@
  */
 
 /**
- * Constants that mean the file is doing VAT arithmetic of its own. Matched as
- * a SUFFIX/PREFIX too — `SA_VAT_RATE`, `DEFAULT_VAT_RATE` and `SA_VAT_RATE_PCT`
- * are all in use, and an exact-word pattern silently missed three files.
+ * Named VAT machinery. A bare `0.15` is deliberately NOT matched — no regex
+ * distinguishes it from any other fraction, and pretending otherwise would
+ * make this gate look stronger than it is. What IS caught is a file that tags
+ * a journal line with a VAT type and posts, which is the shape that matters.
  */
-const RATE_CONSTANTS = /\b\w*VAT_RATE\w*\b/;
+const RATE_CONSTANTS = /\b\w*VAT_(RATE|PCT)\w*\b/;
 
-/** Writing a claiming code onto a journal line, rather than passing one on. */
-const CLAIMING_LITERAL = /\b(vatType|vat_type)\s*:\s*'(standard|zero_rated)'/;
+/**
+ * A VAT type reaching a journal line, in ANY of the forms people write it.
+ *
+ * The first cut matched only `vatType: 'standard'` — an object-literal colon
+ * with single quotes. `line.vatType = code` sailed through, and so did double
+ * quotes, and neither is evasion: building a line incrementally is completely
+ * ordinary code. So this matches the FIELD, in a colon or an assignment,
+ * whatever is on the right of it.
+ */
+const VAT_FIELD = /\b(vatType|vat_type)\s*[:=]/;
+
+/**
+ * Getting a line into the ledger. `vat_type` alone is not a defect — reports
+ * read it constantly — so the field only puts a file in scope when the file
+ * also posts.
+ */
+const POSTING_CALL =
+  /\b(createJournalEntry|postJournalEntry|allocateTransaction)\s*\(|INSERT\s+INTO\s+gl_journal_lines/i;
 
 /** Handing a vat code to the poster that deliberately enforces nothing. */
 const ALLOCATE_CALL = /\ballocateTransaction\s*\(/;
 
-/**
- * Modules that resolve a claim against the two statutes. Matched on the import
- * SPECIFIER so a mention in prose cannot satisfy the gate.
- */
-const GUARD_IMPORT =
-  /^\s*import\s[\s\S]*?from\s+['"][^'"]*(ruleVatResolution|inputVatDenial|allocationVatGuard)['"]/m;
-
-export type VatDecisionKind = 'rate_constant' | 'claiming_literal' | 'allocate_call';
+export type VatDecisionKind = 'rate_constant' | 'vat_field_on_a_posting_path' | 'allocate_call';
 
 export interface VatGuardFinding {
   /** Why the file is in scope. */
@@ -53,13 +63,42 @@ export interface VatGuardFinding {
 
 /** Does this source decide or forward a VAT claim, and does it guard? */
 export function inspectVatGuardCoverage(source: string): VatGuardFinding | null {
-  const withoutComments = stripComments(source);
+  const code = stripComments(source);
   const kinds: VatDecisionKind[] = [];
-  if (RATE_CONSTANTS.test(withoutComments)) kinds.push('rate_constant');
-  if (CLAIMING_LITERAL.test(withoutComments)) kinds.push('claiming_literal');
-  if (ALLOCATE_CALL.test(withoutComments)) kinds.push('allocate_call');
+  if (RATE_CONSTANTS.test(code)) kinds.push('rate_constant');
+  if (VAT_FIELD.test(code) && POSTING_CALL.test(code)) kinds.push('vat_field_on_a_posting_path');
+  if (ALLOCATE_CALL.test(code)) kinds.push('allocate_call');
   if (kinds.length === 0) return null;
-  return { kinds, guarded: GUARD_IMPORT.test(source) };
+  return { kinds, guarded: importsAndUsesGuard(code) };
+}
+
+/**
+ * Does this file import a guard AND use what it imported?
+ *
+ * Both halves are load-bearing, and each was a hole in the first cut:
+ *
+ *   - Run on STRIPPED code, so an import-shaped line inside a block comment no
+ *     longer counts. The original anchored on `^\s*import` against the RAW
+ *     source, which rules out a `//` prefix but not a `/* ... *\/` wrapper.
+ *   - Require a BINDING to appear again outside its own import statement.
+ *     Importing `resolveRuleVatCode` and never calling it satisfied the old
+ *     check: "imports, not mentions" was enforced, "imports, not ignores" was
+ *     not.
+ */
+export function importsAndUsesGuard(strippedSource: string): boolean {
+  const re =
+    /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s+['"][^'"]*(?:ruleVatResolution|inputVatDenial|allocationVatGuard)['"]/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(strippedSource)) !== null) {
+    const bindings = match[1]!
+      .split(',')
+      .map((b) => (b.split(/\sas\s/).pop() ?? '').trim())
+      .filter(Boolean);
+    const rest = strippedSource.slice(0, match.index)
+      + strippedSource.slice(match.index + match[0].length);
+    if (bindings.some((b) => new RegExp(`\\b${b}\\b`).test(rest))) return true;
+  }
+  return false;
 }
 
 /**
