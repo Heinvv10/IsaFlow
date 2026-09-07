@@ -51,26 +51,37 @@ export function remainingPageMm(page: MeasurablePage): number {
 }
 
 /**
- * THE TARGET IS THE SHEET LESS A MILLIMETRE OR FOUR.
+ * THE TARGET IS THE SHEET. THERE IS NO SAFETY MARGIN, AND THAT IS A RESULT
+ * RATHER THAN AN OVERSIGHT.
  *
- * `packPageMetrics` is a budget, not a layout engine, and the difference
- * shows at the edge: the live Brightsphere trends page measured 167.1mm in a
- * 168mm box under this harness and took a second landscape sheet through the
- * application's own route. Nothing about the document differed — 0.9mm of
- * slack is not slack, it is a coin toss between two Chromiums.
+ * There was one, of four millimetres, and it was covering a bug. The live
+ * Brightsphere trends page measured 167.1mm in a 168mm box under the print
+ * harness and took a second landscape sheet through the application's own
+ * route, off the same document; four millimetres was the smallest margin that
+ * made that stop, found by trying two and then four. The cause was not a
+ * rounding. `PackPagesView`'s root carries `max-w-[210mm]`, so the app laid
+ * every page out at portrait width — including the 261mm landscape sheet —
+ * while the harness, which loads no Tailwind utilities, laid it out at 261.
+ * Fifty-one millimetres of measure, showing up as ten to fourteen of height.
  *
- * Four millimetres is what that difference measured: at two the live
- * Brightsphere pack still printed thirteen sheets and at four it printed
- * twelve, both rendered through the application's own route. The harness
- * loads `print.css` over a bare `body{margin:0}` and the app loads it over
- * Tailwind's preflight, so the two do not agree to the millimetre on
- * paragraph and list defaults — which is a gap in the harness worth closing,
- * and until it is closed this is the margin that covers it.
+ * With `html.print-mode .pack-pages { max-width: none }` in `packPrint.css`
+ * and the harness loading the application's own reset, the two probes agree
+ * to 0.1mm on every page of both companies — which is the rounding of the
+ * millimetre conversion itself. There is nothing left for a margin to cover
+ * that is not already covered where it belongs: `packPageMetrics` is
+ * conservative by construction and `packSheetCount.test.ts` asserts that its
+ * estimate never reads short of Chromium's own layout, on every page of every
+ * fixture. Since the fit targets the ESTIMATE and the estimate is never below
+ * the content, a page the fit passes is a page that fits.
  *
- * It is a MARGIN, not a rounding: the model's own conservatism is separate
- * and lives in `packPageMetrics`.
+ * WHAT WOULD DEFEAT IT: content whose layout this model has not seen, laid
+ * out taller than it predicts — a font update that changes IBM Plex's
+ * advances, a Chromium line-breaking change, a new block kind added to
+ * `blockMm` without being measured. Every one of those makes the
+ * never-under-estimates assertion go red in CI, which is where it should be
+ * caught, and none of them is a millimetre a blanket margin would have
+ * absorbed anyway.
  */
-const SHEET_SAFETY_MM = 4;
 
 /** What a page had to leave out, for the note that says so. */
 export interface Dropped {
@@ -205,7 +216,7 @@ export function fitPageToBox<T extends MeasurablePage>(page: T): T {
 /** The same fit, with what it took — for the tests that hold the model to a
  *  bound on how much a page may lose to it. */
 export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dropped: Dropped } {
-  const box = pageBoxMm(page) - SHEET_SAFETY_MM;
+  const box = pageBoxMm(page);
   if (pageMm(page) <= box) return { page, dropped: NOTHING };
 
   const blocks: PackPageBlock[] = [...page.blocks];
