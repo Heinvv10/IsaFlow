@@ -38,6 +38,10 @@ import {
   waterfallOption,
   type CompositionSeries,
 } from '@/modules/accounting/services/packs/packChartOptions';
+import {
+  UNCAPTURED_SHARE_LIMIT,
+  uncapturedShare,
+} from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackChartSpec, PackWaterfallBar } from './packPageModel';
 
@@ -67,6 +71,20 @@ const FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.full };
  * the page to buy the space.
  */
 const HALF = { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline };
+
+/**
+ * Spec §5.6's MIDDLE rung, which is what page 7 steps down to.
+ *
+ * It stepped down to `HALF` — the bottom rung, 48mm — to make room for the
+ * negative-assets disclosure, and the callout is right, but at 48mm the
+ * composition chart's plot band is about 77px for a 3 000 to (4 000) range
+ * and `(1 000)`, `(2 000)` and `(3 000)` printed ON TOP OF ONE ANOTHER.
+ * Overlapping axis labels are the visual signature of an unfinished chart,
+ * and the room was never needed from the chart: the sheet still ended with
+ * ~36mm of white below the last disclosure. 72mm spends 24 of those 36 and
+ * leaves the axis 168px to put eight ticks in.
+ */
+const MID = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
 
 function barKind(step: WaterfallStep, index: number, count: number): PackWaterfallBar['kind'] {
   if (index === 0) return 'open';
@@ -144,13 +162,23 @@ export function buildProfitWaterfallChart(set: PackFigureSet, scale: MoneyScale)
     netProfit: f.netProfit,
   });
   const bridged = withUncapturedStep(steps, f.netProfit);
+  const bars = toBars(bridged, PROFIT_UNCAPTURED_LABEL);
+  // AND THE SAME RULE AS PAGE 7: the chart gives a rung back when the page
+  // has something to say. Where the plug breaches `UNCAPTURED_SHARE_LIMIT`
+  // this page must also carry the unexplained-step disclosure, and on the
+  // dense fixture it carried the disclosure, a full-height bridge, a table
+  // and three footnotes — 262.2mm in a 255mm box, so the income statement
+  // printed on two sheets. The step-down is conditional on the same test the
+  // disclosure is, so the height is given back exactly when it is needed.
+  const share = uncapturedShare(bars);
+  const box = share !== null && share >= UNCAPTURED_SHARE_LIMIT ? MID : FULL;
   return {
     id: 'profit-bridge',
     title: `Revenue of ${formatMoney(f.revenue, { scale })} bridges to net profit of ${formatMoney(f.netProfit, { scale })}.`,
     kind: 'waterfall',
-    svg: renderChartSvg(waterfallOption(bridged, scale), FULL),
-    heightMm: FULL.heightMm,
-    waterfallBars: toBars(bridged, PROFIT_UNCAPTURED_LABEL),
+    svg: renderChartSvg(waterfallOption(bridged, scale), box),
+    heightMm: box.heightMm,
+    waterfallBars: bars,
   };
 }
 
@@ -238,15 +266,19 @@ export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneySc
     { name: 'Equity', stack: 'funding', values: at((f) => f.totalEquity) },
   ];
 
-  // THE CHART GIVES THE HEIGHT BACK WHEN THE PAGE HAS SOMETHING TO SAY.
+  // THE CHART GIVES THE HEIGHT BACK WHEN THE PAGE HAS SOMETHING TO SAY —
+  // ONE RUNG, NOT TWO.
   //
   // Page 7 measured 253.6mm in a 255mm box on the live company — 1.4mm of
   // slack — so the negative-assets disclosure it must carry had nowhere to
   // go. Spec §5.6's rungs exist for exactly this, and page 8's cash line
-  // already steps down for the same reason. A stacked bar whose asset side is
-  // BELOW the axis is the least informative it ever is, and the sentence it
-  // makes room for is the one a director needs off this page.
-  const box = current.totalAssets < 0 ? HALF : FULL;
+  // already steps down for the same reason. But the first fix took the chart
+  // all the way to the bottom rung and the y-axis stopped being legible:
+  // three of its tick labels overprinted each other. The disclosure costs
+  // ~28mm and the sheet had ~36mm of white left under it, so the middle rung
+  // pays for the callout and keeps the axis readable. Measured on the printed
+  // sheet, not on the model — `packChartAxisLegibility.test.ts`.
+  const box = current.totalAssets < 0 ? MID : FULL;
 
   return {
     id: 'position-composition',

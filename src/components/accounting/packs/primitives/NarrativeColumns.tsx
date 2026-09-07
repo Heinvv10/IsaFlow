@@ -70,9 +70,13 @@ function BoardActionPanel({ actions }: { actions: string[] }) {
 export function NarrativeColumns({ narrative, boardActions = [] }: NarrativeColumnsProps) {
   if (narrative.status === 'pending') {
     return (
-      <div className="pack-narrative-columns">
+      <div className="pack-narrative-columns is-pending">
         {/* The placeholder STAYS. Filling the action panel must never become
-         *  a way to stop saying that commentary is owed and unwritten. */}
+         *  a way to stop saying that commentary is owed and unwritten.
+         *
+         *  `is-pending` is what stops it reserving two thirds of the measure
+         *  to say it: one italic line does not need a 2fr column, and the
+         *  action panel beside it does need more than 1fr. See packPrint.css. */}
         <p className="pack-narrative-pending">Commentary pending approval.</p>
         <BoardActionPanel actions={boardActions} />
       </div>

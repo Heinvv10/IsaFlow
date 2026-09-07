@@ -258,6 +258,15 @@ html.print-mode {
 
 /* Task 14 — narrative columns: prose beside the action panel. */
 .pack-narrative-columns { display: grid; grid-template-columns: 2fr 1fr; gap: var(--pack-gutter); }
+/* WHERE THERE IS NO COMMENTARY, THE COMMENTARY COLUMN IS ONE ITALIC LINE.
+ * At 2fr it held that line and 1 130 of 1 150 pixel-rows of nothing — 98.2%
+ * white — while the derived action panel was squeezed into a third of the
+ * measure and ran the depth of the sheet. The placeholder still prints, and
+ * still says commentary is owed; it just stops reserving two thirds of the
+ * page to say it. `max-content` is the width of the sentence itself. */
+.pack-narrative-columns.is-pending {
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+}
 .pack-narrative-body { font-size: 10pt; line-height: 15pt; }
 /* Spec §4.A page 4's narrow column. A left rule rather than a box: it is the
  * only block on the page whose words nobody signed, and the same cue the
