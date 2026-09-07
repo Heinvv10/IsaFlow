@@ -34,7 +34,32 @@ export interface PackTrendPoint {
   month: string;
   /** 'Mar 2026' */
   label: string;
+  /**
+   * TURNOVER — revenue accounts less the other-income band, which is the
+   * measure `aggregateFigures` calls `revenue` and every statement in the pack
+   * prints under that name.
+   *
+   * It used to be every `account_type = 'revenue'` account with no band at
+   * all, and that is finding B75 in a second place: the income statement page
+   * and the MCP tool once diverged the same way, by exactly the other-income
+   * total, and were fixed by banding both sides through the same exported
+   * `revenueBand` (see `reportsProfitAndLoss.ts` and
+   * `incomeStatementConvergence.test.ts`). This service never got that fix, so
+   * the board pack printed Brightsphere's revenue as (5 536) on the trends and
+   * group-results sheets against (5 535) on the income statement — the
+   * other-income account, to the rand — while its net profit agreed exactly.
+   * Net-profit-agrees-and-gross-does-not is the B75 signature.
+   */
   revenue: number;
+  /**
+   * The other-income band of the same accounts, so `revenue + otherIncome` is
+   * the old unbanded total and nothing is lost by the split.
+   *
+   * Carried rather than folded away because page 5 prints the months as an
+   * income statement and a row that does not add across is a row a director
+   * cannot check.
+   */
+  otherIncome: number;
   /** Total expense-type movement — cost of sales, operating and below-the-line
    *  combined. Unchanged by this series' extension; see `operatingExpenses`
    *  for the narrower band spec §4.A's panel actually names. */
@@ -107,8 +132,20 @@ const round2 = (v: number): number => Math.round(v * 100) / 100;
 /** Expense subtypes reported below the operating line — mirrors
  *  `accountClassification`'s `OTHER_EXPENSE` set, so "operating expenses"
  *  here means exactly what the classifier's `expenseBand` means by it. */
-const COST_OF_SALES_SUBTYPES = rawSubtypesFor('cost_of_sales');
-const BELOW_OPERATING_LINE_SUBTYPES = rawSubtypesFor('finance_cost', 'tax_expense', 'other_expense');
+export const COST_OF_SALES_SUBTYPES = rawSubtypesFor('cost_of_sales');
+/**
+ * The other-income band, in the raw spellings the column carries.
+ *
+ * `rawSubtypesFor`, the same call the two expense bands below already use, so
+ * this query bands revenue by exactly the alias table `revenueBand` resolves
+ * through — matching the classifier rather than deriving the split again. A
+ * NULL subtype is not in any alias list and `= ANY(...)` is false for it, which
+ * is `revenueBand(null) === 'turnover'`: the same default, arrived at the same
+ * way. `packTrendBanding.test.ts` holds the three arrays to the classifier's
+ * own answer over every alias it knows.
+ */
+export const OTHER_INCOME_SUBTYPES = rawSubtypesFor('other_income');
+export const BELOW_OPERATING_LINE_SUBTYPES = rawSubtypesFor('finance_cost', 'tax_expense', 'other_expense');
 
 /** Sentinel month bucket for every posting strictly before the trend window
  *  — sorts before every real 'YYYY-MM' key, though nothing here relies on
@@ -142,7 +179,8 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
     SELECT
       CASE WHEN je.entry_date < ${first.from}::date THEN ${OPENING_BUCKET}
            ELSE to_char(je.entry_date, 'YYYY-MM') END AS month,
-      COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' AND je.entry_date >= ${first.from}::date THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' AND je.entry_date >= ${first.from}::date THEN jl.credit - jl.debit ELSE 0 END), 0) AS revenue_and_other_income,
+      COALESCE(SUM(CASE WHEN ga.account_type = 'revenue' AND ga.account_subtype = ANY(${OTHER_INCOME_SUBTYPES as string[]}::TEXT[]) AND je.entry_date >= ${first.from}::date THEN jl.credit - jl.debit ELSE 0 END), 0) AS other_income,
       COALESCE(SUM(CASE WHEN ga.account_type = 'expense' AND je.entry_date >= ${first.from}::date THEN jl.debit - jl.credit ELSE 0 END), 0) AS expenses,
       COALESCE(SUM(CASE WHEN ga.account_type = 'expense' AND ga.account_subtype = ANY(${COST_OF_SALES_SUBTYPES as string[]}::TEXT[]) AND je.entry_date >= ${first.from}::date THEN jl.debit - jl.credit ELSE 0 END), 0) AS cost_of_sales,
       COALESCE(SUM(CASE WHEN ga.account_type = 'expense' AND ga.account_subtype = ANY(${BELOW_OPERATING_LINE_SUBTYPES as string[]}::TEXT[]) AND je.entry_date >= ${first.from}::date THEN jl.debit - jl.credit ELSE 0 END), 0) AS below_operating_line,
@@ -169,7 +207,12 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
 
   const points = slots.map((slot) => {
     const row = byMonth.get(slot.month);
-    const revenue = num(row?.revenue);
+    // TURNOVER BY DIFFERENCE, so the two bands cannot fail to sum to the
+    // total the query read — the same construction the operating band uses
+    // one line down, and the reason page 5's rows add across to the cent.
+    const revenueAndOtherIncome = num(row?.revenue_and_other_income);
+    const otherIncome = round2(num(row?.other_income));
+    const revenue = round2(revenueAndOtherIncome - otherIncome);
     const expenses = num(row?.expenses);
     const costOfSales = num(row?.cost_of_sales);
     const operatingExpenses = round2(expenses - costOfSales - num(row?.below_operating_line));
@@ -180,6 +223,9 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
     cashRunning = round2(cashRunning + num(row?.cash_movement));
     receivableRunning = round2(receivableRunning + num(row?.receivable_movement));
 
+    // ON TURNOVER, which is the base the income statement's gross margin uses.
+    // It was on turnover PLUS other income, so page 10's gross-margin panel
+    // and page 6's gross margin were quotients of different denominators.
     const grossMarginPct = marginPct2dp(revenue - costOfSales, revenue);
 
     const debtorPct = marginPct(receivableRunning, revenue);
@@ -190,10 +236,14 @@ export async function getPackTrend(companyId: string, to: string, months = 12): 
       month: slot.month,
       label: slot.label,
       revenue,
+      otherIncome,
       expenses,
-      // The only arithmetic in this workstream, and it is the definition of
-      // the series itself, not a restatement of a service figure.
-      netProfit: round2(revenue - expenses),
+      // NET PROFIT IS UNTOUCHED BY THE BAND, and that is what makes this a
+      // reclassification rather than a restatement: it is still every revenue
+      // account less every expense account, now written as the two bands that
+      // replaced the one. `incomeStatementConvergence.test.ts` pins the same
+      // invariant on the statement side.
+      netProfit: round2(revenueAndOtherIncome - expenses),
       costOfSales: round2(costOfSales),
       operatingExpenses,
       grossMarginPct,

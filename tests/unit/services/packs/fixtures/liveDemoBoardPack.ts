@@ -128,6 +128,7 @@ export const liveDemoTrend: PackTrendPoint[] = Array.from({ length: 12 }, (_, i)
     month: `${year}-${String(monthIndex + 1).padStart(2, '0')}`,
     label: `${names[monthIndex]} ${year}`,
     revenue: 0,
+    otherIncome: 0,
     expenses: 120_000 + i * 4_000,
     netProfit: -120_000 - i * 4_000,
     costOfSales: 96_000 + i * 3_000,

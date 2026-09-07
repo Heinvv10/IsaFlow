@@ -52,17 +52,17 @@ describe('getPackTrend', () => {
   });
 
   it('returns one point per month, zero-filling a month with no journals', async () => {
-    sqlMock.mockResolvedValue([{ month: '2026-03', revenue: '1000.50', expenses: '400.25' }]);
+    sqlMock.mockResolvedValue([{ month: '2026-03', revenue_and_other_income: '1000.50', expenses: '400.25' }]);
     const points = await getPackTrend(COMPANY, '2026-03-31', 2);
     expect(points).toEqual([
       {
         month: '2026-02', label: 'Feb 2026',
-        revenue: 0, expenses: 0, netProfit: 0, costOfSales: 0, operatingExpenses: 0,
+        revenue: 0, otherIncome: 0, expenses: 0, netProfit: 0, costOfSales: 0, operatingExpenses: 0,
         grossMarginPct: null, cash: 0, accountsReceivable: 0, debtorDays: null,
       },
       {
         month: '2026-03', label: 'Mar 2026',
-        revenue: 1000.5, expenses: 400.25, netProfit: 600.25, costOfSales: 0, operatingExpenses: 400.25,
+        revenue: 1000.5, otherIncome: 0, expenses: 400.25, netProfit: 600.25, costOfSales: 0, operatingExpenses: 400.25,
         grossMarginPct: 100, cash: 0, accountsReceivable: 0, debtorDays: 0,
       },
     ]);
@@ -96,8 +96,8 @@ describe('getPackTrend', () => {
 
   it('keeps the three original series unchanged in value and shape', async () => {
     sqlMock.mockResolvedValue([
-      { month: '2026-01', revenue: '500.00', expenses: '300.00' },
-      { month: '2026-02', revenue: '700.25', expenses: '410.75' },
+      { month: '2026-01', revenue_and_other_income: '500.00', expenses: '300.00' },
+      { month: '2026-02', revenue_and_other_income: '700.25', expenses: '410.75' },
     ]);
     const points = await getPackTrend(COMPANY, '2026-02-28', 2);
     expect(points.map((p) => ({ month: p.month, label: p.label, revenue: p.revenue, expenses: p.expenses, netProfit: p.netProfit }))).toEqual([
@@ -108,9 +108,9 @@ describe('getPackTrend', () => {
 
   it('carries the cash and receivable BALANCE forward through a month with no movement — never a reset to zero', async () => {
     sqlMock.mockResolvedValue([
-      { month: '2026-01', revenue: '0', expenses: '0', cash_movement: '1000', receivable_movement: '500' },
+      { month: '2026-01', revenue_and_other_income: '0', expenses: '0', cash_movement: '1000', receivable_movement: '500' },
       // 2026-02 has no row at all: no journals posted that month.
-      { month: '2026-03', revenue: '0', expenses: '0', cash_movement: '0', receivable_movement: '0' },
+      { month: '2026-03', revenue_and_other_income: '0', expenses: '0', cash_movement: '0', receivable_movement: '0' },
     ]);
     const points = await getPackTrend(COMPANY, '2026-03-31', 3);
     expect(points.map((p) => ({ month: p.month, cash: p.cash, accountsReceivable: p.accountsReceivable }))).toEqual([
@@ -123,7 +123,7 @@ describe('getPackTrend', () => {
   it('seeds the running cash and receivable balance from postings before the trend window', async () => {
     sqlMock.mockResolvedValue([
       { month: '__opening__', cash_movement: '5000', receivable_movement: '2000' },
-      { month: '2026-03', revenue: '0', expenses: '0', cash_movement: '100', receivable_movement: '0' },
+      { month: '2026-03', revenue_and_other_income: '0', expenses: '0', cash_movement: '100', receivable_movement: '0' },
     ]);
     const points = await getPackTrend(COMPANY, '2026-03-31', 1);
     expect(points[0]!.cash).toBe(5100);
@@ -132,7 +132,7 @@ describe('getPackTrend', () => {
 
   it('reports debtor days as not meaningful — never zero — on a month with no revenue, even with a receivable balance', async () => {
     sqlMock.mockResolvedValue([
-      { month: '2026-03', revenue: '0', expenses: '0', receivable_movement: '900' },
+      { month: '2026-03', revenue_and_other_income: '0', expenses: '0', receivable_movement: '900' },
     ]);
     const points = await getPackTrend(COMPANY, '2026-03-31', 1);
     expect(points[0]!.accountsReceivable).toBe(900);
@@ -142,7 +142,7 @@ describe('getPackTrend', () => {
 
   it('computes operating expenses as total expenses less cost of sales and below-the-line expense', async () => {
     sqlMock.mockResolvedValue([
-      { month: '2026-03', revenue: '1000', expenses: '600', cost_of_sales: '400', below_operating_line: '50' },
+      { month: '2026-03', revenue_and_other_income: '1000', expenses: '600', cost_of_sales: '400', below_operating_line: '50' },
     ]);
     const points = await getPackTrend(COMPANY, '2026-03-31', 1);
     expect(points[0]!.costOfSales).toBe(400);

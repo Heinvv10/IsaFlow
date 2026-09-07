@@ -24,6 +24,23 @@
  * the panels the page actually draws, so it can never name one that is not
  * there, and it covers every measure rather than the one that was noticed.
  *
+ * THE WINDOW WAS ONCE A TRUE CAUSE STATED AS THE ONLY CAUSE, and that is
+ * worth recording because eight blind gates read this note and passed it.
+ * `getPackTrend` summed every `account_type = 'revenue'` account with no band
+ * while `aggregateFigures` bands other income out of revenue, so the trends
+ * page and the statements were reporting DIFFERENT MEASURES as well as
+ * different windows — Brightsphere's revenue printed (5 536) here and (5 535)
+ * on the income statement, the other-income account to the rand. The service
+ * bands through `revenueBand` now (see `PackTrendPoint`), so the sentence
+ * below is true of revenue, gross margin, operating expenses, net profit and
+ * cash: one measure, two windows.
+ *
+ * DEBTOR DAYS IS THE ONE THAT IS STILL NOT ONLY THE WINDOW. The trends page
+ * multiplies each month's ratio by the days in THAT month; the period figure
+ * annualises on 365. Page 12's glossary has always defined both, and the note
+ * names the difference rather than restating the definition — a second
+ * paragraph here is paid for out of this page's own disclosures.
+ *
  * PAGES ARE NAMED IN WORDS, never by number — page numbers come from position
  * in the sequence now, and a literal here is the class of cross-reference
  * that once sent a reader to the scorecard for the basis of preparation.
@@ -90,12 +107,24 @@ export function trendWindowNote(panels: PackChartSpec[]): PackDisclosureNote | n
   if (groups.length === 0) return null;
 
   const where = groups.map((g) => `${inWords(g.measures)} on the ${g.page}`);
+  // Debtor days is measured differently as well as over a different window,
+  // and a note that named only the window would be doing to that measure what
+  // this whole file used to do to revenue.
+  // ONE CLAUSE, and the length is the whole of the design. The first draft ran
+  // two sentences and cost this page 8mm it did not have: `fitPageToBox` paid
+  // for them by dropping THIS NOTE, so the sheet lost the reconciliation
+  // entirely in order to make it more complete. The basis of preparation
+  // already defines both annualisations in full; what is owed here is that
+  // there is a second difference, not what it is.
+  const debtorDays = panels.some((panel) => panel.id === 'trend-debtor-days')
+    ? ' Debtor days also differs in its annualisation, which the basis of preparation defines.'
+    : '';
   return {
     heading: 'Period',
     body:
       'Each panel plots one MONTH at a time. The same measures print for the WHOLE reporting '
       + `period — ${inWords(where)} — against the comparative period. Different windows: the two `
-      + 'will not agree.',
+      + `will not agree.${debtorDays}`,
   };
 }
 

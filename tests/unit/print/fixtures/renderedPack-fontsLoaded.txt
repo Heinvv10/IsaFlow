@@ -193,6 +193,8 @@ FI N AN CI AL S
 Net profit runs from (784) in Jan 2026 to 1 908 in Jul 2026 across the
 12 months.
 R'000
+OTHE R I NCOME
+
 COS T OF S AL E S
 
 OPE RATI NG
@@ -202,6 +204,8 @@ OTHE R
 NE T PROFI T
 
 Oct 2025
+
+–
 
 2
 
@@ -215,6 +219,8 @@ Oct 2025
 
 Nov 2025
 
+–
+
 2
 
 119
@@ -226,6 +232,8 @@ Nov 2025
 (133)
 
 Dec 2025
+
+–
 
 2
 
@@ -239,6 +247,8 @@ Dec 2025
 
 Jan 2026
 
+–
+
 1
 
 774
@@ -250,6 +260,8 @@ Jan 2026
 (784)
 
 Feb 2026
+
+–
 
 1
 
@@ -263,6 +275,8 @@ Feb 2026
 
 Mar 2026
 
+–
+
 1
 
 426
@@ -274,6 +288,8 @@ Mar 2026
 (442)
 
 Apr 2026
+
+–
 
 1
 
@@ -287,6 +303,8 @@ Apr 2026
 
 May 2026
 
+–
+
 1
 
 419
@@ -298,6 +316,8 @@ May 2026
 (433)
 
 Jun 2026
+
+–
 
 2
 
@@ -321,7 +341,9 @@ RE VE NU E
 
 12 months to Sep 2026
 
-39
+37
+
+2
 
 (1 922)
 
@@ -331,7 +353,9 @@ RE VE NU E
 
 1 908
 
-37
+35
+
+2
 
 431
 
@@ -345,13 +369,17 @@ RE VE NU E
 
 –
 
+–
+
 41
 
 –
 
 (11)
 
-119
+101
+
+18
 
 1 751
 
@@ -363,23 +391,22 @@ RE VE NU E
 
 Reading this table
 
-The columns Cost of sales, Operating and Other are the three bands every expense of a month falls into: cost of
-sales, everything else above the operating line, and everything below it — finance costs, tax and other expenses.
-Revenue less the three of them is the month's net profit, so each row adds across.
-
+The columns Revenue is turnover; Other income is the band the income statement reports separately. Cost of
+sales, Operating and Other are the three bands every expense of a month falls into: cost of sales, everything else
+above the operating line, and everything below it — finance costs, tax and other expenses. The two income
+columns less the three expense columns are the month's net profit, so each row adds across.
 The window This table covers 12 months to Sep 2026, which is the series page 10 draws. The reporting period is
 stated in the footer of every sheet, and the income statement overleaf carries that period's own totals against the
 comparative.
 
 The reporting period's EBITDA
-
 EBITDA EBITDA for the reporting period is (1 467). The comparative period's is (905). It is operating profit plus
 the depreciation and amortisation charged in the period, and it is presented because a board asks for it, not
 because a standard requires it. Every other figure on this sheet is one month's; this one is the reporting period's,
 which the footer of every sheet states. The basis of preparation reconciles it to operating profit line by line.
 D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
 
-Jul 2026 carried the most revenue of any month, 39 of the 119 earned over 12 months to Sep 2026 — 32.8%
+Jul 2026 carried the most revenue of any month, 37 of the 101 earned over 12 months to Sep 2026 — 36.6%
 of it.
 1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
 
@@ -1109,23 +1136,23 @@ Confidential — for board use · DRAFT
 
 PE RFO RMAN CE
 
-Revenue is up 1413.5% from the first month of the 12-month series to
-the last; 6 of 6 panels are drawn.
-Revenue rose from 2 to 30 over 12 periods. Own scale: its
-range is 1.1% of the shared one, too little to show on it.
+Revenue has no usable base in the first month of the 12-month series;
+6 of 6 panels are drawn.
+Revenue rose from nil to 30 over 12 periods. Own scale: its
+range is 1% of the shared one, too little to show on it.
+37
 
-Gross margin rose from (4267.6%) to 100.0% over 12
-periods. Own scale: a percentage, not R'000.
-5069.7%
+Gross margin fell from 5323.5% to 100.0% over 3 periods.
+Own scale: a percentage, not R'000.
+5323.5%
 
-39
+30
+
+–
 
 100.0%
 
-30
-–
-
-(66076.9%)
+(1138.7%)
 
 Oct 2025
 
@@ -1135,7 +1162,7 @@ Operating expenses rose from 15 to 41 over 12 periods. Own
 scale: its range is 1.6% of the shared one, too little to show on
 it.
 
-Oct 2025
+Jul 2026
 
 Sep 2026
 
@@ -1170,9 +1197,8 @@ Cash fell from (115) to (531) over 12 periods.
 (11)
 Sep 2026
 
-Debtor days rose from 0.0 days to 59.6 days over 12 periods.
+Debtor days rose from 18.6 days to 59.6 days over 3 periods.
 Own scale: a day count, not R'000.
-
 59.6 days
 
 59.6 days
@@ -1187,7 +1213,7 @@ Sep 2026
 
 0.0 days
 
-Oct 2025
+Jul 2026
 
 Sep 2026
 
@@ -1198,14 +1224,15 @@ range over that span.
 
 Reading these panels
 Scale Net profit and Cash share one y-scale, so neither of them can look like it moved more than it did. Every
-panel labels the low and high of its own axis, so a share of the range can be checked off the sheet. Revenue
-(1.1%) and Operating expenses (1.6%) are drawn on their OWN scales — each has too little of its own range to
-register on the shared one, and says so in its own title. Their slopes are not comparable with the panels above.
-Gross margin and Debtor days are different units and keep their own.
+panel labels the low and high of its own axis, so a share of the range can be checked off the sheet. Revenue (1%)
+and Operating expenses (1.6%) are drawn on their OWN scales — each has too little of its own range to register
+on the shared one, and says so in its own title. Their slopes are not comparable with the panels above. Gross
+margin and Debtor days are different units and keep their own.
 Period Each panel plots one MONTH at a time. The same measures print for the WHOLE reporting period —
 revenue, gross margin and operating expenses on the income statement page, net profit on the group results
 page, cash on the cash page and debtor days on the scorecard page — against the comparative period. Different
-windows: the two will not agree.
+windows: the two will not agree. Debtor days also differs in its annualisation, which the basis of preparation
+defines.
 
 ISAFlow Demo (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026
 
@@ -1354,7 +1381,7 @@ Source system IsaFlow general ledger
 
 Rounding Figures are rounded to the nearest R'000, so
 components may not add exactly to the totals shown.
-Extracted at 7 September 2026 at 19:11 SAST
+Extracted at 7 September 2026 at 19:27 SAST
 Ledger version 7 September 2026 at 17:45 SAST
 
 Negative figures

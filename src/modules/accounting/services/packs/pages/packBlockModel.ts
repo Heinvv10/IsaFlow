@@ -121,6 +121,7 @@ export type PackTableColumnKey =
   | 'budget'
   | 'variance'
   | 'revenue'
+  | 'otherIncome'
   | 'costOfSales'
   | 'monthOperatingExpenses'
   | 'otherExpenses'
@@ -154,6 +155,7 @@ export const PACK_TABLE_COLUMN_LABEL: Record<PackTableColumnKey, string> = {
   budget: 'Budget',
   variance: 'Variance',
   revenue: 'Revenue',
+  otherIncome: 'Other income',
   costOfSales: 'Cost of sales',
   // SHORT, because a column heading is set in 7pt letter-spaced caps over a
   // 26mm measure and `TABLE_HEAD_MM` budgets ONE line for it. "Operating

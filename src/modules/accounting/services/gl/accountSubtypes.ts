@@ -223,6 +223,17 @@ export function isCurrentSubtype(
  * `aggregateFigures`) passes this as a TEXT[] so the vocabulary stays defined
  * in exactly one place.
  */
+/**
+ * Every raw spelling the alias table knows, so a test can walk the WHOLE
+ * domain rather than a copy of it.
+ *
+ * A guard that enumerates its own inputs stops covering the ones added after
+ * it was written, and that is how a band drifts apart from the classifier
+ * unnoticed — see `packTrendBanding.test.ts`, which holds the pack trend's SQL
+ * bands to `revenueBand`/`expenseBand` over exactly this list.
+ */
+export const ALL_RAW_SUBTYPES: readonly string[] = Object.keys(SUBTYPE_ALIASES);
+
 export function rawSubtypesFor(...canonical: CanonicalSubtype[]): string[] {
   const wanted = new Set<CanonicalSubtype>(canonical);
   return Object.keys(SUBTYPE_ALIASES).filter((k) => wanted.has(SUBTYPE_ALIASES[k]!));

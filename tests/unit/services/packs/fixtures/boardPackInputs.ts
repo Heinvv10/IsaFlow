@@ -81,6 +81,7 @@ function trendPoint(i: number, closingCash: number): PackTrendPoint {
     month: `2025-${String(i + 1).padStart(2, '0')}`,
     label: `M${i + 1}`,
     revenue,
+    otherIncome: 0,
     expenses: 520_000 + i * 9_000,
     netProfit: 80_000 + i * 3_000,
     costOfSales,
@@ -571,7 +572,12 @@ export const brightsphereLiveTrend: PackTrendPoint[] = [
   return {
     month: `${label.slice(4)}-${String(((i + 9) % 12) + 1).padStart(2, '0')}`,
     label,
-    revenue: trading ? -5_536_000 : 0,
+    // TURNOVER AND OTHER INCOME AS THE LIVE TENANT CARRIES THEM: the ledger
+    // holds (5 535 000) on the turnover account and (1 000) on other income.
+    // The fixture used to carry the unbanded (5 536 000) as `revenue`, which
+    // is the figure sheet 5 printed against sheet 6's (5 535).
+    revenue: trading ? -5_535_000 : 0,
+    otherIncome: trading ? -1_000 : 0,
     expenses: trading ? -4_128_237 : 0,
     netProfit: trading ? -1_407_763 : 0,
     costOfSales: 0,

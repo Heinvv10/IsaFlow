@@ -15,14 +15,22 @@
  * six small multiples — so a director who wants the numbers behind those
  * lines has them, and the two sheets cannot disagree about a month.
  *
- * EVERY ROW FOOTS ACROSS. `getPackTrend` defines a month's net profit as
- * `revenue − expenses` and partitions those expenses into cost of sales, the
- * operating band and everything below the operating line, so
- * `revenue − costOfSales − operating − other` IS the net profit column to the
- * cent, by construction rather than by assertion. That is the whole reason the
- * fourth expense column is printed rather than folded away: without it the
- * reader adds four printed figures, misses by the below-the-line band, and
- * has no way to find out why.
+ * EVERY ROW FOOTS ACROSS. `getPackTrend` defines a month's net profit as every
+ * revenue account less every expense account, and bands both sides the way
+ * `aggregateFigures` does — turnover and other income above, cost of sales,
+ * the operating band and everything below the operating line below — so
+ * `revenue + otherIncome − costOfSales − operating − other` IS the net profit
+ * column to the cent, by construction rather than by assertion. That is the
+ * whole reason the small bands are printed rather than folded away: without
+ * them the reader adds the printed figures, misses by the band that was
+ * hidden, and has no way to find out why.
+ *
+ * AND THE REVENUE COLUMN IS THE STATEMENT'S REVENUE. It was every revenue
+ * account, other income included, while sheet 6's Revenue is turnover alone —
+ * so Brightsphere printed (5 536) here and (5 535) one sheet later, the
+ * other-income account to the rand, and only the window note stood between a
+ * director and a contradiction it did not actually explain. `getPackTrend`
+ * bands through `revenueBand`'s own alias table now; see `PackTrendPoint`.
  *
  * WHAT IT DELIBERATELY DOES NOT DO is state a period total. The trend window
  * is twelve months ending at the reporting date and the pack's period is
@@ -45,6 +53,7 @@ import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageMode
 /** The five measure columns, in the order they print. */
 const COLUMNS: readonly PackTableColumnKey[] = [
   'revenue',
+  'otherIncome',
   'costOfSales',
   'monthOperatingExpenses',
   'otherExpenses',
@@ -68,6 +77,7 @@ const MEASURES: ReadonlyArray<{
   read: (p: PackTrendPoint) => number;
 }> = [
   { column: 'revenue', field: 'revenue', read: (p) => p.revenue },
+  { column: 'otherIncome', field: 'otherIncome', read: (p) => p.otherIncome },
   { column: 'costOfSales', field: 'costOfSales', read: (p) => p.costOfSales },
   { column: 'monthOperatingExpenses', field: 'operatingExpenses', read: (p) => p.operatingExpenses },
   { column: 'otherExpenses', field: 'otherExpenses', read: otherExpensesOf },

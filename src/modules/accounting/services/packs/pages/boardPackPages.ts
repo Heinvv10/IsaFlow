@@ -220,13 +220,17 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     : [
       { kind: 'table', table: monthlyResults },
       mustDisclose('Reading this table', [
-        // WHAT THE THREE EXPENSE COLUMNS ARE, because two of them are headed
-        // by a word the income statement does not use, and a heading set in
-        // 7pt caps over a 26mm measure cannot carry the definition itself.
-        note('The columns', 'Cost of sales, Operating and Other are the three bands every '
+        // WHAT THE BANDS ARE, because two of them are headed by a word the
+        // income statement does not use, and a heading set in 7pt caps over a
+        // 21mm measure cannot carry the definition itself. Revenue and Other
+        // income are the two bands of the income side and are the same two the
+        // income statement overleaf prints under those names.
+        note('The columns', 'Revenue is turnover; Other income is the band the income statement '
+          + 'reports separately. Cost of sales, Operating and Other are the three bands every '
           + 'expense of a month falls into: cost of sales, everything else above the operating '
-          + 'line, and everything below it — finance costs, tax and other expenses. Revenue less '
-          + 'the three of them is the month\'s net profit, so each row adds across.'),
+          + 'line, and everything below it — finance costs, tax and other expenses. The two '
+          + 'income columns less the three expense columns are the month\'s net profit, so each '
+          + 'row adds across.'),
         // AND WHICH WINDOW THIS IS. The trend runs twelve months to the
         // reporting date and the pack's period is whatever was asked for; the
         // closing row states its own window, and this says why it is not the

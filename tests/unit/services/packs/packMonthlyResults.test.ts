@@ -28,16 +28,18 @@ import { liveDemoRenderedInput, liveDemoTrend } from './fixtures/liveDemoBoardPa
 import { brightsphereLiveInput } from './fixtures/boardPackInputs';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
-/** A series whose below-the-operating-line band is NOT nil — the column that
- *  makes each row add across, and the one a fixture of zeros cannot prove. */
+/** A series whose OTHER INCOME and below-the-operating-line bands are both
+ *  non-nil — the two small columns that make each row add across, and the two
+ *  a fixture of zeros cannot prove. */
 const withBelowLine: PackTrendPoint[] = liveDemoTrend.map((point, i) => ({
   ...point,
   revenue: 100_000 + i * 1_000,
+  otherIncome: 2_000 + i * 50,
   costOfSales: 40_000,
   operatingExpenses: 30_000,
   // expenses − costOfSales − operatingExpenses is the below-the-line band.
   expenses: 40_000 + 30_000 + (5_000 + i * 100),
-  netProfit: (100_000 + i * 1_000) - (40_000 + 30_000 + (5_000 + i * 100)),
+  netProfit: (100_000 + i * 1_000) + (2_000 + i * 50) - (40_000 + 30_000 + (5_000 + i * 100)),
 }));
 
 const table = (trend: PackTrendPoint[]) => buildMonthlyResultsTable(trend, new PackFigureProvenance());
@@ -51,16 +53,33 @@ describe('sheet 5\'s month-by-month results', () => {
     expect(t.columns).not.toContain('actual');
   });
 
-  it('adds across on every row, the below-the-line column included', () => {
+  it('adds across on every row, the two small bands included', () => {
     const t = table(withBelowLine);
     expect(t.rows.length).toBe(withBelowLine.length + 1);
     for (const row of t.rows) {
       const v = (key: string) => row.figures[key as keyof typeof row.figures]!.value!;
       expect(
-        v('revenue') - v('costOfSales') - v('monthOperatingExpenses') - v('otherExpenses'),
+        v('revenue') + v('otherIncome') - v('costOfSales') - v('monthOperatingExpenses') - v('otherExpenses'),
         row.label,
       ).toBeCloseTo(v('netProfit'), 6);
     }
+  });
+
+  /**
+   * THE REVENUE COLUMN IS THE STATEMENT'S REVENUE. It was every revenue
+   * account, other income included, so Brightsphere printed (5 536) here
+   * against (5 535) on the income statement one sheet later — the same figure,
+   * measured twice. `packTrendBanding.test.ts` holds the service side; this
+   * holds the sheet, which is where a director met it.
+   */
+  it('prints turnover in the revenue column and other income in its own', () => {
+    const t = table(withBelowLine);
+    const march = t.rows[2]!;
+    expect(march.figures.revenue!.value).toBe(withBelowLine[2]!.revenue);
+    expect(march.figures.otherIncome!.value).toBe(withBelowLine[2]!.otherIncome);
+    expect(march.figures.revenue!.value).not.toBe(
+      withBelowLine[2]!.revenue + withBelowLine[2]!.otherIncome,
+    );
   });
 
   it('sums each column into the window row, and names the window rather than calling it a total', () => {
@@ -70,7 +89,7 @@ describe('sheet 5\'s month-by-month results', () => {
     expect(window.label).toBe(trendWindowLabel(withBelowLine));
     expect(window.label).not.toMatch(/total/i);
     const months = t.rows.slice(0, -1);
-    for (const key of ['revenue', 'costOfSales', 'monthOperatingExpenses', 'otherExpenses', 'netProfit'] as const) {
+    for (const key of ['revenue', 'otherIncome', 'costOfSales', 'monthOperatingExpenses', 'otherExpenses', 'netProfit'] as const) {
       const summed = months.reduce((sum, row) => sum + row.figures[key]!.value!, 0);
       expect(window.figures[key]!.value, key).toBeCloseTo(summed, 6);
     }
