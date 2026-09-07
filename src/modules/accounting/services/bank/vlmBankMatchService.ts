@@ -162,6 +162,22 @@ export function buildEnhancedMatchCandidates(
   const candidates: EnhancedMatchCandidate[] = [];
 
   // Reference match (highest confidence)
+  //
+  // UNWIRED, AND NOT SAFE TO WIRE AS IT STANDS (noted 2026-09-07). Nothing in
+  // `src/` or `pages/` calls this module — the only reference to it anywhere is
+  // the barrel export — so this branch posts nothing today. Two things to fix
+  // before it does:
+  //
+  //   · the match is a SUBSTRING (`includes`), at confidence 0.95. That is the
+  //     approach `bankTransactionLookupService` rejects in its own header for
+  //     the same data: a prefix match "would happily resolve INV-1 onto INV-10
+  //     and post the journal against the wrong invoice". Reference matching
+  //     there is EXACT after trimming both sides, and this should be too.
+  //   · `bankTx.reference` was null on every CSV-imported row until the
+  //     statement Reference column began to be persisted, so this branch was
+  //     unreachable for those rows by accident rather than by design. It is
+  //     reachable now, and only the missing caller stands between it and a
+  //     0.95-confidence auto-match.
   if (bankTx.reference) {
     const refMatch = entityInvoices.find(inv =>
       inv.reference && inv.reference.toLowerCase().includes(bankTx.reference.toLowerCase())
