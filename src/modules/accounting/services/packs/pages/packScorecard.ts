@@ -245,15 +245,38 @@ function statusFor(value: number | null, target: number | null, lowerIsBetter: b
   return met ? 'met' : 'missed';
 }
 
+/**
+ * A REASON WRITTEN FOR ONE PERIOD, PRINTED UNDER A CELL FROM ANOTHER.
+ *
+ * Sheet 9's footnote b read "Revenue is not positive, so days of sales
+ * outstanding cannot be measured" on a page whose Debtor days row prints
+ * 213 days, on revenue of 99. Both are true and neither sentence says so: the
+ * reason was computed for the PRIOR period, where revenue really is nil, and
+ * `MetricSpec.read` writes every reason in the unqualified present tense
+ * because it does not know which column it is answering for.
+ *
+ * Same class as `PackKpiDeltaAbsence` — an absence explanation printed beside
+ * the figure whose absence it does not explain — and the fix is the same
+ * shape: the CELL states which period its reason is about, since the cell is
+ * the thing that knows. It is a prefix rather than a rewrite because the
+ * reasons are ordinary sentences a later author will reword, and a rewrite
+ * that parses them would silently stop working when one of them changed.
+ */
+const PRIOR_PERIOD_PREFIX = 'In the comparative period: ';
+
 function recordFigure(
   p: PackFigureProvenance,
   source: string,
   read: MetricRead,
   format: PackFigureFormat,
+  period: 'actual' | 'prior' = 'actual',
 ): PackFigure {
-  return read.value === null
-    ? p.figure(source, null, format, read.unavailable ?? 'This metric could not be computed from the available figures.')
-    : p.figure(source, read.value, format, undefined, read.basis);
+  if (read.value !== null) return p.figure(source, read.value, format, undefined, read.basis);
+  const reason = read.unavailable ?? 'This metric could not be computed from the available figures.';
+  const stated = period === 'prior'
+    ? `${PRIOR_PERIOD_PREFIX}${reason.charAt(0).toLowerCase()}${reason.slice(1)}`
+    : reason;
+  return p.figure(source, null, format, stated);
 }
 
 function buildRow(
@@ -271,7 +294,7 @@ function buildRow(
   // reason, on a distinct source so `assertConsistent` never compares them.
   const prior =
     priorRatios && priorRaw
-      ? recordFigure(p, `${spec.source}.prior`, spec.read(priorRatios, priorRaw), spec.format)
+      ? recordFigure(p, `${spec.source}.prior`, spec.read(priorRatios, priorRaw), spec.format, 'prior')
       : null;
 
   const target = targetFor(spec);

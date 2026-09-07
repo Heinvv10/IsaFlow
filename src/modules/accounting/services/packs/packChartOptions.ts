@@ -76,7 +76,29 @@ function stepColour(step: WaterfallStep, palette: ChartPalette): string {
   return step.end - step.start >= 0 ? palette.fav : palette.unfav;
 }
 
-function makeWaterfallRenderItem(steps: WaterfallStep[], palette: ChartPalette, scale: MoneyScale): CustomSeriesRenderItem {
+/**
+ * A BAR'S LABEL, KEPT INSIDE THE PLOT.
+ *
+ * The label is drawn four pixels ABOVE the bar, and the axis domain runs to
+ * the largest endpoint — so the bar that reaches the top of the domain has
+ * its label off the top of the plot, where `clip: true` cuts it in half.
+ * Brightsphere's cash bridge printed `(3 186)` with its lower half missing on
+ * a pack that called itself final.
+ *
+ * The label moves INSIDE the plot rather than the plot growing to fit it: a
+ * padded domain would put the axis maximum somewhere no bar reaches, which
+ * makes every bar's height a slightly different thing from the figure it
+ * carries.
+ */
+const LABEL_GAP_PX = 4;
+const LABEL_LINE_PX = 12;
+
+function makeWaterfallRenderItem(
+  steps: WaterfallStep[],
+  palette: ChartPalette,
+  scale: MoneyScale,
+  domain: { min: number; max: number },
+): CustomSeriesRenderItem {
   return function renderItem(params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) {
     const step = steps[params.dataIndex];
     if (!step) return undefined;
@@ -89,6 +111,13 @@ function makeWaterfallRenderItem(steps: WaterfallStep[], palette: ChartPalette, 
     const x = x1 - width / 2;
     const y = Math.min(y1, y2);
     const height = Math.abs(y1 - y2);
+
+    // The top of the plot, asked of the coordinate system rather than assumed
+    // from `grid.top`: `containLabel` and the axis name both move it, and the
+    // domain's own maximum is where the plot ends.
+    const [, plotTop = 0] = api.coord([params.dataIndex, domain.max]);
+    const above = y - LABEL_GAP_PX;
+    const clipped = above - LABEL_LINE_PX < plotTop;
 
     return {
       type: 'group',
@@ -103,10 +132,13 @@ function makeWaterfallRenderItem(steps: WaterfallStep[], palette: ChartPalette, 
           style: {
             text: formatMoney(step.value, { scale }),
             x: x + width / 2,
-            y: y - 4,
+            // A bar that reaches the top of the domain has no room above it,
+            // so its label sits just inside the bar instead of half off the
+            // paper. See `LABEL_GAP_PX`.
+            y: clipped ? y + LABEL_GAP_PX : above,
             fill: palette.ink,
             align: 'center',
-            verticalAlign: 'bottom',
+            verticalAlign: clipped ? 'top' : 'bottom',
           },
         },
       ],
@@ -126,6 +158,7 @@ export function waterfallOption(
   scale: MoneyScale,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
 ): EChartsCoreOption {
+  const domain = axisDomain(steps.flatMap((s) => [s.start, s.end]));
   return {
     animation: false,
     grid: { left: 80, right: 24, top: 32, bottom: 72 },
@@ -138,12 +171,12 @@ export function waterfallOption(
       axisLabel: { color: palette.axis, interval: 0, rotate: 30 },
       axisLine: { lineStyle: { color: palette.axis } },
     },
-    yAxis: moneyValueAxis(palette, scale, axisDomain(steps.flatMap((s) => [s.start, s.end]))),
+    yAxis: moneyValueAxis(palette, scale, domain),
     series: [
       {
         name: 'waterfall',
         type: 'custom',
-        renderItem: makeWaterfallRenderItem(steps, palette, scale),
+        renderItem: makeWaterfallRenderItem(steps, palette, scale, domain),
         clip: true,
         data: steps.map((s) => [s.start, s.end]),
       },

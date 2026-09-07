@@ -195,10 +195,19 @@ export function disproportionatePlugSentence(chart: PackChartSpec, scale: MoneyS
     { scale },
   );
   const pct = Number.isFinite(share) ? `${(share * 100).toFixed(0)}%` : 'more than the whole';
+  // AND WHAT A DIRECTOR CAN DO ABOUT IT. The first version said only how big
+  // the step was, which on a bridge whose plug is the whole movement reads as
+  // a shrug: a chart category called "unexplained" tells a reader the pack
+  // could not do the arithmetic. What is actually true is narrower and
+  // actionable — the pack's figure set carries period TOTALS, not the
+  // operating, investing and financing splits a cash flow statement is made
+  // of, so this step is everything those three would have shown.
   return (
     `${labels} accounts for ${amount} of this bridge — ${pct} of what ` +
-    `it bridges. That step is the movement the figures do not break out, not ` +
-    `a measured category, so read the bridge as the shape of the period ` +
-    `rather than a complete account of it.`
+    `it bridges. It is not a category anything measured: this pack's figure ` +
+    `set carries the period's totals rather than the operating, investing and ` +
+    `financing splits a cash flow statement is made of, so the step holds ` +
+    `everything those three would have shown. Read the bridge as the shape of ` +
+    `the period, and ask for the cash flow statement before relying on the split.`
   );
 }
