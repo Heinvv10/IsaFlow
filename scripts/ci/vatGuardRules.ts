@@ -79,7 +79,18 @@ const RAW_INSERT = /INSERT\s+INTO\s+gl_journal_lines/i;
  * poster hides; it does not eliminate them.
  */
 export function callsAPostingFunction(strippedSource: string): boolean {
+  // RAW_INSERT is checked against the source WITH strings intact — the SQL
+  // lives inside a template literal and there is nowhere else for it to be.
   if (RAW_INSERT.test(strippedSource)) return true;
+  // The NAME check is not: raising this from "call" to "bare reference" made a
+  // doc-string enough to trip it, which is the inverse of the "imports, not
+  // mentions" rule the guard side enforces. A file mentioning
+  // `createJournalEntry` in prose beside an unrelated `vatType` field would
+  // have demanded a bogus allowlist entry — and an allowlist holding entries
+  // for files that decide nothing is an allowlist that has stopped meaning
+  // anything. Every form this catches names the function OUTSIDE a string: the
+  // namespace access, the import statement, the call site.
+  const noStrings = stripStrings(strippedSource);
   const names = new Set(POSTING_FNS);
   const re = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s+['"][^'"]*['"]/g;
   let m: RegExpExecArray | null;
@@ -95,7 +106,7 @@ export function callsAPostingFunction(strippedSource: string): boolean {
   // service with many exports, and grabbing the one function you need. Matching
   // the bare name catches the mention in the namespace access and in the import
   // statement itself, which is what those two variants cannot avoid having.
-  return [...names].some((n) => new RegExp(`\\b${n}\\b`).test(strippedSource));
+  return [...names].some((n) => new RegExp(`\\b${n}\\b`).test(noStrings));
 }
 
 /** Handing a vat code to the poster that deliberately enforces nothing. */
@@ -156,6 +167,16 @@ export function importsAndUsesGuard(strippedSource: string): boolean {
  * reads imports. Imports are matched against the ORIGINAL source, because a
  * naive strip can eat a string containing `//` and take an import with it.
  */
+/**
+ * Blank out string and template contents, keeping the quotes so the import
+ * regexes still see a well-formed specifier. Used only where a MENTION must
+ * not count — never for the raw-SQL check, whose whole match lives in a
+ * template literal.
+ */
+export function stripStrings(source: string): string {
+  return source.replace(/(['"`])(?:\\.|(?!\1)[\s\S])*?\1/g, (m) => m[0]! + m[0]!);
+}
+
 export function stripComments(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, '')

@@ -135,6 +135,25 @@ describe('inspectVatGuardCoverage — what counts as guarded', () => {
   });
 });
 
+describe('a MENTION in a string is not a posting call', () => {
+  it('does not flag a doc-string naming a posting function', () => {
+    // Raising the check from "call" to "bare reference" made prose enough to
+    // trip it — the inverse of the "imports, not mentions" rule the guard side
+    // enforces. It fails closed, but the cost is an allowlist entry for a file
+    // that decides nothing, and an allowlist full of those means nothing.
+    const src = "const l = { vatType: row.vat_type, "
+      + "note: 'see createJournalEntry for how this posts' };";
+    expect(inspectVatGuardCoverage(src)).toBeNull();
+  });
+
+  it('still catches the raw SQL, which lives inside a template literal', () => {
+    // So the string-blanking must NOT apply to the raw-INSERT check.
+    const src = 'const l = { vatType: c };\n'
+      + 'await sql`INSERT INTO gl_journal_lines (vat_type) VALUES (${c})`;';
+    expect(inspectVatGuardCoverage(src)?.kinds).toContain('vat_field_on_a_posting_path');
+  });
+});
+
 describe('stripComments', () => {
   it('does not let a commented-out decision put a file in scope', () => {
     expect(inspectVatGuardCoverage('// const net = x / (100 + VAT_RATE);')).toBeNull();
