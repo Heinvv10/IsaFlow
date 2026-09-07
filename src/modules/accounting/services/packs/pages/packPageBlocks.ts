@@ -309,20 +309,55 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
       note('Why', 'No monthly series covers this period, so no panel can be drawn. Nothing is inferred from the period totals in its place.'),
     ]));
   }
-  trendBlocks.push(commentary(trendsCaption(drawn)));
+  // THE DENOMINATOR RIDES WITH THE FIGURES, NOT WITH THE PROSE ABOUT THEM.
+  //
+  // Panels drawn on their own scale are titled "Own scale — 1.1% of the
+  // shared range", and one caption reads "drop it and the shared range
+  // shrinks by 52.4%". What the shared range IS was stated only in the Scale
+  // note below, which is a disclosure the fitter may take — and on the live
+  // demo company it takes it, leaving three percentages of an undisclosed
+  // denominator on the sheet. Brightsphere prints the note and its captions
+  // carry no percentages, so the one pack that needed the number was the one
+  // that lost it.
+  //
+  // A commentary block is not a disclosure and `fitPageToBox` never touches
+  // one, so the range stated here cannot be separated from the claims that
+  // cite it. The Scale note keeps its own copy — it is making an argument
+  // about comparability and needs the number in the sentence — and the two
+  // are one string off `panels.sharedRange` rather than two formattings of
+  // one domain.
+  const citesShare = panels.ownScale.length > 0 && panels.sharedRange !== null;
+  trendBlocks.push(commentary(citesShare
+    ? `${trendsCaption(drawn)} The shared y-scale spans ${panels.sharedRange}; a panel's `
+      + 'percentage of it is that panel\'s own high-to-low range over that span.'
+    : trendsCaption(drawn)));
   // The window note is DERIVED from the panels this page draws — see
   // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is
   // printed on this page and on the income statement page" two centimetres
   // above a disclosure saying no gross-margin panel could be drawn.
   const windowNote = trendWindowNote(drawn);
-  // THE WINDOW NOTE FIRST, and the scale note after it. Not a stylistic
-  // ordering: `fitPageToBox` takes a disclosure's LAST note first, and this
-  // is the tightest page in the pack — 0.9mm of slack on the live
-  // Brightsphere render. Of the two, the scale note describes what a reader
-  // can see on the panels and the window note explains why two sheets print
-  // different figures for one measure. The one that costs a reader least is
-  // the one that goes.
-  const readingNotes = [windowNote, scaleNote(panels)]
+  // THE SCALE NOTE FIRST, AND THAT IS A REVERSAL. It used to run second, so
+  // that the fitter — which takes a disclosure's LAST note first — would take
+  // it before the window note, on the reasoning that the window note explains
+  // why two sheets print different figures for one measure while the scale
+  // note only describes what a reader can already see.
+  //
+  // That stopped being true when the panels started CLAIMING a share of the
+  // shared range in their own titles. On the live demo company two panels are
+  // titled "Own scale — 1.1% of the shared range" and a caption reads "drop
+  // it and the shared range shrinks by 52.4%", and the only statement of what
+  // the shared range IS — its low, its high and its span — is in this note.
+  // The page dropped both notes and printed a footnote saying so, leaving
+  // three percentages of an undisclosed denominator on the sheet: exactly the
+  // unverifiable claim the denominator was added to fix. Brightsphere prints
+  // the notes and its captions carry no percentages, so the one pack that
+  // needed the definition was the one that lost it.
+  //
+  // A note the page's own figures cite is not commentary, so the block is
+  // REQUIRED below: its first note can never be taken, and the scale note is
+  // now that first note. The window note is what a short page gives up, and
+  // the page says so.
+  const readingNotes = [scaleNote(panels), windowNote]
     .filter((n): n is PackDisclosureNote => n !== null);
   // ONE COLUMN, deliberately: two columns were tried and are DEARER here.
   // `break-inside: avoid` means a two-note block balances to the taller note
@@ -330,6 +365,14 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
   // block's height with the five-line Scale note beside it — 52.7mm against
   // 47.8mm in a single measure. Columns pay off on page 12's sixteen terms,
   // not on two paragraphs.
+  // OPTIONAL, and that was measured rather than assumed. Held REQUIRED — so
+  // the scale note could never be taken — the live demo page needs 257.1mm of
+  // a 255mm sheet with every other lever spent, and `assertFits` refuses the
+  // pack. Its own model is accurate to 0.13mm on this page, so those two
+  // millimetres are on the paper and not in the ruler. What the reorder above
+  // buys is the ONE-drop case: the window note goes first, and the scale note
+  // survives every page that is short by one note rather than two. What
+  // carries the denominator when both go is the commentary block above.
   if (readingNotes.length > 0) trendBlocks.push(disclose('Reading these panels', readingNotes));
   if (drawn.length < TRENDS_PANELS_SPECIFIED) {
     trendBlocks.push(mustDisclose('Panels not drawn', [

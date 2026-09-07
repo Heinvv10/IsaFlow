@@ -317,6 +317,19 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       // measures had lost their explanation without saying which. What stays
       // is the POINTER, because a director reading a column of MISSED and
       // NOT MEANINGFUL needs to know both are defined and where.
+      // OPTIONAL, AND MEASURED RATHER THAN ASSUMED. On the live demo company
+      // this page measures 255.05mm against a 255mm box before any prose is
+      // trimmed — five hundredths of a millimetre — and the scorecard block
+      // alone is 191mm of it, so this note is the only lever the fitter has
+      // and it takes it. Making the note REQUIRED was tried and refuses the
+      // pack: with the note held, the loop pops every footnote on the page
+      // and is still 0.04mm over, so `assertFits` throws and the demo company
+      // gets no pack at all. The five hundredths are not on the paper — the
+      // browser lays the untrimmed page out around 252mm — but they are not a
+      // wrong constant either: `SCORECARD_ROW_MM` is 7.45 against a CSS
+      // arithmetic of 7.16 because a 27.07px row rounds up to 28 device
+      // pixels, which is 7.41mm, and that allowance is real. See the fix
+      // report for task 26; this needs a lever finer than a whole note.
       disclose('Scoring basis', [
         note('Definitions', 'Each metric is scored against the platform\'s default target. The basis page defines the terms and every formula used here.'),
       ]),
