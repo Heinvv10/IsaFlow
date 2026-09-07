@@ -183,7 +183,17 @@ export function pageHeaderMm(page: MeasurablePage, orientation: PageOrientation)
     + lines(wrappedLines(page.title, titlePt, width), titleLead) + 1.5 + 0.71 + margin;
 }
 
-/** `.pack-footnotes` — 7.5pt over an 11pt leading, with 2mm of air above. */
+/**
+ * `.pack-footnotes` — 7.5pt over an 11pt leading, with 2mm of air above.
+ *
+ * The strip used to be pinned to the bottom of the page's flex column by
+ * `margin-top: auto`, which measures nothing and left the two grey lines on
+ * page 5 marooned under half a sheet of white. It follows its content now,
+ * and the 2mm above it did not change: the live balance sheet composes at
+ * 253.6mm in a 255mm box and the cash page at less than one, so a millimetre
+ * added here refuses a page or buys a chart with a sentence. Measured, in
+ * `packPagesKeepTheirProse` and `boardPackPages.test.ts`.
+ */
 export function footnotesMm(page: MeasurablePage, orientation: PageOrientation): number {
   if (page.footnotes.length === 0) return 0;
   const width = PAGE_WIDTH_MM[orientation];

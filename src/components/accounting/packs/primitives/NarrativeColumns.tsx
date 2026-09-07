@@ -90,8 +90,16 @@ export function NarrativeColumns({ narrative, boardActions = [] }: NarrativeColu
     return null;
   }
 
+  // ONE COLUMN WHERE THERE IS NOTHING TO PUT IN THE SECOND. The grid is
+  // 2fr 1fr on every narrative block in the pack, and only page 4 has an
+  // action panel to fill the 1fr: on pages 5, 6, 8 and 10 the derived
+  // caption was set into two thirds of the measure with a third of the sheet
+  // blank beside it, which is what a fixed template looks like when the
+  // content it was drawn for is absent. Same collapse `is-pending` already
+  // does in the other direction.
+  const single = boardActions.length === 0;
   return (
-    <div className={`pack-narrative-columns is-${narrative.status}`}>
+    <div className={`pack-narrative-columns is-${narrative.status}${single ? ' is-single' : ''}`}>
       <div className="pack-narrative-body">
         <span className="pack-narrative-source">{SOURCE_LABEL[narrative.status]}</span>
         {narrative.body}

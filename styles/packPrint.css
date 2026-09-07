@@ -242,7 +242,15 @@ html.print-mode .pack-pages {
   font-size: 22pt; line-height: 25pt; font-weight: 500;
   white-space: nowrap;
 }
-.pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: auto; padding-top: 2mm; }
+/* THE FOOTNOTES FOLLOW THE CONTENT THEY ANNOTATE. `margin-top: auto` pinned
+ * them to the bottom margin of a flex column, which is invisible on a full
+ * sheet and is what stranded two grey lines at the foot of page 5 under 44%
+ * of unbroken white — a hole in the middle of the page rather than a page
+ * that ends. A short page is an honest outcome (page 4's empty column IS the
+ * fact that no commentary has been approved); a hole is a layout failure.
+ * Removing the auto margin can only move the strip UP, so no page's measured
+ * height changes — see `packSheetCount.test.ts`. */
+.pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: 0; padding-top: 2mm; }
 
 /* Task 13 — the KPI tile, its delta and its inline sparkline. The delta's
  * colour (favourable/unfavourable) is never the ONLY cue: `.pack-kpi-delta-cue`
@@ -317,6 +325,10 @@ html.print-mode .pack-pages {
 .pack-narrative-columns.is-pending {
   grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
 }
+/* AND WHERE THERE IS NO ACTION PANEL, THERE IS NO SECOND COLUMN. See
+ * `NarrativeColumns` — every derived caption in the pack was reserving a 1fr
+ * column for a block only page 4 carries. */
+.pack-narrative-columns.is-single { grid-template-columns: minmax(0, 1fr); }
 .pack-narrative-body { font-size: 10pt; line-height: 15pt; }
 /* Spec §4.A page 4's narrow column. A left rule rather than a box: it is the
  * only block on the page whose words nobody signed, and the same cue the

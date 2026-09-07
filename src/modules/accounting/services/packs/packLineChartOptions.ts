@@ -99,7 +99,20 @@ export function smallMultipleOption(
   const endpoints = axis !== undefined && 'endpoints' in axis;
   return {
     animation: false,
-    grid: { left: 4, right: 64, top: 12, bottom: 28, containLabel: true },
+    // ONE CHART LAYER, NOT THREE. The full-width line — page 8's closing
+    // cash — sits between a waterfall and a composition bar chart, and it
+    // was drawn on its own geometry: a 4px left gutter against their 80, a
+    // 12px top against their 32, and axis type two points smaller than
+    // either. On the printed sheet the plots started in three different
+    // places down the left edge and the cash axis read as a footnote to the
+    // other two. It takes the same grid as `waterfallOption` and
+    // `compositionBarOption` now, with the right gutter it needs of its own
+    // for the end label. The 83mm PANEL keeps its tight one: six of them to
+    // a landscape sheet is a different form, and `containLabel` is what lets
+    // a panel spend its width on the line.
+    grid: unit === null
+      ? { left: 4, right: 64, top: 12, bottom: 28, containLabel: true }
+      : { left: 80, right: 64, top: 32, bottom: 64 },
     xAxis: {
       type: 'category',
       data: points.map((p) => p.label),
@@ -111,8 +124,18 @@ export function smallMultipleOption(
     },
     yAxis: {
       type: 'value',
-      min: domain.min,
-      max: domain.max,
+      // THE FULL-WIDTH LINE LETS THE AXIS ROUND ITS OWN ENDS.
+      //
+      // Forcing the domain onto it puts the series' extreme on the axis as a
+      // label of its own, beside the last round tick it very nearly equals:
+      // page 8 printed `(1 500)` and `(1 621)` two millimetres apart at the
+      // foot of the scale, which is the same defect the reviewer found on
+      // Brightsphere's cash axis. The domain is this series' own either way —
+      // `sharedDomain` is called on one series here — and an ECharts value
+      // axis contains zero by default, so nothing about what the picture
+      // shows changes; only where the ticks fall. A PANEL keeps the forced
+      // domain, because there the whole point is that four panels share one.
+      ...(unit === null ? { min: domain.min, max: domain.max } : {}),
       // ONE INTERVAL, so the only ticks are the two ends of the domain. A
       // degenerate domain would give ECharts an interval of zero and an
       // infinite tick loop, so it keeps the default there.
@@ -124,14 +147,16 @@ export function smallMultipleOption(
         name: unit,
         nameLocation: 'end',
         nameGap: 8,
-        nameTextStyle: { color: palette.axis, fontSize: 9, align: 'left' },
+        nameTextStyle: { color: palette.axis, fontSize: 12, align: 'left' },
       }),
       axisLabel: axis === undefined
         ? { show: false }
-        // 8pt in an 83mm panel against 9 on the 170mm cash line: the panel
-        // has to carry a five-character figure like `(1 621)` and still leave
-        // the plot something to draw in.
-        : { show: true, color: palette.axis, fontSize: endpoints ? 8 : 9, formatter: (value: number) => formatValue(value) },
+        // 8pt in an 83mm panel, which has to carry a five-character figure
+        // like `(1 621)` and still leave the plot something to draw in; 12
+        // on the 170mm line, which is what the waterfall and the composition
+        // chart on the sheets either side of it use, and what makes the
+        // three read as one chart layer rather than three.
+        : { show: true, color: palette.axis, fontSize: endpoints ? 8 : 12, formatter: (value: number) => formatValue(value) },
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { lineStyle: { color: palette.prior } },

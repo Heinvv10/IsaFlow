@@ -48,6 +48,7 @@ import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
   buildCashTrendChart,
+  shorterCashTrendChart,
   buildCashWaterfallChart,
   buildPositionCompositionChart,
   buildProfitWaterfallChart,
@@ -303,7 +304,29 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     incomeSheet = incomeStatementSheet(profitBridge);
   }
 
-  const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set, scale);
+  // PAGE 8, AS A FUNCTION OF THE CASH LINE ON IT — the same construction
+  // page 6 uses for its bridge, and for the same reason: the height of the
+  // one chart the spec lets us choose is decided by measuring the composed
+  // sheet, not by a constant chosen against one company's data.
+  const cashSheet = (line: PackChartSpec | null): UnnumberedPage =>
+    // The cash page is the one sheet carrying BOTH windows — the table's
+    // period opening balance and the twelve-month line beneath it — and it
+    // was the one page with no note saying so. See `cashWindowFootnotes`.
+    page(cashTitle(set, scale), 'Cash', 'Financials', 'high',
+      buildCashBlocks(cash, cashBridge, line, set, scale), 'portrait', [
+        ...statementNotes,
+        ...cashWindowFootnotes(trend, line !== null, statementNotes.length + 1),
+      ]);
+
+  let cashLine = cashTrend;
+  let cashPage = cashSheet(cashLine);
+  while (cashLine !== null && pageMm(cashPage) > pageBoxMm(cashPage)) {
+    const shorter = shorterCashTrendChart(trend, scale, cashLine);
+    if (shorter === null) break;
+    cashLine = shorter;
+    cashPage = cashSheet(cashLine);
+  }
+
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
   const trendBlocks = buildTrendBlocks(trendPanels);
 
@@ -337,13 +360,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     snapshot,
     incomeSheet,
     page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
-    // The cash page is the one sheet carrying BOTH windows — the table's
-    // period opening balance and the twelve-month line beneath it — and it
-    // was the one page with no note saying so. See `cashWindowFootnotes`.
-    page(cashTitle(set, scale), 'Cash', 'Financials', 'high', cashBlocks, 'portrait', [
-      ...statementNotes,
-      ...cashWindowFootnotes(trend, cashTrend !== null, statementNotes.length + 1),
-    ]),
+    cashPage,
     page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
       commentary(scorecardCaption(scorecard)),
