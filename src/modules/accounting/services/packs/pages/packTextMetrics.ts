@@ -147,36 +147,48 @@ function textEms(text: string): number {
 }
 
 /**
- * The safety factor on every measure — AND IT IS NOT A SAFETY MARGIN. IT IS A
- * CALIBRATION CONSTANT, AND IT IS SOMETIMES TOO SMALL.
+ * The safety factor on every measure — and it is a SAFETY FACTOR again.
  *
- * It is documented as eight per cent of headroom over an em table meant to be
- * accurate. Measured against Chromium in the real face at 9.5pt, the table is
- * not accurate: it reads real pack prose 7.3% to 9.8% SHORT, so this factor is
- * set in the middle of the error it is supposed to cover rather than above it.
- * Six sentences the pack actually prints, as model-width over true width:
+ * IT WAS NOT ONE. It was documented as eight per cent of headroom over an em
+ * table meant to be accurate, and the table is not accurate: it reads the
+ * pack's own prose SHORT, because a lowercase letter of this face averages
+ * 0.53em and `EM_DEFAULT` charges 0.47. At 1.08 the factor sat INSIDE the
+ * error it was there to cover, which made it a calibration constant that
+ * happened to be too small — and every consumer treats `pageMm` as an upper
+ * bound. `fitPageToBox` stops the moment the page fits and `assertFits`
+ * re-checks against the same model, so an under-read page passed both and
+ * Chromium found the thirteenth sheet. One live page already had:
+ * Brightsphere's cash sheet, budgeted 234.7mm against 238.0mm of paper.
  *
- *   cash "no bridge is drawn"      0.9317   needs 1.073
- *   the rounding note              0.9240   needs 1.082
- *   the inventory caveat           0.9111   needs 1.098
- *   the debtor-days definition     0.9159   needs 1.092
- *   the scoring-basis pointer      0.9272   needs 1.079
- *   the trends scale note          0.9153   needs 1.093
+ * WHERE 1.12 COMES FROM. Every string the ten print fixtures put on paper —
+ * 344 of them over 20 ems — measured in Chromium in the real woff2 at each
+ * size the pack wraps prose at, as Chromium's width over this model's:
  *
- * Four of the six need more than 1.08. The model survives because a shortfall
- * only costs a LINE when it tips a greedy fill over a break, which most
- * paragraphs do not — but Brightsphere's cash page does, and `millionsCashInput`
- * is that page: 195.6mm budgeted against 198.8mm of paper. See
- * `packTextRulerCalibration.test.ts`, which pins these ratios, and task 26's
- * fix report for why raising this constant is not a fix that can be taken here:
- * at 1.10 every fixture stays green and the LIVE Brightsphere pack loses four
- * basis-of-preparation facts, because page 12 has 1.8mm of headroom and a
- * blanket 2% buys the correction out of the reader's document.
+ *   7.5pt  needs up to 1.104    (page footnotes, ratio reasons)
+ *   8.5pt  needs up to 1.065    (definitions, two-column notes)
+ *   9pt    needs up to 1.099    (matters cells)
+ *   9.5pt  needs up to 1.119    (disclosure notes — the pack's main prose)
+ *   10pt   needs up to 1.063    (narrative bodies)
+ *   13pt   needs up to 1.077    (landscape page titles)
+ *   15pt   needs up to 1.093    (portrait page titles)
  *
- * The correction and the thirteenth sheet are one decision, and it is not this
- * function's to take.
+ * 1.12 covers all of them. The 11pt measure — disclosure headings and the
+ * definitions' group names — reads worse still, up to 1.137, and is NOT
+ * covered: every 11pt string in the pack is under 20 ems against a measure of
+ * 180mm or more, so none of them can reach a second line and the shortfall
+ * cannot cost a break. That is the one hole, and it is named rather than
+ * averaged away. A heading long enough to wrap makes it real, which is what
+ * `packTextRulerCalibration.test.ts` exists to notice.
+ *
+ * WHAT IT COST, because it did cost. At 1.08 no content page of any fixture
+ * was trimmed at all; at 1.12 pages 3, 5, 10 and 12 hand back prose on the
+ * fixtures shaped like the live companies — see task 36's fix report for the
+ * page-by-page list. Page 5 is the one that cannot pay: it drops a note from
+ * a disclosure this pack is REQUIRED to make, on five of the ten fixtures.
+ * That is a content decision about page 5 and not a reason to shorten the
+ * ruler; the report carries it.
  */
-const WIDTH_SAFETY = 1.08;
+export const WIDTH_SAFETY = 1.12;
 
 /** The ems of `pt`-sized text one `widthMm` line holds. */
 function emsPerLine(pt: number, widthMm: number): number {

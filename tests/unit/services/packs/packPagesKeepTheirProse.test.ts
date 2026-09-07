@@ -48,13 +48,62 @@ const FIXTURES: [string, BoardPackInput][] = [
   ['cash in the millions', millionsCashInput],
 ];
 
+/**
+ * THE SHEETS THAT DO APOLOGISE, SINCE THE RULER WAS CORRECTED — a list, not
+ * an exemption.
+ *
+ * Until task 36 this was `[]` for every fixture, and that was true because
+ * `packTextMetrics`'s em table reads the pack's own prose 7 to 12 per cent
+ * SHORT and `WIDTH_SAFETY` was set at 1.08, inside that error. Pages were
+ * fitting on paper they did not have; one live page — Brightsphere's cash
+ * sheet — was already budgeted 234.7mm against 238.0mm laid out, and the
+ * twelve-sheet guarantee rested on the fixtures rather than on the model.
+ *
+ * `WIDTH_SAFETY` is now 1.12, above the worst of the 344 strings these
+ * fixtures print, measured in Chromium in the real face. A factor set above
+ * the worst string over-charges the average one by about seven per cent,
+ * which tips roughly one line in fifteen — so four pages that were fitting by
+ * the model's optimism no longer fit, and hand prose back.
+ *
+ * WHAT THAT COSTS A READER, page by page, is a content decision and it is
+ * open: sheet 3 of the live Brightsphere pack loses the note stating the
+ * scale its figures are in AND the note saying its last month is a stub;
+ * sheet 5 loses the rounding footnote and the window note on six fixtures;
+ * sheet 12 loses the colour key; sheet 10 loses one panel note. Task 36's fix
+ * report carries the list and the millimetres. None of these pages has a
+ * chart rung left to step down — sheet 5 has no chart at all — so the answer
+ * is shorter prose on those four sheets, and choosing which sentence goes is
+ * not a decision this file may take by leaving the ruler short.
+ *
+ * IT IS PINNED PER FIXTURE RATHER THAN WAIVED. A page joining this list
+ * silently is the regression, and every entry leaving it is the fix.
+ */
+const APOLOGISES: Record<string, string[]> = {
+  'the live demo company as it renders': ['10 Trends'],
+  'the live demo company whose EBITDA bridge rounds': ['10 Trends'],
+  'the live demo company': ['5 Group results'],
+  'the demo company': ['3 Highlights'],
+  Brightsphere: [],
+  'Brightsphere as the live route composed it': [
+    '3 Highlights', '5 Group results', '12 Basis of preparation',
+  ],
+  'cash in the millions': ['5 Group results'],
+};
+
 describe('no sheet apologises for its own layout', () => {
-  it.each(FIXTURES)('%s', (unused, input) => {
+  it.each(FIXTURES)('%s', (name, input) => {
     const doc = buildBoardPackPages(input);
     const apologised = doc.pages
       .filter((p) => p.footnotes.some((f) => f.text.startsWith(OMISSION_MARK)))
       .map((p) => `${p.number} ${p.navLabel}`);
-    expect(apologised, 'a sheet told the board its layout dropped prose').toEqual([]);
+    expect(apologised, 'a sheet told the board its layout dropped prose').toEqual(APOLOGISES[name] ?? []);
+  });
+
+  // NOT VACUOUS, AND IN THE DIRECTION THAT MATTERS: the table above records a
+  // cost that is meant to be paid off. When the four sheets are shortened it
+  // empties, this goes red, and whoever shortened them deletes it.
+  it('still has sheets to hand back', () => {
+    expect(Object.values(APOLOGISES).flat().length).toBeGreaterThan(0);
   });
 
   /**

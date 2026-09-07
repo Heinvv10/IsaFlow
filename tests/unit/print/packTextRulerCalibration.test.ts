@@ -1,39 +1,80 @@
 /**
- * HOW FAR OFF THE PACK'S TEXT RULER ACTUALLY IS, ON THE PACK'S OWN SENTENCES.
+ * HOW FAR OFF THE PACK'S TEXT RULER IS, ON THE PACK'S OWN SENTENCES — AND
+ * WHETHER `WIDTH_SAFETY` COVERS IT.
  *
  * `packTextMetrics` decides how many lines a string takes and every page
  * budget is built on it, under one contract: it may read long and may never
  * read short. `packTextMetrics.test.ts` asserts that contract in LINES, on one
- * and two-line samples. This asserts it in WIDTH, on the four and five-line
- * paragraphs the pack actually prints — which is where a small systematic
- * optimism turns into a whole line.
+ * and two-line samples. This asserts it in WIDTH, on the paragraphs the pack
+ * actually prints — which is where a small systematic optimism turns into a
+ * whole line.
  *
- * It exists because the contract was being breached and nothing could see it.
- * Brightsphere's sheet 8 budgets 195.6mm and Chromium lays out 198.8mm; the
- * page carrying the difference is one disclosure whose sentence quotes three
- * cash figures, and at that company's scale each formats with a thousands
- * separator — four more characters across the paragraph, which is enough to
- * tip a greedy fill from four lines to five. `millionsCashInput` in
- * `packSheetCount.test.ts` is that page.
+ * IT USED TO PIN THE BREACH RATHER THAN CLOSE IT. The em table reads real
+ * pack prose short — a lowercase letter of this face averages 0.53em and the
+ * table charges 0.47 — and `WIDTH_SAFETY` was 1.08, INSIDE that error rather
+ * than above it. This file recorded the six ratios and asserted that the
+ * breach still existed, because closing it costs the reader paper and that
+ * was not a test's decision to take. It has been taken: task 36 measured
+ * every string the ten print fixtures put on paper, at every size the pack
+ * wraps prose at, and raised the factor to 1.12 — above the worst of them.
  *
- * The cause is not the cash page. The em table reads real pack prose 7.3% to
- * 9.8% short, and `WIDTH_SAFETY` is 1.08 — inside that range rather than above
- * it, so it is a calibration constant and not the safety margin it is
- * documented as. Four of the six sentences below need more than 1.08.
+ * SO THE ASSERTION IS NOW THE CONTRACT ITSELF, from both sides:
  *
- * WHY THIS PINS THE ERROR RATHER THAN FIXING IT. Raising the constant to 1.10
- * makes every fixture in the suite green and costs the LIVE Brightsphere pack
- * four of its eight basis-of-preparation facts, because page 12 has 1.8mm of
- * headroom and a blanket two per cent is bought out of the reader's document.
- * The correction and the thirteenth sheet are one decision and it is not a
- * test's to take. What a test CAN do is make the size of the error a number
- * someone has to look at, and go red the day it gets worse.
+ *   - no sentence needs more safety than `WIDTH_SAFETY` gives it. This is the
+ *     never-under-estimates contract, measured in width. It goes red the day
+ *     the em table, the face, or the type scale gets worse.
+ *   - the worst still needs more than `FLOOR`. If someone corrects the em
+ *     table itself, every ratio drops toward 1.0, this goes red, and whoever
+ *     did it lowers `WIDTH_SAFETY` and hands the pages back the prose the
+ *     factor is currently buying. A safety factor nothing needs is paid for
+ *     out of the reader's document.
+ *
+ * The sentences are measured at 9.5pt, the size the pack sets disclosure
+ * notes at and the size whose error is worst. The 11pt measure — disclosure
+ * HEADINGS and the definitions' group names — reads worse still and is not
+ * covered by 1.12; see `WIDTH_SAFETY`'s own docblock for why that cannot cost
+ * a line break today, and `HEADINGS` below, which is what would notice if it
+ * ever could.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser } from 'playwright';
-import { textWidthEms } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { textWidthEms, WIDTH_SAFETY } from '@/modules/accounting/services/packs/pages/packTextMetrics';
+import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import {
+  brightsphereInput,
+  brightsphereLiveInput,
+  demoInput,
+  denseInput,
+  noRatioPanelsInput,
+} from '../services/packs/fixtures/boardPackInputs';
+import {
+  liveDemoBridgeInput,
+  liveDemoInput,
+  manyLongNullQuantumMattersInput,
+  manyShortNullQuantumMattersInput,
+  millionsCashInput,
+} from '../services/packs/fixtures/liveDemoBoardPack';
+
+/** Every disclosure heading the fixtures put on paper — the strings set at
+ *  11pt, which is the measure `WIDTH_SAFETY` does not cover. */
+function packHeadings(): string[] {
+  const inputs = [
+    demoInput, brightsphereInput, denseInput, noRatioPanelsInput, liveDemoInput,
+    manyLongNullQuantumMattersInput, manyShortNullQuantumMattersInput, millionsCashInput,
+    brightsphereLiveInput, liveDemoBridgeInput,
+  ];
+  const headings = new Set<string>();
+  for (const input of inputs) {
+    for (const page of buildBoardPackPages(input).pages) {
+      for (const block of page.blocks) {
+        if (block.kind === 'disclosure') headings.add(block.disclosure.heading);
+      }
+    }
+  }
+  return [...headings];
+}
 
 const ROOT = path.resolve(__dirname, '../../..');
 const HOST = 'http://ruler.calibration.local/';
@@ -47,14 +88,30 @@ const SENTENCES: Array<[string, string]> = [
   ['the debtor-days definition', 'Trade receivables over revenue, times 365 — an annualised figure on the scorecard and highlights, whatever the length of the reporting period.'],
   ['the scoring-basis pointer', 'Each metric is scored against the platform’s default target. The basis page defines the terms and every formula used here.'],
   ['the trends scale note', 'Revenue, Operating expenses, Net profit and Cash share one y-scale, so none of them can look like it moved more than it did.'],
+  // THE WORST OF THE 344 STRINGS THE TEN FIXTURES PRINT, and the one the
+  // constant is set from. Short, and every letter of it is one the table
+  // under-charges; the six above are long enough for the wide characters to
+  // dilute the error.
+  ['the widest-reading tile caption', 'Operating expenses moved the most, up 101.4%.'],
+  // The worst LONG one — a whole paragraph, so the shortfall is the table's
+  // and not a rounding artefact of a short string.
+  ['the untracked-movement note', 'No prior board pack is stored, so movement since the last meeting is stated as untracked rather than as nil.'],
 ];
 
 /**
- * The worst ratio measured, plus a little. The band is asserted from BOTH
- * sides: a table that quietly got worse is the regression, and a table that
- * got better should make someone delete this file and raise the contract.
+ * Headings, set at 11pt across the full measure. Not asserted against
+ * `WIDTH_SAFETY` — they are not covered by it — but asserted to be too SHORT
+ * to wrap, which is the reason they need not be. A heading that grows past
+ * this makes the 11pt shortfall reachable.
  */
-const WORST_OBSERVED = 1.098;
+const HEADINGS_MAX_EMS = 30;
+
+/**
+ * The floor the worst ratio must stay above. Below it, `WIDTH_SAFETY` is
+ * buying more paper than the em table's error needs and the pages are paying
+ * for it — see the docblock.
+ */
+const FLOOR = 1.05;
 
 let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch(); }, 120_000);
@@ -98,20 +155,30 @@ describe('the pack text ruler, measured in width rather than in lines', () => {
     const lines = report.map((r) => `${r.name}: needs ${r.needed.toFixed(3)}`).join('\n  ');
 
     for (const { name, needed } of report) {
-      // The direction that matters: the table must not get worse than what is
-      // recorded in `WIDTH_SAFETY`'s docblock and acted on in the fix report.
-      expect(needed, `${name} now needs a wider safety than the recorded worst case\n  ${lines}`)
-        .toBeLessThanOrEqual(WORST_OBSERVED);
+      // THE CONTRACT: the factor covers the error, on every sentence.
+      expect(needed, `${name} needs more safety than WIDTH_SAFETY (${WIDTH_SAFETY}) gives it — `
+        + `the ruler under-reads this sentence, which is the direction that puts a page on a `
+        + `second sheet\n  ${lines}`)
+        .toBeLessThanOrEqual(WIDTH_SAFETY);
     }
 
-    // AND THE BREACH IS ASSERTED TO STILL EXIST, so this file cannot outlive
-    // it silently. When the em table is corrected every ratio drops under
-    // 1.08, this goes red, and whoever fixed it deletes the file and tightens
-    // `packSheetCount.test.ts`'s named exclusion for sheet 8 with it.
+    // AND THE OTHER SIDE: a factor nothing needs is paid out of the document.
     const worst = Math.max(...report.map((r) => r.needed));
-    expect(worst, `the ruler no longer under-reads: WIDTH_SAFETY of 1.08 now covers every `
-      + `sentence (worst ${worst.toFixed(3)}). Delete this file and remove the "cash in the `
-      + `millions" page 8 exclusion in packSheetCount.test.ts.\n  ${lines}`)
-      .toBeGreaterThan(1.08);
+    expect(worst, `the em table no longer under-reads by much (worst ${worst.toFixed(3)}): `
+      + `WIDTH_SAFETY of ${WIDTH_SAFETY} is now buying paper the model does not need, and the `
+      + `pages it trims are paying for it. Lower it to just above the worst here.\n  ${lines}`)
+      .toBeGreaterThan(FLOOR);
+
+    // AND THE ONE MEASURE 1.12 DOES NOT COVER stays out of reach. Every
+    // heading the pack sets at 11pt is short enough that it cannot wrap, so
+    // the 11pt shortfall cannot cost a line break. This is the assertion that
+    // notices when one grows.
+    const longHeadings = packHeadings()
+      .map((text) => ({ text, ems: textWidthEms(text) }))
+      .filter((h) => h.ems > HEADINGS_MAX_EMS);
+    expect(longHeadings.map((h) => `${h.text} (${h.ems.toFixed(1)} ems)`),
+      'a disclosure heading is now long enough to wrap, and 11pt is the measure WIDTH_SAFETY '
+      + 'does not cover — see its docblock')
+      .toEqual([]);
   }, 300_000);
 });
