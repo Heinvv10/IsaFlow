@@ -38,6 +38,14 @@ import {
 } from '../services/packs/fixtures/liveDemoBoardPack';
 import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import { printBoardPack, type PrintedPack } from './renderPackPdf';
+import { buildMattersBlock } from '@/modules/accounting/services/packs/pages/packPageBlocks';
+import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import {
+  MATTERS_LINE_CEILING,
+  MATTERS_PRINTED_LINE_BUDGET,
+  selectPrintedMatters,
+} from '@/modules/accounting/services/packs/pages/packMattersPrinted';
+import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 
 const FIXTURES = {
   demo: demoInput,
@@ -87,6 +95,66 @@ describe('the printed board pack', () => {
       expect(thinSheets(printed.sheetText), `${name}: sheets carrying almost nothing`).toEqual([]);
     }, 120_000);
   }
+
+
+  /**
+   * THE FITTED CONSTANT IS RE-MEASURED, NOT DESCRIBED.
+   *
+   * `MATTERS_PRINTED_LINE_BUDGET`'s docblock used to say "That is 47; this is
+   * 40, and the eight lines of slack" while the constant beside it was 30 —
+   * the one comment a reviewer has to trust about a fitted number, wrong by a
+   * third, in the direction that costs a director rows on the page. The
+   * budget is now `MATTERS_LINE_CEILING` less its slack, and the CEILING is
+   * what this pins: at 34 every matters-heavy fixture still prints one sheet
+   * per page, and at 35 one of them does not.
+   *
+   * Both halves matter. Without the second, "the ceiling is 34" would be
+   * satisfied by any number 34 or lower, which is exactly how a budget drifts
+   * six lines below the paper and nobody notices.
+   *
+   * The probe re-selects the matters at the budget under test and swaps the
+   * page-11 block for the one that selection builds — the production builder,
+   * so the rows are the rows that page would carry. Only the table's LAYOUT
+   * is being measured here, which is the only thing a budget decides.
+   */
+  const MATTERS_HEAVY: Array<[string, BoardPackInput]> = [
+    ['live', liveDemoInput],
+    ['many long null-quantum matters', manyLongNullQuantumMattersInput],
+    ['many short null-quantum matters', manyShortNullQuantumMattersInput],
+  ];
+
+  function packAtBudget(input: BoardPackInput, budget: number) {
+    const document = buildBoardPackPages(input);
+    const block = buildMattersBlock(selectPrintedMatters(input.matters, budget), new PackFigureProvenance());
+    for (const page of document.pages) {
+      const index = page.blocks.findIndex((b) => b.kind === 'matters');
+      if (index >= 0) page.blocks[index] = block;
+    }
+    return document;
+  }
+
+  it('keeps the line budget under a ceiling that is measured, not asserted', async () => {
+    expect(MATTERS_PRINTED_LINE_BUDGET).toBeLessThan(MATTERS_LINE_CEILING);
+
+    for (const [name, input] of MATTERS_HEAVY) {
+      const document = packAtBudget(input, MATTERS_LINE_CEILING);
+      const printed = await printBoardPack(document, browser);
+      expect(printed.sheets, `${name} at the ceiling: ${sheetReport(printed.sheetText, printed.heights)}`)
+        .toBe(document.pages.length);
+    }
+
+    // And one line past it is over the paper — otherwise the ceiling is just
+    // the smallest number anyone happened to try.
+    const over = await Promise.all(MATTERS_HEAVY.map(async ([name, input]) => {
+      const document = packAtBudget(input, MATTERS_LINE_CEILING + 1);
+      const printed = await printBoardPack(document, browser);
+      return { name, spilled: printed.sheets > document.pages.length };
+    }));
+    expect(
+      over.filter((o) => o.spilled).map((o) => o.name).length,
+      `no fixture spills at ${MATTERS_LINE_CEILING + 1} lines, so the ceiling is lower than it claims`,
+    ).toBeGreaterThan(0);
+  }, 180_000);
 
   /**
    * EVERY CONTENT SHEET IDENTIFIES ITSELF AS THE PAGE THE CONTENTS NAMES.
