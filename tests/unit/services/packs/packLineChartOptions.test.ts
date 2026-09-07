@@ -121,7 +121,7 @@ describe('buildTrendPanels — the row actually shares one scale', () => {
   }));
 
   it('draws two same-shaped series at different heights', () => {
-    const panels = buildTrendPanels(trend);
+    const panels = buildTrendPanels(trend).panels;
     const revenue = panels.find((p) => p.id === 'trend-revenue')!;
     const netProfit = panels.find((p) => p.id === 'trend-net-profit')!;
     const paths = (svg: string): string[] => [...svg.matchAll(/ d="([^"]+)"/g)].map((m) => m[1]!);
@@ -130,7 +130,7 @@ describe('buildTrendPanels — the row actually shares one scale', () => {
   });
 
   it('draws every panel as a line spec', () => {
-    expect(buildTrendPanels(trend).every((p) => p.kind === 'line')).toBe(true);
+    expect(buildTrendPanels(trend).panels.every((p) => p.kind === 'line')).toBe(true);
   });
 });
 

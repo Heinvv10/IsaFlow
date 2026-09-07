@@ -183,9 +183,16 @@ export function disproportionatePlugSentence(chart: PackChartSpec, scale: MoneyS
   // are read by whoever is fixing the pack and want the unrounded figure.
   // At the DOCUMENT's scale, like every other figure a reader sees. It printed
   // raw rands beside a table stated in R'000, on the same page.
+  //
+  // NO CURRENCY SYMBOL. `symbol: true` printed "R 407" on a sheet where every
+  // other figure reads `407` under an `R'000` header — a rand prefix on a
+  // figure stated in thousands says R407 to a reader who takes the symbol at
+  // its word, and it was the only place in the pack a currency mark appeared
+  // at all. The scale is the page's, stated once, in the table header and on
+  // the basis page.
   const amount = formatMoney(
     plug.reduce((sum, bar) => sum + Math.abs(bar.end - bar.start), 0),
-    { symbol: true, scale },
+    { scale },
   );
   const pct = Number.isFinite(share) ? `${(share * 100).toFixed(0)}%` : 'more than the whole';
   return (

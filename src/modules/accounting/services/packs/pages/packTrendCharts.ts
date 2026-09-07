@@ -10,10 +10,18 @@
  * every name here, so existing import paths still resolve.
  */
 
-import { formatDays, formatMoney, formatPctLevel, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
 import { renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
+import {
+  creditMonthClause,
+  dominantPoint,
+  moneyPanelScales,
+  movementSentence,
+  type Domain,
+  type ScaleDominator,
+} from './packTrendScale';
 import type { PackChartSpec } from './packPageModel';
 
 /**
@@ -83,19 +91,42 @@ const RATIO_PANELS: RatioPanel[] = [
 function moneyPanel(
   panel: MoneyPanel,
   trend: PackTrendPoint[],
-  domain: { min: number; max: number },
   scale: MoneyScale,
+  drawn: { domain: Domain; shared: boolean; ownSharePct: number },
+  dominant: { label: string; value: number; sharePct: number; creditMonth: string | null } | null,
 ): PackChartSpec {
   const points = trend.map((point) => ({ label: point.label, value: panel.pick(point) }));
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
-  const direction = last >= first ? 'rose' : 'fell';
   const money = (n: number) => formatMoney(n, { scale });
+  const prose = (n: number) => inProse(money(n));
+  const clauses = [movementSentence(panel.name, prose(first), prose(last), points.length, last >= first)];
+  // A PANEL THAT DOES NOT SHARE THE SCALE SAYS SO, IN ITS OWN TITLE. The
+  // page's scale note names it too; this is the half a reader meets while
+  // looking at the line, which is where a rescaled axis actually misleads.
+  if (!drawn.shared) {
+    clauses.push(
+      `Drawn on its own scale — its range is ${drawn.ownSharePct}% of the shared money scale, `
+      + 'too little to show against it.',
+    );
+  }
+  // AND THE MONTH THAT SETS THE SCALE IS NAMED ON THE PANEL THAT CARRIES IT.
+  // The rendered demo pack drew a spike of +1 908 in one month on a page
+  // whose income statement totals (1 546) for the period, and no title, note
+  // or caption anywhere in the document mentioned it.
+  if (dominant !== null) {
+    const because = dominant.creditMonth === null ? '' : `, on a month where ${dominant.creditMonth}`;
+    clauses.push(
+      `${dominant.label} alone is ${prose(dominant.value)}${because}, and sets `
+      + `${dominant.sharePct}% of the shared money scale.`,
+    );
+  }
   return {
     id: panel.id,
-    title: `${panel.name} ${direction} from ${money(first)} to ${money(last)} over ${points.length} periods.`,
+    title: clauses.join(' '),
     kind: 'line',
-    svg: renderChartSvg(smallMultipleOption(points, domain, money), PANEL),
+    sharedScale: drawn.shared,
+    svg: renderChartSvg(smallMultipleOption(points, drawn.domain, money), PANEL),
     heightMm: PANEL.heightMm,
   };
 }
@@ -117,24 +148,68 @@ function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[]): PackChartSpec |
   const domain = sharedDomain([points.map((p) => p.value)]);
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
-  const direction = last >= first ? 'rose' : 'fell';
+  const prose = (n: number) => inProse(panel.format(n));
   return {
     id: panel.id,
-    title: `${panel.name} ${direction} from ${panel.format(first)} to ${panel.format(last)} over ${points.length} periods.`,
+    title: movementSentence(panel.name, prose(first), prose(last), points.length, last >= first),
     kind: 'line',
+    // A ratio panel is in its OWN unit, so it never shared the money domain
+    // and cannot be read against it. Reported rather than left undefined, so
+    // the page's scale note is derived from the panels rather than from a
+    // second list of which ones are money.
+    sharedScale: false,
     svg: renderChartSvg(smallMultipleOption(points, domain, panel.format), PANEL),
     heightMm: PANEL.heightMm,
   };
 }
 
-export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): PackChartSpec[] {
-  if (trend.length === 0) return [];
+/**
+ * Page 10's panels, and what the page has to SAY about the scale they are
+ * drawn on.
+ *
+ * One decision, made here and reported, rather than two: `packPageBlocks`
+ * writes the page's scale note off this result instead of recomputing which
+ * panels share a domain. The note used to be a fixed sentence naming four
+ * money panels, which was false on any pack that drew fewer.
+ */
+export interface TrendPanels {
+  panels: PackChartSpec[];
+  /** Money panels drawn on the shared y-domain, by name, in draw order. */
+  sharedScale: string[];
+  /** Money panels moved to their own domain, with the share of the shared
+   *  range each occupies. */
+  ownScale: Array<{ name: string; sharePct: number }>;
+  /** Panels in a unit of their own — a percentage, a day count. */
+  ownUnits: string[];
+}
 
-  // One row of panels, so ONE y-domain across the money panels (spec §4.A
-  // page 10). Per-panel scales would draw a flat metric and a collapsing one
-  // with the same apparent slope, which is a chart that misreports direction.
-  const moneyDomain = sharedDomain(MONEY_PANELS.map((panel) => trend.map(panel.pick)));
-  const money = MONEY_PANELS.map((panel) => moneyPanel(panel, trend, moneyDomain, scale));
+export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): TrendPanels {
+  if (trend.length === 0) {
+    return { panels: [], sharedScale: [], ownScale: [], ownUnits: [] };
+  }
+
+  // ONE y-domain across the money panels (spec §4.A page 10) for every panel
+  // that can be read against it. Per-panel autoscaling would draw a flat
+  // metric and a collapsing one with the same apparent slope, which is a
+  // chart that misreports direction — so a panel only leaves the shared
+  // domain when its own range is too small to register on it, and it says so
+  // when it does. See `packTrendScale.ts`.
+  const series = MONEY_PANELS.map((panel) => trend.map(panel.pick));
+  const { panels: scales } = moneyPanelScales(series);
+  const dominator: ScaleDominator | null = dominantPoint(series);
+
+  const money = MONEY_PANELS.map((panel, i) => {
+    const carriesDominator = dominator !== null && dominator.seriesIndex === i;
+    const point = carriesDominator ? trend[dominator.pointIndex] : undefined;
+    return moneyPanel(panel, trend, scale, scales[i]!, point === undefined || dominator === null
+      ? null
+      : {
+        label: point.label,
+        value: dominator.value,
+        sharePct: dominator.sharePct,
+        creditMonth: creditMonthClause(point),
+      });
+  });
 
   // Spec order: revenue, gross margin %, operating expenses, net profit,
   // cash, debtor days.
@@ -147,7 +222,15 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Pa
     ratioPanel(RATIO_PANELS[1]!, trend),
   ].filter((p): p is PackChartSpec => p !== null);
 
-  return panels;
+  return {
+    panels,
+    sharedScale: MONEY_PANELS.filter((_, i) => scales[i]!.shared).map((p) => p.name),
+    ownScale: MONEY_PANELS
+      .map((p, i) => ({ name: p.name, sharePct: scales[i]!.ownSharePct, shared: scales[i]!.shared }))
+      .filter((p) => !p.shared)
+      .map(({ name, sharePct }) => ({ name, sharePct })),
+    ownUnits: RATIO_PANELS.filter((p) => panels.some((drawn) => drawn.id === p.id)).map((p) => p.name),
+  };
 }
 
 /**
@@ -179,7 +262,7 @@ export function buildCashTrendChart(trend: PackTrendPoint[], scale: MoneyScale):
   const first = points[0]!.value;
   const last = points[points.length - 1]!.value;
   const direction = last >= first ? 'rose' : 'fell';
-  const money = (n: number) => formatMoney(n, { scale });
+  const money = (n: number) => inProse(formatMoney(n, { scale }));
   // NAMED PERIODS, not just a count. This panel shares a sheet with the cash
   // table, whose Opening cash is the START OF THE REPORTING PERIOD, while this
   // series opens wherever the twelve-month window does — (125) at 1 January
@@ -192,7 +275,10 @@ export function buildCashTrendChart(trend: PackTrendPoint[], scale: MoneyScale):
       `Closing cash ${direction} from ${money(first)} at ${points[0]!.label} ` +
       `to ${money(last)} at ${points[points.length - 1]!.label}, over ${points.length} periods.`,
     kind: 'line',
-    svg: renderChartSvg(smallMultipleOption(points, domain, money), CASH_TREND_FULL),
+    svg: renderChartSvg(
+      smallMultipleOption(points, domain, (n) => formatMoney(n, { scale })),
+      CASH_TREND_FULL,
+    ),
     heightMm: CASH_TREND_FULL.heightMm,
     // What that sentence ASSERTS, as a number, so the gate can hold it
     // against the cash table's own `Closing cash` row on the same page. The

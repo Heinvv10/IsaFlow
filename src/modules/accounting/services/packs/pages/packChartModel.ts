@@ -71,4 +71,19 @@ export interface PackChartSpec {
   waterfallBars?: PackWaterfallBar[];
   /** The figures this chart's title asserts — see `PackChartClaim`. */
   claims?: PackChartClaim[];
+  /**
+   * For a page-10 small multiple: whether it is drawn on the money group's
+   * SHARED y-domain.
+   *
+   * Carried as data because the page has to state the split and a test has to
+   * be able to prove it off the composed document rather than off a second
+   * computation. A panel whose own range is a twentieth or less of the shared
+   * one is drawn on its own scale (`packTrendScale.ts`) — the alternative was
+   * three panels with a total excursion of one or two pixels — and a reader
+   * who cannot tell which is which is being misled about relative magnitude,
+   * which is the only reason to draw small multiples together at all.
+   *
+   * Absent on every chart that is not one of those panels.
+   */
+  sharedScale?: boolean;
 }

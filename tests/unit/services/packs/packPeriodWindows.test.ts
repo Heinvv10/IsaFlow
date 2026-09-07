@@ -66,7 +66,7 @@ function prose(doc: PackPagesDocument): string {
 describe('the month-versus-period note', () => {
   for (const [name, input] of FIXTURES) {
     it(`names every measure ${name} draws a panel for, and no other`, () => {
-      const panels = buildTrendPanels(input.trend, PACK_SCALE);
+      const panels = buildTrendPanels(input.trend, PACK_SCALE).panels;
       const note = trendWindowNote(panels);
       const drawn = new Set(panels.map((p) => p.id));
 
@@ -92,7 +92,7 @@ describe('the month-versus-period note', () => {
       const text = trends.blocks
         .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes.map((n) => n.body) : []))
         .join('\n');
-      const drawn = new Set(buildTrendPanels(input.trend, PACK_SCALE).map((p) => p.id));
+      const drawn = new Set(buildTrendPanels(input.trend, PACK_SCALE).panels.map((p) => p.id));
 
       // "Panels not drawn" explains gross margin's absence in the same words
       // the window note would use to claim its presence. Only one of the two
@@ -103,7 +103,7 @@ describe('the month-versus-period note', () => {
     });
 
     it(`gives ${name}'s statement pages the reciprocal pointer only where the panel exists`, () => {
-      const panels = buildTrendPanels(input.trend, PACK_SCALE);
+      const panels = buildTrendPanels(input.trend, PACK_SCALE).panels;
       const drawn = new Set(panels.map((p) => p.id));
       const doc = buildBoardPackPages(input);
 
@@ -121,11 +121,11 @@ describe('the month-versus-period note', () => {
     // The PAGE owns its footnote numbering — the income statement already
     // carries two statement notes, and a third that renumbered itself to 1
     // would print two footnote 1s on one sheet.
-    const panels = buildTrendPanels(demoInput.trend, PACK_SCALE);
+    const panels = buildTrendPanels(demoInput.trend, PACK_SCALE).panels;
     expect(periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', 3)[0]?.number).toBe(3);
     expect(periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1)[0]?.number).toBe(1);
     // And nothing at all for a panel this trend does not draw.
-    const none = buildTrendPanels(liveDemoInput.trend, PACK_SCALE);
+    const none = buildTrendPanels(liveDemoInput.trend, PACK_SCALE).panels;
     expect(periodWindowFootnotes(none, 'trend-gross-margin', 'Income statement', 3)).toEqual([]);
   });
 });

@@ -21,7 +21,7 @@ import {
   tileCaption,
   trendsCaption,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { TRENDS_PANELS_SPECIFIED, type PackCashBridge } from './packPageCharts';
+import { TRENDS_PANELS_SPECIFIED, type PackCashBridge, type TrendPanels } from './packPageCharts';
 import type { SelectedMatters } from './packMattersPrinted';
 import { trendWindowNote } from './packTrendCrossReference';
 import type { MoneyScale } from '@/lib/format/money';
@@ -230,23 +230,69 @@ export function buildCashBlocks(
   return cashBlocks;
 }
 
+/** "a, b and c", or "a" — the same joiner `packTrendCrossReference` uses on
+ *  the note beside this one. */
+function inWords(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The Scale note, DERIVED from where each panel was actually drawn.
+ *
+ * It was one fixed sentence naming four money panels sharing one y-scale.
+ * That was true of the pack it was written against and false of two others:
+ * a pack that draws fewer panels, and — after `packTrendScale` — a pack
+ * where one month's outlier makes the shared domain unusable for the small
+ * series. A note about the drawing that is not derived from the drawing is a
+ * claim a reader can disprove with a ruler.
+ */
+function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
+  const parts: string[] = [];
+  if (panels.sharedScale.length > 1) {
+    parts.push(
+      `${inWords(panels.sharedScale)} share one y-scale, so a metric ten times the size of `
+      + 'another cannot look like it moved as much.',
+    );
+  } else if (panels.sharedScale.length === 1) {
+    parts.push(`${panels.sharedScale[0]} is the only money panel on the shared y-scale.`);
+  }
+  if (panels.ownScale.length > 0) {
+    const named = inWords(panels.ownScale.map((p) => `${p.name} (${p.sharePct}%)`));
+    parts.push(
+      `${named} are drawn on their OWN scales: each moves across too little of the shared `
+      + 'range to show against it, so the share it would have occupied is printed beside its '
+      + 'name and stated again in its own title. Their slopes are not comparable with the '
+      + 'panels above.',
+    );
+  }
+  if (panels.ownUnits.length > 0) {
+    parts.push(`${inWords(panels.ownUnits)} are different units and keep their own.`);
+  }
+  // A pack that draws no panel at all has no scale to describe, and a headed
+  // note with an empty body is a heading the page cannot honour.
+  if (parts.length === 0) return null;
+  return note('Scale', parts.join(' '));
+}
+
 /** Page 10 — the small multiples (or why none are drawn), commentary, the
- *  shared-scale explanation, and — only when short of spec §4.A's six —
- *  which panels are missing and why. */
-export function buildTrendBlocks(panels: PackChartSpec[]): PackPageBlock[] {
+ *  shared-scale explanation, and — only when the pack's six panels are not
+ *  all drawable — which are missing and why. */
+export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
+  const drawn = panels.panels;
   const trendBlocks: PackPageBlock[] = [];
-  if (panels.length > 0) trendBlocks.push({ kind: 'smallMultiples', panels });
+  if (drawn.length > 0) trendBlocks.push({ kind: 'smallMultiples', panels: drawn });
   else {
     trendBlocks.push(mustDisclose('No trend series', [
       note('Why', 'No monthly series covers this period, so no panel can be drawn. Nothing is inferred from the period totals in its place.'),
     ]));
   }
-  trendBlocks.push(commentary(trendsCaption(panels)));
+  trendBlocks.push(commentary(trendsCaption(drawn)));
   // The window note is DERIVED from the panels this page draws — see
   // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is
   // printed on this page and on the income statement page" two centimetres
   // above a disclosure saying no gross-margin panel could be drawn.
-  const windowNote = trendWindowNote(panels);
+  const windowNote = trendWindowNote(drawn);
   // THE WINDOW NOTE FIRST, and the scale note after it. Not a stylistic
   // ordering: `fitPageToBox` takes a disclosure's LAST note first, and this
   // is the tightest page in the pack — 0.9mm of slack on the live
@@ -254,13 +300,17 @@ export function buildTrendBlocks(panels: PackChartSpec[]): PackPageBlock[] {
   // can see on the panels and the window note explains why two sheets print
   // different figures for one measure. The one that costs a reader least is
   // the one that goes.
-  trendBlocks.push(disclose('Reading these panels', [
-    ...(windowNote === null ? [] : [windowNote]),
-    note('Scale', 'Revenue, operating expenses, net profit and cash share one y-scale, so a metric ten times the size of another cannot look like it moved as much. Gross margin % and debtor days are different units and keep their own.'),
-  ]));
-  if (panels.length < TRENDS_PANELS_SPECIFIED) {
+  const readingNotes = [windowNote, scaleNote(panels)]
+    .filter((n): n is PackDisclosureNote => n !== null);
+  if (readingNotes.length > 0) trendBlocks.push(disclose('Reading these panels', readingNotes));
+  if (drawn.length < TRENDS_PANELS_SPECIFIED) {
     trendBlocks.push(mustDisclose('Panels not drawn', [
-      note('Why', `Spec §4.A asks for ${TRENDS_PANELS_SPECIFIED} panels and ${panels.length} are drawn. A panel is omitted when its figure is not meaningful in every period of the window — gross margin % and debtor days both need positive revenue, and no period here had any. Nothing is inferred in its place.`),
+      // NO CLAUSE NUMBER. This printed "Spec §4.A asks for 6 panels and 4 are
+      // drawn" — the section number of this project's own internal
+      // specification, quoted to a board. What a director needs is which six
+      // a board pack carries and which of them this company's ledger could
+      // not support; the authority for the six is not their business.
+      note('Why', `A board pack tracks six measures on this page — revenue, gross margin %, operating expenses, net profit, cash and debtor days — and ${drawn.length} of the six could be drawn for this company. A panel is omitted when its figure is not meaningful in every period of the window: gross margin % and debtor days both need positive revenue, and no period here had any. Nothing is inferred in its place.`),
     ]));
   }
   return trendBlocks;

@@ -215,9 +215,12 @@ describe('assertPackIntegrity — bridges', () => {
     const chart = chartOf('cash-bridge', bars);
     const said = disproportionatePlugSentence(chart, PACK_SCALE)!;
     // At the document's scale, like every other figure on the page: R266 000
-    // under an R'000 header prints as `R 266`.
-    expect(said).toMatch(/R 266\b/);
-    expect(said).not.toMatch(/R 266 000/);
+    // under an R'000 header prints as `266`. NO currency symbol — `R 266` was
+    // the one place in the pack a rand mark appeared, and on a sheet stated in
+    // thousands it reads as R266 to anyone who takes the symbol at its word.
+    expect(said).toMatch(/\b266 of this bridge\b/);
+    expect(said).not.toMatch(/R 266/);
+    expect(said).not.toMatch(/266 000/);
     const blocks: PackPageBlock[] = [
       { kind: 'chart', chart },
       { kind: 'disclosure', disclosure: { heading: 'How much of this bridge is unexplained', notes: [{ heading: 'Size', body: said }] } },

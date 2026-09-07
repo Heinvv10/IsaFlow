@@ -22,6 +22,24 @@
 const ZERO_DASH = '–';
 
 /**
+ * A FORMATTED FIGURE, MOVED INTO A SENTENCE.
+ *
+ * Every formatter here prints a measured zero — and a percentage that cannot
+ * be computed — as an en dash, which is the right glyph in a money COLUMN
+ * where the reader is scanning for the ones that carry a value. In prose it
+ * is not a glyph at all: a rendered board pack carried three panel titles
+ * reading "Revenue rose from – to – over 12 periods", asserting a rise with
+ * a dash where each figure belongs, on a page going to directors.
+ *
+ * So a sentence says the word. One helper rather than a `prose` option on
+ * each formatter, because the rule is about the POSITION the figure lands in
+ * rather than about its unit, and an option is what the next caller forgets.
+ */
+export function inProse(formatted: string): string {
+  return formatted === ZERO_DASH ? 'nil' : formatted;
+}
+
+/**
  * The scales a statement may be stated in. `formatMoney` divides by the
  * scale's divisor before formatting, so "R'000" prints 4 200 000 as `4 200`
  * under a thousands header instead of the full rand amount, which a reader
@@ -145,10 +163,26 @@ export function formatRatio(n: number, dp = 2): string {
   return n < 0 ? `(${body})` : body;
 }
 
-/** A day count — debtor days, creditor days — in the same convention. */
+/**
+ * A day count — debtor days, creditor days — in the same convention.
+ *
+ * SEPARATED LIKE EVERY OTHER FOUR-DIGIT FIGURE IN THE PACK. `toFixed` emits
+ * `1035`, and the scorecard printed `1035 days` two rows under `1 546` and
+ * `3 355`: one document, two ways of writing a thousand, and the one that
+ * broke the rule was the one carrying a unit. The separator comes from the
+ * same `en-ZA` formatter the money path uses, so a thousand is a thousand
+ * wherever it prints.
+ */
 export function formatDays(n: number, dp = 0): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
-  const body = `${Math.abs(n).toFixed(dp)} days`;
+  const digits = new Intl.NumberFormat('en-ZA', {
+    minimumFractionDigits: dp,
+    maximumFractionDigits: dp,
+  })
+    .format(Math.abs(n))
+    .replace(/[\xa0\u202f]/g, ' ')
+    .replace(/,/g, '.');
+  const body = `${digits} days`;
   return n < 0 ? `(${body})` : body;
 }
 

@@ -153,7 +153,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const score = scorecardScore(scorecard);
   const cashBridge = buildCashWaterfallChart(set, scale);
   const cashTrend = buildCashTrendChart(trend, scale);
-  const panels = buildTrendPanels(trend, scale);
+  const trendPanels = buildTrendPanels(trend, scale);
+  // The panels themselves, for every reader that only needs the drawn list —
+  // the page's cross-reference footnotes and the title's count. The scale
+  // SPLIT (which of them share a y-domain) is read by `buildTrendBlocks`
+  // alone, off the one decision `buildTrendPanels` made.
+  const panels = trendPanels.panels;
   // PAGE 11'S OWN BLOCKS, BEFORE ITS TABLE — because the table's budget is
   // whatever they leave behind. ONE selection, read by page 4's panel and
   // page 11's table alike: derived twice, they contradicted each other. See
@@ -187,7 +192,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
 
   const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set, scale);
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
-  const trendBlocks = buildTrendBlocks(panels);
+  const trendBlocks = buildTrendBlocks(trendPanels);
 
   // Page 4 — no tabular figures. Spec §4.A keeps this page free of them; both
   // of its columns are prose.

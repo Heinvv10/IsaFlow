@@ -52,6 +52,7 @@ export {
   buildTrendPanels,
   TRENDS_PANELS_SPECIFIED,
 } from './packTrendCharts';
+export type { TrendPanels } from './packTrendCharts';
 
 const FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.full };
 
