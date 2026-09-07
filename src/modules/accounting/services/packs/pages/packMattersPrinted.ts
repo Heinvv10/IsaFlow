@@ -222,7 +222,7 @@ export function selectPrintedMatters(
   // IN THE RANKED ORDER, not the source order. The page states its own rule
   // — matters with no rand amount first, then the largest by exposure — and
   // it was selecting by that rule and then printing by `buildMatters`'s,
-  // which put two AFS filings 739 and 374 days overdue FIFTH and SIXTH,
+  // which put two AFS filings 739 and 10 days overdue FIFTH and SIXTH,
   // below four identical payroll journals. A note stating an order the rows
   // beneath it break is worse than no note: it tells a director the top of
   // the table is the top of the risk.

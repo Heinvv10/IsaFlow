@@ -106,7 +106,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
         * reason from running out of paper, and it is the true one.
         *
         * The ordering it states is the ordering `selectPrintedMatters` now
-        * prints: two AFS filings 739 and 374 days overdue used to rank fifth
+        * prints: two AFS filings 739 and 10 days overdue used to rank fifth
         * and sixth under a note saying they would come first. */}
       {omitted !== null && (
         <p className="pack-matters-omitted">
