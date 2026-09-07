@@ -60,12 +60,12 @@ describe('a board pack prints no figure component twice', () => {
   for (const [company, input] of PACKS) {
     it(`gives every figure block on ${company}'s pack one home`, () => {
       const seen = new Map<string, number>();
-      let compared = 0;
+      const compared = new Map<PackPageBlock['kind'], number>();
 
       for (const page of buildBoardPackPages(input).pages) {
         for (const block of page.blocks) {
           for (const signature of figureSignatures(block)) {
-            compared += 1;
+            compared.set(block.kind, (compared.get(block.kind) ?? 0) + 1);
             const first = seen.get(signature);
             expect(
               first,
@@ -78,9 +78,19 @@ describe('a board pack prints no figure component twice', () => {
         }
       }
 
-      // Not vacuous: a `figureSignatures` that returned nothing for every
-      // block would satisfy the loop above without comparing anything.
-      expect(compared, 'no figure blocks were compared').toBeGreaterThan(4);
+      // NOT VACUOUS, PER KIND. The floor was one number over every kind at
+      // once — `compared > 4` — and the tables, charts and scorecards alone
+      // clear it, so deleting the `kpiTiles` arm of `figureSignatures`
+      // altogether left the guard green while the one component the file
+      // exists to protect went unsigned. Each arm now has to have run.
+      expect(
+        [...compared.entries()].filter(([, n]) => n > 0).map(([kind]) => kind).sort(),
+        'a kind of figure block was signed by nothing, so this pack was not compared on it',
+      ).toEqual(['chart', 'kpiTiles', 'scorecard', 'table']);
+      // And the tile strip is signed TILE BY TILE — one signature for the
+      // whole strip is the shape that made pages 3 and 5 different objects.
+      expect(compared.get('kpiTiles') ?? 0, 'the tile strip was signed as one object')
+        .toBeGreaterThan(4);
     });
   }
 });

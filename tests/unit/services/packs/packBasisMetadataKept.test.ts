@@ -32,6 +32,7 @@ import {
   noRatioPanelsInput,
 } from './fixtures/boardPackInputs';
 import { liveDemoBridgeInput, liveDemoInput } from './fixtures/liveDemoBoardPack';
+import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { balancedLines } from '@/modules/accounting/services/packs/pages/packBlockHeights';
 
 const FIXTURES: Record<string, BoardPackInput> = {
@@ -98,13 +99,37 @@ describe('page 12 never trims the basis of preparation', () => {
  * the page's commentary block, which `fitPageToBox` never touches.
  */
 describe('page 10 states the range its percentages are taken against', () => {
+  /**
+   * A panel that claims a SHARE of the shared range.
+   *
+   * `sharedScale === false` is the structured half — the panel is drawn on
+   * its own axis — and it is not sufficient on its own: a panel in another
+   * UNIT (debtor days, a percentage) is also on its own axis and its title
+   * cites no share of anything. The clause is what makes the claim, so both
+   * halves are required.
+   *
+   * IT USED TO READ `title.includes('of the shared range')`, WHICH THE PACK
+   * HAS NEVER PRINTED. `packTrendCharts` emits "Own scale: its range is 4.8%
+   * of the shared ONE". So this was false on all six fixtures, every test
+   * below returned before its only assertion, and deleting the disclosure
+   * sentence from `buildTrendBlocks` left 21 of 21 green.
+   */
+  function panelsCitingShare(page: PackPage): number {
+    return page.blocks
+      .filter((b) => b.kind === 'smallMultiples')
+      .flatMap((b) => (b.kind === 'smallMultiples' ? b.panels : []))
+      .filter((panel) => panel.sharedScale === false && /% of the shared/.test(panel.title))
+      .length;
+  }
+
+  const reached: string[] = [];
+
   for (const [name, input] of Object.entries(FIXTURES)) {
     it(`on ${name}`, () => {
       const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Trends');
       if (page === undefined) return;
-      const citesShare = page.blocks.some((b) => b.kind === 'smallMultiples'
-        && b.panels.some((panel) => panel.title.includes('of the shared range')));
-      if (!citesShare) return;
+      if (panelsCitingShare(page) === 0) return;
+      reached.push(name);
       const narrative = page.blocks.find((b) => b.kind === 'narrative');
       expect(
         narrative?.kind === 'narrative' ? narrative.narrative.body : null,
@@ -112,6 +137,18 @@ describe('page 10 states the range its percentages are taken against', () => {
       ).toMatch(/shared y-scale spans/);
     });
   }
+
+  /**
+   * AND THE CASE IS REACHED. The six tests above are each allowed to return
+   * early, which is how a stale predicate silenced all of them at once; this
+   * is what stops the next rename doing it again. Two fixtures carry a panel
+   * on its own scale — the live demo company and its bridge variant — and
+   * they are the two the defect was found on.
+   */
+  it('is not vacuous — a fixture really does claim a share', () => {
+    expect(reached.length, 'no fixture has a panel citing a share of the shared range, so every '
+      + 'test above returned before asserting anything').toBeGreaterThanOrEqual(2);
+  });
 });
 
 /**

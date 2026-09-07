@@ -14,7 +14,7 @@ import { bridgeRoundingNote } from '@/modules/accounting/services/packs/pages/pa
 import { formatMoney } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { demoInput } from './fixtures/boardPackInputs';
-import { liveDemoInput } from './fixtures/liveDemoBoardPack';
+import { liveDemoBridgeInput, liveDemoInput } from './fixtures/liveDemoBoardPack';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackDefinition } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -36,17 +36,37 @@ function printed(value: number): number {
   return text.startsWith('(') ? -digits : digits;
 }
 
+/**
+ * The three packs, and the third is the one that does NOT add.
+ *
+ * `demoInput` and `liveDemoInput` both foot as printed, so the loop below ran
+ * one arm on both fixtures and its "does not add" arm was dead — coverage the
+ * file read as having and did not. `liveDemoBridgeInput` is the live demo
+ * company's own figures at the rounding that produced the defect, so both
+ * arms are now entered by a composed pack rather than only at the helper.
+ */
+const PACKS = [
+  ['demo', demoInput],
+  ['live demo', liveDemoInput],
+  ['live demo, whose bridge does not add as printed', liveDemoBridgeInput],
+] as const;
+
+/** Which arms of the loop below were entered, so neither can go dead again. */
+const arms = new Set<'adds' | 'does not add'>();
+
 describe('the EBITDA reconciliation', () => {
-  for (const [name, input] of [['demo', demoInput], ['live demo', liveDemoInput]] as const) {
+  for (const [name, input] of PACKS) {
     it(`adds as printed, or carries a note saying why not, on the ${name} pack`, () => {
       const entry = ebitda(input);
       const steps = entry.reconciliation!;
       expect(steps).toHaveLength(3);
       const [operating, addBack, total] = steps.map((s) => printed(s.figure.value as number));
       if (operating! + addBack! === total!) {
+        arms.add('adds');
         expect(entry.reconciliationNote).toBeUndefined();
         return;
       }
+      arms.add('does not add');
       // It does not add as printed, so the page has to say so ON THE LINE,
       // and say it in figures a reader can check rather than in the abstract.
       expect(entry.reconciliationNote).toBeDefined();
@@ -54,23 +74,25 @@ describe('the EBITDA reconciliation', () => {
       expect(entry.reconciliationNote).toContain(formatMoney(steps[2]!.figure.value as number, { cents: true }));
     });
   }
+
+  /**
+   * AND BOTH ARMS WERE ENTERED. A fixture set where every bridge foots makes
+   * every assertion above trivially true — which is what this file used to
+   * be: the "does not add" arm was reached by neither pack, and the docstring
+   * that stood here claimed a test that did not exist below it.
+   */
+  it('is proved on a pack of each kind', () => {
+    expect([...arms].sort()).toEqual(['adds', 'does not add']);
+  });
 });
 
 /**
- * AND THE LIVE DEMO PACK IS THE ONE THAT DOES NOT ADD, so the branch above is
- * exercised rather than merely available. This is the pack the visual gate
- * scored; if its figures ever start adding as printed, the assertion above is
- * vacuous on both fixtures and this says so.
- */
-/**
- * The branch itself, on the figures the visual gate actually read.
+ * The note itself, driven at the helper — the boundaries a composed pack does
+ * not put on paper.
  *
- * Neither fixture reproduces it — both carry a depreciation charge that
- * rounds cleanly against its operating profit — so the case is driven at the
- * helper rather than left as a branch no test enters. Operating profit of
- * R1 544 600 and an add-back of R77 400 print as (1 545) and 77 and sum to
- * (1 467): the page's own three lines, and the arithmetic the reviewer
- * reported as not adding.
+ * Operating profit of R1 544 600 and an add-back of R77 400 print as (1 545)
+ * and 77 and sum to (1 467): the page's own three lines, and the arithmetic
+ * the reviewer reported as not adding.
  */
 describe('bridgeRoundingNote', () => {
   it('states the unrounded arithmetic when the printed lines do not add', () => {

@@ -3,6 +3,8 @@ import { buildScorecardGroups } from '@/modules/accounting/services/packs/pages/
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { ReportPackFigures } from '@/modules/accounting/services/reports/reportPackDataService';
+import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { demoInput } from './fixtures/boardPackInputs';
 
 function figures(overrides: Partial<ReportPackFigures>): ReportPackFigures {
   return {
@@ -242,5 +244,118 @@ describe('a not-meaningful reason and the period it is about', () => {
     for (const reason of qualified) {
       expect(stated).not.toContain(reason.slice('In the comparative period: '.length));
     }
+  });
+});
+
+/**
+ * THE SCORECARD'S SCORING RULE — THE TWO ARMS NOTHING IN THIS FILE ASSERTED.
+ *
+ * `statusFor` has four arms. `notMeaningful` and `unscored` were covered
+ * thoroughly above; `met` and `missed` were not covered at all — there was no
+ * `toBe('met')` or `toBe('missed')` anywhere in 246 lines. Two mutations
+ * proved the gap: inverting `lowerIsBetter` left all 13 tests green, and
+ * making every scored metric report `met` — a scorecard on which nothing can
+ * ever be missed — left 626 of 627 green across the packs and print suites,
+ * the single failure being an unrelated derived headline.
+ *
+ * A scorecard reporting every missed target as met is the worst thing this
+ * page can print: it is the page a board reads to know whether the business
+ * is where it said it would be.
+ *
+ * SO THE POLARITY IS DECLARED HERE, as a fact about the measure rather than a
+ * copy of the production flag. Reading `spec.lowerIsBetter` back out of the
+ * module under test would score the code against itself, which is what an
+ * inverted flag needs the test NOT to do.
+ */
+const LOWER_IS_BETTER: Record<string, boolean> = {
+  'Gross margin': false,
+  'Current ratio': false,
+  'Debtor days': true,
+  'Debt-to-equity': true,
+};
+
+/** The four cells the rule has: each polarity, on each side of its target. */
+type Cell = 'higher/met' | 'higher/missed' | 'lower/met' | 'lower/missed';
+
+function scoredRows(set: PackFigureSet) {
+  return buildScorecardGroups(set, new PackFigureProvenance())
+    .flatMap((g) => g.rows)
+    .filter((r) => r.target !== null && r.actual.value !== null);
+}
+
+describe('the scorecard scores against its target, in both directions', () => {
+  const covered = new Set<Cell>();
+
+  /** Comfortably past every target: 40% gross margin against 35, 18.3 debtor
+   *  days against 30, debt-to-equity 0.5 against 0.5 on the boundary. */
+  const meeting: PackFigureSet = {
+    ...healthySet,
+    current: figures({ accountsReceivable: 50_000, totalLiabilities: 200_000, totalEquity: 700_000 }),
+  };
+  /** The same company, every one of those measures the wrong side of its
+   *  target: 25% gross margin, 73 debtor days, debt-to-equity 1.5. */
+  const missing: PackFigureSet = {
+    ...healthySet,
+    current: figures({
+      costOfSales: 750_000,
+      accountsReceivable: 200_000,
+      totalLiabilities: 540_000,
+      totalEquity: 360_000,
+      currentAssets: 150_000,
+    }),
+  };
+
+  for (const [name, set] of [['meeting its targets', meeting], ['missing them', missing]] as const) {
+    it(`says met or missed by comparing the figure with the target — ${name}`, () => {
+      const rows = scoredRows(set);
+      expect(rows.length, 'no metric on this fixture is scored at all').toBeGreaterThan(2);
+      for (const row of rows) {
+        const lower = LOWER_IS_BETTER[row.metric];
+        if (lower === undefined) continue;
+        const value = row.actual.value!;
+        const met = lower ? value <= row.target! : value >= row.target!;
+        expect(row.status, `${row.metric} reads ${value} against a target of ${row.target} `
+          + `(${lower ? 'lower' : 'higher'} is better) and the page says ${row.status}`)
+          .toBe(met ? 'met' : 'missed');
+        covered.add(`${lower ? 'lower' : 'higher'}/${met ? 'met' : 'missed'}` as Cell);
+      }
+    });
+  }
+
+  /**
+   * AND ALL FOUR CELLS WERE REACHED. Two fixtures that both happen to miss
+   * every lower-is-better metric would satisfy the assertions above while
+   * proving nothing about the polarity, which is the mutation that survived.
+   */
+  it('reached both polarities on both sides of the target', () => {
+    expect([...covered].sort()).toEqual(
+      ['higher/met', 'higher/missed', 'lower/met', 'lower/missed'],
+    );
+  });
+
+  /**
+   * AND THE PAGE A DIRECTOR RECEIVES CARRIES THE SAME WORD. The rows above
+   * come from the builder; this is the composed document, so a page that
+   * assembled its scorecard from anything else would print a status the
+   * figure beside it does not support.
+   */
+  it('prints that word on sheet 9 of the composed pack', () => {
+    const page = buildBoardPackPages(demoInput).pages.find((p) => p.navLabel === 'Scorecard')!;
+    const block = page.blocks.find((b) => b.kind === 'scorecard');
+    const rows = block?.kind === 'scorecard'
+      ? block.groups.flatMap((g) => g.rows).filter((r) => r.target !== null && r.actual.value !== null)
+      : [];
+    expect(rows.length, 'sheet 9 scores nothing on this pack').toBeGreaterThan(2);
+    let checked = 0;
+    for (const row of rows) {
+      const lower = LOWER_IS_BETTER[row.metric];
+      if (lower === undefined) continue;
+      const value = row.actual.value!;
+      const met = lower ? value <= row.target! : value >= row.target!;
+      expect(row.status, `sheet 9 prints ${row.status} for ${row.metric} at ${value} against `
+        + `${row.target}`).toBe(met ? 'met' : 'missed');
+      checked += 1;
+    }
+    expect(checked, 'no metric with a declared polarity is scored on sheet 9').toBeGreaterThan(1);
   });
 });
