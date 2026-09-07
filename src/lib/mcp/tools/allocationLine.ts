@@ -18,8 +18,9 @@ import {
   suppliersBelongToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankAllocationService';
-import { resolveRuleVatCode } from '@/modules/accounting/services/gl/ruleVatResolution';
-import { VAT_CODE_NONE } from '@/modules/accounting/services/gl/nonSupplyAccounts';
+import {
+  resolveLineVatCode, type AllocationVatFacts, type VatCoercion,
+} from './allocationVatGuard';
 import { pickTxSelector, resolveTxId, resolveTxSelectors, type TxSelector } from './txSelectorResolve';
 import { mcpPostingOpts } from '../mcpActor';
 import { applyRouteFor, postAndApplyLine } from './allocationApplyRoute';
@@ -33,12 +34,8 @@ import { NOT_FOUND, guardCastableArgs } from './toolHelpers';
 export interface PostedAllocationLine {
   journalEntryId: string;
   transactionId: string;
-  vatCoerced?: {
-    from: string;
-    to: string;
-    /** `input_tax_denied` = s17(2)(a) entertainment. `no_supply` = no supply can arise. */
-    reason: 'input_tax_denied' | 'no_supply';
-  };
+  /** Present only when a guard changed the code — absence means it stood. */
+  vatCoerced?: VatCoercion;
 }
 
 // Selector parsing and reference resolution moved to txSelectorResolve.ts when
@@ -244,6 +241,8 @@ export async function postAllocationLine(
   txId: string,
   line: AllocationLine,
   toolName: string,
+  /** Pre-resolved account facts from the bulk caller; absent = look up here. */
+  facts?: AllocationVatFacts,
 ): Promise<PostedAllocationLine> {
   // A line that names an invoice goes to the service that posts the journal
   // AND applies it. `allocateTransaction` is left alone deliberately:
@@ -260,37 +259,12 @@ export async function postAllocationLine(
     });
   }
 
-  // THE DOMINANT UNATTENDED POSTER. `allocateTransaction` coerces nothing by
-  // design — it is the ATTENDED path, where a screen showed the warning and
-  // the user's choice stands. Nothing shows a warning here: the party choosing
-  // this vat code is an LLM, the tool posts immediately with no review step,
-  // and a connector consent grant authorises the connector once, not this VAT
-  // choice per call.
-  //
-  // That is not theoretical. Every one of the 35 non-supply VAT lines in
-  // production — Velocity's 34 salary lines and Brightsphere's investment
-  // disposal — was posted by `mcp:bulk_allocate_bank_transactions:v1`. None by
-  // a human, none by the rule sweep, none by the confidence gate. This tool
-  // posts ~8,200 of the ~10,900 bank allocations in the ledger, three times
-  // what humans post, so it is the main way anything reaches the bank journal.
-  //
-  // So it coerces, like the other unattended posters, through the same funnel.
-  // The caller is TOLD — `vatCoerced` is returned and surfaced in the tool
-  // result — because an agent that is silently overruled cannot correct its
-  // own next call, and `reverse_bank_allocation` is the undo if the
-  // name-matched classification was wrong for this account.
-  const guarded = await resolveRuleVatCode({
-    allocType: line.allocType,
-    companyId: ctx.companyId,
-    requestedVatCode: line.vatCode ?? VAT_CODE_NONE,
-    glAccountId: line.contraAccountId || null,
-    denialContext: { bankTxId: txId, toolName, source: 'mcp' },
-    guardContext: { bankTxId: txId, ruleName: toolName },
-  });
-  // Substitute only when a guard fired, so a line nobody objects to posts
-  // exactly as it did before this guard existed — `undefined` included.
-  const effectiveVatCode = guarded.denied || guarded.nonSupplyCoerced
-    ? guarded.vatCode : line.vatCode;
+  // The guard, and why this path has one, live in allocationVatGuard.ts.
+  // `facts` arrives pre-resolved from the bulk caller so a 500-line batch does
+  // not run two SELECTs per line; absent, the resolver looks them up itself.
+  const { effectiveVatCode, vatCoerced } = await resolveLineVatCode(
+    ctx.companyId, txId, line, toolName, facts,
+  );
 
   const result = await allocateTransaction(
     ctx.companyId,                                            // tenant from ctx ONLY
@@ -310,12 +284,6 @@ export async function postAllocationLine(
   return {
     journalEntryId: result.journalEntryId,
     transactionId: result.bankTransaction.id,
-    vatCoerced: guarded.denied || guarded.nonSupplyCoerced
-      ? {
-          from: line.vatCode ?? VAT_CODE_NONE,
-          to: guarded.vatCode,
-          reason: guarded.denied ? ('input_tax_denied' as const) : ('no_supply' as const),
-        }
-      : undefined,
+    vatCoerced,
   };
 }

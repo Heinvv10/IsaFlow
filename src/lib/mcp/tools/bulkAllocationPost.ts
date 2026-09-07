@@ -10,6 +10,7 @@ import { withSavepoint } from '@/lib/neon';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import type { ResolvedLine } from './bulkAllocationPrepare';
 import { reasonForStatus, type SkippedLine } from './bulkAllocationSkip';
+import { prefetchAllocationVatFacts } from './allocationVatGuard';
 import { postAllocationLine } from './allocationLine';
 import type { McpToolContext } from '../types';
 
@@ -154,6 +155,13 @@ export async function postPreparedLines(
   ordered: readonly ResolvedLine[],
   toolName: string,
 ): Promise<PostedBatch> {
+  // Two queries for the whole batch instead of two per line. Unbatched, a
+  // 500-line run of standard-coded account lines does up to 1,000 sequential
+  // SELECTs inside the savepoint loop below — and a salary batch is exactly
+  // that shape, so the worst case is the case this guard exists for.
+  const vatFacts = await prefetchAllocationVatFacts(
+    ctx.companyId, ordered.map(({ line }) => line.contraAccountId),
+  );
   const lines: PostedLine[] = [];
   const raced: SkippedLine[] = [];
   // Per batch, not per line: a run that quietly dropped a claim on 40 of 500
@@ -169,7 +177,7 @@ export async function postPreparedLines(
         // ≤31 chars for every index up to 499 — withSavepoint THROWS on a
         // longer name, which would fail the batch before it posted anything.
         `bulk_alloc_line_${index}`,
-        () => postAllocationLine(ctx, txId, line, toolName),
+        () => postAllocationLine(ctx, txId, line, toolName, vatFacts),
       );
       lines.push({
         transaction_id: result.transactionId,
