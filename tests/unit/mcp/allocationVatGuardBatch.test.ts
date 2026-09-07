@@ -85,6 +85,25 @@ describe('resolveLineVatCode — using the prefetch', () => {
     }));
   });
 
+  it('treats a NULL account name the same on both routes', async () => {
+    // The prefetch coalesces a NULL name to '', the per-line fallback passes
+    // null through. They agree only because both fail the same truthiness
+    // check in shouldWarnOnNonSupply — pinned here so a future change to
+    // either side has to keep them agreeing rather than discovering they
+    // diverged on a live batch.
+    const facts = { denied: new Map([[A1, false]]), names: new Map([[A1, '']]) };
+
+    await resolveLineVatCode(CO, 'tx-1', line, 'bulk', facts);
+
+    expect(resolveRuleVatCode).toHaveBeenCalledWith(expect.objectContaining({
+      ruleGlAccountVatDenied: false,
+      ruleGlAccountName: '',
+    }));
+    const { classifyNonSupplyAccount } =
+      await import('@/modules/accounting/services/gl/nonSupplyAccounts');
+    expect(classifyNonSupplyAccount(''), 'empty name classifies as nothing').toBeNull();
+  });
+
   it('falls back when no prefetch was done at all — the single-tool path', async () => {
     await resolveLineVatCode(CO, 'tx-1', line, 'allocate_bank_transaction');
 
