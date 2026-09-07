@@ -88,7 +88,11 @@ describe('the printed board pack', () => {
       packLabel: 'Board Pack',
       period: '1 March 2026 to 31 August 2026',
       confidentiality: PACK_CONFIDENTIALITY,
-      draft: true,
+      // The SAME flag the pack body's watermark reads. The route derives both
+      // from one period status, and a footer saying DRAFT over a body saying
+      // FINAL on the same sheet is the contradiction that pairing prevents —
+      // so the harness must not fabricate its own answer either.
+      draft: demoInput.draft,
     };
     const printed = await printBoardPack(
       buildBoardPackPages(demoInput),
@@ -98,7 +102,8 @@ describe('the printed board pack', () => {
 
     for (const [index, text] of printed.sheetText.entries()) {
       const flat = text.replace(/\s+/g, ' ');
-      for (const needle of [furniture.companyName, furniture.packLabel, furniture.period, 'DRAFT']) {
+      const needles = [furniture.companyName, furniture.packLabel, furniture.period, furniture.confidentiality];
+      for (const needle of needles) {
         expect(flat, `sheet ${index + 1} footer is missing "${needle}"`).toContain(needle);
       }
     }
@@ -113,8 +118,12 @@ describe('the printed board pack', () => {
     const landscape = document.pages.filter((p) => p.orientation === 'landscape');
     expect(landscape).toHaveLength(1);
 
+    // Probed by a phrase only that page carries, not by its title: PDF text
+    // extraction breaks words apart ("ACTU AL"), so no long probe survives —
+    // and the contents page lists short nav labels, which a short probe would
+    // match a second time.
     const printed = await printBoardPack(document, browser);
-    const sheets = printed.sheetText.filter((t) => t.includes(landscape[0]!.title.slice(0, 40)));
+    const sheets = printed.sheetText.filter((t) => t.replace(/\s+/g, ' ').includes('Reading these panels'));
     expect(sheets.length, 'the trends page spans more than one sheet').toBe(1);
   }, 120_000);
 });

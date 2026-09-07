@@ -8,6 +8,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Download, Loader2, Presentation } from 'lucide-react';
 import { apiFetch } from '@/lib/apiFetch';
+import { localISODate } from '@/lib/dateUtils';
 import {
   DataQualityNotice,
   type UnclassifiedWarning,
@@ -112,8 +113,11 @@ function ReportPacksScreen() {
    *  is null when the server sent no Retry-After, which it currently never
    *  does — the notice then says to wait a moment rather than name a number. */
   const [rateLimited, setRateLimited] = useState<{ seconds: number | null } | null>(null);
-  const [from, setFrom] = useState(() => new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]!);
-  const [to, setTo] = useState(() => new Date().toISOString().split('T')[0]!);
+  // `localISODate`, never `toISOString()`: in SAST the ISO form of midnight
+  // on 1 January is 31 December of the previous year, so the screen opened on
+  // a window a day wider than the year it names.
+  const [from, setFrom] = useState(() => localISODate(new Date(new Date().getFullYear(), 0, 1)));
+  const [to, setTo] = useState(() => localISODate());
   // The pack the person is LOOKING AT. A share link and its commentary are
   // both filed under (type, from, to), so a link minted here and the sentences
   // approved below are about the same document as the figures on screen.

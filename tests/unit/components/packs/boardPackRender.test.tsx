@@ -237,3 +237,48 @@ describe('the block kinds the board pack does not currently emit', () => {
     expect(container.querySelector('.pack-stat-value')?.textContent).toBe('610');
   });
 });
+
+describe('board pack contents and cover', () => {
+  it('indexes the pages by NAME, never by their conclusions', () => {
+    // The rendered pack's contents read, in full: "4  Net profit of
+    // (1 545 540); the comparative profit base is measured against a negative
+    // comparative base, so the percentage change is not meaningful." A page
+    // TITLE is a conclusion by rule (`assertPageTitleIsAMessage`), so an
+    // index built from titles is built from the pack's own commentary, and a
+    // director scanning for the balance sheet cannot find it.
+    const doc = buildBoardPackPages(demoInput);
+    const { container } = render(<PackPagesView document={doc} />);
+    const entries = [...container.querySelectorAll('[data-pack-toc] .pack-contents-title')]
+      .map((el) => el.textContent ?? '');
+
+    expect(entries).toHaveLength(doc.pages.length);
+    for (const entry of entries) {
+      // A name, not a sentence: no terminal full stop, and short enough to
+      // scan down a column.
+      expect(entry, entry).not.toMatch(/\.$/);
+      expect(entry.length, entry).toBeLessThan(40);
+    }
+    expect(entries).toContain('Balance sheet');
+    expect(entries).toContain('Cash');
+
+    // And no entry is a page title — the defect stated directly.
+    for (const page of doc.pages) {
+      if (page.title === page.navLabel) continue;
+      expect(entries, `page ${page.number}`).not.toContain(page.title);
+    }
+  });
+
+  it('puts the brand colour on the cover', () => {
+    // The rendered cover had ZERO coloured pixels: the brand reached the rule
+    // under every page title and the chart palette, and the one page a reader
+    // sees first carried none of it. The band is a `::before` on `.pack-cover`
+    // so it cannot be mistaken for content; what is asserted here is that the
+    // cover carries the class the band is drawn on and that the document's
+    // brand colour is declared for it.
+    const doc = buildBoardPackPages(demoInput);
+    const { container } = render(<PackPagesView document={doc} />);
+    const cover = container.querySelector('[data-pack-cover]');
+    expect(cover?.className).toContain('pack-cover');
+    expect(container.querySelector('style')?.textContent).toContain(doc.brand.primaryColour);
+  });
+});

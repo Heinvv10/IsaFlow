@@ -196,6 +196,18 @@ export interface PackPage {
   number: number;
   /** A conclusion about this period, never a bare label. Enforced by test. */
   title: string;
+  /**
+   * The short name this page goes by in the CONTENTS — "Income statement",
+   * "Cash", "Matters".
+   *
+   * Distinct from `title`, and it has to be. `title` is a conclusion by rule
+   * (`assertPageTitleIsAMessage`), so the contents page listed whole
+   * sentences: entry 4 read "Net profit of (1 545 540); the comparative
+   * profit base is measured against a negative comparative base, so the
+   * percentage change is not meaningful." An index a director scans to find
+   * the balance sheet cannot be built out of the pack's own commentary.
+   */
+  navLabel: string;
   section: 'Performance' | 'Financials' | 'Governance' | 'Front';
   orientation: 'portrait' | 'landscape';
   density: 'low' | 'medium' | 'high';

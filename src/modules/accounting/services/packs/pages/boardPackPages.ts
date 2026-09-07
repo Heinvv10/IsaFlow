@@ -164,12 +164,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
   const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency);
-  const highlights = page(highlightsTitle(set, scale), 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
+  const highlights = page(highlightsTitle(set, scale), 'Highlights', 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
 
   // Page 5 — the table every later number traces back to, and the five
   // headline tiles beneath it. The tiles are the SAME objects page 3 carries,
   // so the two pages cannot print different values for one figure.
-  const snapshot = page(resultsTitle(set, scale), 'Financials', 'high', [
+  const snapshot = page(resultsTitle(set, scale), 'Group results', 'Financials', 'high', [
     { kind: 'table', table: results },
     { kind: 'kpiTiles', tiles: tiles.slice(0, 5) },
     commentary(largestMoverCaption(results.rows)),
@@ -205,7 +205,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // placeholder instead would hide from the board that commentary is owed.
   const narrativePage: UnnumberedPage | null = input.commentary === null
     ? null
-    : page(narrativeTitle(set, scale), 'Performance', 'medium', [
+    : page(narrativeTitle(set, scale), 'Board commentary', 'Performance', 'medium', [
         { kind: 'narrative', narrative: input.commentary },
       ]);
   if (narrativePage === null) {
@@ -216,15 +216,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     highlights,
     ...(narrativePage === null ? [] : [narrativePage]),
     snapshot,
-    page(incomeStatementTitle(set, scale), 'Financials', 'high', [
+    page(incomeStatementTitle(set, scale), 'Income statement', 'Financials', 'high', [
       { kind: 'table', table: income },
       { kind: 'chart', chart: profitBridge },
       commentary(largestMoverCaption(income.rows)),
       ...profitBridgeCaveat,
     ], 'portrait', statementNotes),
-    page(positionTitle(set, scale), 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
-    page(cashTitle(set, scale), 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
-    page(scorecardTitle(score.met, score.total), 'Performance', 'high', [
+    page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
+    page(cashTitle(set, scale), 'Cash', 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
+    page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
       commentary(scorecardCaption(scorecard)),
       disclose('Scoring basis', [
@@ -235,8 +235,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // The one landscape page in the pack, per spec §4.A page 10 and R5: the
     // orientation is a PAGE-level property the print CSS keys off, never a
     // document-level flag, which would turn the whole pack sideways.
-    page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Performance', 'high', trendBlocks, 'landscape'),
-    page('Matters requiring board attention', 'Governance', 'medium', [
+    page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Trends', 'Performance', 'high', trendBlocks, 'landscape'),
+    page('Matters requiring board attention', 'Matters for the board', 'Governance', 'medium', [
       // Spec §4.A page 11 asks for a TABLE — issue, quantum, owner, movement,
       // decision required. Prose notes carried the same five facts but a
       // director scanning for "which of these needs me" had to read every

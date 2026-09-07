@@ -19,15 +19,20 @@ import type { PackComparativePeriod, PackPage } from './packPageModel';
  *  `boardPackPages.ts`, which is the only thing that assigns one. */
 export type UnnumberedPage = Omit<PackPage, 'number'>;
 
+/**
+ * @param navLabel The short name for the contents. `title` is a CONCLUSION by
+ *   rule, so an index built from it lists sentences rather than page names.
+ */
 export function page(
   title: string,
+  navLabel: string,
   section: PackPage['section'],
   density: PackPage['density'],
   blocks: PackPage['blocks'],
   orientation: PackPage['orientation'] = 'portrait',
   footnotes: PackPage['footnotes'] = [],
 ): UnnumberedPage {
-  return { title, section, orientation, density, blocks, footnotes };
+  return { title, navLabel, section, orientation, density, blocks, footnotes };
 }
 
 export interface PackFrontMatter {
@@ -50,12 +55,12 @@ export interface PackFrontMatter {
 /** Pages 1 and 2 — the cover and the contents. */
 export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
   return [
-    page(f.companyLegalName, 'Front', 'low', [
+    page(f.companyLegalName, 'Cover', 'Front', 'low', [
       disclose(PACK_CONFIDENTIALITY, [
         note('Preparation', `Prepared by ${f.preparedBy} on ${f.generatedAt.slice(0, 10)}. This pack is ${f.draft ? 'a DRAFT — figures are not final' : 'FINAL'}.`),
       ]),
     ]),
-    page('Contents', 'Front', 'low', [
+    page('Contents', 'Contents', 'Front', 'low', [
       disclose('Basis of preparation', [
         note('In short', `${f.basis.basisOfPreparation.standard}. ${f.period}. Figures in ${f.scale} (${f.currency}), ${f.draft ? 'draft' : 'final'}. Full basis on page ${f.basisPageNumber}.`),
       ]),
@@ -71,7 +76,7 @@ export function buildBasisPage(
   scale: MoneyScale,
   currency: string,
 ): UnnumberedPage {
-  return page('Basis of preparation and definitions', 'Governance', 'medium', [
+  return page('Basis of preparation and definitions', 'Basis of preparation', 'Governance', 'medium', [
     disclose('Basis of preparation', [
       note('Standard', basis.basisOfPreparation.standard),
       note('Period', period),
