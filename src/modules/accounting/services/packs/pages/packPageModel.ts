@@ -181,7 +181,21 @@ export type PackPageBlock =
   | { kind: 'scorecard'; groups: PackScorecardGroup[] }
   | { kind: 'chart'; chart: PackChartSpec }
   | { kind: 'smallMultiples'; panels: PackChartSpec[] }
-  | { kind: 'narrative'; narrative: PackNarrative }
+  | {
+      kind: 'narrative';
+      narrative: PackNarrative;
+      /**
+       * Spec §4.A page 4's NARROW column — the decisions the board is being
+       * asked to take, derived from the matters model (`boardActionItems`).
+       *
+       * Separate from `PackNarrative.actions`, and it has to be: those are
+       * the approver's own action items and these are machine-derived, so
+       * one list holding both would be a panel a reader cannot attribute.
+       * They render in different columns and each is labelled with where it
+       * came from — R7's approved/derived split, applied to a bullet list.
+       */
+      boardActions?: string[];
+    }
   // Spec §4.A page 11 is a TABLE — issue, quantum, owner, movement, decision
   // — and `PackTable`'s column keys are financial (actual/prior/change/…),
   // so a matter cannot be expressed as one. `PackMatter` already carries

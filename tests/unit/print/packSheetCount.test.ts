@@ -58,21 +58,16 @@ describe('the printed board pack', () => {
       // would notice. Clipped content is worse than a nineteen-sheet pack: it
       // is gone, with nothing on the page to say it was ever there.
       expect(printed.overflow, `${name} runs past the right edge of the paper`).toEqual([]);
+
+      // And the other direction: the 19-sheet render's tell was sheets 7, 9
+      // and 18 carrying nothing but the tail of the previous page's
+      // footnotes, and sheet 4 carrying one italic line. A sheet with almost
+      // nothing on it is never intended. Checked on EVERY fixture, because
+      // page 4's fill depends on whether commentary is approved and on how
+      // many matters there are, and those differ per fixture.
+      expect(thinSheets(printed.sheetText), `${name}: sheets carrying almost nothing`).toEqual([]);
     }, 120_000);
   }
-
-  it('leaves no sheet blank — an empty sheet is a page that overflowed', async () => {
-    // The 19-sheet render's tell: sheets 7, 9 and 18 carried nothing but the
-    // tail of the previous page's footnotes, and sheet 4 carried one italic
-    // line. A sheet with almost nothing on it is never intended.
-    const printed = await printBoardPack(buildBoardPackPages(denseInput), browser);
-    const thin = printed.sheetText
-      .map((text, i) => ({ sheet: i + 1, chars: text.replace(/\s+/g, ' ').trim().length }))
-      // The cover is the one deliberately sparse sheet in the pack: a company
-      // name, a period and a confidentiality mark. Everything else is content.
-      .filter((s) => s.sheet !== 1 && s.chars < 200);
-    expect(thin, 'sheets carrying almost nothing').toEqual([]);
-  }, 120_000);
 
   it('runs the company, the pack, the period and the confidentiality mark along every sheet', async () => {
     // `buildFooterHtml` and `buildPdfMetadata` were written, reviewed and
@@ -109,6 +104,28 @@ describe('the printed board pack', () => {
     }
   }, 120_000);
 
+  it("prints page 4's action panel on the sheet, filled, commentary or not", async () => {
+    // R-P57. Page 4 was built as commentary-ONLY, so with nothing approved it
+    // printed one italic line at 1.0% fill on a sheet of its own — and the
+    // first remedy, merging it away, made the pack eleven pages for one
+    // company and twelve for another. §4.A specifies a second column and it
+    // was never populated. Asserted on the PRINTED sheet, and on the fixture
+    // whose commentary is pending, because that is the case the panel exists
+    // to carry.
+    const printed = await printBoardPack(buildBoardPackPages(brightsphereInput), browser);
+    const sheet = printed.sheetText
+      .map((t) => t.replace(/\s+/g, ' '))
+      .find((t) => t.includes('Commentary pending approval'));
+
+    expect(sheet, 'no sheet carries the pending placeholder').toBeDefined();
+    // The panel, its heading, and an item in it — not merely the heading.
+    expect(sheet).toContain('For the board');
+    expect(sheet).toMatch(/No matters require board attention/);
+    // And the placeholder is still there beside it: filling the panel must
+    // not become a way to stop saying commentary is owed.
+    expect(sheet).toContain('Commentary pending approval');
+  }, 120_000);
+
   it('prints the landscape page on ONE landscape sheet', async () => {
     // `.pack-page`'s min-height is 255mm — the PORTRAIT box. A landscape
     // sheet's box is 168mm, so page 10 was 87mm taller than the paper it was
@@ -127,6 +144,19 @@ describe('the printed board pack', () => {
     expect(sheets.length, 'the trends page spans more than one sheet').toBe(1);
   }, 120_000);
 });
+
+/**
+ * Sheets carrying almost nothing.
+ *
+ * The cover is the one deliberately sparse sheet in the pack — a company
+ * name, a period and a confidentiality mark — so it is exempt. Everything
+ * else on a board pack is content.
+ */
+function thinSheets(sheetText: string[]): Array<{ sheet: number; chars: number }> {
+  return sheetText
+    .map((text, i) => ({ sheet: i + 1, chars: text.replace(/\s+/g, ' ').trim().length }))
+    .filter((s) => s.sheet !== 1 && s.chars < 250);
+}
 
 /**
  * What is on each sheet, for the failure message.

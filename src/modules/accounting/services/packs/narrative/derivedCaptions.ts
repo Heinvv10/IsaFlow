@@ -21,6 +21,7 @@
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { formatMoney, formatPctMagnitude, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type {
   PackChartSpec,
   PackKpiTile,
@@ -139,4 +140,58 @@ export function cashCaption(set: PackFigureSet, residual: number | null, scale: 
     : `Operating activities ${ocf >= 0 ? 'generated' : 'consumed'} ${formatMoney(Math.abs(ocf), { scale })}.`;
   if (residual === null || residual === 0) return lead;
   return `${lead} ${formatMoney(Math.abs(residual), { scale })} of the movement in cash is NOT explained by the operating, investing and financing figures the pack captures; the bridge shows it as an unexplained movement rather than closing the gap silently.`;
+}
+
+/**
+ * Spec §4.A page 4's narrow column: the action items the board is being asked
+ * to decide, derived from the same matters model page 11 tabulates.
+ *
+ * WHY THE PANEL EXISTS AT ALL. Page 4 was being built as a commentary-only
+ * page, so where no human had approved commentary it printed one italic line
+ * — 1.0% fill on a sheet of its own, which spec §5.7 says does not ship. §4.A
+ * specifies TWO columns, and the second one was simply never populated. With
+ * it filled the page carries real content whether or not commentary is
+ * approved, so the pack stays twelve pages either way (R-P57) instead of
+ * changing shape according to an editorial state.
+ *
+ * ONE BULLET PER MATTER, largest quantum first — `buildMatters` orders them,
+ * so first is largest. What a board needs from this panel is WHICH matters
+ * are in front of it, not a summary of them.
+ *
+ * THE DECISION IS STATED ONCE WHERE IT IS THE SAME FOR ALL OF THEM.
+ * `buildMatters` gives every unusual journal the same `decisionRequired`, so
+ * a bullet reading "<issue> — <decision>" per matter is the same sentence
+ * five times, which is the repetition already undone in the matters table
+ * itself. Where the decisions differ, each bullet carries its own.
+ *
+ * NO PAGE NUMBER IN THE OVERFLOW LINE. It names the matters page in words:
+ * page numbers come from position now, and a literal here is the class of
+ * cross-reference that sent a reader to the scorecard for the basis of
+ * preparation.
+ *
+ * PROSE, NOT FIGURES. §4.A keeps page 4 free of tabular figures; a bulleted
+ * list of decisions is prose, and nothing here formats a rand amount.
+ */
+const BOARD_ACTIONS_SHOWN = 5;
+
+export function boardActionItems(matters: PackMatter[]): string[] {
+  if (matters.length === 0) return [];
+
+  const shown = matters.slice(0, BOARD_ACTIONS_SHOWN);
+  const decisions = new Set(shown.map((m) => m.decisionRequired));
+  const uniform = shown.length > 1 && decisions.size === 1;
+
+  const items = shown.map((matter) =>
+    uniform ? matter.issue : `${matter.issue} — ${matter.decisionRequired}`,
+  );
+
+  if (uniform) {
+    items.push(`Each of these needs the same decision: ${shown[0]!.decisionRequired} (${shown[0]!.owner}).`);
+  }
+
+  const remaining = matters.length - shown.length;
+  if (remaining > 0) {
+    items.push(`${remaining} further ${remaining === 1 ? 'matter is' : 'matters are'} listed, with their quanta, on the matters page.`);
+  }
+  return items;
 }

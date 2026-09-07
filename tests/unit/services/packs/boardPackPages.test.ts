@@ -121,8 +121,36 @@ describe('buildBoardPackPages', () => {
 
   it('keeps the narrative page free of tabular figures, per spec §4.A page 4', () => {
     const page = doc.pages.find((p) => p.number === 4)!;
-    expect(page.blocks.every((b) => b.kind === 'narrative')).toBe(true);
-    expect(page.blocks.length).toBeGreaterThan(0);
+    // BOTH of §4.A's columns are prose, and so is the note saying where each
+    // came from. What the rule forbids is a FIGURE block — a table, a tile
+    // strip, a scorecard, a chart — not prose in more than one shape.
+    expect(page.blocks.every((b) => b.kind === 'narrative' || b.kind === 'disclosure')).toBe(true);
+    expect(page.blocks.some((b) => b.kind === 'narrative')).toBe(true);
+  });
+
+  it('fills page 4\'s action panel from the matters, approved commentary or not', () => {
+    // The page was built as commentary-ONLY, so with nothing approved it
+    // printed one italic line at 1.0% fill on a sheet of its own — and the
+    // remedy taken first was to merge it away, which made the pack eleven
+    // pages for one company and twelve for another. §4.A specifies a second
+    // column and it was simply never populated (R-P57).
+    for (const input of [demoInput, brightsphereInput]) {
+      const built = buildBoardPackPages(input);
+      const block = built.pages.find((p) => p.number === 4)!.blocks
+        .find((b) => b.kind === 'narrative');
+      expect(block?.kind === 'narrative' && block.boardActions, input.companyLegalName)
+        .toEqual(expect.arrayContaining([expect.any(String)]));
+    }
+  });
+
+  it('still says commentary is pending when nothing has been approved', () => {
+    // Filling the action panel must not become a way to stop saying that
+    // commentary is owed and unwritten — the plan's Global Constraints are
+    // explicit that pages 4 and 11 fall back to a VISIBLE placeholder.
+    const built = buildBoardPackPages(brightsphereInput);
+    const block = built.pages.find((p) => p.number === 4)!.blocks
+      .find((b) => b.kind === 'narrative');
+    expect(block?.kind === 'narrative' && block.narrative.status).toBe('pending');
   });
 
   it('renders the trends page landscape and every other page portrait', () => {
@@ -158,19 +186,18 @@ describe('buildBoardPackPages', () => {
 
   it('survives a company with no prior period, no budget and negative revenue', () => {
     const doc2 = buildBoardPackPages(brightsphereInput);
-    // ELEVEN, not twelve, and that is the fix rather than a regression: this
-    // company has no approved commentary, so the narrative page would carry
-    // one italic line on a sheet of its own — 1.0% fill, which spec §5.7 says
-    // does not ship. The placeholder merges onto page 3 and the pages after
-    // it renumber, so the contents and every cross-reference stay true.
-    expect(doc2.pages).toHaveLength(11);
-    expect(doc2.pages.map((p) => p.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    // TWELVE, for every company (R-P57). The pack's page count must not
+    // depend on whether a human has typed commentary: the contents index a
+    // fixed sequence, the footer prints `n / m`, and a director comparing two
+    // months' packs must not see the structure move.
+    expect(doc2.pages).toHaveLength(12);
+    expect(doc2.pages.map((p) => p.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     for (const page of doc2.pages) {
       expect(() => assertPageTitleIsAMessage(page.title, page.number), `page ${page.number}`).not.toThrow();
     }
-    // Every content page, with no exception for the narrative page — there
-    // is not one any more, and no page in this pack is a single sentence.
-    for (const page of doc2.pages.filter((p) => p.number >= 3)) {
+    // Page 4 is exempt from the three-block rule and from nothing else: §4.A
+    // gives it two prose columns and the note that sources them.
+    for (const page of doc2.pages.filter((p) => p.number >= 3 && p.number !== 4)) {
       expect(page.blocks.length, `page ${page.number}`).toBeGreaterThanOrEqual(3);
     }
   });

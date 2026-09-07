@@ -106,6 +106,56 @@ describe('NarrativeColumns', () => {
     expect(screen.getByText(/commentary pending approval/i)).toBeInTheDocument();
   });
 
+  it('renders the action panel BESIDE a pending placeholder, not instead of it', () => {
+    // The `pending` branch returned the placeholder and nothing else, so page
+    // 4 printed one italic line at 1.0% fill on a sheet of its own. The
+    // panel's items come from the matters, which exist whether or not anyone
+    // has approved commentary — that is what keeps the pack twelve pages for
+    // every company (R-P57) instead of eleven for some.
+    const { container } = render(
+      <NarrativeColumns
+        narrative={{ status: 'pending', body: null, actions: [] }}
+        boardActions={['Credit control: approve a credit hold on Acme Holdings.']}
+      />,
+    );
+    expect(screen.getByText(/commentary pending approval/i)).toBeInTheDocument();
+    const panel = container.querySelector('.pack-narrative-actions') as HTMLElement;
+    expect(panel).not.toBeNull();
+    expect(panel.textContent).toContain('approve a credit hold on Acme Holdings');
+    // Labelled as machine-written: it sits beside signed commentary and a
+    // reader must be able to tell which is which (R7).
+    expect(panel.textContent).toMatch(/Derived from the figures/);
+  });
+
+  it('renders no action panel for a DRAFT narrative', () => {
+    // A page carrying only the panel would read as a page whose commentary is
+    // fine, rather than one whose commentary is unapproved model output.
+    const { container } = render(
+      <NarrativeColumns
+        narrative={{ status: 'draft', body: 'Unapproved.', actions: [] }}
+        boardActions={['Credit control: approve a credit hold.']}
+      />,
+    );
+    expect(container.querySelector('.pack-narrative-actions')).toBeNull();
+    expect(container.textContent).toBe('');
+  });
+
+  it("keeps the approver's own actions out of the derived panel", () => {
+    // Two provenances, two columns. One list holding both would be a panel a
+    // reader cannot attribute.
+    const { container } = render(
+      <NarrativeColumns
+        narrative={{ status: 'approved', body: 'Trading held up.', actions: ['Approve the facility renewal'] }}
+        boardActions={['Finance: confirm supporting evidence.']}
+      />,
+    );
+    const panel = container.querySelector('.pack-narrative-actions') as HTMLElement;
+    const body = container.querySelector('.pack-narrative-body') as HTMLElement;
+    expect(body.textContent).toContain('Approve the facility renewal');
+    expect(panel.textContent).not.toContain('Approve the facility renewal');
+    expect(panel.textContent).toContain('confirm supporting evidence');
+  });
+
   it('renders approved prose and the action panel side by side', () => {
     render(<NarrativeColumns narrative={{ status: 'approved', body: 'Trading held up.',
       actions: ['Approve the facility renewal'] }} />);

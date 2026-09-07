@@ -115,11 +115,21 @@ describe('board pack commentary, R7', () => {
     // tell which is which — R7 admits derived text because it is
     // deterministic, not because anyone signed it.
     const { container } = render(<PackPagesView document={demoDoc()} />);
-    const page4 = within(container.querySelector('#pack-page-4') as HTMLElement);
+    const page4El = container.querySelector('#pack-page-4') as HTMLElement;
     const page5 = within(container.querySelector('#pack-page-5') as HTMLElement);
 
-    expect(page4.getByText(/Approved commentary/)).toBeInTheDocument();
-    expect(page4.queryByText(/Derived from the figures/)).toBeNull();
+    // Page 4 carries BOTH labels, on different columns, and that is the
+    // point of §4.A's two-column layout: the commentary is signed and the
+    // action panel beside it is machine-written from the matters. What R7
+    // requires is that a reader can tell them apart, so the assertion is
+    // about which COLUMN each label sits on, not about one being absent.
+    const body = page4El.querySelector('.pack-narrative-body') as HTMLElement;
+    const panel = page4El.querySelector('.pack-narrative-actions') as HTMLElement;
+    expect(within(body).getByText(/Approved commentary/)).toBeInTheDocument();
+    expect(within(body).queryByText(/Derived from the figures/)).toBeNull();
+    expect(within(panel).getByText(/Derived from the figures/)).toBeInTheDocument();
+    expect(within(panel).queryByText(/Approved commentary/)).toBeNull();
+
     expect(page5.getByText(/Derived from the figures/)).toBeInTheDocument();
     expect(page5.queryByText(/Approved commentary/)).toBeNull();
   });

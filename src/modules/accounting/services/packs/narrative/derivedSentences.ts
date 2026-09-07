@@ -41,6 +41,7 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 
 export {
+  boardActionItems,
   cashCaption,
   largestMoverCaption,
   positionCaption,

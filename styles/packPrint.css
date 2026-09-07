@@ -199,7 +199,20 @@ html.print-mode {
 /* Task 14 — narrative columns: prose beside the action panel. */
 .pack-narrative-columns { display: grid; grid-template-columns: 2fr 1fr; gap: var(--pack-gutter); }
 .pack-narrative-body { font-size: 10pt; line-height: 15pt; }
-.pack-narrative-actions { font-size: 9.5pt; line-height: 14pt; padding-left: 4mm; }
+/* Spec §4.A page 4's narrow column. A left rule rather than a box: it is the
+ * only block on the page whose words nobody signed, and the same cue the
+ * derived-commentary blocks already carry. */
+.pack-narrative-actions {
+  font-size: 9.5pt; line-height: 14pt;
+  padding-left: 4mm; border-left: 1pt solid var(--pack-rule);
+}
+.pack-narrative-actions-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0 0 1mm; }
+.pack-narrative-actions ul { margin: 1.5mm 0 0; padding-left: 4mm; }
+.pack-narrative-actions li + li { margin-top: 1.5mm; }
+/* The APPROVER's own action items, under their own prose — see
+ * `NarrativeColumns` for why they are never merged with the derived panel. */
+.pack-narrative-approved-actions { margin: 2mm 0 0; padding-left: 4mm; }
+.pack-narrative-approved-actions li + li { margin-top: 1.5mm; }
 .pack-narrative-pending { font-size: 10pt; line-height: 15pt; font-style: italic; color: var(--pack-grey-mid); }
 
 /* Task 14 — a disclosure block (e.g. negative equity, spec §3.5). */

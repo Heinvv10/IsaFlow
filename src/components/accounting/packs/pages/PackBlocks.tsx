@@ -78,7 +78,7 @@ export function PackBlockView({ block, scale }: PackBlockViewProps) {
     case 'smallMultiples':
       return <PackSmallMultiples panels={block.panels} />;
     case 'narrative':
-      return <NarrativeColumns narrative={block.narrative} />;
+      return <NarrativeColumns narrative={block.narrative} boardActions={block.boardActions} />;
     case 'disclosure':
       return <PackDisclosureBlock disclosure={block.disclosure} />;
     case 'definitions':

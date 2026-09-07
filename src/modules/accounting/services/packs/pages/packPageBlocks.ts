@@ -13,6 +13,7 @@
  * sequence file imports them back for its own remaining simple pages.
  */
 import {
+  boardActionItems,
   cashCaption,
   positionCaption,
   negativeEquitySentence,
@@ -31,6 +32,7 @@ import type {
   PackDisclosureNote,
   PackFootnote,
   PackKpiTile,
+  PackNarrative,
   PackPageBlock,
   PackTable,
 } from './packPageModel';
@@ -88,6 +90,34 @@ export function buildHighlightsBlocks(
     ],
     footnotes: [{ number: SPARKLINE_FOOTNOTE, text: `Sparklines run over the pack's monthly trend series. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest have no monthly series behind them and show none rather than a line drawn from a single point.` }],
   };
+}
+
+/**
+ * Page 4 — spec §4.A's two prose columns, and the note that says where each
+ * of them comes from.
+ *
+ * NO TABULAR FIGURES, per §4.A: a narrative block and a disclosure block,
+ * both prose. The action panel is DERIVED from the same matters the matters
+ * page tabulates, so it is populated whether or not a human has approved
+ * commentary — which is what keeps this page from being the one italic line
+ * at 1.0% fill that shipped in the first rendered pack (R-P57).
+ *
+ * The note is not padding. A director reading a pack whose commentary column
+ * says "pending approval" needs to know that this is a state of the pack and
+ * not a rendering fault, and that the panel beside it was not written by the
+ * person who will sign the commentary.
+ */
+export function buildCommentaryBlocks(
+  narrative: PackNarrative,
+  matters: PackMatter[],
+): PackPageBlock[] {
+  return [
+    { kind: 'narrative', narrative, boardActions: boardActionItems(matters) },
+    disclose('How this page is prepared', [
+      note('Commentary', 'The left column carries the board\'s own commentary on the period. It prints only once an approver has signed it; until then this page says so rather than printing unapproved text.'),
+      note('Action panel', 'The right column is derived from the same checks the matters page tabulates — aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings — ordered by the size of the exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.'),
+    ]),
+  ];
 }
 
 /**

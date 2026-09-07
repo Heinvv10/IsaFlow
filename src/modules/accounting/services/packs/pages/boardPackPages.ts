@@ -65,6 +65,7 @@ import {
 } from './packStatementTables';
 import {
   buildCashBlocks,
+  buildCommentaryBlocks,
   buildHighlightsBlocks,
   buildMattersBlock,
   buildPositionBlocks,
@@ -115,14 +116,12 @@ const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
 /**
  * Page numbers, from position in the sequence.
  *
- * They used to be literals — `page(4, …)`, `page(12, …)` — which was true of
- * the twelve-page pack and false of every other one. Spec §5.7 forbids
- * shipping a page carrying a single sentence, and the pending-commentary page
- * IS that page when nobody has approved commentary yet: one italic line at
- * 1.0% fill on its own sheet. Merging it into its neighbour is the remedy the
- * spec names, and it is only safe if the pages after it renumber — otherwise
- * the contents, the footer and every internal cross-reference point one page
- * past where the reader will find the thing.
+ * They used to be literals — `page(4, …)`, `page(12, …)`. The sequence is
+ * fixed at twelve by spec §4.A (R-P57) and these agree with the spec's own
+ * numbering, so nothing about the printed pack changes. What changes is that
+ * the contents, the footer and page 2's "full basis on page N" now READ the
+ * sequence instead of restating it: the rendered pack printed "Full basis on
+ * page 12" while the basis was on sheet 19, and a literal cannot notice.
  */
 function numbered(pages: UnnumberedPage[]): PackPage[] {
   return pages.map((p, index) => ({ ...p, number: index + 1 }));
@@ -191,30 +190,33 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
   const trendBlocks = buildTrendBlocks(panels);
 
-  // Page 4 — narrative ONLY. Spec §4.A keeps this page free of tabular
-  // figures; the commentary and the board's action items are both carried by
-  // the one `PackNarrative`, which is what `NarrativeColumns` renders as its
-  // two columns.
+  // Page 4 — no tabular figures. Spec §4.A keeps this page free of them; both
+  // of its columns are prose.
   //
-  // IT EXISTS ONLY WHEN A HUMAN HAS APPROVED SOMETHING TO PUT ON IT. Nothing
-  // in this codebase stores board commentary yet, so the page shipped
-  // carrying the single line "Commentary pending approval." — 1.0% fill on a
-  // sheet of its own, which spec §5.7 says does not ship. The placeholder is
-  // still printed, and still says exactly the same thing: it merges onto page
-  // 3, whose subject is the same period's performance. Dropping the
-  // placeholder instead would hide from the board that commentary is owed.
-  const narrativePage: UnnumberedPage | null = input.commentary === null
-    ? null
-    : page(narrativeTitle(set, scale), 'Board commentary', 'Performance', 'medium', [
-        { kind: 'narrative', narrative: input.commentary },
-      ]);
-  if (narrativePage === null) {
-    highlights.blocks.push({ kind: 'narrative', narrative: pending });
-  }
+  // TWO COLUMNS, AND THE SECOND ONE IS WHY THE PAGE IS NOT NEARLY EMPTY.
+  // Nothing in this codebase stores board commentary yet, so the left column
+  // is the visible "Commentary pending approval." placeholder on every pack
+  // today — and the page was built as commentary-ONLY, so that single italic
+  // line was the whole sheet at 1.0% fill. §4.A specifies an action panel
+  // beside it and it was simply never populated. Filled from the same matters
+  // model page 11 tabulates, the page carries content whether or not
+  // commentary is approved, so the pack is TWELVE pages either way (R-P57)
+  // rather than changing shape according to an editorial state — a director
+  // comparing two months' packs must not see the structure move.
+  //
+  // The placeholder STAYS. Filling the panel is not a way to stop saying that
+  // commentary is owed and unwritten.
+  const narrativePage = page(
+    narrativeTitle(set, scale),
+    'Commentary and actions',
+    'Performance',
+    'medium',
+    buildCommentaryBlocks(input.commentary ?? pending, input.matters),
+  );
 
   const body: UnnumberedPage[] = [
     highlights,
-    ...(narrativePage === null ? [] : [narrativePage]),
+    narrativePage,
     snapshot,
     page(incomeStatementTitle(set, scale), 'Income statement', 'Financials', 'high', [
       { kind: 'table', table: income },
@@ -251,10 +253,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     buildBasisPage(basis, input.period, comparativePeriod, scale, currency),
   ];
 
-  // The basis page is the last one, and page 2 tells the reader where to find
-  // it. `page 12` was a literal, which is one page wrong the moment the
-  // narrative page merges — sending a director to the scorecard for the basis
-  // of preparation.
+  // Page 2 says where the full basis is; it is the LAST page, counted rather
+  // than written as the literal 12 it used to be.
   const total = 2 + body.length;
   const pages = numbered([
     ...buildFrontPages({
