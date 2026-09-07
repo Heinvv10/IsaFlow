@@ -167,10 +167,14 @@ describe('trendsCaption', () => {
     id, title, kind: 'line', svg: '<svg/>', heightMm: 40,
   });
 
-  it('names the tracked panels', () => {
+  it('counts the tracked panels without restating their titles', () => {
     const panels = [panel('p1', 'Revenue rose 12%'), panel('p2', 'Cash held flat')];
     expect(trendsCaption(panels)).toMatch(/2 metrics/);
-    expect(trendsCaption(panels)).toMatch(/Revenue rose 12%/);
+    // Each panel prints its own title three centimetres away; repeating all
+    // six here told the reader nothing new and was enough on its own to push
+    // the landscape page onto a second sheet.
+    expect(trendsCaption(panels)).not.toMatch(/Revenue rose 12%/);
+    expect(trendsCaption(panels)).toMatch(/each panel states/);
   });
 
   it('says so plainly when there are no panels', () => {

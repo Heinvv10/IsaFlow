@@ -18,7 +18,7 @@ import {
 } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
-import { brightsphereInput, demoInput, demoSet, figures } from './fixtures/boardPackInputs';
+import { basisPage, brightsphereInput, demoInput, demoSet, figures } from './fixtures/boardPackInputs';
 
 const template = buildBoardPackPages(demoInput);
 
@@ -56,7 +56,9 @@ describe('buildBoardPackPages calls the gate', () => {
     const columns = doc.pages.flatMap((pg) => pg.blocks)
       .flatMap((b) => (b.kind === 'table' ? [...b.table.columns] : []));
     expect(columns).not.toContain('prior');
-    const basisNotes = doc.pages.find((pg) => pg.number === 12)!.blocks
+    // The basis page by POSITION, not by the number 12: this pack is eleven
+    // pages, because nothing has approved commentary for it.
+    const basisNotes = basisPage(doc).blocks
       .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []));
     expect(basisNotes.some((n) => n.heading === 'Comparative period' && /None\./.test(n.body))).toBe(true);
   });
@@ -115,7 +117,7 @@ describe('buildBoardPackPages calls the gate', () => {
 
   it('resolves every matter\'s quantum through the provenance map (I-4)', () => {
     const recorded = template.provenance.all();
-    const matters = template.pages.find((pg) => pg.number === 11)!.blocks
+    const matters = template.pages.flatMap((pg) => pg.blocks)
       .flatMap((b) => (b.kind === 'matters' ? b.matters : []));
     expect(matters.length).toBeGreaterThan(0);
     for (const matter of matters) {
@@ -125,8 +127,10 @@ describe('buildBoardPackPages calls the gate', () => {
 
     // And a matter with no single amount states why, rather than printing a
     // zero that would say the exposure was measured and found to be nothing.
-    const none = buildBoardPackPages(brightsphereInput).pages.find((pg) => pg.number === 11)!
-      .blocks.flatMap((b) => (b.kind === 'matters' ? b.matters : []));
+    // By block kind, not by page number: this pack is eleven pages, because
+    // nothing has approved commentary for it.
+    const none = buildBoardPackPages(brightsphereInput).pages.flatMap((pg) => pg.blocks)
+      .flatMap((b) => (b.kind === 'matters' ? b.matters : []));
     expect(none[0]!.quantum.value).toBeNull();
     expect(none[0]!.quantum.unavailable).toMatch(/no single rand amount/i);
 

@@ -16,7 +16,15 @@ import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackChartSpec } from './packPageModel';
 
-const PANEL = { widthMm: 82, heightMm: CHART_HEIGHT_MM.half };
+/**
+ * A page-10 panel: 82mm wide, and INLINE height (48mm) rather than half.
+ *
+ * Six panels are drawn three across, so the page carries two rows of them —
+ * plus a title, a caption and two disclosures — inside a LANDSCAPE content
+ * box that is 168mm tall, not 255mm. At 72mm a row the panels alone came to
+ * 164mm and the page printed on two landscape sheets.
+ */
+const PANEL = { widthMm: 82, heightMm: CHART_HEIGHT_MM.inline };
 
 /**
  * Page 10 — the small multiples.
@@ -132,7 +140,9 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Pa
   return panels;
 }
 
-const CASH_TREND_FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
+/** Page 8's closing-cash line — inline height, because it shares its page
+ *  with a statement table and a bridge. See `HALF` in `packPageCharts.ts`. */
+const CASH_TREND_FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline };
 
 /**
  * Page 8 — the closing-cash line spec §4.A page 8 asks for, drawn from the

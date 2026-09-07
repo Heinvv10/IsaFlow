@@ -46,7 +46,7 @@ import {
   scorecardTitle,
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { buildBasis, ROUNDING_NOTE, statementFootnotes } from './packBasis';
+import { buildBasis, statementFootnotes } from './packBasis';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
@@ -75,10 +75,15 @@ import {
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
 import { formatPackPeriod } from './packPeriodLabel';
+import {
+  buildBasisPage,
+  buildFrontPages,
+  page,
+  type UnnumberedPage,
+} from './packFrontMatter';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import type {
   PackComparativePeriod,
-  PackFootnote,
   PackNarrative,
   PackPage,
   PackPageBlock,
@@ -107,16 +112,20 @@ export interface BoardPackInput {
 
 const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
 
-function page(
-  number: number,
-  title: string,
-  section: PackPage['section'],
-  density: PackPage['density'],
-  blocks: PackPageBlock[],
-  orientation: PackPage['orientation'] = 'portrait',
-  footnotes: PackFootnote[] = [],
-): PackPage {
-  return { number, title, section, orientation, density, blocks, footnotes };
+/**
+ * Page numbers, from position in the sequence.
+ *
+ * They used to be literals — `page(4, …)`, `page(12, …)` — which was true of
+ * the twelve-page pack and false of every other one. Spec §5.7 forbids
+ * shipping a page carrying a single sentence, and the pending-commentary page
+ * IS that page when nobody has approved commentary yet: one italic line at
+ * 1.0% fill on its own sheet. Merging it into its neighbour is the remedy the
+ * spec names, and it is only safe if the pages after it renumber — otherwise
+ * the contents, the footer and every internal cross-reference point one page
+ * past where the reader will find the thing.
+ */
+function numbered(pages: UnnumberedPage[]): PackPage[] {
+  return pages.map((p, index) => ({ ...p, number: index + 1 }));
 }
 
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
@@ -155,12 +164,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
   const { blocks: highlightBlocks, footnotes: highlightFootnotes } = buildHighlightsBlocks(tiles, scale, currency);
-  const highlights = page(3, highlightsTitle(set, scale), 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
+  const highlights = page(highlightsTitle(set, scale), 'Performance', 'high', highlightBlocks, 'portrait', highlightFootnotes);
 
   // Page 5 — the table every later number traces back to, and the five
   // headline tiles beneath it. The tiles are the SAME objects page 3 carries,
   // so the two pages cannot print different values for one figure.
-  const snapshot = page(5, resultsTitle(set, scale), 'Financials', 'high', [
+  const snapshot = page(resultsTitle(set, scale), 'Financials', 'high', [
     { kind: 'table', table: results },
     { kind: 'kpiTiles', tiles: tiles.slice(0, 5) },
     commentary(largestMoverCaption(results.rows)),
@@ -182,35 +191,40 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
   const trendBlocks = buildTrendBlocks(panels);
 
-  const pages: PackPage[] = [
-    page(1, input.companyLegalName, 'Front', 'low', [
-      disclose('Confidential — for board use', [
-        note('Preparation', `Prepared by ${input.preparedBy} on ${generatedAt.slice(0, 10)}. This pack is ${draft ? 'a DRAFT — figures are not final' : 'FINAL'}.`),
-      ]),
-    ]),
-    page(2, 'Contents', 'Front', 'low', [
-      disclose('Basis of preparation', [
-        note('In short', `${basis.basisOfPreparation.standard}. ${input.period}. Figures in ${scale} (${currency}), ${draft ? 'draft' : 'final'}. Full basis on page 12.`),
-      ]),
-    ]),
+  // Page 4 — narrative ONLY. Spec §4.A keeps this page free of tabular
+  // figures; the commentary and the board's action items are both carried by
+  // the one `PackNarrative`, which is what `NarrativeColumns` renders as its
+  // two columns.
+  //
+  // IT EXISTS ONLY WHEN A HUMAN HAS APPROVED SOMETHING TO PUT ON IT. Nothing
+  // in this codebase stores board commentary yet, so the page shipped
+  // carrying the single line "Commentary pending approval." — 1.0% fill on a
+  // sheet of its own, which spec §5.7 says does not ship. The placeholder is
+  // still printed, and still says exactly the same thing: it merges onto page
+  // 3, whose subject is the same period's performance. Dropping the
+  // placeholder instead would hide from the board that commentary is owed.
+  const narrativePage: UnnumberedPage | null = input.commentary === null
+    ? null
+    : page(narrativeTitle(set, scale), 'Performance', 'medium', [
+        { kind: 'narrative', narrative: input.commentary },
+      ]);
+  if (narrativePage === null) {
+    highlights.blocks.push({ kind: 'narrative', narrative: pending });
+  }
+
+  const body: UnnumberedPage[] = [
     highlights,
-    // Page 4 — narrative ONLY. Spec §4.A keeps this page free of tabular
-    // figures; the commentary and the board's action items are both carried
-    // by the one `PackNarrative`, which is what `NarrativeColumns` renders as
-    // its two columns.
-    page(4, narrativeTitle(set, scale), 'Performance', 'medium', [
-      { kind: 'narrative', narrative: input.commentary ?? pending },
-    ]),
+    ...(narrativePage === null ? [] : [narrativePage]),
     snapshot,
-    page(6, incomeStatementTitle(set, scale), 'Financials', 'high', [
+    page(incomeStatementTitle(set, scale), 'Financials', 'high', [
       { kind: 'table', table: income },
       { kind: 'chart', chart: profitBridge },
       commentary(largestMoverCaption(income.rows)),
       ...profitBridgeCaveat,
     ], 'portrait', statementNotes),
-    page(7, positionTitle(set, scale), 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
-    page(8, cashTitle(set, scale), 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
-    page(9, scorecardTitle(score.met, score.total), 'Performance', 'high', [
+    page(positionTitle(set, scale), 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
+    page(cashTitle(set, scale), 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
+    page(scorecardTitle(score.met, score.total), 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
       commentary(scorecardCaption(scorecard)),
       disclose('Scoring basis', [
@@ -221,8 +235,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // The one landscape page in the pack, per spec §4.A page 10 and R5: the
     // orientation is a PAGE-level property the print CSS keys off, never a
     // document-level flag, which would turn the whole pack sideways.
-    page(10, trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Performance', 'high', trendBlocks, 'landscape'),
-    page(11, 'Matters requiring board attention', 'Governance', 'medium', [
+    page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Performance', 'high', trendBlocks, 'landscape'),
+    page('Matters requiring board attention', 'Governance', 'medium', [
       // Spec §4.A page 11 asks for a TABLE — issue, quantum, owner, movement,
       // decision required. Prose notes carried the same five facts but a
       // director scanning for "which of these needs me" had to read every
@@ -234,25 +248,28 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         note('Movement', 'No prior board pack is stored, so movement since the last meeting is stated as untracked rather than computed from a period comparison, which would answer a different question.'),
       ]),
     ]),
-    page(12, 'Basis of preparation and definitions', 'Governance', 'medium', [
-      disclose('Basis of preparation', [
-        note('Standard', basis.basisOfPreparation.standard),
-        note('Period', input.period),
-        note('Comparative period', comparativePeriod === null
-          ? 'None. There is no prior period with a ledger to compare against, so no statement carries a comparative column.'
-          : comparativePeriod.label),
-        note('Currency and rounding', `${currency}, figures in ${scale}.`),
-        note('Source system', basis.basisOfPreparation.sourceSystem),
-        note('Rounding', ROUNDING_NOTE),
-        note('Extracted at', basis.basisOfPreparation.extractedAt),
-        note('Ledger version', basis.basisOfPreparation.ledgerVersion),
-      ]),
-      { kind: 'definitions', entries: basis.definitions },
-      disclose('Caveats', basis.caveats.length > 0
-        ? basis.caveats.map((caveat, index) => note(`Caveat ${index + 1}`, caveat))
-        : [note('None', 'No classification or inventory caveat applies to these figures.')]),
-    ]),
+    buildBasisPage(basis, input.period, comparativePeriod, scale, currency),
   ];
+
+  // The basis page is the last one, and page 2 tells the reader where to find
+  // it. `page 12` was a literal, which is one page wrong the moment the
+  // narrative page merges — sending a director to the scorecard for the basis
+  // of preparation.
+  const total = 2 + body.length;
+  const pages = numbered([
+    ...buildFrontPages({
+      companyLegalName: input.companyLegalName,
+      period: input.period,
+      preparedBy: input.preparedBy,
+      generatedAt,
+      draft,
+      scale,
+      currency,
+      basis,
+      basisPageNumber: total,
+    }),
+    ...body,
+  ]);
 
   const document: PackPagesDocument = {
     packType: 'board',

@@ -51,6 +51,18 @@ export {
 
 const FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.full };
 
+/**
+ * Page 8's bridge is HALF height, not full.
+ *
+ * Its page is the busiest in the pack — a cash table, this bridge, a
+ * multi-period cash line and up to two disclosures — and at full height it
+ * was 60mm taller than an A4 content box, so it printed on two sheets with
+ * the closing-cash chart stranded alone on the second. Spec §5.6's height
+ * grid is 48/72/110mm and this is the middle rung; nothing is dropped from
+ * the page to buy the space.
+ */
+const HALF = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
+
 function barKind(step: WaterfallStep, index: number, count: number): PackWaterfallBar['kind'] {
   if (index === 0) return 'open';
   if (index === count - 1) return 'close';
@@ -201,8 +213,8 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
       id: 'cash-bridge',
       title: `Cash moved from ${formatMoney(opening, { scale })} to ${formatMoney(current.cash, { scale })} over the period.`,
       kind: 'waterfall',
-      svg: renderChartSvg(waterfallOption(steps, scale), FULL),
-      heightMm: FULL.heightMm,
+      svg: renderChartSvg(waterfallOption(steps, scale), HALF),
+      heightMm: HALF.heightMm,
       waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL),
     },
   };

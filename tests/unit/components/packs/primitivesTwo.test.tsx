@@ -28,13 +28,18 @@ describe('ScorecardTable', () => {
     expect(screen.getByText(/A\.\s*Profitability/)).toBeInTheDocument();
   });
 
-  it('shows an en dash and a footnote marker for a not-meaningful row', () => {
-    render(<ScorecardTable scale="R" groups={groups} />);
-    expect(screen.getByText('–')).toBeInTheDocument();
+  it('marks a not-meaningful row and states its reason once, under the table', () => {
+    const { container } = render(<ScorecardTable scale="R" groups={groups} />);
+    // The row's own page footnote marker still prints.
     expect(screen.getByText('1')).toBeInTheDocument();
-    // Rubric criterion 9: the explanation belongs in ONE page-foot footnote,
-    // not repeated inside every affected cell.
-    expect(screen.queryAllByText('Equity is not positive')).toHaveLength(0);
+    // Rubric criterion 9: the explanation belongs in ONE place, not repeated
+    // inside every affected cell. The cell carries `n/m` and the mark of the
+    // note; the note under the scorecard carries the sentence in full, once.
+    const cells = [...container.querySelectorAll('tbody td')].map((td) => td.textContent);
+    expect(cells).toContain('n/ma');
+    expect(cells.filter((t) => t?.includes('Equity is not positive'))).toHaveLength(0);
+    const notes = container.querySelector('.pack-table-notes');
+    expect(notes?.textContent).toContain('Equity is not positive');
   });
 
   it('refuses more than 20 rows', () => {

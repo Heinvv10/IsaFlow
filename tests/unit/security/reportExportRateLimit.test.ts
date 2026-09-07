@@ -36,7 +36,11 @@ vi.mock('@/lib/rateLimit', () => ({
 
 // Auto-mock the downstream report/export service modules so imports resolve;
 // they are never reached because the rate-limit gate returns early.
-vi.mock('@/modules/accounting/services/reports/reportPackService', () => ({
+// Partially mocked, not replaced: the board pack's scorecard reads
+// `DEFAULT_KPI_TARGETS` from this module AT IMPORT TIME, so a wholesale stub
+// makes the pack routes fail to load rather than fail their rate-limit check.
+vi.mock('@/modules/accounting/services/reports/reportPackService', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/modules/accounting/services/reports/reportPackService')>()),
   buildReportPack: vi.fn().mockReturnValue({ companyName: 'Co', period: '', sections: [] }),
 }));
 vi.mock('@/modules/accounting/services/core/pdfShared', () => ({

@@ -10,6 +10,7 @@
  * in when they are present.
  */
 import { formatFigureText } from './packFigureText';
+import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import type { MoneyScale } from '@/lib/format/money';
 import type {
   PackTable,
@@ -54,8 +55,17 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
     table.rows.some((row) => row.figures[col] !== undefined),
   );
   const isLong = table.rows.length > ZEBRA_ROW_THRESHOLD;
+  const notes = collectReasons(table.rows.flatMap((row) => columns.map((col) => row.figures[col])));
+
+  /** A cell: the figure, or the mark that points at its not-meaningful note. */
+  const cell = (figure: PackTableRow['figures'][PackTableColumnKey]) => {
+    if (figure === undefined) return '–';
+    if (figure.value !== null) return formatFigureText(figure, scale);
+    return <NotMeaningfulCell figure={figure} reasons={notes} />;
+  };
 
   return (
+    <>
     <table className={isLong ? 'pack-table is-long' : 'pack-table'}>
       <caption>{table.scale}</caption>
       <thead>
@@ -70,13 +80,14 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
         {table.rows.map((row, index) => (
           <tr key={`${row.label}-${index}`} className={ROW_ROLE_CLASS[row.role]}>
             <td style={{ paddingLeft: `${row.level * INDENT_MM_PER_LEVEL}mm` }}>{row.label}</td>
-            {columns.map((col) => {
-              const figure = row.figures[col];
-              return <td key={col}>{figure ? formatFigureText(figure, scale) : '–'}</td>;
-            })}
+            {columns.map((col) => (
+              <td key={col}>{cell(row.figures[col])}</td>
+            ))}
           </tr>
         ))}
       </tbody>
     </table>
+    <NotMeaningfulNotes reasons={notes} />
+    </>
   );
 }

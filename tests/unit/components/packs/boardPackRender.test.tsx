@@ -55,9 +55,14 @@ describe('board pack, rendered', () => {
   });
 
   it('renders the Brightsphere shape without a zero column or an empty page', () => {
-    const { container } = render(<PackPagesView document={buildBoardPackPages(brightsphereInput)} />);
+    const doc = buildBoardPackPages(brightsphereInput);
+    const { container } = render(<PackPagesView document={doc} />);
     const pages = container.querySelectorAll('.pack-page');
-    expect(pages).toHaveLength(12);
+    // ELEVEN for this company: with nothing approved there is no narrative
+    // page, and its placeholder merges onto page 3 rather than shipping alone
+    // (spec §5.7). Read off the document rather than hard-coded, so this
+    // stays an assertion about the RENDERER and not about the page count.
+    expect(pages).toHaveLength(doc.pages.length);
     for (const page of pages) {
       expect(page.textContent?.trim().length ?? 0, page.id).toBeGreaterThan(80);
     }
@@ -121,9 +126,16 @@ describe('board pack commentary, R7', () => {
 
   it('shows the pending placeholder, and no body, where nothing has been approved', () => {
     const { container } = render(<PackPagesView document={buildBoardPackPages(brightsphereInput)} />);
-    const page4 = container.querySelector('#pack-page-4')!;
-    expect(page4.textContent).toContain('Commentary pending approval');
-    expect(page4.querySelector('.pack-narrative-body')).toBeNull();
+    // On whichever page carries it. With nothing approved there is no
+    // narrative page: the placeholder merges onto page 3 rather than shipping
+    // alone on a sheet at 1.0% fill (spec §5.7). It still says the same
+    // thing, which is what this test is about.
+    const pages = [...container.querySelectorAll('.pack-page')]
+      .filter((p) => (p.textContent ?? '').includes('Commentary pending approval'));
+    expect(pages.length).toBeGreaterThan(0);
+    for (const page of pages) {
+      expect(page.querySelector('.pack-narrative-body'), page.id).toBeNull();
+    }
   });
 });
 
@@ -152,7 +164,7 @@ describe('board pack page 11, the matters table', () => {
     // Brightsphere's only matter is the explicit "no matters" item, whose
     // quantum is null. "R0" would say the exposure was measured at nothing.
     const { container } = render(<PackPagesView document={buildBoardPackPages(brightsphereInput)} />);
-    const cells = [...container.querySelectorAll('#pack-page-11 .pack-matters tbody td')]
+    const cells = [...container.querySelectorAll('.pack-matters tbody td')]
       .map((td) => td.textContent);
     expect(cells[1]).toBe('–');
   });

@@ -144,12 +144,22 @@ describe('ComparativeTable', () => {
   });
 
   it('renders the unavailable reason for a null figure, never a formatted zero', () => {
-    render(<ComparativeTable scale="R" table={{ ...table, rows: [
+    const { container } = render(<ComparativeTable scale="R" table={{ ...table, rows: [
       ...table.rows,
       { label: 'Return on equity', level: 0, role: 'line',
         figures: { actual: { value: null, format: 'pct', source: 'r.roe', unavailable: 'Equity is not positive' } } },
     ] }} />);
-    expect(screen.getByText('Equity is not positive')).toBeInTheDocument();
+    // The reason is printed in FULL, once, as a note under the table, and the
+    // cell carries the mark that points at it. In the cell itself it was a
+    // three-line paragraph in a numeric column, repeated on every row that
+    // shared the reason, and that is what pushed four statement pages onto a
+    // second sheet each. Nothing is summarised: the sentence is still here.
+    expect(screen.getByText(/Equity is not positive/)).toBeInTheDocument();
+    expect(container.querySelector('.pack-table-notes')).not.toBeNull();
+    const cells = [...container.querySelectorAll('tbody tr:last-child td')].map((td) => td.textContent);
+    expect(cells[1]).toBe('n/ma');
+    // And never a formatted zero, which is what the reason exists to prevent.
+    expect(cells[1]).not.toBe('0.0%');
   });
 
   // Spec §5.5: zebra banding applies only once a table EXCEEDS 12 rows. Both

@@ -36,6 +36,7 @@ import {
   demoSet,
   figures,
   noRatioPanelsInput,
+  pageWithTableRow,
   trend,
 } from './fixtures/boardPackInputs';
 
@@ -157,11 +158,19 @@ describe('buildBoardPackPages', () => {
 
   it('survives a company with no prior period, no budget and negative revenue', () => {
     const doc2 = buildBoardPackPages(brightsphereInput);
-    expect(doc2.pages).toHaveLength(12);
+    // ELEVEN, not twelve, and that is the fix rather than a regression: this
+    // company has no approved commentary, so the narrative page would carry
+    // one italic line on a sheet of its own — 1.0% fill, which spec §5.7 says
+    // does not ship. The placeholder merges onto page 3 and the pages after
+    // it renumber, so the contents and every cross-reference stay true.
+    expect(doc2.pages).toHaveLength(11);
+    expect(doc2.pages.map((p) => p.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     for (const page of doc2.pages) {
       expect(() => assertPageTitleIsAMessage(page.title, page.number), `page ${page.number}`).not.toThrow();
     }
-    for (const page of doc2.pages.filter((p) => p.number >= 3 && p.number !== 4)) {
+    // Every content page, with no exception for the narrative page — there
+    // is not one any more, and no page in this pack is a single sentence.
+    for (const page of doc2.pages.filter((p) => p.number >= 3)) {
       expect(page.blocks.length, `page ${page.number}`).toBeGreaterThanOrEqual(3);
     }
   });
@@ -192,12 +201,19 @@ describe('buildBoardPackPages', () => {
 
   it('renders a visible pending placeholder where commentary is not approved', () => {
     const doc2 = buildBoardPackPages(brightsphereInput);
-    for (const n of [4, 11]) {
-      const narratives = doc2.pages.find((p) => p.number === n)!.blocks
-        .flatMap((b) => (b.kind === 'narrative' ? [b.narrative] : []));
-      expect(narratives.length, `page ${n}`).toBeGreaterThan(0);
-      expect(narratives.some((x) => x.status === 'pending'), `page ${n}`).toBe(true);
-      expect(narratives.every((x) => x.status !== 'draft'), `page ${n}`).toBe(true);
+    // Both places a human is expected to write — the period commentary and
+    // the commentary on the matters — still say so. Located by search rather
+    // than by page number: the narrative page merges into page 3 when there
+    // is nothing approved to put on it, so 4 and 11 are not its addresses on
+    // this pack.
+    const pendingPages = doc2.pages.filter((p) => p.blocks
+      .some((b) => b.kind === 'narrative' && b.narrative.status === 'pending'));
+    expect(pendingPages).toHaveLength(2);
+    for (const page of pendingPages) {
+      const narratives = page.blocks.flatMap((b) => (b.kind === 'narrative' ? [b.narrative] : []));
+      expect(narratives.every((x) => x.status !== 'draft'), `page ${page.number}`).toBe(true);
+      // And never alone on a page — the defect this merge exists to fix.
+      expect(page.blocks.length, `page ${page.number}`).toBeGreaterThan(1);
     }
   });
 
@@ -291,12 +307,16 @@ describe('buildBoardPackPages', () => {
     expect(prose.some((text) => /not explained/i.test(text))).toBe(true);
   });
 
-  it('draws the trends page as LINE panels at the half height', () => {
+  it('draws the trends page as LINE panels at the inline height', () => {
     const panels = doc.pages.find((p) => p.number === 10)!.blocks
       .flatMap((b) => (b.kind === 'smallMultiples' ? b.panels : []));
     expect(panels.length).toBeGreaterThan(0);
     expect(panels.every((p) => p.kind === 'line')).toBe(true);
-    expect(panels.every((p) => p.heightMm === CHART_HEIGHT_MM.half)).toBe(true);
+    // INLINE (48mm), not half. Six panels draw three across, so the page
+    // carries two rows of them inside a LANDSCAPE content box 168mm tall —
+    // at 72mm a row the panels alone came to 164mm and the page printed on
+    // two landscape sheets. Still one of spec §5.6's three heights.
+    expect(panels.every((p) => p.heightMm === CHART_HEIGHT_MM.inline)).toBe(true);
   });
 
   function disclosureHeadings(page: (typeof doc)['pages'][number]): string[] {
@@ -340,7 +360,9 @@ describe('buildBoardPackPages', () => {
 
   it('discloses why there is no closing-cash line when there is no trend series at all', () => {
     const doc2 = buildBoardPackPages(brightsphereInput);
-    const page8 = doc2.pages.find((p) => p.number === 8)!;
+    // The CASH page, found by the table it carries rather than by the number
+    // 8 — this pack is eleven pages and the cash page is the seventh of them.
+    const page8 = pageWithTableRow(doc2, 'Opening cash')!;
     const chartIds = page8.blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart.id] : []));
     expect(chartIds).not.toContain('cash-trend');
     expect(disclosureHeadings(page8)).toContain('No closing-cash series');

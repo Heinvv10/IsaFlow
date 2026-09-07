@@ -51,6 +51,19 @@ html.print-mode * {
   size: A4;
 }
 
+/* A statement's not-meaningful notes, printed once under the table rather
+ * than repeated in every cell they apply to — see `ComparativeTable`. A
+ * definition list because that is what it is: a mark, and what the mark
+ * means. */
+.pack-table-notes {
+  margin: 1.5mm 0 0; font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid);
+}
+.pack-table-notes > div { display: flex; gap: 1.5mm; }
+.pack-table-notes dt { font-weight: 600; }
+.pack-table-notes dd { margin: 0; }
+.pack-table-note-mark { font-size: 0.7em; vertical-align: super; line-height: 0; }
+.pack-table-notes abbr { text-decoration: none; }
+
 /* A full P&L and a notes table run past a page. Without this the second page
  * of a table has no column headings and its numbers are unreadable. */
 html.print-mode thead {
@@ -88,6 +101,15 @@ html.print-mode {
 }
 .pack-page:last-child { break-after: auto; }
 
+/* A LANDSCAPE page's box is 210mm tall, not 297mm — so the portrait
+ * min-height above is 87mm taller than the sheet it is printed on, and page
+ * 10 spilled onto a second landscape sheet on EVERY pack ever rendered. The
+ * blank sheet the reader got was the min-height, not the content. 210mm less
+ * the same 20/22mm margins. */
+.pack-page[data-print-landscape] {
+  min-height: 168mm;
+}
+
 .pack-grid {
   display: grid;
   grid-template-columns: repeat(12, 1fr);
@@ -101,7 +123,15 @@ html.print-mode {
   border-bottom: 2pt solid var(--pack-brand);
 }
 .pack-section-heading { font-size: 13pt; line-height: 18pt; font-weight: 600; margin: 0 0 2mm; }
-.pack-kpi-value { font-family: var(--pack-font-mono); font-size: 28pt; line-height: 30pt; font-weight: 500; }
+/* `white-space: nowrap`, and it is not cosmetic: at 28pt in a four-column
+ * grid a figure of `(1 546)` broke after the thousands separator and printed
+ * as `(1` over `546)`. A number split across two lines is a number a reader
+ * has to reassemble. `font-size` shrinks to fit the column instead. */
+.pack-kpi-value {
+  font-family: var(--pack-font-mono);
+  font-size: 24pt; line-height: 27pt; font-weight: 500;
+  white-space: nowrap;
+}
 .pack-footnotes { font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid); margin-top: auto; padding-top: 3mm; }
 
 /* Task 13 — the KPI tile, its delta and its inline sparkline. The delta's
@@ -125,8 +155,11 @@ html.print-mode {
   border-bottom: 1pt solid var(--pack-ink);
 }
 .pack-table th:first-child, .pack-table td:first-child { text-align: left; }
-.pack-table td { padding: 1.2mm 2mm; text-align: right; font-family: var(--pack-font-mono); }
-.pack-table td:first-child { font-family: var(--pack-font-sans); }
+.pack-table td { padding: 1.2mm 2mm; text-align: right; font-family: var(--pack-font-mono); white-space: nowrap; }
+/* The label column is the one column that is prose, so it is the only one
+ * allowed to wrap — a figure that wraps mid-number is a figure a reader has
+ * to reassemble. */
+.pack-table td:first-child { font-family: var(--pack-font-sans); white-space: normal; }
 .pack-table tbody tr.is-subtotal td { font-weight: 500; border-top: 1pt solid var(--pack-rule); }
 .pack-table tbody tr.is-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); }
 .pack-table tbody tr.is-grand-total td { font-weight: 600; border-top: 1pt solid var(--pack-ink); border-bottom: 3pt double var(--pack-ink); }
@@ -151,7 +184,10 @@ html.print-mode {
   caption-side: top; text-align: left; font-size: 11pt; line-height: 15pt;
   font-weight: 600; padding-bottom: 1.5mm; color: var(--pack-ink);
 }
-.pack-scorecard-row td { border-bottom: 0.5pt solid var(--pack-rule); }
+/* A scorecard cell can hold a not-meaningful REASON rather than a figure —
+ * "Revenue is not positive, so …" — so these wrap too, for the same reason
+ * the matters table's do. */
+.pack-scorecard-row td { border-bottom: 0.5pt solid var(--pack-rule); white-space: normal; }
 .pack-scorecard-trend { width: 18mm; text-align: center; }
 .pack-scorecard-trend-svg svg { display: block; width: 100%; height: auto; }
 .pack-scorecard-status { font-size: 8pt; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -203,7 +239,7 @@ html.print-mode {
 
 .pack-stat-tile { display: flex; flex-direction: column; gap: 0.5mm; }
 .pack-stat-label { font-size: 8pt; line-height: 11pt; color: var(--pack-grey-strong); }
-.pack-stat-value { font-family: var(--pack-font-mono); font-size: 13pt; line-height: 16pt; font-weight: 500; }
+.pack-stat-value { font-family: var(--pack-font-mono); font-size: 13pt; line-height: 16pt; font-weight: 500; white-space: nowrap; }
 .pack-stat-value.is-unavailable { font-size: 10pt; font-style: italic; font-weight: 400; color: var(--pack-grey-mid); }
 
 /* Task 18 — the block layer. Every page below the cover is a column of
@@ -265,7 +301,10 @@ html.print-mode {
  * left-aligned and proportional — the default `.pack-table td` rule right-
  * aligns in the mono face, which is correct for a figure and unreadable for
  * a sentence. Quantum keeps it. */
-.pack-matters td { text-align: left; font-family: var(--pack-font-sans); vertical-align: top; }
+/* Four of five columns are prose, so they WRAP — `.pack-table td`'s
+ * `white-space: nowrap` is right for a statement's figure columns and would
+ * run a sentence clean off the right edge of the paper here. */
+.pack-matters td { text-align: left; font-family: var(--pack-font-sans); vertical-align: top; white-space: normal; }
 .pack-matters th { text-align: left; }
 .pack-matters td:nth-child(2), .pack-matters th:nth-child(2) {
   text-align: right; font-family: var(--pack-font-mono); white-space: nowrap;

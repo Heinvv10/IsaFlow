@@ -180,9 +180,17 @@ describe('draft, commentary and period', () => {
     listCommentary.mockResolvedValue([{ status: 'draft', approvedText: null, draftText: 'x' }]);
 
     const doc = await buildBoardPackDocument(request());
-    const narrative = doc.pages[3]!.blocks.find((b) => b.kind === 'narrative');
+    // Located by SEARCH, not by index: with no approved commentary there is
+    // no narrative page, and the placeholder rides on its neighbour (spec
+    // §5.7 — a page carrying one sentence does not ship). It is still
+    // printed, and still says exactly the same thing.
+    const pendingPages = doc.pages.filter((pg) =>
+      pg.blocks.some((b) => b.kind === 'narrative' && b.narrative.status === 'pending'));
 
-    expect(narrative?.kind === 'narrative' && narrative.narrative.status).toBe('pending');
+    expect(pendingPages.length).toBeGreaterThan(0);
+    for (const pg of pendingPages) {
+      expect(pg.blocks.length, `page ${pg.number} carries only the placeholder`).toBeGreaterThan(1);
+    }
   });
 
   it('formats the period from ISO parts, never through a Date on a UTC+2 host', () => {

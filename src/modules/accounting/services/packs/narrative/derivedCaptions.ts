@@ -53,12 +53,22 @@ export function largestMoverCaption(rows: PackTableRow[]): string {
   return `${largest.label} moved the most, ${direction} ${formatPctMagnitude(largest.pct)}.`;
 }
 
+/**
+ * Page 10's caption.
+ *
+ * It used to concatenate every panel's own TITLE — six full sentences, each
+ * of which is already printed above its own panel three centimetres away.
+ * On a landscape page whose content box is 168mm tall that block of restated
+ * captions was enough to push the page onto a second sheet, and a reader who
+ * read it learnt nothing the panels did not already say. It states the count
+ * and what the panels are for; each panel still states its own movement.
+ */
 export function trendsCaption(panels: PackChartSpec[]): string {
   if (panels.length === 0) {
     return 'No trend panels are available this period.';
   }
-  const noun = panels.length === 1 ? 'metric' : 'metrics';
-  return `This page tracks ${panels.length} ${noun} over the period: ${panels.map((p) => p.title).join('; ')}.`;
+  const noun = panels.length === 1 ? 'metric is' : 'metrics are';
+  return `${panels.length} ${noun} tracked over the period; each panel states where it started and where it ended.`;
 }
 
 /**

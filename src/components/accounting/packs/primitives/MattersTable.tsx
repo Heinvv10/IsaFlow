@@ -7,6 +7,15 @@
  * prose, so a matter has nothing to put in them. That is why `matters` is
  * its own block kind rather than another `table`.
  *
+ * A COLUMN WHOSE EVERY ROW SAYS THE SAME THING IS PRINTED ONCE. `buildMatters`
+ * gives every unusual journal the same movement ("Not tracked — no prior
+ * board pack is stored…") and the same decision, and on the fifteen matters
+ * the real company produced that was two paragraphs repeated fifteen times —
+ * enough to push the page across three sheets. The sentence still reaches the
+ * reader, in full, as a note under the table saying it applies to every
+ * matter. It collapses only on an EXACT match across every row, so a column
+ * that actually differs is never flattened into a claim about all of them.
+ *
  * `quantum` IS a `PackFigure` (I-4). It was a raw rand amount on the argument
  * that an exposure assembled from four reports is not a ledger balance with a
  * source to trace — but it is a number printed in a money column of a board
@@ -29,34 +38,61 @@ export interface MattersTableProps {
  *  another at 13 reads as two documents. */
 const ZEBRA_ROW_THRESHOLD = 12;
 
+/** The three prose columns that can repeat, in print order. */
+const PROSE_COLUMNS = [
+  { key: 'owner', label: 'Owner' },
+  { key: 'movement', label: 'Movement' },
+  { key: 'decisionRequired', label: 'Decision required' },
+] as const;
+
+type ProseColumn = (typeof PROSE_COLUMNS)[number]['key'];
+
+/** The columns every matter answers identically — printed once, below. */
+function uniformColumns(matters: PackMatterFigure[]): ProseColumn[] {
+  if (matters.length < 2) return [];
+  return PROSE_COLUMNS
+    .filter(({ key }) => matters.every((m) => m[key] === matters[0]![key]))
+    .map(({ key }) => key);
+}
+
 export function MattersTable({ matters, scale }: MattersTableProps) {
   const isLong = matters.length > ZEBRA_ROW_THRESHOLD;
+  const uniform = uniformColumns(matters);
+  const columns = PROSE_COLUMNS.filter((c) => !uniform.includes(c.key));
 
   return (
-    <table className={isLong ? 'pack-table pack-matters is-long' : 'pack-table pack-matters'}>
-      <thead>
-        <tr>
-          <th>Issue</th>
-          <th>Quantum</th>
-          <th>Owner</th>
-          <th>Movement</th>
-          <th>Decision required</th>
-        </tr>
-      </thead>
-      <tbody>
-        {matters.map((matter, index) => (
-          <tr key={`${matter.issue}-${index}`} className="pack-matters-row">
-            <td>{matter.issue}</td>
-            {/* An en dash, not a zero: a filing that is overdue has no rand
-             *  amount, and "R0" would say the exposure was measured and
-             *  found to be nothing. */}
-            <td>{matter.quantum.value === null ? '–' : formatMoney(matter.quantum.value, { scale })}</td>
-            <td>{matter.owner}</td>
-            <td>{matter.movement}</td>
-            <td>{matter.decisionRequired}</td>
+    <>
+      <table className={isLong ? 'pack-table pack-matters is-long' : 'pack-table pack-matters'}>
+        <thead>
+          <tr>
+            <th>Issue</th>
+            <th>Quantum</th>
+            {columns.map((c) => <th key={c.key}>{c.label}</th>)}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {matters.map((matter, index) => (
+            <tr key={`${matter.issue}-${index}`} className="pack-matters-row">
+              <td>{matter.issue}</td>
+              {/* An en dash, not a zero: a filing that is overdue has no rand
+               *  amount, and "R0" would say the exposure was measured and
+               *  found to be nothing. */}
+              <td>{matter.quantum.value === null ? '–' : formatMoney(matter.quantum.value, { scale })}</td>
+              {columns.map((c) => <td key={c.key}>{matter[c.key]}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {uniform.length > 0 && (
+        <dl className="pack-table-notes">
+          {PROSE_COLUMNS.filter((c) => uniform.includes(c.key)).map((c) => (
+            <div key={c.key}>
+              <dt>{c.label}</dt>
+              <dd>{matters[0]![c.key]} — the same for every matter listed above.</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </>
   );
 }

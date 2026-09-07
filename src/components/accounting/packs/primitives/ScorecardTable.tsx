@@ -11,6 +11,7 @@
  * in every affected cell.
  */
 import { formatFigureText } from './packFigureText';
+import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import type { MoneyScale } from '@/lib/format/money';
 import { FootnoteMarker } from './FootnoteMarker';
 import { formatMoney, formatPct } from '@/lib/format/money';
@@ -73,19 +74,33 @@ function formatTarget(target: number | null, format: PackFigureFormat, scale: Mo
   }
 }
 
-function ScorecardRowView({ row, scale }: { row: PackScorecardRow; scale: MoneyScale }) {
+function ScorecardRowView({ row, scale, reasons }: {
+  row: PackScorecardRow;
+  scale: MoneyScale;
+  reasons: string[];
+}) {
   return (
     <tr className="pack-scorecard-row">
       <td>
         {row.metric}
         <FootnoteMarker number={row.footnote ?? null} />
       </td>
-      {/* Rubric criterion 9: a not-meaningful row's Actual cell prints an en
-       *  dash, not `actual.unavailable` — that reason is stated ONCE, in the
-       *  page-foot footnote the marker above points to, never repeated here. */}
-      <td>{row.actual.value === null ? '–' : formatFigureText(row.actual, scale)}</td>
+      {/* Rubric criterion 9: a not-meaningful cell never prints its reason in
+       *  the cell. It prints `n/m` and the mark of the note that carries the
+       *  reason in full, once, under the scorecard — see
+       *  `notMeaningfulNotes`. The PRIOR column was the exception and nobody
+       *  noticed: `formatFigureText` returns `unavailable` for a null figure,
+       *  so on a company with no positive comparative base every ratio row
+       *  carried the whole sentence and the page ran onto a second sheet. */}
+      <td>{row.actual.value === null
+        ? <NotMeaningfulCell figure={row.actual} reasons={reasons} />
+        : formatFigureText(row.actual, scale)}</td>
       <td>{formatTarget(row.target, row.actual.format, scale)}</td>
-      <td>{row.prior ? formatFigureText(row.prior, scale) : null}</td>
+      <td>{row.prior === undefined || row.prior === null
+        ? null
+        : row.prior.value === null
+          ? <NotMeaningfulCell figure={row.prior} reasons={reasons} />
+          : formatFigureText(row.prior, scale)}</td>
       <td className="pack-scorecard-trend">
         {row.bulletSvg ? (
           <span
@@ -115,6 +130,13 @@ export interface ScorecardTableProps {
 export function ScorecardTable({ groups, scale }: ScorecardTableProps) {
   assertRowCaps(groups);
 
+  // One note list for the WHOLE scorecard rather than one per group: the same
+  // reason ("Revenue is not positive…") disqualifies metrics in several
+  // groups at once, and three copies of it under three tables is the
+  // repetition this mechanism exists to remove.
+  const rows = groups.flatMap((group) => group.rows);
+  const reasons = collectReasons(rows.flatMap((row) => [row.actual, row.prior]));
+
   return (
     <div className="pack-scorecard">
       {groups.map((group) => (
@@ -132,11 +154,12 @@ export function ScorecardTable({ groups, scale }: ScorecardTableProps) {
           </thead>
           <tbody>
             {group.rows.map((row, index) => (
-              <ScorecardRowView key={`${row.metric}-${index}`} row={row} scale={scale} />
+              <ScorecardRowView key={`${row.metric}-${index}`} row={row} scale={scale} reasons={reasons} />
             ))}
           </tbody>
         </table>
       ))}
+      <NotMeaningfulNotes reasons={reasons} />
     </div>
   );
 }
