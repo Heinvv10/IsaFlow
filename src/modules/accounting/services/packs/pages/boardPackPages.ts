@@ -9,22 +9,18 @@
  * that no service owns and `PackFigureProvenance` cannot trace.
  *
  * It is also SYNCHRONOUS, and that is a contract rather than a convenience:
- * every input that needs the database — the figure set, the trend series, the
- * matters, the ledger version — is fetched by the caller and handed in. The
- * document is composed in the same process that renders it (R-P41), so the
- * `TrustedChartSvg` values the charts carry never cross a JSON boundary,
- * where they would silently decay to `string` and lose the compile-time
- * guarantee that only `renderChartSvg` produced them.
+ * every input that needs the database is fetched by the caller and handed in,
+ * so the `TrustedChartSvg` values the charts carry never cross a JSON
+ * boundary, where they would decay to `string` and lose the compile-time
+ * guarantee that only `renderChartSvg` produced them (R-P41).
  *
  * HOW COMMENTARY IS LABELLED. R7 admits two kinds: approved (a human signed
  * it) and derived (deterministic code). Both are `narrative` blocks and
- * `PackNarrative.status` says which, so a reader of the printed page can
- * tell them apart — `NarrativeColumns` prints a source label for each. The
- * two genuinely human pages — 4 and 11 — carry an 'approved' narrative, and
- * where the commentary has not been approved they carry a 'pending' one,
- * which renders a visible "Commentary pending approval" placeholder rather
- * than dropping the page's requirement or leaking unapproved text. A
- * 'draft' narrative renders nothing at all.
+ * `PackNarrative.status` says which — `NarrativeColumns` prints a source
+ * label for each. The two genuinely human pages, 4 and 11, carry an
+ * 'approved' narrative, and where nothing has been approved they carry a
+ * 'pending' one, which renders a visible placeholder rather than dropping the
+ * page's requirement or leaking unapproved text.
  */
 
 import { PACK_LABELS } from '@/modules/accounting/services/packs/packSections';
@@ -67,7 +63,6 @@ import {
   buildCashBlocks,
   buildCommentaryBlocks,
   buildHighlightsBlocks,
-  buildMattersBlock,
   buildPositionBlocks,
   buildTrendBlocks,
   commentary,
@@ -77,8 +72,14 @@ import {
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
 import { selectPrintedMatters } from './packMattersPrinted';
-import { fitPageToBox, remainingPageMm } from './packPageFit';
-import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
+import { fitPageToBox } from './packPageFit';
+import {
+  buildMattersBlock,
+  buildMattersSupportBlocks,
+  mattersBudgetMm,
+  MATTERS_NAV_LABEL,
+  MATTERS_TITLE,
+} from './packMattersPage';
 // Debtor days printed 213 on the scorecard page and 63.7 on the trends
 // page, one sheet apart, with nothing on either saying that one is the
 // period and the other a month.
@@ -154,34 +155,11 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const cashTrend = buildCashTrendChart(trend, scale);
   const panels = buildTrendPanels(trend, scale);
   // PAGE 11'S OWN BLOCKS, BEFORE ITS TABLE — because the table's budget is
-  // whatever they leave behind.
-  //
-  // The budget used to be a fitted constant in `packMattersPrinted.ts`, swept
-  // against the print harness until a fixture spilled. It was right for the
-  // fixtures that existed and said nothing about the page: change this
-  // page's commentary or its disclosure and the constant is silently wrong,
-  // which is how the pack has now produced three thirteen-sheet renders from
-  // three different blocks.
-  const mattersTitle = 'Matters requiring board attention';
-  const mattersOtherBlocks: PackPageBlock[] = [
-    { kind: 'narrative', narrative: input.mattersCommentary ?? pending },
-    disclose('What was checked', [
-      note('Sources', 'Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A source that fails appears as a named matter, never as a silent omission.'),
-      note('Movement', 'No prior board pack is stored, so movement since the last meeting is stated as untracked rather than computed from a period comparison, which would answer a different question.'),
-    ]),
-  ];
-  // ONE selection, read by page 4's panel and page 11's table alike — derived
-  // twice, they contradicted each other. See `SelectedMatters`.
-  const matters = selectPrintedMatters(
-    input.matters,
-    remainingPageMm(page(mattersTitle, 'Matters for the board', 'Governance', 'medium', [
-      { kind: 'matters', matters: [], omitted: null },
-      ...mattersOtherBlocks,
-      // Reserved, not discovered: a selection that leaves anything out grows
-      // the table by its own "N further matters are not printed" note, and a
-      // budget that has not paid for it overshoots the sheet by that much.
-    ])) - MATTERS_OMITTED_NOTE_MM,
-  );
+  // whatever they leave behind. ONE selection, read by page 4's panel and
+  // page 11's table alike: derived twice, they contradicted each other. See
+  // `SelectedMatters` and `mattersBudgetMm`.
+  const mattersSupport = buildMattersSupportBlocks(input.mattersCommentary ?? pending);
+  const matters = selectPrintedMatters(input.matters, mattersBudgetMm(mattersSupport));
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
@@ -264,13 +242,13 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // orientation is a PAGE-level property the print CSS keys off, never a
     // document-level flag, which would turn the whole pack sideways.
     page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Trends', 'Performance', 'high', trendBlocks, 'landscape'),
-    page(mattersTitle, 'Matters for the board', 'Governance', 'medium', [
+    page(MATTERS_TITLE, MATTERS_NAV_LABEL, 'Governance', 'medium', [
       // Spec §4.A page 11 asks for a TABLE — issue, quantum, owner, movement,
       // decision required. Prose notes carried the same five facts but a
       // director scanning for "which of these needs me" had to read every
       // paragraph to find the owner column.
       buildMattersBlock(matters, p),
-      ...mattersOtherBlocks,
+      ...mattersSupport,
     ]),
     buildBasisPage(basis, input.period, comparativePeriod, scale, currency),
   ];
@@ -290,10 +268,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       basis,
       basisPageNumber: total,
     }),
-    // EVERY page, held to its sheet. The matters table spends page 11's
-    // budget above; this is the same rule applied to the prose on the other
-    // eleven, and it is what makes the contents page's twelve and the
-    // footers' `n / 12` statements the document cannot disprove. A page that
+    // EVERY page, held to its sheet — the same rule the matters table spends
+    // its budget under, applied to the prose on the other eleven. A page that
     // already fits comes back untouched.
     ...body.map(fitPageToBox),
   ]);

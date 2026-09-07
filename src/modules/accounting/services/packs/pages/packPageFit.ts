@@ -38,14 +38,11 @@
  * omission would be the thing that caused one.
  */
 import {
-  BLOCK_GAP_MM,
-  blockMm,
   pageBoxMm,
   pageMm,
-  pageOrientation,
   type MeasurablePage,
 } from './packPageMetrics';
-import type { PackDisclosureNote, PackPageBlock } from './packPageModel';
+import type { PackFootnote, PackPageBlock } from './packPageModel';
 
 /** The paper this page has left over, in millimetres. Negative where it does
  *  not fit — see `fitPageToBox`. What page 11 spends on its matters table. */
@@ -53,8 +50,30 @@ export function remainingPageMm(page: MeasurablePage): number {
   return pageBoxMm(page) - pageMm(page);
 }
 
+/**
+ * THE TARGET IS THE SHEET LESS A MILLIMETRE OR FOUR.
+ *
+ * `packPageMetrics` is a budget, not a layout engine, and the difference
+ * shows at the edge: the live Brightsphere trends page measured 167.1mm in a
+ * 168mm box under this harness and took a second landscape sheet through the
+ * application's own route. Nothing about the document differed — 0.9mm of
+ * slack is not slack, it is a coin toss between two Chromiums.
+ *
+ * Four millimetres is what that difference measured: at two the live
+ * Brightsphere pack still printed thirteen sheets and at four it printed
+ * twelve, both rendered through the application's own route. The harness
+ * loads `print.css` over a bare `body{margin:0}` and the app loads it over
+ * Tailwind's preflight, so the two do not agree to the millimetre on
+ * paragraph and list defaults — which is a gap in the harness worth closing,
+ * and until it is closed this is the margin that covers it.
+ *
+ * It is a MARGIN, not a rounding: the model's own conservatism is separate
+ * and lives in `packPageMetrics`.
+ */
+const SHEET_SAFETY_MM = 4;
+
 /** What a page had to leave out, for the note that says so. */
-interface Dropped {
+export interface Dropped {
   notes: number;
   footnotes: number;
   truncated: number;
@@ -62,15 +81,30 @@ interface Dropped {
 
 const NOTHING: Dropped = { notes: 0, footnotes: 0, truncated: 0 };
 
-/** The heading the omission disclosure prints under. Exported so the tests
- *  and the integrity gate name the same block rather than a second spelling. */
-export const OMISSION_HEADING = 'Not printed on this page';
+/**
+ * How the page says it left something out, and WHY IT IS A FOOTNOTE.
+ *
+ * It began as a trailing disclosure block, and on the live Brightsphere
+ * balance sheet that block WAS the overflow: 26mm of heading, gap and body
+ * explaining an omission, on a page that then ran 12mm past the paper and
+ * took the thirteenth sheet the trimming existed to prevent. A page short of
+ * four millimetres cannot pay a centimetre to say so.
+ *
+ * A footnote costs a fifth of that, is set in the same 7.5pt grey the pack
+ * already uses for facts ABOUT a page rather than on it, and sits where a
+ * reader looks for what else there is. The pack's statement pages already
+ * carry unreferenced footnotes of exactly this kind.
+ *
+ * Exported so the tests look for the same string the page prints rather than
+ * a second spelling of it.
+ */
+export const OMISSION_MARK = 'This page had room for its figures and not for all of its prose';
 
 /** The shortest a truncated note is cut to. Below this the sentence stops
  *  saying anything and the ellipsis is the whole note. */
 const MIN_NOTE_BODY = 60;
 
-function omissionNote(dropped: Dropped): PackDisclosureNote {
+function omissionText(dropped: Dropped): string {
   const parts: string[] = [];
   if (dropped.notes > 0) {
     parts.push(`${dropped.notes} explanatory ${dropped.notes === 1 ? 'note' : 'notes'}`);
@@ -81,18 +115,13 @@ function omissionNote(dropped: Dropped): PackDisclosureNote {
   if (dropped.truncated > 0) {
     parts.push(`${dropped.truncated} shortened ${dropped.truncated === 1 ? 'note' : 'notes'}`);
   }
-  return {
-    heading: 'What is missing',
-    body:
-      `This page had room for its figures and not for all of its prose: ${parts.join(', ')} `
-      + 'are not printed in full. Every figure, table and chart the page carries is complete — '
-      + 'a board pack is the same twelve sheets for every company, and a sheet that cannot hold '
-      + 'its own commentary says so rather than running onto a thirteenth.',
-  };
+  return `${OMISSION_MARK}: ${parts.join(', ')} are not printed. Every figure, `
+    + 'table and chart on it is complete; a board pack is the same twelve sheets for every company.';
 }
 
-function omissionBlock(dropped: Dropped): PackPageBlock {
-  return { kind: 'disclosure', disclosure: { heading: OMISSION_HEADING, notes: [omissionNote(dropped)], required: true } };
+/** The omission footnote, numbered after whatever survives on the page. */
+function omissionFootnote(dropped: Dropped, footnotes: PackFootnote[]): PackFootnote {
+  return { number: footnotes.length + 1, text: omissionText(dropped) };
 }
 
 /**
@@ -109,7 +138,6 @@ function lastTrimmableNote(blocks: PackPageBlock[], level: 'optional' | 'require
   for (let i = blocks.length - 1; i >= 0; i -= 1) {
     const block = blocks[i]!;
     if (block.kind !== 'disclosure') continue;
-    if (block.disclosure.heading === OMISSION_HEADING) continue;
     const required = block.disclosure.required === true;
     if (required !== (level === 'required')) continue;
     if (block.disclosure.notes.length > (required ? 1 : 0)) return i;
@@ -127,8 +155,15 @@ function dropNote(blocks: PackPageBlock[], index: number): void {
 }
 
 /**
- * Halve the longest surviving note's body, marked with an ellipsis so a
- * reader sees the sentence was cut.
+ * Halve the longest surviving OPTIONAL note's body, marked with an ellipsis
+ * so a reader sees the sentence was cut.
+ *
+ * A required disclosure is never abridged. §3.5's negative-equity
+ * consequence is one sentence long by design and shortening it would leave a
+ * mandatory disclosure half made — worse than the millimetre of margin it
+ * would buy. A page with nothing optional left to cut keeps what it has, and
+ * the printed-box assertion in `packSheetCount.test.ts` is what decides
+ * whether that was survivable.
  *
  * The lever of last resort, and the one that has to terminate: every call
  * must return a STRICTLY shorter body or the loop above never ends. Hence
@@ -138,7 +173,7 @@ function dropNote(blocks: PackPageBlock[], index: number): void {
 function truncateLongestNote(blocks: PackPageBlock[]): boolean {
   let best: { block: number; note: number; length: number } | null = null;
   for (const [i, block] of blocks.entries()) {
-    if (block.kind !== 'disclosure' || block.disclosure.heading === OMISSION_HEADING) continue;
+    if (block.kind !== 'disclosure' || block.disclosure.required === true) continue;
     for (const [j, note] of block.disclosure.notes.entries()) {
       if (note.body.length <= MIN_NOTE_BODY) continue;
       if (best === null || note.body.length > best.length) best = { block: i, note: j, length: note.body.length };
@@ -164,19 +199,32 @@ function truncateLongestNote(blocks: PackPageBlock[]): boolean {
  * has produced all three overflows so far.
  */
 export function fitPageToBox<T extends MeasurablePage>(page: T): T {
-  const box = pageBoxMm(page);
-  if (pageMm(page) <= box) return page;
+  return fitPageReport(page).page;
+}
 
-  const orientation = pageOrientation(page);
-  // Reserved first, at its own cost: the sentence that explains the omission
-  // must not be the reason for one.
-  const reserve = blockMm(omissionBlock({ notes: 9, footnotes: 9, truncated: 9 }), orientation) + BLOCK_GAP_MM;
-  const budget = box - reserve;
+/** The same fit, with what it took — for the tests that hold the model to a
+ *  bound on how much a page may lose to it. */
+export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dropped: Dropped } {
+  const box = pageBoxMm(page) - SHEET_SAFETY_MM;
+  if (pageMm(page) <= box) return { page, dropped: NOTHING };
 
   const blocks: PackPageBlock[] = [...page.blocks];
-  const footnotes = [...page.footnotes];
+  const footnotes: PackFootnote[] = [...page.footnotes];
   const dropped: Dropped = { ...NOTHING };
-  const over = () => pageMm({ ...page, blocks, footnotes }) > budget;
+  // THE PAGE IS MEASURED WITH THE FOOTNOTE THAT EXPLAINS THE TRIMMING ON IT.
+  // A budget that reserves a flat allowance instead over-trims a page that
+  // needed one note off, and under-trims the page where the allowance turns
+  // out to be too small. Measuring the actual document stops as soon as the
+  // actual document fits.
+  const over = () => pageMm({
+    ...page,
+    blocks,
+    // Sized at the LONGEST wording the footnote can take, not at the one the
+    // drops so far would print: the sentence grows a clause per kind of thing
+    // dropped, and a page measured against the short form and printed with
+    // the long one is a page measured against a document it does not become.
+    footnotes: [...footnotes, omissionFootnote({ notes: 9, footnotes: 9, truncated: 9 }, footnotes)],
+  }) > box;
 
   while (over()) {
     const optional = lastTrimmableNote(blocks, 'optional');
@@ -191,5 +239,18 @@ export function fitPageToBox<T extends MeasurablePage>(page: T): T {
     break;
   }
 
-  return { ...page, blocks: [...blocks, omissionBlock(dropped)], footnotes };
+  // NOTHING TAKEN, NOTHING SAID — and nothing added.
+  //
+  // A page whose only prose is a required one-note disclosure has no lever
+  // this function may pull, and the first version appended the "what is
+  // missing" note anyway: 26mm of disclosure explaining an omission that had
+  // not happened, on a page that then ran 12mm past the paper because of it.
+  // The note was the overflow.
+  if (dropped.notes === 0 && dropped.footnotes === 0 && dropped.truncated === 0) {
+    return { page, dropped: NOTHING };
+  }
+  return {
+    page: { ...page, blocks, footnotes: [...footnotes, omissionFootnote(dropped, footnotes)] },
+    dropped,
+  };
 }

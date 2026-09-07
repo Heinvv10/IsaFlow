@@ -38,11 +38,11 @@ import {
 } from '../services/packs/fixtures/liveDemoBoardPack';
 import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import { printBoardPack, type PrintedPack } from './renderPackPdf';
-import { buildMattersBlock } from '@/modules/accounting/services/packs/pages/packPageBlocks';
+import { buildMattersBlock } from '@/modules/accounting/services/packs/pages/packMattersPage';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { selectPrintedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
-import { fitPageToBox, OMISSION_HEADING } from '@/modules/accounting/services/packs/pages/packPageFit';
+import { fitPageToBox, fitPageReport, OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -133,11 +133,17 @@ describe('the printed board pack', () => {
    *
    * AND IT IS CHECKED IN THE OTHER DIRECTION TOO, because a model answering
    * 10 000mm to everything would satisfy the first half and trim every page
-   * to nothing. The bound that means something is not a millimetre count —
-   * it is that no fixture actually LOSES anything: seven documents, eighty-
-   * four pages, and not one of them carries the "Not printed on this page"
-   * disclosure. A model loose enough to cost a real company a note fails
-   * here.
+   * to nothing. Two bounds, and neither is a page count:
+   *
+   *   - the over-estimate on a page whose prose the budget can take is under
+   *     20mm, about four notes. Beyond that the trimmer is paying for the
+   *     model's own slack out of the reader's document. The matters page is
+   *     exempt and stated so: its budget is spent BEFORE the page is built,
+   *     so looseness there costs table rows, and the page prints how many and
+   *     what they come to.
+   *   - nothing is ever truncated. Truncation is the lever of last resort in
+   *     `fitPageToBox`; a fixture that reaches it means the levers above it
+   *     ran out, which is a design failure and not a tight page.
    */
   it('never estimates a page shorter than the browser lays it out', async () => {
     const slack: number[] = [];
@@ -150,21 +156,27 @@ describe('the printed board pack', () => {
         if (!isContentPage(page.number)) continue;
         const measured = printed.heights[index]!;
         const estimate = pageMm(page);
+        const matters = page.blocks.some((b) => b.kind === 'matters');
         expect(
           Math.round(estimate * 10) / 10,
           `${name} page ${page.number}: the composer budgeted ${estimate.toFixed(1)}mm and the `
             + `browser laid out ${measured.contentMm}mm. An estimate below the paper is what puts `
             + 'a page on a second sheet.',
         ).toBeGreaterThanOrEqual(measured.contentMm);
-        slack.push(estimate - measured.contentMm);
+        if (!matters) slack.push(estimate - measured.contentMm);
       }
     }
     expect(slack.length, 'no page was measured').toBeGreaterThan(60);
+    const worst = Math.max(...slack);
+    expect(worst, `the model over-estimates a page by ${worst.toFixed(1)}mm`).toBeLessThan(20);
+
     for (const [name, input] of Object.entries(FIXTURES)) {
-      const trimmed = buildBoardPackPages(input).pages
-        .filter((p) => p.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === OMISSION_HEADING))
-        .map((p) => p.number);
-      expect(trimmed, `${name}: the budget cost these pages content they had room for`).toEqual([]);
+      for (const page of buildBoardPackPages(input).pages) {
+        const said = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
+        if (said === undefined) continue;
+        expect(said.text, `${name} page ${page.number}: a note was shortened rather than dropped`)
+          .not.toContain('shortened');
+      }
     }
   }, 300_000);
 
@@ -213,7 +225,7 @@ describe('the printed board pack', () => {
     expect(printed.sheets, sheetReport(printed.sheetText, printed.heights)).toBe(budgeted.pages.length);
     expect(printed.heights.filter((h) => h.overMm > 0.2)).toEqual([]);
     // And it SAYS what it dropped, on the sheet.
-    expect(printed.sheetText[index]!.replace(/\s+/g, ' ')).toContain(OMISSION_HEADING);
+    expect(printed.sheetText[index]!.replace(/\s+/g, ' ')).toContain(OMISSION_MARK);
   }, 300_000);
 
   /**

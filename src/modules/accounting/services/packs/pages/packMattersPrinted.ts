@@ -25,7 +25,7 @@
  * distinction that made the previous cap not a cap.
  */
 import type { PackMatter } from './packMatters';
-import { linesForChars } from './packPageMetrics';
+import { linesForChars } from './packTextMetrics';
 
 /**
  * THE BUDGET IS THE PAPER THE PAGE HAS LEFT, NOT A ROW COUNT AND NOT A

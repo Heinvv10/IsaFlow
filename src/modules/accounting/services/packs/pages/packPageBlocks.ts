@@ -22,14 +22,12 @@ import {
   trendsCaption,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { TRENDS_PANELS_SPECIFIED, type PackCashBridge } from './packPageCharts';
+import type { SelectedMatters } from './packMattersPrinted';
 import { trendWindowNote } from './packTrendCrossReference';
 import type { MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_NOTE } from './packBasis';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import type { PackMatter } from './packMatters';
-import { omittedQuantum, type SelectedMatters } from './packMattersPrinted';
 import type {
   PackChartSpec,
   PackComparativePeriod,
@@ -159,58 +157,6 @@ export function buildCommentaryBlocks(
   ];
 }
 
-/**
- * Page 11 — the matters, with each quantum recorded through the provenance
- * map (I-4).
- *
- * The source is indexed by RANK, which is the only stable identifier a matter
- * has: `buildMatters` orders them by quantum, largest first, and two matters
- * from different sources can carry the same issue text. It must be unique per
- * matter — one source issued twice with two values is what `assertConsistent`
- * throws on, and it would take the render with it.
- */
-const NO_QUANTUM =
-  'This matter has no single rand amount — an overdue filing, or a check that found nothing to quantify.';
-
-const OMITTED_NOT_QUANTIFIED =
-  'None of the matters not printed here carries a single rand amount, so they have no total to state.';
-
-export function buildMattersBlock(selection: SelectedMatters, p: PackFigureProvenance): PackPageBlock {
-  // What FITS on the sheet, and what is left over — see `packMattersPrinted`.
-  // The selection is made ONCE, by `buildBoardPackPages`, and page 4's action
-  // panel is handed the same object: the two pages cannot disagree about the
-  // board's action list because there is only one list.
-  //
-  // The index a quantum is recorded under is the matter's rank in the FULL
-  // list as `buildMatters` returned it — `selection.source`, not the printing
-  // order — so a source is still unique per matter and still traces back to
-  // the same finding whether or not the page had room to print it, and it
-  // does not move when the printing order does.
-  const { printed, omitted, source } = selection;
-  const rank = new Map<PackMatter, number>(source.map((matter, index) => [matter, index]));
-  const total = omittedQuantum(omitted);
-
-  return {
-    kind: 'matters',
-    matters: printed.map((matter) => {
-      const { quantum, ...rest } = matter;
-      const source = `buildMatters.quantum.${rank.get(matter) ?? 0}`;
-      return {
-        ...rest,
-        quantum: quantum === null
-          ? p.figure(source, null, 'money', NO_QUANTUM)
-          : p.figure(source, quantum, 'money'),
-      };
-    }),
-    omitted: omitted.length === 0 ? null : {
-      count: omitted.length,
-      quantum: total === null
-        ? p.figure('buildMatters.omittedQuantum', null, 'money', OMITTED_NOT_QUANTIFIED)
-        : p.figure('buildMatters.omittedQuantum', total, 'money'),
-    },
-  };
-}
-
 /** Page 7 — the balance sheet, its composition chart, and the MANDATORY
  *  §3.5 negative-equity disclosure when equity is underwater. */
 export function buildPositionBlocks(
@@ -301,9 +247,16 @@ export function buildTrendBlocks(panels: PackChartSpec[]): PackPageBlock[] {
   // printed on this page and on the income statement page" two centimetres
   // above a disclosure saying no gross-margin panel could be drawn.
   const windowNote = trendWindowNote(panels);
+  // THE WINDOW NOTE FIRST, and the scale note after it. Not a stylistic
+  // ordering: `fitPageToBox` takes a disclosure's LAST note first, and this
+  // is the tightest page in the pack — 0.9mm of slack on the live
+  // Brightsphere render. Of the two, the scale note describes what a reader
+  // can see on the panels and the window note explains why two sheets print
+  // different figures for one measure. The one that costs a reader least is
+  // the one that goes.
   trendBlocks.push(disclose('Reading these panels', [
-    note('Scale', 'Revenue, operating expenses, net profit and cash share one y-scale, so a metric ten times the size of another cannot look like it moved as much. Gross margin % and debtor days are different units and keep their own.'),
     ...(windowNote === null ? [] : [windowNote]),
+    note('Scale', 'Revenue, operating expenses, net profit and cash share one y-scale, so a metric ten times the size of another cannot look like it moved as much. Gross margin % and debtor days are different units and keep their own.'),
   ]));
   if (panels.length < TRENDS_PANELS_SPECIFIED) {
     trendBlocks.push(mustDisclose('Panels not drawn', [
