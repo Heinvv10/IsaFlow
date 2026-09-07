@@ -144,6 +144,45 @@ describe('buildMatters', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  /**
+   * TWO DEBTORS OWING THE IDENTICAL AMOUNT MUST NOT BE SEPARATED BY THE ORDER
+   * THE SNAPSHOT CAME BACK IN.
+   *
+   * This sentence prints a CUSTOMER'S NAME. `[...buckets].sort((a, b) => b.total
+   * - a.total)` is stable, so the winner of an exact tie was whichever of them
+   * the aging read happened to return first — a query-plan decision, on
+   * unchanged data, in the governance section of a document a director
+   * forwards to their bank. Same class as `getUnusualJournals` having no
+   * ORDER BY.
+   *
+   * ASSERTED FROM BOTH INPUT ORDERS, which is the only way to see it: one
+   * order alone passes whatever the tie-break is.
+   */
+  it('names the same tied debtor whichever order the aging returns them in', async () => {
+    const tied = (first: string, second: string): AgingReport => {
+      const base = agingWithConcentration(50_000, [10_000]);
+      return {
+        ...base,
+        buckets: [
+          { entityId: first, entityName: first, current: 50_000, days30: 0, days60: 0, days90: 0, days120Plus: 0, total: 50_000 },
+          { entityId: second, entityName: second, current: 50_000, days30: 0, days60: 0, days90: 0, days120Plus: 0, total: 50_000 },
+        ],
+        totals: { ...base.totals, total: 100_000 },
+      };
+    };
+
+    agingSpy.mockResolvedValue(tied('Alpha Traders', 'Beta Supplies'));
+    const forwards = (await buildMatters('c1', window))
+      .find((m) => m.issue.startsWith('Aged debtor concentration'))!.issue;
+    agingSpy.mockResolvedValue(tied('Beta Supplies', 'Alpha Traders'));
+    const backwards = (await buildMatters('c1', window))
+      .find((m) => m.issue.startsWith('Aged debtor concentration'))!.issue;
+
+    expect(forwards, 'the fixture did not reach the concentration matter').toContain('Alpha Traders');
+    expect(backwards, 'the debtor named depends on the order the aging read returned')
+      .toBe(forwards);
+  });
+
   it('keeps the exception itself off the page and out of the log line', async () => {
     // The matter still appears — that is this file's rule. What came off the
     // PAGE is `String(error)`, which put a driver's message, and whatever a

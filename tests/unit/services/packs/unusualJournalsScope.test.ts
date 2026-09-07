@@ -36,6 +36,41 @@ function emitted(): { text: string; values: unknown[] } {
   };
 }
 
+describe('getUnusualJournals orders its rows totally', () => {
+  beforeEach(() => {
+    sqlSpy.mockReset();
+    sqlSpy.mockResolvedValue([]);
+  });
+
+  /**
+   * WITHOUT THIS, THE QUERY PLAN PICKS WHICH MATTER A BOARD READS.
+   *
+   * The rows become page 11's matters, ranked by exposure, and the page
+   * prints only what fits. Two journals of the same amount — Brightsphere has
+   * two at exactly R161 000.00 — were separated by whatever order the grouped
+   * scan returned, and adding the company_id predicate above was enough to
+   * change the plan and swap them between two renders of unchanged data.
+   *
+   * `je.id` is what makes the order TOTAL: `entry_number` is nullable, so it
+   * cannot be the last key. That is the half a "has an ORDER BY" assertion
+   * would miss.
+   */
+  it('breaks a tie on a key that cannot itself tie', async () => {
+    await getUnusualJournals(COMPANY, { start: '2026-01-01', end: '2026-09-07' });
+    const sqlOnly = emitted().text.replace(/--[^\n]*/g, '');
+    const order = /ORDER BY([\s\S]*)$/i.exec(sqlOnly);
+    expect(order, 'the query has no ORDER BY, so its row order is the plan\'s').not.toBeNull();
+    const clause = order![1]!.replace(/\s+/g, ' ').trim();
+    // Amount first — the ranking the page itself argues for — then the date.
+    expect(clause).toMatch(/^COALESCE\(SUM\(jl\.debit\), 0\) DESC, je\.entry_date DESC/i);
+    // And a UNIQUE column last. `entry_number` is nullable, so an ORDER BY
+    // ending there is still the plan's decision for the rows that share a
+    // null — which is the half a bare "has an ORDER BY" assertion misses.
+    expect(clause, 'the last sort key is not unique, so ties are still the plan\'s')
+      .toMatch(/,\s*je\.id$/i);
+  });
+});
+
 describe('getUnusualJournals scopes both tables it reads', () => {
   beforeEach(() => {
     sqlSpy.mockReset();

@@ -88,7 +88,15 @@ async function agedDebtorConcentrationMatters(
   const report = await getAgingReport(companyId, 'ar', window.end);
   if (report.totals.total <= 0 || report.buckets.length === 0) return [];
 
-  const largest = [...report.buckets].sort((a, b) => b.total - a.total)[0]!;
+  // TIE-BROKEN ON THE ENTITY, for the same reason `getUnusualJournals` now
+  // carries an ORDER BY: this sentence prints a CUSTOMER'S NAME, and two
+  // debtors owing the identical amount would otherwise be separated by
+  // whatever order the aging snapshot happened to come back in. `entityId` is
+  // the unique key; the name is compared first only so an equal pair reads in
+  // an order a person can predict.
+  const largest = [...report.buckets].sort((a, b) => b.total - a.total
+    || a.entityName.localeCompare(b.entityName)
+    || a.entityId.localeCompare(b.entityId))[0]!;
   if (largest.total <= 0) return [];
 
   const pct = (largest.total / report.totals.total) * 100;

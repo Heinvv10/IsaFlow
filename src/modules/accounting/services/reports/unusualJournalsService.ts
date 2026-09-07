@@ -69,6 +69,22 @@ export async function getUnusualJournals(
       AND je.status = 'posted'
       AND je.entry_date BETWEEN ${window.start}::DATE AND ${window.end}::DATE
     GROUP BY je.id, je.entry_number, je.entry_date, je.description, je.created_at
+    -- A TOTAL ORDER, BECAUSE THE PLAN IS NOT ALLOWED TO PICK WHICH MATTER A
+    -- BOARD READS.
+    --
+    -- These rows become page 11's matters, ranked by exposure, and the page
+    -- prints only what fits. With no ORDER BY, two journals of the SAME
+    -- amount were ordered by whatever the grouped scan returned -- and
+    -- Brightsphere has two at exactly R161 000.00. Adding a predicate to the
+    -- join above was enough to change the plan and swap which of them a
+    -- director saw, on unchanged data. Same class as the system-account
+    -- resolver that let heap order decide a map.set.
+    --
+    -- je.id last, and it is what makes this total: entry_number is nullable,
+    -- so it cannot be the final key. Amount then date is the order the page
+    -- itself argues for -- largest exposure first, most recent of an equal
+    -- pair first -- so the tie-break is meaningful rather than merely stable.
+    ORDER BY COALESCE(SUM(jl.debit), 0) DESC, je.entry_date DESC, je.entry_number, je.id
   `) as Array<Record<string, unknown>>;
 
   const flags: UnusualJournalFlag[] = [];
