@@ -40,10 +40,8 @@ import {
   customerBelongsToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
 import { accountsBelongToCompany } from '@/modules/accounting/services/gl/chartOfAccountsService';
-import {
-  bulkCreateSupplierInvoicesTool,
-  bulkCreateCustomerInvoicesTool,
-} from '@/lib/mcp/tools/writeBulkInvoices';
+import { bulkCreateSupplierInvoicesTool } from '@/lib/mcp/tools/writeBulkInvoices';
+import { bulkCreateCustomerInvoicesTool } from '@/lib/mcp/tools/writeBulkCustomerInvoices';
 import type { McpToolContext, McpToolResult } from '@/lib/mcp/types';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -140,13 +138,21 @@ describe('bulk_create_supplier_invoices', () => {
     expect(createSupplierInvoice).not.toHaveBeenCalled();
   });
 
-  it('refuses the same supplier invoice_number twice in one batch', async () => {
+  // CONTRACT CHANGE (2026-09-07): a repeat used to refuse the whole call. It is
+  // now a SKIP — one bill sent twice is a fact about the data, not a fault in
+  // the request, and refusing 99 good bills over it is what made the Velocity
+  // reload renumber 14 Sage pairs by hand. Detail in
+  // tests/unit/mcp/bulkCreateDuplicateSkip.test.ts.
+  it('skips the same supplier invoice_number twice in one batch, keeping the first', async () => {
     const r = await bulkCreateSupplierInvoicesTool.handler({
       invoices: [bill(), bill()],
       ...KEY,
     }, ctx());
-    expect(errText(r)).toContain('invoices[1] repeats invoice_number');
-    expect(createSupplierInvoice).not.toHaveBeenCalled();
+    const out = parseOk(r);
+    expect(out.created_count).toBe(1);
+    expect(createSupplierInvoice).toHaveBeenCalledTimes(1);
+    expect(out.skipped).toHaveLength(1);
+    expect((out.skipped as { index: number }[])[0]!.index).toBe(1);
   });
 
   it('allows the same invoice_number for DIFFERENT suppliers', async () => {

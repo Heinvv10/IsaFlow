@@ -22,6 +22,7 @@ import { computeFingerprint } from '../capture/captureDeduplicationService';
 import { resolvePendingAlertForInvoice } from '../capture/alertResolutionService';
 import { mapInvoiceRow } from './supplierInvoiceQueryService';
 import type { PostingActorOpts } from '../gl/journalEntryMeta';
+import { DEFAULT_SUPPLIER_TAX_RATE } from '../../constants/supplierInvoiceDefaults';
 
 type Row = DbRow;
 
@@ -79,7 +80,7 @@ export async function createSupplierInvoice(
         throw new Error(`Line "${item.description}": unit price cannot be negative`);
       }
     }
-    const invoiceTaxRate = input.taxRate ?? 15;
+    const invoiceTaxRate = input.taxRate ?? DEFAULT_SUPPLIER_TAX_RATE;
     let subtotal = 0;
     let totalTax = 0;
 

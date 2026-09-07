@@ -32,6 +32,7 @@ import {
 } from '@/modules/billing/services/flowWalletService';
 import { getCompanyPlan } from '@/lib/billing/getCompanyPlan';
 import { MAX_INVOICES } from './tools/writeBulkInvoices';
+import { partitionSupplierInvoiceBatch } from './tools/bulkInvoiceDuplicateSkip';
 import {
   getFlowCost,
   type FlowOperationCode,
@@ -379,6 +380,22 @@ export function flowOperationFor(
  *
  * A malformed `invoices` argument yields 1 — the handler refuses it before
  * writing anything, and the refund path returns that one unit.
+ *
+ * ── WHY THE AP ARM COUNTS WHAT WILL BE CREATED, NOT WHAT WAS SENT ───────────
+ *
+ * `bulk_create_supplier_invoices` SKIPS an element that repeats an earlier one
+ * identically, so `created` is no longer either 0 or N — and the refund is
+ * all-or-nothing (`registry.ts` has one boolean `billable`, not a partial), so
+ * billing the sent count charges for bills that were never written. A payload
+ * of 100 carrying 14 repeats would debit 100 and create 86, with no refund;
+ * under the previous contract the same call refused and was refunded whole.
+ *
+ * So the quantity comes from the SAME pure partition the handler uses. It is
+ * still read pre-handler and still refunded whole on failure — the invariant
+ * the debit relies on is intact, it is just counted correctly. A batch the
+ * partition refuses (malformed, or one number naming two different bills)
+ * yields 1, matching the malformed case above: the handler writes nothing and
+ * the single unit is refunded.
  */
 export function flowQuantityFor(
   toolName: string,
@@ -388,6 +405,24 @@ export function flowQuantityFor(
     return 1;
   }
   if (!Array.isArray(args.invoices) || args.invoices.length === 0) return 1;
+  if (toolName === 'bulk_create_supplier_invoices' && args.invoices.length <= MAX_INVOICES) {
+    // Bounded FIRST, and partitioned only inside the bound. An oversized array
+    // is refused whole by the handler, so it falls through to the capped count
+    // below rather than being parsed — otherwise a hostile 50,000-element
+    // payload would be fully parsed HERE and again in the handler, before
+    // anything had decided to refuse it.
+    const elements = args.invoices.filter(
+      (e): e is Record<string, unknown> => typeof e === 'object' && e !== null && !Array.isArray(e),
+    );
+    // A shape the partition cannot read is refused by the handler unwritten, so
+    // it costs the one unit the refund returns.
+    if (elements.length !== args.invoices.length) return 1;
+    const partitioned = partitionSupplierInvoiceBatch(elements);
+    if (typeof partitioned === 'string') return 1;
+    // `kept` is never 0 for a batch that parses, but the floor is explicit: a
+    // zero debit would take the call off the metering ledger entirely.
+    return Math.max(partitioned.kept.length, 1);
+  }
   // CAPPED. The debit is taken before the handler runs, and JSON Schema
   // `maxItems` is advisory — nothing in this server enforces it — so a 50,000
   // element array would debit 50,000 invoices before the handler refused it as
