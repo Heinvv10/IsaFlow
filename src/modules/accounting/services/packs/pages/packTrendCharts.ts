@@ -136,9 +136,12 @@ function moneyPanel(
   // or caption anywhere in the document mentioned it.
   if (dominant !== null) {
     const because = dominant.creditMonth === null ? '' : ` — ${dominant.creditMonth}`;
+    // "sets N% of the scale" was a THIRD percentage on a page already
+    // carrying two, measuring something else again — how much of the shared
+    // span goes away when this point does. Said as what it is.
     clauses.push(
-      `${dominant.label} alone is ${prose(dominant.value)}${because} — and sets `
-      + `${dominant.sharePct}% of the scale.`,
+      `${dominant.label} alone is ${prose(dominant.value)}${because}; drop it and the shared `
+      + `range shrinks by ${dominant.sharePct}%.`,
     );
   }
   return {
@@ -201,11 +204,27 @@ export interface TrendPanels {
   ownScale: Array<{ name: string; sharePct: number }>;
   /** Panels in a unit of their own — a percentage, a day count. */
   ownUnits: string[];
+  /**
+   * The shared y-domain in words — "(707) to 1 908, a span of 2 615" — so the
+   * page can STATE the denominator its percentages are taken against.
+   *
+   * Two panels claimed "1.1% of the shared range" and "1.7%" and the page
+   * printed nothing a reader could check them against; a reviewer took the
+   * spans off the two figures in each panel's own title (2 to 29, 15 to 41),
+   * got near-identical numbers, and reported the claims as irreconcilable.
+   * They are not — the percentage is a panel's whole HIGH-TO-LOW range over
+   * the shared span, not the movement between its first and last month — but
+   * a claim a reader cannot check is a disclosure failure whether or not the
+   * arithmetic is right.
+   *
+   * Null where no money panel is drawn.
+   */
+  sharedRange: string | null;
 }
 
 export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): TrendPanels {
   if (trend.length === 0) {
-    return { panels: [], sharedScale: [], ownScale: [], ownUnits: [] };
+    return { panels: [], sharedScale: [], ownScale: [], ownUnits: [], sharedRange: null };
   }
 
   // ONE y-domain across the money panels (spec §4.A page 10) for every panel
@@ -215,7 +234,7 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
   // domain when its own range is too small to register on it, and it says so
   // when it does. See `packTrendScale.ts`.
   const series = MONEY_PANELS.map((panel) => trend.map(panel.pick));
-  const { panels: scales } = moneyPanelScales(series);
+  const { shared, panels: scales } = moneyPanelScales(series);
   const dominator: ScaleDominator | null = dominantPoint(series);
 
   const money = MONEY_PANELS.map((panel, i) => {
@@ -250,6 +269,9 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
       .filter((p) => !p.shared)
       .map(({ name, sharePct }) => ({ name, sharePct })),
     ownUnits: RATIO_PANELS.filter((p) => panels.some((drawn) => drawn.id === p.id)).map((p) => p.name),
+    sharedRange: `${inProse(formatMoney(shared.min, { scale }))} to `
+      + `${inProse(formatMoney(shared.max, { scale }))}, a span of `
+      + `${inProse(formatMoney(shared.max - shared.min, { scale }))} ${scale}`,
   };
 }
 

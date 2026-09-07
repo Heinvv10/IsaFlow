@@ -158,7 +158,7 @@ export function buildCommentaryBlocks(
     { kind: 'narrative', narrative, boardActions: boardActionItems(selection) },
     disclose('How this page is prepared', [
       note('Commentary', 'The left column carries the board\'s own commentary on the period. It prints only once an approver has signed it; until then this page says so rather than printing unapproved text.'),
-      note('Action panel', 'The right column is derived from the same checks the matters page tabulates — aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings — ordered by the size of the exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.'),
+      note('Action panel', 'The right column is derived from the same checks the matters page tabulates — aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings — in the order the matters page prints them: matters with no single rand amount first, then the largest by exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.'),
     ]),
   ];
 }
@@ -268,10 +268,24 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
   }
   if (panels.ownScale.length > 0) {
     const named = inWords(panels.ownScale.map((p) => `${p.name} (${p.sharePct}%)`));
+    // WHAT THE PERCENTAGE IS OF, IN THE SENTENCE THAT MAKES THE CLAIM. The
+    // page asserted "1.1% of the shared range" and printed nothing a reader
+    // could check it against, so a reviewer took the spans off the two
+    // figures in each panel's own title — 2 to 29 against 15 to 41 — got
+    // near-identical numbers, and reported the two claims as irreconcilable.
+    // They are not: the percentage is a panel's whole high-to-low range over
+    // the shared span, not the movement between the months its title names.
+    // But a share of an unstated number is not a disclosure, whether or not
+    // the arithmetic behind it is right.
+    //
+    // A CLAUSE, not a sentence of its own. This page is the tightest in the
+    // pack and its notes are the first prose the fitter reaches for; a
+    // separate sentence cost 10mm and this costs a line.
+    const range = panels.sharedRange === null ? '' : ` (${panels.sharedRange})`;
     parts.push(
-      `${named} are drawn on their OWN scales — each covers too little of the shared range to `
-      + 'register on it, and says so in its own title. Their slopes are not comparable with the '
-      + 'panels above.',
+      `${named} are drawn on their OWN scales — each has too little of its own range to register `
+      + `on the shared one${range}, and says so in its own title. Their slopes are not comparable `
+      + 'with the panels above.',
     );
   }
   if (panels.ownUnits.length > 0) {

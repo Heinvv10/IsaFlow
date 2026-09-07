@@ -29,6 +29,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packTrendCharts';
+import { buildTrendBlocks } from '@/modules/accounting/services/packs/pages/packPageBlocks';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -171,5 +172,52 @@ describe("page 10's money panels", () => {
     // not join the shared scale.
     const onMoneyAxis = Math.abs(money.slope * (Math.max(...margins) - Math.min(...margins)));
     expect(onMoneyAxis).toBeLessThan(1);
+  });
+});
+
+/**
+ * A SHARE OF WHAT? The panel titles claim "1.1% of the shared range" and
+ * "1.7%", and the page printed nothing a reader could check them against — so
+ * a reviewer took the spans off the two figures in each title (2 to 29 against
+ * 15 to 41), got near-identical numbers, and reported the claims as
+ * irreconcilable. They are not; the page simply never stated its denominator.
+ *
+ * So: the note states the shared range in figures, and the percentage on a
+ * panel is that panel's own high-to-low range over that span, recomputed here
+ * from the series rather than read back from the sentence.
+ */
+describe("page 10's own-scale percentages", () => {
+  it('state the range they are a share of, and are that share', () => {
+    const blocks = buildTrendBlocks(buildTrendPanels(trend, "R'000"));
+    const reading = blocks.find((b) => b.kind === 'disclosure'
+      && b.disclosure.heading === 'Reading these panels');
+    expect(reading, 'the page draws no "Reading these panels" note').toBeDefined();
+    const scale = reading!.kind === 'disclosure'
+      ? reading!.disclosure.notes.find((n) => n.heading === 'Scale')
+      : undefined;
+    expect(scale, 'no Scale note').toBeDefined();
+
+    // The shared span, over every money series, with zero inside it.
+    const values = Object.values(MONEY).flatMap((pick) => trend.map(pick));
+    const span = Math.max(0, ...values) - Math.min(0, ...values);
+    expect(span).toBeGreaterThan(0);
+
+    // Every panel drawn on its own scale states a percentage, and it is its
+    // own range over that span.
+    const built = buildTrendPanels(trend, "R'000");
+    expect(built.ownScale.length, 'this fixture puts no panel on its own scale').toBeGreaterThan(0);
+    for (const own of built.ownScale) {
+      const pick = Object.entries(MONEY).find(([id]) => id.endsWith(
+        own.name.toLowerCase().replace(/ /g, '-')))?.[1];
+      expect(pick, `no series for ${own.name}`).toBeDefined();
+      const series = trend.map(pick!);
+      const range = Math.max(0, ...series) - Math.min(0, ...series);
+      expect(own.sharePct).toBeCloseTo(Math.round((range / span) * 1000) / 10, 5);
+    }
+
+    // And the denominator is on the page, in figures.
+    expect(built.sharedRange).not.toBeNull();
+    expect(scale!.body).toContain(built.sharedRange!);
+    expect(scale!.body).toMatch(/a span of/);
   });
 });
