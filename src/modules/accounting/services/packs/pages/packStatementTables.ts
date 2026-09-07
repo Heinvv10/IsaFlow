@@ -60,11 +60,55 @@ interface RowInput {
   prior: number | null;
   /** Required when `actual` is null. */
   unavailable?: string;
+  /**
+   * Why this row has no prior figure, for a row whose ACTUAL it does have.
+   *
+   * Required when `prior` is null on a table that prints a prior column —
+   * see `buildRow`. A row with no prior and a real actual used to declare no
+   * prior/change/change-% figures at all, and `ComparativeTable` prints `–`
+   * where a declared column has no figure. The pack defines `–` as a figure
+   * MEASURED AND NIL, so page 8's opening cash printed a measured zero prior,
+   * a measured zero change and a measured zero percentage against an actual
+   * of (125): three cells asserting a movement of nothing where the pack has
+   * no movement to state at all.
+   */
+  priorUnavailable?: string;
 }
 
 interface TableOptions {
   /** Revenue for the "% of revenue" column, or null to omit that column. */
   revenue: number | null;
+  /** Whether this table declares prior/change/change-% columns at all. */
+  hasPrior: boolean;
+}
+
+/**
+ * The generic reason a comparative column is empty on a row that has an
+ * actual. Rows whose absence has a specific cause supply their own through
+ * `RowInput.priorUnavailable`; this is what a row that has not said gets,
+ * and it is still a stated reason rather than the em dash that means nil.
+ */
+const NO_PRIOR_FIGURE =
+  'The comparative period carries no figure for this line, so no change can be stated.';
+
+/**
+ * The three comparative cells of a row that has no prior figure — printed as
+ * `n/m` against a stated reason rather than left undeclared.
+ *
+ * See `RowInput.priorUnavailable` for why an undeclared cell is not
+ * acceptable here: the renderer's fallback for a declared column with no
+ * figure is the glyph this pack defines as a measured nil.
+ */
+function absentPriorFigures(
+  p: PackFigureProvenance,
+  input: RowInput,
+): Partial<Record<PackTableColumnKey, ReturnType<PackFigureProvenance['figure']>>> {
+  const reason = input.priorUnavailable ?? NO_PRIOR_FIGURE;
+  return {
+    prior: p.figure(`${input.source}.prior`, null, 'money', reason),
+    change: p.figure(`packStatementTables.change.${input.key}`, null, 'money', reason),
+    changePct: p.figure(`packStatementTables.changePct.${input.key}`, null, 'pct', reason),
+  };
 }
 
 function changeFigures(
@@ -101,8 +145,10 @@ function buildRow(p: PackFigureProvenance, input: RowInput, opts: TableOptions):
 
   const figures: PackTableRow['figures'] = { actual };
 
-  if (input.prior !== null && input.actual !== null) {
-    Object.assign(figures, changeFigures(p, input, input.actual, input.prior));
+  if (input.actual !== null && opts.hasPrior) {
+    Object.assign(figures, input.prior === null
+      ? absentPriorFigures(p, input)
+      : changeFigures(p, input, input.actual, input.prior));
   }
 
   if (opts.revenue !== null && input.actual !== null) {
@@ -139,10 +185,11 @@ function buildTable(
   // `marginPct` on the revenue line itself is the cheapest honest test of
   // whether the base is usable at all: null here means null for every row.
   const usableBase = withPctOfRevenue && marginPct(set.current.revenue, revenue) !== null;
-  const opts: TableOptions = { revenue: usableBase ? revenue : null };
+  const hasPrior = set.prior !== null;
+  const opts: TableOptions = { revenue: usableBase ? revenue : null, hasPrior };
   return {
     scale: PACK_SCALE,
-    columns: columnsFor(set.prior !== null, usableBase),
+    columns: columnsFor(hasPrior, usableBase),
     rows: inputs.map((input) => buildRow(p, input, opts)),
   };
 }
@@ -237,6 +284,15 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
       actual: prior?.cash ?? null,
       prior: null,
       unavailable: 'There is no prior period, so no opening cash balance carries forward into this one.',
+      // AND THE COMPARATIVE OF AN OPENING BALANCE IS A PERIOD THIS PACK DOES
+      // NOT READ. This row's actual is the comparative period's CLOSING cash;
+      // its own comparative would be the closing cash of the period before
+      // that, and `PackFigureSet` carries two windows, not three. Left
+      // undeclared the renderer printed `–` in all three cells — a measured
+      // nil prior, a measured nil change and a measured nil percentage —
+      // against an actual of (125).
+      priorUnavailable: 'The period before the comparative period is not in this pack, so there is '
+        + 'no earlier opening cash balance to measure this one against.',
     },
     { label: 'Operating cash flow', key: 'cash.operating', source: 'packFigureSet.current.operatingCashFlow', actual: current.operatingCashFlow ?? null, prior: prior?.operatingCashFlow ?? null, unavailable: 'No operating cash flow figure was captured for this period.' },
     { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null, unavailable: 'No capital expenditure figure was captured for this period.' },
