@@ -5,7 +5,10 @@
  *
  *   - page 12, caveat 1: "Set `account_subtype` to 'inventory' on the stock
  *     control account" — a database column name and an instruction to a system
- *     administrator, in a document going to a board;
+ *     administrator, in a document going to a board. It came back as
+ *     "classify the stock control account for one", the same instruction with
+ *     the column name taken out, which is why there is now a rule about the
+ *     INSTRUCTION as well as one about the column;
  *   - Brightsphere page 10: "Why — Spec §4.A asks for 6 panels and 4 are
  *     drawn" — a clause number from this project's own specification, quoted
  *     to directors;
@@ -93,6 +96,33 @@ const RULES: Rule[] = [
     // "rose from – to –". A figure position in prose takes a word.
     pattern: /\b(?:from|to|of|at|is|by)\s+–(?=\s|[.,;)]|$)/,
     instead: 'put the figure in the sentence with `inProse`, which says "nil"',
+  },
+  {
+    name: 'a remedy addressed to an operator',
+    /**
+     * A LEDGER INSTRUCTION, IN A DOCUMENT NOBODY WHO CAN ACT ON IT READS.
+     *
+     * Page 12's inventory caveat has now carried two of these. "Set
+     * `account_subtype` to 'inventory' on the stock control account" was
+     * caught by the schema rule above — not because it was an instruction,
+     * but because it named a column; reworded to "classify the stock control
+     * account for one" it says the same thing in business words and sailed
+     * through every rule here. The guard was matching the vocabulary the
+     * defect happened to use rather than the defect.
+     *
+     * CLAUSE-INITIAL AND A CLOSED VOCABULARY, both deliberate. English
+     * imperatives are not decidable by regex, and a rule that tried would
+     * refuse a board pack over an ordinary sentence — a worse failure than
+     * the leak, and one nobody can fix before the meeting. These are the
+     * verbs by which a pack tells someone to go and change the books, and
+     * they are only an instruction in the position an instruction takes:
+     * "classify …" is one, "no account is classified as inventory" is the
+     * disclosure the pack is supposed to make instead.
+     */
+    pattern: /(?:^|[.;:]\s+|—\s+)(?:classify|reclassify|recapture|capture|configure|enable|assign|tag|map|set up|switch on|turn on|contact)\b/i,
+    instead:
+      'state what the reader is missing and what they are reading instead — a board cannot '
+      + 'act on a ledger instruction, and the person who can is not holding this document',
   },
   {
     name: 'a placeholder or a runtime sentinel',
@@ -188,8 +218,8 @@ function locateProse(doc: PackPagesDocument): Located[] {
 
 /**
  * Refuse a pack that prints a spec reference, a schema or code identifier, a
- * developer's plural, a machine timestamp, a table glyph in a sentence or a
- * runtime sentinel.
+ * developer's plural, a machine timestamp, a table glyph in a sentence, a
+ * remedy addressed to whoever maintains the ledger, or a runtime sentinel.
  *
  * Reports every failure rather than the first, for the same reason the figure
  * gate does: prose that has slipped has usually slipped in more than one

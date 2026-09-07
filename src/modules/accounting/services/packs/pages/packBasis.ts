@@ -68,10 +68,24 @@ export interface PackBasis {
  * instead of a number (`NO_INVENTORY_CLASSIFIED`, shared rather than
  * restated). So the caveat is reworded to state the fact and name what it
  * actually costs HERE, rather than dropped.
+ *
+ * AND IT NAMES THE CONSEQUENCE, NOT THE REMEDY. The first rewording ended
+ * "classify the stock control account for one" — a job card for whoever
+ * maintains the chart of accounts, printed in a caveat a board reads. That is
+ * the same defect as the "Set `account_subtype` to 'inventory'" sentence this
+ * caveat replaced; only the vocabulary had changed, so `checkProse`'s schema
+ * rule no longer matched it. A director cannot act on it and is not meant to:
+ * what they need is which measure is missing and what they are reading
+ * instead. `packProseIntegrity`'s `a remedy addressed to an operator` rule
+ * now fails a pack that gives ledger instructions in board prose, in any
+ * vocabulary.
+ *
+ * 187 characters against the old 191, and the ceiling is real: page 12 drops
+ * prose when this caveat grows — see `packPagesKeepTheirProse`.
  */
 const INVENTORY_CAVEAT =
-  `${NO_INVENTORY_CLASSIFIED} This pack publishes no acid-test ratio; classify the stock control `
-  + `account for one.`;
+  `${NO_INVENTORY_CLASSIFIED} No acid-test ratio is published; liquidity is read off the current `
+  + `ratio alone.`;
 
 const STANDARD = 'IFRS for SMEs';
 const SOURCE_SYSTEM = 'IsaFlow general ledger';

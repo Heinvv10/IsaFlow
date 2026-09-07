@@ -1354,7 +1354,7 @@ Source system IsaFlow general ledger
 
 Rounding Figures are rounded to the nearest R'000, so
 components may not add exactly to the totals shown.
-Extracted at 7 September 2026 at 19:03 SAST
+Extracted at 7 September 2026 at 19:11 SAST
 Ledger version 7 September 2026 at 17:45 SAST
 
 Negative figures
@@ -1440,7 +1440,7 @@ a pass or a miss.
 
 Caveats
 Caveat 1 No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be
-computed. This pack publishes no acid-test ratio; classify the stock control account for one.
+computed. No acid-test ratio is published; liquidity is read off the current ratio alone.
 Caveat 2 This pack is a DRAFT — the fiscal period it ends in is still open, so these figures can still move and no
 commentary on this period has been approved, so nobody has signed off what it says.
 

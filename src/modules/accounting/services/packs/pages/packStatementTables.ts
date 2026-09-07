@@ -106,8 +106,15 @@ const NO_PRIOR_FIGURE =
  * period's revenue, not a prior figure, so `NOT_A_POSITIVE_BASE` — which says
  * "the prior figure" — would name the wrong number. Two reasons for two
  * bases, rather than one wording that is wrong on one of them.
+ *
+ * Exported so the test that holds rule 2 asserts the string the sheet prints
+ * rather than a copy of it. The rule itself — a declared column whose every
+ * cell is `n/m` against a reason, never a column silently removed — had no
+ * test at all when it shipped: `checkColumns` fails a HALF-revert in either
+ * direction, so each half of it was pinned only by the other, and a clean
+ * revert of both was green. See `packPctOfRevenueColumn.test.ts`.
  */
-const REVENUE_NOT_A_POSITIVE_BASE =
+export const REVENUE_NOT_A_POSITIVE_BASE =
   'Revenue for the period is not positive, so a share of it is not meaningful.';
 
 /**

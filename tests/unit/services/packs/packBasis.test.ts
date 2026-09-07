@@ -101,7 +101,15 @@ describe('buildBasis', () => {
     expect(inventory).toBeDefined();
     expect(inventory).not.toMatch(/quick ratio/i);
     expect(inventory).toMatch(/cash conversion cycle cannot be computed/);
-    expect(inventory).toMatch(/no acid-test ratio/);
+    expect(inventory).toMatch(/no acid-test ratio/i);
+    // AND IT STATES THE CONSEQUENCE, NOT THE REMEDY. The first rewording
+    // ended "classify the stock control account for one" — a job card for
+    // whoever maintains the chart of accounts, in a caveat a board reads,
+    // which is the defect this caveat was written to remove with a different
+    // vocabulary. `checkProse` fails it now; this holds the sentence itself.
+    expect(inventory).not.toMatch(/\bclassify\b/i);
+    expect(inventory).toMatch(/current ratio/i);
+    expect(inventory!.length).toBeLessThanOrEqual(191);
   });
 
   it('omits a caveat that is not present rather than emitting an empty one', () => {
