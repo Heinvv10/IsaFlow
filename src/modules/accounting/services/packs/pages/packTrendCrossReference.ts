@@ -29,6 +29,7 @@
  * that once sent a reader to the scorecard for the basis of preparation.
  */
 import type { PackChartSpec, PackDisclosureNote, PackFootnote } from './packPageModel';
+import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
 /**
  * A drawn panel, and where in the pack the same measure prints for the whole
@@ -146,5 +147,40 @@ export function periodWindowFootnotes(
       `${measure} on this page — the ${pageName.toLowerCase()} page — is the figure for the WHOLE `
       + 'reporting period, measured on the period totals; the trends page plots the same measure '
       + 'one month at a time. Different windows: the two will not agree.',
+  }];
+}
+
+/**
+ * THE CASH PAGE CARRIES BOTH WINDOWS, AND SAID NOTHING ABOUT IT.
+ *
+ * The table's Opening cash is the balance at the START OF THE REPORTING
+ * PERIOD — (125) at 1 January on the live demo pack. The closing-cash line
+ * directly beneath it plots the twelve months to the period end, so it opens
+ * wherever that window does — (115) at the previous October. Two figures for
+ * the word "opening", both labelled cash, on one sheet, with nothing
+ * reconciling them; a reader adding them gets an error of ten.
+ *
+ * The income statement and the scorecard already carry exactly this note for
+ * their own whole-period-against-monthly mismatch (`periodWindowFootnotes`),
+ * and this is the same fact about the same pair of windows — it is the page
+ * that carries BOTH of them that was missing it.
+ *
+ * Empty where no line is drawn: a page with one window has nothing to
+ * reconcile.
+ */
+export function cashWindowFootnotes(
+  trend: PackTrendPoint[],
+  cashTrendDrawn: boolean,
+  number: number,
+): PackFootnote[] {
+  const first = trend[0];
+  if (!cashTrendDrawn || first === undefined) return [];
+  return [{
+    number,
+    text:
+      'Opening cash in the table above is the balance at the START of the reporting period. The '
+      + `closing-cash line below it plots ${trend.length} months to the period end and opens at `
+      + `${first.label}, so it starts from the balance at that month instead. Different windows: `
+      + 'the two will not agree.',
   }];
 }

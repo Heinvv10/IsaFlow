@@ -19,11 +19,13 @@
  * closer together than their own type is exactly what overprinting is.
  */
 import { describe, expect, it } from 'vitest';
-import { buildPositionCompositionChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
+import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { buildCashTrendChart, buildPositionCompositionChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { CHART_HEIGHT_MM } from '@/lib/charts/ssrSvg';
 import { brightsphereSet, demoSet } from './fixtures/boardPackInputs';
-import { liveDemoSet } from './fixtures/liveDemoBoardPack';
+import { liveDemoSet, liveDemoInput } from './fixtures/liveDemoBoardPack';
+import { demoInput } from './fixtures/boardPackInputs';
 
 /**
  * Every `<text>` in the SVG, as a font size and the y it is centred on.
@@ -118,5 +120,47 @@ describe("page 7's composition chart", () => {
 
     expect(buildPositionCompositionChart(liveDemoSet, PACK_SCALE).heightMm).toBe(CHART_HEIGHT_MM.half);
     expect(buildPositionCompositionChart(demoSet, PACK_SCALE).heightMm).toBe(CHART_HEIGHT_MM.full);
+  });
+});
+
+/**
+ * PAGE 8'S CASH LINE IS THE ONLY PICTURE OF CASH IN THE PACK, AND IT HAD NO
+ * SCALE ON IT.
+ *
+ * Six horizontal gridlines, not one numeric label, no unit named and no zero
+ * reference; only the final point carried a value. A director could not tell
+ * whether the trough was (600) or (6 000), or on which side of zero the line
+ * sat — and on this company every month of it is below zero. The waterfall on
+ * page 6 and the column chart on page 7 are both labelled, which made this
+ * read as an unfinished panel rather than a choice.
+ *
+ * It is the SAME function page 10's panels use, and they are right to be
+ * bare: an 83mm panel read for direction beside five others cannot carry
+ * ticks. So this asserts the difference rather than the option — the full
+ * width line has readable numbers on it, the 83mm panels do not.
+ */
+describe("page 8's closing-cash line", () => {
+  for (const [name, input] of [['the live demo company', liveDemoInput], ['the demo company', demoInput]] as const) {
+    it(`carries readable, non-overlapping tick labels for ${name}`, () => {
+      const chart = buildCashTrendChart(input.trend, PACK_SCALE);
+      expect(chart, 'this fixture draws a cash line').not.toBeNull();
+      const ticks = yAxisTicks(String(chart!.svg));
+      expect(ticks.length, 'no y-axis tick labels were found in the SVG').toBeGreaterThan(2);
+      const gap = tightestGap(ticks);
+      expect(gap, `ticks ${ticks.map((t) => t.text).join(' / ')}`).toBeGreaterThanOrEqual(ticks[0]!.size);
+      // The unit, named on the axis rather than left to a caption a chart
+      // away. Read through `labels`, which un-escapes the apostrophe the SVG
+      // stores as an entity.
+      expect(labels(String(chart!.svg)).map((l) => l.text)).toContain(PACK_SCALE);
+    });
+  }
+
+  it('leaves page 10\'s 83mm panels bare, which is what they are for', () => {
+    const doc = buildBoardPackPages(liveDemoInput);
+    const trends = doc.pages.find((p) => p.navLabel === 'Trends');
+    const panels = trends?.blocks.find((b) => b.kind === 'smallMultiples');
+    expect(panels?.kind).toBe('smallMultiples');
+    const panel = panels!.kind === 'smallMultiples' ? panels!.panels[0]! : null;
+    expect(yAxisTicks(String(panel!.svg)).length).toBeLessThan(3);
   });
 });

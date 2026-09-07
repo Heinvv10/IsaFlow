@@ -296,7 +296,10 @@ export function buildCashTrendChart(trend: PackTrendPoint[], scale: MoneyScale):
       `to ${money(last)} at ${points[points.length - 1]!.label}, over ${points.length} periods.`,
     kind: 'line',
     svg: renderChartSvg(
-      smallMultipleOption(points, domain, (n) => formatMoney(n, { scale })),
+      // LABELLED, unlike a page-10 panel. This one is 170mm wide and is the
+      // only picture of cash a director gets; bare, it was six gridlines
+      // carrying one number.
+      smallMultipleOption(points, domain, (n) => formatMoney(n, { scale }), undefined, { unit: scale }),
       CASH_TREND_FULL,
     ),
     heightMm: CASH_TREND_FULL.heightMm,

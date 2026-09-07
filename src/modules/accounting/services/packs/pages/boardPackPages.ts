@@ -85,7 +85,7 @@ import {
 // Debtor days printed 213 on the scorecard page and 63.7 on the trends
 // page, one sheet apart, with nothing on either saying that one is the
 // period and the other a month.
-import { periodWindowFootnotes } from './packTrendCrossReference';
+import { cashWindowFootnotes, periodWindowFootnotes } from './packTrendCrossReference';
 import { formatPackPeriod } from './packPeriodLabel';
 import {
   buildBasisPage,
@@ -295,7 +295,13 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       ...periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', statementNotes.length + bridgeNote.length + 1),
     ]),
     page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
-    page(cashTitle(set, scale), 'Cash', 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
+    // The cash page is the one sheet carrying BOTH windows — the table's
+    // period opening balance and the twelve-month line beneath it — and it
+    // was the one page with no note saying so. See `cashWindowFootnotes`.
+    page(cashTitle(set, scale), 'Cash', 'Financials', 'high', cashBlocks, 'portrait', [
+      ...statementNotes,
+      ...cashWindowFootnotes(trend, cashTrend !== null, statementNotes.length + 1),
+    ]),
     page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
       commentary(scorecardCaption(scorecard)),

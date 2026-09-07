@@ -65,12 +65,20 @@ export function sparklineOption(
  * @param formatValue How this panel's own unit prints. REQUIRED: a rand
  *   series, a percentage and a day count are three different units, and a
  *   panel row carries all three.
+ * @param axis The scale a FULL-WIDTH line gets: tick labels in the panel's
+ *   own unit, that unit named beside them, and a rule at zero. Omitted — the
+ *   page-10 default — the value axis is bare, which is right for an 83mm
+ *   panel read for direction beside five others and wrong for the 170mm cash
+ *   line on page 8, which was six gridlines with no number anywhere on them:
+ *   a director could not tell whether the trough was (600) or (6 000), or
+ *   which side of zero the line sat on.
  */
 export function smallMultipleOption(
   points: TrendPoint[],
   domain: { min: number; max: number },
   formatValue: (value: number) => string,
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
+  axis?: { unit: string },
 ): EChartsCoreOption {
   const last = points[points.length - 1]?.value ?? 0;
   return {
@@ -89,7 +97,18 @@ export function smallMultipleOption(
       type: 'value',
       min: domain.min,
       max: domain.max,
-      axisLabel: { show: false },
+      ...(axis === undefined ? {} : {
+        // The unit is NAMED on the axis rather than left to the caption: the
+        // figures are in thousands and the only other place that is said on
+        // this page is the table's own caption, a chart away.
+        name: axis.unit,
+        nameLocation: 'end',
+        nameGap: 8,
+        nameTextStyle: { color: palette.axis, fontSize: 9, align: 'left' },
+      }),
+      axisLabel: axis === undefined
+        ? { show: false }
+        : { show: true, color: palette.axis, fontSize: 9, formatter: (value: number) => formatValue(value) },
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { lineStyle: { color: palette.prior } },
@@ -113,6 +132,20 @@ export function smallMultipleOption(
           formatter: (param: LabelParam) => formatValue(Number(param.value ?? last)),
         },
         data: points.map((p) => p.value),
+        // A RULE AT ZERO, on the axis that has labels to read it against.
+        // `sharedDomain` always puts zero inside the domain, but a gridline
+        // is a gridline: on a series that is negative throughout, which is
+        // every month of the live demo company's cash, nothing on the picture
+        // said where break-even was.
+        ...(axis === undefined ? {} : {
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            label: { show: false },
+            lineStyle: { color: palette.axis, width: 1, type: 'solid' },
+            data: [{ yAxis: 0 }],
+          },
+        }),
       },
     ],
   };
