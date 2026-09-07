@@ -11,7 +11,8 @@
 import { formatPackDate } from './packPeriodLabel';
 import { ROUNDING_NOTE } from './packBasis';
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
-import { disclose, note } from './packPageBlocks';
+import { disclose, mustDisclose, note } from './packPageBlocks';
+import { fitPageToBox } from './packPageFit';
 import { PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import type { PackBasis } from './packBasis';
 import type { MoneyScale } from '@/lib/format/money';
@@ -110,11 +111,7 @@ export function buildBasisPage(
   // preparation" over "Basis of preparation and definitions"; what a director
   // needs from the headline is what standard the figures were prepared under,
   // at what scale, and whether anything qualifies them.
-  const caveats = basis.caveats.length === 0
-    ? 'no caveat qualifies these figures'
-    : `${basis.caveats.length === 1 ? 'one caveat qualifies' : `${basis.caveats.length} caveats qualify`} these figures`;
-  const title = `Prepared under ${basis.basisOfPreparation.standard} from the `
-    + `${basis.basisOfPreparation.sourceSystem}, in ${scale}; ${caveats}.`;
+  const title = basisTitle(basis, scale, basis.caveats.length);
   return page(title, 'Basis of preparation', 'Governance', 'medium', [
     disclose('Basis of preparation', [
       note('Standard', basis.basisOfPreparation.standard),
@@ -133,8 +130,64 @@ export function buildBasisPage(
     // sixteen-term glossary.
     ], 2),
     { kind: 'definitions', entries: basis.definitions },
-    disclose('Caveats', basis.caveats.length > 0
+    // REQUIRED, so it is the LAST prose on this page the fitter may take and
+    // its first note can never be taken at all. It was optional and it is the
+    // page's last block, which made a caveat qualifying the figures the FIRST
+    // thing dropped when the page ran short — ahead of "Rounding" and "Ledger
+    // version" three centimetres above it. A qualification of the numbers
+    // outranks a fact about how they were extracted.
+    mustDisclose('Caveats', basis.caveats.length > 0
       ? basis.caveats.map((caveat, index) => note(`Caveat ${index + 1}`, caveat))
       : [note('None', 'No classification or inventory caveat applies to these figures.')]),
   ]);
+}
+
+/** The basis page's conclusion standfirst, for a page printing `caveats` of
+ *  them. */
+function basisTitle(basis: PackBasis, scale: MoneyScale, caveats: number): string {
+  const clause = caveats === 0
+    ? 'no caveat qualifies these figures'
+    : `${caveats === 1 ? 'one caveat qualifies' : `${caveats} caveats qualify`} these figures`;
+  return `Prepared under ${basis.basisOfPreparation.standard} from the `
+    + `${basis.basisOfPreparation.sourceSystem}, in ${scale}; ${clause}.`;
+}
+
+/** How many caveats a composed basis page actually prints. */
+function printedCaveats(page: UnnumberedPage, basis: PackBasis): number {
+  if (basis.caveats.length === 0) return 0;
+  for (const block of page.blocks) {
+    if (block.kind === 'disclosure' && block.disclosure.heading === 'Caveats') {
+      return block.disclosure.notes.length;
+    }
+  }
+  return 0;
+}
+
+/**
+ * THE BASIS PAGE, FITTED TO ITS SHEET AND TITLED BY WHAT IT ACTUALLY PRINTS.
+ *
+ * The rendered pack's standfirst read "…in R'000; 2 caveats qualify these
+ * figures", one caveat was printed, and the page's own footer then admitted
+ * "Not printed on this page: 1 explanatory note, from 'Caveats'". A
+ * governance page that miscounts its own qualifications is the single worst
+ * line in a board pack: it is not a layout complaint, it is the page telling
+ * a director there is a second qualification and then not saying what it is.
+ *
+ * The count is composed BEFORE the page is held to its sheet, so the only
+ * honest fix is to compose the title again afterwards, against the notes that
+ * survived. Re-fitted after the retitle because a title is a page's tallest
+ * text and a shorter one can free a line — and iterated, because that freed
+ * line can bring a caveat back and change the count again. It converges in
+ * one or two turns and stops either way: a title that says fewer caveats than
+ * the page prints would be the same defect pointing the other direction.
+ */
+export function fitBasisPage(page: UnnumberedPage, basis: PackBasis, scale: MoneyScale): UnnumberedPage {
+  let fitted = fitPageToBox(page);
+  for (let turn = 0; turn < 3; turn += 1) {
+    const printed = printedCaveats(fitted, basis);
+    const title = basisTitle(basis, scale, printed);
+    if (fitted.title === title) return fitted;
+    fitted = fitPageToBox({ ...page, title });
+  }
+  return fitted;
 }

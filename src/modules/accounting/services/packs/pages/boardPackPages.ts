@@ -89,6 +89,7 @@ import { cashWindowFootnotes, periodWindowFootnotes } from './packTrendCrossRefe
 import { formatPackPeriod } from './packPeriodLabel';
 import {
   buildBasisPage,
+  fitBasisPage,
   buildFrontPages,
   numbered,
   page,
@@ -352,7 +353,13 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // EVERY page, held to its sheet — the same rule the matters table spends
     // its budget under, applied to the prose on the other eleven. A page that
     // already fits comes back untouched.
-    ...body.map(fitPageToBox),
+    //
+    // The basis page goes through `fitBasisPage` instead: its standfirst
+    // COUNTS its caveats, and a count composed before the page is held to its
+    // sheet is a count the fit can falsify. See `fitBasisPage`.
+    ...body.map((p2) => (p2.navLabel === 'Basis of preparation'
+      ? fitBasisPage(p2, basis, scale)
+      : fitPageToBox(p2))),
   ]);
 
   const document: PackPagesDocument = {
