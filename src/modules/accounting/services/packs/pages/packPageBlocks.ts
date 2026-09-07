@@ -252,6 +252,16 @@ export function buildTrendBlocks(panels: PackChartSpec[]): PackPageBlock[] {
   trendBlocks.push(commentary(trendsCaption(panels)));
   trendBlocks.push(disclose('Reading these panels', [
     note('Scale', 'Revenue, operating expenses, net profit and cash share one y-scale, so a metric ten times the size of another cannot be mistaken for moving the same amount. Gross margin % and debtor days are different units, so each keeps its own scale.'),
+    // THE PACK PRINTS TWO GROSS MARGINS, AND BOTH ARE RIGHT.
+    //
+    // This page ended on +100.0% — one month whose cost of sales was nil —
+    // while the income statement page stated (1348.0%) for the period, on
+    // revenue of 99 against cost of sales of 1 431. Different windows and
+    // different bases, reconciled nowhere, and a CFO reading two gross
+    // margins of opposite sign in one document has no way to tell which is
+    // the measurement and which is the mistake. Neither figure moves; the
+    // page says what each of them is.
+    note('Period', 'Each panel plots one MONTH at a time, so a panel ends on the latest month on its own. Gross margin is printed on this page and on the income statement page: there it is the ratio for the whole reporting period, measured on the period totals, and here it is the last month alone. They are measurements of different windows and will not agree.'),
   ]));
   if (panels.length < TRENDS_PANELS_SPECIFIED) {
     trendBlocks.push(disclose('Panels not drawn', [
