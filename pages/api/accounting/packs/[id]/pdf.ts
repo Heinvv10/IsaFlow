@@ -6,6 +6,18 @@
  * figure can never differ between the screen and the document. The print
  * token that authorises the renderer's own headless-browser requests is
  * minted inside renderPagePdf and never leaves this process.
+ *
+ * WHEN THE RENDER FAILS, THE REASON HAS TO REACH A HUMAN. The figure
+ * integrity gate (spec §7.2) refuses a pack whose balance sheet does not
+ * foot, and it is right to: Brightsphere's is out by R450 and that sentence
+ * is the entire value of the gate. But the refusal happens INSIDE the
+ * headless browser — the print page renders the message on screen and
+ * deliberately never sets `data-print-ready` — so all the transport could see
+ * was its own 30-second `waitForSelector` timeout, and the user received a
+ * corrupt download named `.pdf` or a message naming no cause at all. So a
+ * failed render is DIAGNOSED here, by composing the same document in this
+ * process and reporting what it refuses on. Only on the failure path: the
+ * happy path composes nothing extra.
  */
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { withErrorHandler } from '@/lib/api-error-handler';
@@ -16,6 +28,7 @@ import { checkReportRateLimit } from '@/lib/rateLimit';
 import { renderPagePdf } from '@/lib/pdf/renderPagePdf';
 import { withRenderSlot } from '@/lib/pdf/withRenderSlot';
 import { sql, type DbRow } from '@/lib/neon';
+import { buildBoardPackDocument } from '@/modules/accounting/services/packs/pages/boardPackDocument';
 import { packDownloadFilename } from '@/modules/accounting/services/packs/packDownloadName';
 import { packPrintApiPaths } from '@/modules/accounting/services/packs/packSections';
 import type { PackType } from '@/modules/accounting/services/reports/reportPackService';
@@ -33,6 +46,31 @@ const MIN_SECRET_LEN = 32;
 function hasUsablePrintSecret(): boolean {
   const secret = process.env.PRINT_TOKEN_SECRET;
   return typeof secret === 'string' && secret.length >= MIN_SECRET_LEN;
+}
+
+/** The one pack type composed as a page model, and so the only one whose
+ *  refusal this route can reproduce. See `packs/[id]/pages.ts`. */
+const PAGES_PACK_TYPE = 'board';
+
+/**
+ * Why the render refused, in the words the gate used — or null when composing
+ * the document succeeds and the failure was the renderer's own.
+ *
+ * Composing is READ-ONLY, like `pages.ts`, which matters: `withAuth` COMMITs
+ * before the response flushes and only rolls back on a 5xx, so a 422 returned
+ * after a write would COMMIT that write. Nothing here writes.
+ */
+async function packRefusalReason(
+  packType: string,
+  request: { companyId: string; from: string; to: string; preparedBy: string },
+): Promise<string | null> {
+  if (packType !== PAGES_PACK_TYPE) return null;
+  try {
+    await buildBoardPackDocument({ ...request, generatedAt: new Date().toISOString() });
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
 
 async function getCompanyName(companyId: string): Promise<string> {
@@ -70,16 +108,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // OUTSIDE (see the export below), so a request that had to queue for one was
   // not holding a pool connection or an open transaction while it waited. By
   // the time this handler runs, the process has decided it has capacity.
-  const [pdf, companyName] = await Promise.all([
-    renderPagePdf({
-      companyId,
-      userId: user.id,
-      path: PACK_PAGE,
-      query: { pack: id, from, to },
-      apiPaths: packPrintApiPaths(id as PackType),
-    }),
-    getCompanyName(companyId),
-  ]);
+  const preparedBy = user.email ?? 'IsaFlow';
+  let pdf: Buffer;
+  let companyName: string;
+  try {
+    [pdf, companyName] = await Promise.all([
+      renderPagePdf({
+        companyId,
+        userId: user.id,
+        path: PACK_PAGE,
+        query: { pack: id, from, to },
+        apiPaths: packPrintApiPaths(id as PackType),
+      }),
+      getCompanyName(companyId),
+    ]);
+  } catch (error) {
+    const refusal = await packRefusalReason(id, { companyId, from, to, preparedBy });
+    if (refusal === null) throw error;
+    log.warn(
+      'Pack PDF refused by the figure integrity gate',
+      { companyId, userId: user.id, packType: id, from, to, refusal },
+      'packs',
+    );
+    // 422, not 500: the pack is unrenderable because its own figures do not
+    // reconcile, which is a fact about this company's ledger rather than a
+    // fault in the renderer. The message is the gate's own, verbatim — a
+    // paraphrase would lose the amount and the account that name the break.
+    return apiResponse.error(res, ErrorCode.BUSINESS_RULE_VIOLATION, refusal);
+  }
 
   log.info('Pack PDF downloaded', { companyId, userId: user.id, packType: id, from, to, bytes: pdf.length }, 'packs');
 
