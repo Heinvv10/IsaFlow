@@ -89,6 +89,12 @@ export interface PrintedPack {
    * count. Null when the pack has no cover.
    */
   coverBand: {
+    /** The words in the band. Empty is the defect: a solid navy rectangle
+     *  across the top of page 1 with nothing in it. */
+    text: string;
+    /** The resolved `content` of the band — `'none'` or an empty string is
+     *  the empty navy rectangle that shipped. */
+    content: string;
     background: string;
     heightPx: number;
     top: string;
@@ -247,6 +253,11 @@ export async function printBoardPack(
       if (el === null) return null;
       const band = getComputedStyle(el, '::after');
       return {
+        /** What the band PRINTS — it shipped as an empty navy rectangle. */
+        text: (el as HTMLElement).dataset.brandName ?? '',
+        /** The band's own `content`, so an empty band is caught in the CSS
+         *  and not only in the attribute that feeds it. */
+        content: band.content,
         background: band.backgroundColor,
         heightPx: Number.parseFloat(band.height),
         top: band.top,

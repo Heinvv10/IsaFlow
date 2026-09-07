@@ -271,6 +271,14 @@ describe('the printed board pack', () => {
     const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
     expect(liveDemoInput.draft, 'this only fails on a draft pack').toBe(true);
     expect(printed.coverBand).not.toBeNull();
+    // AND IT SAYS SOMETHING. The band printed as a bare navy rectangle — no
+    // logo, no name, no mark — at the top of the first page of a document a
+    // director forwards to their bank.
+    // The resolved `content`, not the attribute that feeds it: dropping the
+    // `content: attr(...)` rule leaves the attribute in the markup and the
+    // band empty on the paper.
+    expect(printed.coverBand!.text).toBe(liveDemoInput.companyLegalName);
+    expect(printed.coverBand!.content).toContain(liveDemoInput.companyLegalName);
     expect(printed.coverBand!.background).toBe('rgb(31, 78, 121)'); // the fixture's brand
     expect(printed.coverBand!.opacity).toBe(1);
     expect(printed.coverBand!.top).toBe('0px');
@@ -313,6 +321,25 @@ describe('the printed board pack', () => {
         expect(flat, `sheet ${index + 1} footer is missing "${needle}"`).toContain(needle);
       }
     }
+  }, 120_000);
+
+  it('says something about total assets below zero, as it does about equity', async () => {
+    // The rendered pack printed total assets of (733) with no comment while
+    // negative equity, on the same sheet, from the same balance sheet, got a
+    // callout. An asset side below zero is not a state a business can be in,
+    // and a page that explains the lesser anomaly and stays silent on the
+    // greater one reads as though the greater one is normal.
+    expect(liveDemoInput.set.current.totalAssets, 'this fixture is the negative-assets case').toBeLessThan(0);
+
+    const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
+    const sheet = printed.sheetText
+      .map((t) => t.replace(/\s+/g, ' '))
+      .find((t) => t.includes('Negative total assets'));
+
+    expect(sheet, 'no sheet carries the negative-assets disclosure').toBeDefined();
+    expect(sheet).toContain('asset accounts carry credit balances');
+    // Beside the equity callout, not instead of it.
+    expect(sheet).toContain('Negative equity');
   }, 120_000);
 
   it("prints page 4's action panel on the sheet, filled, commentary or not", async () => {

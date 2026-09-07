@@ -324,11 +324,22 @@ html.print-mode {
  * A pseudo-element rather than an element, so the band needs nothing in the
  * component and cannot be mistaken for content — nothing in it is a figure. */
 .pack-cover::after {
-  content: '';
+  /* The band SAYS whose pack this is. It shipped empty — a solid navy
+   * rectangle across the top of page 1 with no logo, no name and no mark of
+   * any kind, which is the first thing a director sees and reads as an
+   * unfinished template. `attr()` because the band has to stay a
+   * pseudo-element for the reason above, and a pseudo-element takes its text
+   * from the attribute or from nowhere. */
+  content: attr(data-brand-name);
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 12mm;
   background: var(--pack-brand);
+  display: flex; align-items: center;
+  padding: 0 18mm;
+  color: #fff;
+  font-size: 8pt; letter-spacing: 0.28em; text-transform: uppercase;
+  text-align: left;
 }
 .pack-cover-eyebrow { font-size: 9pt; letter-spacing: 0.3em; text-transform: uppercase; color: var(--pack-grey-strong); }
 .pack-cover-company { font-size: 26pt; line-height: 30pt; font-weight: 600; margin: 0; }

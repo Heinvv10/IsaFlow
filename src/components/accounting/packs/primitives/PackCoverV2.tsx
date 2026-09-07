@@ -27,7 +27,13 @@ export function PackCoverV2({ document, children }: PackCoverV2Props) {
   const generated = document.generatedAt.slice(0, 10);
 
   return (
-    <section data-pack-cover className="pack-page pack-cover">
+    // `data-brand-name` is what the brand band prints. The band is a
+    // pseudo-element (see `.pack-cover::after` for why it must stay one), so
+    // the only way to put words in it is `content: attr(...)` — and a solid
+    // navy rectangle with nothing in it, first thing on the first page, reads
+    // as a placeholder somebody forgot to fill. It is the company's own name,
+    // not a figure.
+    <section data-pack-cover data-brand-name={document.companyName} className="pack-page pack-cover">
       {document.brand.logoUrl && (
         // A plain <img>, not next/image: this page is photographed by
         // Chromium (Playwright/Gotenberg), not served through Next's image
