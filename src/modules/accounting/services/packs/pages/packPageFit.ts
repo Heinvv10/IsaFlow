@@ -85,12 +85,29 @@ export function remainingPageMm(page: MeasurablePage): number {
 
 /** What a page had to leave out, for the note that says so. */
 export interface Dropped {
+  /** Notes off a disclosure the pack chose to make. */
   notes: number;
+  /**
+   * Notes off a disclosure the pack is REQUIRED to make — §3.5's
+   * negative-equity consequence, an absence explanation.
+   *
+   * Counted apart from `notes` because the page has to say so. A footnote
+   * reading "2 explanatory notes are not printed" is true of both and tells a
+   * director nothing about which: one is the pack economising on its own
+   * commentary, the other is a statutory disclosure printed in part. The
+   * first note of a required block is never taken, so this can only ever mean
+   * a disclosure was abridged, never that one was made and then removed.
+   */
+  requiredNotes: number;
   footnotes: number;
-  truncated: number;
 }
 
-const NOTHING: Dropped = { notes: 0, footnotes: 0, truncated: 0 };
+const NOTHING: Dropped = { notes: 0, requiredNotes: 0, footnotes: 0 };
+
+/** Did this page give anything up? */
+function tookSomething(dropped: Dropped): boolean {
+  return dropped.notes > 0 || dropped.requiredNotes > 0 || dropped.footnotes > 0;
+}
 
 /**
  * How the page says it left something out, and WHY IT IS A FOOTNOTE.
@@ -111,10 +128,6 @@ const NOTHING: Dropped = { notes: 0, footnotes: 0, truncated: 0 };
  */
 export const OMISSION_MARK = 'This page had room for its figures and not for all of its prose';
 
-/** The shortest a truncated note is cut to. Below this the sentence stops
- *  saying anything and the ellipsis is the whole note. */
-const MIN_NOTE_BODY = 60;
-
 function omissionText(dropped: Dropped): string {
   const parts: string[] = [];
   if (dropped.notes > 0) {
@@ -123,8 +136,9 @@ function omissionText(dropped: Dropped): string {
   if (dropped.footnotes > 0) {
     parts.push(`${dropped.footnotes} ${dropped.footnotes === 1 ? 'footnote' : 'footnotes'}`);
   }
-  if (dropped.truncated > 0) {
-    parts.push(`${dropped.truncated} shortened ${dropped.truncated === 1 ? 'note' : 'notes'}`);
+  if (dropped.requiredNotes > 0) {
+    parts.push(`${dropped.requiredNotes} ${dropped.requiredNotes === 1 ? 'note' : 'notes'} from a `
+      + 'disclosure this pack is required to make');
   }
   return `${OMISSION_MARK}: ${parts.join(', ')} are not printed. Every figure, `
     + 'table and chart on it is complete; a board pack is the same twelve sheets for every company.';
@@ -166,42 +180,6 @@ function dropNote(blocks: PackPageBlock[], index: number): void {
 }
 
 /**
- * Halve the longest surviving OPTIONAL note's body, marked with an ellipsis
- * so a reader sees the sentence was cut.
- *
- * A required disclosure is never abridged. §3.5's negative-equity
- * consequence is one sentence long by design and shortening it would leave a
- * mandatory disclosure half made — worse than the millimetre of margin it
- * would buy. A page with nothing optional left to cut keeps what it has, and
- * the printed-box assertion in `packSheetCount.test.ts` is what decides
- * whether that was survivable.
- *
- * The lever of last resort, and the one that has to terminate: every call
- * must return a STRICTLY shorter body or the loop above never ends. Hence
- * `MIN_NOTE_BODY` and the `- 2`: halving a 61-character body to 60 plus an
- * ellipsis is 61 characters again.
- */
-function truncateLongestNote(blocks: PackPageBlock[]): boolean {
-  let best: { block: number; note: number; length: number } | null = null;
-  for (const [i, block] of blocks.entries()) {
-    if (block.kind !== 'disclosure' || block.disclosure.required === true) continue;
-    for (const [j, note] of block.disclosure.notes.entries()) {
-      if (note.body.length <= MIN_NOTE_BODY) continue;
-      if (best === null || note.body.length > best.length) best = { block: i, note: j, length: note.body.length };
-    }
-  }
-  if (best === null) return false;
-  const block = blocks[best.block]!;
-  if (block.kind !== 'disclosure') return false;
-  const notes = block.disclosure.notes.map((note, j) => j !== best!.note ? note : {
-    ...note,
-    body: `${note.body.slice(0, Math.min(note.body.length - 2, Math.max(MIN_NOTE_BODY, Math.floor(note.body.length / 2)))).trimEnd()}…`,
-  });
-  blocks[best.block] = { kind: 'disclosure', disclosure: { ...block.disclosure, notes } };
-  return true;
-}
-
-/**
  * The page, trimmed until the model says it fits its sheet.
  *
  * Returned unchanged — the same object — when it already fits, which is
@@ -230,11 +208,15 @@ export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dro
   const over = () => pageMm({
     ...page,
     blocks,
-    // Sized at the LONGEST wording the footnote can take, not at the one the
-    // drops so far would print: the sentence grows a clause per kind of thing
-    // dropped, and a page measured against the short form and printed with
-    // the long one is a page measured against a document it does not become.
-    footnotes: [...footnotes, omissionFootnote({ notes: 9, footnotes: 9, truncated: 9 }, footnotes)],
+    // Sized against the footnote the page would ACTUALLY print, drop by drop.
+    // A flat worst-case allowance was a line longer than the sentence most
+    // pages get, and on the tightest page in the pack that line cost a note
+    // nobody needed to lose. The sentence gains a clause per KIND of thing
+    // dropped, so a drop can lengthen it — and when it does, this measures
+    // over again on the next turn of the loop and takes one more. What makes
+    // that safe rather than clever is `assertFits` below, which re-checks the
+    // finished page against the footnote it really carries.
+    footnotes: [...footnotes, omissionFootnote(dropped, footnotes)],
   }) > box;
 
   while (over()) {
@@ -242,26 +224,55 @@ export function fitPageReport<T extends MeasurablePage>(page: T): { page: T; dro
     if (optional !== null) { dropNote(blocks, optional); dropped.notes += 1; continue; }
     if (footnotes.length > 0) { footnotes.pop(); dropped.footnotes += 1; continue; }
     const required = lastTrimmableNote(blocks, 'required');
-    if (required !== null) { dropNote(blocks, required); dropped.notes += 1; continue; }
-    if (truncateLongestNote(blocks)) { dropped.truncated += 1; continue; }
-    // Nothing left that this may take. The page keeps its figures and the
-    // print harness fails the build rather than a director receiving a
-    // thirteenth sheet nobody was told about.
+    if (required !== null) { dropNote(blocks, required); dropped.requiredNotes += 1; continue; }
     break;
   }
 
   // NOTHING TAKEN, NOTHING SAID — and nothing added.
   //
-  // A page whose only prose is a required one-note disclosure has no lever
-  // this function may pull, and the first version appended the "what is
-  // missing" note anyway: 26mm of disclosure explaining an omission that had
-  // not happened, on a page that then ran 12mm past the paper because of it.
-  // The note was the overflow.
-  if (dropped.notes === 0 && dropped.footnotes === 0 && dropped.truncated === 0) {
+  // A page whose only prose is one required note has no lever this function
+  // may pull, and the first version appended the "what is missing" note
+  // anyway: 26mm of disclosure explaining an omission that had not happened,
+  // on a page that then ran 12mm past the paper because of it. The note was
+  // the overflow. This branch is also the FITS case above having been reached
+  // by a page that needed nothing, which is every page of every fixture.
+  if (!tookSomething(dropped)) {
+    assertFits(page, page);
     return { page, dropped: NOTHING };
   }
-  return {
-    page: { ...page, blocks, footnotes: [...footnotes, omissionFootnote(dropped, footnotes)] },
-    dropped,
-  };
+
+  const fitted = { ...page, blocks, footnotes: [...footnotes, omissionFootnote(dropped, footnotes)] };
+  assertFits(page, fitted);
+  return { page: fitted, dropped };
+}
+
+/**
+ * A PAGE THAT STILL DOES NOT FIT IS REFUSED, NOT RETURNED.
+ *
+ * The loop above stops when it runs out of prose it is allowed to take, and
+ * the first version simply handed the page back at that point: a page whose
+ * only block is one required note taller than the sheet came out at 618mm in
+ * a 255mm box, reporting nothing dropped, with no footnote and no error. It
+ * is not reachable from today's `mustDisclose` callers — every one of them
+ * passes a single sentence — which is exactly the argument for refusing it
+ * rather than trusting it. The next caller is the one that writes a long one,
+ * and a silent pass here is a thirteenth sheet with a contents page that says
+ * twelve.
+ *
+ * A THROW, like `assertPackIntegrity`'s. The pack already refuses to become a
+ * document when its figures do not reconcile, and the PDF route diagnoses a
+ * failed render by re-composing in-process and reporting what it refused on —
+ * so this reaches a human as a sentence naming the page, rather than as a
+ * corrupt download or a thirty-second timeout.
+ */
+function assertFits(original: MeasurablePage, fitted: MeasurablePage): void {
+  const box = pageBoxMm(fitted);
+  const mm = pageMm(fitted);
+  if (mm <= box) return;
+  throw new Error(
+    `fitPageToBox: "${original.navLabel}" needs ${mm.toFixed(1)}mm and its sheet gives `
+      + `${box}mm, with nothing left on it that may be dropped — every remaining note is one `
+      + 'this pack is required to make. Refusing to compose a page that would print on two '
+      + 'sheets under a contents page that indexes one.',
+  );
 }

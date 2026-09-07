@@ -141,9 +141,10 @@ describe('the printed board pack', () => {
    *     exempt and stated so: its budget is spent BEFORE the page is built,
    *     so looseness there costs table rows, and the page prints how many and
    *     what they come to.
-   *   - nothing is ever truncated. Truncation is the lever of last resort in
-   *     `fitPageToBox`; a fixture that reaches it means the levers above it
-   *     ran out, which is a design failure and not a tight page.
+   *   - no fixture abridges a disclosure the pack is REQUIRED to make. That
+   *     lever exists and is reachable; a fixture that reaches it means the
+   *     model's slack is being paid for out of a statutory disclosure, which
+   *     is a design failure and not a tight page.
    */
   it('never estimates a page shorter than the browser lays it out', async () => {
     const slack: number[] = [];
@@ -174,8 +175,10 @@ describe('the printed board pack', () => {
       for (const page of buildBoardPackPages(input).pages) {
         const said = page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
         if (said === undefined) continue;
-        expect(said.text, `${name} page ${page.number}: a note was shortened rather than dropped`)
-          .not.toContain('shortened');
+        expect(
+          said.text,
+          `${name} page ${page.number} paid for the budget out of a required disclosure`,
+        ).not.toContain('required to make');
       }
     }
   }, 300_000);
