@@ -105,7 +105,10 @@ export function disclosureMm(disclosure: PackDisclosure, orientation: PageOrient
   const heading = lines(wrappedLines(disclosure.heading, 11, PAGE_WIDTH_MM[orientation]), 15);
   const twoColumn = disclosure.columns === 2 && orientation === 'portrait';
   const measure = twoColumn ? (PAGE_WIDTH_MM.portrait - GUTTER_MM) / 2 : noteMeasureMm(orientation);
-  const noteLines = disclosure.notes.map((n) => wrappedLines(`${n.heading} ${n.body}`, 9.5, measure));
+  // The list variant is set at the glossary's 8.5pt (see `packPrint.css`); a
+  // disclosure that is an ARGUMENT keeps the pack's 9.5pt prose size.
+  const notePt = twoColumn ? 8.5 : 9.5;
+  const noteLines = disclosure.notes.map((n) => wrappedLines(`${n.heading} ${n.body}`, notePt, measure));
   const total = noteLines.reduce((a, b) => a + b, 0);
   if (twoColumn) {
     // Each note is `break-inside: avoid`, so the block is the taller of the
@@ -125,7 +128,7 @@ export function disclosureMm(disclosure: PackDisclosure, orientation: PageOrient
     // block ten millimetres for eight one-line facts. The gap is now zero in
     // `packPrint.css` — a list of label-and-value pairs on a 14pt leading is
     // separated already — and the balancer is paid for on purpose.
-    return heading + 1.5 + lines(balancedLines(noteLines) + 1, 14);
+    return heading + 1.5 + lines(balancedLines(noteLines) + 1, 12);
   }
   if (orientation === 'portrait') return heading + disclosure.notes.length * 1.5 + lines(total, 14);
   // Landscape sets the notes in two balanced columns (`column-count: 2`) and

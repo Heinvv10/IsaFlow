@@ -347,6 +347,15 @@ html.print-mode .pack-pages {
 }
 .pack-disclosure.is-two-column .pack-disclosure-body { break-inside: avoid; }
 .pack-disclosure.is-two-column .pack-disclosure-body + .pack-disclosure-body { margin-top: 0; }
+/* THE SAME SIZE AS THE GLOSSARY UNDER IT. Page 12 sets two lists one above the
+ * other — eight label-and-value facts, then sixteen defined terms — and set
+ * them at 9.5/14 and 8.5/12 respectively, which is a distinction the page
+ * cannot justify: both are reference matter a reader consults rather than
+ * reads through, and the smaller of the two is the one carrying sixteen
+ * entries. The list variant now matches `.pack-definitions`. It is worth 5.5mm
+ * on the tightest prose page in the pack, which is the difference between
+ * Brightsphere stating the ledger it was rendered against and not. */
+.pack-disclosure.is-two-column .pack-disclosure-body { font-size: 8.5pt; line-height: 12pt; }
 .pack-disclosure-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0; }
 .pack-disclosure-body { font-size: 9.5pt; line-height: 14pt; margin: 0; }
 /* Negative equity (spec §3.5) is the one disclosure the pack cannot let a

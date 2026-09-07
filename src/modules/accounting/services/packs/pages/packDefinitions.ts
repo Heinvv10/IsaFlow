@@ -185,16 +185,32 @@ export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): P
 
   const ebitdaDefinition: PackDefinition = {
     term: 'EBITDA',
-    definition:
-      'Earnings before interest, tax, depreciation and amortisation — a non-IFRS measure, taken '
-      + 'from operating profit (already stated before interest and tax) plus the depreciation and '
-      + 'amortisation charged in the period. '
-      + (credited
-        ? 'The charge for this period is a NET CREDIT — more was reversed out of the depreciation '
-          + 'accounts than was posted into them — so the add-back is negative and EBITDA is below '
-          + 'operating profit. That is the ledger\'s own movement, not a sign error: the credit has '
-          + 'already raised operating profit, and this takes it back out.'
-        : charged
+    // THE CREDITED BRANCH SAYS THE SAME THING IN A THIRD OF THE WORDS, AND
+    // THAT IS A CORRECTION RATHER THAN A TRIM. Written as a paragraph appended
+    // to the shared preamble, it cost the glossary 7.4mm — and page 12 has
+    // about 1.7mm of paper to spare, so on the live Brightsphere ledger, whose
+    // depreciation movement IS a net credit, it pushed the page over and the
+    // fitter paid for it by taking SIX of the eight basis-of-preparation facts
+    // including the ledger version. A sentence explaining a sign cannot cost
+    // the page its audit anchor.
+    //
+    // It is shorter because the preamble is not repeated: "plus the
+    // depreciation and amortisation charged in the period" is what the
+    // credited case has to contradict, so the branch now supplies its own
+    // clause instead of arguing with a phrase above it. Every claim survives —
+    // that the movement is a net credit, that the add-back is therefore
+    // negative, that EBITDA lands below operating profit, and that this is the
+    // ledger's movement rather than a sign error.
+    definition: credited
+      ? 'Earnings before interest, tax, depreciation and amortisation — a non-IFRS measure: '
+        + 'operating profit plus the period\'s movement on depreciation and amortisation. That '
+        + 'movement is a NET CREDIT here — more reversed out of those accounts than posted in — so '
+        + 'the add-back is negative and EBITDA sits below operating profit. The ledger\'s movement, '
+        + 'not a sign error.'
+      : 'Earnings before interest, tax, depreciation and amortisation — a non-IFRS measure, taken '
+        + 'from operating profit (already stated before interest and tax) plus the depreciation and '
+        + 'amortisation charged in the period. '
+        + (charged
           ? 'The bridge below is the whole of it; there are no other adjustments.'
           : 'None was charged this period, so the add-back is nil and EBITDA equals operating '
             + 'profit — what the ledger says, not a measure the pack failed to compute.'),
