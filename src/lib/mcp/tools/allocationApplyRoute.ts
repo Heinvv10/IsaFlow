@@ -34,8 +34,20 @@
  * retry writes it again. `confirmReceiptMatch` re-runs its plan post-write as a
  * race guard, so it genuinely can throw after writing — catching that here
  * would commit a journal while reporting nothing happened. Every refusal must
- * therefore come from `invoiceSkipReason` BEFORE the first write; after that,
- * everything propagates.
+ * therefore be raised BEFORE the first write; after that, everything propagates.
+ *
+ * WHAT ACTUALLY REFUSES, on each path — this header used to name one function
+ * that neither path calls. The BATCH path runs `skipReasonForInvoice` and
+ * `signMismatchReason` inside `partitionAllocationLines`, pre-write, and skips.
+ * The SINGLE-LINE path runs `signMismatchReason` in `postAndApplyLine` below,
+ * and otherwise relies on the apply services' own pre-write validation
+ * (`validateBankSupplierPayment` / `validateBankReceiptApplication`), which
+ * throw before they write. `invoiceSkipReason` is the single-line convenience
+ * wrapper that was meant to close the wording gap between the two and is called
+ * by NOTHING — it was already dead before this file was last touched. Left in
+ * place rather than removed: wiring it up is a real behaviour change (a
+ * mid-write throw becomes a pre-write refusal with better wording) and belongs
+ * to whoever decides that, not to a comment correction.
  */
 
 import type { McpToolContext } from '../types';

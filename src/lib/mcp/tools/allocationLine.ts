@@ -235,7 +235,8 @@ export async function postAllocationLine(
   //
   // Deliberately NOT wrapped: once that service starts writing, a caught error
   // would release the tool's savepoint and COMMIT a partial write under a
-  // success-shaped reply. Refusals belong to `invoiceSkipReason`, pre-write.
+  // success-shaped reply. Refusals belong before the first write — see the
+  // header of allocationApplyRoute.ts for which check owns which path.
   const applyKind = applyRouteFor(line.allocType, line.invoiceId);
   if (applyKind !== null) {
     return postAndApplyLine({
