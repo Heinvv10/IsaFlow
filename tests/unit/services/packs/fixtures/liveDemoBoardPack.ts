@@ -166,6 +166,49 @@ export const liveDemoInput: BoardPackInput = {
 };
 
 /**
+ * THE TWO SHAPES THAT PRINTED FOURTEEN AND THIRTEEN SHEETS.
+ *
+ * `MATTERS_PRINTED_MAX` seeded its keep-set with EVERY null-quantum matter
+ * before it consulted the cap, so a company whose matters are mostly filings
+ * printed all of them. A reviewer reproduced both through the print harness at
+ * the commit that claimed the twelve-sheet contract: twenty long null-quantum
+ * matters at fourteen sheets, twenty-six short ones at thirteen.
+ *
+ * Both are reachable — `getOverdueStatutoryFilings` emits one matter per
+ * unfiled `afs_documents` row with no `LIMIT` and no `DISTINCT` on fiscal
+ * year — and neither could fail a build, because nothing in the live route
+ * counts sheets. They are here as the fixtures the line budget is measured
+ * against, LONG and SHORT, because a row's cost is its text and a row count
+ * cannot tell the two apart.
+ *
+ * The long wording is `buildMatters`' own `failedSourceMatter`, which embeds
+ * `String(error)`; the short one is the overdue-filing wording above.
+ */
+const nullQuantumMatter = (issue: string): PackMatter => ({
+  issue,
+  quantum: null,
+  owner: 'Finance',
+  movement: NO_PRIOR_MEETING_RECORD,
+  decisionRequired: 'Approve immediate filing and confirm any penalty exposure.',
+});
+
+export const manyLongNullQuantumMattersInput: BoardPackInput = {
+  ...liveDemoInput,
+  matters: Array.from({ length: 20 }, (_, i) =>
+    nullQuantumMatter(
+      `The aged debtor concentration check could not be run, so this pack does not state it: `
+      + `Error: connection to the reporting replica was reset while reading company `
+      + `d27bac33-0000-0000-0000-00000000${String(i).padStart(4, '0')}`,
+    )),
+};
+
+export const manyShortNullQuantumMattersInput: BoardPackInput = {
+  ...liveDemoInput,
+  matters: Array.from({ length: 26 }, (_, i) =>
+    nullQuantumMatter(`Annual Financial Statements for FY${2000 + i} is ${100 + i} day(s) overdue`)),
+};
+
+/**
  * The same pack with a cash series that runs one calendar month PAST the
  * reporting date, which is what `monthSlots` used to return.
  *
