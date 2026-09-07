@@ -68,9 +68,11 @@ export type PageOrientation = keyof typeof PAGE_BOX_MM;
  * lines and Chromium set four, which is the direction that ships a
  * thirteenth sheet. Page titles carry figures for the same reason.
  *
- * The classes are coarse on purpose: this is a budget, not a shaper, and
- * `packPageMetrics.test.ts` re-measures the result against Chromium on every
- * fixture rather than trusting the table.
+ * The classes are coarse on purpose: this is a budget, not a shaper.
+ * `packTextMetrics.test.ts` measures the table itself against Chromium across
+ * nine scripts and four measures, and `packSheetCount.test.ts` measures its
+ * consequence — the page model — against Chromium on every fixture. Neither
+ * trusts the numbers below.
  */
 const EM_SPACE = 0.26;
 const EM_NARROW = 0.34;
@@ -78,6 +80,28 @@ const EM_DIGIT = 0.62;
 const EM_UPPER = 0.68;
 const EM_WIDE = 0.84;
 const EM_DEFAULT = 0.47;
+/**
+ * Cyrillic and Greek, which are set a little wider than the Latin mean.
+ * Measured at 0.55 and budgeted at 0.62.
+ */
+const EM_CYRILLIC_GREEK = 0.62;
+/**
+ * A full em — CJK, kana, Hangul, and anything else this table does not know.
+ *
+ * The table was fitted to English and handed `EM_DEFAULT` to every codepoint
+ * outside it, so a Chinese sentence measured a little under half its width:
+ * the model called a 34mm column two lines where Chromium set five. It
+ * UNDER-read, which is the direction that puts a page on a second sheet, and
+ * it is reachable with real data rather than hypothetical — the matters table
+ * carries issue text and journal references straight out of a company's
+ * ledger, typed by a person.
+ *
+ * The unknown-script case defaults HERE rather than to `EM_DEFAULT`, because
+ * a script this file has not measured is one it must over-count.
+ * `packTextMetrics.test.ts` holds all of it against Chromium's own layout, in
+ * the real face, across nine scripts and four measures.
+ */
+const EM_FULL = 1;
 /** Narrow glyphs: the letters set on a thin advance, and most punctuation. */
 const NARROW = new Set([...'ijltfr.,;:\'"!|()[]{}-–…/']);
 /** The two letters set wider than an en — `m` and `w`, and their capitals. */
@@ -90,7 +114,9 @@ function charEms(ch: string): number {
   if (NARROW.has(ch)) return EM_NARROW;
   if (ch >= '0' && ch <= '9') return EM_DIGIT;
   if (ch >= 'A' && ch <= 'Z') return EM_UPPER;
-  return EM_DEFAULT;
+  if (ch <= '\u00ff') return EM_DEFAULT;
+  if (ch >= '\u0370' && ch <= '\u04ff') return EM_CYRILLIC_GREEK;
+  return EM_FULL;
 }
 
 /** How wide a string is, in ems. */
