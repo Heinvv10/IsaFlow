@@ -78,6 +78,40 @@ describe('a page the composer cannot fit', () => {
     expect(pageMm(fitted)).toBeLessThanOrEqual(pageBoxMm(fitted));
   });
 
+  /**
+   * AND THE NOTICE IS WRITTEN FOR THE READER, NOT ABOUT THE COMPOSITOR.
+   *
+   * It reached paper as: `This page had room for its figures and not for all
+   * of its prose: 1 explanatory note — from "Commentary" is not printed.` A
+   * board pack does not narrate its own production, the em-dashed clause sat
+   * between the subject and its verb so the sentence did not parse, and the
+   * heading was set in straight double quotes in a document that uses
+   * typographic ones everywhere else.
+   */
+  it('names what is missing in the reader\'s terms, not the compositor\'s', () => {
+    const subject = page([disclosure('Commentary', 40, false)]);
+    const said = fitPageReport(subject).page.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
+    expect(said, 'the page dropped a note and said nothing').toBeDefined();
+    const text = said!.text;
+
+    // What is missing, named.
+    expect(text).toContain('explanatory note');
+    expect(text, 'the reader is not told which disclosure lost its note').toContain('Commentary');
+    // And that no FIGURE was touched, which is the part that decides whether
+    // the omission matters.
+    expect(text).toContain('Every figure, table and chart on the page is complete');
+
+    // Not the pack talking about its own layout.
+    for (const production of ['had room', 'not for all of its prose', 'this page had']) {
+      expect(text.toLowerCase(), `the notice describes the compositor's problem: "${production}"`)
+        .not.toContain(production);
+    }
+    // Typographic quotes, like the rest of the pack.
+    expect(text, 'straight double quotes reached a printed sheet').not.toContain('"');
+    // And it parses: no clause cut in half by a dash before its verb.
+    expect(text, 'an em-dashed clause splits the subject from its verb').not.toMatch(/—[^.]*\bis not printed/);
+  });
+
   it('REFUSES a page it cannot fit rather than handing it back over the paper', () => {
     // One required note longer than the sheet. There is no lever: its first
     // note is never taken, and there is nothing else on the page. The first

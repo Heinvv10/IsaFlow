@@ -142,7 +142,24 @@ function tookSomething(dropped: Dropped): boolean {
  * Exported so the tests look for the same string the page prints rather than
  * a second spelling of it.
  */
-export const OMISSION_MARK = 'This page had room for its figures and not for all of its prose';
+/**
+ * AND IT IS WRITTEN FOR THE READER, NOT ABOUT THE COMPOSITOR.
+ *
+ * It read: `This page had room for its figures and not for all of its prose:
+ * 1 explanatory note — from "Commentary" is not printed. Every figure, table
+ * and chart on the page is complete.` Three things wrong with that sentence
+ * and only one of them is grammar. It narrates the pack's own production,
+ * which no listed-company pack does; it puts an em-dashed clause between the
+ * subject and its verb so the sentence does not parse; and it sets the
+ * disclosure heading in straight double quotes in a document that uses
+ * typographic ones everywhere else.
+ *
+ * What a director needs from this footnote is what is not on the page and
+ * whether it matters — which is: a named note, and the fact that no FIGURE
+ * was touched. That is what it now says, in that order, with the production
+ * detail left where it belongs, which is out.
+ */
+export const OMISSION_MARK = 'Not printed on this page';
 
 function omissionText(dropped: Dropped): string {
   const parts: string[] = [];
@@ -156,15 +173,12 @@ function omissionText(dropped: Dropped): string {
     parts.push(`${dropped.requiredNotes} ${dropped.requiredNotes === 1 ? 'note' : 'notes'} from a `
       + 'disclosure this pack is required to make');
   }
-  const count = dropped.notes + dropped.footnotes + dropped.requiredNotes;
-  // "1 explanatory note ARE not printed" printed on a live pack. The count is
-  // known here, so the verb agrees with it.
-  const verb = count === 1 ? 'is' : 'are';
   const where = dropped.from.length === 0
     ? ''
-    : ` — from ${dropped.from.map((h) => `"${h}"`).join(' and ')}`;
-  return `${OMISSION_MARK}: ${parts.join(', ')}${where} ${verb} not printed. `
-    + 'Every figure, table and chart on the page is complete.';
+    : `, from ${dropped.from.map((h) => `\u201c${h}\u201d`).join(' and ')}`;
+  return `${OMISSION_MARK}: ${parts.join(', ')}${where}. `
+    + 'Every figure, table and chart on the page is complete — what is missing is prose '
+    + 'about them, and it can be asked for.';
 }
 
 /** The omission footnote, numbered after whatever survives on the page. */
