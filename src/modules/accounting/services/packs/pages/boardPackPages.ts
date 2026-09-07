@@ -239,7 +239,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         note('What this means', negativeRevenueSentence(set.current.revenue, scale)),
       ])];
 
-  const profitBridge = buildProfitWaterfallChart(set, scale);
+  // The bridge steps down a rung where this page also carries the trends
+  // cross-reference footnote — see `buildProfitWaterfallChart`. Derived from
+  // the same call that puts the footnote on the page below, so the height and
+  // the footnote cannot disagree about whether the panel exists.
+  const grossMarginWindowNote = periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', 1);
+  const profitBridge = buildProfitWaterfallChart(set, scale, grossMarginWindowNote.length > 0);
   const profitPlug = disproportionatePlugSentence(profitBridge, scale);
   const profitBridgeCaveat: PackPageBlock[] = profitPlug === null
     ? []

@@ -169,8 +169,14 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
  *   bar labels and the y-axis. The bridge's own `start`/`end` figures stay
  *   raw — the integrity gate walks them, and scaling a model figure would
  *   put a display transform where a check reads.
+ * @param carriesWindowNote Whether the page also carries the trends
+ *   cross-reference footnote — see `crowded` below.
  */
-export function buildProfitWaterfallChart(set: PackFigureSet, scale: MoneyScale): PackChartSpec {
+export function buildProfitWaterfallChart(
+  set: PackFigureSet,
+  scale: MoneyScale,
+  carriesWindowNote = false,
+): PackChartSpec {
   const f = set.current;
   const steps = buildProfitWaterfall({
     revenue: f.revenue,
@@ -197,8 +203,22 @@ export function buildProfitWaterfallChart(set: PackFigureSet, scale: MoneyScale)
   // measured 244.8mm in a 255mm box before it — so the page refused rather
   // than printing the callout. The disclosure costs ~28mm and a rung gives
   // back 38.
+  //
+  // AND A FOURTH FOOTNOTE BUYS IT TOO, WHICH IS THE CASE THAT WAS MISSING.
+  // On the live demo company the page carries neither disclosure and still
+  // came to 255.83mm in a 255mm box — eight tenths of a millimetre — once the
+  // trends cross-reference footnote landed on it, so `fitPageToBox` dropped
+  // that footnote AND the prior-column basis and printed "Not printed on this
+  // page: 2 footnotes" to a board. Nothing shorter than a rung closes it: the
+  // two footnotes that could be trimmed both say something the page needs,
+  // and the sheet has no optional prose at all. The cross-reference footnote
+  // only exists where the trends page draws a gross-margin panel, so this is
+  // the same conditional shape as the two above — the chart gives a rung back
+  // exactly where the page has something more to say.
   const share = uncapturedShare(bars);
-  const crowded = (share !== null && share >= UNCAPTURED_SHARE_LIMIT) || f.revenue < 0;
+  const crowded = (share !== null && share >= UNCAPTURED_SHARE_LIMIT)
+    || f.revenue < 0
+    || carriesWindowNote;
   const box = crowded ? MID : FULL;
   return {
     id: 'profit-bridge',

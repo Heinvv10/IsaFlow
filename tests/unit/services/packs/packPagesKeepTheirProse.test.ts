@@ -41,31 +41,13 @@ const FIXTURES: [string, BoardPackInput][] = [
   ['cash in the millions', millionsCashInput],
 ];
 
-/**
- * ONE SHEET STILL DOES, AND IT IS NAMED HERE RATHER THAN EXCLUDED QUIETLY.
- *
- * The live demo income statement measures 255.83mm in a 255mm box once the
- * trends cross-reference footnote is on it — eight tenths of a millimetre,
- * paid for with two footnotes and an apology. Every lever that closes it
- * costs more than it buys: the bridge's next rung down gives back 38mm and
- * leaves the sheet a third empty, and the two footnotes that could be
- * shortened into it are the rounding note and the cross-reference, both of
- * which say something the page needs. It is a decision about the pack, not a
- * fix, so it is recorded as open. A sheet leaving or joining this list turns
- * the test red either way.
- */
-const OPEN: Record<string, string[]> = {
-  'the live demo company as it renders': ['6 Income statement'],
-};
-
 describe('no sheet apologises for its own layout', () => {
-  it.each(FIXTURES)('%s', (name, input) => {
+  it.each(FIXTURES)('%s', (unused, input) => {
     const doc = buildBoardPackPages(input);
     const apologised = doc.pages
       .filter((p) => p.footnotes.some((f) => f.text.startsWith(OMISSION_MARK)))
       .map((p) => `${p.number} ${p.navLabel}`);
-    expect(apologised, 'a sheet told the board its layout dropped prose')
-      .toEqual(OPEN[name] ?? []);
+    expect(apologised, 'a sheet told the board its layout dropped prose').toEqual([]);
   });
 
   /**
