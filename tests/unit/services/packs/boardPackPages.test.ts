@@ -121,6 +121,40 @@ describe('buildBoardPackPages', () => {
     }
   });
 
+  /**
+   * SAYS SOMETHING ABOUT REVENUE BELOW ZERO, AS IT DOES ABOUT ASSETS.
+   *
+   * Brightsphere's pack heads its income statement with revenue of (5 535)
+   * and puts the same figure on a highlights tile, with no callout anywhere,
+   * while a negative asset side two sheets later gets a full explanatory
+   * block. Negative turnover is at least as likely to be a posting error and
+   * more consequential — every margin in the pack divides by it — so a page
+   * that explains the one and stays silent on the other reads as though the
+   * silent one is normal.
+   */
+  it('explains revenue below zero on the page that heads with it', () => {
+    expect(brightsphereInput.set.current.revenue, 'this fixture is the negative-revenue case')
+      .toBeLessThan(0);
+    expect(demoInput.set.current.revenue, 'and this one is not').toBeGreaterThan(0);
+
+    const income = (input: typeof demoInput) =>
+      buildBoardPackPages(input).pages.find((p) => p.number === 6)!;
+
+    const disclosed = income(brightsphereInput).blocks.find(
+      (b) => b.kind === 'disclosure' && b.disclosure.heading === 'Negative revenue',
+    );
+    expect(disclosed, 'no block on the income statement explains negative turnover').toBeDefined();
+    expect(disclosed?.kind === 'disclosure' && disclosed.disclosure.required)
+      .toBe(true);
+    expect(disclosed?.kind === 'disclosure' && disclosed.disclosure.notes[0]?.body)
+      .toContain('revenue accounts are in net debit');
+
+    // And only where it applies — a caveat printed on every pack is furniture.
+    expect(income(demoInput).blocks.some(
+      (b) => b.kind === 'disclosure' && b.disclosure.heading === 'Negative revenue',
+    )).toBe(false);
+  });
+
   it('keeps the narrative page free of tabular figures, per spec §4.A page 4', () => {
     const page = doc.pages.find((p) => p.number === 4)!;
     // BOTH of §4.A's columns are prose, and so is the note saying where each

@@ -265,3 +265,25 @@ export function negativeEquitySentence(equity: number, scale: MoneyScale): strin
 export function negativeAssetsSentence(assets: number, scale: MoneyScale): string {
   return `Total assets are ${formatMoney(assets, { scale })}. An asset side below zero is not a position a business can hold; it means one or more asset accounts carry credit balances — commonly a bank account overdrawn beyond its recorded facility, or a control account posted against. The balance sheet still foots, so the pack reports it as the ledger states it; it should be traced to the accounts before this pack is relied on.`;
 }
+
+/**
+ * AND THE THIRD IMPOSSIBLE NUMBER, WHICH GOT NOTHING AT ALL.
+ *
+ * Brightsphere's pack heads its income statement with revenue of (5 535) and
+ * puts the same figure on a highlights tile, with no callout anywhere —
+ * while negative ASSETS, two sheets later and no stranger, get a full
+ * explanatory block. A pack that explains one anomaly and stays silent about
+ * another of the same class reads as though the silent one is normal.
+ *
+ * Negative turnover is at least as likely to be a posting error as a negative
+ * asset side, and it is more consequential: every margin, every ratio with
+ * revenue underneath it and the whole scorecard's profitability group are
+ * computed off it, and each of them is then reported as not meaningful for a
+ * reason the reader has to assemble from footnotes.
+ *
+ * Same shape as the other two: what it is, what causes it, what it does to
+ * the rest of the pack, and that the ledger is reported as it stands.
+ */
+export function negativeRevenueSentence(revenue: number, scale: MoneyScale): string {
+  return `Revenue is ${formatMoney(revenue, { scale })}. Turnover below zero is not a period a business can trade — it means the revenue accounts are in net debit, commonly credit notes or reversals exceeding the period's invoicing, or a receipt posted to an income account the wrong way round. Every margin in this pack divides by revenue, so each of them is reported as not meaningful rather than computed off a negative base. The pack reports the ledger as it stands; the revenue accounts should be traced before it is relied on.`;
+}

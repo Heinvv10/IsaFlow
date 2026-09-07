@@ -190,8 +190,16 @@ export function buildProfitWaterfallChart(set: PackFigureSet, scale: MoneyScale)
   // and three footnotes — 262.2mm in a 255mm box, so the income statement
   // printed on two sheets. The step-down is conditional on the same test the
   // disclosure is, so the height is given back exactly when it is needed.
+  //
+  // NEGATIVE REVENUE BUYS THE SAME RUNG, for the same reason. A company whose
+  // turnover is below zero must carry the "what this means" disclosure page 7
+  // already gives a negative asset side, and Brightsphere's income statement
+  // measured 244.8mm in a 255mm box before it — so the page refused rather
+  // than printing the callout. The disclosure costs ~28mm and a rung gives
+  // back 38.
   const share = uncapturedShare(bars);
-  const box = share !== null && share >= UNCAPTURED_SHARE_LIMIT ? MID : FULL;
+  const crowded = (share !== null && share >= UNCAPTURED_SHARE_LIMIT) || f.revenue < 0;
+  const box = crowded ? MID : FULL;
   return {
     id: 'profit-bridge',
     title: `Revenue of ${formatMoney(f.revenue, { scale })} bridges to net profit of ${formatMoney(f.netProfit, { scale })}.`,

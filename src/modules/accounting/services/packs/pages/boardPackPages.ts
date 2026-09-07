@@ -35,6 +35,7 @@ import {
   incomeStatementTitle,
   largestMoverCaption,
   narrativeTitle,
+  negativeRevenueSentence,
   positionTitle,
   resultsTitle,
   scorecardCaption,
@@ -227,6 +228,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // interest and tax, which no field carries. Where that step is a material
   // share of the figure the bridge lands on, the page must say so, and the
   // integrity gate refuses a pack that draws it silently.
+  const negativeRevenueCaveat: PackPageBlock[] = set.current.revenue >= 0
+    ? []
+    : [mustDisclose('Negative revenue', [
+        note('What this means', negativeRevenueSentence(set.current.revenue, scale)),
+      ])];
+
   const profitBridge = buildProfitWaterfallChart(set, scale);
   const profitPlug = disproportionatePlugSentence(profitBridge, scale);
   const profitBridgeCaveat: PackPageBlock[] = profitPlug === null
@@ -275,6 +282,10 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       { kind: 'table', table: income },
       { kind: 'chart', chart: profitBridge },
       commentary(largestMoverCaption(income.rows)),
+      // The same treatment page 7 gives negative assets. Brightsphere heads
+      // this page with revenue of (5 535) and said nothing about it, two
+      // sheets before explaining a negative asset side at length.
+      ...negativeRevenueCaveat,
       ...profitBridgeCaveat,
       // The reciprocal of the trends page's own window note rides in this
       // page's FOOTNOTES, below — see `periodWindowFootnotes`.
