@@ -199,10 +199,31 @@ describe('the printed board pack', () => {
         letters(printed.sheetText[index] ?? ''),
         `sheet ${index + 1} does not carry page ${page.number}'s title: "${page.title}"`,
       ).toContain(letters(page.title));
+
+      // THE NAME IS ASSERTED IN THE TITLE'S POSITION, and against the whole
+      // of what that position emits.
+      //
+      // The previous round searched the whole sheet for the label's letters.
+      // Hiding the heading failed it on sheets 3, 4, 6 and 10 — the four that
+      // were broken — and PASSED on 5, 7, 9 and 12, whose conclusion
+      // sentences happen to contain their own nav label's letters. The fix
+      // was real on all ten sheets and the guard held four of them: a test
+      // that passes because its search string is a substring of unrelated
+      // prose is not asserting what its name says.
+      //
+      // Equality, not containment, so the title slot is an ALLOW-LIST: the
+      // heading emits the Contents page's own string and nothing else.
+      expect(
+        printed.pageNames[index],
+        `sheet ${index + 1} prints nothing in its title position, or prints something other `
+          + `than "${page.navLabel}" — which is what the Contents page promises at number ${page.number}`,
+      ).toBe(page.navLabel);
+
+      // And it reached the PAPER. The line above reads the laid-out DOM,
+      // which cannot see a heading painted in white or printed off the edge.
       expect(
         letters(printed.sheetText[index] ?? ''),
-        `sheet ${index + 1} does not name itself "${page.navLabel}", which is what the `
-          + `Contents page promises at number ${page.number}`,
+        `sheet ${index + 1}'s title position holds "${page.navLabel}" but the sheet does not print it`,
       ).toContain(letters(page.navLabel));
     }
   }, 120_000);

@@ -102,6 +102,25 @@ export interface PrintedPack {
      *  a page that fits. */
     blocks: Array<{ what: string; mm: number }>;
   }>;
+  /**
+   * The NAME each sheet prints in its title position — `.pack-page-header
+   * .pack-page-name` — as the printing browser painted it, or null where
+   * nothing is painted there.
+   *
+   * Positional, and the reason is the guard it replaces: asserting the nav
+   * label appears ANYWHERE on the sheet passed on six of the ten content
+   * pages with the title hidden, because those pages' conclusion sentences
+   * happen to contain the label's letters. A test that passes because its
+   * search string is a substring of unrelated prose is not asserting what its
+   * name says.
+   *
+   * Read from the laid-out DOM under print media rather than from the PDF
+   * text, because a PDF is a flat bag of glyphs with no idea which of them is
+   * a heading. Visibility is resolved rather than assumed: an element with no
+   * client rects, `visibility: hidden`, or zero opacity paints nothing, and
+   * that is exactly the mutation this must go red on.
+   */
+  pageNames: Array<string | null>;
   pdf: Buffer;
 }
 
@@ -203,6 +222,19 @@ export async function printBoardPack(
       });
     }, { px: PX_PER_MM, portrait: CONTENT_BOX_MM, landscape: LANDSCAPE_BOX_MM });
 
+    const pageNames = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('.pack-page')).map((el) => {
+        const name = el.querySelector('.pack-page-header .pack-page-name');
+        if (name === null) return null;
+        const style = getComputedStyle(name);
+        const painted = (name as HTMLElement).getClientRects().length > 0
+          && style.visibility !== 'hidden'
+          && Number.parseFloat(style.opacity) > 0;
+        if (!painted) return null;
+        return (name.textContent ?? '').replace(/\s+/g, ' ').trim();
+      });
+    });
+
     // The cover's brand band, as the printing browser resolved it.
     //
     // Not a pixel count — this harness has no PNG decoder — but it is read
@@ -250,7 +282,7 @@ export async function printBoardPack(
       };
     };
     const { total, pages } = await new PDFParse({ data: pdf }).getText();
-    return { sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, coverBand, pdf };
+    return { sheets: total, sheetText: pages.map((p) => p.text), overflow, heights, coverBand, pageNames, pdf };
   } finally {
     await page.close();
   }
