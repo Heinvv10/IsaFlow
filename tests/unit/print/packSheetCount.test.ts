@@ -40,12 +40,11 @@ import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture'
 import { printBoardPack, type PrintedPack } from './renderPackPdf';
 import { buildMattersBlock } from '@/modules/accounting/services/packs/pages/packPageBlocks';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import {
-  MATTERS_LINE_CEILING,
-  MATTERS_PRINTED_LINE_BUDGET,
-  selectPrintedMatters,
-} from '@/modules/accounting/services/packs/pages/packMattersPrinted';
+import { selectPrintedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
+import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
+import { fitPageToBox, OMISSION_HEADING } from '@/modules/accounting/services/packs/pages/packPageFit';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 const FIXTURES = {
   demo: demoInput,
@@ -98,24 +97,134 @@ describe('the printed board pack', () => {
 
 
   /**
-   * THE FITTED CONSTANT IS RE-MEASURED, NOT DESCRIBED.
+   * NO PAGE RUNS PAST ITS BOX. On the paper, on every fixture.
    *
-   * `MATTERS_PRINTED_LINE_BUDGET`'s docblock used to say "That is 47; this is
-   * 40, and the eight lines of slack" while the constant beside it was 30 —
-   * the one comment a reviewer has to trust about a fitted number, wrong by a
-   * third, in the direction that costs a director rows on the page. The
-   * budget is now `MATTERS_LINE_CEILING` less its slack, and the CEILING is
-   * what this pins: at 34 every matters-heavy fixture still prints one sheet
-   * per page, and at 35 one of them does not.
+   * The sheet count alone cannot say this, and that is not a theoretical gap:
+   * the render that shipped thirteen sheets had a page 19mm past a 168mm
+   * landscape box, and the harness reported twelve because it measured that
+   * page at the PORTRAIT width. A page 0.5mm over is one Chromium rounding
+   * away from a second sheet on a different machine, so the assertion is
+   * against the box rather than against the count that follows from it.
+   */
+  it('lays every page inside the box its sheet gives it', async () => {
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      const document = buildBoardPackPages(input);
+      const printed = await printBoardPack(document, browser);
+      // 0.2mm, not zero: `min-height: 255mm` reads back as 255.1 through the
+      // pixel conversion on every page that fits.
+      const over = printed.heights.filter((h) => h.overMm > 0.2);
+      expect(over.map((h) => `${h.id}: ${h.mm}mm in a ${h.boxMm}mm box`), `${name}: pages past their box`)
+        .toEqual([]);
+    }
+  }, 300_000);
+
+  /**
+   * THE COMPOSER'S OWN RULER IS NEVER SHORT.
    *
-   * Both halves matter. Without the second, "the ceiling is 34" would be
-   * satisfied by any number 34 or lower, which is exactly how a budget drifts
-   * six lines below the paper and nobody notices.
+   * `packPageMetrics` is what makes overflow impossible by construction: the
+   * composer measures a page before it is printed and trims it to fit. That
+   * is only worth anything while the measurement is CONSERVATIVE — a model
+   * that under-reads a block by 5mm passes a page that then takes a
+   * thirteenth sheet, which is exactly the failure the model replaced.
    *
-   * The probe re-selects the matters at the budget under test and swaps the
-   * page-11 block for the one that selection builds — the production builder,
-   * so the rows are the rows that page would carry. Only the table's LAYOUT
-   * is being measured here, which is the only thing a budget decides.
+   * So the contract is asserted in the direction that matters, page by page,
+   * against Chromium's own layout: the estimate may be generous and may never
+   * be short.
+   *
+   * AND IT IS CHECKED IN THE OTHER DIRECTION TOO, because a model answering
+   * 10 000mm to everything would satisfy the first half and trim every page
+   * to nothing. The bound that means something is not a millimetre count —
+   * it is that no fixture actually LOSES anything: seven documents, eighty-
+   * four pages, and not one of them carries the "Not printed on this page"
+   * disclosure. A model loose enough to cost a real company a note fails
+   * here.
+   */
+  it('never estimates a page shorter than the browser lays it out', async () => {
+    const slack: number[] = [];
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      const document = buildBoardPackPages(input);
+      const printed = await printBoardPack(document, browser);
+      for (const [index, page] of document.pages.entries()) {
+        // Pages 1 and 2 are the cover and the contents: their layout is not a
+        // block list and `PackCoverV2`/`PackContents` size them themselves.
+        if (!isContentPage(page.number)) continue;
+        const measured = printed.heights[index]!;
+        const estimate = pageMm(page);
+        expect(
+          Math.round(estimate * 10) / 10,
+          `${name} page ${page.number}: the composer budgeted ${estimate.toFixed(1)}mm and the `
+            + `browser laid out ${measured.contentMm}mm. An estimate below the paper is what puts `
+            + 'a page on a second sheet.',
+        ).toBeGreaterThanOrEqual(measured.contentMm);
+        slack.push(estimate - measured.contentMm);
+      }
+    }
+    expect(slack.length, 'no page was measured').toBeGreaterThan(60);
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      const trimmed = buildBoardPackPages(input).pages
+        .filter((p) => p.blocks.some((b) => b.kind === 'disclosure' && b.disclosure.heading === OMISSION_HEADING))
+        .map((p) => p.number);
+      expect(trimmed, `${name}: the budget cost these pages content they had room for`).toEqual([]);
+    }
+  }, 300_000);
+
+  /**
+   * AND THE ASSERTION ABOVE GOES RED WHEN A BLOCK IS LET OVERFLOW.
+   *
+   * A guard that has never failed is a guard nobody has checked. This puts
+   * ten notes of real prose on the scorecard page WITHOUT the composer's fit
+   * — the same shape as the debtor-days footnote that took sheet 10 — prints
+   * it, and requires the paper to say so. Then it runs the fit over the same
+   * page and requires one sheet and a disclosure.
+   */
+  it('spills onto a second sheet when a growable block is not budgeted', async () => {
+    const document = buildBoardPackPages(liveDemoInput);
+    const index = document.pages.findIndex((p) => p.navLabel === 'Scorecard');
+    expect(index).toBeGreaterThan(-1);
+    const scorecard = document.pages[index]!;
+
+    const flood: PackPage = {
+      ...scorecard,
+      blocks: [...scorecard.blocks, {
+        kind: 'disclosure',
+        disclosure: {
+          heading: 'Reconciliation of the measures on this page',
+          notes: Array.from({ length: 10 }, (unused, i) => ({
+            heading: `Measure ${i + 1}`,
+            body: 'This figure is the whole reporting period, measured on the period totals; the '
+              + 'trends page plots the same measure one month at a time. Different windows: the two '
+              + 'will not agree, and neither is derived from the other.',
+          })),
+        },
+      }],
+    };
+
+    const unbudgeted = { ...document, pages: document.pages.map((p, i) => (i === index ? flood : p)) };
+    const spilled = await printBoardPack(unbudgeted, browser);
+    expect(spilled.sheets, 'the flooded page did not spill — the probe proves nothing')
+      .toBeGreaterThan(unbudgeted.pages.length);
+    expect(spilled.heights[index]!.overMm).toBeGreaterThan(0.2);
+
+    // The same page, through the composer's fit.
+    const fitted = fitPageToBox(flood);
+    expect(pageMm(fitted)).toBeLessThanOrEqual(pageBoxMm(fitted));
+    const budgeted = { ...document, pages: document.pages.map((p, i) => (i === index ? fitted : p)) };
+    const printed = await printBoardPack(budgeted, browser);
+    expect(printed.sheets, sheetReport(printed.sheetText, printed.heights)).toBe(budgeted.pages.length);
+    expect(printed.heights.filter((h) => h.overMm > 0.2)).toEqual([]);
+    // And it SAYS what it dropped, on the sheet.
+    expect(printed.sheetText[index]!.replace(/\s+/g, ' ')).toContain(OMISSION_HEADING);
+  }, 300_000);
+
+  /**
+   * PAGE 11'S TABLE IS BUDGETED IN THE PAPER THE PAGE HAS LEFT.
+   *
+   * The budget used to be a constant fitted by sweeping it against this
+   * harness until a fixture spilled; it is now `remainingPageMm` of the page
+   * itself. This is the same measurement in the other direction: at the
+   * budget the composer computes, every matters-heavy fixture prints one
+   * sheet per page — and 20mm past it, one of them does not. Without the
+   * second half, "the budget fits" would be satisfied by a budget of zero.
    */
   const MATTERS_HEAVY: Array<[string, BoardPackInput]> = [
     ['live', liveDemoInput],
@@ -123,38 +232,37 @@ describe('the printed board pack', () => {
     ['many short null-quantum matters', manyShortNullQuantumMattersInput],
   ];
 
-  function packAtBudget(input: BoardPackInput, budget: number) {
+  function packAtBudget(input: BoardPackInput, extraMm: number) {
     const document = buildBoardPackPages(input);
+    const index = document.pages.findIndex((p) => p.blocks.some((b) => b.kind === 'matters'));
+    const page = document.pages[index]!;
+    const budget = pageBoxMm(page) - pageMm({
+      ...page,
+      blocks: page.blocks.map((b) => (b.kind === 'matters' ? { kind: 'matters', matters: [], omitted: null } : b)),
+    }) + extraMm;
     const block = buildMattersBlock(selectPrintedMatters(input.matters, budget), new PackFigureProvenance());
-    for (const page of document.pages) {
-      const index = page.blocks.findIndex((b) => b.kind === 'matters');
-      if (index >= 0) page.blocks[index] = block;
-    }
+    document.pages[index] = { ...page, blocks: page.blocks.map((b) => (b.kind === 'matters' ? block : b)) };
     return document;
   }
 
-  it('keeps the line budget under a ceiling that is measured, not asserted', async () => {
-    expect(MATTERS_PRINTED_LINE_BUDGET).toBeLessThan(MATTERS_LINE_CEILING);
-
+  it("spends the matters page's own remaining paper, and no more", async () => {
     for (const [name, input] of MATTERS_HEAVY) {
-      const document = packAtBudget(input, MATTERS_LINE_CEILING);
+      const document = packAtBudget(input, 0);
       const printed = await printBoardPack(document, browser);
-      expect(printed.sheets, `${name} at the ceiling: ${sheetReport(printed.sheetText, printed.heights)}`)
+      expect(printed.sheets, `${name} at its budget: ${sheetReport(printed.sheetText, printed.heights)}`)
         .toBe(document.pages.length);
     }
 
-    // And one line past it is over the paper — otherwise the ceiling is just
-    // the smallest number anyone happened to try.
     const over = await Promise.all(MATTERS_HEAVY.map(async ([name, input]) => {
-      const document = packAtBudget(input, MATTERS_LINE_CEILING + 1);
+      const document = packAtBudget(input, 40);
       const printed = await printBoardPack(document, browser);
       return { name, spilled: printed.sheets > document.pages.length };
     }));
     expect(
       over.filter((o) => o.spilled).map((o) => o.name).length,
-      `no fixture spills at ${MATTERS_LINE_CEILING + 1} lines, so the ceiling is lower than it claims`,
+      'no fixture spills 40mm past its budget, so the budget is looser than the paper',
     ).toBeGreaterThan(0);
-  }, 180_000);
+  }, 300_000);
 
   /**
    * EVERY CONTENT SHEET IDENTIFIES ITSELF AS THE PAGE THE CONTENTS NAMES.

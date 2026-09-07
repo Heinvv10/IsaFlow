@@ -102,7 +102,11 @@ export interface PrintedPack {
     colorAdjust: string;
   } | null;
   heights: Array<{
-    id: string; mm: number; boxMm: number; overMm: number;
+    id: string; mm: number; boxMm: number; overMm: number; landscape: boolean;
+    /** What the page's content measures, margins between blocks included and
+     *  `.pack-page`'s own sheet-high `min-height` excluded. `mm` answers "did
+     *  this spill"; this answers "is the composer's ruler honest". */
+    contentMm: number;
     /** Each direct child of the page box and its own height, for a page that
      *  is over — the block to shrink, named, instead of guessed at. Empty on
      *  a page that fits. */
@@ -214,19 +218,65 @@ export async function printBoardPack(
       return out;
     }, { landscape: LANDSCAPE_WIDTH_PX });
 
-    const heights = await page.evaluate((mmPerPx) => {
-      return Array.from(document.querySelectorAll('.pack-page')).map((el) => {
+    const measure = (mmPerPx: { px: number; portrait: number; landscape: number }) =>
+      Array.from(document.querySelectorAll('.pack-page')).map((el) => {
         const box = el as HTMLElement;
         const boxMm = box.hasAttribute('data-print-landscape') ? mmPerPx.landscape : mmPerPx.portrait;
         const mm = Math.round((box.scrollHeight / mmPerPx.px) * 10) / 10;
         const overMm = Math.round((mm - boxMm) * 10) / 10;
-        const blocks = overMm <= 0.2 ? [] : Array.from(box.children).map((child) => ({
+        const blocks = Array.from(box.children).map((child) => ({
           what: `${child.tagName.toLowerCase()}.${child.className || '-'}`,
           mm: Math.round(((child as HTMLElement).getBoundingClientRect().height / mmPerPx.px) * 10) / 10,
         }));
-        return { id: box.id || 'page', mm, boxMm, overMm, blocks };
+        // What the page's CONTENT measures, as against the box it sits in.
+        // `.pack-page` has a `min-height` of the whole sheet, so `scrollHeight`
+        // reads 255mm for a half-empty page — the right number for "did this
+        // spill" and useless for "did the composer's ruler read short".
+        const gaps = box.querySelectorAll(':scope > [data-pack-block]').length - 1;
+        const contentMm = Math.round((
+          blocks.reduce((sum, b) => sum + b.mm, 0)
+          + Math.max(0, gaps) * mmPerPx.blockGap
+          + (box.hasAttribute('data-print-landscape') ? mmPerPx.landscapeHeaderMargin : mmPerPx.headerMargin)
+        ) * 10) / 10;
+        return {
+          id: box.id || 'page', mm, contentMm, boxMm, overMm, blocks,
+          landscape: box.hasAttribute('data-print-landscape'),
+        };
       });
-    }, { px: PX_PER_MM, portrait: CONTENT_BOX_MM, landscape: LANDSCAPE_BOX_MM });
+
+    const geometry = {
+      px: PX_PER_MM,
+      portrait: CONTENT_BOX_MM,
+      landscape: LANDSCAPE_BOX_MM,
+      // `--pack-baseline` between two blocks, and the same value under
+      // `.pack-page-header` — neither is inside any child's own box.
+      blockGap: 4.5,
+      headerMargin: 4.5,
+      /** `.pack-page[data-print-landscape] .pack-page-header` halves it. */
+      landscapeHeaderMargin: 2,
+    };
+    const portraitPass = await page.evaluate(measure, geometry);
+
+    // A LANDSCAPE PAGE IS 261mm WIDE, AND THIS VIEWPORT IS 174.
+    //
+    // Every height above is read from a layout at the PORTRAIT measure, which
+    // is the right one for eleven of the twelve pages and wrong for the one
+    // that prints sideways: page 10 laid out at 174mm reported 187mm in a
+    // 168mm box on four fixtures while printing, correctly, on one sheet. A
+    // diagnostic that cries wolf on the one page nobody can check by eye is
+    // worse than none, and it is why this harness could report an overflowing
+    // page and a passing sheet count at the same time. So the landscape pages
+    // are re-measured in a second layout at their own width.
+    await page.setViewportSize({
+      width: LANDSCAPE_WIDTH_PX,
+      height: Math.round(LANDSCAPE_BOX_MM * PX_PER_MM),
+    });
+    const landscapePass = await page.evaluate(measure, geometry);
+    await page.setViewportSize({
+      width: Math.round((210 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM),
+      height: Math.round(CONTENT_BOX_MM * PX_PER_MM),
+    });
+    const heights = portraitPass.map((h, i) => (h.landscape ? landscapePass[i]! : h));
 
     const pageNames = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.pack-page')).map((el) => {

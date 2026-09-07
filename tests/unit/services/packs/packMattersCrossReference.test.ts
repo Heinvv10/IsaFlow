@@ -72,10 +72,16 @@ describe('page 4 and page 11, on the composed document', () => {
     const omitted = actions.find((i) => /not printed in this pack/.test(i));
 
     const rest = table.matters.length - named;
+    // Nothing at all when the panel already names every printed matter: "0
+    // further matters follow on the matters page" is a sentence about
+    // nothing, and the cross-reference gate reads the ABSENCE of the line as
+    // a remainder of zero.
     expect(follows).toBe(
-      rest === 1
-        ? '1 further matter follows on the matters page.'
-        : `${rest} further matters follow on the matters page.`,
+      rest === 0
+        ? undefined
+        : rest === 1
+          ? '1 further matter follows on the matters page.'
+          : `${rest} further matters follow on the matters page.`,
     );
     expect(omitted).toContain(`${table.omitted?.count} further matters are not printed in this pack`);
   });

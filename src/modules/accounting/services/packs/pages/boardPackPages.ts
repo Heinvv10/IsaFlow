@@ -72,10 +72,13 @@ import {
   buildTrendBlocks,
   commentary,
   disclose,
+  mustDisclose,
   note,
 } from './packPageBlocks';
 import type { PackMatter } from './packMatters';
 import { selectPrintedMatters } from './packMattersPrinted';
+import { fitPageToBox, remainingPageMm } from './packPageFit';
+import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
 // Debtor days printed 213 on the scorecard page and 63.7 on the trends
 // page, one sheet apart, with nothing on either saying that one is the
 // period and the other a month.
@@ -150,9 +153,35 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const cashBridge = buildCashWaterfallChart(set, scale);
   const cashTrend = buildCashTrendChart(trend, scale);
   const panels = buildTrendPanels(trend, scale);
+  // PAGE 11'S OWN BLOCKS, BEFORE ITS TABLE — because the table's budget is
+  // whatever they leave behind.
+  //
+  // The budget used to be a fitted constant in `packMattersPrinted.ts`, swept
+  // against the print harness until a fixture spilled. It was right for the
+  // fixtures that existed and said nothing about the page: change this
+  // page's commentary or its disclosure and the constant is silently wrong,
+  // which is how the pack has now produced three thirteen-sheet renders from
+  // three different blocks.
+  const mattersTitle = 'Matters requiring board attention';
+  const mattersOtherBlocks: PackPageBlock[] = [
+    { kind: 'narrative', narrative: input.mattersCommentary ?? pending },
+    disclose('What was checked', [
+      note('Sources', 'Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A source that fails appears as a named matter, never as a silent omission.'),
+      note('Movement', 'No prior board pack is stored, so movement since the last meeting is stated as untracked rather than computed from a period comparison, which would answer a different question.'),
+    ]),
+  ];
   // ONE selection, read by page 4's panel and page 11's table alike — derived
   // twice, they contradicted each other. See `SelectedMatters`.
-  const matters = selectPrintedMatters(input.matters);
+  const matters = selectPrintedMatters(
+    input.matters,
+    remainingPageMm(page(mattersTitle, 'Matters for the board', 'Governance', 'medium', [
+      { kind: 'matters', matters: [], omitted: null },
+      ...mattersOtherBlocks,
+      // Reserved, not discovered: a selection that leaves anything out grows
+      // the table by its own "N further matters are not printed" note, and a
+      // budget that has not paid for it overshoots the sheet by that much.
+    ])) - MATTERS_OMITTED_NOTE_MM,
+  );
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
@@ -176,7 +205,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const profitPlug = disproportionatePlugSentence(profitBridge, scale);
   const profitBridgeCaveat: PackPageBlock[] = profitPlug === null
     ? []
-    : [disclose('How much of this bridge is unexplained', [note('Size of the unexplained step', profitPlug)])];
+    : [mustDisclose('How much of this bridge is unexplained', [note('Size of the unexplained step', profitPlug)])];
 
   const cashBlocks = buildCashBlocks(cash, cashBridge, cashTrend, set, scale);
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
@@ -219,7 +248,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       // page's FOOTNOTES, below — see `periodWindowFootnotes`.
     ], 'portrait', [
       ...statementNotes,
-      ...periodWindowFootnotes(panels, 'trend-gross-margin', statementNotes.length + 1),
+      ...periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', statementNotes.length + 1),
     ]),
     page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
     page(cashTitle(set, scale), 'Cash', 'Financials', 'high', cashBlocks, 'portrait', statementNotes),
@@ -230,22 +259,18 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         note('Targets', 'Targets are the platform defaults; a metric with no target is shown unscored rather than assumed met.'),
         note('Not meaningful', 'A metric shown as not meaningful states its own reason — an unreportable ratio is never printed as a number.'),
       ]),
-    ], 'portrait', periodWindowFootnotes(panels, 'trend-debtor-days', 1)),
+    ], 'portrait', periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1)),
     // The one landscape page in the pack, per spec §4.A page 10 and R5: the
     // orientation is a PAGE-level property the print CSS keys off, never a
     // document-level flag, which would turn the whole pack sideways.
     page(trendsTitle(trend, panels.length, TRENDS_PANELS_SPECIFIED), 'Trends', 'Performance', 'high', trendBlocks, 'landscape'),
-    page('Matters requiring board attention', 'Matters for the board', 'Governance', 'medium', [
+    page(mattersTitle, 'Matters for the board', 'Governance', 'medium', [
       // Spec §4.A page 11 asks for a TABLE — issue, quantum, owner, movement,
       // decision required. Prose notes carried the same five facts but a
       // director scanning for "which of these needs me" had to read every
       // paragraph to find the owner column.
       buildMattersBlock(matters, p),
-      { kind: 'narrative', narrative: input.mattersCommentary ?? pending },
-      disclose('What was checked', [
-        note('Sources', 'Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A source that fails appears as a named matter, never as a silent omission.'),
-        note('Movement', 'No prior board pack is stored, so movement since the last meeting is stated as untracked rather than computed from a period comparison, which would answer a different question.'),
-      ]),
+      ...mattersOtherBlocks,
     ]),
     buildBasisPage(basis, input.period, comparativePeriod, scale, currency),
   ];
@@ -265,7 +290,12 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       basis,
       basisPageNumber: total,
     }),
-    ...body,
+    // EVERY page, held to its sheet. The matters table spends page 11's
+    // budget above; this is the same rule applied to the prose on the other
+    // eleven, and it is what makes the contents page's twelve and the
+    // footers' `n / 12` statements the document cannot disprove. A page that
+    // already fits comes back untouched.
+    ...body.map(fitPageToBox),
   ]);
 
   const document: PackPagesDocument = {

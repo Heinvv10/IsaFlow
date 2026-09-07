@@ -25,9 +25,11 @@
  * distinction that made the previous cap not a cap.
  */
 import type { PackMatter } from './packMatters';
+import { linesForChars } from './packPageMetrics';
 
 /**
- * THE BUDGET IS IN PRINTED LINES, NOT IN ROWS.
+ * THE BUDGET IS THE PAPER THE PAGE HAS LEFT, NOT A ROW COUNT AND NOT A
+ * FITTED CONSTANT.
  *
  * It was `MATTERS_PRINTED_MAX = 10`, and ten was measured — once, against one
  * company's twenty-eight matters. It is the wrong instrument twice over. It
@@ -37,16 +39,21 @@ import type { PackMatter } from './packMatters';
  * long null-quantum matters at FOURTEEN sheets and twenty-six short ones at
  * thirteen, through the harness, at HEAD. `getOverdueStatutoryFilings` has no
  * `LIMIT` and no `DISTINCT` on fiscal year, so a company with several draft
- * AFS documents across several years reaches both shapes on its own — and
- * nothing in the live route counts sheets, so it reaches a director as a
- * fourteen-page document whose contents page indexes twelve and whose footer
- * numbers every sheet `n / 12`.
+ * AFS documents across several years reaches both shapes on its own.
  *
- * A row's cost is its longest cell, wrapped. So the composer measures the
- * table it is about to print — including which prose columns collapse, which
- * depends on the rows chosen and therefore has to be re-measured as the set
- * grows — and stops at the budget. The sheet count stops depending on an
- * input distribution nobody sampled.
+ * It then became a LINE budget, fitted by sweeping a constant against the
+ * print harness until a fixture spilled — better, and still a number measured
+ * against the fixtures that existed on the day. The fixtures did not model
+ * the live company's note lengths, so the scorecard's own footnote overflowed
+ * next, on a page this file never looked at.
+ *
+ * So the budget is no longer a constant of this file at all. `packPageMetrics`
+ * measures every block the pack can print, in millimetres; `fitPageToBox`
+ * hands this function what page 11 has left after its heading, its commentary
+ * and its disclosure have been paid for. A row's cost is its longest cell,
+ * wrapped — including which prose columns collapse, which depends on the rows
+ * chosen and therefore has to be re-measured as the set grows — and the
+ * selection stops when the table would outgrow that space.
  */
 
 /**
@@ -57,7 +64,7 @@ import type { PackMatter } from './packMatters';
  * this prose, so ~94 characters span the table. Cell padding and the column
  * rules take the rest.
  */
-const TABLE_CHARS = 88;
+const TABLE_CHARS = 72;
 /** The quantum column is numeric and narrow — "Quantum (R'000)" is its widest
  *  cell. Taken off the top before the prose columns share what is left. */
 const QUANTUM_CHARS = 15;
@@ -65,20 +72,20 @@ const QUANTUM_CHARS = 15;
  *  columns beside it; this is its share when the shares are divided. */
 const ISSUE_SHARE = 2;
 
-/**
- * What a row costs beyond its text, as a fraction of a line.
- *
- * Cell padding and the rule under each row, which a wrapped-character count
- * cannot see and which dominate a table of ONE-line rows: twenty-six short
- * matters and twelve long ones overflowed by very different amounts under a
- * model that counted only text, and this is the term that reconciles them.
- */
-const ROW_OVERHEAD_LINES = 0.5;
+/** `.pack-table th` on this table wraps — "Quantum (R'000)" takes two lines —
+ *  so the header is budgeted at two. */
+const MATTERS_HEAD_MM = 12;
+/** One line of a `.pack-matters` row: 13pt of leading. */
+const MATTERS_LINE_MM = 13 * (25.4 / 72);
+/** What a row costs beyond its text: 1.2mm of cell padding top and bottom,
+ *  and the 0.5pt rule under it. */
+const MATTERS_ROW_PADDING_MM = 2.9;
 
 /** Lines a string of `text` takes in a column `chars` wide. At least one: an
- *  empty cell is still a row. */
+ *  empty cell is still a row. Word by word — see `packPageMetrics`'s own
+ *  `wrappedLines` for why a division under-counts. */
 function wrappedLines(text: string, chars: number): number {
-  return Math.max(1, Math.ceil(text.length / chars));
+  return linesForChars(text, chars);
 }
 
 /**
@@ -97,67 +104,36 @@ function wrappedLines(text: string, chars: number): number {
  */
 const PROSE_KEYS = ['owner', 'movement', 'decisionRequired'] as const;
 
-function printedProseKeys(matters: PackMatter[]): ReadonlyArray<(typeof PROSE_KEYS)[number]> {
+/**
+ * The cells a row's height depends on — its prose, and nothing else.
+ *
+ * Structural rather than `PackMatter`, because page 11 measures the block it
+ * is about to print and by then every matter's quantum has been through the
+ * provenance map and is a `PackFigureMatter`. The quantum column is numeric
+ * and `nowrap`; it cannot make a row taller, so neither shape needs it.
+ */
+export type MeasurableMatter = Pick<PackMatter, 'issue' | typeof PROSE_KEYS[number]>;
+
+function printedProseKeys(matters: MeasurableMatter[]): ReadonlyArray<(typeof PROSE_KEYS)[number]> {
   if (matters.length < 2) return PROSE_KEYS;
   return PROSE_KEYS.filter((key) => !matters.every((m) => m[key] === matters[0]![key]));
 }
 
-/** The lines this exact set of matters takes as a table, header included. */
-export function mattersTableLines(matters: PackMatter[]): number {
+/** The millimetres this exact set of matters takes as a table, header
+ *  included. Zero for an empty set — `MattersTable` draws no table at all. */
+export function mattersTableMm(matters: MeasurableMatter[]): number {
   if (matters.length === 0) return 0;
   const prose = printedProseKeys(matters);
   const shares = ISSUE_SHARE + prose.length;
   const unit = (TABLE_CHARS - QUANTUM_CHARS) / shares;
   const issueChars = unit * ISSUE_SHARE;
-  const rowLines = (m: PackMatter): number =>
-    ROW_OVERHEAD_LINES + Math.max(
+  const rowMm = (m: MeasurableMatter): number =>
+    MATTERS_ROW_PADDING_MM + MATTERS_LINE_MM * Math.max(
       wrappedLines(m.issue, issueChars),
       ...prose.map((key) => wrappedLines(m[key], unit)),
     );
-  // The header row, plus a line for the rule under it.
-  return 2 + matters.reduce((sum, m) => sum + rowLines(m), 0);
+  return MATTERS_HEAD_MM + matters.reduce((sum, m) => sum + rowMm(m), 0);
 }
-
-/**
- * THE CEILING IS MEASURED ON PAPER, AND THE BUDGET IS THE CEILING LESS ITS
- * SLACK — arithmetic, not prose.
- *
- * The previous docblock said "That is 47; this is 40, and the eight lines of
- * slack" while the constant beside it was 30: the one comment a reviewer has
- * to trust about a fitted constant misstated its value by a third, in the
- * conservative direction that costs a director rows on the page. A number
- * whose documentation is a sentence drifts from it; these two cannot, because
- * the budget is computed from the ceiling and both are pinned to printed
- * sheets by `packSheetCount.test.ts`.
- *
- * HOW THE CEILING WAS MEASURED. The constant was swept from 30 to 44 in
- * steps, and the whole print harness — seven fixtures, each rendered to a
- * real PDF in Chromium at A4 with the transports' own margins and the real
- * IBM Plex faces — was run at each value. Every fixture printed one sheet per
- * model page up to and including 34; at 35 the "many short null-quantum
- * matters" fixture printed thirteen sheets. So 34 is the largest budget this
- * pack's own worst shape survives, and `theCeilingIsWhereItSays` re-runs both
- * halves of that measurement (34 fits, 35 does not) on every CI run rather
- * than leaving it as a claim in a comment. Exported so that test asserts THIS
- * number rather than a copy of it.
- */
-export const MATTERS_LINE_CEILING = 34;
-
-/**
- * What the estimate above is allowed to be wrong by.
- *
- * `mattersTableLines` models a wrapped table with a character count and a
- * per-row overhead; it is a good estimate and not a layout engine. Two lines
- * is 7.8mm of the 255mm sheet — enough to absorb a row whose longest cell
- * wraps once more than the model thought, and small enough that the page is
- * not trimmed for a slack nothing has ever needed. Anything worse than two
- * lines is a modelling error rather than an estimate error, and the harness
- * is what catches it.
- */
-const MATTERS_BUDGET_SLACK = 2;
-
-/** The lines page 11 has for the table. */
-export const MATTERS_PRINTED_LINE_BUDGET = MATTERS_LINE_CEILING - MATTERS_BUDGET_SLACK;
 
 /**
  * ONE selection, read by BOTH pages that talk about the matters.
@@ -192,7 +168,10 @@ export interface SelectedMatters {
 
 export function selectPrintedMatters(
   matters: PackMatter[],
-  budget: number = MATTERS_PRINTED_LINE_BUDGET,
+  /** Millimetres of paper page 11 has left for the table — see
+   *  `mattersBudgetMm`. Required: a default here is a fitted constant
+   *  wearing an argument's clothes, which is what this file already had. */
+  budgetMm: number,
 ): SelectedMatters {
   if (matters.length === 0) return { printed: [], omitted: [], source: matters };
 
@@ -211,7 +190,7 @@ export function selectPrintedMatters(
   let keep: PackMatter[] = [];
   for (const matter of ranked) {
     const next = [...keep, matter];
-    if (mattersTableLines(next) > budget) break;
+    if (mattersTableMm(next) > budgetMm) break;
     keep = next;
   }
   // A single matter longer than the whole budget must still print — a page

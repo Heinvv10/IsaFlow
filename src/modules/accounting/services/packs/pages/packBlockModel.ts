@@ -165,6 +165,21 @@ export interface PackDisclosureNote {
 export interface PackDisclosure {
   heading: string;
   notes: PackDisclosureNote[];
+  /**
+   * True where the pack is not free to leave this note off the page.
+   *
+   * §3.5's negative-equity consequence, the negative-assets note beside it,
+   * the unexplained-plug sentence the integrity gate demands whenever a
+   * bridge foots on a step nothing measured, and every "why this chart is
+   * not here" explanation — an empty result is never an empty page, read in
+   * the other direction.
+   *
+   * `fitPageToBox` reads it: a page short of paper takes the pack's optional
+   * prose first and reaches these last, and never takes a required
+   * disclosure's first note, which would leave the heading standing over a
+   * disclosure that was not made.
+   */
+  required?: boolean;
 }
 
 /** One line of the IFRS-to-adjusted-measure bridge, each with its own figure

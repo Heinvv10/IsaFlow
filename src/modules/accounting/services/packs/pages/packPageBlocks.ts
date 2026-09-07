@@ -49,6 +49,22 @@ export const disclose = (heading: string, notes: PackDisclosureNote[]): PackPage
 });
 
 /**
+ * A disclosure the pack is NOT free to leave off the page — §3.5's
+ * negative-equity consequence, the negative-assets note beside it, the
+ * unexplained-plug sentence the integrity gate demands, and every "why this
+ * chart is not here" explanation.
+ *
+ * The distinction exists for `fitPageToBox`: a page short of paper drops the
+ * pack's optional prose first and reaches these last. Without it the trimmer
+ * would take whichever note happened to be at the bottom of the page, and on
+ * page 7 that is the negative-equity callout.
+ */
+export const mustDisclose = (heading: string, notes: PackDisclosureNote[]): PackPageBlock => ({
+  kind: 'disclosure',
+  disclosure: { heading, notes, required: true },
+});
+
+/**
  * A deterministic caption, carried as a DERIVED narrative — R-P49.
  *
  * It used to ride in a `disclosure` block: `PackNarrative.status` had no
@@ -212,13 +228,13 @@ export function buildPositionBlocks(
   // stranger of the two, and it was the one the sheet said nothing about.
   const assets = set.current.totalAssets;
   if (assets < 0) {
-    positionBlocks.push(disclose('Negative total assets', [
+    positionBlocks.push(mustDisclose('Negative total assets', [
       note('What this means', negativeAssetsSentence(assets, scale)),
     ]));
   }
   const equity = set.current.totalEquity;
   if (equity < 0) {
-    positionBlocks.push(disclose('Negative equity', [
+    positionBlocks.push(mustDisclose('Negative equity', [
       // One sentence, shared with `NegativeEquityBlock` — a second copy of a
       // MANDATORY §3.5 disclosure is how the two drift apart.
       note('Consequence', negativeEquitySentence(equity, scale)),
@@ -246,19 +262,19 @@ export function buildCashBlocks(
     // breaches; the sentence itself is defined once, beside the check.
     const disproportionate = disproportionatePlugSentence(cashBridge.chart, scale);
     if (disproportionate !== null) {
-      cashBlocks.push(disclose('How much of this bridge is unexplained', [
+      cashBlocks.push(mustDisclose('How much of this bridge is unexplained', [
         note('Size of the unexplained step', disproportionate),
       ]));
     }
   }
   else {
-    cashBlocks.push(disclose('No cash bridge', [
+    cashBlocks.push(mustDisclose('No cash bridge', [
       note('Why', 'Opening cash is the prior period\'s closing balance, and there is no prior period. A bridge opening at zero would assert the business started the period with an empty bank account.'),
     ]));
   }
   if (cashTrend) cashBlocks.push({ kind: 'chart', chart: cashTrend });
   else {
-    cashBlocks.push(disclose('No closing-cash series', [
+    cashBlocks.push(mustDisclose('No closing-cash series', [
       note('Why', 'No monthly trend series covers this period, so no closing-cash line can be drawn.'),
     ]));
   }
@@ -275,7 +291,7 @@ export function buildTrendBlocks(panels: PackChartSpec[]): PackPageBlock[] {
   const trendBlocks: PackPageBlock[] = [];
   if (panels.length > 0) trendBlocks.push({ kind: 'smallMultiples', panels });
   else {
-    trendBlocks.push(disclose('No trend series', [
+    trendBlocks.push(mustDisclose('No trend series', [
       note('Why', 'No monthly series covers this period, so no panel can be drawn. Nothing is inferred from the period totals in its place.'),
     ]));
   }
@@ -290,7 +306,7 @@ export function buildTrendBlocks(panels: PackChartSpec[]): PackPageBlock[] {
     ...(windowNote === null ? [] : [windowNote]),
   ]));
   if (panels.length < TRENDS_PANELS_SPECIFIED) {
-    trendBlocks.push(disclose('Panels not drawn', [
+    trendBlocks.push(mustDisclose('Panels not drawn', [
       note('Why', `Spec §4.A asks for ${TRENDS_PANELS_SPECIFIED} panels and ${panels.length} are drawn. A panel is omitted when its figure is not meaningful in every period of the window — gross margin % and debtor days both need positive revenue, and no period here had any. Nothing is inferred in its place.`),
     ]));
   }
