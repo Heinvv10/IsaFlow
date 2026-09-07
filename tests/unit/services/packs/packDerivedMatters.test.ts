@@ -57,6 +57,38 @@ describe('a month whose expenses are a net credit', () => {
     expect(matters[0]!.decisionRequired).toMatch(/reversals/i);
   });
 
+  /**
+   * TWO NUMBERS FOR ONE MONTH, AND THE ROW HAS TO SAY WHICH IS WHICH.
+   *
+   * The rendered demo pack quantified July at 1 908 on sheet 10 and at 1 869
+   * on sheet 11, and a reader meeting both takes them for one quantity stated
+   * twice — the defect class this pack has fixed four times. They are two
+   * quantities: `dominantPoint` gives the panel the month's NET PROFIT and
+   * this matter's quantum is the EXPENSE CREDIT alone, so the difference is
+   * the month's revenue exactly. 1 907 848.90 − 1 869 169.85 = 38 679.05,
+   * which is July's revenue to the cent on the live company.
+   *
+   * Asserted on the trend ROW rather than on the two rendered strings,
+   * because that is where the identity lives: both pages read one
+   * `PackTrendPoint`, so a change that broke the relation would have to break
+   * `revenue − expenses = netProfit` first. And the row says which is which,
+   * which is the half a reader needs.
+   */
+  it('quantifies the CREDIT, and says so, where the panel quantifies the result', () => {
+    const july = month('07', -1_869_169.85);
+    const point = { ...july, revenue: 38_679.05, netProfit: 38_679.05 - july.expenses };
+    const matters = creditMonthMatters([point]);
+    expect(matters[0]!.quantum).toBe(1_869_169.85);
+    // The panel's figure, from the same row.
+    // Float, so the assertion is to the cent — the pack prints R'000.
+    expect(point.netProfit).toBeCloseTo(1_907_848.90, 2);
+    // And the whole of the difference is the month's revenue.
+    expect(point.netProfit - matters[0]!.quantum!).toBeCloseTo(point.revenue, 2);
+    // The row names its own quantity, so the two are legible side by side.
+    expect(matters[0]!.issue).toContain('The quantum is that credit');
+    expect(matters[0]!.issue).toMatch(/net profit/);
+  });
+
   it('is not invented for a month that simply spent little', () => {
     expect(creditMonthMatters([month('06', 1), month('07', 0)])).toEqual([]);
   });

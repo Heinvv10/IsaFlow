@@ -37,9 +37,27 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
 export function creditMonthMatters(trend: PackTrendPoint[]): PackMatter[] {
   return trend.filter((point) => point.expenses < 0).map((point) => ({
     kind: 'finding' as const,
+    // AND IT SAYS WHICH NUMBER IT IS, BECAUSE THE PACK PRINTS TWO FOR THIS
+    // MONTH. The trends panel quantifies July at 1 908 and this row quantified
+    // it at 1 869 — a reader meeting both takes them for one quantity stated
+    // twice, which is the defect class this pack has fixed four times. They
+    // are two quantities: the panel plots the month's NET PROFIT and this
+    // quantum is the EXPENSE CREDIT alone, so the difference is the month's
+    // revenue and nothing else. On the live demo company that is
+    // 1 907 848.90 − 1 869 169.85 = 38 679.05, which is July's revenue to the
+    // cent. Both are read off the same `PackTrendPoint`, so the identity
+    // holds by construction rather than by coincidence — see
+    // `packDerivedMatters.test.ts`, which asserts it on the row rather than
+    // on the two rendered strings.
+    //
+    // The panel is left alone deliberately: it sits inside a 48mm box on the
+    // tightest page in the pack, its own title already says which measure it
+    // plots, and every word added there is a line the chart loses. The column
+    // that says nothing about what its number is, is this one.
     issue: `${point.label}: expenses for the month are a net credit — more was reversed out of `
       + 'expense accounts than was posted into them, so the month reports a profit the period does '
-      + 'not',
+      + 'not. The quantum is that credit; the trends panel plots the month\'s net profit, which is '
+      + 'larger by the month\'s revenue',
     quantum: round2(Math.abs(point.expenses)),
     owner: 'Finance',
     movement: NO_PRIOR_MEETING_RECORD,
