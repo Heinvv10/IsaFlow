@@ -26,6 +26,7 @@
 
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
+import { log } from '@/lib/logger';
 
 /**
  * True when the entry carries a fiscal period. False when it does not, or when
@@ -40,5 +41,24 @@ export async function journalIsInAPeriod(
     SELECT fiscal_period_id FROM gl_journal_entries
     WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID
   `) as DbRow[];
-  return rows.length > 0 && rows[0]!.fiscal_period_id !== null;
+
+  // The two false cases are NOT the same fact, and a settlement withheld is
+  // invisible unless they are told apart. "No period" is the case this guard
+  // exists for and is reachable in normal use — a bank line dated outside every
+  // fiscal year. "Not found" should be unreachable: the caller posted this
+  // entry moments earlier on this connection, so the read sees its own write.
+  // If it ever appears in the logs, the fault is upstream of here.
+  if (rows.length === 0) {
+    log.error('Journal not found when checking its fiscal period — settlement withheld', {
+      companyId, journalEntryId,
+    }, 'accounting');
+    return false;
+  }
+  if (rows[0]!.fiscal_period_id === null) {
+    log.warn('Journal is in no fiscal period — settlement withheld, payment left unapplied', {
+      companyId, journalEntryId,
+    }, 'accounting');
+    return false;
+  }
+  return true;
 }

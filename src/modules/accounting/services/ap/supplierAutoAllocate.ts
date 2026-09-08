@@ -184,11 +184,19 @@ export async function recordSupplierBankPayment(args: {
   `) as DbRow[];
   const paymentId = String(paymentRows[0]!.id);
 
+  // THE SUPPLIER'S INSTRUCTION IS READ FIRST, and the order is deliberate: a
+  // sweep of 200 lines against suppliers who opted into nothing would otherwise
+  // run 200 extra journal reads to arrive at 'off'. The period check only has
+  // to answer for cash that is actually about to be applied.
+  //
   // A bill must not be marked paid off a journal that is in no fiscal period —
-  // see journalPeriodVisibility. The document above stands; only the
+  // see journalPeriodVisibility. The document above stands either way; only the
   // application is withheld.
-  const strategy = autoApply && await journalIsInAPeriod(companyId, journalEntryId)
+  const requested = autoApply
     ? await resolveSupplierAutoAllocateStrategy(companyId, supplierId)
+    : 'off';
+  const strategy = requested !== 'off' && await journalIsInAPeriod(companyId, journalEntryId)
+    ? requested
     : 'off';
   if (strategy === 'off') {
     log.info('Supplier bank payment recorded, left unapplied', {

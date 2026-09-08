@@ -96,6 +96,20 @@ describe('autoPostRuleLine — supplier', () => {
     });
   });
 
+  it('creates NOTHING when the bank journal line cannot be found', async () => {
+    // No bank line means no `matched_journal_line_id`, so the transaction stays
+    // `imported` — and a `processed` payment against a line still open for
+    // allocation is a double-document waiting to happen: re-allocating it posts
+    // a second journal and creates a second payment for the same cash. The
+    // document is therefore created INSIDE the block that stamps the line.
+    mockSql.mockResolvedValue([]);
+
+    const result = await autoPostRuleLine(input());
+
+    expect(result).toMatchObject({ kind: 'posted' });
+    expect(recordSupplierBankPayment).not.toHaveBeenCalled();
+  });
+
   it('creates nothing for a REFUND — money in is not a payment', async () => {
     await autoPostRuleLine(input({
       tx: {

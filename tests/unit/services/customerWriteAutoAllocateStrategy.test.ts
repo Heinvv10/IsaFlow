@@ -6,7 +6,7 @@
  * supplierWriteAutoAllocateStrategy.test.ts: a valid value is accepted and
  * keeps the legacy boolean in sync; an invalid value is refused before it can
  * reach the DB CHECK constraint (`customers_auto_allocate_strategy_check`) as
- * an opaque 23514; the deprecated boolean still works for an old caller; and
+ * an opaque 23514; the deprecated boolean is IGNORED rather than obeyed; and
  * an update that supplies neither leaves both columns untouched via COALESCE.
  */
 import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
@@ -73,21 +73,26 @@ describe('createCustomer — auto_allocate_strategy', () => {
     expect(mockSql).not.toHaveBeenCalled();
   });
 
-  it('maps the deprecated boolean true -> oldest when autoAllocateStrategy is absent', async () => {
+  it('IGNORES the deprecated boolean — it can no longer switch anything on', async () => {
+    // It used to map true -> 'oldest', which made it the last way a contact
+    // could arrive at a strategy nobody chose. Migration 614 refused to carry
+    // the old ticks over because nothing ever read them, so nobody consented
+    // to cash application by ticking one; obeying the same tick over the wire
+    // would re-open the door the migration closed.
     await createCustomer(COMPANY_ID, { name: 'Acme', autoAllocateReceipts: true });
     const params = insertParams();
-    expect(params[STRATEGY_INDEX]).toBe('oldest');
-    expect(params[BOOLEAN_INDEX]).toBe(true);
+    expect(params[STRATEGY_INDEX]).toBe('off');
+    expect(params[BOOLEAN_INDEX]).toBe(false);
   });
 
-  it('maps the deprecated boolean false -> off', async () => {
+  it('stays off when the deprecated boolean is false', async () => {
     await createCustomer(COMPANY_ID, { name: 'Acme', autoAllocateReceipts: false });
     const params = insertParams();
     expect(params[STRATEGY_INDEX]).toBe('off');
     expect(params[BOOLEAN_INDEX]).toBe(false);
   });
 
-  it('autoAllocateStrategy wins over the deprecated boolean when both are given', async () => {
+  it('the strategy decides when both are given — the boolean contributes nothing', async () => {
     await createCustomer(COMPANY_ID, {
       name: 'Acme',
       autoAllocateStrategy: 'oldest',
@@ -124,10 +129,13 @@ describe('updateCustomer — auto_allocate_strategy', () => {
     expect(mockSql).not.toHaveBeenCalled();
   });
 
-  it('maps the deprecated boolean on update too', async () => {
+  it('ignores the deprecated boolean on update too, leaving both columns alone', async () => {
+    // Two nulls into COALESCE: an old caller sending only the boolean changes
+    // neither column, rather than switching cash application on for a customer
+    // whose owner never chose it.
     await updateCustomer(COMPANY_ID, CUSTOMER_ID, { autoAllocateReceipts: true });
     const params = insertParams();
-    expect(params[STRATEGY_INDEX]).toBe('oldest');
-    expect(params[BOOLEAN_INDEX]).toBe(true);
+    expect(params[STRATEGY_INDEX]).toBeNull();
+    expect(params[BOOLEAN_INDEX]).toBeNull();
   });
 });

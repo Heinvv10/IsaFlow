@@ -53,9 +53,7 @@ beforeEach(() => vi.clearAllMocks());
 
 describe('autoApplyCustomerReceipt', () => {
   it('leaves the receipt unapplied when the customer has no strategy', async () => {
-    mockSql
-      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
-      .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }]);
+    mockSql.mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }]);
 
     const result = await autoApplyCustomerReceipt(ARGS);
 
@@ -67,8 +65,8 @@ describe('autoApplyCustomerReceipt', () => {
 
   it('applies oldest-first, partially settling the invoice the cash runs out on', async () => {
     mockSql
-      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([
         { id: 'inv-old', outstanding: 200 },
         { id: 'inv-new', outstanding: 800 },
@@ -98,8 +96,8 @@ describe('autoApplyCustomerReceipt', () => {
 
   it('does nothing when the customer has nothing open', async () => {
     mockSql
-      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'newest' }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([]);
 
     const result = await autoApplyCustomerReceipt(ARGS);
@@ -110,8 +108,8 @@ describe('autoApplyCustomerReceipt', () => {
 
   it('does not swallow a failure from the applier', async () => {
     mockSql
-      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ id: 'inv-old', outstanding: 200 }]);
     mockPlan.mockRejectedValue(new Error('Cannot apply a cancelled payment.'));
 
@@ -121,14 +119,16 @@ describe('autoApplyCustomerReceipt', () => {
 
 describe('autoApplyCustomerReceipt — the journal is in no fiscal period', () => {
   it('applies nothing, leaving the receipt for a human', async () => {
-    mockSql.mockResolvedValueOnce([{ fiscal_period_id: null }]);
+    mockSql
+      .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
+      .mockResolvedValueOnce([{ fiscal_period_id: null }]);
 
     const result = await autoApplyCustomerReceipt(ARGS);
 
     expect(mockPlan).not.toHaveBeenCalled();
     expect(result.unappliedRemainder).toBe(500);
-    // It must not even read the customer's instruction — the journal decides.
-    expect(queries().some((q) => q.includes('FROM customers'))).toBe(false);
+    // The invoices are never read: the journal decides before they are.
+    expect(queries().some((q) => q.includes('FROM customer_invoices'))).toBe(false);
   });
 });
 

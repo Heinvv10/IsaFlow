@@ -104,10 +104,15 @@ export async function autoApplyCustomerReceipt(args: {
 }): Promise<CustomerReceiptApplication> {
   const { companyId, customerId, paymentId, journalEntryId, amount, userId } = args;
 
+  // Instruction first, journal second — the same ordering and the same reason
+  // as the AP twin: the period read only has to answer for cash that is about
+  // to be applied.
+  //
   // See journalPeriodVisibility: an invoice must not be marked paid off a
   // journal that appears in no period-scoped report.
-  const strategy = await journalIsInAPeriod(companyId, journalEntryId)
-    ? await resolveCustomerAutoAllocateStrategy(companyId, customerId)
+  const requested = await resolveCustomerAutoAllocateStrategy(companyId, customerId);
+  const strategy = requested !== 'off' && await journalIsInAPeriod(companyId, journalEntryId)
+    ? requested
     : 'off';
   if (strategy === 'off') {
     return { appliedLines: [], unappliedRemainder: round2(amount), strategy };

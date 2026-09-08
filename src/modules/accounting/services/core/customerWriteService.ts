@@ -107,7 +107,17 @@ function resolveStrategy(
     }
     return parsed;
   }
-  if (legacyBoolean !== undefined) return legacyBoolean ? 'oldest' : 'off';
+  // THE LEGACY BOOLEAN NO LONGER TURNS ANYTHING ON. It used to map true ->
+  // 'oldest', which made it the last path by which a contact could arrive at a
+  // strategy nobody chose — reachable by any caller still sending the old
+  // field: an external API consumer, an import, or the previous build during a
+  // rolling deploy. Migration 614 refused to carry the old ticks over for
+  // exactly that reason (nothing ever read them, so nobody consented to cash
+  // application by ticking one); honouring the same tick when it arrives over
+  // the wire would have re-opened the door the migration closed. Nothing
+  // in-tree sends it — the forms, the REST routes and the MCP contact tools all
+  // moved to `auto_allocate_strategy` — so an old caller's boolean is now
+  // simply ignored rather than obeyed.
   return undefined;
 }
 
