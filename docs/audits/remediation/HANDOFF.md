@@ -6,7 +6,7 @@
 - Branch: `fix/audit-remediation-20260908`
 - Baseline and audit SHA: `5661d6f0f5f2212705151e95455a3f681ddf840e`.
 - No behavior corrections implemented yet. No PR, deployment, or historical data mutation.
-- Original audit documents preserved as 18 hashed snapshots; see inputs.json.
+- Original audit documents preserved as 17 unique hashed snapshots; see inputs.json.
 - 281 combined K candidates plus 2 supplemental AP-import claims retained. All 130 numbered A/B IDs are mapped (140 associations, including splits). Full details and remaining aggregate discrepancies are in reconciliation.md. No candidate disposition is established solely by mapping.
 - Approved corrections are preserved in corrections.md; apply them during reconciliation before prioritizing.
 
@@ -25,6 +25,6 @@
 2. Review reconciliation.md and all retained supplemental/compound checks; numbered ID mapping is complete, source count discrepancies remain visible.
 3. Prepare disposable PostgreSQL using committed migrations and record setup limitations; do not use existing isaflow production containers.
 4. Begin K-001 through actual committed auth callers, deterministic failing reproduction, exact fix plan, correction, regression/workflow, named-commit review, complete CI, focused draft PR.
-5. Commit explicit foundation paths once reviewed. The remediation directory appears as untracked in current git status; stage explicit paths only. Do not stage unrelated files.
+5. Foundation committed as 18a30721; independent review requested exact source-set and supplemental-ID validation. Those corrections are applied locally with negative deletion checks. Stage explicit task paths only.
 
 The goal remains active. There is no previous remediation turn evidence sufficient to classify an earlier turn; this turn made concrete progress by establishing the isolated execution branch, snapshots, register, runtime and running baseline gate.

@@ -65,11 +65,6 @@
     "sha256": "f4305dd8851931b6c0de79f528ae0f43888860abe2fb567dd204f0a44826adeb"
   },
   {
-    "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/comparison-exceljs-reproduction.json",
-    "snapshot": "inputs/comparison-exceljs-reproduction.json",
-    "sha256": "91714f23ce4764384d99e1a6f0af97cbc90b12c5e224b322089dba9a40cdc3ec"
-  },
-  {
     "source": "/home/hein/Workspace/IsaFlow/.worktrees/codebase-audit-20260908/docs/audits/database-reproductions.cjs",
     "snapshot": "inputs/database-reproductions.cjs",
     "sha256": "fef83c5530a391c1fff452474ac7b7d943b88f31b848eed9de0850256dfeb992"
