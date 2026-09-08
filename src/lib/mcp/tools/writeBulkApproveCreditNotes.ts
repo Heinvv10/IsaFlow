@@ -82,7 +82,13 @@ interface ApprovedNoteRow {
 const STATUS_REFUSAL = /Cannot approve credit note with status: (\S+)/;
 const NOT_FOUND_REFUSAL = /^Credit note \S+ not found$/;
 
-function racedReason(err: unknown): string | null {
+/**
+ * Exported for `bulkApproveRaceReasonDrift.test.ts`, which asserts it against
+ * the message the REAL service throws rather than against a second copy of the
+ * literal. The regex below matches text owned by another module; a test that
+ * hardcoded the same string would restate the drift rather than catch it.
+ */
+export function racedReason(err: unknown): string | null {
   if (!(err instanceof Error)) return null;
   const status = STATUS_REFUSAL.exec(err.message)?.[1];
   if (status) return `status became ${status} before it could be approved`;
@@ -96,7 +102,8 @@ const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
   approvableStatuses: APPROVABLE,
   async readStates(companyId, ids) {
     const rows = (await sql`
-      SELECT id, status, credit_date, credit_note_number, type
+      SELECT id, status, credit_date, credit_note_number, type,
+             COALESCE(customer_invoice_id, supplier_invoice_id) AS linked_invoice_id
       FROM credit_notes
       WHERE company_id = ${companyId}::UUID AND id = ANY(${[...ids]}::UUID[])
     `) as DbRow[];
@@ -108,6 +115,10 @@ const adapter: BulkApproveAdapter<ApprovedNoteRow> = {
         entryDate: r.credit_date as string | Date,
         documentNumber: r.credit_note_number == null ? undefined : String(r.credit_note_number),
         documentType: String(r.type),
+        // The invoice this note is linked to, or '' when standalone. Carried
+        // because it decides the SECOND row lock each element takes — see the
+        // ordering note in the handler.
+        lockGroup: r.linked_invoice_id == null ? '' : String(r.linked_invoice_id),
       },
     ]));
   },
@@ -204,9 +215,23 @@ export const bulkApproveCreditNotesTool: McpTool = {
     }
 
     // ── Everything below WRITES. No try/catch — a throw must reach the
-    // registry's savepoint. Ordered by id so two overlapping batches cannot
-    // deadlock on the row locks approveCreditNote takes.
-    const ordered = [...postable].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // registry's savepoint.
+    //
+    // Ordered by (LINKED INVOICE, note id), not by note id alone. Sorting by the
+    // note is not enough, because approveCreditNote takes TWO row locks: it locks
+    // the note (lockCreditNoteForUpdate), then UPDATEs the linked invoice's
+    // amount_paid, which locks the invoice too. With only the note sorted, the
+    // invoice lock order is whatever the note order happens to imply — so batch
+    // [CN1, CN2] (CN1 linked to invoice X) and batch [CN2] (also linked to X)
+    // can hold and wait crosswise and deadlock (40P01). Ordering by the invoice
+    // first gives a total order over the rows two batches can actually contend
+    // for. Standalone notes sort under '' and are mutually unconstrained, which
+    // is correct: they take no second lock.
+    const ordered = [...postable]
+      .map((p) => ({ ...p, group: states.get(p.id)?.lockGroup ?? '' }))
+      .sort((a, b) => (a.group !== b.group
+        ? (a.group < b.group ? -1 : 1)
+        : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
     const { posted, raced } = await postPartitionedDocuments(ctx, ordered, adapter, racedReason);
 
     const byId = new Map(ordered.map((o) => [o.id, o.index]));

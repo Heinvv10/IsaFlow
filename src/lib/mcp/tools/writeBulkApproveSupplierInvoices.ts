@@ -64,7 +64,13 @@ const STATUS_REFUSAL = /Cannot approve invoice with status: (\S+)/;
 /** A bill that vanished between the partition and the post — same shape. */
 const NOT_FOUND_REFUSAL = /^Supplier invoice \S+ not found$/;
 
-function racedReason(err: unknown): string | null {
+/**
+ * Exported for `bulkApproveRaceReasonDrift.test.ts`, which asserts it against
+ * the message the REAL service throws rather than against a second copy of the
+ * literal. The regex below matches text owned by another module; a test that
+ * hardcoded the same string would restate the drift rather than catch it.
+ */
+export function racedReason(err: unknown): string | null {
   if (!(err instanceof Error)) return null;
   const status = STATUS_REFUSAL.exec(err.message)?.[1];
   if (status) return `status became ${status} before it could be approved`;

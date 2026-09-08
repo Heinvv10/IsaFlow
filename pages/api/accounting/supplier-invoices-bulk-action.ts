@@ -63,7 +63,18 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
   const userId = req.user.id;
   const results: ItemResult[] = [];
 
-  for (const invoiceId of invoiceIds) {
+  // Sorted, NOT the order the client sent. Every action below now takes a row
+  // lock (approve via lockSupplierInvoiceForUpdate, cancel via its own
+  // FOR UPDATE) and holds it to the end of this request's single transaction.
+  // Two overlapping batches that walk the same rows in opposite orders deadlock
+  // on each other (40P01) — this route with the grid's selection order, and
+  // `bulk_approve_supplier_invoices`, which sorts for exactly this reason. A
+  // total order over the locked rows makes that impossible: the batch that gets
+  // there first simply blocks the other. Sorting also cannot change the outcome,
+  // since each id is processed independently and reported by id.
+  const ordered = [...invoiceIds].sort();
+
+  for (const invoiceId of ordered) {
     try {
       switch (action) {
         case 'approve':

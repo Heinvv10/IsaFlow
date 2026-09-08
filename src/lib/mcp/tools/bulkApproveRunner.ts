@@ -77,6 +77,12 @@ export interface DocumentState {
    *  module-level map: two concurrent requests share this module, and a map at
    *  module scope would have each batch reading the other's types. */
   documentType?: string;
+  /** A SECOND row this element will lock, when posting it touches more than the
+   *  document itself — the credit-note arm's linked invoice, whose amount_paid
+   *  the approval updates. Batches must be ordered by this before the document
+   *  id, or two batches sharing one invoice can hold and wait crosswise. Empty
+   *  when the element locks nothing but itself. */
+  lockGroup?: string;
 }
 
 /**
@@ -177,6 +183,12 @@ const LOCK_TIMEOUT_CODES = new Set([
   'CREDIT_NOTE_LOCK_TIMEOUT',
 ]);
 
+/** Postgres `deadlock_detected` — this transaction was chosen as the victim. */
+function isDeadlock(err: unknown): boolean {
+  return typeof err === 'object' && err !== null
+    && (err as { code?: unknown }).code === '40P01';
+}
+
 function isLockTimeout(err: unknown): boolean {
   const code = typeof err === 'object' && err !== null
     ? (err as { code?: unknown }).code
@@ -226,6 +238,21 @@ export async function postPartitionedDocuments<TResult>(
       if (settled !== null) {
         raced.push({ index, document_id: id, reason: settled });
         continue;
+      }
+      // A DEADLOCK is fatal but RETRYABLE, and saying so is the difference
+      // between an agent re-sending the batch and an agent giving up on it.
+      // Postgres has already chosen this transaction as the victim and aborted
+      // it, so the batch cannot continue and must unwind — but nothing is wrong
+      // with the request, and the identical call will usually succeed. Left to
+      // safeLineDetail it reads as `database error 40P01`, which names no
+      // action. The ordering above makes this rare rather than impossible:
+      // callers outside these tools (the supplier-invoice bulk-action route,
+      // the UI) can still walk the same rows in a different order.
+      if (isDeadlock(err)) {
+        throw new BulkAllocationLineError(
+          index, id,
+          'deadlocked against another request holding these rows — nothing was posted, retry the batch',
+        );
       }
       // NEVER err.message verbatim: the registry renders this text, and a pg
       // error's message names tables, columns and constraints.

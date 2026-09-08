@@ -302,3 +302,39 @@ describe('nothingToApproveText', () => {
     expect(nothingToApproveText(many).match(/not found/g)).toHaveLength(1);
   });
 });
+
+/**
+ * Adversarial review, 2026-09-08. A deadlock is fatal — Postgres has already
+ * aborted this transaction, so the batch cannot continue — but it is RETRYABLE,
+ * and the difference decides whether the agent re-sends the batch or abandons
+ * it. Reported through safeLineDetail it reads as `database error 40P01`, which
+ * names no action.
+ */
+describe('postPartitionedDocuments — a deadlock is fatal but retryable', () => {
+  it('names the deadlock and says to retry, rather than a bare SQLSTATE', async () => {
+    const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    const adapter = adapterOver([], async () => { throw deadlock; });
+    const err = await postPartitionedDocuments(
+      ctx, [{ index: 0, id: ID(1) }], adapter, () => null,
+    ).catch((e: unknown) => e as BulkAllocationLineError);
+    expect(err).toBeInstanceOf(BulkAllocationLineError);
+    expect((err as BulkAllocationLineError).detail).toContain('deadlock');
+    expect((err as BulkAllocationLineError).detail).toContain('retry');
+    expect((err as BulkAllocationLineError).detail).toContain('nothing was posted');
+  });
+
+  /** Still fatal: it must NOT be swallowed into a skip and let the batch run on. */
+  it('does not continue the batch after a deadlock', async () => {
+    const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' });
+    const posted: string[] = [];
+    const adapter = adapterOver([], async (_c, id) => {
+      if (id === ID(1)) throw deadlock;
+      posted.push(id);
+      return { id };
+    });
+    await expect(postPartitionedDocuments(
+      ctx, [{ index: 0, id: ID(1) }, { index: 1, id: ID(2) }], adapter, () => null,
+    )).rejects.toBeInstanceOf(BulkAllocationLineError);
+    expect(posted).toEqual([]);
+  });
+});

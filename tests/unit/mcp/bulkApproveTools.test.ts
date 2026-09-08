@@ -273,6 +273,45 @@ describe('bulk_approve_credit_notes', () => {
     expect(res.applied_count).toBe(1);
   });
 
+  /**
+   * Adversarial review, 2026-09-08. approveCreditNote takes TWO row locks — the
+   * note, then the linked invoice whose amount_paid it updates. Sorting by note
+   * id alone leaves the INVOICE lock order to chance, so two batches sharing an
+   * invoice can hold and wait crosswise and deadlock. Ordering by the linked
+   * invoice first is what gives a total order over the contended rows.
+   */
+  it('posts in LINKED-INVOICE order, not note-id order', async () => {
+    const INV_EARLY = '0b000000-0000-4000-8000-000000000001';
+    const INV_LATE = '0b000000-0000-4000-8000-000000000002';
+    // Note ID(1) sorts first by note id, but its invoice sorts LAST.
+    rows(
+      { id: ID(1), status: 'draft', credit_date: '2026-09-01',
+        credit_note_number: 'CN-1', type: 'customer', linked_invoice_id: INV_LATE },
+      { id: ID(2), status: 'draft', credit_date: '2026-09-01',
+        credit_note_number: 'CN-2', type: 'customer', linked_invoice_id: INV_EARLY },
+    );
+    await bulkApproveCreditNotesTool.handler(
+      { credit_note_ids: [ID(1), ID(2)], idempotency_key: 'k' }, ctx,
+    );
+    expect(vi.mocked(approveCreditNote).mock.calls.map((c) => c[1]))
+      .toEqual([ID(2), ID(1)]);
+  });
+
+  /** Standalone notes take no second lock, so they order among themselves by id. */
+  it('orders standalone notes by note id', async () => {
+    rows(
+      { id: ID(3), status: 'draft', credit_date: '2026-09-01',
+        credit_note_number: 'CN-3', type: 'customer', linked_invoice_id: null },
+      { id: ID(1), status: 'draft', credit_date: '2026-09-01',
+        credit_note_number: 'CN-1', type: 'customer', linked_invoice_id: null },
+    );
+    await bulkApproveCreditNotesTool.handler(
+      { credit_note_ids: [ID(3), ID(1)], idempotency_key: 'k' }, ctx,
+    );
+    expect(vi.mocked(approveCreditNote).mock.calls.map((c) => c[1]))
+      .toEqual([ID(1), ID(3)]);
+  });
+
   it('reports no applied link for a note that merely approved', async () => {
     rows({ id: ID(1), status: 'draft', credit_date: '2026-09-01',
            credit_note_number: 'CN-1', type: 'customer' });

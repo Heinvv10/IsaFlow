@@ -101,6 +101,41 @@ export async function approveSupplierInvoice(
       throw new Error(`Cannot approve invoice with status: ${invoice.status}`);
     }
 
+    // A DRAFT can already carry a journal, and posting a second one is the
+    // worst outcome this function has.
+    //
+    // `postSupplierInvoiceToGL` posts the Expense/VAT/AP journal and sets
+    // `gl_journal_entry_id` WITHOUT touching `status` — and it is exposed to
+    // operators as the "Post to GL" bulk action
+    // (pages/api/accounting/supplier-invoices-bulk-action.ts), which accepts
+    // drafts. So "post 40 drafts to GL, then approve them" leaves 40 bills with
+    // a journal and status still 'draft'. Guarding on status alone, this
+    // function would build and post a SECOND journal for each — AP credited
+    // twice, expenses and input VAT doubled — and then overwrite
+    // `gl_journal_entry_id` with the new id, stranding the first journal where
+    // `cancelSupplierInvoiceInner` (which reverses only the id on the row) can
+    // never reach it. No race is required; the two calls are sequential.
+    //
+    // The AR twin has always been immune: `postCustomerInvoiceToGL` early-returns
+    // on `if (inv.gl_journal_entry_id)`. This is that guard, on the AP side.
+    //
+    // The existing journal is REUSED rather than refused: the document is
+    // genuinely unapproved, and the lines this function would build are the
+    // ones already posted, so the correct completion of "approve" is to flip the
+    // status and keep the journal that is already in the ledger.
+    if (invoice.glJournalEntryId) {
+      const reused = (await sql`
+        UPDATE supplier_invoices
+        SET status = 'approved', approved_by = ${userId}::UUID, approved_at = NOW()
+        WHERE id = ${id} AND company_id = ${companyId}::UUID
+        RETURNING *
+      `) as Row[];
+      log.info('Approved supplier invoice that already carried a journal', {
+        id, journalEntryId: invoice.glJournalEntryId,
+      }, 'accounting');
+      return mapInvoiceRow(reused[0]!);
+    }
+
     // Auto-post GL entry: DR Expense + DR VAT Input, CR Accounts Payable
     const apAccount = await getSystemAccount('payable', companyId);
     const vatAccount = await getSystemAccount('vat_input', companyId);
