@@ -58,6 +58,37 @@ describe('the cover', () => {
    * "figures can still move" clause — and it must still state the part month.
    * Drive the clause off the draft reasons instead and this goes red.
    */
+  /**
+   * AND THE OPEN-PERIOD CLAUSE IS DERIVED, WHICH IS WHY THE TWO PACKS DIFFER.
+   *
+   * The demo's cover carries "the fiscal period it ends in is still open, so
+   * these figures can still move" and Brightsphere's does not, for an
+   * identical period end — which reads as one convention applied to half the
+   * pack until you look at where it comes from. Both go through one function
+   * of `(companyId, reportingDate)`: `getPeriodStatusForDate` reads
+   * `fiscal_periods.status`, and on 2026-09-07 the demo's September 2026 is
+   * `open` while Brightsphere's is `closed` (verified against the dev
+   * database, not production). The difference is in the books.
+   *
+   * Held here at the COMPOSED document rather than at `draftReasons`, because
+   * the question was never whether the reason is computed correctly — it is
+   * whether the cover says what the reasons say.
+   */
+  it('says figures can still move exactly where the period is open', () => {
+    for (const [name, input] of [
+      ['the demo company', liveDemoRenderedInput],
+      ['Brightsphere', brightsphereLiveInput],
+    ] as const) {
+      const open = input.draftReasons.includes('openPeriod');
+      expect(
+        /can still move/.test(coverText(input)),
+        open
+          ? `${name}'s period is open and its cover does not say the figures can move`
+          : `${name}'s period is not open and its cover says the figures can move`,
+      ).toBe(open);
+    }
+  });
+
   it('states it on a pack whose fiscal period is closed', () => {
     const closed: BoardPackInput = {
       ...liveDemoRenderedInput,

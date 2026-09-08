@@ -239,6 +239,10 @@ function moneyPanel(
   const clauses = [movementSentence(
     panel.name, prose(first), prose(last), points.length, last >= first,
     terminal !== undefined && terminal.partial ? monthLabel(terminal) : undefined,
+    // THE EXCURSION, for the case where the endpoints are equal — see
+    // `movementSentence`. Taken off the points this panel actually PLOTS, so
+    // the sentence cannot name a month the line does not draw.
+    furthestFrom(points, first, prose),
   )];
   // A PANEL THAT DOES NOT SHARE THE SCALE SAYS SO, IN ITS OWN TITLE. The
   // page's scale note names it too; this is the half a reader meets while
@@ -313,6 +317,25 @@ function moneyPanel(
  * series is honest, a zero is a claim about a debtor book that collected
  * nothing.
  */
+/**
+ * THE POINT FURTHEST FROM THE FIRST, where that is not the first itself.
+ *
+ * `trendsTitle` does exactly this for revenue and prints "(5 535) at its
+ * furthest, in Apr 2026"; a panel whose endpoints are equal needs the same
+ * fact, and taking it here means the title and the caption beneath it are
+ * about one measurement. Undefined on a series that never leaves its opening
+ * value, which is the genuinely flat case.
+ */
+function furthestFrom(
+  points: ReadonlyArray<{ label: string; value: number }>,
+  first: number,
+  prose: (n: number) => string,
+): { value: string; month: string } | undefined {
+  const far = points.reduce((best, point) =>
+    Math.abs(point.value - first) > Math.abs(best.value - first) ? point : best, points[0]!);
+  return far.value === first ? undefined : { value: prose(far.value), month: far.label };
+}
+
 /** The last month a ratio panel actually PLOTS — which is the last month it
  *  could measure, not the last month of the window. Shared with `ratioPanel`,
  *  whose title marks that same point, so the panel and the page cannot
@@ -347,6 +370,7 @@ function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[], scale: MoneyScal
   const title = movementSentence(
     panel.name, prose(first), prose(last), points.length, last >= first,
     terminal.partial ? monthLabel(terminal) : undefined,
+    furthestFrom(points, first, prose),
   ) + ` Own scale: ${panel.unit}, not ${scale}.`;
   return {
     id: panel.id,

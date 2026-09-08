@@ -44,13 +44,40 @@ describe('every trends panel is captioned the same way', () => {
     });
   }
 
-  it('is not vacuous — one company has a flat series to caption', () => {
+  it('is not vacuous — one company has equal endpoints to caption', () => {
     // Brightsphere's revenue, operating expenses and net profit are nil in
     // both the first and the last month of its window; that is the shape that
     // took the other template.
-    const flat = panelTitles(brightsphereLiveInput).filter((t) => t.includes('stayed at'));
-    expect(flat.length, 'no flat panel on either fixture, so the branch is untested')
+    const equal = panelTitles(brightsphereLiveInput)
+      .filter((t) => /stayed at|opened and closed at/.test(t));
+    expect(equal.length, 'no equal-endpoint panel on either fixture, so the branch is untested')
       .toBeGreaterThan(0);
+  });
+
+  /**
+   * AND "START EQUALS END" IS NOT "FLAT" — the defect the first version of
+   * this branch shipped. Brightsphere's revenue is nil in the first month and
+   * nil in the last and (5 535) in April, so three of its four panels said the
+   * series "stayed at nil" above a line plunging to the axis floor, three
+   * centimetres under a page title printing the excursion.
+   */
+  it('never says a series stayed still when its own line moves', () => {
+    const trend = brightsphereLiveInput.trend;
+    for (const [name, pick] of [
+      ['Revenue', (p: typeof trend[number]) => p.revenue],
+      ['Operating expenses', (p: typeof trend[number]) => p.expenses],
+      ['Net profit', (p: typeof trend[number]) => p.netProfit],
+    ] as const) {
+      const values = trend.map(pick);
+      const moved = values.some((v) => v !== values[0]);
+      const title = panelTitles(brightsphereLiveInput).find((t) => t.startsWith(name));
+      if (title === undefined) continue;
+      if (!moved) continue;
+      expect(title, `${name} moved and its panel says it stayed: ${title}`)
+        .not.toMatch(/stayed at/);
+      // And it says WHERE it went, from the series the panel plots.
+      expect(title, `${name} moved and its panel does not say how far`).toMatch(/reaching /);
+    }
   });
 
   it('agrees with a plural subject as readily as a singular one', () => {

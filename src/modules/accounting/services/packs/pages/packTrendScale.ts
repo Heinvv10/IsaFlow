@@ -239,6 +239,17 @@ export function movementSentence(
   periods: number,
   rose: boolean,
   lastMonth?: string,
+  /**
+   * The series' furthest point from its first, where that is not an endpoint
+   * — formatted in the panel's own unit, with the month it falls in.
+   *
+   * Read ONLY where the two endpoints are equal, which is the case where
+   * first-to-last says nothing: a series that opens and closes at nil did not
+   * necessarily stay there. Undefined where the caller has no series to
+   * measure, and ignored where the extreme IS the endpoint, which is a
+   * genuinely flat series.
+   */
+  extreme?: { value: string; month: string },
 ): string {
   const at = lastMonth === undefined ? '' : ` in ${lastMonth}`;
   if (first === last) {
@@ -248,15 +259,30 @@ export function movementSentence(
     // expenses IS nil" reads as a template that was never told whether its
     // subject is plural — and it put three of Brightsphere's four panels in
     // one voice and the fourth, and all six of the demo's, in another, with
-    // nothing saying the template had switched. The page title renders the
-    // same flat series as a sentence.
+    // nothing saying the template had switched.
     //
     // The moving form below is immune to the agreement problem because "rose"
     // and "fell" are PAST TENSE, which does not inflect for number. "Stayed"
-    // is the same word for one subject or many, so the flat case can be a
-    // sentence too and the sheet reads in one voice.
+    // and "opened and closed" are the same words for one subject or many.
+    //
+    // AND START EQUALS END IS NOT "FLAT". That was the first version of this
+    // branch and it was wrong on the one company it fires for: Brightsphere's
+    // revenue is nil in the first month and nil in the last and (5 535) in
+    // April, so three of its four panels said the series "stayed at nil"
+    // above a line plunging to the axis floor. The Cash panel read correctly
+    // only because its endpoints differ, which is what marks this as a
+    // template defect rather than a data one — and the sheet's own TITLE
+    // prints the excursion, so the panel was contradicted three centimetres
+    // above itself.
+    //
+    // The excursion comes from the caller, which has the series; `trendsTitle`
+    // takes it the same way and the two sentences are about one fact.
     const lastIs = lastMonth === undefined ? 'the last month' : lastMonth;
-    return `${name} stayed at ${last} from the first month to ${lastIs}, over ${periods} periods.`;
+    if (extreme === undefined || extreme.value === last) {
+      return `${name} stayed at ${last} from the first month to ${lastIs}, over ${periods} periods.`;
+    }
+    return `${name} opened and closed at ${last}, reaching ${extreme.value} in ${extreme.month}, `
+      + `over ${periods} periods.`;
   }
   return `${name} ${rose ? 'rose' : 'fell'} from ${first} to ${last}${at} over ${periods} periods.`;
 }
