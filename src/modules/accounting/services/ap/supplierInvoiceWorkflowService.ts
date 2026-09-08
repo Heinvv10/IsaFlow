@@ -11,6 +11,7 @@ import { createJournalEntry, postJournalEntry, reverseJournalEntry } from '../gl
 import { getSystemAccount } from '../gl/systemAccountResolver';
 import { validateThreeWayMatch } from '../../utils/threeWayMatch';
 import { getSupplierInvoiceById } from './supplierInvoiceService';
+import { lockSupplierInvoiceForUpdate } from './supplierInvoiceLock';
 import type { SupplierInvoice } from '../../types/ap.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
@@ -79,6 +80,21 @@ export async function approveSupplierInvoice(
   opts?: PostingActorOpts,
 ): Promise<SupplierInvoice> {
   try {
+    // Serialise concurrent approvals of the SAME invoice before reading its
+    // status. Without this the check-then-act window below is wide open: two
+    // callers both read 'draft', both post an Expense/VAT/AP journal, and the
+    // second UPDATE overwrites the first's gl_journal_entry_id — one bill, two
+    // journals, the payable credited twice, and one journal orphaned where no
+    // reversal can reach it. cancelSupplierInvoiceInner has locked for this
+    // reason since the C1 audit; approve was the remaining asymmetry.
+    //
+    // Taken BEFORE the read, not instead of it: the lock returns the bare row,
+    // while buildExpenseLines needs the invoice's items. Once the lock is held
+    // the read below sees the settled state — a caller that was blocked here
+    // re-reads 'approved' and refuses on the next line.
+    if (!(await lockSupplierInvoiceForUpdate(companyId, id))) {
+      throw new Error(`Supplier invoice ${id} not found`);
+    }
     const invoice = await getSupplierInvoiceById(companyId, id);
     if (!invoice) throw new Error(`Supplier invoice ${id} not found`);
     if (invoice.status !== 'draft' && invoice.status !== 'pending_approval') {
