@@ -89,7 +89,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       SELECT COUNT(*) AS count
       FROM gl_journal_entries
       WHERE company_id = ${companyId}
-        AND source = 'opening_balance'
+        AND (source = 'opening_balance' OR (source = 'manual' AND reference = 'opening_balance'))
+        AND status = 'posted'
     `),
   ]);
 

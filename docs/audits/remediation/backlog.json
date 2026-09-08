@@ -227,18 +227,33 @@
       "sourceIds": [
         "A C4"
       ],
-      "correctedTrigger": "Migration 501 resolves a covering fiscal period on INSERT. Distinguish missing-period cases from independent foreign-account ownership and balance validation.",
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Valid and foreign-account POSTs both fail500 on nonexistent total_debit/total_credit columns before writes. Migration509 also rejects opening_balance source; migration501 resolves covering periods. Restore the writer through native journals with explicit ownership checks; no durable foreign write reproduced.",
+      "severityRationale": "Confirmed broken opening-balance functionality; original critical cross-tenant corruption impact was not reproduced on current schema. Ownership validation is required for safe restoration.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+      "currentSha": "9cfe3ab2",
       "status": "candidate",
       "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
+      "testNames": [
+        "tests/integration/opening-balances-postgres.int.test.ts",
+        "tests/integration/opening-balances-browser.mjs"
+      ],
+      "evidencePaths": [
+        "K-006/plan.md",
+        "K-006/red.log",
+        "K-006/consumers-red.log",
+        "K-006/workflow.log",
+        "K-006/regression.log",
+        "K-006/typecheck.log",
+        "K-006/browser.log",
+        "K-006/browser.png",
+        "K-006/historical-impact.sql",
+        "K-006/historical-review.md",
+        "K-006/result.md"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "No route-induced corruption reproduced on current schema. Scoped read-only inventory tested against privileged synthetic malformed row; production inventory and any repair remain open.",
       "canonicalItem": null,
       "reportedSeverity": "critical"
     },
