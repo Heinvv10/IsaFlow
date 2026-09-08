@@ -70,6 +70,9 @@ import {
   approveSupplierInvoiceTool,
 } from './tools/writeSupplierInvoices';
 import { bulkCreateSupplierInvoicesTool } from './tools/writeBulkInvoices';
+import { bulkApproveSupplierInvoicesTool } from './tools/writeBulkApproveSupplierInvoices';
+import { bulkFinalizeInvoicesTool } from './tools/writeBulkFinalizeInvoices';
+import { bulkApproveCreditNotesTool } from './tools/writeBulkApproveCreditNotes';
 import { bulkCreateCustomerInvoicesTool } from './tools/writeBulkCustomerInvoices';
 import { voidReceiptTool, voidPaymentTool } from './tools/writeVoidPayments';
 import { listBankRulesTool, getBankRuleTool } from './tools/bankRules';
@@ -217,7 +220,7 @@ export const MCP_TOOLS = [
   jobCostReportTool,
   budgetVarianceTool,
   proposeReclassificationTool,
-  // write (53) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
+  // write (56) — drafts + suggest + import/undo are write; post/finalize/allocate/reverse
   // (single and batch) additionally require write:post. Import posts nothing, so
   // it stays off write:post.
   createDraftInvoiceTool,
@@ -226,6 +229,7 @@ export const MCP_TOOLS = [
   suggestBankAllocationTool,
   postJournalTool,
   finalizeInvoiceTool,
+  bulkFinalizeInvoicesTool,
   allocateBankTransactionTool,
   reverseBankAllocationTool,
   bulkAllocateBankTransactionsTool,
@@ -240,6 +244,7 @@ export const MCP_TOOLS = [
   createSupplierInvoiceTool,
   approveSupplierInvoiceTool,
   bulkCreateSupplierInvoicesTool,
+  bulkApproveSupplierInvoicesTool,
   bulkCreateCustomerInvoicesTool,
   voidReceiptTool,
   voidPaymentTool,
@@ -258,6 +263,7 @@ export const MCP_TOOLS = [
   submitTimeEntriesTool,
   createCreditNoteTool,
   approveCreditNoteTool,
+  bulkApproveCreditNotesTool,
   cancelCreditNoteTool,
   // Payroll: create_pay_run opens an empty period and posts nothing, so it is
   // not requiresPost. post_payroll_journal writes to gl_journal_entries and is.
