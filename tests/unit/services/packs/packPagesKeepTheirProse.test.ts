@@ -32,6 +32,8 @@ import {
   liveDemoInput,
   liveDemoRenderedInput,
   liveDemoShortPanelsInput,
+  manyLongNullQuantumMattersInput,
+  manyShortNullQuantumMattersInput,
   millionsCashInput,
 } from './fixtures/liveDemoBoardPack';
 
@@ -56,6 +58,13 @@ const FIXTURES: [string, BoardPackInput][] = [
   // than apologising — see `brightsphereLiveInput`.
   ['Brightsphere as the live route composed it', brightsphereLiveInput],
   ['cash in the millions', millionsCashInput],
+  // THE TWO FIXTURES THAT EXIST BECAUSE PAGE 11 ONCE SPILLED, and which this
+  // gate did not cover — so when the QUANTUM column's lettered reason was
+  // charged for and under-reserved by one line, both apologised and the whole
+  // suite stayed green. A pack whose every matter is unquantified carries TWO
+  // lettered notes under that table, not one.
+  ['twenty long matters with no rand amount', manyLongNullQuantumMattersInput],
+  ['twenty short matters with no rand amount', manyShortNullQuantumMattersInput],
 ];
 
 /**

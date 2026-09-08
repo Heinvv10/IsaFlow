@@ -239,6 +239,25 @@ export function mattersBudgetMm(
  */
 function quantumNoteReserve(allMatters: readonly PackMatter[]): number {
   if (!allMatters.some((matter) => matter.quantum === null)) return 0;
-  return notMeaningfulNotesMm([{ value: null, unavailable: NO_QUANTUM } as PackFigure],
-    PAGE_WIDTH_MM.portrait);
+  const reasons: PackFigure[] = [{ value: null, unavailable: NO_QUANTUM } as PackFigure];
+  // AND THE SECOND REASON, WHICH IS A DISTINCT NOTE AND WAS NOT RESERVED.
+  //
+  // `blockMm` collects reasons across the printed quanta AND the omitted
+  // one, so a pack whose omitted tail states no total carries TWO lettered
+  // notes, not one. Reserving a single line left pages 11 of
+  // `manyLongNullQuantumMatters` and `manyShortNullQuantumMatters` over their
+  // box, and `fitPageToBox` apologised — on the two fixtures that exist
+  // BECAUSE page 11 once spilled, and which the no-apology gate did not
+  // cover. They are in it now.
+  //
+  // The condition is exact rather than cautious: `selectPrintedMatters`
+  // prints matters with no rand amount FIRST, so the omitted tail is the
+  // lowest-ranked — quantified, whenever any quantified matter exists. The
+  // omitted quantum can therefore only be unstatable when EVERY matter is
+  // unquantified, and reserving this line in any other case would cost a row
+  // to reserve nothing.
+  if (allMatters.every((matter) => matter.quantum === null)) {
+    reasons.push({ value: null, unavailable: OMITTED_NOT_QUANTIFIED } as PackFigure);
+  }
+  return notMeaningfulNotesMm(reasons, PAGE_WIDTH_MM.portrait);
 }

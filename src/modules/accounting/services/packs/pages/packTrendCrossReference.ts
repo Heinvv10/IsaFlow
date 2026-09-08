@@ -97,6 +97,32 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
 interface PeriodCounterpart {
   /** How the measure is named on both pages. */
   measure: string;
+  /**
+   * WHETHER THE PAGE PRINTS THIS MEASURE AGAINST THE COMPARATIVE — which is
+   * a different question from whether it prints it at all, and the trends
+   * page's own note was asserting the first while checking the second.
+   *
+   * The note reads "The same measures print for the WHOLE reporting period,
+   * AGAINST THE COMPARATIVE — revenue, gross margin, operating expenses and
+   * net profit on the income statement page …". Five of those six satisfy
+   * it. Gross margin does not: page 6 carries a prior column, but gross
+   * margin is not one of the rows in it — the page prints the measure ONLY in
+   * the `% OF REVENUE` column, which has no comparative for any row. Revenue,
+   * operating expenses and net profit are rows with actual AND prior; gross
+   * margin is a percentage of one column of one period.
+   *
+   * Naming page 9 instead was measured and is worse: the scorecard's gross
+   * margin prior is null on the live demo company, so the pointer would
+   * resolve to an empty cell. The measure is dropped from THIS list and keeps
+   * its reciprocal footnote on page 6 (`periodWindowFootnotes`), which claims
+   * only that the page prints the whole-period figure — true, in the
+   * `% of revenue` column.
+   *
+   * Stated per entry rather than defaulted, for the reason
+   * `wholePeriodBasis` is: the one measure it is false of is the one nobody
+   * checks.
+   */
+  printsAgainstComparative: boolean;
   /** Which page carries the period figure, in the words the contents entry
    *  for that page uses. */
   page: string;
@@ -127,9 +153,9 @@ interface PeriodCounterpart {
 const ON_THE_PERIOD_TOTALS = 'measured on the period totals';
 
 export const PERIOD_COUNTERPARTS: Record<string, PeriodCounterpart> = {
-  'trend-revenue': { measure: 'revenue', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
-  'trend-gross-margin': { measure: 'gross margin', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
-  'trend-operating-expenses': { measure: 'operating expenses', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-revenue': { measure: 'revenue', printsAgainstComparative: true, page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-gross-margin': { measure: 'gross margin', printsAgainstComparative: false, page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-operating-expenses': { measure: 'operating expenses', printsAgainstComparative: true, page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
   // THE INCOME STATEMENT, NOT THE GROUP RESULTS PAGE. The group results page
   // prints net profit BY MONTH and a total over the trend window; it carries
   // no reporting-period figure and no comparative column, so a director who
@@ -140,10 +166,11 @@ export const PERIOD_COUNTERPARTS: Record<string, PeriodCounterpart> = {
   // pointers were right. It is invisible on a company whose activity sits in
   // one month, where the two windows coincide, which is why the test that
   // holds it uses the demo shape.
-  'trend-net-profit': { measure: 'net profit', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
-  'trend-cash': { measure: 'cash', page: 'cash page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-net-profit': { measure: 'net profit', printsAgainstComparative: true, page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-cash': { measure: 'cash', printsAgainstComparative: true, page: 'cash page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
   'trend-debtor-days': {
     measure: 'debtor days',
+    printsAgainstComparative: true,
     page: 'scorecard page',
     wholePeriodBasis: "annualised on 365 days whatever the period's own length",
   },
@@ -162,6 +189,9 @@ function counterpartsByPage(panels: PackChartSpec[]): Array<{ page: string; meas
   for (const panel of panels) {
     const counterpart = PERIOD_COUNTERPARTS[panel.id];
     if (counterpart === undefined) continue;
+    // The sentence this list feeds says "against the comparative", so a
+    // measure whose page prints no comparative for it does not belong in it.
+    if (!counterpart.printsAgainstComparative) continue;
     const group = byPage.find((g) => g.page === counterpart.page);
     if (group) group.measures.push(counterpart.measure);
     else byPage.push({ page: counterpart.page, measures: [counterpart.measure] });

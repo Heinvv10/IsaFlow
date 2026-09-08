@@ -17,6 +17,7 @@ import {
   cashCaption,
   positionCaption,
   negativeAssetsSentence,
+  negativeLiabilitySentence,
   negativeEquitySentence,
   tileCaption,
   trendsCaption,
@@ -242,6 +243,22 @@ export function buildPositionBlocks(
   if (assets < 0) {
     positionBlocks.push(mustDisclose('Negative total assets', [
       note('What this means', negativeAssetsSentence(assets, scale)),
+    ]));
+  }
+  // AND THE SAME TREATMENT FOR A NEGATIVE LIABILITY LINE. Brightsphere prints
+  // non-current liabilities of (424) — an amount that cannot be owed — on the
+  // sheet that gives negative total assets a titled block. Explaining the
+  // impossibility at TOTAL level and staying silent at COMPONENT level reads
+  // as the pack having decided the component is fine. Read off the table the
+  // page prints rather than off `set`, so the disclosure can only name a row
+  // the sheet actually shows and states that row's own label.
+  const negativeLiability = position.rows.find((row) =>
+    /liabilities$/i.test(row.label) && (row.figures.actual?.value ?? 0) < 0);
+  if (negativeLiability !== undefined) {
+    positionBlocks.push(mustDisclose('A liability below zero', [
+      note('What this means', negativeLiabilitySentence(
+        negativeLiability.label, negativeLiability.figures.actual!.value!, scale,
+      )),
     ]));
   }
   const equity = set.current.totalEquity;

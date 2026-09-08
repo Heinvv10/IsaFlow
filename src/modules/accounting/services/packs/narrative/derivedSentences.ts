@@ -400,3 +400,35 @@ export function negativeAssetsSentence(assets: number, scale: MoneyScale): strin
 export function negativeRevenueSentence(revenue: number, scale: MoneyScale): string {
   return `Revenue is ${money(revenue, scale)}. Turnover below zero is not a period a business can trade — it means the revenue accounts are in net debit, commonly credit notes or reversals exceeding the period's invoicing, or a receipt posted to an income account the wrong way round. Every margin in this pack divides by revenue, so each of them is reported as not meaningful rather than computed off a negative base. The pack reports the ledger as it stands; the revenue accounts should be traced before it is relied on.`;
 }
+
+/**
+ * AND THE FOURTH IMPOSSIBLE NUMBER, WHICH IS A COMPONENT RATHER THAN A TOTAL.
+ *
+ * Brightsphere's balance sheet prints non-current liabilities of (424) — a
+ * NEGATIVE LIABILITY — and says nothing, on a sheet that devotes a titled
+ * block to negative total assets and another to negative equity. The pack
+ * treats a sign impossibility as worth explaining when it lands on a total
+ * and as unremarkable when it lands on a line, and a reader cannot tell that
+ * apart from the pack having decided the line is fine.
+ *
+ * It is the same class and the same remedy: a liability below zero means one
+ * or more accounts in that band carry debit balances, which is a
+ * classification or a posting question rather than a fact about what the
+ * company owes. Stated at the same length and in the same shape as the other
+ * three — what it is, what causes it, and that the ledger is reported as it
+ * stands — so a reader meeting any of the four gets the same treatment.
+ *
+ * NAMED, because "a liability" would not say which. Page 7 prints two
+ * liability lines and a total; this sentence is built for whichever of them
+ * is below zero and states that row's own label.
+ */
+export function negativeLiabilitySentence(
+  label: string,
+  amount: number,
+  scale: MoneyScale,
+): string {
+  return `${label} are ${money(amount, scale)}. A liability below zero is not an amount that can `
+    + 'be owed; it means one or more accounts classified in that band carry debit balances — a '
+    + 'classification or a posting question rather than a smaller obligation. The pack reports '
+    + 'the ledger as it stands, and the balance should be resolved before this sheet is relied on.';
+}

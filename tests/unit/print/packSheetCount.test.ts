@@ -26,6 +26,7 @@ import { chromium, type Browser } from 'playwright';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { isContentPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import { contentsListMm } from '@/modules/accounting/services/packs/pages/packFrontMatter';
+import { PAGE_WIDTH_MM } from '@/modules/accounting/services/packs/pages/packTextMetrics';
 import {
   brightsphereInput,
   brightsphereLiveInput,
@@ -42,7 +43,7 @@ import {
 } from '../services/packs/fixtures/liveDemoBoardPack';
 import { buildFooterHtml, PACK_CONFIDENTIALITY } from '@/lib/pdf/printFurniture';
 import { printBoardPack, type PrintedPack } from './renderPackPdf';
-import { buildMattersBlock } from '@/modules/accounting/services/packs/pages/packMattersPage';
+import { buildMattersBlock, mattersBudgetMm } from '@/modules/accounting/services/packs/pages/packMattersPage';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import { selectPrintedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
@@ -389,10 +390,16 @@ describe('the printed board pack', () => {
     const document = buildBoardPackPages(input);
     const index = document.pages.findIndex((p) => p.blocks.some((b) => b.kind === 'matters'));
     const page = document.pages[index]!;
-    const budget = pageBoxMm(page) - pageMm({
-      ...page,
-      blocks: page.blocks.map((b) => (b.kind === 'matters' ? { kind: 'matters', matters: [], omitted: null } : b)),
-    }) + extraMm;
+    // THE COMPOSER'S OWN BUDGET, not a second formula. This subtracted an
+    // empty matters block from the box and stopped there, which is what
+    // `mattersBudgetMm` did when the test was written and is no longer: the
+    // budget also RESERVES the "N further matters" note and the lettered
+    // reasons under the QUANTUM column, neither of which an empty probe can
+    // see. Computing the budget a second way here meant this test filled the
+    // page past what the composer would ever put on it, and then reported the
+    // spill as a defect in the page rather than in its own arithmetic.
+    const support = page.blocks.filter((b) => b.kind !== 'matters');
+    const budget = mattersBudgetMm(support, page.title, input.matters) + extraMm;
     const block = buildMattersBlock(selectPrintedMatters(input.matters, budget), new PackFigureProvenance());
     document.pages[index] = { ...page, blocks: page.blocks.map((b) => (b.kind === 'matters' ? block : b)) };
     return document;
@@ -671,9 +678,23 @@ describe('the printed board pack', () => {
     // the width of its own sentence.
     expect(placeholderMm, 'the placeholder is still sized to a column')
       .toBeGreaterThan(150);
-    // And the panel keeps a measure a reader can follow — `max-width: 120mm`.
-    expect(panelMm, `the panel is set across ${panelMm}mm`).toBeLessThanOrEqual(122);
-    expect(panelMm, `the panel is set across ${panelMm}mm`).toBeGreaterThan(90);
+    // AND THE PANEL RUNS THE FULL MEASURE, which is the opposite of what this
+    // asserted. It pinned `max-width: 120mm` on the argument that 9.5pt across
+    // 174mm is too long a line — an argument that condemns
+    // `.pack-disclosure-body`, the same 9.5pt over the same 14pt leading,
+    // which runs the full measure on every disclosure in the pack including
+    // the three directly beneath this panel. The panel was the one 9.5pt
+    // block in twelve sheets set to a different measure, and the 54mm it left
+    // beside it carried under 1% ink: the unfilled second column of a layout
+    // that has only one column, on the first thing a chair reads.
+    //
+    // The bound is now the measure itself, so a reinstated cap goes red.
+    expect(panelMm, `the panel is set across ${panelMm}mm`).toBeGreaterThan(150);
+    expect(panelMm, `the panel runs past the paper at ${panelMm}mm`)
+      .toBeLessThanOrEqual(PAGE_WIDTH_MM.portrait + 1);
+    // And it is not merely wide: nothing sits beside it, so there is no band.
+    expect(placeholderMm - panelMm, 'a column of white remains beside the panel')
+      .toBeLessThan(10);
   }, 120_000);
 
   it('carries no class inside a page box whose CSS this harness does not load', async () => {

@@ -14,6 +14,7 @@ import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import type { MoneyScale } from '@/lib/format/money';
 import { FootnoteMarker } from './FootnoteMarker';
+import { scorecardColumnPercents } from '@/modules/accounting/services/packs/pages/packScorecardColumns';
 import { formatDays, formatMoney, formatPct, formatRatio } from '@/lib/format/money';
 import type {
   PackFigureFormat,
@@ -152,6 +153,23 @@ export function ScorecardTable({ groups, scale }: ScorecardTableProps) {
       {groups.map((group) => (
         <table key={group.letter} className="pack-table pack-scorecard-group">
           <caption className="pack-scorecard-heading">{`${group.letter}. ${group.name}`}</caption>
+          {/* ONE GRID ACROSS ALL FIVE BLOCKS.
+            * Each lettered group is its own `<table>`, so `table-layout: auto`
+            * sized every one of them from its own content: TARGET moved about
+            * 10mm between blocks and PRIOR about 14mm, non-monotonically —
+            * `+35.0%`, `1.50`, `30 days` and `0.50` are the same cell five
+            * times and no two lined up. Pinning the first column at 34% in CSS
+            * did not help and the comment there claiming it did was wrong: two
+            * fixed columns still leave the rest distributed by content.
+            *
+            * Same fix as the matters table, from the same kind of arithmetic —
+            * see `packScorecardColumns`, which sizes TARGET and STATUS to the
+            * widest thing they can hold so a fixed column cannot clip one. */}
+          <colgroup>
+            {scorecardColumnPercents(showsTrend).map((width, i) => (
+              <col key={width + String(i)} style={{ width }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
               <th>Metric</th>

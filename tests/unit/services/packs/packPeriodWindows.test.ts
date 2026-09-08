@@ -28,6 +28,7 @@ import {
   trendWindowNote,
   periodWindowFootnotes,
 } from '@/modules/accounting/services/packs/pages/packTrendCrossReference';
+import { PERIOD_COUNTERPARTS } from '@/modules/accounting/services/packs/pages/packTrendCrossReference';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { cashTitle } from '@/modules/accounting/services/packs/narrative/derivedSentences';
@@ -168,12 +169,21 @@ describe('the month-versus-period note', () => {
         return;
       }
 
-      // The note names gross margin IF AND ONLY IF the panel is drawn — the
-      // exact defect, in both directions.
+      // The note names a measure IF AND ONLY IF its panel is drawn AND its
+      // page prints it against the comparative — which is what the sentence
+      // claims. Both halves matter: naming a measure whose panel is absent
+      // was the original defect, and naming gross margin, whose panel IS
+      // drawn on the demo but whose page carries no comparative for it, was
+      // the second. Read off `printsAgainstComparative` rather than a list
+      // typed here, so the test cannot drift from the rule.
       expect(note).not.toBeNull();
-      expect(note!.body.includes('gross margin')).toBe(drawn.has('trend-gross-margin'));
-      expect(note!.body.includes('debtor days')).toBe(drawn.has('trend-debtor-days'));
-      expect(note!.body.includes('cash')).toBe(drawn.has('trend-cash'));
+      const named = (id: string): boolean =>
+        drawn.has(id) && PERIOD_COUNTERPARTS[id]!.printsAgainstComparative;
+      expect(note!.body.includes('gross margin')).toBe(named('trend-gross-margin'));
+      expect(note!.body.includes('debtor days')).toBe(named('trend-debtor-days'));
+      expect(note!.body.includes('cash')).toBe(named('trend-cash'));
+      // And gross margin is the one that differs, so this test can fail.
+      expect(PERIOD_COUNTERPARTS['trend-gross-margin']!.printsAgainstComparative).toBe(false);
     });
 
     it(`does not name a missing panel anywhere on ${name}'s trends page`, () => {
@@ -190,9 +200,17 @@ describe('the month-versus-period note', () => {
       // "Panels not drawn" explains gross margin's absence in the same words
       // the window note would use to claim its presence. Only one of the two
       // may be on the page.
+      //
+      // The trends page no longer CLAIMS gross margin at all — page 6 prints
+      // it only in the `% of revenue` column, which has no comparative — so
+      // what this now holds is the direction that still matters: a page that
+      // does not draw the panel must not claim it. The reciprocal footnote on
+      // page 6 is where the drawn case is checked, in the test below.
       const claimsGrossMargin = /Gross margin.*(income statement|for the WHOLE)|gross margin on the income statement/i.test(text);
-      expect(claimsGrossMargin, `${name}: the trends page names a gross-margin panel it does not draw`)
-        .toBe(drawn.has('trend-gross-margin'));
+      if (!drawn.has('trend-gross-margin')) {
+        expect(claimsGrossMargin, `${name}: the trends page names a gross-margin panel it does not draw`)
+          .toBe(false);
+      }
     });
 
     it(`gives ${name}'s statement pages the reciprocal pointer only where the panel exists`, () => {

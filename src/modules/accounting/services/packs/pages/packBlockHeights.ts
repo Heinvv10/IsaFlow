@@ -14,11 +14,27 @@ import type { PackDisclosure, PackNarrative, PackPageBlock } from './packPageMod
 
 /** `--pack-gutter`. */
 export const GUTTER_MM = 8;
-/** `.pack-narrative-columns.is-pending .pack-narrative-actions`'s
- *  `max-width`. The panel stacks UNDER the placeholder now rather than
- *  sitting beside it, and 120mm is the measure it keeps: 9.5pt across the
- *  full 174mm is about a hundred characters to the line. */
-const PENDING_PANEL_MM = 120;
+/**
+ * `.pack-narrative-columns.is-pending .pack-narrative-actions`'s measure —
+ * the FULL page width now, which is what removed the dead column beside it.
+ *
+ * It was 120mm, kept on the argument that "9.5pt across the full 174mm is
+ * about a hundred characters to the line". The argument does not survive
+ * being applied to the rest of the document: `.pack-disclosure-body` is the
+ * SAME 9.5pt over the SAME 14pt leading and runs the full 174mm on every
+ * disclosure in the pack, including the three directly beneath this panel on
+ * page 4. The panel was the one 9.5pt block in twelve sheets set to a
+ * different measure, and the 54mm it left carried 0.70% ink on the demo and
+ * 0.95% on Brightsphere — a band that reads as the unfilled second column of
+ * a two-column layout, on the first thing a chair reads.
+ *
+ * It also makes the page SHORTER rather than longer, which is why it is safe
+ * on a sheet with 4.01mm of slack: the five action items wrap to 14 lines at
+ * 120mm and 10 at the full measure. 155mm reaches 10 too, and leaves 19mm of
+ * band; there is no line to be bought by stopping short of the measure every
+ * other block on the sheet uses.
+ */
+const PENDING_PANEL_MM = PAGE_WIDTH_MM.portrait;
 /** The `row-gap` between the placeholder and the panel below it. */
 const PENDING_ROW_GAP_MM = 2;
 

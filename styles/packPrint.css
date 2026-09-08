@@ -302,9 +302,13 @@ html.print-mode .pack-pages {
  * own `.pack-table`, so the existing table rules (header row, tabular figures)
  * apply unchanged; only the group heading and the status/trend cells are new. */
 .pack-scorecard { display: flex; flex-direction: column; gap: 4mm; }
-/* The metric name carries the most words in the row; a fixed share keeps the
- * Actual/Target/Prior/Trend/Status columns aligned across every group's table. */
-.pack-scorecard-group th:first-child, .pack-scorecard-group td:first-child { width: 34%; }
+/* ONE GRID ACROSS ALL FIVE GROUPS, and the rule that used to be here claimed
+ * to do this and did not: pinning the first column at 34% leaves every other
+ * column sized by its own table's content under `table-layout: auto`, which
+ * moved TARGET about 10mm and PRIOR about 14mm between blocks. The widths now
+ * come from `packScorecardColumns` as a `<colgroup>`, the same way the matters
+ * table gets its own, and `fixed` is what makes the browser honour them. */
+.pack-scorecard-group { table-layout: fixed; }
 .pack-scorecard-heading {
   caption-side: top; text-align: left; font-size: 11pt; line-height: 15pt;
   font-weight: 600; padding-bottom: 1.5mm; color: var(--pack-ink);
@@ -342,7 +346,12 @@ html.print-mode .pack-pages {
   grid-template-columns: minmax(0, 1fr);
   row-gap: 2mm;
 }
-.pack-narrative-columns.is-pending .pack-narrative-actions { max-width: 120mm; }
+/* NO CAP. This was `max-width: 120mm`, which left a 54mm band beside the
+ * panel carrying under 1% ink — the unfilled second column of a layout that
+ * has only one. `.pack-disclosure-body` is the same 9.5pt/14pt and runs the
+ * full measure on every sheet, so the panel now reads as the same kind of
+ * block as the three beneath it. See `PENDING_PANEL_MM`, which is the height
+ * model's half of this and must move with it. */
 .pack-narrative-columns.is-pending .pack-narrative-pending { margin: 0; }
 /* AND WHERE THERE IS NO ACTION PANEL, THERE IS NO SECOND COLUMN. See
  * `NarrativeColumns` — every derived caption in the pack was reserving a 1fr
