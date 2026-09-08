@@ -1,0 +1,56 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"OAuth app registered","timestamp":"2026-09-08T16:47:52.543Z","component":"oauth","data":{"appId":"89ce98a8-6a27-4ae2-a75a-52fa10a8172c","ownerUserId":"1de461d8-e650-4830-a97c-6ba172a90d02","name":"standing fixture","isDynamic":false}}
+{"level":"info","message":"PAT created","timestamp":"2026-09-08T16:47:52.569Z","component":"pat","data":{"userId":"1de461d8-e650-4830-a97c-6ba172a90d02","companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","name":"standing fixture","scopes":["read:invoices"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.579Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:47:52.599Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.606Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.613Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:47:52.624Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.633Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.642Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.658Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.665Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:47:52.679Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.694Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.704Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:47:52.715Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.731Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.742Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.764Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.780Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:47:52.791Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","reason":"disposable regression"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.803Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.814Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:47:52.825Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.836Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.851Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.873Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.883Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.884Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"suspendCompany","timestamp":"2026-09-08T16:47:52.891Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","reason":"disposable regression"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.891Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.898Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.898Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.905Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.905Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"deleteCompany (soft)","timestamp":"2026-09-08T16:47:52.915Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.915Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.923Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.923Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.930Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.930Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.937Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"activateCompany","timestamp":"2026-09-08T16:47:52.945Z","component":"AdminCompanyService","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8"}}
+{"level":"info","message":"withAuth: print token accepted","timestamp":"2026-09-08T16:47:52.945Z","component":"Auth","data":{"companyId":"54b6bdc7-a24f-4c79-b915-1beb4b9a93d8","userId":"1de461d8-e650-4830-a97c-6ba172a90d02","paths":["/api/accounting/mfa-integration-fixture"]}}
+{"level":"info","message":"API Request: POST /api/accounting/mfa-integration-fixture","timestamp":"2026-09-08T16:47:53.039Z","component":"API","requestId":"01M20YPFPETQRPYDF0V4DQDXNC","data":{"type":"request","method":"POST","url":"/api/accounting/mfa-integration-fixture","query":{"id":"71f12e00-78a1-4515-a50d-b5ca13457e94"}}}
+{"level":"info","message":"API Response: POST /api/accounting/mfa-integration-fixture - 200 (96ms)","timestamp":"2026-09-08T16:47:53.134Z","component":"API","requestId":"01M20YPFPETQRPYDF0V4DQDXNC","data":{"type":"response","method":"POST","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"96ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T16:47:53.134Z","component":"http","requestId":"01M20YPFPETQRPYDF0V4DQDXNC","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"POST","status":200,"durationMs":96,"userId":"0735ecde-246d-490c-b5cb-f31edc5ed0f1","companyId":null,"outcome":"ok"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T16:47:53.165Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-08T16:47:53.270Z","component":"Admin","data":{"admin":"0735ecde-246d-490c-b5cb-f31edc5ed0f1","target":"71f12e00-78a1-4515-a50d-b5ca13457e94"}}
+
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
+   Start at  18:47:51
+   Duration  1.72s (transform 229ms, setup 0ms, import 460ms, tests 2.37s, environment 0ms)

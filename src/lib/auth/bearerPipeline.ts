@@ -1,6 +1,6 @@
+import { getCompanyMembership, type CompanyMembershipRow } from './companyMembership';
 /**
  * Shared Bearer-token request pipeline (PRD-10 / MCP).
- *
  * ONE implementation of: token validation (pat_/oat_), app_user transaction
  * with RLS GUCs (request.jwt.claims + app.current_company_id), the
  * company_users membership re-check, the per-company auto rate-limit mirror,
@@ -11,9 +11,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import * as Sentry from '@sentry/nextjs';
 import pg from 'pg';
-// Side-effect import: registers the DATE (OID 1082) parser for every pg Pool
-// in this process. This file builds its own Pool, so it must not depend on
-// src/lib/neon.ts having been imported first. See src/lib/pgTypes.ts.
+// Register the DATE parser independently of neon.ts import order.
 import '@/lib/pgTypes';
 import { als } from '@/lib/als';
 import { log } from '@/lib/logger';
@@ -22,7 +20,7 @@ import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { validatePat } from './personalAccessTokens';
 import { validateOauthAccessToken, type OauthAccessContext } from './oauth';
 import type { CompanyAuthedRequest } from './withAuth';
-import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR, type UserAccountRow } from './userAccountStatus';
+import { isActiveUserAccount, SUSPENDED_ACCOUNT_ERROR, MISSING_PROFILE_ERROR } from './userAccountStatus';
 
 /**
  * Auto rate-limit table — must stay in sync with the equivalent table in
@@ -142,29 +140,11 @@ export async function runBearerRequest(
     await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)]);
     await client.query(`SELECT set_config('app.current_company_id', $1, true)`, [ctx.companyId]);
 
-    // Belt-and-braces membership + account-standing check — same posture as
-    // withAuth. Catches the case where a user's company access was revoked
-    // since the token was minted (we don't auto-revoke tokens on company_users
-    // delete), and the case where the user was suspended (suspendUser flips
-    // users.is_active/suspended_at but does not revoke PATs or OAuth grants,
-    // so without the join a suspended user's MCP token keeps writing to the
-    // ledger). LEFT JOIN so a membership with no profile behind it is denied
-    // by the predicate rather than looking like a missing membership.
-    type MembershipRow = UserAccountRow & { role: string; account_user_id: string | null };
-    let membership: { rows: MembershipRow[] };
+    // Shared membership lookup denies suspended/deleted tenants under app_user RLS.
+    // Profile LEFT JOIN keeps missing-user data distinct from user suspension.
+    let membership: { rows: CompanyMembershipRow[] };
     try {
-      membership = await client.query<MembershipRow>(
-        `SELECT cu.role,
-                u.id AS account_user_id,
-                u.is_active,
-                u.status,
-                u.suspended_at
-           FROM company_users cu
-           LEFT JOIN users u ON u.id = cu.user_id
-          WHERE cu.user_id = $1::text AND cu.company_id = $2::uuid
-          LIMIT 1`,
-        [ctx.userId, ctx.companyId],
-      );
+      membership = await getCompanyMembership(client, ctx.userId, ctx.companyId);
     } catch (err) {
       // Only treat invalid-UUID casts as 403 (forged or stale token pointing
       // at a non-UUID company). Real DB errors (timeout, pool exhaustion)
