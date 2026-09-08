@@ -135,7 +135,7 @@ describe('buildBoardPackPages', () => {
    * that explains the one and stays silent on the other reads as though the
    * silent one is normal.
    */
-  it('explains revenue below zero on the page that heads with it', () => {
+  it('explains every income statement line below zero, not only revenue', () => {
     expect(brightsphereInput.set.current.revenue, 'this fixture is the negative-revenue case')
       .toBeLessThan(0);
     expect(demoInput.set.current.revenue, 'and this one is not').toBeGreaterThan(0);
@@ -144,17 +144,35 @@ describe('buildBoardPackPages', () => {
       buildBoardPackPages(input).pages.find((p) => p.number === 6)!;
 
     const disclosed = income(brightsphereInput).blocks.find(
-      (b) => b.kind === 'disclosure' && b.disclosure.heading === 'Negative revenue',
+      (b) => b.kind === 'disclosure' && b.disclosure.heading === 'Lines below zero',
     );
     expect(disclosed, 'no block on the income statement explains negative turnover').toBeDefined();
     expect(disclosed?.kind === 'disclosure' && disclosed.disclosure.required)
       .toBe(true);
-    expect(disclosed?.kind === 'disclosure' && disclosed.disclosure.notes[0]?.body)
-      .toContain('revenue accounts are in net debit');
+    const body = disclosed?.kind === 'disclosure' ? disclosed.disclosure.notes[0]?.body ?? '' : '';
+    expect(body).toContain('in net debit');
+    // AND EVERY OTHER LINE THE WRONG SIDE OF ZERO, which is the half this
+    // block used to leave to the matters page eleven sheets later. The check
+    // is read off the table, so every negative income or cost row on the
+    // sheet has to be named in it.
+    const page6 = income(brightsphereInput);
+    const table = page6.blocks.find((b) => b.kind === 'table');
+    const negatives = table?.kind === 'table'
+      ? table.table.rows.filter((r) => r.role === 'line' && (r.figures.actual?.value ?? 0) < 0)
+      : [];
+    expect(negatives.length, 'this fixture has no negative line beyond revenue').toBeGreaterThan(1);
+    for (const row of negatives) {
+      // Case-insensitive on the LABEL, not on the body: the sentence sets its
+      // first line in sentence case and the rest lower, and a `toContain` on
+      // the lowered label would pass on "divides by revenue" three clauses
+      // later — a match anywhere is not a match on the list.
+      const listed = new RegExp(`${row.label}\\s+(is|are)?\\s*\\(`, 'i').test(body);
+      expect(listed, `${row.label} is below zero and is not in the sheet's list: ${body}`).toBe(true);
+    }
 
     // And only where it applies — a caveat printed on every pack is furniture.
     expect(income(demoInput).blocks.some(
-      (b) => b.kind === 'disclosure' && b.disclosure.heading === 'Negative revenue',
+      (b) => b.kind === 'disclosure' && b.disclosure.heading === 'Lines below zero',
     )).toBe(false);
   });
 
@@ -744,7 +762,7 @@ describe('Brightsphere as the live route composed it', () => {
       .toBe(true);
     // And it did not buy the space by abridging the disclosure either.
     expect(income.blocks.some((b) => b.kind === 'disclosure'
-      && b.disclosure.heading === 'Negative revenue'
+      && b.disclosure.heading === 'Lines below zero'
       && b.disclosure.notes.length === 1)).toBe(true);
     // Nor by apologising for its own layout.
     expect(income.footnotes.some((f) => f.text.startsWith(OMISSION_MARK))).toBe(false);

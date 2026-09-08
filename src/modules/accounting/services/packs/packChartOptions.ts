@@ -305,6 +305,39 @@ function makeWaterfallRenderItem(
 export const CHART_GUTTER_PX = 80;
 
 /**
+ * AND THE RIGHT GUTTER IS NOTHING, BECAUSE A CHART'S RIGHT EDGE IS THE TABLE
+ * RULE ABOVE IT OR IT IS NOT ON THE GRID.
+ *
+ * The round before this one gave every full-width chart the SAME gutter both
+ * sides — consistent, centred, and still 109 to 129 pixels short of the
+ * table rule on every chart page. Pixel-scanned at 911px: the rules end at
+ * 821 and the plots at 704, 699 and lower, so a blank band about 3cm wide at
+ * A4 runs down the right of pages 6, 7 and 8 in both packs. Consistency was
+ * the wrong target; the measure is.
+ *
+ * Zero, and the y-axis labels keep the LEFT gutter because they have nowhere
+ * else to go. That is the asymmetry the paper actually has: a chart's left
+ * edge is where its labels end and its right edge is the page's, which is
+ * what every table on every sheet already does.
+ *
+ * The line chart's end label used to live in this gutter and now sits inside
+ * the plot — see `packLineChartOptions`. Nothing else was in it.
+ */
+export const CHART_GUTTER_RIGHT_PX = 0;
+
+/**
+ * What a labelled category axis costs on the right whatever its labels say.
+ *
+ * ECharts keeps the extreme x label inside the plot by shrinking the plot,
+ * so a centred one took half its own width off the chart's measure. The end
+ * labels are anchored to the plot's ends now (`alignMaxLabel`), which leaves
+ * this fixed reserve — 3px of 658, 0.8mm on the sheet — and no longer varies
+ * with the label. A negative `grid.right` does not reclaim it: ECharts
+ * clamps, which was measured.
+ */
+export const AXIS_END_LABEL_RESERVE_PX = 3;
+
+/**
  * @param scale The document's `numberConvention.scale`. REQUIRED — a bridge
  *   drawn in rands beneath a table stated in `R'000` is the 1000x misread
  *   R-P52 exists to stop, and a default would make the unsafe path the easy
@@ -322,7 +355,7 @@ export function waterfallOption(
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
   return {
     animation: false,
-    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: chrome.top, bottom: chrome.bottom },
+    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: chrome.top, bottom: chrome.bottom },
     tooltip: {
       // Same figure the bar prints — see `WaterfallStep.labelValue`.
       formatter: labelTooltipFormatter(steps.map((s) => s.label), steps.map((s) => s.labelValue ?? s.value), scale),
@@ -353,7 +386,7 @@ export function trendOption(
 ): EChartsCoreOption {
   return {
     animation: false,
-    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: 32, bottom: 64 },
+    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: 32, bottom: 64 },
     tooltip: {
       formatter: labelTooltipFormatter(points.map((p) => p.label), points.map((p) => p.value), scale),
     },
@@ -415,7 +448,7 @@ export function compositionBarOption(
 ): EChartsCoreOption {
   return {
     animation: false,
-    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: 40, bottom: 64 },
+    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: 40, bottom: 64 },
     tooltip: { formatter: compositionTooltip(scale) },
     legend: { bottom: 0, textStyle: { color: palette.axis } },
     xAxis: {

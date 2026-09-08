@@ -358,7 +358,12 @@ describe('the share page 10 prints is the share page 10 defines', () => {
     const money = built.sharedScale.length + built.ownScale.length;
     expect(money).toBe(series.length);
     expect(caption, 'the page states the shared span and never says what it is taken across')
-      .toContain(`over all ${money} money panels`);
+      .toContain(`over ${money} money panels`);
+    // AND HOW MANY IT IS ACTUALLY DRAWN ON, which is the half that made the
+    // old wording false: "over all 4 money panels" sat three lines above a
+    // Scale note saying two of the four are on their own scales.
+    expect(caption, 'the page says what the span is taken over and not what it is drawn on')
+      .toContain(`drawn on ${built.sharedScale.length}`);
   });
 
   it('defines that percentage as the axis, in the caption above the panels', () => {

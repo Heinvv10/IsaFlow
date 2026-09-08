@@ -14,11 +14,22 @@
  *
  * This is measured off the emitted SVG in the same way `packWaterfallLegibility`
  * measures the labels: the geometry, not a claim about it.
+ *
+ * THE NIL STEP IS NO LONGER DRAWN AT ALL — one rule for a line with no
+ * figure, because the bridge used to drop a nil Other Expenses and keep a nil
+ * Cost of Sales, so two companies' page 6 drew six bars and seven off the
+ * same statement (`withoutNilLines`, and page 6 names what it left out). That
+ * settles the misplaced dash by removing the mark, and it does NOT settle the
+ * floor: a step of a few hundred rand against a five-million axis still
+ * rounds to a rect under a pixel, and the floor is the only thing that puts
+ * ink at its position. So the floor keeps its test, on a step small enough to
+ * need it, and the nil case asserts the absence instead.
  */
 import { describe, expect, it } from 'vitest';
 import { buildProfitWaterfallChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { brightsphereSet } from './fixtures/boardPackInputs';
+import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 
 /** Every bar the renderer emitted: its category index, its top and its
  *  drawn height, straight off the path the renderer wrote. */
@@ -31,8 +42,17 @@ function bars(svg: string): Array<{ index: number; top: number; height: number }
   }));
 }
 
+/** Brightsphere's own figures with a cost of sales of R400 — three ten-
+ *  thousandths of the revenue bar beside it, so its rect is well under a
+ *  pixel tall and only the floor puts a mark at its position. */
+const tinyStepSet: PackFigureSet = {
+  ...brightsphereSet,
+  current: { ...brightsphereSet.current, costOfSales: 400 },
+};
+
 describe('a nil step on a bridge', () => {
-  const svg = String(buildProfitWaterfallChart(brightsphereSet, PACK_SCALE).svg);
+  const chart = buildProfitWaterfallChart(tinyStepSet, PACK_SCALE);
+  const svg = String(chart.svg);
   const drawn = bars(svg);
 
   it('paints ink at the running total rather than nothing at all', () => {
@@ -61,13 +81,21 @@ describe('a nil step on a bridge', () => {
   it('puts the rule at the end of the step before it', () => {
     const revenue = drawn.find((b) => b.index === 0)!;
     const costOfSales = drawn.find((b) => b.index === 1)!;
+    expect(costOfSales, 'no second bar, so the position below is untested').toBeDefined();
     // The revenue bar runs from zero DOWN to (5 535), so its running total is
     // the lower edge; a zero-height step starts and ends there.
     const runningTotal = revenue.top + Math.abs(revenue.height);
     expect(
       Math.abs(costOfSales.top - runningTotal),
-      `the nil step is drawn at y=${costOfSales.top} and the running total it belongs to is at `
+      `the sub-pixel step is drawn at y=${costOfSales.top} and the running total it belongs to is at `
         + `y=${runningTotal}`,
     ).toBeLessThanOrEqual(1);
+  });
+
+  it('does not draw a line the period has no figure for', () => {
+    const nil = buildProfitWaterfallChart(brightsphereSet, PACK_SCALE);
+    expect(brightsphereSet.current.costOfSales, 'this fixture no longer has a nil line to omit').toBe(0);
+    expect(nil.omittedBars, 'a nil cost of sales was still drawn').toContain('Cost of Sales');
+    expect((nil.waterfallBars ?? []).map((b) => b.label)).not.toContain('Cost of Sales');
   });
 });

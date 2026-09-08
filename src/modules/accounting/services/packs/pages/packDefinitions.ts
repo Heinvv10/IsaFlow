@@ -391,7 +391,15 @@ export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): P
         + 'from operating profit (already stated before interest and tax) plus the depreciation and '
         + 'amortisation charged in the period. '
         + (charged
-          ? 'The bridge below is the whole of it; there are no other adjustments.'
+          // A TABLE, AND THE PAGE CALLED IT A BRIDGE. The Colour key three
+          // entries down says "on the bridges, green is an income line, red a
+          // cost line" — and this one is two rows and a total in black. A
+          // reader taking the key at its word looks for a colour that is not
+          // there and concludes the pack failed to draw it. The word for what
+          // is below is what the field is already called: a reconciliation.
+          // "No other adjustments" pays the eight characters back, on the
+          // tightest sheet in the pack.
+          ? 'The reconciliation below is the whole of it; no other adjustments.'
           : 'None was charged this period, so the add-back is nil and EBITDA equals operating '
             + 'profit — what the ledger says, not a measure the pack failed to compute.'),
     reconciliation: [

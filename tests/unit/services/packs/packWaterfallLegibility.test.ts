@@ -33,6 +33,7 @@ import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis'
 import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 import { brightsphereSet, demoSet } from './fixtures/boardPackInputs';
 import { liveDemoSet } from './fixtures/liveDemoBoardPack';
+import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packChartModel';
 
 /**
  * A drawn bar and the label on it, paired by DOCUMENT ORDER.
@@ -165,11 +166,22 @@ describe('every bar on a pack bridge', () => {
  * came out in opposite colours on the two sheets.
  */
 describe('a line class takes one colour in every pack', () => {
-  const labelled = (svg: string, index: number): string => bars(svg)[index]!.fill;
+  /**
+   * BY NAME, NOT BY POSITION. A bar's index is not its identity: a line whose
+   * figure is nil is not drawn at all (`withoutNilLines`), so Brightsphere's
+   * nil cost of sales moves every bar after it up one and "step 3" reads a
+   * different line on the two companies — which is a test asserting the
+   * wrong bar's colour and passing.
+   */
+  const labelled = (chart: PackChartSpec, label: string): string => {
+    const index = (chart.waterfallBars ?? []).findIndex((bar) => bar.label === label);
+    expect(index, `${label} is not drawn on this bridge`).toBeGreaterThanOrEqual(0);
+    return bars(String(chart.svg))[index]!.fill;
+  };
 
   it('draws revenue as an income line and operating expenses as a cost line, in both', () => {
-    const demo = String(buildProfitWaterfallChart(demoSet, PACK_SCALE).svg);
-    const bright = String(buildProfitWaterfallChart(brightsphereSet, PACK_SCALE).svg);
+    const demo = buildProfitWaterfallChart(demoSet, PACK_SCALE);
+    const bright = buildProfitWaterfallChart(brightsphereSet, PACK_SCALE);
 
     // The fixtures are the reason this test can see anything: assert the
     // books really do run opposite ways before reading the colours off them.
@@ -178,10 +190,9 @@ describe('a line class takes one colour in every pack', () => {
     expect(demoSet.current.operatingExpenses).toBeGreaterThan(0);
     expect(brightsphereSet.current.operatingExpenses).toBeLessThan(0);
 
-    // Revenue is step 0 and Operating Expenses step 3 in `buildProfitWaterfall`.
-    expect(labelled(demo, 0), 'demo revenue').toBe(DEFAULT_CHART_PALETTE.fav);
-    expect(labelled(bright, 0), 'Brightsphere revenue').toBe(DEFAULT_CHART_PALETTE.fav);
-    expect(labelled(demo, 3), 'demo operating expenses').toBe(DEFAULT_CHART_PALETTE.unfav);
-    expect(labelled(bright, 3), 'Brightsphere operating expenses').toBe(DEFAULT_CHART_PALETTE.unfav);
+    expect(labelled(demo, 'Revenue'), 'demo revenue').toBe(DEFAULT_CHART_PALETTE.fav);
+    expect(labelled(bright, 'Revenue'), 'Brightsphere revenue').toBe(DEFAULT_CHART_PALETTE.fav);
+    expect(labelled(demo, 'Operating Expenses'), 'demo operating expenses').toBe(DEFAULT_CHART_PALETTE.unfav);
+    expect(labelled(bright, 'Operating Expenses'), 'Brightsphere operating expenses').toBe(DEFAULT_CHART_PALETTE.unfav);
   });
 });

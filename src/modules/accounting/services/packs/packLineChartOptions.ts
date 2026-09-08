@@ -14,7 +14,7 @@
  * which is why neither showed up.
  */
 import type { EChartsCoreOption } from 'echarts/core';
-import { CHART_GUTTER_PX, DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
+import { CHART_GUTTER_PX, CHART_GUTTER_RIGHT_PX, DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
 
 /** The one ECharts label-callback field these formatters read. */
 interface LabelParam {
@@ -144,7 +144,7 @@ export function smallMultipleOption(
     // measure and the same centre as the waterfall above it.
     grid: unit === null
       ? { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: 12, bottom: 28 }
-      : { left: CHART_GUTTER_PX, right: 64, top: 32, bottom: 32 },
+      : { left: CHART_GUTTER_PX, right: CHART_GUTTER_RIGHT_PX, top: 32, bottom: 32 },
     xAxis: {
       type: 'category',
       data: points.map((p) => p.label),
@@ -174,7 +174,29 @@ export function smallMultipleOption(
       boundaryGap: false,
       // First and last tick only: thirteen rotated month labels in an 82mm
       // panel is a grey smear, and the panel's job is direction, not level.
-      axisLabel: { color: palette.axis, interval: Math.max(points.length - 2, 0), showMaxLabel: true },
+      //
+      // AND THE END LABELS ARE FLUSH WITH THE PLOT, WHICH IS WHAT PUTS THE
+      // CHART ON THE PAGE'S MEASURE. A category label is centred on its tick
+      // by default, so half of "Sep 2026 (part)" hung past the last point —
+      // and ECharts answers that by shrinking the plot to keep it inside. On
+      // page 8 that cost the cash line 45 of its 658 pixels: it stopped 51
+      // page pixels short of the table rule directly above it, and by an
+      // amount that varied with how long the last month's name happened to
+      // be. Anchoring the end labels to the plot's own ends leaves a fixed
+      // 3px reserve whatever they say — 0.8mm, and the same 0.8mm on every
+      // company. `AXIS_END_LABEL_RESERVE_PX` records it; a negative right
+      // gutter does not reclaim it, which was measured, not assumed.
+      //
+      // ON THE FULL-WIDTH LINE ONLY. A panel keeps an 80px gutter either
+      // side, so nothing it prints is costing the plot width, and anchoring
+      // its two labels to the plot's ends would only pull them off the ticks
+      // they name.
+      axisLabel: {
+        color: palette.axis,
+        interval: Math.max(points.length - 2, 0),
+        showMaxLabel: true,
+        ...(unit === null ? {} : { alignMinLabel: 'left', alignMaxLabel: 'right' }),
+      },
       axisLine: { lineStyle: { color: palette.axis } },
       axisTick: { show: false },
     },
@@ -227,6 +249,31 @@ export function smallMultipleOption(
         endLabel: {
           show: true,
           color: palette.ink,
+          // INSIDE THE PLOT ON THE FULL-WIDTH LINE, because the gutter it
+          // used to sit in is gone — see `CHART_GUTTER_RIGHT_PX`. Anchored by
+          // its right edge just left of the last point and lifted clear of
+          // the line, so it reads as the end of the series rather than as a
+          // label floating off the chart's edge.
+          //
+          // A PANEL STILL PUTS IT OUTSIDE. Its grid keeps the 80px right
+          // gutter that exists for this label, and moving it inside an 83mm
+          // plot would set it over the series it labels — the opposite of the
+          // strike-through this placement was chosen to avoid.
+          //
+          // AND INSIDE THE PLOT IT CARRIES ITS OWN GROUND. A label in the
+          // gutter can be kept clear of the gridlines by geometry; one drawn
+          // over the plot cannot, because the gridlines run under everything
+          // there. `packPanelEndLabelIsClear.test.ts` holds the full-width
+          // line to the paper ground instead — a rule reaching the label is
+          // fine if the label is opaque, and is a strike-through if it is
+          // not.
+          ...(unit === null ? {} : {
+            align: 'right',
+            verticalAlign: 'bottom',
+            offset: [-3, -6],
+            backgroundColor: palette.paper,
+            padding: [1, 2, 1, 2],
+          }),
           // The end value, formatted the way the PANEL's own unit is
           // formatted. It was hard-wired to `formatMoney` with no scale, so
           // the gross-margin panel labelled −1394.3% as `(1 394)` and every

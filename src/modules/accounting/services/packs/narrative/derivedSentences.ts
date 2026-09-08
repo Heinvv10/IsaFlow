@@ -380,8 +380,72 @@ export function negativeEquitySentence(equity: number, scale: MoneyScale): strin
  * Same shape as the other two: what it is, what causes it, what it does to
  * the rest of the pack, and that the ledger is reported as it stands.
  */
-export function negativeRevenueSentence(revenue: number, scale: MoneyScale): string {
-  return `Revenue is ${money(revenue, scale)}. Turnover below zero is not a period a business can trade — it means the revenue accounts are in net debit, commonly credit notes or reversals exceeding the period's invoicing, or a receipt posted to an income account the wrong way round. Every margin in this pack divides by revenue, so each of them is reported as not meaningful rather than computed off a negative base. The pack reports the ledger as it stands; the revenue accounts should be traced before it is relied on.`;
+/**
+ * AND IT WAS THE REVENUE LINE ONLY, ON A SHEET WITH FOUR OF THEM.
+ *
+ * The same asymmetry the balance sheet's check had, one page earlier.
+ * Brightsphere's income statement prints revenue of (5 535) under a headed
+ * block AND operating expenses of (3 717), other expenses of (411) and other
+ * income of (1) with no comment at all — three more lines the wrong side of
+ * zero, on the sheet the block is about. They reach the pack's matters page
+ * as "months whose expenses are a net credit", eleven sheets later, with
+ * nothing on page 6 pointing there.
+ *
+ * So the check runs over every income and cost line the page prints, the way
+ * `impossibleBalancesSentence` runs over every asset and liability row.
+ * Subtotals are not in it: a negative gross profit, operating profit or net
+ * profit is a real result a real business can post, and folding those in
+ * would tell a director that a loss is a posting error.
+ *
+ * THE TWO SIDES HAVE DIFFERENT CAUSES and are stated separately, because an
+ * income account in net debit and a cost account in net credit are different
+ * postings to go looking for.
+ */
+export type ImpossibleIncomeSide = 'income' | 'cost' | 'both';
+
+const IMPOSSIBLE_INCOME_CAUSE: Record<ImpossibleIncomeSide, string> = {
+  income: 'income accounts in net debit, from credit notes or reversals exceeding the period\'s '
+    + 'invoicing, or a receipt posted to an income account the wrong way round',
+  cost: 'cost accounts in net credit, from a reversal or a refund exceeding the period\'s charges, '
+    + 'or a payment posted to an expense account the wrong way round',
+  // The arm the live Brightsphere pack takes, and the one the sheet has least
+  // room for: naming four lines instead of one already costs page 6 a line of
+  // 9.5pt it does not have, and the sheet composes at 258.4mm in a 255mm box
+  // if this runs to the length of the two above. What went is the
+  // restatement, not a cause a reader has to go looking for.
+  both: 'income accounts in net debit and cost accounts in net credit — a reversal, a refund or a '
+    + 'posting made the wrong way round',
+};
+
+/**
+ * The consequence clause, which belongs to REVENUE and to nothing else: it is
+ * the denominator of every margin in the pack. Naming it against a negative
+ * other-income line would be a statement about a figure nothing divides by.
+ */
+const NEGATIVE_REVENUE_CONSEQUENCE =
+  ' Every margin divides by revenue, so each is reported as not meaningful rather than computed '
+  + 'off a negative base.';
+
+export function impossibleIncomeLinesSentence(
+  lines: ReadonlyArray<{ label: string; amount: number }>,
+  side: ImpossibleIncomeSide,
+  scale: MoneyScale,
+  /** Whether REVENUE is one of the lines below zero — see the constant above. */
+  revenueIsOne: boolean,
+): string {
+  const named = lines.map((line, i) => {
+    // Sentence case on the first, lower on the rest, so the list reads as one
+    // sentence rather than as four run together — `impossibleBalancesSentence`
+    // does the same with its own rows.
+    const label = i === 0 ? line.label : line.label.toLowerCase();
+    return `${label} ${money(line.amount, scale)}`;
+  });
+  const list = named.length === 1
+    ? named[0]!
+    : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]!}`;
+  return `${list} ${lines.length === 1 ? 'is' : 'are'} below zero: ${IMPOSSIBLE_INCOME_CAUSE[side]}.`
+    + `${revenueIsOne ? NEGATIVE_REVENUE_CONSEQUENCE : ''}`
+    + ' The ledger is reported as it stands; trace these accounts before relying on this sheet.';
 }
 
 /**

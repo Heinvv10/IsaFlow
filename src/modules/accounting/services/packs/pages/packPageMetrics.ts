@@ -22,6 +22,7 @@
  *
  * The type scale and the wrapping live in `packTextMetrics.ts`.
  */
+import { chartTitleMm } from './packChartBox';
 import {
   lines,
   PAGE_BOX_MM,
@@ -56,9 +57,8 @@ export type MeasurablePage = Omit<PackPage, 'number'>;
 export const BLOCK_GAP_MM = 4.5;
 
 /** `.pack-chart-title` in `packPrint.css`: 1.5mm clear of the plot beneath it.
- *  Only the SMALL MULTIPLES charge a caption here — a full-width chart draws
- *  its own inside its stated `heightMm`, so the 10pt/14pt pair that rule sets
- *  is not a number this model needs. */
+ *  The SMALL MULTIPLES set their caption smaller, so they charge it here; a
+ *  full-width chart's is `chartTitleMm`. */
 const CHART_TITLE_GAP_MM = 1.5;
 
 /** `.pack-small-multiples .pack-chart-title` — 8.5pt on a 12pt line. A page-10
@@ -76,10 +76,11 @@ const PANEL_TITLE_LINE_PT = 12;
 export function blockMm(block: PackPageBlock, orientation: PageOrientation): number {
   const width = PAGE_WIDTH_MM[orientation];
   switch (block.kind) {
-    // `.pack-chart` is a `<figure>` with an explicit `height` — its caption
-    // is drawn INSIDE that box, so the model is the number the chart states.
+    // A `<figure>` of its caption over a plot box of `plotMm` — the figure
+    // has no height of its own, so the model adds the two rather than
+    // trusting `heightMm`, which is only the budget the plot was cut from.
     case 'chart':
-      return block.chart.heightMm;
+      return chartTitleMm(block.chart.title, width) + block.chart.plotMm;
     case 'smallMultiples': {
       // Two across (`repeat(2, 1fr)`), since the trends page became portrait.
       //

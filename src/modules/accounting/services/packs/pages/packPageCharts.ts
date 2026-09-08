@@ -31,6 +31,7 @@
  */
 
 import { PAGE_WIDTH_MM } from './packTextMetrics';
+import { svgBoxFor } from './packChartBox';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { buildProfitWaterfall, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
@@ -287,6 +288,35 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
  * @param rung The height to draw it at, overriding the one the predicates
  *   below choose. `shorterProfitBridge` passes it; nothing else should.
  */
+/**
+ * ONE RULE FOR A LINE WITH NO FIGURE, ACROSS EVERY BRIDGE.
+ *
+ * `buildProfitWaterfall` drops a nil Other Income or Other Expenses and
+ * draws a nil Cost of Sales or Operating Expenses — so the demo company's
+ * page 6 carried six bars and Brightsphere's carried seven, off the same
+ * statement, with nothing on either sheet saying which lines were left out
+ * or why. A reader comparing two packs, or one pack against the table three
+ * centimetres above the bridge, has no way to tell an omitted line from an
+ * absent one.
+ *
+ * A nil MOVEMENT is not drawn, whatever the line is called. Subtotals stay:
+ * Gross Profit and Net Profit are where the bridge lands, not steps in it,
+ * and a nil subtotal is a figure the page states rather than a bar carrying
+ * nothing. The labels come back so page 6 can name them — a rule a sheet
+ * does not state is a rule a reader cannot check.
+ */
+function withoutNilLines(
+  steps: WaterfallStep[],
+  /** Every movement line the statement HAS, in statement order, with its
+   *  figure — including the ones `buildProfitWaterfall` declines to push, or
+   *  the sheet would name a dropped Cost of Sales and drop an Other Income
+   *  beside it without a word. */
+  lines: Array<[string, number]>,
+): { steps: WaterfallStep[]; omitted: string[] } {
+  const omitted = lines.filter(([, value]) => value === 0).map(([label]) => label);
+  return { steps: steps.filter((step) => step.isSubtotal || step.value !== 0), omitted };
+}
+
 export function buildProfitWaterfallChart(
   set: PackFigureSet,
   scale: MoneyScale,
@@ -303,7 +333,14 @@ export function buildProfitWaterfallChart(
     otherExpenses: f.otherExpenses ?? 0,
     netProfit: f.netProfit,
   });
-  const bridged = withUncapturedStep(steps, f.netProfit);
+  const drawn = withoutNilLines(steps, [
+    ['Revenue', f.revenue],
+    ['Cost of Sales', f.costOfSales],
+    ['Operating Expenses', f.operatingExpenses],
+    ['Other Income', f.otherIncome ?? 0],
+    ['Other Expenses', f.otherExpenses ?? 0],
+  ]);
+  const bridged = withUncapturedStep(drawn.steps, f.netProfit);
   const bars = toBars(bridged, PROFIT_UNCAPTURED_LABEL, 'belowTheOperatingLine');
   // AND THE SAME RULE AS PAGE 7: the chart gives a rung back when the page
   // has something to say. Where the plug breaches `UNCAPTURED_SHARE_LIMIT`
@@ -332,17 +369,34 @@ export function buildProfitWaterfallChart(
   // the same conditional shape as the two above — the chart gives a rung back
   // exactly where the page has something more to say.
   const share = uncapturedShare(bars);
+  // A LINE BELOW ZERO BUYS THE RUNG, NOT A REVENUE BELOW ZERO.
+  //
+  // This read `f.revenue < 0` while the sheet's sign disclosure fired on any
+  // income or cost line the wrong side of zero — so a company with positive
+  // turnover and three negative cost lines got the disclosure AND the tallest
+  // bridge, and page 6 refused to compose at 258.4mm in a 255mm box. The
+  // predicate and the block it pays for read the same condition now.
+  const signCaveat = [f.revenue, f.costOfSales, f.operatingExpenses, f.otherIncome ?? 0, f.otherExpenses ?? 0]
+    .some((line) => line < 0);
   const crowded = (share !== null && share >= UNCAPTURED_SHARE_LIMIT)
-    || f.revenue < 0
+    || signCaveat
     || carriesWindowNote;
   const box = rung ?? (crowded ? MID : FULL);
+  // HOISTED, because the SVG has to be rendered at the box the FIGURE will
+  // give it and that depends on how tall this sentence wraps — see
+  // `svgBoxFor`.
+  const bridgeTitle = `Revenue of ${inProse(formatMoney(f.revenue, { scale }))} bridges to net `
+    + `profit of ${inProse(formatMoney(f.netProfit, { scale }))}.`;
+  const plot = svgBoxFor(box, bridgeTitle);
   return {
     id: 'profit-bridge',
-    title: `Revenue of ${inProse(formatMoney(f.revenue, { scale }))} bridges to net profit of ${inProse(formatMoney(f.netProfit, { scale }))}.`,
+    title: bridgeTitle,
     kind: 'waterfall',
-    svg: renderChartSvg(waterfallOption(bridged, scale, undefined, intervalsFor(box), isCompact(box)), box),
+    svg: renderChartSvg(waterfallOption(bridged, scale, undefined, intervalsFor(box), isCompact(box)), plot),
     heightMm: box.heightMm,
+    plotMm: plot.heightMm,
     waterfallBars: bars,
+    omittedBars: drawn.omitted,
   };
 }
 
@@ -454,15 +508,19 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
   }
   steps.push({ label: 'Closing cash', start: 0, end: current.cash, value: current.cash, isSubtotal: true, color: 'teal' });
 
+  const cashBridgeTitle = `Cash moved from ${inProse(formatMoney(opening, { scale }))} to `
+    + `${inProse(formatMoney(current.cash, { scale }))} over the period.`;
+  const cashBridgePlot = svgBoxFor(HALF, cashBridgeTitle);
   return {
     drawn: true,
     residual,
     chart: {
       id: 'cash-bridge',
-      title: `Cash moved from ${inProse(formatMoney(opening, { scale }))} to ${inProse(formatMoney(current.cash, { scale }))} over the period.`,
+      title: cashBridgeTitle,
       kind: 'waterfall',
-      svg: renderChartSvg(waterfallOption(steps, scale, undefined, intervalsFor(HALF), isCompact(HALF)), HALF),
+      svg: renderChartSvg(waterfallOption(steps, scale, undefined, intervalsFor(HALF), isCompact(HALF)), cashBridgePlot),
       heightMm: HALF.heightMm,
+      plotMm: cashBridgePlot.heightMm,
       waterfallBars: toBars(steps, CASH_UNCAPTURED_LABEL, 'cashFlowSplits'),
     },
   };
@@ -535,13 +593,16 @@ export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneySc
   // are the same shape rather than two heights decided by the sign of one
   // figure.
   const box = MID;
+  const compositionTitle = positionCompositionTitle(current, scale);
+  const compositionPlot = svgBoxFor(box, compositionTitle);
 
   return {
     id: 'position-composition',
-    title: positionCompositionTitle(current, scale),
+    title: compositionTitle,
     kind: 'bar',
-    svg: renderChartSvg(compositionBarOption(periods, series, scale), box),
+    svg: renderChartSvg(compositionBarOption(periods, series, scale), compositionPlot),
     heightMm: box.heightMm,
+    plotMm: compositionPlot.heightMm,
   };
 }
 

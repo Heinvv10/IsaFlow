@@ -199,7 +199,7 @@ function buildRow(p: PackFigureProvenance, input: RowInput, opts: TableOptions):
     }
   }
 
-  return { label: input.label, level: input.level ?? 0, role: input.role ?? 'line', figures };
+  return { label: input.label, key: input.key, level: input.level ?? 0, role: input.role ?? 'line', figures };
 }
 
 /** The columns the rows actually carry — declared once, never per cell. */

@@ -10,6 +10,8 @@
  * every name here, so existing import paths still resolve.
  */
 
+import { PAGE_WIDTH_MM } from './packTextMetrics';
+import { svgBoxFor } from './packChartBox';
 import { formatDays, formatMoney, formatPctLevel, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/lib/format/money';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import { sharedDomain, smallMultipleOption } from '@/modules/accounting/services/packs/packLineChartOptions';
@@ -298,6 +300,7 @@ function moneyPanel(
     kind: 'line',
     sharedScale: drawn.shared,
     svg: renderChartSvg(smallMultipleOption(points, drawn.domain, money, undefined, { endpoints: true }), PANEL),
+    plotMm: PANEL.heightMm,
     heightMm: PANEL.heightMm,
   };
 }
@@ -355,6 +358,7 @@ function ratioPanel(panel: RatioPanel, trend: PackTrendPoint[], scale: MoneyScal
     // second list of which ones are money.
     sharedScale: false,
     svg: renderChartSvg(smallMultipleOption(points, domain, panel.format, undefined, { endpoints: true }), PANEL),
+    plotMm: PANEL.heightMm,
     heightMm: PANEL.heightMm,
   };
 }
@@ -547,11 +551,17 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
  * 6 does (see `boardPackPages`). A page with a bridge and two disclosures
  * still lands on the bottom rung; a page without them gets a chart the size
  * of the paper it has.
+ *
+ * AND IT IS ON THE TABLE MEASURE, which is the part that got missed.
+ * `packPageCharts` took `PAGE_WIDTH_MM.portrait` for pages 6 and 7 and this
+ * ladder kept its own literal 170, so the cash line stayed 4mm narrower than
+ * the table above it while the other two moved — three chart pages, three
+ * right edges, which is the finding this was meant to close.
  */
 const CASH_TREND_RUNGS = [
-  { widthMm: 170, heightMm: CHART_HEIGHT_MM.full },
-  { widthMm: 170, heightMm: CHART_HEIGHT_MM.half },
-  { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline },
+  { widthMm: PAGE_WIDTH_MM.portrait, heightMm: CHART_HEIGHT_MM.full },
+  { widthMm: PAGE_WIDTH_MM.portrait, heightMm: CHART_HEIGHT_MM.half },
+  { widthMm: PAGE_WIDTH_MM.portrait, heightMm: CHART_HEIGHT_MM.inline },
   // AND ONE BELOW THE GRID, FOR THE PAGE THAT CARRIES A BRIDGE AS WELL.
   // 36mm is the height this line held before it had a grid to step, kept as
   // the bottom rung rather than deleted: where page 8 also carries a cash
@@ -560,7 +570,7 @@ const CASH_TREND_RUNGS = [
   // dropping the sentence saying part of the movement is unexplained —
   // measured, in `boardPackPages.test.ts`. A rung off the grid on the
   // crowded page is a smaller cost than a chart bought with that sentence.
-  { widthMm: 170, heightMm: 36 },
+  { widthMm: PAGE_WIDTH_MM.portrait, heightMm: 36 },
 ] as const;
 
 /**
@@ -597,21 +607,27 @@ export function buildCashTrendChart(
   // against (115) at the previous October, two different numbers for the word
   // "opening", with nothing on the sheet saying they were different series.
   // The endpoints carry their own months now, so the reader can see that.
+  // HOISTED for `svgBoxFor`: this title is the longest in the pack — it names
+  // two months, two figures, a period count and, on a stub, the part-month
+  // clause — so it is the chart whose SVG was letterboxed hardest.
+  const cashTitle =
+    `Closing cash ${direction} from ${money(first)} at ${points[0]!.label} ` +
+    `to ${money(last)} at ${points[points.length - 1]!.label}, over ${points.length} periods.` +
+    (closing.partial ? ` ${partialMonthClause(closing)}` : '');
+  const cashPlot = svgBoxFor(box, cashTitle);
   return {
     id: 'cash-trend',
-    title:
-      `Closing cash ${direction} from ${money(first)} at ${points[0]!.label} ` +
-      `to ${money(last)} at ${points[points.length - 1]!.label}, over ${points.length} periods.` +
-      (closing.partial ? ` ${partialMonthClause(closing)}` : ''),
+    title: cashTitle,
     kind: 'line',
     svg: renderChartSvg(
-      // LABELLED, unlike a page-10 panel. This one is 170mm wide and is the
-      // only picture of cash a director gets; bare, it was six gridlines
-      // carrying one number.
+      // LABELLED, unlike a page-10 panel. This one is on the page's own text
+      // measure and is the only picture of cash a director gets; bare, it
+      // was six gridlines carrying one number.
       smallMultipleOption(points, domain, (n) => formatMoney(n, { scale }), undefined, { unit: scale }),
-      box,
+      cashPlot,
     ),
     heightMm: box.heightMm,
+    plotMm: cashPlot.heightMm,
     // What that sentence ASSERTS, as a number, so the gate can hold it
     // against the cash table's own `Closing cash` row on the same page. The
     // rendered pack stated `(532)` in the table and `(752)` here, and nothing

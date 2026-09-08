@@ -26,9 +26,24 @@ export interface PackChartBlockProps {
   chart: PackChartSpec;
 }
 
+/**
+ * THE PLOT BOX IS THE NUMBER THE SVG WAS RENDERED AT, NOT WHAT THE CAPTION
+ * SPARED. The figure used to carry a fixed `height` with `.pack-chart-svg`
+ * taking `flex: 1` of the rest, so the box an SVG got depended on how tall
+ * its title wrapped — and an SVG whose viewBox does not match its box is
+ * letterboxed, scaled down and centred. Chart width therefore varied with
+ * title length: the same bridge drew 722px on one company and 714 on the
+ * other. `--pack-chart-plot-mm` is the height `renderChartSvg` was given, so
+ * the two are one number; the figure is that plus whatever the caption
+ * needs. Same rule as `PackSmallMultiples` below.
+ */
 export function PackChartBlock({ chart }: PackChartBlockProps) {
   return (
-    <figure data-pack-chart className="pack-chart" style={{ height: `${chart.heightMm}mm` }}>
+    <figure
+      data-pack-chart
+      className="pack-chart"
+      style={{ '--pack-chart-plot-mm': `${chart.plotMm}mm` } as CSSProperties}
+    >
       {/* A message, not a category label — same rule as a page title, and it
        *  is the caption a reader reads before the marks. */}
       <figcaption className="pack-chart-title">{chart.title}</figcaption>
@@ -64,7 +79,7 @@ export function PackSmallMultiples({ panels }: PackSmallMultiplesProps) {
           key={panel.id}
           data-pack-chart
           className="pack-chart"
-          style={{ '--pack-panel-plot-mm': `${panel.heightMm}mm` } as CSSProperties}
+          style={{ '--pack-chart-plot-mm': `${panel.plotMm}mm` } as CSSProperties}
         >
           <figcaption className="pack-chart-title">{panel.title}</figcaption>
           <div className="pack-chart-svg" dangerouslySetInnerHTML={{ __html: panel.svg }} />

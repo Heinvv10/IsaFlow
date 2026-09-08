@@ -89,10 +89,20 @@ function movementFor(
   };
 }
 
-function sparklineFor(points: PackTrendPoint[], series: (p: PackTrendPoint) => number): PackKpiTile['sparklineSvg'] {
-  if (points.length === 0) return null;
+/** A sparkline and the window it covers, or nulls where there is no series.
+ *  The two travel together because a line is only readable beside another
+ *  line if a reader can see which months each of them holds. */
+type Sparkline = Pick<PackKpiTile, 'sparklineSvg' | 'sparklineWindow'>;
+
+const NO_SPARKLINE: Sparkline = { sparklineSvg: null, sparklineWindow: null };
+
+function sparklineFor(points: PackTrendPoint[], series: (p: PackTrendPoint) => number): Sparkline {
+  if (points.length === 0) return NO_SPARKLINE;
   const trendPoints = points.map((point) => ({ label: point.label, value: series(point) }));
-  return renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE);
+  return {
+    sparklineSvg: renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE),
+    sparklineWindow: { plotted: points.length, of: points.length },
+  };
 }
 
 /**
@@ -105,18 +115,21 @@ function sparklineFor(points: PackTrendPoint[], series: (p: PackTrendPoint) => n
 function sparklineForNullable(
   points: PackTrendPoint[],
   series: (p: PackTrendPoint) => number | null,
-): PackKpiTile['sparklineSvg'] {
+): Sparkline {
   const defined = points.filter((point) => series(point) !== null);
-  if (defined.length === 0) return null;
+  if (defined.length === 0) return NO_SPARKLINE;
   const trendPoints = defined.map((point) => ({ label: point.label, value: series(point) as number }));
-  return renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE);
+  return {
+    sparklineSvg: renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE),
+    sparklineWindow: { plotted: defined.length, of: points.length },
+  };
 }
 
 function buildTile(
   label: string,
   figure: PackFigure,
   prior: number | null,
-  sparklineSvg: PackKpiTile['sparklineSvg'],
+  sparkline: Sparkline,
   hasComparativePeriod: boolean,
   lowerIsBetter = false,
 ): PackKpiTile {
@@ -127,7 +140,7 @@ function buildTile(
     // No footnote index is allocated at this level — the page that assembles
     // this tile strip owns the page's `footnotes` array.
     trendFootnote: null,
-    sparklineSvg,
+    ...sparkline,
   };
 }
 
@@ -200,13 +213,13 @@ export function buildHighlightTiles(
     // where the ledger carries one, and a sparkline derived in this file
     // could silently disagree with the tile it sits beside. This tile stays
     // without one until the service issues the series.
-    buildTile('Operating profit', operatingProfit, prior ? operatingProfitOf(prior) : null, null, hasComparative),
+    buildTile('Operating profit', operatingProfit, prior ? operatingProfitOf(prior) : null, NO_SPARKLINE, hasComparative),
     buildTile('Net profit', netProfit, prior?.netProfit ?? null, sparklineFor(trend, (t) => t.netProfit), hasComparative),
     buildTile('Cash', cash, prior?.cash ?? null, sparklineFor(trend, (t) => t.cash), hasComparative),
     // No monthly totalEquity series exists — same reason as operating profit.
-    buildTile('Debt-to-equity', leverage, priorRatios?.debtToEquity ?? null, null, hasComparative, true),
+    buildTile('Debt-to-equity', leverage, priorRatios?.debtToEquity ?? null, NO_SPARKLINE, hasComparative, true),
     buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, sparklineForNullable(trend, (t) => t.debtorDays), hasComparative, true),
     // No monthly working-capital series exists — same reason as above.
-    buildTile('Working capital', workingCapital, priorRatios?.workingCapital ?? null, null, hasComparative),
+    buildTile('Working capital', workingCapital, priorRatios?.workingCapital ?? null, NO_SPARKLINE, hasComparative),
   ];
 }

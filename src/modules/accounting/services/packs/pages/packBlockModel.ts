@@ -90,6 +90,20 @@ export interface PackKpiTile {
   trendFootnote: number | null;
   /** Pre-rendered sparkline markup, or null when there is no series to show. */
   sparklineSvg: TrustedChartSvg | null;
+  /**
+   * THE MONTHS THE SPARKLINE ACTUALLY PLOTS, against the months the window
+   * holds — null where there is no sparkline.
+   *
+   * Two of page 3's lines cover a third of the window the others cover: gross
+   * margin and debtor days have no meaningful figure in a month with no
+   * revenue, so those months are dropped rather than drawn as a false zero,
+   * and on the live demo company that is nine of twelve. Drawn to the same
+   * width, side by side, with nothing saying so, the short ones read as the
+   * same window at a different shape. The pack states this everywhere else it
+   * happens — page 4's `PANEL_OMITTED_RULE`, page 10's "over N periods"
+   * titles — and `tileCaption` is page 3's version of that sentence.
+   */
+  sparklineWindow: { plotted: number; of: number } | null;
 }
 
 export interface PackStatItem {
@@ -129,6 +143,17 @@ export type PackTableColumnKey =
 
 export interface PackTableRow {
   label: string;
+  /**
+   * The row's stable identity — `is.revenue`, `bs.currentAssets` — as the
+   * table's own builder names it.
+   *
+   * Carried because a page has to classify rows without reading their prose:
+   * page 6's sign check asks which lines are INCOME and which are COST, and a
+   * classification driven by a regex over labels is one rewording away from
+   * putting operating profit in the cost band. Absent on a table whose
+   * builder does not name its rows.
+   */
+  key?: string;
   /** 0-2. Indentation carries hierarchy — a sub-account nests under its
    *  section without restating the section name on every row. */
   level: 0 | 1 | 2;

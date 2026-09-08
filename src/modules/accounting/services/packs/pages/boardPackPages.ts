@@ -36,7 +36,7 @@ import {
   largestMoverCaption,
   narrativeTitle,
   boardActionMatters,
-  negativeRevenueSentence,
+  impossibleIncomeLinesSentence,
   positionTitle,
   scorecardCaption,
   scorecardScore,
@@ -173,6 +173,24 @@ export interface BoardPackInput {
 }
 
 const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
+
+/**
+ * WHICH SIDE OF THE INCOME STATEMENT EACH LINE IS, BY ROW KEY.
+ *
+ * Keyed on `PackTableRow.key` rather than on the label, because the label is
+ * prose a later round can reword and the key is the row's identity — and a
+ * classification driven by a regex over labels is one rename away from
+ * putting operating profit in the cost band. A row absent from this map is a
+ * SUBTOTAL, and subtotals are deliberately outside the check: a negative
+ * gross, operating or net profit is a real result.
+ */
+const INCOME_LINE_SIDE: Record<string, 'income' | 'cost' | undefined> = {
+  'is.revenue': 'income',
+  'is.otherIncome': 'income',
+  'is.costOfSales': 'cost',
+  'is.operatingExpenses': 'cost',
+  'is.otherExpenses': 'cost',
+};
 
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, generatedAt } = input;
@@ -432,10 +450,37 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // interest and tax, which no field carries. Where that step is a material
   // share of the figure the bridge lands on, the page must say so, and the
   // integrity gate refuses a pack that draws it silently.
-  const negativeRevenueCaveat: PackPageBlock[] = set.current.revenue >= 0
+  // THE SIGN CHECK, OVER EVERY INCOME AND COST LINE THIS PAGE PRINTS —
+  // `impossibleIncomeLinesSentence`, and the same shape as page 7's. It ran
+  // on REVENUE alone, so Brightsphere's sheet 6 headed a block about revenue
+  // of (5 535) and printed operating expenses of (3 717), other expenses of
+  // (411) and other income of (1) under it without a word. Read off the
+  // table the page prints, by KEY rather than by label, so it can only name a
+  // row the sheet shows.
+  //
+  // Subtotals are excluded on purpose: gross profit, operating profit and net
+  // profit below zero are real results, and are the income statement's
+  // equivalent of the negative equity page 7 keeps out of its own check.
+  const impossibleIncome = income.rows
+    .map((row) => ({ row, side: INCOME_LINE_SIDE[row.key ?? ''] }))
+    .filter((entry) => entry.side !== undefined)
+    .map((entry) => ({
+      label: entry.row.label,
+      amount: entry.row.figures.actual?.value ?? 0,
+      side: entry.side!,
+    }))
+    .filter((line) => line.amount < 0);
+  const negativeRevenueCaveat: PackPageBlock[] = impossibleIncome.length === 0
     ? []
-    : [mustDisclose('Negative revenue', [
-        note('What this means', negativeRevenueSentence(set.current.revenue, scale)),
+    : [mustDisclose('Lines below zero', [
+        note('What this means', impossibleIncomeLinesSentence(
+          impossibleIncome,
+          impossibleIncome.every((l) => l.side === 'income')
+            ? 'income'
+            : (impossibleIncome.every((l) => l.side === 'cost') ? 'cost' : 'both'),
+          scale,
+          impossibleIncome.some((l) => l.label.toLowerCase() === 'revenue'),
+        )),
       ])];
 
   // The bridge steps down a rung where this page also carries the trends

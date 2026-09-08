@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 
 import { echarts } from '@/lib/charts/echarts';
 
-const PX_PER_MM = 96 / 25.4;
+export const PX_PER_MM = 96 / 25.4;
 
 /** The three heights a pack chart is allowed to take, in millimetres. */
 export const CHART_HEIGHT_MM = { inline: 48, half: 72, full: 110 } as const;

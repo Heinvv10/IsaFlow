@@ -516,12 +516,7 @@ html.print-mode .pack-pages {
 
 /* Charts. The height comes from the model (spec §5.6's 48/72/110mm grid
  * multiples) as an inline style, so only the inner SVG's fit is set here. */
-.pack-chart { margin: 0; display: flex; flex-direction: column; }
-.pack-chart-title { font-size: 10pt; line-height: 14pt; font-weight: 500; margin-bottom: 1.5mm; }
-.pack-chart-svg { flex: 1; min-height: 0; }
-.pack-chart-svg svg { display: block; width: 100%; height: 100%; }
-
-/* A PANEL'S PLOT BOX IS A CONSTANT, AND THE CAPTION IS WHAT GROWS.
+/* EVERY CHART'S PLOT BOX IS A GIVEN HEIGHT, AND THE CAPTION IS WHAT GROWS.
  *
  * `.pack-chart` was a fixed-height flex column and `.pack-chart-svg` took
  * `flex: 1` of whatever the caption left. On page 10 that quietly broke the
@@ -533,10 +528,21 @@ html.print-mode .pack-pages {
  * pixels per user unit against 0.85523. A shared scale that does not survive
  * to paper is a caption a reader can check and find false.
  *
- * So the panel's plot is given the height and the figure takes what it needs.
- * `packPageMetrics` charges the row for its tallest caption; `packSheetCount`
- * is what holds that model to Chromium's own layout, and
+ * The FULL-WIDTH charts had the same wound in a second place. An SVG whose
+ * viewBox does not match its box is letterboxed — `preserveAspectRatio`
+ * defaults to `xMidYMid meet`, which scales it down and centres it — so a
+ * chart lost width in proportion to how tall its title was, and the same
+ * bridge drew 722px on one company and 714px on the other. Both are one
+ * rule now: `--pack-chart-plot-mm` is the height `renderChartSvg` was given,
+ * the box and the render are one number, and the figure takes what its
+ * caption needs. `packPageMetrics` charges the block for the caption;
+ * `packSheetCount` holds that model to Chromium's own layout, and
  * `packSharedScale.test.ts` measures the painted scale itself. */
+.pack-chart { margin: 0; display: flex; flex-direction: column; height: auto; }
+.pack-chart-title { font-size: 10pt; line-height: 14pt; font-weight: 500; margin-bottom: 1.5mm; }
+.pack-chart-svg { flex: none; height: var(--pack-chart-plot-mm); min-height: 0; }
+.pack-chart-svg svg { display: block; width: 100%; height: 100%; }
+
 /* A PANEL CAPTION IS SET SMALLER THAN A FULL-WIDTH CHART'S.
  *
  * 10pt over an 83mm measure gave the trends page's captions three lines each,
@@ -548,8 +554,6 @@ html.print-mode .pack-pages {
  * size, holds a fifth more words to the line, and gives the page back what
  * the notes cost. */
 .pack-small-multiples .pack-chart-title { font-size: 8.5pt; line-height: 12pt; }
-.pack-small-multiples .pack-chart { height: auto; }
-.pack-small-multiples .pack-chart-svg { flex: none; height: var(--pack-panel-plot-mm); }
 /* Spec §4.A page 10: six panels on a PORTRAIT sheet, two across and three
  * down. Three across was what the landscape sheet needed; two gives each
  * panel 83mm — a millimetre off the old measure — and lets the row height go

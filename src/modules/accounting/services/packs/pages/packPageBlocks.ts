@@ -97,6 +97,36 @@ export const commentary = (body: string): PackPageBlock => ({
  *  leaves null because the PAGE owns its footnote numbering. */
 const SPARKLINE_FOOTNOTE = 1;
 
+/**
+ * THE LINES THAT COVER LESS OF THE WINDOW THAN THE ONES BESIDE THEM.
+ *
+ * Page 3's sparklines are drawn to one width, side by side. Gross margin and
+ * debtor days have no meaningful figure in a month with no revenue, so those
+ * months are dropped rather than plotted as a false zero — on the live demo
+ * company that is nine of twelve, three points against the other lines'
+ * twelve, at the same width and with nothing on the sheet saying so. A
+ * reader compares the shapes, which is the only thing a sparkline is for.
+ *
+ * Grouped by the window they actually cover rather than listed one by one:
+ * the two short lines are short for the same reason and by the same amount,
+ * and one clause per tile is three lines of 9.5pt on a sheet that has none
+ * spare. Empty where every line covers the whole window, which is the usual
+ * case and must cost the sheet nothing.
+ */
+function shortWindowClause(tiles: PackKpiTile[]): string {
+  const short = tiles.filter((t) => t.sparklineWindow !== null && t.sparklineWindow.plotted < t.sparklineWindow.of);
+  if (short.length === 0) return '';
+  const groups = new Map<string, string[]>();
+  for (const tile of short) {
+    const window = tile.sparklineWindow!;
+    const key = `${window.plotted} of the window's ${window.of} months`;
+    groups.set(key, [...(groups.get(key) ?? []), tile.label]);
+  }
+  const clauses = [...groups].map(([window, labels]) => `${inWords(labels)} plot ${window}`);
+  return ` ${inWords(clauses)}: a month with no meaningful figure is dropped rather than drawn as zero, `
+    + 'so lines of the same width do not all cover the same months.';
+}
+
 /** Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
  *  its delta and the basis that delta is measured against. */
 export function buildHighlightsBlocks(
@@ -143,8 +173,13 @@ export function buildHighlightsBlocks(
         // disclose is that a blank movement is explained rather than unknown,
         // and that a movement is never drawn from zero; both survive. It cost
         // the sheet one line of 9.5pt, which is what sheet 3 was over by.
+        // AND IT NAMES THE BLOCK THE REASON IS ACTUALLY IN. It read "in its
+        // own caption above" — a tile has no caption; the reasons are the
+        // Commentary block's lines, one per tile, three centimetres up the
+        // sheet. A reader who looks where a note sends them and finds nothing
+        // stops trusting the note.
         ...(comparative === null ? [] : [note('Absent comparatives',
-          'A tile with no movement says why in its own caption above. A movement is never shown as a move from zero.')]),
+          'A tile with no movement says why in its line of the Commentary above. A movement is never shown as a move from zero.')]),
         // AND THAT THE PERIOD STOPS PART-WAY THROUGH ITS LAST MONTH.
         //
         // Page 3 was the only substantive sheet in the pack with no
@@ -181,7 +216,20 @@ export function buildHighlightsBlocks(
     // The figure is the whole reporting period; the line beside it is a month
     // at a time, which is the same month-versus-period divergence the trends
     // page carries its own note about — see `trendWindowNote`.
-    footnotes: [{ number: SPARKLINE_FOOTNOTE, text: `Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the monthly trend series, a different window. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest have no monthly series behind them and show none rather than a line drawn from a single point.` }],
+    //
+    // AND THE LINES ARE NOT ALL THE SAME WINDOW AS EACH OTHER, which is the
+    // half this note used to leave out: `shortWindowClause`. It is paid for
+    // out of this note's own restatement — "and show none rather than a line
+    // drawn from a single point" said again what the clause before it says,
+    // and sheet 3 composes at 98.7% of its box on Brightsphere, so a new
+    // sentence has to displace an old one or the sheet prints an apology for
+    // its layout instead.
+    footnotes: [{
+      number: SPARKLINE_FOOTNOTE,
+      text: "Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the monthly "
+        + `trend series, a different window. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest `
+        + `have no monthly series behind them.${shortWindowClause(highlightTiles)}`,
+    }],
   };
 }
 
@@ -508,11 +556,31 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
   // `ownScale` are the money panels, split by which domain each was drawn
   // against; `ownUnits` is the ratio panels, which are in no money domain and
   // are excluded from the shared span by construction.
+  //
+  // AND "ALL" WAS THE WORD THAT MADE IT FALSE. The span is TAKEN over every
+  // money panel and DRAWN on the ones whose own range is not a twentieth of
+  // it — so the demo sheet said "over all 4 money panels" three lines above a
+  // Scale note reading "Net profit and Cash share one y-scale" and "Revenue
+  // (1.0%) and Operating expenses (1.6%) … are on their OWN scales". Two
+  // sentences on one sheet, one of them wrong, about the only claim the page
+  // makes that a reader cannot check by looking.
+  //
+  // The count of panels DRAWN on it is the fact that was missing, and it has
+  // to be bought at no cost: this block wraps with a handful of characters to
+  // spare and `fitPageToBox` answers one more line by dropping the Period
+  // note — the month-versus-period reconciliation — so the sheet would lose
+  // that to gain this. BOTH facts are owed — the span is taken over every
+  // money panel, which is what makes it exceed what the shared-scale panels
+  // alone reach (`packTrendScaleDisclosure`), and DRAWN on the subset whose
+  // own range is not a twentieth of it. Six characters buys both: "all" was
+  // the word doing the damage and it goes, and ", drawn on 2" is what
+  // replaces it. Measured, not estimated — eleven characters is one line too
+  // many on the live demo sheet and six is not.
   const moneyPanels = panels.sharedScale.length + panels.ownScale.length;
   trendBlocks.push(commentary(citesShare
-    ? `${trendsCaption(drawn)} The shared y-scale spans ${panels.sharedRange}, over all `
-      + `${moneyPanels} money panels; a panel's percentage of it is its own axis, both ends `
-      + 'printed.'
+    ? `${trendsCaption(drawn)} The shared y-scale spans ${panels.sharedRange}, over `
+      + `${moneyPanels} money panels, drawn on ${panels.sharedScale.length}; a panel's percentage `
+      + 'of it is its own axis, both ends printed.'
     : trendsCaption(drawn)));
   // The window note is DERIVED from the panels this page draws — see
   // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is
@@ -639,12 +707,23 @@ export function bridgeSignFootnote(
     return (bar.paint === 'favourable' && step < 0) || (bar.paint === 'unfavourable' && step > 0);
   });
   const named = diverged ?? contrary;
-  // NO EXEMPLAR, NO FOOTNOTE — and therefore no anchor either. The caller
-  // reads `anchor` to put the superscript on the row this sentence is about,
-  // which is why the label is returned rather than only printed: a footnote
-  // naming Cost of sales and marking nothing is the unanchored series this
-  // whole round is removing.
-  if (named === undefined) return { footnotes: [], anchor: null };
+  // WHAT THE BRIDGE LEFT OUT, which is a statement about the drawing whether
+  // or not there is a sign to reconcile — see `PackChartSpec.omittedBars`.
+  const omitted = chart.omittedBars ?? [];
+  const omission = omitted.length === 0
+    ? ''
+    : ` A line with a nil figure for the period is not drawn: ${inWords(omitted)}.`;
+  // NO EXEMPLAR, NO SIGN SENTENCE — and therefore no anchor either. The
+  // caller reads `anchor` to put the superscript on the row this sentence is
+  // about, which is why the label is returned rather than only printed: a
+  // footnote naming Cost of sales and marking nothing is the unanchored
+  // series this whole round is removing. The omission sentence is not about
+  // a row, so it stands on its own where there is nothing to reconcile.
+  if (named === undefined) {
+    return omission === ''
+      ? { footnotes: [], anchor: null }
+      : { anchor: null, footnotes: [{ number, required: true as const, text: omission.trim() }] };
+  }
 
   const step = named.end - named.start;
   const klass = named.paint === 'favourable' ? 'an income line' : 'a cost line';
@@ -674,6 +753,6 @@ export function bridgeSignFootnote(
       `The table states each line as the ledger carries it. The bridge below POSITIONS each bar `
       + `by its effect on net profit — up where the line added to it, down where it took away — `
       + `and COLOURS it by what the line is: green for income, red for cost, in every pack and `
-      + `whichever way the period ran. ${example}`,
+      + `whichever way the period ran. ${example}${omission}`,
   }] };
 }

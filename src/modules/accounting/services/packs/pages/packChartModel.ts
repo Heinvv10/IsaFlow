@@ -101,6 +101,29 @@ export interface PackChartSpec {
   kind: 'line' | 'bar' | 'waterfall' | 'combo';
   svg: TrustedChartSvg;
   heightMm: number;
+  /**
+   * The plot box the SVG was RENDERED at, in millimetres — what the
+   * stylesheet gives `.pack-chart-svg` so the drawn box and the rendered box
+   * are one number. See `packChartBox.ts`.
+   *
+   * On a full-width chart that is `heightMm` less the caption; on a page-10
+   * panel `heightMm` IS the plot box, so the two are equal.
+   */
+  plotMm: number;
+  /**
+   * The bridge lines this chart did NOT draw because the period's figure for
+   * them is nil — in the order the statement carries them.
+   *
+   * A bridge used to drop a nil Other Expenses and keep a nil Cost of Sales,
+   * so the demo company's page 6 drew six bars and Brightsphere's drew seven
+   * and nothing on either sheet said the two were the same statement. One
+   * rule now — a nil line is not drawn — and the sheet names what it left
+   * out, which is what makes the rule checkable from the page.
+   *
+   * Empty on a bridge that drew every line, and absent on a chart that is
+   * not a bridge.
+   */
+  omittedBars?: string[];
   /** Populated only when `kind === 'waterfall'`; that is what the bars-sum-
    *  to-endpoints check reads instead of the SVG string. */
   waterfallBars?: PackWaterfallBar[];

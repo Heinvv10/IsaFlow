@@ -45,23 +45,37 @@ function horizontalRules(svg: string): Rule[] {
 
 /**
  * The series' END LABEL — the one text drawn in the ink colour rather than in
- * the axis grey, and the only label that sits to the RIGHT of the plot.
+ * the axis grey.
+ *
+ * It is anchored at its START in a panel, where it sits in the 80px gutter
+ * to the right of the plot, and at its END on the full-width line, where the
+ * gutter was given back to the plot so the chart would end on the page's own
+ * measure. Both anchors count; matching only `start` selected nothing on the
+ * full-width line and reported "paints no end label", which is a test going
+ * green-adjacent on a chart it had stopped looking at.
  *
  * Picked by its fill rather than by its content: the label's text is the
  * panel's own unit through the panel's own formatter, so matching a string
  * would select nothing the day a formatter changes, which is a green test
  * asserting an empty list.
  */
-interface EndLabel { x: number; y: number; size: number; text: string }
+interface EndLabel { x: number; y: number; size: number; text: string; anchor: 'start' | 'end' }
 
 function endLabel(svg: string): EndLabel | null {
   for (const match of svg.matchAll(/<text\b([^>]*)>([^<]*)<\/text>/g)) {
     const attrs = match[1] ?? '';
-    if (!/text-anchor="start"/.test(attrs) || !/fill="#15202b"/.test(attrs)) continue;
+    if (!/text-anchor="(?:start|end)"/.test(attrs) || !/fill="#15202b"/.test(attrs)) continue;
     const position = /transform="translate\(([-\d.]+) ([-\d.]+)\)"/.exec(attrs);
     const size = /font-size:([\d.]+)px/.exec(attrs);
-    if (position === null || size === null) continue;
-    return { x: Number(position[1]), y: Number(position[2]), size: Number(size[1]), text: match[2] ?? '' };
+    const anchor = /text-anchor="(start|end)"/.exec(attrs);
+    if (position === null || size === null || anchor === null) continue;
+    return {
+      x: Number(position[1]),
+      y: Number(position[2]),
+      size: Number(size[1]),
+      text: match[2] ?? '',
+      anchor: anchor[1] as 'start' | 'end',
+    };
   }
   return null;
 }
@@ -92,9 +106,30 @@ const endsOnItsExtreme: PackTrendPoint[] = liveDemoTrend.map((point, i, all) => 
   partial: i === all.length - 1 ? point.partial : point.partial,
 }));
 
+/**
+ * The paper-coloured ground the full-width line's label is set on.
+ *
+ * ECharts draws a label background as its own filled rect, so the ground is
+ * present in the markup or it is not — and if it is not, a gridline running
+ * under an in-plot label prints through it.
+ */
+function paintsItsOwnGround(svg: string): boolean {
+  return /<(?:rect|path)[^>]*fill="#ffffff"/.test(svg);
+}
+
 function assertClear(id: string, svg: string): void {
   const label = endLabel(svg);
   expect(label, `${id} paints no end label`).not.toBeNull();
+  // IN THE PLOT, THE GROUND IS THE GUARANTEE. A label in the right-hand
+  // gutter is kept off the gridlines by geometry; the full-width line gave
+  // that gutter back to the plot so the chart would end on the page's
+  // measure, and inside the plot every gridline runs under the label. An
+  // opaque ground is what keeps the figure readable there — so that is what
+  // is asserted, rather than a clearance the geometry no longer provides.
+  if (label!.anchor === 'end') {
+    expect(paintsItsOwnGround(svg), `${id}: an in-plot end label with no ground behind it`).toBe(true);
+    return;
+  }
   for (const rule of horizontalRules(svg)) {
     // Vertically clear of the label's own type, or horizontally short of its
     // first glyph. Either is enough; neither being true is a strike-through.
