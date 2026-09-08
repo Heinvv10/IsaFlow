@@ -32,7 +32,7 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 - User routes: `withAuth(withErrorHandler(withWriteAccess(...)))` for mutating; `withAuth(withErrorHandler(...))` for GET
 - **Webhooks no-auth, secret-gated**:
   - `inbound-email`: verifies `X-Postmark-Token` against `POSTMARK_INBOUND_TOKEN` env (rejects when env missing)
-  - `inbound/whatsapp`: verifies `X-Twilio-Signature` via `twilio.validateRequest` using `TWILIO_AUTH_TOKEN`; exact path and query are signed. A single token must match pending/verified destination before ingestion
+  - `inbound/whatsapp`: verifies `X-Twilio-Signature` via `twilio.validateRequest` using `TWILIO_AUTH_TOKEN`; exact path and query are signed. A single token must match pending/verified destination before ingestion. Signed POST body must be an incoming WhatsApp message (matching WaId/From, Body and NumMedia); outbound status callbacks cannot establish proof
 - **Payload rejections return200** so provider stops retrying (payload contains `{ rejected: '<reason>' }`); WhatsApp signature/configuration failures retain403/503.
 
 ## Business rules

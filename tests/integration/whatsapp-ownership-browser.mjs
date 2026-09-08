@@ -30,7 +30,7 @@ try{
   await page.getByRole('status').filter({hasText:'Pending verification:'}).waitFor();
   assert.equal((await pool.query("SELECT id FROM capture_inboxes WHERE company_id=$1 AND channel='whatsapp'",[company])).rows.length,0);
   const verificationUrl=await page.locator('code').filter({hasText:'/api/accounting/capture/inbound/whatsapp?token='}).innerText();
-  const body={From:'whatsapp:+27821111111',To:'whatsapp:+27820003001',Body:'verification',NumMedia:'0',MessageSid:crypto.randomUUID()};
+  const body={From:'whatsapp:+27821111111',To:'whatsapp:+27820003001',Body:'verification',NumMedia:'0',WaId:'27821111111',MessageSid:crypto.randomUUID()};
   const response=await context.request.post(verificationUrl,{form:body,headers:{'x-twilio-signature':twilio.getExpectedTwilioSignature('disposable-whatsapp-signature-fixture',verificationUrl,body)}});
   assert.equal(response.status(),200);assert.equal((await response.json()).data.companyId,company);
   await page.getByRole('button',{name:'Check verification status'}).click();
