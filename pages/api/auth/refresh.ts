@@ -78,6 +78,7 @@ const handler: NextApiHandler = async (req, res) => {
     refreshToken: token.refresh_token,
     expiresIn: token.expires_in,
     persistent,
+    preserveImpersonation: true,
   });
 
   return res.status(200).json({

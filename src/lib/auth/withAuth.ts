@@ -1,3 +1,4 @@
+import { IMPERSONATION_PROOF_COOKIE } from './impersonation-cookies';
 // src/lib/auth/withAuth.ts
 import type { NextApiRequest, NextApiResponse, NextApiHandler } from 'next';
 import * as Sentry from '@sentry/nextjs';
@@ -57,7 +58,7 @@ export function withAuth(handler: Handler): NextApiHandler {
 
     let claims;
     try {
-      claims = await verifyToken(token);
+      claims = await verifyToken(token, cookies[IMPERSONATION_PROOF_COOKIE]);
     } catch (err) {
       // Print-pipeline fallback (src/lib/pdf/renderPagePdf.ts): a headless
       // Chromium request carries a short-lived print token instead of a

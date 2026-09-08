@@ -1,4 +1,5 @@
 // src/lib/auth/gotrue.ts
+import { validateImpersonationProof } from './impersonationAssurance';
 import { jwtVerify, SignJWT, type JWTPayload } from 'jose';
 
 export interface GoTrueUser {
@@ -59,9 +60,10 @@ export async function verifyTokenSignature(token: string): Promise<GoTrueClaims>
 }
 
 /** Completed-session gate shared by every protected authentication entry point. */
-export async function verifyToken(token: string): Promise<GoTrueClaims> {
+export async function verifyToken(token: string, impersonationProof?: string): Promise<GoTrueClaims> {
   const claims = await verifyTokenSignature(token);
   if (claims.aal === 'aal2') return claims;
+  if (impersonationProof && await validateImpersonationProof(impersonationProof, claims)) return claims;
   // Password tokens remain AAL1 even when MFA is enrolled. Cookie names do not
   // prove challenge completion; consult current enrollment before authorizing.
   const res = await gotrueFetch('/user', { method: 'GET' }, {
