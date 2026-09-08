@@ -1,0 +1,7 @@
+# K-007 local result
+
+Three baseline PostgreSQL cases failed500 on a nonexistent tenant column before transaction commit. The restored writer scopes child rows through the company-owned PO, validates line membership and quantities, locks order/items, prevents overreceipt and atomically records receipt/PO quantities/status. Same-company receipt numbering is serialized and uses the maximum numeric suffix. GRN list joins exclude foreign PO/supplier details. The form uses the real detail route and offers approved plus partially received orders.
+
+17 real PostgreSQL tests pass, including actual database-trigger fault rollback and a privileged synthetic history control;119 AP/procurement unit tests and typecheck pass. The actual browser records3 then7 units, reselects the partial order and verifies two receipts plus final received status and matching quantity10. Browser requests are localhost-only; external fonts were blocked. The initial browser red proves missing line loading. An intermediate harness used the wrong button label and failed before any POST; corrected to the actual Create GRN button and cleaned its exact disposable fixture before the passing run. Precision testing also caught and corrected an initial four-decimal assumption: actual numeric columns store two decimals.
+
+Independent named review and full CI pending. No merge, deployment, production write or historical repair occurred.

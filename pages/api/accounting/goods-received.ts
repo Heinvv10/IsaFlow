@@ -6,9 +6,9 @@ import { withErrorHandler } from '@/lib/api-error-handler';
 import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { validateGRN, generateGRNNumber } from '@/modules/accounting/services/ap/procurementService';
+import { createGoodsReceived, GoodsReceivedError } from '@/modules/accounting/services/ap/goodsReceivedService';
 import type { CompanyAuthedRequest } from '@/lib/auth/withAuth';
 
 type Row = Record<string, unknown>;
@@ -20,47 +20,24 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     const { purchaseOrderId } = req.query;
     let rows: Row[];
     if (purchaseOrderId) {
-      rows = await sql`SELECT g.*, po.po_number FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id WHERE g.purchase_order_id = ${String(purchaseOrderId)} AND g.company_id = ${companyId} ORDER BY g.received_date DESC` as Row[];
+      rows = await sql`SELECT g.*, po.po_number FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id AND po.company_id = g.company_id WHERE g.purchase_order_id = ${String(purchaseOrderId)} AND g.company_id = ${companyId} ORDER BY g.received_date DESC` as Row[];
     } else {
-      rows = await sql`SELECT g.*, po.po_number, s.name as supplier_name FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id LEFT JOIN suppliers s ON po.supplier_id = s.id WHERE g.company_id = ${companyId} ORDER BY g.received_date DESC LIMIT 200` as Row[];
+      rows = await sql`SELECT g.*, po.po_number, s.name as supplier_name FROM goods_received_notes g LEFT JOIN purchase_orders po ON g.purchase_order_id = po.id AND po.company_id = g.company_id LEFT JOIN suppliers s ON po.supplier_id = s.id AND s.company_id = po.company_id WHERE g.company_id = ${companyId} ORDER BY g.received_date DESC LIMIT 200` as Row[];
     }
     return apiResponse.success(res, rows);
   }
 
   if (req.method === 'POST') {
-    const body = req.body;
-    const validation = validateGRN(body);
-    if (!validation.success) return apiResponse.validationError(res, Object.fromEntries((validation.errors || []).map(e => [e.field, e.message])));
-
-    const inserted = await withTransaction(async (tx) => {
-      const countRes = await tx`SELECT COUNT(*) as cnt FROM goods_received_notes WHERE company_id = ${companyId}` as Row[];
-      const grnNumber = generateGRNNumber(Number(countRes[0]?.cnt ?? 0));
-
-      const rows = await tx`
-        INSERT INTO goods_received_notes (company_id, grn_number, purchase_order_id, received_date, received_by, notes, created_by)
-        VALUES (${companyId || null}, ${grnNumber}, ${body.purchaseOrderId}, ${body.receivedDate}, ${body.receivedBy}, ${body.notes || null}, ${String(req.user.id)})
-        RETURNING *
-      ` as Row[];
-
-      const grnId = String(rows[0]?.id);
-      for (const item of body.items) {
-        await tx`INSERT INTO grn_items (grn_id, po_item_id, quantity_received, quantity_rejected, notes) VALUES (${grnId}, ${item.poItemId}, ${item.quantityReceived}, ${item.quantityRejected || 0}, ${item.notes || null})`;
-        // Update PO item received quantity
-        await tx`UPDATE po_items SET quantity_received = COALESCE(quantity_received, 0) + ${item.quantityReceived} WHERE id = ${item.poItemId} AND purchase_order_id = ${body.purchaseOrderId}`;
+    try {
+      const receipt = await createGoodsReceived(companyId, String(req.user.id), req.body);
+      log.info('GRN created', { grn: receipt.grn_number, companyId }, 'accounting');
+      return apiResponse.created(res, receipt);
+    } catch (error) {
+      if (error instanceof GoodsReceivedError) {
+        return error.notFound ? apiResponse.notFound(res, 'Purchase order') : apiResponse.badRequest(res, error.message);
       }
-
-      // Update PO status
-      const poItems = await tx`SELECT quantity, quantity_received FROM po_items WHERE purchase_order_id = ${body.purchaseOrderId} AND company_id = ${companyId}::UUID` as Row[];
-      const allReceived = poItems.every((pi: Row) => Number(pi.quantity_received) >= Number(pi.quantity));
-      const someReceived = poItems.some((pi: Row) => Number(pi.quantity_received) > 0);
-      const newStatus = allReceived ? 'received' : someReceived ? 'partially_received' : 'approved';
-      await tx`UPDATE purchase_orders SET status = ${newStatus}, updated_at = NOW() WHERE id = ${body.purchaseOrderId} AND company_id = ${companyId}::UUID`;
-
-      return rows[0];
-    });
-
-    log.info('GRN created', { grn: (inserted as Row)?.grn_number, po: body.purchaseOrderId }, 'accounting');
-    return apiResponse.created(res, inserted);
+      throw error;
+    }
   }
 
   return apiResponse.methodNotAllowed(res, req.method!, ['GET', 'POST']);

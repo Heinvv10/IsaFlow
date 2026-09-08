@@ -42,12 +42,14 @@ export default function NewGRNPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    apiFetch('/api/accounting/purchase-orders?status=approved')
-      .then((r) => r.json())
-      .then((json) => {
-        const d = json.data || json;
-        setPos(Array.isArray(d) ? d : []);
-      })
+    Promise.all(['approved', 'partially_received'].map(async (status) => {
+      const response = await apiFetch(`/api/accounting/purchase-orders?status=${status}`);
+      if (!response.ok) throw new Error('Failed to load purchase orders');
+      const json = await response.json();
+      const data = json.data || json;
+      return Array.isArray(data) ? data as PurchaseOrder[] : [];
+    }))
+      .then((orders) => setPos(orders.flat()))
       .catch(() => setPos([]))
       .finally(() => setLoadingPOs(false));
   }, []);
@@ -59,7 +61,7 @@ export default function NewGRNPage() {
       return;
     }
     setLoadingItems(true);
-    apiFetch(`/api/accounting/purchase-orders?id=${selectedPO}`)
+    apiFetch(`/api/accounting/purchase-orders/${selectedPO}`)
       .then((r) => r.json())
       .then((json) => {
         const d = json.data || json;
