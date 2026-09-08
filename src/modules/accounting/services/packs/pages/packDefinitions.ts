@@ -140,8 +140,25 @@ const TERMS: PackDefinition[] = [
     // from the demo pack's headline loss of (1 545) and matching nothing in
     // the document, so a director reads it as a figure and goes looking for
     // it. A run of digits cannot be mistaken for a balance.
+    // AND THE POSITIVE SIDE, WHICH THIS ENTRY DID NOT STATE. `formatPct`
+    // prefixes a `+` and `formatPctLevel`, `formatMoney` and `formatRatio` do
+    // not, so the pack prints "+77.8%" in a change column and "626" in a
+    // money column two centimetres apart. It is consistent within every
+    // column and unambiguous, and it was the one convention in the pack that
+    // page 12 applied without declaring. Stated as the rule the three
+    // formatters actually follow — only a CHANGE takes the sign — rather than
+    // as "percentages take a plus", which is false of page 10's shares and
+    // page 5's biggest-month share.
+    //
+    // THE WORD IS "ONLY", AND IT IS FIVE CHARACTERS OF PAPER. The clause
+    // began "A change carries a + where it is positive; a level and an amount
+    // do not", which says the same in both directions and takes this entry to
+    // a FOURTH line of its 83mm glossary column — enough, on the tightest
+    // print fixture, to push page 12 into dropping its Colour note. "Only"
+    // carries the exclusion in one word, and the entry is three lines as it
+    // was; the minus-sign claim beside it is untouched.
     term: 'Negative figures',
-    definition: 'In brackets — (12 345) — for currency, percentages and ratios alike. No minus sign is used anywhere in this pack.',
+    definition: 'In brackets — (12 345) — for currency, percentages and ratios alike. No minus sign is used anywhere in this pack. Only a positive change takes a +.',
   },
   {
     // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatMoney`

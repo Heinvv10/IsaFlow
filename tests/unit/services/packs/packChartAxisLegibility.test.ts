@@ -83,8 +83,8 @@ function tightestGap(ticks: Label[]): number {
 }
 
 const CASES: Array<[string, typeof demoSet]> = [
-  ['the live demo company (negative assets, the stepped-down chart)', liveDemoSet],
-  ['the demo company (positive assets, full height)', demoSet],
+  ['the live demo company (negative assets)', liveDemoSet],
+  ['the demo company (positive assets)', demoSet],
   ['Brightsphere (positive assets, negative equity)', brightsphereSet],
 ];
 
@@ -108,18 +108,32 @@ describe("page 7's composition chart", () => {
   }
 
   /**
-   * AND THE STEP-DOWN IS TO THE MIDDLE RUNG, NOT THE BOTTOM ONE.
+   * THE MIDDLE RUNG, ON EVERY COMPANY, AND NOT THE BOTTOM ONE.
    *
    * The gap check above is what matters to a reader, but it is satisfied by a
-   * chart that never steps down at all — so this pins the other half: the
-   * page 7 disclosure still gets its room.
+   * chart at ANY height that happens to space its ticks — so this pins the
+   * other half. The height used to be `totalAssets < 0 ? MID : FULL`, which
+   * made a page with a §3.5 disclosure shorter than one without and left
+   * Brightsphere's sheet — positive assets, one disclosure — at the full rung
+   * with 2.73mm of slack, too little for the trade-balances footnote page 7
+   * now carries. Every company gets the middle rung, so the two balance
+   * sheets are the same shape and the room is there whatever the sign of the
+   * assets.
+   *
+   * Both directions are pinned: MID is not FULL (the room is actually given
+   * back) and MID is not HALF (48mm is where three of this axis's tick
+   * labels printed on top of one another).
    */
-  it('gives a rung back where total assets are negative, and only one', () => {
+  it('draws on the middle rung whatever the sign of total assets', () => {
     expect(liveDemoSet.current.totalAssets, 'this fixture is the negative-assets case').toBeLessThan(0);
     expect(demoSet.current.totalAssets, 'and this one is not').toBeGreaterThan(0);
 
-    expect(buildPositionCompositionChart(liveDemoSet, PACK_SCALE).heightMm).toBe(CHART_HEIGHT_MM.half);
-    expect(buildPositionCompositionChart(demoSet, PACK_SCALE).heightMm).toBe(CHART_HEIGHT_MM.full);
+    for (const set of [liveDemoSet, demoSet, brightsphereSet]) {
+      const height = buildPositionCompositionChart(set, PACK_SCALE).heightMm;
+      expect(height).toBe(CHART_HEIGHT_MM.half);
+      expect(height).toBeLessThan(CHART_HEIGHT_MM.full);
+      expect(height).toBeGreaterThan(CHART_HEIGHT_MM.inline);
+    }
   });
 });
 

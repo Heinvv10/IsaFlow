@@ -72,17 +72,35 @@ function otherExpensesOf(point: PackTrendPoint): number {
   return point.expenses - point.costOfSales - point.operatingExpenses;
 }
 
+/**
+ * THE BAND A MEASURE SITS IN, which is what decides whether its sign is
+ * ordinary or the thing to say out loud.
+ *
+ * An income column is a credit band and an expense column a debit band, so a
+ * NEGATIVE figure in either is contrary to the band: more was reversed out of
+ * those accounts than posted into them. `netProfit` is neither — a loss is an
+ * ordinary result, not an anomaly — and carries no reading.
+ */
+type MeasureBand = 'income' | 'expense' | 'result';
+
 const MEASURES: ReadonlyArray<{
   column: PackTableColumnKey;
   field: string;
   read: (p: PackTrendPoint) => number;
+  band: MeasureBand;
+  /** The measure's name in a SENTENCE. Two of the column headings are
+   *  abbreviated because `TABLE_HEAD_MM` budgets one line for a 7pt caps
+   *  heading over a 26mm measure ("Operating", "Other"), and a caption that
+   *  used those would name half a measure. The page's own "The columns" note
+   *  glosses both, so a reader given the full name finds the column. */
+  prose: string;
 }> = [
-  { column: 'revenue', field: 'revenue', read: (p) => p.revenue },
-  { column: 'otherIncome', field: 'otherIncome', read: (p) => p.otherIncome },
-  { column: 'costOfSales', field: 'costOfSales', read: (p) => p.costOfSales },
-  { column: 'monthOperatingExpenses', field: 'operatingExpenses', read: (p) => p.operatingExpenses },
-  { column: 'otherExpenses', field: 'otherExpenses', read: otherExpensesOf },
-  { column: 'netProfit', field: 'netProfit', read: (p) => p.netProfit },
+  { column: 'revenue', field: 'revenue', read: (p) => p.revenue, band: 'income', prose: 'revenue' },
+  { column: 'otherIncome', field: 'otherIncome', read: (p) => p.otherIncome, band: 'income', prose: 'other income' },
+  { column: 'costOfSales', field: 'costOfSales', read: (p) => p.costOfSales, band: 'expense', prose: 'cost of sales' },
+  { column: 'monthOperatingExpenses', field: 'operatingExpenses', read: (p) => p.operatingExpenses, band: 'expense', prose: 'operating expenses' },
+  { column: 'otherExpenses', field: 'otherExpenses', read: otherExpensesOf, band: 'expense', prose: 'other expenses' },
+  { column: 'netProfit', field: 'netProfit', read: (p) => p.netProfit, band: 'result', prose: 'net profit' },
 ];
 
 /** What the closing row is called — its own window, never "Total". See the
@@ -217,9 +235,15 @@ export function monthlyResultsCaption(trend: PackTrendPoint[], scale: MoneyScale
   const posted = trend.filter((point) => point.revenue !== 0 || point.expenses !== 0);
   if (posted.length < trend.length) {
     const only = posted.length === 1 ? `${posted[0]!.label} alone carries` : `${posted.length} of them carry`;
+    // AND IT GIVES UP ITS LAST CLAUSE, which read "which is why every other
+    // row is nil across every column" — a restatement of "nothing at all is
+    // posted in 11 of the 12 months shown" at the other end of the same
+    // sentence. Brightsphere's page 5 composes with 3.42mm of slack and a
+    // line of this narrative costs 5.29, so the largest-figure sentence had
+    // to be paid for; a restatement is what goes.
     return `Nothing at all is posted in ${trend.length - posted.length} of the ${trend.length} months `
-      + `shown: ${only} the whole of the postings over ${window}, which is why every other row is `
-      + 'nil across every column.';
+      + `shown: ${only} the whole of the postings over ${window}.`
+      + largestContraryFigureSentence(trend, scale);
   }
 
   const total = trend.reduce((sum, point) => sum + point.revenue, 0);
@@ -233,11 +257,63 @@ export function monthlyResultsCaption(trend: PackTrendPoint[], scale: MoneyScale
   if (base <= 0) {
     return `Revenue over ${window} is ${money(total)}, which is not a positive base, so no `
       + `month's share of it is meaningful. The largest single month is ${monthLabel(biggest)}, at `
-      + `${money(biggest.revenue)}.`;
+      + `${money(biggest.revenue)}.`
+      + largestContraryFigureSentence(trend, scale);
   }
   const share = (printed(biggest.revenue) / base) * 100;
   return `${monthLabel(biggest)} carried the most revenue of any month, ${money(biggest.revenue)} `
-    + `of the ${money(total)} earned over ${window} — ${share.toFixed(1)}% of it.`;
+    + `of the ${money(total)} earned over ${window} — ${share.toFixed(1)}% of it.`
+    + largestContraryFigureSentence(trend, scale);
+}
+
+/**
+ * THE BIGGEST NUMBER ON THE SHEET, WHERE ITS SIGN IS THE THING TO SAY.
+ *
+ * The demo pack's largest figure is a COST OF SALES OF (1 922) — a cost line
+ * that is a net credit, and the single most arresting thing on the page — and
+ * page 5 said nothing about it: its title names net profit and its caption
+ * spent itself on July's 36.6% share of revenue. Brightsphere is the same
+ * shape with the sign the other way round: (5 535) of revenue in April. A
+ * director who reads only the group-results page sees a profitable July and
+ * is given no reason for it. The explanation was real and it was two sheets
+ * away, on pages 4 and 11.
+ *
+ * It is stated IN PLACE rather than pointed at, because the reading is
+ * derivable from the figure itself: a negative in a credit band, or in a
+ * debit band, is more reversed out of those accounts than posted into them —
+ * the same inference `creditMonthMatters` prints on page 11, in the same
+ * words, so the two sheets cannot come to say it differently.
+ *
+ * THREE THINGS IT DELIBERATELY DOES NOT DO.
+ *
+ * It does not rank the CLOSING row's totals. That row is the sum of the
+ * months above it, so a total that is the sheet's largest figure is a column
+ * of ordinary months added up, and naming it points at nothing; the sentence
+ * says "among the months above" rather than "on this sheet" so that the claim
+ * is the one it actually checked. It also removes a tie: Brightsphere posts
+ * one month, so its April revenue and its window revenue are the same figure.
+ *
+ * It says nothing where the largest figure is a NET PROFIT. A loss is an
+ * ordinary result and the page's own title already names the highest and the
+ * lowest month for it.
+ *
+ * And it says nothing where the largest figure carries its band's ordinary
+ * sign — an unremarkable biggest number needs no remark, and this pack does
+ * not manufacture commentary.
+ */
+export function largestContraryFigureSentence(trend: PackTrendPoint[], scale: MoneyScale): string {
+  let biggest: { point: PackTrendPoint; measure: (typeof MEASURES)[number]; value: number } | null = null;
+  for (const point of trend) {
+    for (const measure of MEASURES) {
+      const value = measure.read(point);
+      if (biggest === null || Math.abs(value) > Math.abs(biggest.value)) biggest = { point, measure, value };
+    }
+  }
+  if (biggest === null || biggest.measure.band === 'result' || biggest.value >= 0) return '';
+  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  return ` The largest figure among the months above is ${monthLabel(biggest.point)}'s `
+    + `${biggest.measure.prose} of ${money(biggest.value)}: more was reversed out of those `
+    + 'accounts than was posted into them.';
 }
 
 /**
@@ -267,10 +343,16 @@ export function ebitdaMemoSentence(set: PackFigureSet, scale: MoneyScale): strin
   const comparative = set.prior === null
     ? 'There is no comparative period to state it against.'
     : `The comparative period's is ${inProse(formatMoney(ebitdaOf(set.prior), { scale }))}.`;
+  // AND IT NO LONGER POINTS AT THE FOOTER. "which the footer of every sheet
+  // states" is a description of the sheet's own furniture — the running
+  // footer carries the period on all twelve pages — and it cost this note a
+  // line of 9.5pt on both companies. That line is what pays for the
+  // largest-figure sentence in the caption below. The fact it restated is
+  // still on every sheet; what went was the sentence saying so.
   return `EBITDA for the reporting period is ${current}. ${comparative} It is operating profit `
     + 'plus the depreciation and amortisation charged in the period, and it is presented because a '
     + 'board asks for it, not because a standard requires it. Every other figure on this sheet is '
-    + 'one month\'s; this one is the reporting period\'s, which the footer of every sheet states. '
+    + 'one month\'s; this one is the reporting period\'s. '
     // BOTH COLUMNS, now that page 12 bridges both. This sentence stated the
     // comparative EBITDA with the same prominence as the current one and then
     // pointed at a reconciliation that covered only the current — so the

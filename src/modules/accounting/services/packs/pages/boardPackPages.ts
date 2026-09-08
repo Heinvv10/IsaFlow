@@ -44,6 +44,7 @@ import {
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { buildBasis, ROUNDING_FOOTNOTES, statementFootnotes } from './packBasis';
+import { tradeBalancesFootnote } from './packTradeBalances';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
@@ -432,7 +433,14 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     narrativePage,
     snapshot,
     incomeSheet,
-    page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', statementNotes),
+    // PAGE 7 CARRIES THE TWO BALANCES THE DAY COUNTS ARE TAKEN ON. Debtor
+    // days and creditor days print on pages 3 and 9 and their numerators
+    // printed nowhere in either pack — see `packTradeBalances.ts` for why it
+    // is a footnote rather than two memorandum rows, and what that cost.
+    page(positionTitle(set, scale), 'Balance sheet', 'Financials', 'high', positionBlocks, 'portrait', [
+      ...statementNotes,
+      tradeBalancesFootnote(set, scale, statementNotes.length + 1),
+    ]),
     cashPage,
     page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
       { kind: 'scorecard', groups: scorecard },
@@ -457,8 +465,19 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       // arithmetic of 7.16 because a 27.07px row rounds up to 28 device
       // pixels, which is 7.41mm, and that allowance is real. See the fix
       // report for task 26; this needs a lever finer than a whole note.
+      // AND WHAT "SCORED" EXCLUDES, because the page's headline counts three
+      // scored targets over a table printing four. The fourth is on a metric
+      // whose figures do not support it (`statusFor`: a null value is
+      // NOT MEANINGFUL, whether or not a target is set on it), so it is
+      // neither met nor missed and the count leaves it out. That was
+      // recoverable from the Status column and from page 12's "Scored,
+      // unscored and not meaningful" entry, and stated nowhere on the sheet
+      // whose largest type does the counting. It costs this page NOTHING:
+      // the note was 122 characters over a 174mm measure and is 194, both
+      // two lines of 9.5pt — measured, on the one page in the pack with less
+      // than two millimetres of slack.
       disclose('Scoring basis', [
-        note('Definitions', 'Each metric is scored against the platform\'s default target. The basis page defines the terms and every formula used here.'),
+        note('Definitions', 'Each metric is scored against the platform\'s default target. A target on a metric the figures cannot support is not counted as scored; the basis page defines the terms and every formula used here.'),
       ]),
     ], 'portrait', periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1)),
     // PORTRAIT, like the other eleven. This was the one landscape sheet in

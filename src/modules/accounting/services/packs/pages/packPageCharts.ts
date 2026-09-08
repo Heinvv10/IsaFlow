@@ -471,7 +471,18 @@ export function buildPositionCompositionChart(set: PackFigureSet, scale: MoneySc
   // ~28mm and the sheet had ~36mm of white left under it, so the middle rung
   // pays for the callout and keeps the axis readable. Measured on the printed
   // sheet, not on the model — `packChartAxisLegibility.test.ts`.
-  const box = current.totalAssets < 0 ? MID : FULL;
+  //
+  // AND IT IS NOW THE MIDDLE RUNG ON EVERY COMPANY, because the page always
+  // has something to say: `tradeBalancesFootnote` prints the two balances
+  // the day counts are taken on, and page 7 is where a reader looks for
+  // them. It was `totalAssets < 0 ? MID : FULL`, which left the live
+  // Brightsphere sheet — positive assets, one required disclosure — at the
+  // full rung with 2.73mm of slack, not enough for a footnote line. At MID
+  // it composes with room, the demo sheet is unchanged (its assets are
+  // negative, so it was already here), and the two companies' balance sheets
+  // are the same shape rather than two heights decided by the sign of one
+  // figure.
+  const box = MID;
 
   return {
     id: 'position-composition',

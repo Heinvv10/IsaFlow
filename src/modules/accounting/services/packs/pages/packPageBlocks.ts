@@ -386,8 +386,13 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
     offShared.push(`${inWords(panels.ownUnits)} (different units)`);
   }
   if (offShared.length > 0) {
+    // "the panels above", not "the SHARED-SCALE panels", was a position on
+    // the sheet rather than the class it means — and the top-right panel has
+    // nothing above it, so for that one the caution named nothing. The
+    // panels are laid out two across in an order the data decides, so any
+    // wording that points by position is wrong on some company.
     parts.push(`${inWords(offShared)} are on their OWN scales, so their slopes are not comparable `
-      + 'with the panels above.');
+      + 'with the shared-scale panels.');
   }
   // A pack that draws no panel at all has no scale to describe, and a headed
   // note with an empty body is a heading the page cannot honour.
