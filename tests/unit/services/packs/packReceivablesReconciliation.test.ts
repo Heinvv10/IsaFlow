@@ -137,6 +137,60 @@ describe('the two debtors figures are reconciled on the sheet that prints them',
   });
 });
 
+/**
+ * THE PROSE IS NOT ABOUT BRIGHTSPHERE.
+ *
+ * The finding was made on the live client ledger and every figure in the
+ * module's docblock is that company's, which is exactly the condition under
+ * which a sentence quietly becomes about one tenant. Both dev tenants have
+ * the same shape — an AR subledger the general ledger does not reflect — at
+ * two very different magnitudes and with the control account on OPPOSITE
+ * SIDES: Brightsphere's is a credit of R329 700 and the demo's a debit of
+ * R59 240 holding half a per cent of what the subledger says is owed.
+ *
+ * These run the note over both, and assert what a company-neutral disclosure
+ * has to be: it states THEIR figures, and it names no company, no
+ * counterparty, and no cause.
+ */
+describe('the note is written for any company with two debtors figures', () => {
+  // Read off `isaflow_dev` at 7 September 2026 through `getAgingReport(...)`
+  // and `buildPackFigureSet(...)` — the same two calls the pack makes.
+  const TENANTS = [
+    // aging total, control balance, and the three figures the note prints.
+    ['Brightsphere', 4_145_971.5, -329_700, ['4 146', '(330)', '4 476']],
+    ['the demo company', 10_724_260.43, 59_240, ['10 724', '59', '10 665']],
+  ] as const;
+
+  it.each(TENANTS)('%s', (unusedName, aging, control, expected) => {
+    const block = receivablesReconciliationNote(aging, control, PACK_SCALE);
+    const body = block?.kind === 'disclosure' ? block.disclosure.notes[0]!.body : '';
+
+    for (const printed of expected) {
+      expect(body, `the note does not state ${printed}`).toMatch(figure(printed));
+    }
+    // The same sentences either way round: the demo's control account is a
+    // DEBIT holding 0.6% of its subledger and Brightsphere's is a CREDIT, and
+    // the disclosure is the same disclosure about the same pair of sources.
+    expect(body).toMatch(/do not agree/);
+    expect(body).toMatch(/does not reconcile them/);
+  });
+
+  it('names no company and no counterparty', () => {
+    const bodies = TENANTS.map(([, aging, control]) => {
+      const block = receivablesReconciliationNote(aging, control, PACK_SCALE);
+      return block?.kind === 'disclosure' ? block.disclosure.notes[0]!.body : '';
+    });
+    for (const body of bodies) {
+      for (const name of [/Brightsphere/i, /Blitz/i, /ISAFlow/i, /demo/i]) {
+        expect(body, `the disclosure names a party: ${name}`).not.toMatch(name);
+      }
+    }
+    // And the two differ ONLY in their figures — same words, same order.
+    const stripped = bodies.map((b) => b.replace(/[\d\s\u202f\u00a0()]+/g, ' '));
+    expect(stripped[0]).toBe(stripped[1]);
+  });
+});
+
 describe('receivablesReconciliationNote takes its difference in the right direction', () => {
   it('is the aged debtors total LESS the control balance', () => {
     // Signed, not absolute: a control account carrying a credit makes the
