@@ -108,6 +108,17 @@ export function scorecardColumnsMm(showsTrend: boolean): ScorecardColumnsMm {
   const status = singleLineMm(WIDEST_STATUS, 8) + CELL_PADDING_MM * 2;
   // What is left, split evenly between the two figure columns that may wrap.
   const rest = SCORECARD_TABLE_MM - metric - target - status - (trend ?? 0);
+  // AND IT FAILS RATHER THAN EMITTING A NEGATIVE COLUMN. A wider
+  // `WIDEST_TARGET` or `WIDEST_STATUS` — both are constants, so this is a
+  // static condition every pack would hit at once — would put a negative
+  // percentage in the `<colgroup>` and the browser would silently redistribute
+  // the table, which is the exact failure this module was written to stop.
+  if (rest <= 0) {
+    throw new Error(
+      `scorecardColumnsMm: the fixed columns take ${(SCORECARD_TABLE_MM - rest).toFixed(2)}mm of a `
+      + `${SCORECARD_TABLE_MM}mm table, leaving nothing for ACTUAL and PRIOR`,
+    );
+  }
   const half = rest / 2;
   return { metric, actual: half, target, prior: half, trend, status };
 }

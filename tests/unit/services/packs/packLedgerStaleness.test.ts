@@ -21,6 +21,8 @@ import {
   LEDGER_STALE_HEADING,
   ledgerStalenessNote,
 } from '@/modules/accounting/services/packs/pages/packLedgerStaleness';
+import { staleMonths } from '@/modules/accounting/services/packs/pages/packLedgerCurrency';
+import { formatPackTimestamp } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
 import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { brightsphereLiveInput, brightsphereLiveTrend, demoInput } from './fixtures/boardPackInputs';
 import { liveDemoRenderedInput } from './fixtures/liveDemoBoardPack';
@@ -122,6 +124,41 @@ describe('ledgerStalenessNote refuses the cases it cannot speak to', () => {
       i === brightsphereLiveTrend.length - 1 ? { ...point, revenue: 1_000 } : point
     ));
     expect(ledgerStalenessNote('2026-04-29T10:39:11.480Z', posted, END)).toBeNull();
+  });
+
+  /**
+   * ONE FACT, ONE DATE. `ledgerVersion` is a UTC instant; page 12 renders it
+   * through `formatPackTimestamp` (Africa/Johannesburg) and pages 2 and 4
+   * name the DAY it fell on. Those two used to slice the ISO string — the UTC
+   * day — so a ledger last written between 22:00 and midnight SAST gave the
+   * pack two dates for its own audit anchor. Overnight imports and
+   * after-hours close runs land in that window as a matter of course.
+   */
+  it('names the same day page 12 prints, for a watermark late in the SAST evening', () => {
+    const lateEvening = '2026-04-29T22:30:00.000Z';
+    const stamp = formatPackTimestamp(lateEvening);
+    expect(stamp, 'the fixture is not in the disputed window').toContain('30 April 2026');
+    const body = stalenessBody({ ...brightsphereLiveInput, ledgerVersion: lateEvening });
+    expect(body, 'the stale-ledger note did not fire, so nothing is being checked').not.toBeNull();
+    expect(
+      body,
+      `page 4 names a different day from page 12's "${stamp}"`,
+    ).toContain('30 April 2026');
+    expect(body).not.toContain('29 April 2026');
+  });
+
+  it('counts the watermark\'s SAST month, not its UTC one', () => {
+    // 30 April at 22:30Z is 1 May on the clock the company posts on, so May
+    // is the watermark's OWN month and cannot be "wholly after" it. Sliced
+    // from the ISO string it read as April, and the pack could state that
+    // nothing had been posted after 30 April in a month that was written to.
+    const trend: PackTrendPoint[] = brightsphereLiveTrend;
+    const utcApril = staleMonths('2026-04-30T22:30:00.000Z', trend, END);
+    expect(utcApril?.posted).toBe('2026-05-01');
+    expect(
+      utcApril?.nil.map((p) => p.month) ?? [],
+      'May was counted as after a watermark written inside it',
+    ).not.toContain('2026-05');
   });
 
   it('does not count the watermark\'s own month as empty', () => {

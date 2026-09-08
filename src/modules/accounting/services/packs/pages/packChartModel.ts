@@ -111,14 +111,23 @@ export interface PackChartSpec {
    */
   plotMm: number;
   /**
-   * The bridge lines this chart did NOT draw because the period's figure for
-   * them is nil — in the order the statement carries them.
+   * Every bar this bridge did NOT draw, in the order the walk reaches them.
    *
-   * A bridge used to drop a nil Other Expenses and keep a nil Cost of Sales,
-   * so the demo company's page 6 drew six bars and Brightsphere's drew seven
-   * and nothing on either sheet said the two were the same statement. One
-   * rule now — a nil line is not drawn — and the sheet names what it left
-   * out, which is what makes the rule checkable from the page.
+   * TWO RULES DROP A BAR AND BOTH REPORT HERE. A movement line whose figure
+   * for the period is nil is not drawn — a bridge used to drop a nil Other
+   * Expenses and keep a nil Cost of Sales, so the demo company's page 6 drew
+   * six bars and Brightsphere's drew seven off the same statement with
+   * nothing on either sheet saying so. And the Operating Profit SUBTOTAL is
+   * drawn only where the walk reaches the figure the table states, because a
+   * bar that disagreed with the row three centimetres above it would be a
+   * second figure for one line.
+   *
+   * It comes back from `buildProfitWaterfall` with the steps rather than
+   * being re-derived from them: the second rule turns on a comparison the
+   * caller never makes, and page 6 named five movement lines and could not
+   * name the subtotal however it was dropped. `bridgeSignFootnote` gives the
+   * two rules a sentence each, because "a line with a nil figure is not
+   * drawn: Operating Profit" is false of the subtotal.
    *
    * Empty on a bridge that drew every line, and absent on a chart that is
    * not a bridge.

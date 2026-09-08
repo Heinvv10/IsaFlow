@@ -310,23 +310,37 @@ export function monthlyResultsCaption(trend: PackTrendPoint[], scale: MoneyScale
  * ordinary result and the page's own title already names the highest and the
  * lowest month for it.
  *
- * And it says nothing where the largest figure carries its band's ordinary
- * sign — an unremarkable biggest number needs no remark, and this pack does
- * not manufacture commentary.
+ * And it says nothing where NO figure carries the wrong sign for its band —
+ * an unremarkable sheet needs no remark, and this pack does not manufacture
+ * commentary.
+ *
+ * THE RANKING IS OVER THE CONTRARY FIGURES, NOT OVER ALL OF THEM. It used to
+ * find the largest figure on the sheet and then fall silent unless that one
+ * happened to be contrary, which is a different sentence from the one the
+ * name and this docblock promise: a month with revenue of 10 000 and other
+ * expenses of (9 000) has its maximum magnitude in the revenue — positive,
+ * and in an income band — so the nine-million credit sitting in an expense
+ * column was the exact disclosure this was written to make and the exact one
+ * it withheld. Both live companies' largest figure IS their contrary one,
+ * which is why the two readings agreed on everything measured.
  */
 export function largestContraryFigureSentence(trend: PackTrendPoint[], scale: MoneyScale): string {
   let biggest: { point: PackTrendPoint; measure: (typeof MEASURES)[number]; value: number } | null = null;
   for (const point of trend) {
     for (const measure of MEASURES) {
       const value = measure.read(point);
+      // The closing row is the sum of the months above it, so its totals are
+      // not ranked; a result band is an ordinary loss the page's own title
+      // already names.
+      if (measure.band === 'result' || value >= 0) continue;
       if (biggest === null || Math.abs(value) > Math.abs(biggest.value)) biggest = { point, measure, value };
     }
   }
-  if (biggest === null || biggest.measure.band === 'result' || biggest.value >= 0) return '';
+  if (biggest === null) return '';
   const money = (n: number) => inProse(formatMoney(n, { scale }));
-  return ` The largest figure among the months above is ${monthLabel(biggest.point)}'s `
-    + `${biggest.measure.prose} of ${money(biggest.value)}: more was reversed out of those `
-    + 'accounts than was posted into them.';
+  return ` The largest figure among the months above the wrong side of its band is `
+    + `${monthLabel(biggest.point)}'s ${biggest.measure.prose} of ${money(biggest.value)}: more `
+    + 'was reversed out of those accounts than was posted into them.';
 }
 
 /**

@@ -230,7 +230,7 @@ describe("page 5 remarks on page 5's largest figure", () => {
       expect(biggest, 'this fixture has no monthly figures').toBeGreaterThan(0);
 
       const caption = proseOf(pageNamed(input, 'Group results'));
-      expect(caption).toContain('The largest figure among the months above is');
+      expect(caption).toContain('The largest figure among the months above the wrong side of its band is');
       expect(caption).toContain(money(-biggest));
       expect(caption).toContain('more was reversed out of those accounts than was posted into them');
     });
@@ -246,6 +246,35 @@ describe("page 5 remarks on page 5's largest figure", () => {
       expenses: Math.abs(p.costOfSales) + Math.abs(p.operatingExpenses),
     }));
     expect(largestContraryFigureSentence(ordinary, PACK_SCALE)).toBe('');
+  });
+
+  /**
+   * IT RANKS THE CONTRARY FIGURES, NOT ALL OF THEM.
+   *
+   * It used to take the largest figure on the sheet and fall silent unless
+   * that one happened to be contrary — so a month with ten million of revenue
+   * and nine million sitting in an expense column as a credit said nothing,
+   * which is the exact disclosure the sentence exists to make. Both live
+   * companies' largest figure is their contrary one, so nothing measured
+   * could see the difference.
+   */
+  it('names a contrary figure that is not the sheet\'s largest', () => {
+    const [first, ...rest] = liveDemoRenderedInput.trend.map((p) => ({
+      ...p,
+      revenue: Math.abs(p.revenue),
+      otherIncome: Math.abs(p.otherIncome),
+      costOfSales: Math.abs(p.costOfSales),
+      operatingExpenses: Math.abs(p.operatingExpenses),
+      expenses: Math.abs(p.costOfSales) + Math.abs(p.operatingExpenses),
+    }));
+    const shaped: PackTrendPoint[] = [
+      { ...first!, revenue: 10_000_000, operatingExpenses: -9_000_000, expenses: -9_000_000 },
+      ...rest,
+    ];
+    const sentence = largestContraryFigureSentence(shaped, PACK_SCALE);
+    expect(sentence, 'a nine-million credit in an expense column went unremarked').not.toBe('');
+    expect(sentence).toContain(money(-9_000_000));
+    expect(sentence).not.toContain(money(10_000_000));
   });
 
   it('says nothing where the largest figure is a net profit', () => {

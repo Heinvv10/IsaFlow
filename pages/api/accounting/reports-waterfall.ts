@@ -29,7 +29,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (type === 'profit') {
     const { period, cumulative } = await getFinancialFigures(companyId, from, to);
 
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: period.revenue,
       costOfSales: period.costOfSales,
       grossProfit: period.grossProfit,

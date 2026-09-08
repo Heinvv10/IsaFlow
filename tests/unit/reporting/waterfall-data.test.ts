@@ -13,7 +13,7 @@ import {
 
 describe('Profit Waterfall', () => {
   it('builds correct steps from Revenue to Net Profit', () => {
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: 1000000,
       costOfSales: 600000,
       grossProfit: 400000,
@@ -35,7 +35,7 @@ describe('Profit Waterfall', () => {
   });
 
   it('marks subtotal bars correctly', () => {
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: 500000, costOfSales: 300000, grossProfit: 200000,
       operatingExpenses: 100000, otherIncome: 0, otherExpenses: 0, netProfit: 100000,
     });
@@ -44,7 +44,7 @@ describe('Profit Waterfall', () => {
   });
 
   it('handles loss scenario (negative net profit)', () => {
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: 200000, costOfSales: 250000, grossProfit: -50000,
       operatingExpenses: 100000, otherIncome: 0, otherExpenses: 0, netProfit: -150000,
     });
@@ -53,7 +53,7 @@ describe('Profit Waterfall', () => {
   });
 
   it('handles zero values', () => {
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: 0, costOfSales: 0, grossProfit: 0,
       operatingExpenses: 0, otherIncome: 0, otherExpenses: 0, netProfit: 0,
     });
@@ -124,7 +124,7 @@ describe('buildProfitWaterfall on either sign of revenue', () => {
   // must not force one.
   it('draws revenue up and operating expenses down for a positive-revenue company', () => {
     // ISAFlow Demo's own figures.
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: 71_600, costOfSales: 236_820.13, grossProfit: -165_220.13,
       operatingExpenses: 162_667.33, otherIncome: 9_770.68, otherExpenses: 0,
       netProfit: -318_116.78,
@@ -140,7 +140,7 @@ describe('buildProfitWaterfall on either sign of revenue', () => {
     // Brightsphere's own figures: revenue accounts in net debit, expense
     // accounts in net credit. A falling revenue bar is the honest reading,
     // not a sign bug.
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: -5_535_000, costOfSales: 0, grossProfit: -5_535_000,
       operatingExpenses: -3_717_000, otherIncome: -1_000, otherExpenses: -411_237,
       netProfit: -1_407_763,
@@ -155,7 +155,7 @@ describe('buildProfitWaterfall on either sign of revenue', () => {
   });
 
   it('always prints the service figure on the bar, never the bar height', () => {
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: -5_535_000, costOfSales: 0, grossProfit: -5_535_000,
       operatingExpenses: -3_717_000, otherIncome: 0, otherExpenses: 0,
       netProfit: -1_818_000,
@@ -185,7 +185,7 @@ describe('a nil movement is not drawn, on any line', () => {
   const MOVEMENTS = ['Cost of Sales', 'Operating Expenses', 'Other Income', 'Other Expenses'] as const;
 
   it('draws every line that has a figure', () => {
-    const labels = buildProfitWaterfall(base).map(s => s.label);
+    const labels = buildProfitWaterfall(base).steps.map(s => s.label);
     for (const line of MOVEMENTS) expect(labels, `${line} has a figure and is not drawn`).toContain(line);
   });
 
@@ -200,7 +200,7 @@ describe('a nil movement is not drawn, on any line', () => {
       // what the subtotals are.
       const zeroed = { ...base, [field]: 0 };
       const grossProfit = zeroed.revenue - zeroed.costOfSales;
-      const steps = buildProfitWaterfall({
+      const { steps } = buildProfitWaterfall({
         ...zeroed,
         grossProfit,
         netProfit: grossProfit - zeroed.operatingExpenses + zeroed.otherIncome - zeroed.otherExpenses,
@@ -218,7 +218,7 @@ describe('a nil movement is not drawn, on any line', () => {
     // INCLUDING Revenue — the rule is about the line having a figure, not
     // about which line it is — and both subtotals stay, because they are
     // where the bridge lands rather than steps in it.
-    const steps = buildProfitWaterfall({
+    const { steps } = buildProfitWaterfall({
       revenue: 0, costOfSales: 0, grossProfit: 0,
       operatingExpenses: 0, otherIncome: 0, otherExpenses: 0, netProfit: 0,
     });
@@ -233,7 +233,7 @@ describe('a nil movement is not drawn, on any line', () => {
   it('leaves the running total unbroken across a dropped line', () => {
     // The steps that remain must still chain: an omission that left a gap
     // would draw a bridge whose bars no longer meet.
-    const steps = buildProfitWaterfall({ ...base, otherIncome: 0, netProfit: 375_000 });
+    const { steps } = buildProfitWaterfall({ ...base, otherIncome: 0, netProfit: 375_000 });
     const movements = steps.filter(s => !s.isSubtotal);
     for (let i = 1; i < movements.length; i += 1) {
       expect(movements[i]!.start, `${movements[i]!.label} does not start where ${movements[i - 1]!.label} ended`)

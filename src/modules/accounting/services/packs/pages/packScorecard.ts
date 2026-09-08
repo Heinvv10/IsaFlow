@@ -394,3 +394,12 @@ export function buildScorecardGroups(set: PackFigureSet, p: PackFigureProvenance
       buildRow(spec, ratios, set.current, priorRatios, set.prior, p, actualReasons)),
   }));
 }
+
+/** Every metric name page 9 can print, in print order.
+ *
+ *  Exported for `packDisownedBases`' coverage test: that table is keyed on
+ *  these strings and an unknown key fails open, so a rename here would
+ *  silently drop a row's disowned-base qualification. It is a red test now.
+ */
+export const SCORECARD_METRICS: readonly string[] =
+  GROUPS.flatMap((g) => g.metrics.map((m) => m.metric));

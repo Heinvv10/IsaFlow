@@ -18,10 +18,12 @@ import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPagesDocument, PackScorecardRow } from '@/modules/accounting/services/packs/pages/packPageModel';
-import { disownedBases } from '@/modules/accounting/services/packs/pages/packDisownedBases';
-import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import {
+  disownedBases, METRIC_INPUTS, NO_DECLARED_INPUTS,
+} from '@/modules/accounting/services/packs/pages/packDisownedBases';
+import { SCORECARD_METRICS } from '@/modules/accounting/services/packs/pages/packScorecard';
 import type { PackScorecardGroup } from '@/modules/accounting/services/packs/pages/packPageModel';
-import { brightsphereLiveInput, brightsphereLiveSet } from './fixtures/boardPackInputs';
+import { brightsphereLiveInput } from './fixtures/boardPackInputs';
 import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
 
 const COMPANIES: Record<string, BoardPackInput> = {
@@ -29,17 +31,41 @@ const COMPANIES: Record<string, BoardPackInput> = {
   Brightsphere: brightsphereLiveInput,
 };
 
-/** The figures a scored row stands on, as this pack states them. Kept here
- *  independently of the production table so the test is not the code. */
-const STANDS_ON: Record<string, ReadonlyArray<'currentAssets' | 'currentLiabilities' | 'cash' | 'accountsReceivable' | 'accountsPayable' | 'totalLiabilities' | 'inventory'>> = {
-  'current ratio': ['currentAssets', 'currentLiabilities'],
-  'cash ratio': ['cash', 'currentLiabilities'],
-  'debtor days': ['accountsReceivable'],
-  'creditor days': ['accountsPayable'],
-  'debt-to-equity': ['totalLiabilities'],
-  'cash conversion cycle': ['accountsReceivable', 'accountsPayable', 'inventory'],
-  'operating cash flow': ['cash'],
+/** The figures a scored row stands on THAT PAGE 7 STATES, as this pack names
+ *  them there. Kept here independently of the production table so the test is
+ *  not the code.
+ *
+ *  Cash and inventory are absent on purpose, and that is the finding this
+ *  round closed: page 7's block is built from the asset and liability ROWS of
+ *  the position table plus the two memorandum lines, and neither cash nor
+ *  inventory is any of them — inventory is not printed in the pack at all. A
+ *  flag derived from them pointed a director at a statement the balance sheet
+ *  never made. */
+const STANDS_ON: Record<string, readonly string[]> = {
+  'current ratio': ['current assets', 'current liabilities'],
+  'cash ratio': ['current liabilities'],
+  'debtor days': ['trade receivables'],
+  'creditor days': ['trade payables'],
+  'debt-to-equity': ['total liabilities'],
+  'cash conversion cycle': ['trade receivables', 'trade payables'],
 };
+
+/** What page 7's "Balances below zero" block actually named, read off the
+ *  composed sheet. The whole point of the flag is that page 9 points at THIS
+ *  statement, so the expectation is derived from it rather than re-derived
+ *  from the figure set. */
+function page7Disowns(doc: PackPagesDocument): Set<string> {
+  const page = doc.pages.find((p) => p.navLabel === 'Balance sheet');
+  const said = (page?.blocks ?? [])
+    .filter((b) => b.kind === 'disclosure' && b.disclosure.heading === 'Balances below zero')
+    .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes.map((n) => n.body) : []))
+    .join(' ')
+    .toLowerCase();
+  return new Set(
+    ['current assets', 'current liabilities', 'total liabilities', 'trade receivables', 'trade payables']
+      .filter((label) => said.includes(label)),
+  );
+}
 
 function scorecardRows(doc: PackPagesDocument): PackScorecardRow[] {
   for (const page of doc.pages) {
@@ -61,7 +87,7 @@ describe('a scored row says when its base is one the pack qualifies', () => {
       const doc = buildBoardPackPages(input);
       const rows = scorecardRows(doc);
       const notes = scorecardFootnotes(doc);
-      const f = input.set.current;
+      const disownedFields = page7Disowns(doc);
 
       const scored = rows.filter((r) => r.status === 'met' || r.status === 'missed');
       expect(scored.length, 'nothing is scored, so nothing is being checked').toBeGreaterThan(0);
@@ -69,7 +95,7 @@ describe('a scored row says when its base is one the pack qualifies', () => {
       for (const row of scored) {
         const inputs = STANDS_ON[row.metric.toLowerCase()];
         if (inputs === undefined) continue;
-        const disowned = inputs.some((field) => (f[field] ?? 0) < 0);
+        const disowned = inputs.some((field) => disownedFields.has(field));
         if (!disowned) continue;
         expect(
           row.footnote,
@@ -88,15 +114,16 @@ describe('a scored row says when its base is one the pack qualifies', () => {
       // one a one-directional check cannot see.
       const doc = buildBoardPackPages(input);
       const notes = scorecardFootnotes(doc);
-      const f = input.set.current;
       const rows = scorecardRows(doc);
+      const disownedFields = page7Disowns(doc);
 
       const expected = rows
         .filter((r) => r.status === 'met' || r.status === 'missed')
         .filter((r) => {
           const inputs = STANDS_ON[r.metric.toLowerCase()];
           if (inputs === undefined) return false;
-          return inputs.some((field) => (f[field] ?? 0) < 0) || inputs.includes('accountsReceivable');
+          return inputs.some((field) => disownedFields.has(field))
+            || inputs.includes('trade receivables');
         })
         .map((r) => r.metric);
 
@@ -130,16 +157,6 @@ describe('a scored row says when its base is one the pack qualifies', () => {
    * metric in the table whose figures are sound.
    */
   it('leaves a scored ratio alone when the figures it stands on are sound', () => {
-    const sound: PackFigureSet = {
-      ...brightsphereLiveSet,
-      current: {
-        ...brightsphereLiveSet.current,
-        cash: 900_000,
-        currentLiabilities: 300_000,
-        currentAssets: 1_200_000,
-        accountsReceivable: 400_000,
-      },
-    };
     const row = (metric: string): PackScorecardGroup['rows'][number] => ({
       metric,
       actual: { value: 3, format: 'ratio', source: 'x.y' },
@@ -153,10 +170,69 @@ describe('a scored row says when its base is one the pack qualifies', () => {
     const groups: PackScorecardGroup[] = [
       { letter: 'B', name: 'Liquidity', rows: [row('Cash ratio'), row('Current ratio')] },
     ];
-    expect(disownedBases(groups, sound, false)).toEqual([]);
-    // And it still fires on the same shape once one of those figures turns.
-    const turned: PackFigureSet = { ...sound, current: { ...sound.current, cash: -1 } };
-    expect(disownedBases(groups, turned, false).map((d) => d.metric)).toEqual(['Cash ratio']);
+    expect(disownedBases(groups, false, [])).toEqual([]);
+    // And it still fires on the same shape once page 7 names one of them.
+    expect(
+      disownedBases(groups, false, [{ label: 'Current assets', amount: -1 }]).map((d) => d.metric),
+    ).toEqual(['Current ratio']);
+  });
+
+  /**
+   * THE FOOTNOTE POINTS AT A STATEMENT PAGE 7 ACTUALLY MAKES.
+   *
+   * It used to re-derive the rule over its own field list, and that list held
+   * `cash` and `inventory`: a company with an overdrawn bank was told on page
+   * 9 that "the balance sheet says [cash] cannot be held as stated" while page
+   * 7 — whose block is built from the asset and liability ROWS of the position
+   * table — said nothing whatever about cash, and inventory is not printed in
+   * the pack at all. Every field the footnote names must be one page 7 named,
+   * or the receivables figure page 4 disowns.
+   */
+  for (const [company, input] of Object.entries(COMPANIES)) {
+    it(`names only fields page 7 or page 4 states, on ${company}`, () => {
+      const doc = buildBoardPackPages(input);
+      const notes = [...scorecardFootnotes(doc).values()].filter((t) => t.startsWith('Scored on'));
+      const said = page7Disowns(doc);
+      expect(notes.length, 'no disowned-base footnote, so nothing is being checked')
+        .toBeGreaterThan(0);
+      for (const text of notes) {
+        // `Scored on a, b and c, which …` — the field list is everything
+        // before the relative clause that follows it.
+        const list = text.replace(/^Scored on /, '').split(/, which /)[0] ?? '';
+        const named = list.split(/, | and /).map((w) => w.trim()).filter((w) => w.length > 0);
+        expect(named.length, `no fields parsed out of: ${text}`).toBeGreaterThan(0);
+        for (const field of named) {
+          expect(
+            said.has(field) || field === 'trade receivables',
+            `${company}: the footnote names "${field}" and page 7 states no such thing: ${text}`,
+          ).toBe(true);
+        }
+      }
+    });
+  }
+
+  /**
+   * EVERY SCORED METRIC IS EITHER DECLARED OR DELIBERATELY UNDECLARED.
+   *
+   * `METRIC_INPUTS` is keyed on the printed metric name and an unknown key
+   * fails OPEN — the row keeps its red MISS and loses its qualification with
+   * no compile error. Renaming a metric in `packScorecard.ts` is a pure copy
+   * edit; this makes it a red test instead of a silent loss.
+   */
+  it('declares inputs, or an explicit absence, for every scorecard metric', () => {
+    const declared = new Set([...Object.keys(METRIC_INPUTS), ...NO_DECLARED_INPUTS]);
+    for (const metric of SCORECARD_METRICS) {
+      expect(
+        declared.has(metric),
+        `"${metric}" is in neither METRIC_INPUTS nor NO_DECLARED_INPUTS, so it can never be flagged`,
+      ).toBe(true);
+    }
+    // And nothing is declared for a metric the scorecard no longer prints —
+    // the other direction of the same rename.
+    const printed = new Set(SCORECARD_METRICS);
+    for (const metric of declared) {
+      expect(printed.has(metric), `"${metric}" is declared here and no scorecard row prints it`).toBe(true);
+    }
   });
 
   it('is not vacuous — both companies score a ratio on a balance below zero', () => {

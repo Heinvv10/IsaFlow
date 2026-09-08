@@ -33,7 +33,7 @@
 import { PAGE_WIDTH_MM } from './packTextMetrics';
 import { svgBoxFor } from './packChartBox';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
-import { buildProfitWaterfall, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
+import { buildProfitWaterfall, OPERATING_PROFIT_BAR, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import {
   compositionBarOption,
@@ -289,25 +289,6 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
  * @param rung The height to draw it at, overriding the one the predicates
  *   below choose. `shorterProfitBridge` passes it; nothing else should.
  */
-/**
- * WHICH LINES THE BRIDGE LEFT OUT, so page 6 can name them.
- *
- * `buildProfitWaterfall` applies the rule — a nil movement is not drawn,
- * subtotals stay — and this is the other half: a rule a sheet does not state
- * is a rule a reader cannot check, and a reader comparing two packs, or one
- * pack against the table three centimetres above the bridge, cannot tell an
- * omitted line from an absent one.
- *
- * DERIVED FROM THE STATEMENT LINES, NOT FROM THE STEPS THAT CAME BACK. The
- * builder does not report what it dropped and the drawn steps cannot say
- * either, so reading the omissions off them names only the lines that
- * happened to survive an earlier gate. This takes the figures the chart was
- * built FROM, which is the only place the answer is complete.
- */
-function omittedLines(lines: Array<[string, number]>): string[] {
-  return lines.filter(([, value]) => value === 0).map(([label]) => label);
-}
-
 export function buildProfitWaterfallChart(
   set: PackFigureSet,
   scale: MoneyScale,
@@ -315,7 +296,13 @@ export function buildProfitWaterfallChart(
   rung?: ChartBox,
 ): PackChartSpec {
   const f = set.current;
-  const steps = buildProfitWaterfall({
+  // WHICH LINES THE BRIDGE LEFT OUT COMES BACK WITH THE BRIDGE, so page 6
+  // names what the builder actually dropped. This page used to derive the
+  // list itself, from the statement figures below, with its own `=== 0`
+  // predicate — a second implementation of the builder's rule that agreed
+  // with it by coincidence, and that could not name the Operating Profit
+  // subtotal at all because its list was of the five movement lines.
+  const { steps, omitted } = buildProfitWaterfall({
     revenue: f.revenue,
     costOfSales: f.costOfSales,
     grossProfit: f.revenue - f.costOfSales,
@@ -328,13 +315,6 @@ export function buildProfitWaterfallChart(
     // number — see the step in `buildProfitWaterfall`.
     operatingProfit: operatingProfitOf(f),
   });
-  const omitted = omittedLines([
-    ['Revenue', f.revenue],
-    ['Cost of Sales', f.costOfSales],
-    ['Operating Expenses', f.operatingExpenses],
-    ['Other Income', f.otherIncome ?? 0],
-    ['Other Expenses', f.otherExpenses ?? 0],
-  ]);
   const bridged = withUncapturedStep(steps, f.netProfit);
   const bars = toBars(bridged, PROFIT_UNCAPTURED_LABEL, 'belowTheOperatingLine');
   // AND THE SAME RULE AS PAGE 7: the chart gives a rung back when the page
@@ -373,9 +353,18 @@ export function buildProfitWaterfallChart(
   // predicate and the block it pays for read the same condition now.
   const signCaveat = [f.revenue, f.costOfSales, f.operatingExpenses, f.otherIncome ?? 0, f.otherExpenses ?? 0]
     .some((line) => line < 0);
+  // AND A REFUSED SUBTOTAL BUYS THE RUNG, for the same reason as the other
+  // three. Where the walk and the classifier's operating profit disagree the
+  // bar is not drawn and `bridgeSignFootnote` must say so in its own words —
+  // a required footnote, on a sheet that measured 261.2mm in a 255mm box with
+  // it and nothing droppable left, so the page refused to compose at all.
+  // The disclosure costs a footnote line; a rung gives back 38mm. Same
+  // conditional shape as the three above: the chart gives the height back
+  // exactly where the page has something more to say.
   const crowded = (share !== null && share >= UNCAPTURED_SHARE_LIMIT)
     || signCaveat
-    || carriesWindowNote;
+    || carriesWindowNote
+    || omitted.includes(OPERATING_PROFIT_BAR);
   const box = rung ?? (crowded ? MID : FULL);
   // HOISTED, because the SVG has to be rendered at the box the FIGURE will
   // give it and that depends on how tall this sentence wraps — see

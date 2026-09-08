@@ -14,7 +14,7 @@
  * leaves a module-level constant undefined at import time is not a compile
  * error; it is a `SOURCES.map` of undefined at first call.
  */
-import { formatPackDate } from './packPeriodLabel';
+import { formatPackDate, packDateOf } from './packPeriodLabel';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
 /**
@@ -24,9 +24,16 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
  * so a watermark of 29 April excludes April itself: April has postings in it
  * — that is what made it the watermark — and counting it would state that a
  * month the board can see figures for is empty.
+ *
+ * THE MONTH IS TAKEN OFF THE SAST DAY, not off the ISO string. Slicing
+ * `2026-04-30T22:30:00.000Z` gives April, and that instant is 1 May on the
+ * clock the company posts on — so May was counted as wholly after a
+ * watermark that was written inside it, and the pack could state that
+ * nothing had been posted after 30 April in a month that was written to.
+ * See `packDateOf`.
  */
-function monthsAfter(trend: PackTrendPoint[], ledgerVersion: string): PackTrendPoint[] {
-  const watermark = ledgerVersion.slice(0, 7);
+function monthsAfter(trend: PackTrendPoint[], postedDay: string): PackTrendPoint[] {
+  const watermark = postedDay.slice(0, 7);
   return trend.filter((point) => point.month > watermark);
 }
 
@@ -75,9 +82,12 @@ export function staleMonths(
   periodEnd: string,
 ): { posted: string; nil: PackTrendPoint[] } | null {
   if (ledgerVersion === null) return null;
-  const posted = ledgerVersion.slice(0, 10);
+  // THE WATERMARK'S CALENDAR DAY, IN SAST — the same day page 12's
+  // `formatPackTimestamp` prints, rather than the UTC day the ISO string
+  // starts with. See `packDateOf` for what the two disagreed about.
+  const posted = packDateOf(ledgerVersion);
   if (posted >= periodEnd) return null;
-  const after = monthsAfter(trend, ledgerVersion);
+  const after = monthsAfter(trend, posted);
   const nil = after.filter(isNil);
   if (nil.length === 0 || nil.length !== after.length) return null;
   return { posted, nil };

@@ -187,7 +187,7 @@ function buildSectionData(
     }
 
     case 'waterfall': {
-      const steps = buildProfitWaterfall({
+      const { steps } = buildProfitWaterfall({
         revenue: input.revenue,
         costOfSales: input.costOfSales,
         grossProfit,

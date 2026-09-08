@@ -16,11 +16,17 @@
  * this becomes true of one ratio and not the next.
  *
  * SO THE INPUTS ARE DECLARED AND THE FLAG IS DERIVED. `METRIC_INPUTS` is a
- * fact about the FORMULAS — which ledger figures each ratio is computed from,
- * the same fields `calculateExtendedRatios` reads — and the caveat follows
- * from the state of those figures. Add a metric and it is either in the table
- * or it carries no flag; change a company's books and the flag moves on its
- * own. Neither is a sentence anyone maintains.
+ * fact about the FORMULAS — which of the balances PAGE 7 STATES each ratio is
+ * computed from — and the caveat follows from what page 7 said about them.
+ * Add a metric and it is either in the table or in `NO_DECLARED_INPUTS`, and
+ * a coverage test refuses a metric in neither; change a company's books and
+ * the flag moves on its own. Neither is a sentence anyone maintains.
+ *
+ * It is NOT the whole formula. `calculateExtendedRatios` takes the cash ratio
+ * on cash over current liabilities and this table names only the second,
+ * because cash is not a balance page 7 states and so is not one it can
+ * disown. A field this pack never qualifies has nothing to contribute to a
+ * flag about qualified fields.
  *
  * TWO STATES COUNT, and both are ones the pack states elsewhere in its own
  * words:
@@ -30,42 +36,87 @@
  *  - UNRECONCILED — trade receivables against the open customer subledger,
  *    which page 4 states and page 11 decomposes.
  *
+ * AND BOTH ARE ASKED OF THE BUILDER THAT MAKES THE STATEMENT, never derived
+ * again here. The receivables arm has always called `receivablesBaseNote`;
+ * the balance-sheet arm re-derived its own rule — `set.current[field] < 0`
+ * over a field list of its own — and reached a different answer from page 7.
+ * It flagged `cash` and `inventory`, and page 7's block is built from the
+ * asset and liability ROWS of the position table: there is no Cash row and
+ * no Inventory row, and inventory is not printed anywhere in the twelve
+ * sheets. So a company with an overdrawn bank was told on page 9 that the
+ * balance sheet says the figure cannot be held as stated, and page 7 said
+ * nothing at all — a pointer to a page that does not carry it.
+ *
+ * It was wrong on the merits too, which is why the fields moved rather than
+ * page 7's list growing: a negative cash balance is an overdraft, a position
+ * a business genuinely holds. `impossibleBalanceLines` is now the one
+ * producer and this maps its labels back to the fields the formulas read.
+ *
  * Nothing here judges the books. It says the sheet that scored the row is
  * scoring it on a figure the pack has already qualified, and where.
  */
-import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
+import type { ImpossibleBalanceLine } from './packPageBlocks';
 import type { PackScorecardGroup } from './packPageModel';
 
 /** The ledger figures a scorecard metric is computed from. Keyed by the
- *  metric name the row prints, because that is what a reader matches. */
-const METRIC_INPUTS: Record<string, readonly BaseField[]> = {
+ *  metric name the row prints, because that is what a reader matches.
+ *
+ *  A metric whose bases page 7 never states carries no entry here and is
+ *  listed in `NO_DECLARED_INPUTS` instead — an omission is then a deliberate
+ *  one rather than a lookup that failed open. `packDisownedBases.test.ts`
+ *  fails if a scorecard metric appears in neither, so renaming a row in
+ *  `packScorecard.ts` is a red test and not a flag that silently stops. */
+export const METRIC_INPUTS: Record<string, readonly BaseField[]> = {
   'Current ratio': ['currentAssets', 'currentLiabilities'],
-  'Cash ratio': ['cash', 'currentLiabilities'],
+  'Cash ratio': ['currentLiabilities'],
   'Debtor days': ['accountsReceivable'],
   'Creditor days': ['accountsPayable'],
   'Debt-to-equity': ['totalLiabilities'],
-  'Cash conversion cycle': ['accountsReceivable', 'accountsPayable', 'inventory'],
-  'Operating cash flow': ['cash'],
+  'Cash conversion cycle': ['accountsReceivable', 'accountsPayable'],
 };
 
-/** The balance-sheet fields a ratio can stand on. Deliberately NOT equity or
- *  any income line: negative equity is a real position a business can hold
- *  and page 7 says so, and an income line the wrong way round is page 6's
- *  disclosure, not a balance a ratio is taken on. */
+/**
+ * The scorecard metrics that stand on NO figure page 7 qualifies, named so
+ * the coverage test can tell a deliberate omission from a forgotten one.
+ *
+ * Gross margin, operating margin and interest cover are taken on income
+ * lines; an income line the wrong way round is page 6's sign disclosure, not
+ * a balance a ratio is taken on. Operating cash flow is taken on cash, and
+ * cash is not a balance page 7 states or disowns — see the module docblock.
+ */
+export const NO_DECLARED_INPUTS: readonly string[] = [
+  'Gross margin', 'Operating margin', 'Interest cover', 'Operating cash flow',
+];
+
+/** The balance-sheet fields a ratio can stand on AND page 7 can name.
+ *  Deliberately NOT equity or any income line: negative equity is a real
+ *  position a business can hold and page 7 says so under its own heading, and
+ *  an income line the wrong way round is page 6's disclosure. Not cash or
+ *  inventory either — page 7 states neither, so neither can be disowned by
+ *  it. */
 type BaseField =
-  | 'currentAssets' | 'cash' | 'accountsReceivable' | 'totalAssets'
-  | 'currentLiabilities' | 'totalLiabilities' | 'accountsPayable' | 'inventory';
+  | 'currentAssets' | 'accountsReceivable'
+  | 'currentLiabilities' | 'totalLiabilities' | 'accountsPayable';
 
 /** How a reader sees the field named on page 7. */
 const FIELD_LABEL: Record<BaseField, string> = {
   currentAssets: 'current assets',
-  cash: 'cash',
   accountsReceivable: 'trade receivables',
-  totalAssets: 'total assets',
   currentLiabilities: 'current liabilities',
   totalLiabilities: 'total liabilities',
   accountsPayable: 'trade payables',
-  inventory: 'inventory',
+};
+
+/** Page 7's own row labels, lowercased, against the field a formula reads.
+ *  A row page 7 can print and no ratio stands on — Non-current assets, Total
+ *  assets — is absent, and a line that maps to nothing here simply flags no
+ *  metric. */
+const PAGE_SEVEN_FIELD: Record<string, BaseField> = {
+  'current assets': 'currentAssets',
+  'current liabilities': 'currentLiabilities',
+  'total liabilities': 'totalLiabilities',
+  'trade receivables': 'accountsReceivable',
+  'trade payables': 'accountsPayable',
 };
 
 export interface DisownedBase {
@@ -87,18 +138,25 @@ export interface DisownedBase {
  */
 export function disownedBases(
   groups: PackScorecardGroup[],
-  set: PackFigureSet,
   /** True where page 4's debtors-base note fires — the same condition, asked
    *  of the same builder, so the two sheets cannot come apart. */
   receivablesUnreconciled: boolean,
+  /** The lines page 7's "Balances below zero" block actually names, from
+   *  `impossibleBalanceLines` — the builder, asked, for the same reason. */
+  page7Impossible: readonly ImpossibleBalanceLine[],
 ): DisownedBase[] {
+  const disowned = new Set<BaseField>();
+  for (const line of page7Impossible) {
+    const field = PAGE_SEVEN_FIELD[line.label.toLowerCase()];
+    if (field !== undefined) disowned.add(field);
+  }
   const out: DisownedBase[] = [];
   for (const row of groups.flatMap((g) => g.rows)) {
     if (row.status !== 'met' && row.status !== 'missed') continue;
     const inputs = METRIC_INPUTS[row.metric];
     if (inputs === undefined) continue;
 
-    const impossible = inputs.filter((field) => (set.current[field] ?? 0) < 0);
+    const impossible = inputs.filter((field) => disowned.has(field));
     const unreconciled = receivablesUnreconciled && inputs.includes('accountsReceivable');
     if (impossible.length === 0 && !unreconciled) continue;
 

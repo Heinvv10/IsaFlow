@@ -60,6 +60,37 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * A BRIDGE AND WHAT IT LEFT OUT, IN ONE VALUE.
+ *
+ * The builder drops lines — a nil movement, and an Operating Profit subtotal
+ * whose walk disagrees with the classifier — and the caller has to name them:
+ * a rule a sheet does not state is a rule a reader cannot check, and a reader
+ * comparing the bridge against the table three centimetres above it cannot
+ * tell an omitted line from an absent one.
+ *
+ * IT CANNOT BE READ BACK OFF THE STEPS, which is why it travels with them.
+ * Page 6 used to re-derive the list from the statement figures it passed in;
+ * that reached the same answer for the five movement lines by coincidence of
+ * the two predicates agreeing, and could not reach the Operating Profit
+ * subtotal at all — that one is refused on a comparison the caller never
+ * makes, so a pack could silently drop a subtotal its own table prints while
+ * the footnote beside it listed five other lines.
+ */
+/** The subtotal bar the walk refuses when it disagrees with the classifier —
+ *  the ONE label in `omitted` that is not a nil movement line. Exported so
+ *  `bridgeSignFootnote` can give it its own sentence rather than describing
+ *  it as nil. */
+export const OPERATING_PROFIT_BAR = 'Operating Profit';
+
+export interface ProfitWaterfall {
+  steps: WaterfallStep[];
+  /** The labels the bridge did NOT draw, in the order the walk reaches them.
+   *  `packPageCharts` carries this straight into `omittedBars`, which is what
+   *  page 6's sign footnote names. */
+  omitted: string[];
+}
+
 export function buildProfitWaterfall(data: {
   revenue: number;
   costOfSales: number;
@@ -71,8 +102,11 @@ export function buildProfitWaterfall(data: {
   /** The classifier's OWN operating profit, where the caller has one — see
    *  the Operating Profit step below. */
   operatingProfit?: number;
-}): WaterfallStep[] {
-  const steps: WaterfallStep[] = [];
+}): ProfitWaterfall {
+  const walk: Array<{ step: WaterfallStep; refused: boolean }> = [];
+  const steps = {
+    push(step: WaterfallStep, refused = false): void { walk.push({ step, refused }); },
+  };
   let running = 0;
 
   // Revenue: from zero to whatever the ledger says. Usually positive.
@@ -109,12 +143,20 @@ export function buildProfitWaterfall(data: {
   // DRAWN ONLY WHERE IT AGREES WITH THE FIGURE THE STATEMENT PRINTS. The
   // classifier issues its own `operatingProfit` and this walk derives one; on
   // both companies they agree to the cent, and where they do not, the bar
-  // would be a third figure for one line — so the caller is told and page 6
-  // names the omission instead. Same refusal `decomposition` makes when two
-  // readings of the control account disagree.
-  if (data.operatingProfit === undefined || round2(data.operatingProfit) === round2(running)) {
-    steps.push({ label: 'Operating Profit', start: 0, end: running, value: running, isSubtotal: true, color: running >= 0 ? 'teal' : 'red' });
-  }
+  // would be a third figure for one line — so the caller is told, in
+  // `omitted`, and page 6 names the omission instead. Same refusal
+  // `decomposition` makes when two readings of the control account disagree.
+  //
+  // THE TELLING IS THE RETURN VALUE, and it was a sentence in this comment
+  // for one round while the function returned only the steps. Page 6's list
+  // was a hand-written enumeration of the five MOVEMENT lines, so this
+  // subtotal could not appear in it however it was dropped.
+  const operatingProfitAgrees =
+    data.operatingProfit === undefined || round2(data.operatingProfit) === round2(running);
+  steps.push(
+    { label: OPERATING_PROFIT_BAR, start: 0, end: running, value: running, isSubtotal: true, color: running >= 0 ? 'teal' : 'red' },
+    !operatingProfitAgrees,
+  );
 
   // Other Expenses: subtracted.
   steps.push({ label: 'Other Expenses', start: running, end: running - data.otherExpenses, value: -data.otherExpenses, labelValue: data.otherExpenses, isSubtotal: false, color: 'red' });
@@ -123,7 +165,7 @@ export function buildProfitWaterfall(data: {
   // Net Profit (subtotal)
   steps.push({ label: 'Net Profit', start: 0, end: data.netProfit, value: data.netProfit, isSubtotal: true, color: data.netProfit >= 0 ? 'teal' : 'red' });
 
-  return withoutNilMovements(steps);
+  return withoutNilMovements(walk);
 }
 
 /**
@@ -141,13 +183,21 @@ export function buildProfitWaterfall(data: {
  * the bridge lands rather than steps in it, and a nil subtotal is a figure the
  * reader is owed, not a bar carrying nothing.
  *
- * A caller that has to say WHICH lines it dropped cannot read that back off
- * the steps — the answer is in the figures it passed in. See
- * `withoutNilLines` in `packPageCharts.ts`, which derives page 6's omission
- * sentence from the statement lines for exactly that reason.
+ * AND THE DROPPED LABELS COME BACK WITH THE STEPS. A caller that has to say
+ * WHICH lines were left out cannot read that back off the steps that
+ * survived, and page 6 used to answer it a second way — its own predicate
+ * over its own list, in `packPageCharts.ts`. Two implementations of one rule
+ * agreed only while the two predicates happened to; one rule, one reading,
+ * one value.
  */
-function withoutNilMovements(steps: WaterfallStep[]): WaterfallStep[] {
-  return steps.filter((step) => step.isSubtotal || step.value !== 0);
+function withoutNilMovements(walk: Array<{ step: WaterfallStep; refused: boolean }>): ProfitWaterfall {
+  const steps: WaterfallStep[] = [];
+  const omitted: string[] = [];
+  for (const { step, refused } of walk) {
+    if (refused || (!step.isSubtotal && step.value === 0)) omitted.push(step.label);
+    else steps.push(step);
+  }
+  return { steps, omitted };
 }
 
 // ---------------------------------------------------------------------------

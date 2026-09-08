@@ -168,7 +168,7 @@ describe('every bar on a pack bridge', () => {
 describe('a line class takes one colour in every pack', () => {
   /**
    * BY NAME, NOT BY POSITION. A bar's index is not its identity: a line whose
-   * figure is nil is not drawn at all (`withoutNilLines`), so Brightsphere's
+   * figure is nil is not drawn at all (`withoutNilMovements`), so Brightsphere's
    * nil cost of sales moves every bar after it up one and "step 3" reads a
    * different line on the two companies — which is a test asserting the
    * wrong bar's colour and passing.

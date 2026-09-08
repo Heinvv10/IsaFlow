@@ -18,7 +18,7 @@
  * THE NIL STEP IS NO LONGER DRAWN AT ALL — one rule for a line with no
  * figure, because the bridge used to drop a nil Other Expenses and keep a nil
  * Cost of Sales, so two companies' page 6 drew six bars and seven off the
- * same statement (`withoutNilLines`, and page 6 names what it left out). That
+ * same statement (`withoutNilMovements`, and page 6 names what it left out from the same return value). That
  * settles the misplaced dash by removing the mark, and it does NOT settle the
  * floor: a step of a few hundred rand against a five-million axis still
  * rounds to a rect under a pixel, and the floor is the only thing that puts

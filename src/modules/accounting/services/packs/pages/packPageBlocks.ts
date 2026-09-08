@@ -12,6 +12,7 @@
  * `boardPackPages.ts` because every block builder below needs them; the
  * sequence file imports them back for its own remaining simple pages.
  */
+import { OPERATING_PROFIT_BAR } from '@/modules/accounting/services/reports/waterfallDataService';
 import {
   boardActionItems,
   cashCaption,
@@ -252,14 +253,18 @@ export function buildCommentaryBlocks(
   narrative: PackNarrative,
   selection: SelectedMatters,
 ): PackPageBlock[] {
+  // ONE BUILD, TWO FIELDS. Called twice on the same input the two cannot
+  // disagree, but the shape invites the drift the `SelectedMatters` rule
+  // exists to stop.
+  const actions = boardActionItems(selection);
   return [
     // THE COUNTS ARE NOT DECISIONS. `boardActionsTail` is set smaller and
     // outside the list — see `BoardActions`.
     {
       kind: 'narrative',
       narrative,
-      boardActions: boardActionItems(selection).items,
-      boardActionsTail: boardActionItems(selection).tail,
+      boardActions: actions.items,
+      boardActionsTail: actions.tail,
     },
     disclose('How this page is prepared', [
       // NEITHER SENTENCE NAMES A COLUMN, because the page has two shapes.
@@ -278,6 +283,45 @@ export function buildCommentaryBlocks(
   ];
 }
 
+/** One line of page 7's "Balances below zero" block: the label the sheet
+ *  prints and the amount it prints against it. */
+export interface ImpossibleBalanceLine {
+  label: string;
+  amount: number;
+}
+
+/**
+ * WHICH BALANCES PAGE 7 SAYS CANNOT BE HELD AS STATED — the one reading, so
+ * a sheet that points at this statement points at something it made.
+ *
+ * `buildPositionBlocks` used to compute this inline and page 9's
+ * disowned-base footnote re-derived the rule over a different field set, off
+ * `PackFigureSet` directly. The two reached different answers: a negative
+ * `cash` or `inventory` flagged a scorecard row with "which the balance
+ * sheet says cannot be held as stated" while page 7 said nothing whatever
+ * about either — neither is a row of the position table and inventory is not
+ * printed anywhere in the twelve sheets. A pointer to a page that does not
+ * carry it is the defect `da8ac596` and `a3794df2` closed from the other end.
+ *
+ * It is also the substantive answer. A negative cash balance is a bank
+ * overdraft — a position a business genuinely holds, like the negative equity
+ * this block deliberately excludes — which is exactly why the list is
+ * restricted to the asset and liability ROWS this sheet states.
+ */
+export function impossibleBalanceLines(
+  position: PackTable,
+  set: PackFigureSet,
+): ImpossibleBalanceLine[] {
+  const tabulated = position.rows
+    .filter((row) => /assets$|liabilities$/i.test(row.label))
+    .map((row) => ({ label: row.label, amount: row.figures.actual?.value ?? 0 }));
+  const memorandum = [
+    { label: 'Trade receivables', amount: set.current.accountsReceivable },
+    { label: 'Trade payables', amount: set.current.accountsPayable },
+  ];
+  return [...tabulated, ...memorandum].filter((line) => line.amount < 0);
+}
+
 /** Page 7 — the balance sheet, its composition chart, and the MANDATORY
  *  §3.5 negative-equity disclosure when equity is underwater. */
 export function buildPositionBlocks(
@@ -285,6 +329,10 @@ export function buildPositionBlocks(
   compositionChart: PackChartSpec,
   set: PackFigureSet,
   scale: MoneyScale,
+  /** The lines this block names, from `impossibleBalanceLines`. Passed in
+   *  rather than computed here because page 9's disowned-base footnote points
+   *  at this block and must point at the SAME list — one call, two readers. */
+  impossible: readonly ImpossibleBalanceLine[],
 ): PackPageBlock[] {
   const positionBlocks: PackPageBlock[] = [
     { kind: 'table', table: position },
@@ -312,14 +360,6 @@ export function buildPositionBlocks(
   // below zero. Reading the check off the TABLE alone is what missed it: the
   // rule is about what the sheet states, and this sheet states two figures it
   // does not tabulate.
-  const tabulated = position.rows
-    .filter((row) => /assets$|liabilities$/i.test(row.label))
-    .map((row) => ({ label: row.label, amount: row.figures.actual?.value ?? 0 }));
-  const memorandum = [
-    { label: 'Trade receivables', amount: set.current.accountsReceivable },
-    { label: 'Trade payables', amount: set.current.accountsPayable },
-  ];
-  const impossible = [...tabulated, ...memorandum].filter((line) => line.amount < 0);
   if (impossible.length > 0) {
     const hasAssets = impossible.some((l) => /assets$|receivables$/i.test(l.label));
     const hasLiabilities = impossible.some((l) => /liabilities$|payables$/i.test(l.label));
@@ -765,9 +805,21 @@ export function bridgeSignFootnote(
   // WHAT THE BRIDGE LEFT OUT, which is a statement about the drawing whether
   // or not there is a sign to reconcile — see `PackChartSpec.omittedBars`.
   const omitted = chart.omittedBars ?? [];
-  const omission = omitted.length === 0
-    ? ''
-    : ` A line with a nil figure for the period is not drawn: ${inWords(omitted)}.`;
+  // TWO RULES, TWO SENTENCES. `omittedBars` carries both the nil movement
+  // lines and the operating-profit subtotal the walk refused, and "a line
+  // with a nil figure for the period is not drawn: Operating Profit" is
+  // false of the second — the subtotal is dropped on a disagreement with the
+  // row three centimetres above, not on a nil.
+  const nilLines = omitted.filter((label) => label !== OPERATING_PROFIT_BAR);
+  const omission = [
+    nilLines.length === 0
+      ? ''
+      : ` A line with a nil figure for the period is not drawn: ${inWords(nilLines)}.`,
+    omitted.includes(OPERATING_PROFIT_BAR)
+      ? ' The operating profit subtotal is not drawn: this bridge\'s own walk and the figure the '
+        + 'table above states do not agree, and the bar would be a second figure for one line.'
+      : '',
+  ].join('');
   // NO EXEMPLAR, NO SIGN SENTENCE — and therefore no anchor either. The
   // caller reads `anchor` to put the superscript on the row this sentence is
   // about, which is why the label is returned rather than only printed: a

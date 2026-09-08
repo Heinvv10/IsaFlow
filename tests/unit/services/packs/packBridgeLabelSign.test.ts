@@ -43,7 +43,7 @@ const LEDGERS = {
 
 /** Every text node the rendered bridge draws. */
 function labelsOf(f: (typeof LEDGERS)[keyof typeof LEDGERS]): string[] {
-  const steps = buildProfitWaterfall({ ...f, grossProfit: f.revenue - f.costOfSales });
+  const { steps } = buildProfitWaterfall({ ...f, grossProfit: f.revenue - f.costOfSales });
   const svg = renderChartSvg(waterfallOption(steps, PACK_SCALE), { widthMm: 170, heightMm: 110 });
   return [...String(svg).matchAll(/>([^<>]+)</g)].map((m) => m[1]!.trim());
 }

@@ -570,11 +570,24 @@ describe('the debtors-base note points at page 11 only where page 11 carries it'
   it('makes the cross-reference where the matters page does carry it', () => {
     // Brightsphere prints an aged debtors total, so page 11 reconciles the
     // two figures and the pointer resolves. Same note, opposite company.
+    // REVENUE MOVES AND SO DO THE FIGURES DERIVED FROM IT. Raising revenue
+    // alone left a set whose classifier operating profit and whose walk
+    // disagreed by ten million — a shape `aggregateFigures` never produces —
+    // and page 6's bridge then refused its operating-profit subtotal and had
+    // to say so, on a sheet with no room for the sentence. The fixture, not
+    // the disclosure, was the thing that was wrong.
+    const priorRevenue = brightsphereReceivablesGapInput.set.current.revenue;
+    const lift = 5_000_000 - priorRevenue;
     const withGap: BoardPackInput = {
       ...brightsphereReceivablesGapInput,
       set: {
         ...brightsphereReceivablesGapInput.set,
-        current: { ...brightsphereReceivablesGapInput.set.current, revenue: 5_000_000 },
+        current: {
+          ...brightsphereReceivablesGapInput.set.current,
+          revenue: 5_000_000,
+          operatingProfit: (brightsphereReceivablesGapInput.set.current.operatingProfit ?? 0) + lift,
+          netProfit: brightsphereReceivablesGapInput.set.current.netProfit + lift,
+        },
       },
     };
     const text = baseNote(withGap);
@@ -672,5 +685,57 @@ describe('the decomposition says whether it closes', () => {
 
   it('agrees its verb with one part', () => {
     expect(prose(['posting_with_no_document'])).toContain('That accounts for all of it, before rounding.');
+  });
+
+  /**
+   * A TYPE THIS PAGE CANNOT WORD IS NOT A TYPE IT MAY LEAVE OUT SILENTLY.
+   *
+   * `ReconcilingItem['type']` is an open set by design — "callers branch on
+   * this" — and `ITEM_CLAUSE` covers five keys. A sixth emitter added to
+   * `reconcilingItemBuilders.ts` is dropped by the filter that builds the
+   * list, and the closure claim used to be computed over the SURVIVORS: the
+   * pack would print a partial decomposition under "Together they account for
+   * all of it, before rounding."
+   */
+  it('refuses the closure claim when an item it cannot word is dropped', () => {
+    const withUnknown: PackReceivablesRead = {
+      ...read(['document_not_linked_to_journal', 'posting_with_no_document']),
+      unexplained: 0,
+      items: [
+        ...items(['document_not_linked_to_journal', 'posting_with_no_document']),
+        {
+          bridge: 'subledger_to_control',
+          type: 'subledger_to_control_unmapped',
+          description: 'a reconciling type this page has no clause for',
+          amount: 250_000,
+          documentIds: ['x'],
+          documentNumbers: ['X-1'],
+        },
+      ],
+    };
+    const block = receivablesReconciliationNote(withUnknown, -330_000, PACK_SCALE);
+    const body = block?.kind === 'disclosure' ? block.disclosure.notes.map((n) => n.body).join(' ') : '';
+    expect(body, 'nothing was built, so nothing is being checked').not.toBe('');
+    expect(body, 'the list omits an item with money in it and still claims to account for all of it')
+      .not.toMatch(/account for all of it/);
+  });
+
+  it('refuses the closure claim on a non-zero residual the service reported', () => {
+    // The residual is `reconcileSubledger`'s own `unexplainedDifference`, and
+    // it was loaded into the read and never looked at while the claim was
+    // re-derived from a proxy.
+    const residual: PackReceivablesRead = {
+      ...read(['document_not_linked_to_journal', 'posting_with_no_document']),
+      unexplained: 1_500,
+    };
+    const block = receivablesReconciliationNote(residual, -330_000, PACK_SCALE);
+    const body = block?.kind === 'disclosure' ? block.disclosure.notes.map((n) => n.body).join(' ') : '';
+    expect(body).not.toMatch(/account for all of it/);
+    // And the same read with the residual closed does print it, so the
+    // assertion above is the guard talking.
+    const closed: PackReceivablesRead = { ...residual, unexplained: 0 };
+    const ok = receivablesReconciliationNote(closed, -330_000, PACK_SCALE);
+    expect(ok?.kind === 'disclosure' ? ok.disclosure.notes.map((n) => n.body).join(' ') : '')
+      .toMatch(/account for all of it/);
   });
 });

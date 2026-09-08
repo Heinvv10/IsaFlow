@@ -128,6 +128,27 @@ export function signOf(n: number): 'pos' | 'neg' | 'zero' {
   return n < 0 ? 'neg' : 'pos';
 }
 
+/**
+ * WHETHER THE BRACKET IS EARNED — the figure is below zero AND still says so
+ * at the precision it is printed to.
+ *
+ * The bracket is this document's ONE negative convention, and three of the
+ * four formatters tested `n < 0` directly while `formatPct` routed its zero
+ * through `signOf`. So a level of −0.001% printed `(0.0%)`, a ratio of
+ * −0.0001 printed `(0.00)` and −0.4 days printed `(0 days)`: a bracketed
+ * zero, which reads to a director as a negative figure that rounded away and
+ * to nobody as the nothing it is. `signOf`'s half-cent tolerance does not
+ * settle it either — it is a fixed threshold and these carry a `dp`.
+ *
+ * The test is therefore the PRINTED body, not the measured one: a figure
+ * whose digits are all zeros at this precision is not shown as negative.
+ * `signOf` still decides the en dash on the money path, where a measured zero
+ * is a different statement from a small one.
+ */
+function bracketed(n: number, dp: number): boolean {
+  return n < 0 && Number(Math.abs(n).toFixed(dp)) !== 0;
+}
+
 /** A figure too small to survive its scale, printed as a bound rather than as
  *  a zero — see `formatMoney`. */
 const BELOW_SCALE = '<1';
@@ -178,7 +199,11 @@ export function formatPct(n: number, dp = 1): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
   const s = signOf(n);
   const body = `${Math.abs(n).toFixed(dp)}%`;
-  if (s === 'zero') return `0.${'0'.repeat(dp)}%`;
+  if (s === 'zero') return `${(0).toFixed(dp)}%`;
+  // `signOf`'s threshold is half a cent and this carries a `dp`, so a change
+  // of −0.006 cleared it and printed `(0.0%)` at one decimal — a bracketed
+  // zero on a document whose negative convention IS the bracket.
+  if (s === 'neg' && !bracketed(n, dp)) return `${(0).toFixed(dp)}%`;
   // Brackets, not U+2212. See the module docblock: one negative convention.
   // The leading `+` on a positive stays — it marks a change column's
   // direction, and a bracket and a plus are the same convention read in two
@@ -199,7 +224,9 @@ export function formatPct(n: number, dp = 1): string {
 export function formatPctLevel(n: number, dp = 1): string {
   if (!Number.isFinite(n)) return ZERO_DASH;
   const body = `${Math.abs(n).toFixed(dp)}%`;
-  return n < 0 ? `(${body})` : body;
+  // Not `n < 0`: a level of −0.001% is `0.0%` at one decimal, and a bracketed
+  // zero is a negative figure to a reader. See `bracketed`.
+  return bracketed(n, dp) ? `(${body})` : body;
 }
 
 /**
@@ -215,8 +242,9 @@ export function formatRatio(n: number, dp = 2): string {
   const body = Math.abs(n).toFixed(dp);
   // Not `signOf`: a ratio of 0.00 is a MEASURED ratio, and the en dash is
   // this module's word for a figure that is not there at all. Only the sign
-  // is decided here.
-  return n < 0 ? `(${body})` : body;
+  // is decided here — and only where the printed digits still carry it, so
+  // −0.0001 is `0.00` rather than `(0.00)`.
+  return bracketed(n, dp) ? `(${body})` : body;
 }
 
 /**
@@ -236,7 +264,8 @@ export function formatDays(n: number, dp = 0): string {
     maximumFractionDigits: dp,
   }).format(Math.abs(n)));
   const body = `${digits} days`;
-  return n < 0 ? `(${body})` : body;
+  // −0.4 days is `0 days`, not `(0 days)` — see `bracketed`.
+  return bracketed(n, dp) ? `(${body})` : body;
 }
 
 /**

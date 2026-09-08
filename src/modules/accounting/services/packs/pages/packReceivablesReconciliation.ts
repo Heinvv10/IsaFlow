@@ -106,7 +106,11 @@ export interface PackReceivablesRead {
   controlBalance: number | null;
   /** The `subledger_to_control` items, as the service returned them. */
   items: readonly ReconcilingItem[];
-  /** The residual the service could not account for. */
+  /** The residual the service could not account for — `reconcileSubledger`'s
+   *  own `unexplainedDifference`. It is what decides whether the closure
+   *  clause may be printed; see `decomposition`. Null only where the
+   *  subledger had no document-level source at all, in which case there are
+   *  no items to list either. */
   unexplained: number | null;
 }
 
@@ -351,7 +355,29 @@ function decomposition(
   // could not account for". A list that includes it still sums to the
   // difference, so "they account for all of it" would be arithmetically true
   // and would tell a director the opposite of what that clause says.
-  const closes = named.every((item) => item.type !== 'unexplained_difference');
+  //
+  // AND IT IS THE SERVICE'S OWN RESIDUAL THAT DECIDES, NOT A PROXY FOR IT.
+  // `read.unexplained` is `reconcileSubledger`'s `unexplainedDifference` —
+  // the authoritative leftover — and it was loaded into the read, given a
+  // docblock, and never looked at, while the closure claim was re-derived
+  // from the presence of an `unexplained_difference` ITEM.
+  //
+  // THE LIST MUST ALSO BE THE WHOLE LIST. `ReconcilingItem['type']` is an
+  // open set by design and `ITEM_CLAUSE` covers five keys; a sixth type
+  // added to `reconcilingItemBuilders.ts` is dropped from the list by the
+  // filter above and left the closure claim standing, so the pack would
+  // print a partial decomposition under "Together they account for all of
+  // it". Anything with an amount that this page cannot word refuses the
+  // claim rather than disappearing from under it.
+  const dropped = items.filter(
+    (item) => ITEM_CLAUSE[item.type] === undefined && round2(item.amount) !== 0,
+  );
+  // All three, and the item test stays for the null residual: a service that
+  // could not read a subledger reports no residual at all, and a claim of
+  // closure must not be reachable by a figure being absent.
+  const closes = dropped.length === 0
+    && round2(read.unexplained ?? 0) === 0
+    && named.every((item) => item.type !== 'unexplained_difference');
   // AND THE CLAIM SAYS WHICH PRECISION IT IS TRUE AT.
   //
   // On the demo the printed split is 10 665 + 2 + (1) = 10 666 against a
@@ -421,6 +447,10 @@ export function receivablesBaseNote(
   tradeReceivables: number,
   scale: MoneyScale,
   debtorDaysMeasured: boolean,
+  /** Page 11's block, from `receivablesReconciliationNote` on the SAME read —
+   *  the builder's own answer, handed in rather than asked for a second time.
+   *  It was built up to four times per pack purely to test it for null. */
+  reconciliation: PackPageBlock | null,
 ): PackPageBlock | null {
   if (!debtorDaysMeasured) return null;
   const { subledgerTotal } = read;
@@ -448,7 +478,7 @@ export function receivablesBaseNote(
   // time and stopped being it the moment that block learned to fire on the
   // subledger. Two copies of one condition is how a pointer comes to name a
   // page that carries nothing; this asks the builder.
-  const pointer = receivablesReconciliationNote(read, tradeReceivables, scale) === null
+  const pointer = reconciliation === null
     ? ''
     : ' — the matters page sets out what the difference consists of —';
   return mustDisclose(RECEIVABLES_BASE_HEADING, [

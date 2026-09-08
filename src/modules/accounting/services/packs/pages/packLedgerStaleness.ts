@@ -80,9 +80,10 @@ export function ledgerStalenessNote(
   // THE COUNT IS OF THE SERIES' OWN MONTHS, and it is stated as a count
   // rather than as a span in days: page 5 prints those months as rows and
   // page 10 as ticks, so "the 5 months after it" is a thing a reader can
-  // point at. The date is formatted through `formatPackDate` — the same
-  // function page 12 prints the watermark with — so the two sheets state one
-  // date in one form.
+  // point at. The DAY comes from `packDateOf`, which reads the watermark on
+  // the same Africa/Johannesburg clock page 12's `formatPackTimestamp`
+  // prints it on, so the two sheets name one day rather than disagreeing by
+  // one whenever the ledger was last written between 22:00 and midnight.
   const months = nil.length === 1
     ? `${nil[0]!.label}, the one month after that date, is`
     : `The ${nil.length} months after that date are`;
