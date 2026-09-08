@@ -99,3 +99,23 @@ for (const method of ['cookie', 'pat', 'oauth', 'print'] as const) {
     });
   }
 }
+
+it('legacy null status permits an ordinary member, whose access still stops on suspension', async () => {
+  await pool.query('UPDATE companies SET status=NULL,suspended_at=NULL WHERE id=$1', [companyId]);
+  await pool.query("UPDATE company_users SET role='viewer' WHERE company_id=$1 AND user_id=$2", [companyId,userId]);
+  let calls = 0;
+  const wrapped = withAuth(async (req, res) => {
+    calls++;
+    expect(req.companyRole).toBe('viewer');
+    res.status(200).json({ ok: true });
+  });
+  const req = () => request({ 'sb-access-token': cookieToken, active_company_id: companyId }, 'GET');
+  const active = response();
+  await wrapped(req(), active.res);
+  expect(active.state.statusCode).toBe(200);
+  await suspendCompany(companyId, 'ordinary member regression');
+  const denied = response();
+  await wrapped(req(), denied.res);
+  expect(denied.state.statusCode).toBe(403);
+  expect(calls).toBe(1);
+});
