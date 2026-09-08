@@ -58,6 +58,16 @@ vi.mock('@/modules/accounting/services/reconciliation/subledgerReconciliationSer
 }));
 vi.mock('@/modules/accounting/services/packs/pages/packMatters', () => ({
   buildMatters: (...a: unknown[]) => buildMatters(...(a as [])),
+  // The four §4.A sources, which `packDerivedMatters.MATTER_SOURCES` composes
+  // with its own to give the list pages 4 and 11 enumerate. Mocking the
+  // module without them left both sheets unable to name a single check.
+  SOURCES: [
+    { label: 'aged debtors', check: 'aged debtor concentration' },
+    { label: 'unreconciled bank items', check: 'unreconciled bank items' },
+    { label: 'unusual journals', check: 'unusual journals' },
+    { label: 'overdue statutory filings', check: 'overdue statutory filings' },
+  ],
+  NO_PRIOR_MEETING_RECORD: 'Not tracked — no prior board pack is stored to compare against.',
 }));
 vi.mock('@/modules/accounting/services/afs/brandProfileService', () => ({
   getBrandProfile: (...a: unknown[]) => getBrandProfile(...(a as [])),

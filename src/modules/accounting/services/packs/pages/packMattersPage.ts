@@ -10,6 +10,7 @@
 import { page } from './packFrontMatter';
 import { disclose, note } from './packPageBlocks';
 import { mattersExposure, omittedQuantum, type SelectedMatters } from './packMattersPrinted';
+import { matterSourcesInWords } from './packDerivedMatters';
 import { remainingPageMm } from './packPageFit';
 import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -167,7 +168,21 @@ export function buildMattersSupportBlocks(
     // a different question" — which describes an arithmetic the pack does not
     // perform. Two lines instead of four, and the row comes back.
     disclose('What was checked', [
-      note('Sources', 'Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A source that fails is named as a matter, never dropped. No prior pack is stored, so movement is untracked.'),
+      // THE FIFTH CHECK, AND IT IS PAID FOR RATHER THAN ADDED. This note
+      // answered "what was checked?" with four sources and the table three
+      // lines above it carried the net-credit month — 1 869 on the demo,
+      // 4 128 on Brightsphere, the largest exposure in each and produced by
+      // none of the four. The list is rendered from `MATTER_SOURCES` now, so
+      // the enumeration cannot fall behind the checks again.
+      //
+      // What went to pay for it is "No prior pack is stored, so movement is
+      // untracked", which is the Movement line's own sentence — that line
+      // prints DIRECTLY BELOW this block on the same sheet, reading "Not
+      // tracked — no prior board pack is stored to compare against. The same
+      // for every matter listed above." One fact, twice, on one page, on the
+      // page whose paper is measured in matters rows. The silent-omission
+      // guarantee stays, because nothing else on the sheet states it.
+      note('Sources', `${matterSourcesInWords().charAt(0).toUpperCase()}${matterSourcesInWords().slice(1)}. A source that fails is named as a matter, never dropped.`),
     ]),
   ];
 }

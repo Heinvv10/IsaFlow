@@ -196,6 +196,37 @@ export const liveDemoRenderedTrend: PackTrendPoint[] = liveDemoTrend.map((point,
 });
 
 /**
+ * THE RENDERED PACK'S REAL PANEL SHAPE — TWO PANELS OVER THREE PERIODS, NOT
+ * SIX OVER TWELVE.
+ *
+ * `liveDemoRenderedTrend` gives every month a positive revenue (2 000 rising
+ * to 29 000), so all six of its panels plot twelve points. The live company
+ * does NOT: `getPackTrend` for 1 January to 7 September 2026 returns nil
+ * revenue for the first nine months and 36 800 / 34 800 / 29 800 for Jul,
+ * Aug and Sep — so `ratioPanel` drops the months it cannot measure and gross
+ * margin and debtor days are drawn "over 3 periods" while the four money
+ * panels are drawn over twelve.
+ *
+ * That is the shape page 5's window sentence was false about, and NO FIXTURE
+ * COULD SEE IT: the one that claims to be the live render draws six full
+ * panels, so fourteen gates read "which is the series page 10 draws" against
+ * a document in which it was true. This fixture is the counter-example, and
+ * it is separate rather than a correction to `liveDemoRenderedTrend` because
+ * zeroing nine months of revenue there moves figures on pages 3, 5, 6 and 10
+ * of a fixture eight other tests are written against.
+ *
+ * `grossMarginPct` and `debtorDays` are null exactly where revenue is nil,
+ * which is what `ratioPanel.pick` reads — the fixture models the RULE, not a
+ * hand-picked pair of shortened panels.
+ */
+export const liveDemoShortPanelsTrend: PackTrendPoint[] = liveDemoRenderedTrend.map((point, i) => ({
+  ...point,
+  revenue: i < 9 ? 0 : [36_800, 34_800, 29_800][i - 9]!,
+  grossMarginPct: i < 9 ? null : -4_267.6 + (((i - 9) / 2) * 4_367.6),
+  debtorDays: i < 9 ? null : (i - 8) * 20.166,
+}));
+
+/**
  * Twenty-eight matters, worded as `buildMatters` words them.
  *
  * Twenty-six unusual journals ranked by quantum — the tail of them worth a
@@ -279,6 +310,20 @@ export const liveDemoInput: BoardPackInput = {
 export const liveDemoRenderedInput: BoardPackInput = {
   ...liveDemoInput,
   trend: liveDemoRenderedTrend,
+};
+
+/**
+ * The live demo company with the panel shape its ledger actually produces —
+ * four money panels over twelve months and two ratio panels over three.
+ *
+ * Held here so `shortenedPanelsNote` has a fixture that fires it, and so the
+ * page it lands on is measured: page 4 composes at 250.99mm of 255 on the
+ * live render with this note and page 5's window sentence on it, which is
+ * 4.01mm and the tightest that sheet has ever been.
+ */
+export const liveDemoShortPanelsInput: BoardPackInput = {
+  ...liveDemoRenderedInput,
+  trend: liveDemoShortPanelsTrend,
 };
 
 /**

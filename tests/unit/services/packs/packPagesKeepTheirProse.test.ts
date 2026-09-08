@@ -31,11 +31,21 @@ import {
   liveDemoBridgeInput,
   liveDemoInput,
   liveDemoRenderedInput,
+  liveDemoShortPanelsInput,
   millionsCashInput,
 } from './fixtures/liveDemoBoardPack';
 
 const FIXTURES: [string, BoardPackInput][] = [
   ['the live demo company as it renders', liveDemoRenderedInput],
+  // The panel shape that company's ledger ACTUALLY produces — two ratio
+  // panels over three periods, four money panels over twelve. The fixture
+  // above gives every month revenue and therefore draws six full panels, so
+  // no test in this suite could see the shortened case; page 5 claimed the
+  // window "is the series page 10 draws" and fourteen gates read it against a
+  // document in which that was true. This one composes identically to the
+  // live render, page for page, and its sheet 4 is the tightest in the pack
+  // at 4.01mm.
+  ['the live demo company with two short ratio panels', liveDemoShortPanelsInput],
   // Its own EBITDA bridge, which does not add as printed — the sheet-12 note
   // that costs the glossary 7.4mm. See `liveDemoBridgeInput`.
   ['the live demo company whose EBITDA bridge rounds', liveDemoBridgeInput],

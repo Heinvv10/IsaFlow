@@ -397,6 +397,28 @@ export interface TrendPanels {
    */
   ratiosEndingOnPartMonth: string[];
   /**
+   * Drawn panels that plot FEWER months than the window, by name.
+   *
+   * `ratioPanel` drops the months it cannot measure rather than plotting a
+   * false zero, which is right and was unstated: two of the live demo pack's
+   * six panels — gross margin and debtor days — run Jul 2026 to Sep 2026
+   * (part) and say "over 3 periods" in their own titles, because revenue is
+   * nil before July and neither ratio is defined without it. Page 5 then
+   * claimed the twelve-month window "is the series page 10 draws", which the
+   * two shortened panels disprove three centimetres away.
+   *
+   * Brightsphere carries the OMISSION rule already ("A panel is omitted when
+   * its figure is not meaningful in every period of the window") and all four
+   * of its drawn panels are twelve periods, so its copy of that sentence was
+   * true — which is why fourteen gates read it and only the fifteenth put the
+   * two packs side by side. The two behaviours are one rule once both halves
+   * are stated: omit where the measure exists nowhere in the window, shorten
+   * where it exists in part of it.
+   *
+   * Named rather than counted, because the disclosure names them.
+   */
+  shortenedPanels: string[];
+  /**
    * The shared y-domain in words — "(707) to 1 908, a span of 2 615" — so the
    * page can STATE the denominator its percentages are taken against.
    *
@@ -419,7 +441,7 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
   if (trend.length === 0) {
     return {
       panels: [], sharedScale: [], ownScale: [], ownUnits: [],
-      ratiosEndingOnPartMonth: [], sharedRange: null,
+      ratiosEndingOnPartMonth: [], shortenedPanels: [], sharedRange: null,
     };
   }
 
@@ -483,6 +505,15 @@ export function buildTrendPanels(trend: PackTrendPoint[], scale: MoneyScale): Tr
     ratiosEndingOnPartMonth: RATIO_PANELS
       .filter((p) => panels.some((drawn) => drawn.id === p.id))
       .filter((p) => ratioTerminal(p, trend)?.partial === true)
+      .map((p) => p.name),
+    // Only the ratio panels can shorten: a money panel plots every month of
+    // the window by construction, because a month with nothing posted is a
+    // true nil rather than an unmeasurable one. Counted off the same `pick`
+    // the panel itself draws from, so the list cannot disagree with the
+    // titles that say "over N periods".
+    shortenedPanels: RATIO_PANELS
+      .filter((p) => panels.some((drawn) => drawn.id === p.id))
+      .filter((p) => trend.filter((point) => p.pick(point) !== null).length < trend.length)
       .map((p) => p.name),
     // The span is the difference of the two extremes AS PRINTED, so the
     // subtraction a reader does on the sheet gives the number the sheet

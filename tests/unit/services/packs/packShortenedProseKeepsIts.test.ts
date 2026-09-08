@@ -66,7 +66,11 @@ describe('sheet 5 keeps both notes of a disclosure it is required to make', () =
     // THE WINDOW NOTE'S OWN CONTENT, not just its heading: it says what the
     // table covers and where the period's own totals are.
     const window = notes[1]!.body;
-    expect(window).toMatch(/This table covers .+ which is the series page 10 draws/);
+    // "the window page 10 DRAWS FROM", not "the series page 10 draws": two
+    // of the live demo's six panels plot three periods of the twelve, so the
+    // stronger claim was false on that pack and true on Brightsphere. See
+    // `packShortenedPanels.test.ts`.
+    expect(window).toMatch(/This table covers .+ the window page 10 draws from/);
     expect(window).toMatch(/income statement overleaf carries the reporting period's own totals/);
     // AND THE ROUNDING FOOTNOTE, which was the first thing the trimmer took.
     expect(page.footnotes.some((f) => /rounded to the nearest/.test(f.text)),
@@ -144,7 +148,16 @@ describe('sheet 11 spends its prose budget on matters', () => {
     expect(body).toMatch(/unusual journals/);
     expect(body).toMatch(/overdue statutory filings/);
     expect(body).toMatch(/named as a matter, never dropped/);
-    expect(body).toMatch(/movement is untracked/);
+    // AND THE FIFTH CHECK, which is what this note was missing: the
+    // net-credit month is the largest matter in both packs and no listed
+    // source produced it.
+    expect(body).toMatch(/months whose expenses are a net credit/);
+    // "No prior pack is stored, so movement is untracked" is GONE from here
+    // deliberately, and is not a lost fact: the Movement line prints it
+    // directly below this block on the same sheet ("Not tracked — no prior
+    // board pack is stored to compare against."). One fact twice on one page
+    // is what paid for the fifth source on a sheet budgeted in matters rows.
+    expect(body).not.toMatch(/movement is untracked/);
   });
 });
 

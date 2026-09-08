@@ -306,16 +306,29 @@ function errorClass(error: unknown): string {
     : error.name;
 }
 
-/** One entry per spec §4.A source, in listed order. Pairs the normal builder
- *  with the label used when that source throws. */
-const SOURCES: ReadonlyArray<{
+/**
+ * One entry per spec §4.A source, in listed order.
+ *
+ * TWO NAMES PER SOURCE, because the pack says its name in two different
+ * sentences. `label` completes "<label> could not be assessed" when the
+ * source throws, and reads as the THING the check looks at — "aged debtors
+ * could not be assessed". `check` completes pages 4 and 11's enumeration of
+ * what was checked, and has to name the TEST — "aged debtor concentration",
+ * because "aged debtors" there would describe a report rather than a check
+ * and would be the fourth different name the pack has for that page's rows.
+ * Three of the four are the same string and are still written twice, so a
+ * source whose two sentences need to diverge can do so without anyone
+ * discovering that they share a field.
+ */
+export const SOURCES: ReadonlyArray<{
   label: string;
+  check: string;
   build: (companyId: string, window: PeriodWindow) => Promise<SourceResult>;
 }> = [
-  { label: 'aged debtors', build: agedDebtorConcentrationMatters },
-  { label: 'unreconciled bank items', build: async (companyId) => ({ matters: await unreconciledBankMatters(companyId) }) },
-  { label: 'unusual journals', build: async (c, w) => ({ matters: await unusualJournalMatters(c, w) }) },
-  { label: 'overdue statutory filings', build: async (c, w) => ({ matters: await overdueFilingMatters(c, w) }) },
+  { label: 'aged debtors', check: 'aged debtor concentration', build: agedDebtorConcentrationMatters },
+  { label: 'unreconciled bank items', check: 'unreconciled bank items', build: async (companyId) => ({ matters: await unreconciledBankMatters(companyId) }) },
+  { label: 'unusual journals', check: 'unusual journals', build: async (c, w) => ({ matters: await unusualJournalMatters(c, w) }) },
+  { label: 'overdue statutory filings', check: 'overdue statutory filings', build: async (c, w) => ({ matters: await overdueFilingMatters(c, w) }) },
 ];
 
 /**

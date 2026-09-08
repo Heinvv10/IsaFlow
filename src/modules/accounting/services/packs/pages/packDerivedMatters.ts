@@ -9,7 +9,7 @@
  */
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
-import { NO_PRIOR_MEETING_RECORD, type PackMatter } from './packMatters';
+import { NO_PRIOR_MEETING_RECORD, SOURCES, type PackMatter } from './packMatters';
 import { BOARD_DECISIONS } from './packMatterDecisions';
 import { monthLabel } from './packPartialMonth';
 import {
@@ -71,6 +71,51 @@ const CREDIT_MONTH_STANDING: Record<ProfitStanding, string> = {
  * on the panel — one derivation, two pages, so the largest visual event in the
  * document stops being one the governance page has never heard of.
  */
+/**
+ * THE CHECK THIS MODULE IS, NAMED — because two sheets enumerate the pack's
+ * checks and neither of them knew about it.
+ *
+ * Page 4's "How this page is prepared" and page 11's "What was checked" both
+ * listed the four §4.A sources `packMatters.SOURCES` runs, as a closed
+ * answer to "what was checked?". Three lines below each list, both packs
+ * printed a matter none of those four produces: the net-credit month, at
+ * 1 869 the largest single exposure in the demo pack and at 4 128 the
+ * largest in Brightsphere's, and the one the page-4 headline names in both.
+ * It is not "unusual journals" — the table lists those separately and by JE
+ * number — it is a month-level test on the SIGN of the expense total, taken
+ * from the series the pack already draws.
+ *
+ * A closed enumeration disproved by an item three lines below it is the
+ * criterion-7 failure the pack has now been caught by twice. The fix is not
+ * a fifth string typed into two notes: it is that both notes render THIS
+ * list, so a sixth check cannot be added without the sheets that promise to
+ * enumerate the checks saying so.
+ */
+export const DERIVED_SOURCE_LABEL = 'months whose expenses are a net credit';
+
+/**
+ * Every check the pack runs, in the order the matters page prints them.
+ *
+ * The four that read the ledger come from `SOURCES` itself rather than from
+ * a copy — a source renamed there is renamed on both sheets — and the fifth
+ * is this module's own.
+ */
+export const MATTER_SOURCES: readonly string[] = [
+  ...SOURCES.map((source) => source.check),
+  DERIVED_SOURCE_LABEL,
+];
+
+/**
+ * The list as a sentence, for the two notes that print it.
+ *
+ * Sentence case at the head is the caller's business: page 11 opens its note
+ * with the list and page 4 embeds it mid-sentence, so this returns the items
+ * joined and nothing else.
+ */
+export function matterSourcesInWords(): string {
+  return `${MATTER_SOURCES.slice(0, -1).join(', ')} and ${MATTER_SOURCES[MATTER_SOURCES.length - 1]!}`;
+}
+
 export function creditMonthMatters(
   trend: PackTrendPoint[],
   scale: MoneyScale,

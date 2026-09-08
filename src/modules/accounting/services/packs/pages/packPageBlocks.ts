@@ -23,6 +23,7 @@ import {
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { TRENDS_PANELS_SPECIFIED, type PackCashBridge, type TrendPanels } from './packPageCharts';
 import type { SelectedMatters } from './packMattersPrinted';
+import { matterSourcesInWords } from './packDerivedMatters';
 import { trendWindowNote } from './packTrendCrossReference';
 import { formatMoney, formatPctLevel, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
@@ -206,7 +207,11 @@ export function buildCommentaryBlocks(
       // right column…", which on every pack shipped so far was a sentence
       // describing a layout the sheet did not have.
       note('Commentary', 'This page carries the board\'s own commentary on the period. It prints only once an approver has signed it; until then the page says so rather than printing unapproved text.'),
-      note('Action panel', 'The panel headed \'For the board\' is derived from the same checks the matters page tabulates — aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings — in the order the matters page prints them: matters with no single rand amount first, then the largest by exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.'),
+      // THE LIST IS RENDERED, NOT TYPED. It named four checks and the panel
+      // three lines below it carried a matter none of the four produces —
+      // the net-credit month, which is the LARGEST exposure in both packs
+      // and the one this page's own headline names. See `MATTER_SOURCES`.
+      note('Action panel', `The panel headed 'For the board' is derived from the same checks the matters page tabulates — ${matterSourcesInWords()} — in the order the matters page prints them: matters with no single rand amount first, then the largest by exposure. It is machine-written and states the decision each matter is waiting on, never a recommendation.`),
     ]),
   ];
 }

@@ -111,6 +111,7 @@ import {
   type UnnumberedPage,
 } from './packFrontMatter';
 import { ledgerStalenessNote } from './packLedgerStaleness';
+import { shortenedPanelsNote } from './packShortenedPanels';
 import {
   receivablesBaseNote,
   receivablesReconciliationNote,
@@ -301,9 +302,58 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         // table's window is not that period and where the period's own totals
         // are. Both survive, in three lines rather than four, which is what
         // kept the part-month clause on Brightsphere's sheet 5.
-        note('The window', `This table covers ${trendWindowLabel(trend)}, which is the series page `
-          + '10 draws. The income statement overleaf carries the reporting period\'s own totals '
-          + 'against the comparative.'
+        // "WHICH IS THE SERIES PAGE 10 DRAWS" WAS FALSE ON THE DEMO PACK,
+        // and true on Brightsphere — the asymmetry is the whole finding.
+        // Two of the demo's six panels, gross margin and debtor days, run
+        // Jul 2026 to Sep 2026 (part) and say "over 3 periods" in their own
+        // titles, because revenue is nil before July and neither ratio is
+        // defined without it. `ratioPanel` drops the months it cannot
+        // measure rather than plotting a false zero, which is right — and
+        // nothing in the demo pack stated that it does.
+        //
+        // Brightsphere carries the OMISSION rule under `Panels not drawn`:
+        // "A panel is omitted when its figure is not meaningful in every
+        // period of the window." Its four drawn panels are all 12 periods,
+        // so its copy of this sentence is true. The demo has the other case
+        // — a measure meaningful in SOME periods — and had no rule for it.
+        // The two behaviours are consistent once both are stated: omit where
+        // the measure exists nowhere in the window, shorten where it exists
+        // in part of it. Shortening is kept rather than converted to
+        // omission, because a gross margin over the three months revenue
+        // exists is a real measurement and dropping it removes drawn content
+        // to make a sentence true.
+        //
+        // THE RULE IS STATED HERE AND NOT ON PAGE 10, and that is the paper
+        // talking. Page 10 composes at 252.47mm of 255 on `liveDemoRendered`
+        // — 2.53mm against a block of six or more — and `fitPageToBox`
+        // answers an overflow there by dropping the Scale and Period notes,
+        // so the page would buy this rule by apologising for its own layout.
+        // This note is the pack's one statement about how page 5's window
+        // and page 10's panels relate, it is where the false claim was, and
+        // the panel titles already carry the period count a reader meets.
+        // "WHICH IS THE SERIES PAGE 10 DRAWS" WAS FALSE ON THE DEMO PACK,
+        // and true on Brightsphere — the asymmetry is the whole finding.
+        // Two of the demo's six panels, gross margin and debtor days, run
+        // Jul 2026 to Sep 2026 (part) and say "over 3 periods" in their own
+        // titles, because revenue is nil before July and neither ratio is
+        // defined without it. Brightsphere's four drawn panels are all twelve
+        // periods, so its copy of this sentence was true, which is how the
+        // claim survived fourteen gates.
+        //
+        // "The window page 10 draws from" is true of both: every panel is
+        // taken from this window, and a panel that can only be measured over
+        // part of it plots that part. It is FOUR CHARACTERS SHORTER than the
+        // claim it replaces, which is the whole reason it is this wording —
+        // this note has ten to fourteen characters of slack on
+        // `liveDemoRendered` (page 5 composes at 251.93mm of 255 and a line
+        // of this narrative costs 4.94), and at fifteen more characters
+        // `fitPageToBox` drops a note and the sheet apologises for its own
+        // layout. The RULE that makes the shortening legible is a different
+        // sentence and could not be bought here at any price; see
+        // `shortenedPanelsNote`.
+        note('The window', `This table covers ${trendWindowLabel(trend)}, the window page 10 `
+          + 'draws from. The income statement overleaf carries the reporting period\'s own '
+          + 'totals against the comparative.'
           + (partialMonthClauseFor(trend) === null ? '' : ` ${partialMonthClauseFor(trend)}`)),
       ]),
     ];
@@ -421,6 +471,10 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // WHICH RECEIVABLES BALANCE THE DAY COUNT IS TAKEN ON, read through the
   // SAME function page 7's memorandum decides its own pointer by, so a page
   // cannot qualify a measure the scorecard does not state.
+  // AND THE RULE FOR A PANEL THAT STARTS LATE. Brightsphere states why a
+  // panel is ABSENT; the demo draws a shortened one and stated nothing. See
+  // `shortenedPanelsNote` for why it is on this sheet and not page 10.
+  const shortPanels = shortenedPanelsNote(trendPanels.shortenedPanels, trend);
   const debtorsBase = receivablesBaseNote(
     input.receivables,
     set.current.accountsReceivable,
@@ -467,6 +521,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       ...buildCommentaryBlocks(input.commentary ?? pending, matters),
       ...(staleLedger === null ? [] : [staleLedger]),
       ...(debtorsBase === null ? [] : [debtorsBase]),
+      ...(shortPanels === null ? [] : [shortPanels]),
     ],
     'portrait',
     [],
