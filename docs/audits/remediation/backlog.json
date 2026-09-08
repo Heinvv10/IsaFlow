@@ -101,18 +101,31 @@
         "A C20",
         "B F46"
       ],
-      "correctedTrigger": null,
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Bureau owner without target company membership posts its UUID, then reads actual metrics through the inserted bureau grant. RealSQL reproduction returned200/200 and synthetic AR1234.",
+      "severityRationale": "Confirmed cross-tenant financial metric disclosure after an unauthorized bureau link; target UUID knowledge required.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
-      "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
+      "currentSha": "d2ac8b54",
+      "status": "in-progress",
+      "dependencies": [
+        "Named commit review, fullCI and draft PR",
+        "Existing links need separately authorized historical consent review; no automatic repair"
+      ],
+      "testNames": [
+        "tests/integration/bureau-company-link.int.test.ts"
+      ],
+      "evidencePaths": [
+        "K-003/plan.md",
+        "K-003/red.log",
+        "K-003/green.log",
+        "K-003/workflow-final.log",
+        "K-003/regression.log",
+        "K-003/historical-impact.sql",
+        "K-003/historical-review.md"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "Old unauthorized bureau links could persist and expose metrics. Scoped read-only review query prepared and tested in disposable PostgreSQL; not run in production. Current membership cannot prove historical consent; no repair executed.",
       "canonicalItem": null,
       "reportedSeverity": "critical"
     },
