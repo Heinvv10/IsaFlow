@@ -83,22 +83,42 @@ export function buildProfitWaterfall(data: {
   steps.push({ label: 'Operating Expenses', start: running, end: running - data.operatingExpenses, value: -data.operatingExpenses, labelValue: data.operatingExpenses, isSubtotal: false, color: 'red' });
   running -= data.operatingExpenses;
 
-  // Other Income: added. Skipped when zero rather than drawn as a flat bar.
-  if (data.otherIncome !== 0) {
-    steps.push({ label: 'Other Income', start: running, end: running + data.otherIncome, value: data.otherIncome, isSubtotal: false, color: 'green' });
-    running += data.otherIncome;
-  }
+  // Other Income: added.
+  steps.push({ label: 'Other Income', start: running, end: running + data.otherIncome, value: data.otherIncome, isSubtotal: false, color: 'green' });
+  running += data.otherIncome;
 
-  // Other Expenses: subtracted. Skipped when zero.
-  if (data.otherExpenses !== 0) {
-    steps.push({ label: 'Other Expenses', start: running, end: running - data.otherExpenses, value: -data.otherExpenses, labelValue: data.otherExpenses, isSubtotal: false, color: 'red' });
-    running -= data.otherExpenses;
-  }
+  // Other Expenses: subtracted.
+  steps.push({ label: 'Other Expenses', start: running, end: running - data.otherExpenses, value: -data.otherExpenses, labelValue: data.otherExpenses, isSubtotal: false, color: 'red' });
+  running -= data.otherExpenses;
 
   // Net Profit (subtotal)
   steps.push({ label: 'Net Profit', start: 0, end: data.netProfit, value: data.netProfit, isSubtotal: true, color: data.netProfit >= 0 ? 'teal' : 'red' });
 
-  return steps;
+  return withoutNilMovements(steps);
+}
+
+/**
+ * A MOVEMENT WITH NOTHING IN IT IS NOT DRAWN — one rule, for every line and
+ * every caller.
+ *
+ * The two "Other" bands used to carry a `!== 0` gate of their own and the
+ * other three lines carried none, so a bridge dropped a nil Other Expenses
+ * and drew a nil Cost of Sales. On the board pack that showed as six bars for
+ * one company and seven for another off the same statement, with nothing on
+ * either sheet saying which lines were left out; the same split was reaching
+ * `reportPackService` and `/api/accounting/reports-waterfall` unchanged.
+ *
+ * SUBTOTALS STAY whatever their value. Gross Profit and Net Profit are where
+ * the bridge lands rather than steps in it, and a nil subtotal is a figure the
+ * reader is owed, not a bar carrying nothing.
+ *
+ * A caller that has to say WHICH lines it dropped cannot read that back off
+ * the steps — the answer is in the figures it passed in. See
+ * `withoutNilLines` in `packPageCharts.ts`, which derives page 6's omission
+ * sentence from the statement lines for exactly that reason.
+ */
+function withoutNilMovements(steps: WaterfallStep[]): WaterfallStep[] {
+  return steps.filter((step) => step.isSubtotal || step.value !== 0);
 }
 
 // ---------------------------------------------------------------------------

@@ -289,32 +289,22 @@ function withUncapturedStep(steps: WaterfallStep[], netProfit: number): Waterfal
  *   below choose. `shorterProfitBridge` passes it; nothing else should.
  */
 /**
- * ONE RULE FOR A LINE WITH NO FIGURE, ACROSS EVERY BRIDGE.
+ * WHICH LINES THE BRIDGE LEFT OUT, so page 6 can name them.
  *
- * `buildProfitWaterfall` drops a nil Other Income or Other Expenses and
- * draws a nil Cost of Sales or Operating Expenses — so the demo company's
- * page 6 carried six bars and Brightsphere's carried seven, off the same
- * statement, with nothing on either sheet saying which lines were left out
- * or why. A reader comparing two packs, or one pack against the table three
- * centimetres above the bridge, has no way to tell an omitted line from an
- * absent one.
+ * `buildProfitWaterfall` applies the rule — a nil movement is not drawn,
+ * subtotals stay — and this is the other half: a rule a sheet does not state
+ * is a rule a reader cannot check, and a reader comparing two packs, or one
+ * pack against the table three centimetres above the bridge, cannot tell an
+ * omitted line from an absent one.
  *
- * A nil MOVEMENT is not drawn, whatever the line is called. Subtotals stay:
- * Gross Profit and Net Profit are where the bridge lands, not steps in it,
- * and a nil subtotal is a figure the page states rather than a bar carrying
- * nothing. The labels come back so page 6 can name them — a rule a sheet
- * does not state is a rule a reader cannot check.
+ * DERIVED FROM THE STATEMENT LINES, NOT FROM THE STEPS THAT CAME BACK. The
+ * builder does not report what it dropped and the drawn steps cannot say
+ * either, so reading the omissions off them names only the lines that
+ * happened to survive an earlier gate. This takes the figures the chart was
+ * built FROM, which is the only place the answer is complete.
  */
-function withoutNilLines(
-  steps: WaterfallStep[],
-  /** Every movement line the statement HAS, in statement order, with its
-   *  figure — including the ones `buildProfitWaterfall` declines to push, or
-   *  the sheet would name a dropped Cost of Sales and drop an Other Income
-   *  beside it without a word. */
-  lines: Array<[string, number]>,
-): { steps: WaterfallStep[]; omitted: string[] } {
-  const omitted = lines.filter(([, value]) => value === 0).map(([label]) => label);
-  return { steps: steps.filter((step) => step.isSubtotal || step.value !== 0), omitted };
+function omittedLines(lines: Array<[string, number]>): string[] {
+  return lines.filter(([, value]) => value === 0).map(([label]) => label);
 }
 
 export function buildProfitWaterfallChart(
@@ -333,14 +323,14 @@ export function buildProfitWaterfallChart(
     otherExpenses: f.otherExpenses ?? 0,
     netProfit: f.netProfit,
   });
-  const drawn = withoutNilLines(steps, [
+  const omitted = omittedLines([
     ['Revenue', f.revenue],
     ['Cost of Sales', f.costOfSales],
     ['Operating Expenses', f.operatingExpenses],
     ['Other Income', f.otherIncome ?? 0],
     ['Other Expenses', f.otherExpenses ?? 0],
   ]);
-  const bridged = withUncapturedStep(drawn.steps, f.netProfit);
+  const bridged = withUncapturedStep(steps, f.netProfit);
   const bars = toBars(bridged, PROFIT_UNCAPTURED_LABEL, 'belowTheOperatingLine');
   // AND THE SAME RULE AS PAGE 7: the chart gives a rung back when the page
   // has something to say. Where the plug breaches `UNCAPTURED_SHARE_LIMIT`
@@ -396,7 +386,7 @@ export function buildProfitWaterfallChart(
     heightMm: box.heightMm,
     plotMm: plot.heightMm,
     waterfallBars: bars,
-    omittedBars: drawn.omitted,
+    omittedBars: omitted,
   };
 }
 
