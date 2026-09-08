@@ -9,6 +9,7 @@
 
 import { sql } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
+import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
 import {
   createJournalEntry,
   postJournalEntry,
@@ -57,13 +58,19 @@ export interface AutoPostLineInput {
   apAccountId: string | null;
   arAccountId: string | null;
   supplierName: string | null;
+  /**
+   * The rule's supplier. Needed as well as the NAME because this path creates
+   * the supplier payment DOCUMENT for the cash it posts — the name alone only
+   * labels the bank row.
+   */
+  supplierId: string | null;
   customerName: string | null;
 }
 
 export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPostOutcome> {
   const {
     companyId, userId, tx, rule, ruleName, allocType, ruleGlAccountId,
-    bankGlAccountId, apAccountId, arAccountId, supplierName, customerName,
+    bankGlAccountId, apAccountId, arAccountId, supplierName, supplierId, customerName,
   } = input;
 
   // findMatchingTxs read every candidate in one query, possibly seconds
@@ -204,6 +211,43 @@ export async function autoPostRuleLine(input: AutoPostLineInput): Promise<AutoPo
           updated_at = NOW()
       WHERE id = ${tx.id}::UUID AND company_id = ${companyId}::UUID
     `;
+
+    // THE DOCUMENT FOR THE CASH, on the path with no human in the loop.
+    //
+    // INSIDE this block, not after it. Without the bank journal line there is
+    // no `matched_journal_line_id`, so the transaction stays `imported` — and a
+    // `processed` payment against a line still open for allocation is the one
+    // double-document path left: re-allocating it posts a second journal and
+    // creates a second document for the same cash. The line builder always
+    // produces a leg on `bankGlAccountId`, so this is theoretical; it costs one
+    // level of indentation to make it impossible.
+    //
+    // This function posts its OWN journal rather than calling
+    // `allocateTransaction`, so the payment document that path creates was never
+    // created here: a rule sweep debited Accounts Payable hundreds of times and
+    // left no supplier payment behind any of it. Every one of those lines is
+    // cash on the control account that no document, and therefore no report and
+    // no apply tool, can reach.
+    //
+    // `!isDeposit` gates it for the same reason it gates the attended path: a
+    // refund is money coming back IN and is not a payment.
+    //
+    // NOT caught. It writes, and a caught write is a partial commit reported as
+    // a success — see ap/supplierAutoAllocate.ts. The sweep's own savepoint
+    // unwinds this line and leaves the rest of the batch alone.
+    if (allocType === 'supplier' && supplierId && !isDeposit) {
+      await recordSupplierBankPayment({
+        companyId,
+        supplierId,
+        bankTxId: String(tx.id),
+        bankAccountId: bankGlAccountId,
+        journalEntryId: je.id,
+        amount: totalAmount,
+        paymentDate: entryDate,
+        description: entryDesc,
+        userId,
+      });
+    }
   }
 
   return { kind: 'posted', journalEntryId: je.id, vatDenied, nonSupplyCoerced };

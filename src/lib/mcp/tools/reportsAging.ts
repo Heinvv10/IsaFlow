@@ -12,9 +12,11 @@
  *
  * TWO THINGS BESIDE THE BUCKETS, because they change what the buckets mean:
  *
- *  - `unappliedReceipts` (AR only) — cash on the control account attached to no
- *    invoice. It reduces what customers owe and is in NONE of these buckets, so
- *    an aged total read on its own overstates the debt. It is NAMED, never
+ *  - `unappliedReceipts` / `unappliedPayments` — cash on the control account
+ *    attached to no document. Both sides have it: a receipt applied to no
+ *    invoice reduces what customers owe, a supplier payment applied to no bill
+ *    reduces what the company owes, and neither is in ANY of these buckets, so
+ *    an aged total read on its own overstates the balance. It is NAMED, never
  *    netted: netting it would invent a figure no report owns.
  *  - `agedFromInvoiceDate` — invoices with no due date. Since #303 they are
  *    aged from their invoice date rather than dropped, so they ARE in the
@@ -32,6 +34,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { getARAging, getARAgingDetail } from '@/modules/accounting/services/ar/arAgingService';
 import { getAPAging, getAPAgingDetail } from '@/modules/accounting/services/ap/apAgingService';
 import { getUnappliedReceipts } from '@/modules/accounting/services/ar/unappliedReceiptService';
+import { getUnappliedPayments } from '@/modules/accounting/services/ap/unappliedPaymentService';
 import { getLedgerPostedThrough } from '@/modules/accounting/services/reports/postedThroughService';
 import type { AgingBucket, AgingInvoice } from '@/modules/accounting/types/ap.types';
 import {
@@ -99,8 +102,24 @@ interface AgingSide {
     entity: { id: string; name: string };
   }>;
   figure: string;
-  /** AR only: unapplied receipts are not an AP mechanism. */
-  withUnappliedReceipts: boolean;
+  /**
+   * Cash on this side's control account attached to no document. Both sides
+   * have it and both report it under their own key — `unappliedReceipts` for
+   * AR, `unappliedPayments` for AP — so the shape is identical either way and
+   * neither is ever netted off the buckets.
+   */
+  unapplied: {
+    key: 'unappliedReceipts' | 'unappliedPayments';
+    fetch: (companyId: string, asAt: string) => Promise<UnappliedSummary>;
+  };
+}
+
+/** The two fields `runAging` needs from either unapplied-cash service. */
+interface UnappliedSummary {
+  rowsTotal: number;
+  unattributed: readonly unknown[];
+  totalUnapplied: number;
+  totalUnattributed: number;
 }
 
 async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: McpToolContext): Promise<McpToolResult> {
@@ -185,25 +204,20 @@ async function runAging(side: AgingSide, args: Record<string, unknown>, ctx: Mcp
     figureBasis: figureBasis(side.figure),
   });
 
-  const unapplied = side.withUnappliedReceipts
-    ? await getUnappliedReceipts(ctx.companyId, { asAt, limit: 1 })
-    : null;
+  const unapplied = await side.unapplied.fetch(ctx.companyId, asAt);
 
   return ok({
     ...envelope,
     total,
     buckets: totals,
     entityCount: ordered.length,
-    ...(unapplied === null
-      ? {}
-      : {
-          // Named, never netted. It is cash that reduces what customers owe and
-          // sits in none of these buckets; list_unapplied_receipts has the rows.
-          unappliedReceipts: {
-            count: unapplied.rowsTotal + unapplied.unattributed.length,
-            total: round2(unapplied.totalUnapplied + unapplied.totalUnattributed),
-          },
-        }),
+    // Named, never netted. It is cash that reduces what this side's balance is
+    // and sits in none of these buckets; list_unapplied_receipts /
+    // list_unapplied_payments have the rows.
+    [side.unapplied.key]: {
+      count: unapplied.rowsTotal + unapplied.unattributed.length,
+      total: round2(unapplied.totalUnapplied + unapplied.totalUnattributed),
+    },
   });
 }
 
@@ -216,7 +230,10 @@ const AR_SIDE: AgingSide = {
     return { invoices: r.invoices, entity: r.client };
   },
   figure: 'ar.subledger.v1',
-  withUnappliedReceipts: true,
+  unapplied: {
+    key: 'unappliedReceipts',
+    fetch: (companyId, asAt) => getUnappliedReceipts(companyId, { asAt, limit: 1 }),
+  },
 };
 
 const AP_SIDE: AgingSide = {
@@ -228,7 +245,10 @@ const AP_SIDE: AgingSide = {
     return { invoices: r.invoices, entity: r.supplier };
   },
   figure: 'ap.subledger.v1',
-  withUnappliedReceipts: false,
+  unapplied: {
+    key: 'unappliedPayments',
+    fetch: (companyId, asAt) => getUnappliedPayments(companyId, { asAt, limit: 1 }),
+  },
 };
 
 function schemaFor(entityLabel: string) {
@@ -266,7 +286,7 @@ export const agedCreditorsTool: McpTool = {
   description:
     'Accounts-payable aging buckets per supplier as at a date (defaults to today), WITH the totals. '
     + TOTALS_NOTE
-    + ' There is no unappliedReceipts figure here: unapplied cash is an AR mechanism, and reporting a zero would be a claim nothing checked. Use reconcile_subledger with subledger "ap" for the gap to the control account. '
+    + ' unappliedPayments is cash on the AP control account attached to no bill: it reduces what the company owes and is in NONE of these buckets, so the aged total on its own overstates the liability. It is reported, never netted off — list_unapplied_payments has the rows and reconcile_subledger with subledger "ap" explains the gap to the control account. '
     + AS_AT_CAVEAT,
   scope: 'read:reports',
   write: false,

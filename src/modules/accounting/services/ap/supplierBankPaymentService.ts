@@ -16,6 +16,13 @@
  * through the same service the "cash already in the ledger" path uses. It does
  * NOT post a second journal — `allocateTransaction` posted the only one.
  *
+ * SINCE THE AUTO-ALLOCATION CHANGE, this is no longer the only writer of that
+ * document. `allocateTransaction` creates a `supplier_payments` row itself when
+ * a supplier line names NO invoice, and applies it only if the supplier's
+ * `auto_allocate_strategy` says to (see `ap/supplierAutoAllocate.ts`). The two
+ * cannot collide: this path always passes an `invoiceId`, and that is exactly
+ * the condition under which `allocateTransaction` creates nothing.
+ *
  * Guard order is load-bearing. `validateBankSupplierPayment` reads and refuses
  * everything BEFORE `allocateTransaction`, so an MCP handler can answer with
  * `toolError` while nothing has been written. After that call nothing is

@@ -251,7 +251,7 @@ export async function applyRules(
             ruleGlAccountName: ruleGlAccountId
               ? ruleAccountNames.get(ruleGlAccountId) ?? null : null,
             bankGlAccountId: bankGlAccountId!, apAccountId, arAccountId,
-            supplierName, customerName,
+            supplierName, supplierId: ruleSupplierId ?? null, customerName,
           }));
         } catch (lineErr) {
           // Another request is holding this row. One contended transaction must

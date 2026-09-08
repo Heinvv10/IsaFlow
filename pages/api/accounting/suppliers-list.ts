@@ -10,6 +10,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/neon';
 import { apiResponse } from '@/lib/apiResponse';
 import { createSupplier } from '@/modules/accounting/services/core/supplierWriteService';
+import type { AutoAllocateStrategy } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { ContactValidationError } from '@/modules/accounting/services/core/customerWriteService';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
@@ -103,6 +104,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         bankBranchCode: str('bank_branch_code'), bankAccountType: str('bank_account_type'),
         isActive: bool('is_active'), notes: str('notes'), category: str('category'),
         openingBalance: num('opening_balance'), openingBalanceDate: str('opening_balance_date'),
+        // auto_allocate_strategy wins when supplied; an older client sending only
+        // the legacy boolean still works via autoAllocatePayments below.
+        autoAllocateStrategy: str('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
         autoAllocatePayments: bool('auto_allocate_payments'),
       })];
 

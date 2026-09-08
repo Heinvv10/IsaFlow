@@ -66,6 +66,7 @@ export const CLIENT_MCP_TOOL_NAMES = [
   'get_credit_note',
   'suggest_receipt_matches',
   'list_unapplied_receipts',
+  'list_unapplied_payments',
   'list_fiscal_periods',
   'get_fiscal_period',
   'period_close_checklist',
