@@ -126,6 +126,30 @@ export function smallMultipleOption(
     xAxis: {
       type: 'category',
       data: points.map((p) => p.label),
+      // THE SERIES ENDS AT THE EDGE OF THE PLOT, AND THAT IS WHAT KEEPS THE
+      // GRIDLINES OFF THE END LABEL.
+      //
+      // A category axis reserves half a band at each end by default, so the
+      // last point sat 32px INSIDE the plot — and the end label, drawn 8px
+      // to its right, sat inside it too, on top of every rule the panel
+      // draws. On the demo pack's gross-margin panel the label is "100.0%",
+      // the series' own maximum, so it lands exactly on the top gridline AND
+      // on the category axis line, which ECharts puts at zero wherever the
+      // domain spans it: measured off the SVG, a rule at y=50.5 running the
+      // full width of the plot through a label centred at y=49.9. A rule
+      // struck through a printed percentage is what a director photographs.
+      //
+      // It is not one panel misbehaving — the debtor-days panel ends on its
+      // own maximum too and its top gridline crosses "60 days" the same way,
+      // in the lighter ink. Any panel whose last point is an extreme has it,
+      // which is why the fix is the geometry rather than that panel.
+      //
+      // The `right: 64` gutter this grid already reserves exists FOR the end
+      // label (see the grid comment above); `boundaryGap: false` is what
+      // finally puts the label in it. The panels also stop wasting half a
+      // band of plot at each end, which is width a 83mm small multiple has no
+      // spare of.
+      boundaryGap: false,
       // First and last tick only: thirteen rotated month labels in an 82mm
       // panel is a grey smear, and the panel's job is direction, not level.
       axisLabel: { color: palette.axis, interval: Math.max(points.length - 2, 0), showMaxLabel: true },

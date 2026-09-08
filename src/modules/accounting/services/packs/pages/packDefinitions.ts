@@ -166,7 +166,17 @@ const TERMS: PackDefinition[] = [
     // term: page 12 composes within 2mm of its box on live Brightsphere, and
     // this is the entry a reader looking at a small figure is already in.
     term: 'Not meaningful (n/m)',
-    definition: 'A measure the figures cannot support. The pack prints the reason rather than a number, and never a zero — which would say the measure was taken and found to be nothing. A dash (–) is that zero: a figure measured and nil, never a figure the pack does not have. A real amount too small to show at this scale prints as <1, or (<1) where it is negative — an amount smaller than one unit of the scale in the column header, not a nil.',
+    // AND TWO OF ITS CLAUSES WERE THE SENTENCES BESIDE THEM SAID TWICE. It
+    // read "never a zero — which would say the measure was taken and found to
+    // be nothing", and the next sentence defines the dash as exactly that
+    // zero; and it closed "— an amount smaller than one unit of the scale in
+    // the column header, not a nil", which is "too small to show at this
+    // scale" again with the dash contrast restated. Page 12 is the page with
+    // no slack left, the Rounding fact now carries a clause about ratios this
+    // pack stated nowhere, and this is where the paper for it comes from.
+    // Every notation the entry declares — n/m, the dash, `<1` and `(<1)` —
+    // is still declared.
+    definition: 'A measure the figures cannot support. The pack prints the reason rather than a number, never a zero. A dash (–) is that zero: a figure measured and nil. A real amount too small to show at this scale prints as <1, or (<1) where it is negative.',
   },
   {
     term: 'Gross margin',

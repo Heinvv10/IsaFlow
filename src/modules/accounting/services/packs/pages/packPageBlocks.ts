@@ -26,7 +26,7 @@ import type { SelectedMatters } from './packMattersPrinted';
 import { trendWindowNote } from './packTrendCrossReference';
 import { formatMoney, formatPctLevel, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
-import { ROUNDING_NOTE } from './packBasis';
+import { ROUNDING_COMPONENTS_NOTE } from './packBasis';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type {
@@ -160,7 +160,13 @@ export function buildHighlightsBlocks(
         ...(partial === null ? [] : [note('Part month',
           `Every tile covers the whole period, whose last month — ${partial.label} — `
           + `is ${partial.daysCovered} of its ${partial.daysInMonth} days.`)]),
-        note('Scale', `Figures are in ${scale} (${currency}). ${ROUNDING_NOTE}`),
+        // THE COMPONENTS HALF, like the statement footnotes — see
+        // `ROUNDING_FOOTNOTES`. The ratio clause matters most on this sheet,
+        // whose headline tile is the gross margin a reader cannot reproduce
+        // from the figures beside it, and Brightsphere's sheet 3 composes at
+        // 98.7% of its box: carried here it drops the part-month note this
+        // page states two lines above. Page 12 carries both halves.
+        note('Scale', `Figures are in ${scale} (${currency}). ${ROUNDING_COMPONENTS_NOTE}`),
       ]),
     ],
     // AND THE SPARKLINE IS A DIFFERENT WINDOW FROM THE TILE IT SITS IN.

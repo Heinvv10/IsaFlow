@@ -140,7 +140,14 @@ describe('page 10 prints the scale its claims are made against', () => {
     // The residual range, printed. Read back off the title rather than
     // asserted as a literal sentence, so a re-wording does not fail this and
     // a DELETION does.
-    const stated = /the range becomes (.+?), ([\d.]+)% narrower/.exec(netProfit.title);
+    // AND IT SAYS WHOSE RANGE. The clause sits in the NET PROFIT panel's
+    // caption and neither bound belongs to net profit — "(1 621) to 58" is
+    // cash's low and operating expenses' high — so a director reading it as
+    // net profit's own range goes looking for a 58 that column does not
+    // contain. Naming the shared range points them at the Scale note and the
+    // commentary line that state the same span.
+    expect(netProfit.title).toContain('drop it and the SHARED range becomes');
+    const stated = /the SHARED range becomes (.+?), ([\d.]+)% narrower/.exec(netProfit.title);
     expect(stated, netProfit.title).not.toBeNull();
     const [low, high] = stated![1]!.split(' to ');
     expect(low).toBe(formatMoney(-1_621_400, { scale: PACK_SCALE }));

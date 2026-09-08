@@ -11,8 +11,14 @@
  * bare `toFixed(2)` on a sheet whose money column read `(1 546)` — an ASCII
  * hyphen and an accounting bracket for the same idea, two rows apart.
  */
-import { formatDays, formatMoney, formatPct, formatRatio, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPct, formatRatio, signOf, type MoneyScale } from '@/lib/format/money';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+
+/** The pack's one glyph for a figure measured and nil — page 12 defines it,
+ *  and `formatMoney` already returns it. Stated here so a percentage, a ratio
+ *  and a day count of nil print the SAME character rather than each unit's
+ *  own idea of zero. */
+const ZERO_FIGURE = '\u2013';
 
 /**
  * @param scale The document's `numberConvention.scale`. Applies to money
@@ -34,6 +40,28 @@ export function formatFigureText(figure: PackFigure, scale: MoneyScale): string 
     // instead of throwing mid-render on a board pack.
     return figure.unavailable ?? '–';
   }
+  // ONE GLYPH FOR A MEASURED NIL, WHATEVER UNIT IT IS MEASURED IN.
+  //
+  // `formatMoney` prints the en dash for a figure measured and nil — which is
+  // what page 12 defines it as — and `formatPct` prints "0.0%". So the demo
+  // pack's page-6 "Other expenses" row printed a dash under Actual, Prior and
+  // Change and `0.0%` under % of Revenue: four measured zeros on one line,
+  // rendered two ways, with nothing in the basis distinguishing them.
+  //
+  // A nil share of a positive base IS a measured nil, so it takes the pack's
+  // word for one. This does NOT collapse the other case: a share of a base
+  // that is not positive has no value at all, and arrives here as a null
+  // figure with its own stated reason (`REVENUE_NOT_A_POSITIVE_BASE`) — which
+  // is why Brightsphere's cell prints `n/m` and must go on doing so. Nil
+  // numerator and unusable denominator are two different facts and the pack
+  // says both; what it may not do is say "nil" two ways on one row.
+  //
+  // Here rather than in `formatPct`, which is the whole codebase's percentage
+  // formatter and serves screens where a zero per cent is read as a number
+  // rather than as an accounting nil. This function is the board pack's one
+  // figure-to-text, so the convention lands exactly on the document that
+  // declares it.
+  if (signOf(figure.value) === 'zero' && figure.format !== 'money') return ZERO_FIGURE;
   switch (figure.format) {
     case 'money': return formatMoney(figure.value, { scale });
     case 'pct': return formatPct(figure.value);

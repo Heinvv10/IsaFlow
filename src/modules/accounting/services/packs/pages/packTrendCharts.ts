@@ -271,6 +271,16 @@ function moneyPanel(
     // "sets N% of the scale" was a THIRD percentage on a page already
     // carrying two, measuring something else again — how much of the shared
     // span goes away when this point does. Said as what it is.
+    // AND IT IS THE SHARED RANGE, NAMED. The clause sits in the NET PROFIT
+    // panel's caption — that is the panel carrying the scale-setting month —
+    // and the two bounds it prints belong to neither: on the demo pack
+    // "(1 621) to 58" is cash's low and operating expenses' high. Both
+    // figures are right and the sentence was attributed where a director
+    // checks the wrong column, going looking in the net profit series for a
+    // 58 it does not contain. The word "shared" is what points them at the
+    // page's own Scale note and at the commentary line that states the same
+    // span; it costs the caption six characters and no page millimetres,
+    // because a panel title is drawn inside the chart's own fixed box.
     // AND THE RANGE THAT IS LEFT IS PRINTED, not implied. "shrinks by 52.4%"
     // stood on a sheet that stated the shared span and this month and nothing
     // else, so the only way to check the percentage was to know a
@@ -278,7 +288,7 @@ function moneyPanel(
     // claim on the page a reader could not test, on a page whose argument is
     // that they can test all of them.
     clauses.push(
-      `${dominant.label} alone is ${prose(dominant.value)}${because}; drop it and the range `
+      `${dominant.label} alone is ${prose(dominant.value)}${because}; drop it and the SHARED range `
       + `becomes ${dominant.residualRange}, ${formatPctLevel(dominant.sharePct)} narrower.`,
     );
   }

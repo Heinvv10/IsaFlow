@@ -1,0 +1,33 @@
+# Ink coverage, v30 -> v31
+#
+# Mean 8-bit luminance of each page rastered at 72dpi, as a percentage of white.
+# LOWER is more ink. Both columns measured by the same script off the two sets of PDFs.
+
+===== demo =====
+p-01 Cover                        v30  96.1%   v31  96.1%   +0.0
+p-02 Contents                     v30  98.5%   v31  98.5%   +0.0
+p-03 Highlights                   v30  96.7%   v31  96.7%   +0.0
+p-04 Commentary and actions       v30  97.2%   v31  97.2%   +0.0
+p-05 Group results                v30  96.4%   v31  96.4%   +0.0
+p-06 Income statement             v30  96.1%   v31  96.1%   +0.0
+p-07 Balance sheet                v30  96.5%   v31  96.5%   +0.0
+p-08 Cash                         v30  97.0%   v31  97.0%   -0.0
+p-09 Scorecard                    v30  97.3%   v31  97.3%   +0.0
+p-10 Trends                       v30  96.4%   v31  96.3%   -0.1
+p-11 Matters for the board        v30  97.0%   v31  97.0%   +0.0
+p-12 Basis of preparation         v30  95.3%   v31  95.4%   +0.1
+
+===== brightsphere =====
+p-01 Cover                        v30  96.0%   v31  96.0%   +0.0
+p-02 Contents                     v30  98.6%   v31  98.6%   +0.0
+p-03 Highlights                   v30  96.6%   v31  96.6%   +0.0
+p-04 Commentary and actions       v30  97.1%   v31  97.1%   +0.0
+p-05 Group results                v30  96.4%   v31  96.4%   +0.0
+p-06 Income statement             v30  96.6%   v31  96.6%   +0.0
+p-07 Balance sheet                v30  94.0%   v31  94.0%   +0.0
+p-08 Cash                         v30  96.9%   v31  96.9%   -0.0
+p-09 Scorecard                    v30  97.4%   v31  97.4%   +0.0
+p-10 Trends                       v30  97.3%   v31  97.3%   +0.0
+p-11 Matters for the board        v30  97.1%   v31  97.1%   +0.0
+p-12 Basis of preparation         v30  95.2%   v31  95.3%   +0.1
+

@@ -150,11 +150,69 @@ export const PACK_SCALE: MoneyScale = "R'000";
  * total — a reader who adds a column and finds it a thousand out is entitled
  * to know that is the rounding rather than an error in the pack.
  */
-export const ROUNDING_NOTE =
+export const ROUNDING_COMPONENTS_NOTE =
   "Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.";
 
-/** The same statement as a page footnote, for the statement pages. */
-export const ROUNDING_FOOTNOTES: PackFootnote[] = [{ number: 1, text: ROUNDING_NOTE }];
+/**
+ * AND THE HALF OF ROUNDING THAT IS NOT ABOUT ADDING UP.
+ *
+ * The note above covers a column that does not foot. It says nothing about a
+ * QUOTIENT, and on a small revenue base the quotient is where rounding does
+ * its real damage: the demo pack's revenue is R101 424, printed 101, and its
+ * gross margin of (1 329) over that base prints (1310.8%) where a director
+ * dividing the two figures in front of them gets (1315.8%). Five percentage
+ * points, on the two most prominent numbers in the pack — page 3's headline
+ * tile and page 6's headline — with nothing anywhere saying why. The figures
+ * were right and the disclosure was missing, which is the more expensive of
+ * the two on a document whose argument is that its numbers can be checked.
+ *
+ * IT NAMES WHAT IT IS TRUE OF, BECAUSE TWO FAMILIES OF PERCENTAGE PRINT IN
+ * THIS PACK AND THEY ARE COMPUTED DIFFERENTLY ON PURPOSE. A margin, a change
+ * percentage, a share of revenue in a statement column and every scorecard
+ * ratio come off the ledger's own unrounded amounts, and those are the ones
+ * that will not reproduce. Page 10's scale shares and page 5's biggest-month
+ * share are taken on the PRINTED figures, deliberately (`atScale`), because
+ * those two sheets invite the reader to do the division off the paper — so a
+ * blanket "ratios are computed before rounding" would be false exactly where
+ * the pack has gone to the most trouble to be checkable. Saying "a ratio
+ * taken on the unrounded figures" scopes the claim to the family it is about
+ * and says nothing about the other, which is the difference between a rule
+ * this document keeps and one it states and draws around.
+ *
+ * AND IT IS ONE LINE OF PAPER, WHICH IS WHAT IT COST. Page 12 composes with
+ * about 2mm to spare on the tightest fixture, and this clause is four lines
+ * of an 83mm column. It is paid for out of the `Not meaningful (n/m)` entry,
+ * which said "never a zero — which would say the measure was taken and found
+ * to be nothing" immediately before defining the dash as exactly that zero,
+ * and closed by restating "too small to show at this scale" a second time.
+ * Restatement for a fact, which is the only trade this page has left.
+ */
+export const ROUNDING_RATIOS_NOTE =
+  'A ratio taken on the unrounded figures may not reproduce from the rounded ones beside it.';
+
+/** The pack's ONE rounding convention, both halves of it. One string, because
+ *  two wordings of one convention is one edit away from a basis page and a
+ *  statement footnote disagreeing about how this pack rounds. */
+export const ROUNDING_NOTE = `${ROUNDING_COMPONENTS_NOTE} ${ROUNDING_RATIOS_NOTE}`;
+
+/**
+ * The same convention as a page footnote, for the statement pages.
+ *
+ * THE COMPONENTS HALF ONLY, AND THAT IS MEASURED RATHER THAN CHOSEN. The
+ * ratio clause belongs here too — the `% of revenue` column and the change
+ * percentages print on these very sheets, which is where a reader meets the
+ * discrepancy — and it does not fit. Carried in footnote 1 it takes the
+ * required window note off sheet 5 on both companies and puts page 3 past
+ * its box; the suite goes red on four files. Page 3's Scale note is the same
+ * trade for the same reason.
+ *
+ * It is the same STRING either way — `ROUNDING_RATIOS_NOTE` is written once
+ * and page 12 prints both halves — so the footnote and the basis page can
+ * never disagree about how this pack rounds; the footnote simply says less,
+ * and a reader following it lands on the page where the pack declares every
+ * one of its conventions.
+ */
+export const ROUNDING_FOOTNOTES: PackFootnote[] = [{ number: 1, text: ROUNDING_COMPONENTS_NOTE }];
 
 /**
  * A statement page's footnotes: the rounding note, and — when the page shows a

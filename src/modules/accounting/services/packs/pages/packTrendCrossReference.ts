@@ -143,6 +143,17 @@ export function trendWindowNote(
   // already the page's statement about windows: a disclosure of its own is
   // 6.5mm on a sheet that composes within 12 of its box.
   //
+  // AND IT QUALIFIES THE ENDPOINT RATHER THAN ONLY EXPLAINING THE METHOD.
+  // It read "…is taken on the days posted, not a full one", which states how
+  // the number was made and leaves the reader to draw the conclusion. Page 10
+  // is the only sheet in the pack that plots RATIOS ending in the stub, and
+  // it was the only sheet not carrying the cover's "not comparable with the
+  // months before it" — so "Debtor days rose from 19 days to 60 days"
+  // presented a threefold rise whose last point rests on seven days of
+  // revenue, tagged but never qualified. The clause now ends where every
+  // other sheet's does, in the pack's own words (`partialMonthClause`), so
+  // one wording covers the whole document.
+  //
   // ONE CLAUSE, AND THE LENGTH IS AGAIN THE WHOLE OF THE DESIGN — the same
   // lesson the `debtorDays` clause above records. The first wording named the
   // panels ("Gross margin and Debtor days end on the part month: a ratio
@@ -156,7 +167,8 @@ export function trendWindowNote(
   // MEANS for a ratio, and that is what this says.
   const partRatios = ratiosEndingOnPartMonth.length === 0
     ? ''
-    : ' A ratio ending in the part month is taken on the days posted, not a full one.';
+    : ' A ratio ending in the part month is taken on the days posted, so its level is not '
+      + 'comparable with the months before it.';
   return {
     heading: 'Period',
     body:

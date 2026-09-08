@@ -92,12 +92,21 @@ describe('the part-month ratio clause', () => {
         expect(note).toBeNull();
         return;
       }
-      const qualifies = /part month/i.test(note!.body);
+      // THE QUALIFICATION, NOT THE TAG. The clause used to read "…is taken
+      // on the days posted, not a full one", which states the method and
+      // leaves the reader to draw the conclusion — and page 10 was then the
+      // one sheet in the pack whose ratios end in the stub and the one sheet
+      // not carrying the cover's own "not comparable with the months before
+      // it". Matching only /part month/ passed on that wording, which is why
+      // the gap survived a round: the assertion is now the sentence the rest
+      // of the pack uses, so a clause that tags without qualifying is red.
+      const qualifies = /part month/i.test(note!.body)
+        && /not comparable with the months before it/.test(note!.body);
       expect(
         qualifies,
         built.ratiosEndingOnPartMonth.length > 0
           ? `${built.ratiosEndingOnPartMonth.join(', ')} end on the part month and the page does `
-            + 'not say what that does to a ratio'
+            + 'not say the endpoint is not comparable with the months before it'
           : 'the page qualifies a part-month ratio it does not draw',
       ).toBe(built.ratiosEndingOnPartMonth.length > 0);
     });
