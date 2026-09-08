@@ -1,11 +1,10 @@
 # Remediation execution handoff
 
-- Active worktree `/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908`; branch `fix/audit-k002-company-standing`.
-- Goal remains active. Prior turn made concrete progress: K002 reproduced, fixed, workflow-tested, reviewed, CI-passed and draft PR346 created.
-- Remote master still5661d6f0f5f2212705151e95455a3f681ddf840e (verified this turn). Foundation draft PR344; K001 draft PR345; K002 draft PR346 stacked on K001.
-- K001 code-verified, published435071fd. Real PostgreSQL/GoTrue workflow and named review passed. No deployment.
-- K002 code-verified, fix b5e0ab31, tests/published PR346 head f89375367f35398e503843f40dd4525bf879e83f. Shared companyMembership denies suspended/deleted/marked companies under existing app_user context. RealSQL red4 cases → green13 company cases, K001 integration still green.319 auth tests passed, fullCI9304 unit/384 component passed,234 unit skipped. See K-002/ci.log and review.md. Final metadata commit publication remains next.
-- Scope283 retained candidates:2 code-verified,281 candidate.130 numbered A/B source IDs mapped;17 hashed inputs. Reconciliation caveats remain open.
-- Runtime Node22.23.1 runs CI; pinned Node20 baseline fails Rolldown styleText startup. See evidence/baseline-summary.md.
-- Empty schema-only PostgreSQL fixture localhost33140 and GoTrue33138 enable real workflows. No production rows copied or altered. Historical pristine migration replay on33134 remains open at253 after documented local adapters. Never report it passed.
-- Next: publish final K002 evidence metadata, then validate K003 against a named commit and reproduce before fixing. K002 push handle20071 finished exit0; no live CI handle from that push. No merge, deployment, production writes or historical repairs authorized.
+- Goal remains active. User explicitly asked why work was stopping: continue across root causes using commentary updates, not final messages at every checkpoint.
+- K001 code-verified draftPR345, K002 code-verified draftPR346, K003 code-verified draftPR347 (published head c1260dd891131e4b0f16dc9100d529407435f8ea, fix60bec360). Foundation draftPR344. No deploy or merge.
+- Scope283 retained candidates:3 code-verified,280 candidate. Original130 numbered aliases and17 hashed snapshots retained; reconciliation caveats remain open.
+- K003 realSQL red unauthorized POST200→GET200 exposing syntheticAR1234; green7 realDB cases +448 bureau/auth tests; named review approved and fullCI passed9304 unit/384 component,234 unit skipped. Historical consent query and review plan prepared, tested only on disposable fixtures; existing grants not automatically revoked.
+- Final K003 evidence metadata is in this commit. Publish from old worktree `/home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908`, branch fix/audit-k003-bureau-link; final metadata push log `/tmp/isaflow-k003-metadata-push.log`. Previous push handle57947 is terminal exit0.
+- Next worktree planned `/home/hein/Workspace/IsaFlow/.worktrees/audit-k004-capture-inbox-20260908`, branch fix/audit-k004-capture-inbox, based on this metadata commit. Separate directory lets prior CI finish without seeing next issue edits.
+- Next candidateK004 capture inbox entropy/uniqueness/routing claim. Validate actual committed source, reproduce before implementation; do not assume collisions cause cross-tenant routing without database evidence.
+- Runtime Node22.23.1 and Bun; Node20 baseline Rolldown styleText failure documented. Empty schema-only PostgreSQL33140 and GoTrue33138 for real tests. Historical committed replay33134 remains open at253 with documented adapters. No production rows copied/changed. No financial historical repairs or external messages authorized.
