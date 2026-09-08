@@ -31,6 +31,17 @@ const getBrandProfile = vi.fn(async () => null);
 const listCommentary = vi.fn(async () => [] as unknown[]);
 const getLedgerPostedThrough = vi.fn(async () => '2026-08-31T10:00:00.000Z');
 const getPeriodStatusForDate = vi.fn(async () => 'open');
+// The receivables decomposition page 11 prints. Mocked like every other read
+// here so this file's tenant-scope assertion covers it: it is a DB read that
+// takes a companyId, and the whole point of the test below is that no read
+// escapes the authenticated company. Unmocked it also reaches the real
+// service, which issues reads of its own and makes the call counts here
+// count something other than what they say.
+const reconcileSubledger = vi.fn(async () => ({
+  controlAccountBalance: -329_700,
+  reconcilingItems: [],
+  unexplainedDifference: 0,
+}));
 
 vi.mock('@/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/modules/accounting/services/reports/companyName', () => ({
@@ -41,6 +52,9 @@ vi.mock('@/modules/accounting/services/packs/figures/packFigureSet', () => ({
 }));
 vi.mock('@/modules/accounting/services/packs/packTrendService', () => ({
   getPackTrend: (...a: unknown[]) => getPackTrend(...(a as [])),
+}));
+vi.mock('@/modules/accounting/services/reconciliation/subledgerReconciliationService', () => ({
+  reconcileSubledger: (...a: unknown[]) => reconcileSubledger(...(a as [])),
 }));
 vi.mock('@/modules/accounting/services/packs/pages/packMatters', () => ({
   buildMatters: (...a: unknown[]) => buildMatters(...(a as [])),
@@ -86,6 +100,9 @@ beforeEach(() => {
   listCommentary.mockResolvedValue([]);
   getLedgerPostedThrough.mockResolvedValue('2026-08-31T10:00:00.000Z');
   getPeriodStatusForDate.mockResolvedValue('open');
+  reconcileSubledger.mockResolvedValue({
+    controlAccountBalance: -329_700, reconcilingItems: [], unexplainedDifference: 0,
+  });
 });
 
 describe('buildBoardPackDocument tenant scope', () => {
@@ -93,7 +110,7 @@ describe('buildBoardPackDocument tenant scope', () => {
     await buildBoardPackDocument(request());
 
     for (const read of [
-      getCompanyName, buildPackFigureSet, getPackTrend, buildMatters,
+      getCompanyName, buildPackFigureSet, getPackTrend, buildMatters, reconcileSubledger,
       getBrandProfile, listCommentary, getLedgerPostedThrough, getPeriodStatusForDate,
     ]) {
       expect(read).toHaveBeenCalledTimes(1);

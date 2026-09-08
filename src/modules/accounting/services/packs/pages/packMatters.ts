@@ -84,6 +84,19 @@ interface SourceResult {
   /** The aged debtors report's total, in rand. Present only where that
    *  report was read AND its total is a figure the pack prints. */
   agedDebtorsTotal?: number;
+  /**
+   * The FULL open subledger including documents that cannot be aged, present
+   * whenever the aging report was read at all — which is not the same
+   * condition as `agedDebtorsTotal` above.
+   *
+   * Page 7 needs it on EVERY pack, not only the ones that print a debtors
+   * total: the memorandum there states the trade-receivable control account
+   * as the numerator of debtor days, and on the live demo company that
+   * account holds 0.6% of what the subledger says customers owe. A pack that
+   * prints 213 days off a base like that has to say what the base is, and it
+   * cannot say so without this number. See `receivablesBaseNote`.
+   */
+  subledgerTotal?: number;
 }
 
 /** Everything page 11 needs from the ledger: its matters, and the aged
@@ -93,6 +106,9 @@ export interface PackMattersRead {
   /** Null where no aged-debtors total is printed anywhere in the pack — in
    *  which case there is no contradiction on the paper to reconcile. */
   agedDebtorsTotal: number | null;
+  /** The full open AR subledger. Null only where the aging report could not
+   *  be read at all, in which case the check is already a named matter. */
+  subledgerTotal: number | null;
 }
 
 const CONCENTRATION_THRESHOLD_PCT = 20;
@@ -118,7 +134,12 @@ async function agedDebtorConcentrationMatters(
   window: PeriodWindow,
 ): Promise<SourceResult> {
   const report = await getAgingReport(companyId, 'ar', window.end);
-  if (report.totals.total <= 0 || report.buckets.length === 0) return { matters: [] };
+  // READ BEFORE THE EARLY RETURNS, because it is owed on every pack. The
+  // three `return { matters: [] }` below are the concentration failing to
+  // reach its threshold, which is a statement about one debtor and not about
+  // whether the subledger agrees with the ledger.
+  const base = { subledgerTotal: report.subledgerTotal };
+  if (report.totals.total <= 0 || report.buckets.length === 0) return { ...base, matters: [] };
 
   // TIE-BROKEN ON THE ENTITY, for the same reason `getUnusualJournals` now
   // carries an ORDER BY: this sentence prints a CUSTOMER'S NAME, and two
@@ -129,10 +150,10 @@ async function agedDebtorConcentrationMatters(
   const largest = [...report.buckets].sort((a, b) => b.total - a.total
     || a.entityName.localeCompare(b.entityName)
     || a.entityId.localeCompare(b.entityId))[0]!;
-  if (largest.total <= 0) return { matters: [] };
+  if (largest.total <= 0) return { ...base, matters: [] };
 
   const pct = (largest.total / report.totals.total) * 100;
-  if (pct < CONCENTRATION_THRESHOLD_PCT) return { matters: [] };
+  if (pct < CONCENTRATION_THRESHOLD_PCT) return { ...base, matters: [] };
 
   // AND THE BASE THE PERCENTAGE IS A SHARE OF IS PRINTED.
   //
@@ -190,6 +211,7 @@ async function agedDebtorConcentrationMatters(
   // asks for. `packReceivablesReconciliation.ts` prints that on page 11,
   // and it needs this number — which only this function has read.
   return {
+    ...base,
     agedDebtorsTotal: report.totals.total,
     matters: [{
     kind: 'finding',
@@ -335,6 +357,7 @@ export async function buildMatters(
 ): Promise<PackMattersRead> {
   const matters: PackMatter[] = [];
   let agedDebtorsTotal: number | null = null;
+  let subledgerTotal: number | null = null;
 
   // Sequential, not Promise.all — `sql` in @/lib/neon routes every query
   // through the ONE request-scoped pg connection held in the async-local
@@ -344,6 +367,7 @@ export async function buildMatters(
       const result = await source.build(companyId, window);
       matters.push(...result.matters);
       if (result.agedDebtorsTotal !== undefined) agedDebtorsTotal = result.agedDebtorsTotal;
+      if (result.subledgerTotal !== undefined) subledgerTotal = result.subledgerTotal;
     } catch (error) {
       // NOT `String(error)`, WHICH IS THE DRIVER'S OWN SENTENCE. A
       // node-postgres message carries whatever the server put in it —
@@ -361,10 +385,11 @@ export async function buildMatters(
     }
   }
 
-  if (matters.length === 0) return { matters: [NO_MATTERS], agedDebtorsTotal };
+  if (matters.length === 0) return { matters: [NO_MATTERS], agedDebtorsTotal, subledgerTotal };
 
   return {
     matters: matters.sort((a, b) => Math.abs(b.quantum ?? 0) - Math.abs(a.quantum ?? 0)),
     agedDebtorsTotal,
+    subledgerTotal,
   };
 }

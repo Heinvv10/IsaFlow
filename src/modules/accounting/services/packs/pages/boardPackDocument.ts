@@ -30,6 +30,10 @@ import { resolvePackBrandForRender } from '@/modules/accounting/services/packs/p
 import { buildPackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { getPackTrend } from '@/modules/accounting/services/packs/packTrendService';
 import { buildMatters } from './packMatters';
+import {
+  reconcileSubledger,
+  type SubledgerReconciliation,
+} from '@/modules/accounting/services/reconciliation/subledgerReconciliationService';
 import { formatPackPeriod } from './packPeriodLabel';
 import { buildBoardPackPages } from './boardPackPages';
 import type { PackPagesDocument } from './packPageModel';
@@ -61,6 +65,36 @@ export async function buildBoardPackDocument(
   const set = await buildPackFigureSet(companyId, companyLegalName, from, to);
   const trend = await getPackTrend(companyId, to, TREND_MONTHS);
   const matters = await buildMatters(companyId, set.currentWindow);
+  // THE DECOMPOSITION OF THE DEBTORS DIFFERENCE, AND THE ONE READ IN THIS
+  // FUNCTION THAT IS NOT FOR A FIGURE THE PACK PRINTS.
+  //
+  // `reconcileSubledger` has always been able to say that 4 175 of
+  // Brightsphere's gap is open documents carrying no link to a journal entry
+  // and 320 is postings referencing no document — itemised to document ids,
+  // point-in-time correct on both sides, closing to nothing unexplained on
+  // both tenants. Nothing connected it to the pack, so page 11 could state
+  // that two debtors figures disagree and not what the disagreement was made
+  // of. It is called for its ITEMS; the pack's own two figures still come
+  // from the aging report and the figure set, because this service's
+  // `agedTotal` is the SUBLEDGER total and differs from the bucket total
+  // page 11 prints.
+  //
+  // A FAILURE HERE IS NOT A FAILED PACK. Every other read in this function
+  // produces a figure some sheet must print; this one produces an
+  // explanation, and a pack that states the difference without decomposing
+  // it is the pack that shipped before this round. Sequential, like the rest
+  // — one pg client, one query at a time.
+  let receivablesItems: SubledgerReconciliation | null = null;
+  try {
+    receivablesItems = await reconcileSubledger(companyId, 'ar', set.currentWindow.end);
+  } catch (error) {
+    log.warn(
+      'buildBoardPackDocument: the receivables reconciliation failed; page 11 states the '
+        + 'difference without decomposing it',
+      { companyId, error: error instanceof Error ? error.name : typeof error },
+      'packs',
+    );
+  }
   const brand = await resolvePackBrandForRender(await getBrandProfile(companyId));
 
   // R-P46: the real ledger watermark, or an explicit absence — never a proxy.
@@ -101,10 +135,16 @@ export async function buildBoardPackDocument(
     set,
     trend,
     matters: matters.matters,
-    // Page 11's receivables reconciliation is taken against this — see
-    // `packReceivablesReconciliation.ts`. Null on a pack that prints no
-    // aged-debtors total, which is most of them.
-    agedDebtorsTotal: matters.agedDebtorsTotal,
+    // Page 11's reconciliation and page 4's debtors-base note are both taken
+    // from this — see `packReceivablesReconciliation.ts`.
+    receivables: {
+      agedDebtorsTotal: matters.agedDebtorsTotal,
+      subledgerTotal: matters.subledgerTotal,
+      controlBalance: receivablesItems?.controlAccountBalance ?? null,
+      items: receivablesItems?.reconcilingItems.filter((i) => i.bridge === 'subledger_to_control')
+        ?? [],
+      unexplained: receivablesItems?.unexplainedDifference ?? null,
+    },
     commentary,
     // Page 11's commentary on the matters. Nothing in this codebase stores
     // board-matter commentary — `report_commentary` rows are filed under

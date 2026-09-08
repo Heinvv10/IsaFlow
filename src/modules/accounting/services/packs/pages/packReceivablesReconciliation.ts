@@ -74,6 +74,67 @@ import { formatMoney, inProse, inScale, MONEY_SCALES, type MoneyScale } from '@/
 import { round2 } from '@/modules/accounting/services/reconciliation/reconciliationMath';
 import { mustDisclose, note } from './packPageBlocks';
 import type { PackPageBlock } from './packPageModel';
+import type { ReconcilingItem } from '@/modules/accounting/services/reconciliation/reconcilingItemTypes';
+
+/**
+ * WHAT THE PACK KNOWS ABOUT ITS OWN RECEIVABLES, read once in
+ * `boardPackDocument.ts` and handed down.
+ *
+ * Three numbers and a decomposition, from two sources that must be kept
+ * apart: `agedDebtorsTotal` and `subledgerTotal` come from the aging report
+ * `buildMatters` already reads, and `items` comes from
+ * `reconcileSubledger`. They are NOT interchangeable — the reconciliation
+ * service's own `agedTotal` is the subledger total, 19 higher than the
+ * bucket total the pack prints on page 11, and printing one where the other
+ * belongs is how this sheet would acquire a fresh self-contradiction while
+ * fixing one.
+ */
+export interface PackReceivablesRead {
+  /** `getAgingReport(...).totals.total` — the figure page 11 prints, in rand.
+   *  Null where no sheet of the pack states a debtors total. */
+  agedDebtorsTotal: number | null;
+  /** The full open subledger including documents that cannot be aged. Null
+   *  where the aging report could not be read, which is already a matter. */
+  subledgerTotal: number | null;
+  /**
+   * `reconcileSubledger`'s OWN reading of the control account, carried only
+   * so the decomposition can be refused when it disagrees with the figure the
+   * balance sheet prints. Two derivations of one balance is what
+   * `assertConsistent` exists to refuse, and this note must not become the
+   * place a third receivables figure enters the pack.
+   */
+  controlBalance: number | null;
+  /** The `subledger_to_control` items, as the service returned them. */
+  items: readonly ReconcilingItem[];
+  /** The residual the service could not account for. */
+  unexplained: number | null;
+}
+
+/**
+ * ONE CLAUSE PER RECONCILING TYPE, written for a director.
+ *
+ * A `Record` over the closed set rather than the service's own
+ * `description`, for two reasons. The descriptions carry a developer's
+ * plural — "984 posted journal(s)", "169 open document(s)" — which is the
+ * exact thing `packMatters.plural` exists to keep off these sheets; and they
+ * are written for whoever is going to FIX the ledger, at three or four lines
+ * each, on the one page in the pack whose paper is measured in matters rows.
+ *
+ * Each clause says WHAT the amount consists of and nothing about why it
+ * arose. `unexplained_difference` gets one too: a residual the reconciliation
+ * could not account for is the most important item in the list, and it must
+ * not be the one that falls through a lookup.
+ */
+const ITEM_CLAUSE: Record<string, string> = {
+  unapplied_receipt: 'receipts credited to the control account and not applied to a document',
+  posting_with_no_document: 'postings that reference no document',
+  document_not_linked_to_journal: 'open documents carrying no link to a journal entry',
+  document_not_on_control_account: 'open documents whose linked journal has not reached the control account',
+  // The residual carries no population, so `across N` is suppressed for it
+  // by `documentIds` being empty — which is the service's own shape, not a
+  // special case written here.
+  unexplained_difference: 'left over, which this reconciliation could not account for',
+};
 
 /** The heading the note prints under. Exported so a test asserts THIS block
  *  rather than any disclosure that happens to mention receivables. */
@@ -92,10 +153,11 @@ export const RECEIVABLES_RECONCILIATION_HEADING = 'Two debtors figures';
  *   same unit as the matter above them.
  */
 export function receivablesReconciliationNote(
-  agedDebtorsTotal: number | null,
+  read: PackReceivablesRead,
   tradeReceivables: number,
   scale: MoneyScale,
 ): PackPageBlock | null {
+  const { agedDebtorsTotal } = read;
   if (agedDebtorsTotal === null) return null;
   const difference = round2(agedDebtorsTotal - tradeReceivables);
   // NIL DIFFERENCE, NO NOTE. A pack whose subledger and control account agree
@@ -116,6 +178,19 @@ export function receivablesReconciliationNote(
   if (Math.round(difference / MONEY_SCALES[scale]) === 0) return null;
 
   const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const detail = decomposition(read, tradeReceivables, scale);
+  // WHERE THE DECOMPOSITION PRINTS, IT NAMES BOTH SOURCES ITSELF — "an open
+  // customer subledger of 4 165", "the trade-receivable control account in
+  // the general ledger" — so the sentence that existed to name them is the
+  // same fact twice, and page 11 is the one sheet in the pack that pays for a
+  // repeated fact in matters rows. Keeping both cost live Brightsphere a
+  // fourth row; the version below prints five and says everything the six-row
+  // version said. Where the decomposition is refused, that sentence is the
+  // only thing naming the two sources and it stays.
+  const sources = detail === ''
+    ? ' The first is the open customer subledger and the second the trade-receivable control '
+      + 'account in the general ledger.'
+    : '';
   return mustDisclose(RECEIVABLES_RECONCILIATION_HEADING, [
     note('Aged debtors against the balance sheet',
       inScale(
@@ -124,10 +199,167 @@ export function receivablesReconciliationNote(
         + `${money(difference)}`,
         scale,
       )
-      + '. The first is the open customer subledger and the second the trade-receivable control '
-      + 'account in the general ledger. On these books the two do not agree, and this pack does '
-      + 'not reconcile them: neither figure is derived from the other and neither has been '
-      + 'adjusted to the other. The difference should be explained before any decision above '
-      + 'that rests on a debtors balance is taken.'),
+      + `.${sources}${detail} On these books the two do not agree, this pack does not adjust `
+      + 'either figure to the other, and the difference should be explained before any decision '
+      + 'above that rests on a debtors balance is taken.'),
+  ]);
+}
+
+/**
+ * WHAT THE DIFFERENCE CONSISTS OF — the sentence that ends the investigation
+ * rather than opening it.
+ *
+ * "A difference of 4 476, unreconciled" tells a board there is a problem and
+ * gives them no first question. `reconcileSubledger` has always been able to
+ * say that 4 175 of it is open documents carrying no link to a journal entry
+ * and 320 is postings referencing no document, itemised down to document
+ * ids, point-in-time correct on both sides — nothing connected that service
+ * to this pack.
+ *
+ * IT STATES THE SUBLEDGER AS ITS OWN BASE, and that is arithmetic rather than
+ * thoroughness. The items decompose the gap between the SUBLEDGER and the
+ * control account; the sentence above them states the gap between the AGED
+ * REPORT and the control account, and on the live client those differ by the
+ * 19 of documents that carry no due date and so reach no aging bucket. Printed
+ * against the wrong base the list fails to add up by 19, on the one sheet in
+ * the pack whose whole purpose this round is to make two figures add up. So
+ * the bridge is stated in full: report, then subledger, then control account.
+ *
+ * IT STILL STATES NO CAUSE. "Open documents carrying no link to a journal
+ * entry" is what the amount CONSISTS OF; why 29 invoices were never posted is
+ * not something this pack has measured, and the ruling that produced this
+ * paragraph said so explicitly.
+ *
+ * AND IT REFUSES ITSELF RATHER THAN INTRODUCING A THIRD FIGURE. The
+ * reconciliation reads the control account through
+ * `getControlAccountBalances` and the balance sheet reads it through
+ * `aggregateFigures`; where those two disagree, the decomposition is
+ * describing a gap that is not the gap the sentence above states, and the
+ * honest answer is the shorter note. Same for a subledger the aging report
+ * could not give us, and for a service that returned no items at all.
+ */
+function decomposition(
+  read: PackReceivablesRead,
+  tradeReceivables: number,
+  scale: MoneyScale,
+): string {
+  const { subledgerTotal, controlBalance, items } = read;
+  if (subledgerTotal === null || controlBalance === null) return '';
+  // The guard: two readings of one balance must agree to the cent before the
+  // items are allowed to describe the difference between them.
+  if (round2(controlBalance) !== round2(tradeReceivables)) return '';
+
+  const named = items
+    .filter((item) => ITEM_CLAUSE[item.type] !== undefined && round2(item.amount) !== 0)
+    .slice()
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  if (named.length === 0) return '';
+
+  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  const unageable = round2(subledgerTotal - (read.agedDebtorsTotal ?? 0));
+  // The first leg is printed only where it is not nil: on a company whose
+  // every document carries a due date the report total IS the subledger
+  // total, and a clause explaining a difference of nothing is the noise this
+  // page can least afford.
+  const legOne = Math.round(unageable / MONEY_SCALES[scale]) === 0
+    ? ` The report ages the whole of an open customer subledger of ${money(subledgerTotal)}.`
+    : ` The report ages ${money(read.agedDebtorsTotal ?? 0)} of an open customer subledger of `
+      + `${money(subledgerTotal)}, the ${money(unageable)} between them documents with no due `
+      + 'date, which reach no aging bucket.';
+
+  const gap = round2(subledgerTotal - controlBalance);
+  // "4 175 open documents carrying no link to a journal entry" reads as a
+  // COUNT of documents, and the first draft printed exactly that. The amount
+  // and the population are two different facts and the row is worth more
+  // stating both: `documentIds` is the population the service itemised the
+  // amount from, so "4 175 across 29 open documents" is one figure a reader
+  // can check against page 11's own arithmetic and one they can hand to
+  // whoever has to clear them.
+  const clauses = named.map((item) => {
+    const population = item.documentIds.length;
+    const across = population === 0 ? '' : ` across ${population}`;
+    return `${money(item.amount)}${across} ${ITEM_CLAUSE[item.type]!}`;
+  });
+  const list = clauses.length === 1
+    ? clauses[0]!
+    : `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]!}`;
+  return `${legOne} Of the ${money(gap)} between that subledger and the trade-receivable `
+    + `control account in the general ledger, ${list}.`;
+}
+
+/** The heading page 4's debtors-base disclosure prints under. */
+export const RECEIVABLES_BASE_HEADING = 'What debtor days is measured on';
+
+/**
+ * THE RATIO WAS ARITHMETICALLY CORRECT AND ECONOMICALLY MEANINGLESS, AND THE
+ * PACK SAID NOTHING.
+ *
+ * Page 7's memorandum prints trade receivables of 59 on the live demo pack
+ * and pages 3 and 9 derive debtor days of 213 from it — 59 over 101 times
+ * 365, a division a director can take off the paper and a figure they can
+ * act on. That 59 is the trade-receivable CONTROL ACCOUNT, and the open
+ * subledger for the same company on the same date is 10 724: the ratio is
+ * computed on a base holding half a per cent of what the books say customers
+ * owe. Nothing in twelve sheets said which of the two numbers "trade
+ * receivables" meant.
+ *
+ * This is the debtors defect one step downstream, and it is the more
+ * dangerous half: page 11's contradiction is at least VISIBLE — two figures
+ * on facing sheets — while 213 days looks like an ordinary measurement and
+ * reads as one.
+ *
+ * IT DISCLOSES THE BASE AND DOES NOT REPRICE THE RATIO. Recomputing debtor
+ * days off the subledger would change a printed figure on a judgement about
+ * which balance is the right numerator, and that judgement is not a
+ * rendering decision. The pack states what the number is measured on and
+ * what the other reading would be; the choice stays with the people whose
+ * books these are.
+ *
+ * IT IS ON PAGE 4, and that was measured rather than preferred. Page 7 is
+ * where the memorandum sits and where this belongs, and it has 1.93mm on the
+ * live demo company against a 3.88mm line — no room for a word, let alone a
+ * block. Pages 3, 9 and 12 are 1.65, 1.71 and 2.59 on their tightest
+ * fixtures. Page 4 is prose by specification, is the first sheet a board
+ * reads, and has 85.86mm spare on the demo and 49.87 on Brightsphere after
+ * the ledger-currency note. A caveat about how to read a ratio printed on
+ * two later sheets is the same class of thing as the ledger-currency note
+ * beside it: how much of reality these figures capture.
+ *
+ * IT IS SILENT WHERE THE SCORECARD STATES NO DAY COUNT. Brightsphere's
+ * revenue is not a positive base and its scorecard prints a reason in place
+ * of debtor days, so there is no ratio to qualify — the same condition
+ * `packTradeBalances.dayCountsMeasured` already governs its own pointer by,
+ * read through that function rather than judged again here. And it is silent
+ * where the two readings agree at the pack's scale, which is a company whose
+ * subledger and control account reconcile.
+ *
+ * @param debtorDaysMeasured Whether the scorecard states debtor days as a
+ *   number — `dayCountsMeasured(set) === 'both' | 'debtorOnly'`.
+ */
+export function receivablesBaseNote(
+  read: PackReceivablesRead,
+  tradeReceivables: number,
+  scale: MoneyScale,
+  debtorDaysMeasured: boolean,
+): PackPageBlock | null {
+  if (!debtorDaysMeasured) return null;
+  const { subledgerTotal } = read;
+  if (subledgerTotal === null) return null;
+  if (Math.round(round2(subledgerTotal - tradeReceivables) / MONEY_SCALES[scale]) === 0) return null;
+
+  const money = (n: number) => inProse(formatMoney(n, { scale }));
+  return mustDisclose(RECEIVABLES_BASE_HEADING, [
+    note('The base',
+      inScale(
+        'Debtor days on the highlights and scorecard pages is taken on trade receivables of '
+        + `${money(tradeReceivables)}, the trade-receivable control account in the general `
+        + `ledger and the figure the balance sheet states. The open customer subledger for the `
+        + `same date is ${money(subledgerTotal)}`,
+        scale,
+      )
+      + '. The two are not reconciled — the matters page sets out what the difference consists '
+      + 'of where the pack states a debtors total — and this pack does not recompute the ratio '
+      + 'on the other base. Read the day count as a measure of the control account, not of what '
+      + 'customers owe.'),
   ]);
 }

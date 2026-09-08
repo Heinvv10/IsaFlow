@@ -44,7 +44,7 @@ import {
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
 import { buildBasis, ROUNDING_FOOTNOTES, statementFootnotes } from './packBasis';
-import { tradeBalancesFootnote } from './packTradeBalances';
+import { dayCountsMeasured, tradeBalancesFootnote } from './packTradeBalances';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
 import {
@@ -111,7 +111,11 @@ import {
   type UnnumberedPage,
 } from './packFrontMatter';
 import { ledgerStalenessNote } from './packLedgerStaleness';
-import { receivablesReconciliationNote } from './packReceivablesReconciliation';
+import {
+  receivablesBaseNote,
+  receivablesReconciliationNote,
+  type PackReceivablesRead,
+} from './packReceivablesReconciliation';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import type { PackDraftReason } from './packDraftStatus';
 import type {
@@ -145,13 +149,14 @@ export interface BoardPackInput {
   trend: PackTrendPoint[];
   matters: PackMatter[];
   /**
-   * The aged debtors report's total in RAND, where the pack prints it — the
-   * base page 11's concentration matter states its percentage against. Null
-   * where no aged-debtors total appears on any sheet, in which case there are
-   * not two debtors figures in the document and nothing to reconcile. See
-   * `packReceivablesReconciliation.ts`.
+   * What the pack knows about its own receivables: the aged debtors total
+   * where a sheet prints it, the full open subledger, and
+   * `reconcileSubledger`'s decomposition of the difference between the
+   * subledger and the control account. Page 11 reconciles the two printed
+   * debtors figures from it and page 4 discloses which of them debtor days
+   * is measured on. See `packReceivablesReconciliation.ts`.
    */
-  agedDebtorsTotal: number | null;
+  receivables: PackReceivablesRead;
   /** Page 4's board commentary. Null renders the pending placeholder (R7),
    *  and is also one of the two things that keep a pack a DRAFT — see
    *  `draftReasons`. */
@@ -213,7 +218,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // what that costs and why it is the right way round.
   const mattersSupport = buildMattersSupportBlocks(
     input.mattersCommentary ?? pending,
-    receivablesReconciliationNote(input.agedDebtorsTotal, set.current.accountsReceivable, scale),
+    receivablesReconciliationNote(input.receivables, set.current.accountsReceivable, scale),
   );
   // The title first, from the FULL list: the budget the table spends depends
   // on how much paper the header leaves, and the headline must not change
@@ -413,6 +418,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const trendBlocks = buildTrendBlocks(trendPanels);
 
   const staleLedger = ledgerStalenessNote(input.ledgerVersion, trend, set.currentWindow.end);
+  // WHICH RECEIVABLES BALANCE THE DAY COUNT IS TAKEN ON, read through the
+  // SAME function page 7's memorandum decides its own pointer by, so a page
+  // cannot qualify a measure the scorecard does not state.
+  const debtorsBase = receivablesBaseNote(
+    input.receivables,
+    set.current.accountsReceivable,
+    scale,
+    ['both', 'debtorOnly'].includes(dayCountsMeasured(set)),
+  );
 
   // Page 4 — no tabular figures. Spec §4.A keeps this page free of them; both
   // of its columns are prose.
@@ -452,6 +466,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     [
       ...buildCommentaryBlocks(input.commentary ?? pending, matters),
       ...(staleLedger === null ? [] : [staleLedger]),
+      ...(debtorsBase === null ? [] : [debtorsBase]),
     ],
     'portrait',
     [],

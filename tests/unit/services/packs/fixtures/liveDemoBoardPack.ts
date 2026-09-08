@@ -246,7 +246,28 @@ export const liveDemoInput: BoardPackInput = {
   // `demoInput`'s 720 000 against a set whose receivables are 59 000 would
   // have this fixture print a reconciliation between one figure the pack
   // shows and one it invented.
-  agedDebtorsTotal: null,
+  // AND A SUBLEDGER THIS COMPANY'S CONTROL ACCOUNT DOES NOT REFLECT EITHER,
+  // which is the shape page 4's debtors-base note exists for: the live demo
+  // tenant carries R10 724 260.43 of open documents against a control
+  // account holding a fraction of it, and debtor days is taken on the
+  // control account.
+  //
+  // `controlBalance` is this FIXTURE'S own receivables (620 400), not the
+  // live tenant's — `liveDemoSet` predates a data change and the live figure
+  // is now 59 240. Deliberately the fixture's, so the pack this fixture
+  // composes is internally consistent; the note fires on either, because
+  // both are a small fraction of the subledger. Correcting `liveDemoSet` is
+  // a separate matter and would move figures on eight sheets.
+  //
+  // No aged total, because no sheet of this pack prints one — so page 11
+  // stays silent and page 4 states the base.
+  receivables: {
+    agedDebtorsTotal: null,
+    subledgerTotal: 10_724_260.43,
+    controlBalance: liveDemoSet.current.accountsReceivable,
+    items: [],
+    unexplained: 0,
+  },
   // Nothing in this codebase stores board commentary, so both narrative pages
   // printed the pending placeholder — as they did on the live render.
   commentary: null,

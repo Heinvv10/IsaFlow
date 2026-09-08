@@ -218,7 +218,13 @@ export const demoInput: BoardPackInput = {
   // returns null on a nil difference, so this fixture is the proof that a
   // pack with two agreeing debtors figures prints no reconciliation and page
   // 11 loses no row to one.
-  agedDebtorsTotal: 720_000,
+  receivables: {
+    agedDebtorsTotal: 720_000,
+    subledgerTotal: 720_000,
+    controlBalance: 720_000,
+    items: [],
+    unexplained: 0,
+  },
 };
 
 /** Same as `demoInput` in every other respect, but its trend genuinely draws
@@ -318,8 +324,15 @@ export const brightsphereInput: BoardPackInput = {
   ledgerVersion: null,
   // No matter states a debtors total on this fixture — its `matters` is the
   // explicit "every check ran clean" row — so the pack prints one debtors
-  // figure and there is nothing to reconcile.
-  agedDebtorsTotal: null,
+  // figure and there is nothing to reconcile. Its subledger agrees with its
+  // control account, so page 4 states no debtors base either.
+  receivables: {
+    agedDebtorsTotal: null,
+    subledgerTotal: 0,
+    controlBalance: 0,
+    items: [],
+    unexplained: 0,
+  },
 };
 
 /**
@@ -462,7 +475,13 @@ export const denseInput: BoardPackInput = {
   // Inheriting the demo's 720 000 against `denseSet`'s own receivables would
   // put a reconciliation on the fixture that exists to fill page 11 with
   // rows — which is exactly the paper the reconciliation would take.
-  agedDebtorsTotal: null,
+  receivables: {
+    agedDebtorsTotal: null,
+    subledgerTotal: denseSet.current.accountsReceivable,
+    controlBalance: denseSet.current.accountsReceivable,
+    items: [],
+    unexplained: 0,
+  },
   // Nothing in this codebase stores board-matter commentary, so the real pack
   // printed the pending placeholder on page 11 — and page 4's commentary was
   // unapproved too. Both placeholders, as they actually rendered.
@@ -691,5 +710,34 @@ export const brightsphereReceivablesGapInput: BoardPackInput = {
       decisionRequired: BOARD_DECISIONS.unusualJournal,
     })),
   ],
-  agedDebtorsTotal: 4_145_971.5,
+  // THE LIVE CLIENT'S OWN RECEIVABLES, including `reconcileSubledger`'s
+  // decomposition of the gap. Read off `isaflow_dev` at 7 September 2026:
+  // 4 145 971.50 of aged buckets, 4 164 721.50 of open subledger (the 18 750
+  // between them being two documents with no due date), a control account at
+  // (329 700), and two reconciling items that close the 4 494 421.50 between
+  // subledger and control to NOTHING unexplained.
+  receivables: {
+    agedDebtorsTotal: 4_145_971.5,
+    subledgerTotal: 4_164_721.5,
+    controlBalance: -329_700,
+    items: [
+      {
+        bridge: 'subledger_to_control' as const,
+        type: 'document_not_linked_to_journal',
+        description: 'open documents carrying no link to a journal entry',
+        amount: 4_174_721.5,
+        documentIds: Array.from({ length: 29 }, (unused, i) => `doc-${i}`),
+        documentNumbers: [],
+      },
+      {
+        bridge: 'subledger_to_control' as const,
+        type: 'posting_with_no_document',
+        description: 'postings that reference no document',
+        amount: 319_700,
+        documentIds: Array.from({ length: 98 }, (unused, i) => `je-${i}`),
+        documentNumbers: [],
+      },
+    ],
+    unexplained: 0,
+  },
 };
