@@ -71,6 +71,7 @@ import { partialMonthClauseFor, partialMonthOf } from './packPartialMonth';
 import { selectPrintedMatters } from './packMattersPrinted';
 import { fitPageToBox } from './packPageFit';
 import { relaidNarrative } from './packNarrativeLayout';
+import { definitionsPrintedBy } from './packDefinitions';
 import {
   buildMattersBlock,
   buildMattersSupportBlocks,
@@ -153,6 +154,35 @@ export interface BoardPackInput {
 }
 
 const pending: PackNarrative = { status: 'pending', body: null, actions: [] };
+
+/**
+ * Every string a composed page PRINTS, so a term can be asked whether the
+ * document carries it.
+ *
+ * A recursive walk rather than a per-block reader, for the reason
+ * `packReportingEntity.test.ts` gives about the same shape: the word that
+ * reached paper last time did so through `navLabel`, which no collector was
+ * reading, and the next one will reach it through whichever field the next
+ * collector forgets. Chart SVG is excluded because serialised markup is not
+ * words a reader reads, and the model's own vocabulary (`kind`, `type`, `id`)
+ * because a zrender element is literally `{ type: 'group' }`.
+ */
+function printedStrings(page: UnnumberedPage): string[] {
+  const out: string[] = [];
+  const skip = new Set(['svg', 'sparklineSvg', 'trendSvg', 'bulletSvg', 'kind', 'type', 'id']);
+  const walk = (value: unknown): void => {
+    if (typeof value === 'string') { out.push(value); return; }
+    if (Array.isArray(value)) { value.forEach(walk); return; }
+    if (value !== null && typeof value === 'object') {
+      for (const [key, inner] of Object.entries(value)) {
+        if (skip.has(key)) continue;
+        walk(inner);
+      }
+    }
+  };
+  walk({ title: page.title, navLabel: page.navLabel, blocks: page.blocks, footnotes: page.footnotes });
+  return out;
+}
 
 export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, generatedAt } = input;
@@ -511,8 +541,18 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const bridgesDrawn = body
     .flatMap((p2) => p2.blocks)
     .filter((b) => b.kind === 'chart' && b.chart.kind === 'waterfall').length;
+  // THE GLOSSARY IS DRIVEN BY WHAT THE ELEVEN SHEETS BEFORE IT PRINT — see
+  // `definitionsPrintedBy`. Composed off the BODY, which is why it happens
+  // here and not in `buildBasis`: the basis is built before a single page
+  // exists, and a definition of a measure the document does not carry is a
+  // definition of nothing.
+  const printedProse = body
+    .flatMap((p2) => printedStrings(p2))
+    .join(' \u0001 ')
+    .toLowerCase();
   const basisPage = buildBasisPage(
-    basis, input.companyLegalName, input.period, comparativePeriod, scale, currency,
+    { ...basis, definitions: definitionsPrintedBy(basis.definitions, printedProse) },
+    input.companyLegalName, input.period, comparativePeriod, scale, currency,
     printedCaveats(fittedContents, basis), bridgesDrawn,
   );
   const pages = numbered([

@@ -116,6 +116,19 @@ export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
         // in the pack (about 15% ink) and this is a statement about the
         // FIGURES, not about who prepared them or when.
         ...(f.partialMonth === null ? [] : [note('Period covered', f.partialMonth)]),
+        // AND HOW MUCH OF THAT PERIOD THE LEDGER ACTUALLY REACHES.
+        //
+        // Brightsphere's cover carried the DRAFT status and the part-month
+        // note and left the fact that governs all twelve sheets — nothing
+        // posted since 29 April, five of the period's months nil — until page
+        // 2. A director who reads only the cover met a period of
+        // 1 January to 7 September with no hint that four of those months are
+        // empty. It is the same sentence page 2 and page 4 carry
+        // (`ledgerStalenessCaveat`, one wording), in the slot the part-month
+        // note already occupies, and it is conditional on the ledger: a
+        // company whose ledger reaches the period end prints nothing here and
+        // the demo cover is untouched.
+        ...(f.basis.ledgerCaveat === null ? [] : [note('Ledger', f.basis.ledgerCaveat)]),
       ]),
     ]),
     page('Contents', 'Contents', 'Front', 'low', [

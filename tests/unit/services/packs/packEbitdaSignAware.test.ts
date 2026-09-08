@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { brightsphereLiveInput } from './fixtures/boardPackInputs';
+import { DA_ADD_BACK } from '@/modules/accounting/services/packs/pages/packDefinitions';
 import { liveDemoRenderedInput } from './fixtures/liveDemoBoardPack';
 
 const COMPANIES: Record<string, BoardPackInput> = {
@@ -64,5 +65,60 @@ describe('sheet 5 defines EBITDA in terms true of either sign', () => {
     const [a, b] = Object.values(COMPANIES).map(ebitdaNote);
     const definition = (note: string) => note.slice(note.indexOf('It is operating profit'));
     expect(definition(a!)).toBe(definition(b!));
+  });
+});
+
+/**
+ * ONE MEASURE, ONE WORDING, ON EVERY SHEET THAT DEFINES IT.
+ *
+ * Page 5 said EBITDA is "operating profit plus the MOVEMENT on depreciation
+ * and amortisation"; page 12's ordinary arm said "plus the depreciation and
+ * amortisation CHARGED in the period". Both give +77 on the demo company, so
+ * nothing was disproved by it — and page 12's own credited arm already said
+ * "movement", precisely because Brightsphere's add-back is a net credit of
+ * (152) and "charged" would be false there. So the demo's basis page defined
+ * its measure in words its own page 5 does not use, and in words that could
+ * not travel to the other company.
+ *
+ * "Movement" is right in both directions and is now the pack's one wording,
+ * shared as a constant rather than restated — which is what stops the two
+ * sheets drifting again.
+ */
+describe('EBITDA is defined the same way wherever the pack defines it', () => {
+  const definitionsOf = (input: Parameters<typeof buildBoardPackPages>[0]): string => {
+    const doc = buildBoardPackPages(input);
+    return doc.pages
+      .flatMap((page) => page.blocks)
+      .flatMap((b) => (b.kind === 'definitions'
+        ? b.entries.filter((e) => e.term === 'EBITDA').map((e) => e.definition)
+        : b.kind === 'disclosure'
+          ? b.disclosure.notes.filter((n) => n.body.includes('EBITDA')).map((n) => n.body)
+          : []))
+      .join(' || ');
+  };
+
+  for (const [company, input] of Object.entries(COMPANIES)) {
+    it(`says "${DA_ADD_BACK}" and never "charged in the period" on ${company}`, () => {
+      const prose = definitionsOf(input);
+      expect(prose, `${company} defines EBITDA nowhere`).toContain('EBITDA');
+      // The wording that cannot travel: it is false on a net-credit movement.
+      expect(prose).not.toContain('depreciation and amortisation charged in the period');
+      // And every sheet that explains the add-back uses the one that can.
+      const explains = prose.split(' || ').filter((s2) => /operating profit plus/.test(s2));
+      expect(explains.length, `${company} explains the add-back nowhere`).toBeGreaterThan(0);
+      for (const sentence of explains) {
+        expect(sentence, `${company}: "${sentence}"`).toContain(DA_ADD_BACK);
+      }
+    });
+  }
+
+  it('is one constant, so the two sheets cannot drift apart again', () => {
+    // Mutating the constant must move BOTH pages. Two string literals that
+    // happen to match are what the pack had.
+    expect(DA_ADD_BACK).toBe('the movement on depreciation and amortisation');
+    const demo = definitionsOf(COMPANIES['the demo company']!);
+    expect(demo.split(DA_ADD_BACK).length - 1,
+      'only one sheet states the add-back, so the shared wording proves nothing')
+      .toBeGreaterThan(1);
   });
 });

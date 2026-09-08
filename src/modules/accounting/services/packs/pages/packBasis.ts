@@ -58,6 +58,23 @@ export interface PackBasis {
    *  when `doc.draft`. Surfaced rather than suppressed — see
    *  `reportPackDataService.ts` for what each condition means. */
   caveats: string[];
+  /**
+   * THE ONE CAVEAT THE COVER PRINTS, or null where the ledger reaches the
+   * period end — `ledgerStalenessCaveat`, surfaced by itself.
+   *
+   * It is already in `caveats`, and the contents page prints it there. The
+   * COVER needs it separately because a cover cannot carry a list: it carries
+   * the two or three facts that govern how the whole document is read, and on
+   * Brightsphere the fact that nothing has been posted since 29 April — five
+   * of the period's months nil — governs all twelve sheets and waited until
+   * page 2. A reader who reads only the cover met "1 January 2026 to
+   * 7 September 2026" with no hint that four of those months are empty.
+   *
+   * Conditional and derived, in the slot the part-month note already
+   * occupies, so a company whose ledger is current is unaffected and the two
+   * covers stay symmetric in rule if not in content.
+   */
+  ledgerCaveat: string | null;
 }
 
 /**
@@ -393,5 +410,6 @@ export function buildBasis(
     // than becoming a fourth caveat — see `partialMonthBasisNote`.
     partialMonth: partialFor(trend),
     caveats,
+    ledgerCaveat: stale,
   };
 }

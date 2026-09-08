@@ -48,6 +48,7 @@ import type { ReportPackFigures } from '@/modules/accounting/services/reports/re
 import { toFinancialData } from './packScorecard';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import { PACK_SCALE } from './packBasis';
+import { DA_ADD_BACK } from './packDefinitions';
 import { monthLabel } from './packPartialMonth';
 import type { PackTable, PackTableColumnKey, PackTableRow } from './packPageModel';
 
@@ -441,7 +442,7 @@ export function ebitdaMemoSentence(
   // named: EBITDA is defined by its D and its A, and a sheet that presents a
   // non-IFRS measure has to say what is in it.
   return `EBITDA for the reporting period is ${current}. ${comparative} It is operating profit `
-    + 'plus the movement on depreciation and amortisation, and it is presented because a '
+    + `plus ${DA_ADD_BACK}, and it is presented because a `
     + 'board asks for it, not because a standard requires it. '
     // THREE WINDOWS ON THIS SHEET, AND THE SENTENCE USED TO CLAIM TWO. It
     // read "Every other figure on this sheet is one month's", and the table's
