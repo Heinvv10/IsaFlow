@@ -4,4 +4,4 @@ Restored the broken opening-balance writer through existing draft/post journal s
 
 17 PostgreSQL workflow cases pass, including rollback after real draft creation, concurrent submissions, lock blocking, CSV export/setup completion and scoped historical inventory. The original valid and foreign cases failed500 before the fix; downstream export/setup assertions separately failed before their reader updates. 416 GL unit tests passed,5 skipped. Typecheck passed. Actual browser form posted123.45 debit/credit and reconciled the database cache. Browser requests were restricted to localhost; blocked external fonts produced fallback typography in the screenshot.
 
-Independent named review and full CI are pending. No merge, deployment, production write or historical repair occurred.
+Independent named review approved a936a8b2; full CI passed at786ab01f (9,306 unit/384 component tests and production build,234 unit tests skipped). Draft PR https://github.com/Heinvv10/IsaFlow/pull/352 is stacked on R-003. No merge, deployment, production write or historical repair occurred.
