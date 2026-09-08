@@ -6,4 +6,4 @@ Expanded workflow: 12 company-standing lifecycle cases plus the real K-001 imper
 
 Cookie membership denial retains existing clearAuthCookies behavior. The other-company control presents the still-valid credential explicitly; it does not claim the browser keeps its cookie jar or avoids signing in again. Platform-admin and identity-only routes remain outside this tenant gate. Already-running requests are not cancelled when suspension happens after authorization.
 
-No migration, production changes or retrospective repair. Named review, full CI and draft PR are pending. Current-schema evidence does not close historical migration replay253.
+No migration, production changes or retrospective repair. Named review approved fix b5e0ab31 and follow-up test f8937536. FullCI passed (9304 unit,384 component;234 unit skipped). Draft PR346 publishes f8937536. K-002 is code-verified, not deployed. Current-schema evidence does not close historical migration replay253.
