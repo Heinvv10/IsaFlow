@@ -1,0 +1,31 @@
+v57 board pack render
+Date: 2026-09-08
+
+HEAD rendered:  55683f72 on feat/ws4-board-pack
+git status:     (empty) in the render worktree
+
+Worktree:       /tmp/claude-1003/-home-hein-Workspace-IsaFlow/412ac5f4-5784-4efa-b6fd-efa2dae9c009/scratchpad/v57room
+                (git worktree add --detach <path> 55683f72)
+node_modules:   symlink to ws4-board's; no bun install
+.env.local:     copied from ws4-board; contents never printed
+
+Dev server:     next dev -p 3379, APP_URL=http://localhost:3379 (port confirmed free first)
+Listener:       pid 239487
+/proc/239487/cwd -> /tmp/claude-1003/-home-hein-Workspace-IsaFlow/412ac5f4-5784-4efa-b6fd-efa2dae9c009/scratchpad/v57room
+
+Route:          GET /api/accounting/packs/board/pdf?from=2026-01-01&to=2026-09-07
+                (never scripts/pdf/render-pack.ts)
+Company switch: POST /api/auth/switch-company, with the isaflow_csrf cookie the
+                middleware issues on a page load (a POST without it is 403).
+User:           E2E_ADMIN_* from .env.local (isaflow_dev)
+Companies:      00000000-0000-0000-0000-000000000001 (ISAFlow Demo)  -> 200, 96 147 bytes, 12pp
+                d27bac33-cdc0-4e58-bf6b-709c1597d41c (Brightsphere)  -> 200, 94 627 bytes, 12pp
+
+Page size:      595.92 x 842.88 pts (A4), 12 pages each
+PNGs:           pdftoppm -r 150, png-demo/ and png-bs/
+Neither pack carries a "Not printed on this page" footnote.
+
+Against v56, the extracted text of both documents differs in one line each:
+the extraction timestamp on page 12.
+
+Nothing written to isaflow_dev.
