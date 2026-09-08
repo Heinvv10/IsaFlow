@@ -455,6 +455,9 @@ describe('write-tool manifest invariants', () => {
       'approve_pay_run',
       'approve_supplier_invoice',
       'bulk_allocate_bank_transactions',
+      'bulk_approve_credit_notes',
+      'bulk_approve_supplier_invoices',
+      'bulk_finalize_invoices',
       'cancel_credit_note',
       // Closing a period changes what may post; closing a year posts to equity
       // and locks every period behind it; reopening removes a posting lock; and
@@ -569,6 +572,14 @@ describe('write-tool manifest invariants', () => {
       deactivate_gl_account: { ...KEY },
       merge_gl_accounts: { ...KEY },
       create_supplier_invoice: { ...KEY },
+      // The three bulk approve arms refuse on the missing id array before
+      // touching a service — parseDocumentIds runs first in every one — which
+      // is the only path available in a file that does not mock them. An error
+      // envelope is still an envelope, which is what the scan reads.
+      // Behaviour lives in bulkApproveTools.test.ts.
+      bulk_approve_supplier_invoices: { ...KEY },
+      bulk_finalize_invoices: { ...KEY },
+      bulk_approve_credit_notes: { ...KEY },
       approve_supplier_invoice: { ...KEY },
       // Bank-rule writes refuse on a missing required argument before touching
       // a service; behaviour is covered in bankRulesTools.test.ts.
