@@ -140,9 +140,17 @@ describe('sheet 11 spends its prose budget on matters', () => {
     // wording). What is still true is the rule this test exists for — prose
     // on this page is paid for in matters rows, so a fourth line of the
     // support block would cost a SECOND one.
+    //
+    // AND FIVE IS THE SECOND ONE, SPENT DELIBERATELY TOO. The demo pack's
+    // R10.7m subledger-to-control gap reaches this page now: sheet 9 prints
+    // `Debtor days · 213 · target 30 · MISSED` in red against a base sheet 4
+    // disowns, and a red MISS is a printed judgement. A structurally
+    // identical gap reached Brightsphere's matters page fully attributed
+    // while the demo's appeared once as a parenthetical. The gap is a larger
+    // fact than a sixth matter, and the tail still says what it withheld.
     expect(table.kind === 'matters' ? table.matters.length : 0,
-      'sheet 11 prints fewer matters than its paper allows').toBe(6);
-    expect(table.kind === 'matters' ? table.omitted?.count ?? 0 : 0).toBe(23);
+      'sheet 11 prints fewer matters than its paper allows').toBe(5);
+    expect(table.kind === 'matters' ? table.omitted?.count ?? 0 : 0).toBe(24);
     // AND THE MATTER THAT CAME BACK CARRIES A RAND AMOUNT — the point of the
     // row is that real exposure is on the page rather than summarised in the
     // tail.

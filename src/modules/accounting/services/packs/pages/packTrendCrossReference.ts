@@ -172,7 +172,11 @@ export const PERIOD_COUNTERPARTS: Record<string, PeriodCounterpart> = {
     measure: 'debtor days',
     printsAgainstComparative: true,
     page: 'scorecard page',
-    wholePeriodBasis: "annualised on 365 days whatever the period's own length",
+    // "whatever the period's length", not "whatever the period's OWN length",
+    // and "a month at a time" rather than "one month at a time" in the frame
+    // below: six characters, which is what carries the base caveat onto the
+    // row that prints a red MISS without this note taking a third line.
+    wholePeriodBasis: "annualised on 365 days whatever the period's length",
   },
 };
 
@@ -210,6 +214,13 @@ export function trendWindowNote(
    *  `TrendPanels.ratiosEndingOnPartMonth`. Empty on a series that ends on a
    *  whole month, and on a pack that draws no ratio panel. */
   ratiosEndingOnPartMonth: readonly string[] = [],
+  /**
+   * Whether the page this panel points at PRINTS a comparative figure for it,
+   * read off the composed page rather than assumed — see `without` below.
+   * Defaults to true so a caller that cannot say does not silently turn every
+   * measure into an exception.
+   */
+  printsComparative: (panelId: string) => boolean = () => true,
 ): PackDisclosureNote | null {
   const groups = counterpartsByPage(panels);
   if (groups.length === 0) return null;
@@ -238,13 +249,29 @@ export function trendWindowNote(
   // forty `fitPageToBox` drops the note entire. Spelling out where gross
   // margin's comparative is not — "which the income statement prints for the
   // actual column alone" — is ninety.
+  //
+  // AND THE EXCEPTION SET IS DERIVED FROM THE CELLS, NOT DECLARED IN A TABLE.
+  //
+  // `printsAgainstComparative` is a STRUCTURAL fact — page 6 carries no
+  // comparative column for gross margin at all — and it was the whole test.
+  // That is only half of what "against the comparative" claims: the demo
+  // pack's page 9 prints Debtor days PRIOR as `n/m`, the same state as gross
+  // margin's, and page 10 named gross margin alone. A sentence listing one of
+  // its two exceptions is disproved by the sheet it points at.
+  //
+  // `printsComparative` is the caller's reading of the composed page — the
+  // cell a reader would actually turn to — so a measure whose prior is not
+  // meaningful this period joins the list without anyone having to remember
+  // to declare it. The structural flag stays as the other half: a measure
+  // with no comparative COLUMN is an exception whatever the data says.
   const without = panels
-    .map((panel) => PERIOD_COUNTERPARTS[panel.id])
-    .filter((c): c is PeriodCounterpart => c !== undefined && !c.printsAgainstComparative)
-    .map((c) => c.measure);
+    .map((panel) => ({ panel, counterpart: PERIOD_COUNTERPARTS[panel.id] }))
+    .filter((x): x is { panel: PackChartSpec; counterpart: PeriodCounterpart } => x.counterpart !== undefined)
+    .filter((x) => !x.counterpart.printsAgainstComparative || !printsComparative(x.panel.id))
+    .map((x) => x.counterpart.measure);
   const comparative = without.length === 0
     ? ' against the comparative'
-    : ` — all against the comparative but ${inWords(without)}`;
+    : ` — against the comparative but ${inWords(without)}`;
   // Debtor days is measured differently as well as over a different window,
   // and a note that named only the window would be doing to that measure what
   // this whole file used to do to revenue.
@@ -255,7 +282,10 @@ export function trendWindowNote(
   // already defines both annualisations in full; what is owed here is that
   // there is a second difference, not what it is.
   const debtorDays = panels.some((panel) => panel.id === 'trend-debtor-days')
-    ? ' Debtor days also differs in its annualisation, which the basis of preparation defines.'
+    // "the basis page", which is what every other pointer in the pack calls
+    // sheet 12 — and ten of the sixteen characters the second comparative
+    // exception costs this note.
+    ? ' Debtor days also differs in its annualisation, which the basis page defines.'
     : '';
   // THE FRAME IS SHORTER BY A LINE AND THE LIST IS UNTOUCHED. It read "plots
   // one MONTH at a time … — <list> — against the comparative period", and on
@@ -372,6 +402,22 @@ export function periodWindowFootnotes(
   panelId: string,
   pageName: string,
   number: number,
+  /**
+   * A clause the CALLING page needs on this row, appended inside the same
+   * footnote.
+   *
+   * Page 9 prints `Debtor days · 213 · target 30 · MISSED` in red against a
+   * base page 4 disowns — "read the day count as a measure of the control
+   * account, not of what customers owe" — and the row carrying that red
+   * judgement said only that the figure is annualised. The cross-reference
+   * ran one way.
+   *
+   * It rides in THIS footnote rather than in one of its own because sheet 9
+   * has 2.77mm of paper and a second footnote costs 3.88: the marker is
+   * already on the row a reader meets, and the clause fits inside the two
+   * lines this note already wraps to.
+   */
+  extra = '',
 ): PackFootnote[] {
   const counterpart = PERIOD_COUNTERPARTS[panelId];
   if (counterpart === undefined) return [];
@@ -381,9 +427,15 @@ export function periodWindowFootnotes(
   return [{
     number,
     text:
-      `${measure} on this page — the ${pageName.toLowerCase()} page — is the figure for the WHOLE `
+      // "ON THIS PAGE — THE SCORECARD PAGE —" NAMES THE SHEET IT IS PRINTED
+      // ON, TWICE. A reader holding sheet 9 does not need to be told sheet 9
+      // is sheet 9, and the twenty-two characters are what carry the base
+      // caveat onto the row that prints a red MISS. `pageName` is still the
+      // parameter the caller passes, because it is what the OTHER end of the
+      // cross-reference is named by.
+      `${measure} on this page is the figure for the WHOLE `
       + `reporting period, ${counterpart.wholePeriodBasis}; the trends page plots the same measure `
-      + 'one month at a time. Different windows: the two need not agree.',
+      + `a month at a time. Different windows: the two need not agree.${extra}`,
   }];
 }
 

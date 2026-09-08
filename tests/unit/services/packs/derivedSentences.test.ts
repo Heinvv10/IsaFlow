@@ -186,7 +186,22 @@ describe('scorecardCaption', () => {
       { letter: 'A', name: 'Growth', rows: [row('met')] },
       { letter: 'B', name: 'Liquidity', rows: [row('unscored'), row('notMeaningful')] },
     ];
-    expect(scorecardCaption(groups)).toBe('The scored targets are in Growth.');
+    expect(scorecardCaption(groups)).toBe('The scored target is in Growth.');
+  });
+
+  // THE VERB FOLLOWS THE COUNT OF MISSES, NOT THE COUNT OF GROUPS. Brightsphere
+  // scores one target and misses it, and this line read "The misses are in
+  // Liquidity." four centimetres under a title reading "0 of 1 scored target
+  // WAS met" — the plural bug `scoredTargetsSentence` exists to prevent,
+  // reappearing in a sentence added one round after that fix.
+  it('agrees its verb with the number of misses, not of groups', () => {
+    const one: PackScorecardGroup[] = [{ letter: 'B', name: 'Liquidity', rows: [row('missed')] }];
+    expect(scorecardCaption(one)).toBe('The miss is in Liquidity.');
+    const twoInOne: PackScorecardGroup[] = [
+      { letter: 'B', name: 'Liquidity', rows: [row('missed'), row('missed')] },
+    ];
+    expect(scorecardCaption(twoInOne), 'two misses in one group is still plural')
+      .toBe('The misses are in Liquidity.');
   });
 
   /**

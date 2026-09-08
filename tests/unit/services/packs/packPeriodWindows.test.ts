@@ -187,8 +187,15 @@ describe('the month-versus-period note', () => {
       expect(note!.body.includes('debtor days')).toBe(drawn.has('trend-debtor-days'));
       expect(note!.body.includes('cash')).toBe(drawn.has('trend-cash'));
       // The exception is stated exactly where a drawn panel lacks one.
+      // THE EXCEPTION SET IS TWO HALVES NOW. `printsAgainstComparative` is
+      // the structural one — page 6 carries no comparative COLUMN for gross
+      // margin — and the second is whether the destination cell prints a
+      // figure at all: the demo pack's page 9 shows Debtor days PRIOR as
+      // `n/m`, the same state, and the sentence named gross margin alone.
+      // This call passes no reading, so the default says every cell prints
+      // one and only the structural half can fire.
       const without = [...drawn].filter((id) => !PERIOD_COUNTERPARTS[id]!.printsAgainstComparative);
-      expect(/all against the comparative but /.test(note!.body)).toBe(without.length > 0);
+      expect(/against the comparative but /.test(note!.body)).toBe(without.length > 0);
       // And gross margin is the measure that differs, so this can fail.
       expect(PERIOD_COUNTERPARTS['trend-gross-margin']!.printsAgainstComparative).toBe(false);
     });

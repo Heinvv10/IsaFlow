@@ -195,8 +195,17 @@ export function printedCaveats(page: UnnumberedPage, basis: PackBasis): number {
  * the extraction time off the fact list above it. A colour key is not worth
  * the pack's own provenance.
  */
-const COLOUR_KEY =
-  'On the bridges, green is an income line, red a cost line and dark ink a total; '
+/**
+ * ONE BRIDGE OR TWO, AND THE SENTENCE COUNTS THEM.
+ *
+ * "On the bridges" printed on a pack that draws one: the demo company's cash
+ * bridge is refused — there is nothing to bridge THROUGH, and page 8 says so
+ * in prose — so its only waterfall is the profit bridge on sheet 6. A key
+ * that pluralises a chart a reader can count is the pack telling them to look
+ * for a second one.
+ */
+const colourKey = (bridges: number): string =>
+  `On the ${bridges === 1 ? 'bridge' : 'bridges'}, green is an income line, red a cost line and dark ink a total; `
   + 'the two also differ in lightness, so a monochrome copy still separates them. '
   + 'The balance sheet\'s bands are one ink at three lightnesses, legended on the chart. '
   + 'Red on the scorecard marks a missed target.';
@@ -213,6 +222,14 @@ export function buildBasisPage(
    *  reader can actually turn to, and the contents page is held to its sheet
    *  like every other. */
   caveatsPrinted: number,
+  /**
+   * How many WATERFALL charts this pack actually draws — see `colourKey`.
+   * The demo company's cash bridge is refused, so its pack has one and the
+   * key pluralised it. Counted off the composed pages rather than assumed,
+   * because whether the cash bridge is drawn is a decision made from the
+   * figures.
+   */
+  bridgesDrawn = 2,
 ): UnnumberedPage {
   // A CONCLUSION, not the page's own name restated. It read "Basis of
   // preparation" over "Basis of preparation and definitions"; what a director
@@ -256,7 +273,7 @@ export function buildBasisPage(
     // taking the ledger version and the extraction time off the pack's own
     // provenance. As a block it is the LAST prose on the page and the page
     // has the room, because the caveats moved to the contents.
-    disclose('Colour', [note('Key', COLOUR_KEY)]),
+    disclose('Colour', [note('Key', colourKey(bridgesDrawn))]),
     // THE CAVEATS ARE NOT HERE. They print with the contents — see
     // `buildFrontPages` — and the standfirst above says so and counts them.
   ]);

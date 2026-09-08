@@ -136,15 +136,26 @@ describe('the two debtors figures are reconciled on the sheet that prints them',
     expect(reconciliationBody(mattersPage(demoInput))).toBeNull();
   });
 
-  it('prints nothing where no sheet states an aged debtors total', () => {
-    // The live demo company's largest debtor is 17.8% of its book, under the
-    // concentration threshold, so `buildMatters` raises no aged-debtor matter
-    // and the pack prints ONE debtors figure. Its books disagree with the
-    // subledger by R10.7m and no sheet says so, because no sheet claims
-    // otherwise — a disclosure about a figure the pack does not print is the
-    // pack answering a question it has not raised.
+  // A RULING REVERSED, AND THE PACK IS WHAT REVERSED IT.
+  //
+  // This asserted the opposite: the demo pack prints no aged-debtors total,
+  // so a disclosure about a figure no sheet states was held to be the pack
+  // answering a question it had not raised. Sheet 9 now prints
+  // `Debtor days · 213 · target 30 · MISSED` in red, and sheet 4 says the
+  // ratio is taken on a base it disowns — "read the day count as a measure of
+  // the control account, not of what customers owe". A red MISS is a printed
+  // judgement, and the conflict a reader can see is between that judgement
+  // and a caveat one page earlier. The block bridges from whichever debtors
+  // figure the pack has.
+  it('reconciles the subledger where no aged debtors total is printed', () => {
     expect(liveDemoRenderedInput.receivables.agedDebtorsTotal).toBeNull();
-    expect(reconciliationBody(mattersPage(liveDemoRenderedInput))).toBeNull();
+    const body = reconciliationBody(mattersPage(liveDemoRenderedInput));
+    expect(body, 'the demo pack states its R10.7m gap nowhere on the matters page').not.toBeNull();
+    // It bridges from the SUBLEDGER, and names it — a heading about an aged
+    // report over a sentence about the subledger is a pointer to a report
+    // this pack never read.
+    expect(body).toMatch(/open customer subledger totals/);
+    expect(body, 'it claims an aged report the pack has no total for').not.toMatch(/aged debtors report/);
   });
 
   it('is budgeted against the table rather than appended after it', () => {
@@ -543,17 +554,17 @@ describe('the debtors-base note points at page 11 only where page 11 carries it'
       .join(' ');
   };
 
-  it('makes no cross-reference on a pack whose matters page has no reconciliation', () => {
+  it('makes the cross-reference on the demo too, now that its matters page carries one', () => {
     const text = baseNote(liveDemoShortPanelsInput);
     expect(text, 'the demo pack stopped stating its debtors base').not.toBe('');
-    expect(text).not.toMatch(/matters page/);
-    // The clause was redundant there anyway: this note states both figures.
     expect(text).toMatch(figure('10 724'));
-    // And the page it would have pointed at really does not carry it.
+    expect(text).toMatch(/matters page/);
+    // And the page it points at really does carry it — which is the half that
+    // was false when this test asserted the opposite.
     const matters = buildBoardPackPages(liveDemoShortPanelsInput).pages
       .find((p) => p.navLabel === MATTERS_NAV_LABEL)!;
     expect(matters.blocks.some((b) => b.kind === 'disclosure'
-      && b.disclosure.heading === RECEIVABLES_RECONCILIATION_HEADING)).toBe(false);
+      && b.disclosure.heading === RECEIVABLES_RECONCILIATION_HEADING)).toBe(true);
   });
 
   it('makes the cross-reference where the matters page does carry it', () => {
@@ -575,20 +586,30 @@ describe('the debtors-base note points at page 11 only where page 11 carries it'
   });
 
   it('the pointer tracks the page, not the company', () => {
-    // The condition read straight off the model, so the two can never come
-    // apart again: the clause is present exactly when an aged debtors total
-    // is, which is exactly when page 11 reconciles.
+    // The condition is asked of page 11's own builder, so the two cannot come
+    // apart: the clause is present exactly when that block prints. It used to
+    // be a second copy of the builder's gate, and stopped being the same
+    // condition the moment the block learned to bridge from the subledger.
     const withTotal = receivablesBaseNote(
       { agedDebtorsTotal: 4_145_971.5, subledgerTotal: 4_164_721.5, controlBalance: -329_700, items: [], unexplained: 0 },
       -329_700, PACK_SCALE, true,
     );
+    // No subledger and no aged total: page 11 reconciles nothing, so the
+    // pointer must not resolve.
     const without = receivablesBaseNote(
+      { agedDebtorsTotal: null, subledgerTotal: null, controlBalance: 59_240, items: [], unexplained: 0 },
+      59_240, PACK_SCALE, true,
+    );
+    // And the demo's shape — a subledger but no aged report — now DOES carry
+    // the block, so the pointer resolves there too.
+    const subledgerOnly = receivablesBaseNote(
       { agedDebtorsTotal: null, subledgerTotal: 10_724_260.43, controlBalance: 59_240, items: [], unexplained: 0 },
       59_240, PACK_SCALE, true,
     );
     const body = (b: typeof withTotal) => (b?.kind === 'disclosure' ? b.disclosure.notes[0]!.body : '');
     expect(body(withTotal)).toMatch(/matters page/);
     expect(body(without)).not.toMatch(/matters page/);
+    expect(body(subledgerOnly)).toMatch(/matters page/);
   });
 });
 

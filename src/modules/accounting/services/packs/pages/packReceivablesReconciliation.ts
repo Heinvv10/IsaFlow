@@ -157,9 +157,28 @@ export function receivablesReconciliationNote(
   tradeReceivables: number,
   scale: MoneyScale,
 ): PackPageBlock | null {
-  const { agedDebtorsTotal } = read;
-  if (agedDebtorsTotal === null) return null;
-  const difference = round2(agedDebtorsTotal - tradeReceivables);
+  // THE HEADLINE IS THE HIGHEST FIGURE THE PACK ACTUALLY HAS, NOT THE AGED
+  // TOTAL ALONE.
+  //
+  // This returned null wherever no sheet printed an aged-debtors total, and
+  // on the live demo company that silenced a gap of R10.7m: an open customer
+  // subledger of 10 724 against a control account of 59. The reasoning was
+  // that a disclosure firing where a reader sees no conflict is noise — and
+  // it was overtaken by the pack itself. Sheet 9 now prints
+  // `Debtor days · 213 · target 30 · MISSED` in red, and sheet 4 says the
+  // ratio is taken on a base it disowns. A red MISS is a printed judgement,
+  // and the conflict a reader can see is between that judgement and the
+  // caveat one page earlier.
+  //
+  // So the block fires on whichever debtors figure the pack has: the aged
+  // report where one is printed, the subledger where it is not. The aged leg
+  // is conditional — a sentence bridging a report this pack never read is a
+  // third figure entering the page, which is the thing this file refuses
+  // everywhere else.
+  const { agedDebtorsTotal, subledgerTotal } = read;
+  const headline = agedDebtorsTotal ?? subledgerTotal;
+  if (headline === null) return null;
+  const difference = round2(headline - tradeReceivables);
   // NIL DIFFERENCE, NO NOTE. A pack whose subledger and control account agree
   // has two figures that are the same figure, and a disclosure explaining
   // that they might not have been is noise on the page that can least afford
@@ -192,9 +211,15 @@ export function receivablesReconciliationNote(
       + 'account in the general ledger.'
     : '';
   return mustDisclose(RECEIVABLES_RECONCILIATION_HEADING, [
-    note('Aged debtors against the balance sheet',
+    // THE HEADING NAMES WHICH FIGURE IT IS BRIDGING FROM. A block headed
+    // "Aged debtors against the balance sheet" over a sentence about the
+    // subledger is a pointer to a report the pack never read.
+    note(agedDebtorsTotal === null
+      ? 'The subledger against the balance sheet'
+      : 'Aged debtors against the balance sheet',
       inScale(
-        `The aged debtors report totals ${money(agedDebtorsTotal)} and the balance sheet states `
+        `${agedDebtorsTotal === null ? 'The open customer subledger totals' : 'The aged debtors report totals'} `
+        + `${money(headline)} and the balance sheet states `
         + `trade receivables of ${money(tradeReceivables)}, a difference of `
         + `${money(difference)}`,
         scale,
@@ -256,13 +281,21 @@ function decomposition(
   if (named.length === 0) return '';
 
   const money = (n: number) => inProse(formatMoney(n, { scale }));
-  const unageable = round2(subledgerTotal - (read.agedDebtorsTotal ?? 0));
+  // NO AGED REPORT, NO FIRST LEG. Where the pack prints no aged total the
+  // headline above is the SUBLEDGER, so there is no report-to-subledger step
+  // to bridge and a clause inventing one would put a figure on the page that
+  // no sheet states.
+  const unageable = read.agedDebtorsTotal === null
+    ? 0
+    : round2(subledgerTotal - read.agedDebtorsTotal);
   // The first leg is printed only where it is not nil: on a company whose
   // every document carries a due date the report total IS the subledger
   // total, and a clause explaining a difference of nothing is the noise this
   // page can least afford.
   const legOne = Math.round(unageable / MONEY_SCALES[scale]) === 0
-    ? ` The report ages the whole of an open customer subledger of ${money(subledgerTotal)}.`
+    ? (read.agedDebtorsTotal === null
+      ? ''
+      : ` The report ages the whole of an open customer subledger of ${money(subledgerTotal)}.`)
     : ` The report ages ${money(read.agedDebtorsTotal ?? 0)} of an open customer subledger of `
       + `${money(subledgerTotal)}, the ${money(unageable)} between them documents with no due `
       + 'date, which reach no aging bucket.';
@@ -398,7 +431,12 @@ export function receivablesBaseNote(
   // Narrowed rather than reversed: the clause is redundant on the demo anyway,
   // because this note states BOTH figures itself. Where page 11 does carry the
   // reconciliation — Brightsphere — the pointer is worth having and prints.
-  const pointer = read.agedDebtorsTotal === null
+  // AND THE CONDITION IS PAGE 11'S OWN, ASKED OF PAGE 11. It used to be
+  // `agedDebtorsTotal === null`, which was the reconciliation's gate at the
+  // time and stopped being it the moment that block learned to fire on the
+  // subledger. Two copies of one condition is how a pointer comes to name a
+  // page that carries nothing; this asks the builder.
+  const pointer = receivablesReconciliationNote(read, tradeReceivables, scale) === null
     ? ''
     : ' — the matters page sets out what the difference consists of —';
   return mustDisclose(RECEIVABLES_BASE_HEADING, [

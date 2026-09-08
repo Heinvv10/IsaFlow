@@ -70,12 +70,28 @@ export function scoredTargetsSentence(met: number, total: number): string {
 export function scorecardCaption(groups: PackScorecardGroup[]): string {
   const { total } = scorecardScore(groups);
   if (total === 0) return scoredTargetsSentence(0, 0);
+  // AND THE NOUN FOLLOWS THE MISSES, NOT THE GROUPS THEY FALL IN.
+  //
+  // "The misses are in Liquidity." printed on a sheet whose title, four
+  // centimetres above, singularises correctly — "0 of 1 scored target WAS
+  // met". Same page, same count, two verbs: the plural bug this file's own
+  // `scoredTargetsSentence` was written for, reappearing in a sentence added
+  // one round after that fix. A count is not a length: two misses in one
+  // group is still "the misses", and one miss in one group is "the miss".
+  const missedRows = groups.reduce((n, g) => n + g.rows.filter((r) => r.status === 'missed').length, 0);
   const missedIn = groups.filter((g) => g.rows.some((r) => r.status === 'missed')).map((g) => g.name);
-  if (missedIn.length > 0) return `The misses are in ${namedInWords(missedIn)}.`;
+  if (missedIn.length > 0) {
+    const subject = missedRows === 1 ? 'The miss is' : 'The misses are';
+    return `${subject} in ${namedInWords(missedIn)}.`;
+  }
+  const scoredRows = groups.reduce(
+    (n, g) => n + g.rows.filter((r) => r.status === 'met' || r.status === 'missed').length, 0,
+  );
   const scoredIn = groups
     .filter((g) => g.rows.some((r) => r.status === 'met' || r.status === 'missed'))
     .map((g) => g.name);
-  return `The scored targets are in ${namedInWords(scoredIn)}.`;
+  const subject = scoredRows === 1 ? 'The scored target is' : 'The scored targets are';
+  return `${subject} in ${namedInWords(scoredIn)}.`;
 }
 
 /** "a", "a and b", "a, b and c" — the pack's list voice. */

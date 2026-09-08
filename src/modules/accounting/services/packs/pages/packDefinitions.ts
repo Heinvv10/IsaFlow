@@ -128,6 +128,16 @@ export function bridgeRoundingNotes(
  * the data would make page 12 a different page each month, which is the
  * opposite of what a basis of preparation is for.
  */
+/**
+ * The half of the debtor-days entry that is about a PANEL, kept separate so
+ * `buildDefinitions` can drop it on a pack that draws none — see the comment
+ * on that entry. A constant rather than a second string: the sentence is
+ * written once and removed by identity, so it cannot drift from the version
+ * the glossary prints.
+ */
+const DEBTOR_DAYS_TRENDS_CLAUSE =
+  ' The trends page instead multiplies each month\'s ratio by the days in that month, so the two need not agree.';
+
 const TERMS: PackDefinition[] = [
   {
     // STATED, because §7.1 criterion 8 asks for one number convention stated
@@ -292,7 +302,13 @@ const TERMS: PackDefinition[] = [
     // were right and the definition was wrong. The trends page IS a
     // days-in-the-month figure (`packTrendService.debtorDays`), which is why
     // the two windows are still distinguished here.
-    definition: 'Trade receivables over revenue, times 365 — an annualised figure on the scorecard and highlights, whatever the length of the reporting period. The trends page instead multiplies each month\'s ratio by the days in that month, so the two need not agree.',
+    // THE SECOND SENTENCE IS ABOUT A PANEL THIS PACK MAY NOT DRAW.
+    // Brightsphere's revenue is not a positive base, so its trends page draws
+    // no debtor-days panel at all — and its sheet 12 defined the variant that
+    // page would have printed. A glossary entry describing a drawing the
+    // document does not contain is the same defect as a footnote pointing at
+    // a page that carries nothing.
+    definition: `Trade receivables over revenue, times 365 — an annualised figure on the scorecard and highlights, whatever the length of the reporting period.${DEBTOR_DAYS_TRENDS_CLAUSE}`,
   },
   {
     term: 'Creditor days',
@@ -325,7 +341,19 @@ const TERMS: PackDefinition[] = [
  *   reader adding up the bridge gets the number on page 5 by construction and
  *   the integrity gate refuses the pack if they ever diverge.
  */
-export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): PackDefinition[] {
+export function buildDefinitions(
+  set: PackFigureSet,
+  p: PackFigureProvenance,
+  /** The trend panels this pack draws — see `buildBasis`. */
+  drawnPanelIds: ReadonlySet<string> = new Set(['trend-debtor-days']),
+): PackDefinition[] {
+  // The glossary entry that describes a drawing, on a pack that may not
+  // contain it. Removed by identity from the one string that states it.
+  const terms = drawnPanelIds.has('trend-debtor-days')
+    ? TERMS
+    : TERMS.map((t) => (t.definition.includes(DEBTOR_DAYS_TRENDS_CLAUSE)
+      ? { ...t, definition: t.definition.replace(DEBTOR_DAYS_TRENDS_CLAUSE, '') }
+      : t));
   const current = set.current;
   const operating = operatingProfitOf(current);
   const ebitda = calculateExtendedRatios(toFinancialData(current)).ebitda;
@@ -431,5 +459,5 @@ export function buildDefinitions(set: PackFigureSet, p: PackFigureProvenance): P
 
   // EBITDA sits with the profitability terms rather than at the end: it is
   // the one measure on this page a reader came looking for.
-  return [...TERMS.slice(0, 5), ebitdaDefinition, ...TERMS.slice(5)];
+  return [...terms.slice(0, 5), ebitdaDefinition, ...terms.slice(5)];
 }

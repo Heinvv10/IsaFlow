@@ -495,7 +495,16 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
 /** Page 10 — the small multiples (or why none are drawn), commentary, the
  *  shared-scale explanation, and — only when the pack's six panels are not
  *  all drawable — which are missing and why. */
-export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
+export function buildTrendBlocks(
+  panels: TrendPanels,
+  /**
+   * Whether the page a panel points at prints a comparative figure for it,
+   * read off the COMPOSED page — see `trendWindowNote`. Optional so the many
+   * tests that build a panel set alone keep working; `boardPackPages` passes
+   * the real reading.
+   */
+  printsComparative?: (panelId: string) => boolean,
+): PackPageBlock[] {
   const drawn = panels.panels;
   const trendBlocks: PackPageBlock[] = [];
   if (drawn.length > 0) trendBlocks.push({ kind: 'smallMultiples', panels: drawn });
@@ -598,7 +607,7 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
   // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is
   // printed on this page and on the income statement page" two centimetres
   // above a disclosure saying no gross-margin panel could be drawn.
-  const windowNote = trendWindowNote(drawn, panels.ratiosEndingOnPartMonth);
+  const windowNote = trendWindowNote(drawn, panels.ratiosEndingOnPartMonth, printsComparative);
   // THE SCALE NOTE FIRST, AND THAT IS A REVERSAL. It used to run second, so
   // that the fitter — which takes a disclosure's LAST note first — would take
   // it before the window note, on the reasoning that the window note explains

@@ -43,7 +43,7 @@ import {
   scorecardTitle,
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { buildBasis, priorColumnFootnote, ROUNDING_FOOTNOTES, statementFootnotes } from './packBasis';
+import { buildBasis, PACK_SCALE, priorColumnFootnote, ROUNDING_FOOTNOTES, statementFootnotes } from './packBasis';
 import { dayCountsMeasured, tradeBalancesFootnote } from './packTradeBalances';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
@@ -196,7 +196,22 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const { set, trend, generatedAt } = input;
   const draft = input.draftReasons.length > 0;
   const p = new PackFigureProvenance();
-  const basis = buildBasis(set, { generatedAt }, input.draftReasons, input.ledgerVersion, trend, p);
+  // THE PANELS BEFORE THE BASIS, because page 12's glossary states what the
+  // TRENDS page does with a measure and Brightsphere's trends page draws no
+  // debtor-days panel: its sheet 12 defined a variant that pack does not
+  // print. The definition is a claim about the document, so the document has
+  // to be asked.
+  //
+  // `PACK_SCALE` rather than `basis.numberConvention.scale`, which is not
+  // computed yet and IS this constant — `buildBasis` sets it from here. One
+  // call, not two: a second `buildTrendPanels` is a second answer to "which
+  // panels does this pack draw", and the whole point is that page 12 and page
+  // 10 give the same one.
+  const trendPanels = buildTrendPanels(trend, PACK_SCALE);
+  const basis = buildBasis(
+    set, { generatedAt }, input.draftReasons, input.ledgerVersion, trend, p,
+    new Set(trendPanels.panels.map((panel) => panel.id)),
+  );
   const { scale, currency } = basis.numberConvention;
 
   // The comparative is the window the PRIOR FIGURES were read over, and it
@@ -251,7 +266,6 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const score = scorecardScore(scorecard);
   const cashBridge = buildCashWaterfallChart(set, scale);
   const cashTrend = buildCashTrendChart(trend, scale);
-  const trendPanels = buildTrendPanels(trend, scale);
   // The panels themselves, for every reader that only needs the drawn list —
   // the page's cross-reference footnotes and the title's count. The scale
   // SPLIT (which of them share a y-domain) is read by `buildTrendBlocks`
@@ -263,7 +277,29 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // the figure for the WHOLE reporting period" printed under a Debtor days
   // row with nothing on it. Set only where the footnote is actually printed —
   // the panel it reciprocates is not drawn on every pack.
-  const debtorDaysFootnote = periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1);
+  // AND THE ROW THAT CARRIES A RED MISS CARRIES THE BASE CAVEAT WITH IT.
+  //
+  // Page 9 prints `Debtor days · 213 days · target 30 days · MISSED` in red,
+  // and page 4 says the ratio is taken on trade receivables of 59 — the
+  // control account — against an open customer subledger of 10 724, and to
+  // "read the day count as a measure of the control account, not of what
+  // customers owe". The pack scored a red miss against a base it disowns one
+  // page earlier, and this row's only footnote was about annualisation. The
+  // cross-reference ran one way.
+  //
+  // Fired on the SAME condition page 4's block is, by asking that builder, so
+  // the two cannot come apart; and carried inside the existing footnote,
+  // because sheet 9 has 2.77mm and a second one costs 3.88.
+  const debtorsBaseApplies = receivablesBaseNote(
+    input.receivables,
+    set.current.accountsReceivable,
+    scale,
+    ['both', 'debtorOnly'].includes(dayCountsMeasured(set)),
+  ) !== null;
+  const debtorDaysFootnote = periodWindowFootnotes(
+    panels, 'trend-debtor-days', 'Scorecard', 1,
+    debtorsBaseApplies ? ' On the control account, not the subledger.' : '',
+  );
   // AND PAGE 9'S PRIOR COLUMN CARRIES THE SAME NOTE THE OTHER THREE SHEETS DO.
   //
   // Pages 6, 7 and 8 mark their PRIOR heading and date the comparative; page
@@ -642,7 +678,36 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     (row) => row.label.toLowerCase() === 'current liabilities', statementNotes.length + 1,
   );
   const positionBlocks = buildPositionBlocks(positionTable, buildPositionCompositionChart(set, scale), set, scale);
-  const trendBlocks = buildTrendBlocks(trendPanels);
+  // WHICH DESTINATION CELLS ACTUALLY CARRY A COMPARATIVE, read off the tables
+  // and the scorecard this pack composed rather than off the figure set they
+  // came from. Page 10's note claims "all against the comparative but gross
+  // margin", and the demo pack's page 9 prints Debtor days PRIOR as `n/m` —
+  // the same state as gross margin's, and one the sentence did not name.
+  //
+  // A `PackFigure` whose `value` is null is a cell printing a reason instead
+  // of a number, which is exactly what "prints no comparative" means to a
+  // reader who turns to it.
+  const rowPrior = (table: PackTable, label: string): boolean => (
+    table.rows.find((r) => r.label.toLowerCase() === label)?.figures.prior?.value !== null
+      && table.rows.some((r) => r.label.toLowerCase() === label)
+  );
+  const printsComparative = (panelId: string): boolean => {
+    switch (panelId) {
+      case 'trend-revenue': return rowPrior(income, 'revenue');
+      case 'trend-operating-expenses': return rowPrior(income, 'operating expenses');
+      case 'trend-net-profit': return rowPrior(income, 'net profit');
+      case 'trend-cash': return rowPrior(cash, 'closing cash');
+      case 'trend-debtor-days':
+        return scorecard.some((g) => g.rows.some(
+          (r) => r.metric.toLowerCase() === 'debtor days' && r.prior?.value !== null && r.prior !== undefined,
+        ));
+      // Gross margin's exception is structural — page 6 carries no comparative
+      // column for the ratio at all — and `printsAgainstComparative` already
+      // states it, so this reading cannot make it worse or better.
+      default: return true;
+    }
+  };
+  const trendBlocks = buildTrendBlocks(trendPanels, printsComparative);
 
   const staleLedger = ledgerStalenessNote(input.ledgerVersion, trend, set.currentWindow.end);
   // WHICH RECEIVABLES BALANCE THE DAY COUNT IS TAKEN ON, read through the
@@ -824,8 +889,16 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // FROM this fit — so it is named by its constant.
   const fittedContents = fitContentsPage(
     contents!, [cover!, contents!, ...body].map((p2) => p2.navLabel).concat(BASIS_NAV_LABEL));
+  // AND HOW MANY BRIDGES THE COLOUR KEY IS ABOUT — counted off the composed
+  // body rather than assumed, because page 8's cash bridge is refused where
+  // there is nothing to bridge through and the demo pack draws one waterfall,
+  // under a key reading "On the bridges".
+  const bridgesDrawn = body
+    .flatMap((p2) => p2.blocks)
+    .filter((b) => b.kind === 'chart' && b.chart.kind === 'waterfall').length;
   const basisPage = buildBasisPage(
     basis, input.period, comparativePeriod, scale, currency, printedCaveats(fittedContents, basis),
+    bridgesDrawn,
   );
   const pages = numbered([
     cover!,

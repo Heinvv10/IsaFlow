@@ -320,6 +320,16 @@ export function buildBasis(
    *  FIGURES, and a figure on a page that no service issued is what the
    *  integrity gate exists to refuse. */
   p: PackFigureProvenance,
+  /**
+   * The trend panel ids this pack actually DRAWS.
+   *
+   * Page 12 defines what the trends page does with a measure, and
+   * Brightsphere's trends page draws no debtor-days panel — so its glossary
+   * defined a variant that pack does not print. A definition is a claim about
+   * the document; it has to be able to ask the document. Defaults to the full
+   * set so a caller that cannot say keeps the pack's general definitions.
+   */
+  drawnPanelIds: ReadonlySet<string> = new Set(['trend-debtor-days']),
 ): PackBasis {
   const caveats: string[] = [];
   if (set.current.classificationCaveat) caveats.push(set.current.classificationCaveat);
@@ -341,7 +351,7 @@ export function buildBasis(
       ledgerVersion: formatPackTimestamp(ledgerVersion ?? LEDGER_VERSION_UNAVAILABLE),
     },
     numberConvention: { scale: PACK_SCALE, currency: CURRENCY },
-    definitions: buildDefinitions(set, p),
+    definitions: buildDefinitions(set, p, drawnPanelIds),
     // A STATEMENT ABOUT THE WINDOW, so it rides on the Period fact rather
     // than becoming a fourth caveat — see `partialMonthBasisNote`.
     partialMonth: partialFor(trend),
