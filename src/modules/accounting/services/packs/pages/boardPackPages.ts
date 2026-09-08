@@ -58,6 +58,8 @@ import {
   TRENDS_PANELS_SPECIFIED,
 } from './packPageCharts';
 import {
+  anchorColumn,
+  anchorRow,
   buildCashTable,
   buildIncomeStatementTable,
   buildPositionTable,
@@ -122,6 +124,7 @@ import type { PackDraftReason } from './packDraftStatus';
 import type {
   PackChartSpec,
   PackComparativePeriod,
+  PackTable,
   PackNarrative,
   PackPageBlock,
   PackPagesDocument,
@@ -192,12 +195,39 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
           end: set.priorWindow.end,
         };
   const statementNotes = statementFootnotes(comparativePeriod, set.currentWindow);
+  // EVERY NUMBERED FOOTNOTE GETS THE SUPERSCRIPT IT PROMISES.
+  //
+  // The pack ran two footnote systems and only the lettered one worked: on
+  // the live demo pack TWELVE numbered notes printed at the feet of pages 5
+  // to 9 and not one had a marker anywhere on its sheet. Page 3's has always
+  // been anchored, through `PackKpiTile.trendFootnote`, which is what made
+  // the rest look deliberate.
+  //
+  // The numbers are fixed by `statementFootnotes`: 1 is the rounding note on
+  // every statement page and 2 is the prior column's period, present only
+  // where there IS a comparative. They are stamped here rather than in the
+  // table builders because the NUMBER is a property of the page, and
+  // `anchorRow` throws if the row it names is not there — an anchor that
+  // silently matches nothing is the defect this replaces.
+  const ROUNDING_FOOTNOTE = 1;
+  const PRIOR_COLUMN_FOOTNOTE = 2;
+  /** The rounding note belongs on the row a reader's addition lands on. */
+  const anchorRounding = (table: PackTable): PackTable => {
+    const last = [...table.rows].reverse()
+      .find((row) => row.role === 'total' || row.role === 'grandTotal');
+    return last === undefined ? table : anchorRow(table, (row) => row === last, ROUNDING_FOOTNOTE);
+  };
+  /** And the comparative's period belongs on the column heading that claims
+   *  it — the one thing in the pack a footnote is about that is not a row. */
+  const anchorPrior = (table: PackTable): PackTable => (
+    comparativePeriod === null ? table : anchorColumn(table, 'prior', PRIOR_COLUMN_FOOTNOTE)
+  );
 
   const tiles = buildHighlightTiles(set, trend, p);
-  const monthlyResults = buildMonthlyResultsTable(trend, p);
-  const income = buildIncomeStatementTable(set, p);
-  const position = buildPositionTable(set, p);
-  const cash = buildCashTable(set, p);
+  const monthlyResults = anchorRounding(buildMonthlyResultsTable(trend, p));
+  const income = anchorPrior(anchorRounding(buildIncomeStatementTable(set, p)));
+  const position = anchorPrior(anchorRounding(buildPositionTable(set, p)));
+  const cash = anchorPrior(anchorRounding(buildCashTable(set, p)));
   const scorecard = buildScorecardGroups(set, p);
   const score = scorecardScore(scorecard);
   const cashBridge = buildCashWaterfallChart(set, scale);
@@ -208,6 +238,21 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // SPLIT (which of them share a y-domain) is read by `buildTrendBlocks`
   // alone, off the one decision `buildTrendPanels` made.
   const panels = trendPanels.panels;
+  // PAGE 9'S ONE FOOTNOTE MARKS THE ROW IT IS ABOUT. `PackScorecardRow.footnote`
+  // is rendered by `ScorecardTable` and has been since the row model was
+  // written; the page simply never set it, so "Debtor days on this page … is
+  // the figure for the WHOLE reporting period" printed under a Debtor days
+  // row with nothing on it. Set only where the footnote is actually printed —
+  // the panel it reciprocates is not drawn on every pack.
+  const debtorDaysFootnote = periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1);
+  const scorecardWithDebtorDaysNote = debtorDaysFootnote.length === 0 ? scorecard : scorecard.map(
+    (group) => ({
+      ...group,
+      rows: group.rows.map((row) => (
+        row.metric.toLowerCase() === 'debtor days' ? { ...row, footnote: 1 } : row
+      )),
+    }),
+  );
   // PAGE 11'S OWN BLOCKS, BEFORE ITS TABLE — because the table's budget is
   // whatever they leave behind. ONE selection, read by page 4's panel and
   // page 11's table alike: derived twice, they contradicted each other. See
@@ -230,7 +275,9 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // infers from the branch it is written in — see `CREDIT_MONTH_STANDING`.
   const allMatters = withDerivedMatters(input.matters, trend, scale, set.current.netProfit);
   const mattersHeadline = mattersTitle(allMatters, scale);
-  const matters = selectPrintedMatters(allMatters, mattersBudgetMm(mattersSupport, mattersHeadline));
+  const matters = selectPrintedMatters(
+    allMatters, mattersBudgetMm(mattersSupport, mattersHeadline, allMatters),
+  );
 
   // Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
   // its delta and the basis that delta is measured against.
@@ -283,7 +330,17 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         note('The columns', 'Revenue is turnover; Other income is what the income statement '
           + 'reports separately. Expenses fall in three: Cost of sales; Operating, above the '
           + 'operating line; Other, below it. The two income columns less the three expense '
-          + 'columns are the month\'s net profit, so each row adds across.'),
+          + 'columns are the month\'s net profit, so each row adds across.',
+          // AND THE CLAIM CARRIES THE ROUNDING NOTE'S MARKER, because on the
+          // live demo pack it is FALSE on four of the twelve rows: Nov 2025
+          // reads 2 − 119 − 17 against a printed (133), and Mar, Jun and Aug
+          // are each one out the same way. Three of the six column totals are
+          // one out too. The page has always printed the rounding note — it
+          // is footnote 1 — and nothing on the sheet pointed at it, so an
+          // absolute claim stood unqualified on the table that disproves it.
+          // Marking the sentence is the whole fix: the arithmetic is right,
+          // the note is right, and the two were never joined.
+          ROUNDING_FOOTNOTE),
         // AND WHICH WINDOW THIS IS. The trend runs twelve months to the
         // reporting date and the pack's period is whatever was asked for; the
         // closing row states its own window, and this says why it is not the
@@ -402,8 +459,29 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // diverges, and it names that line, so the next footnote's number depends
     // on whether this one is there.
     const bridgeNote = bridgeSignFootnote(income, bridge, scale, statementNotes.length + 1);
+    // AND THE BRIDGE NOTE MARKS THE LINE IT WALKS THROUGH. It names one row —
+    // Cost of sales on the demo, Operating expenses on Brightsphere — and a
+    // reader looking at that row had nothing telling them the sentence at the
+    // page foot was about it.
+    const marginNumber = statementNotes.length + bridgeNote.footnotes.length + 1;
+    const marginNote = periodWindowFootnotes(
+      panels, 'trend-gross-margin', 'Income statement', marginNumber,
+    );
+    let incomeTable = income;
+    if (bridgeNote.anchor !== null) {
+      const anchor = bridgeNote.anchor.toLowerCase();
+      incomeTable = anchorRow(incomeTable,
+        (row) => row.label.toLowerCase() === anchor, statementNotes.length + 1);
+    }
+    // The gross-margin cross-reference is about gross margin, and Gross
+    // profit is the row it is computed from — the only row on this sheet the
+    // sentence could be marking.
+    if (marginNote.length > 0) {
+      incomeTable = anchorRow(incomeTable,
+        (row) => row.label.toLowerCase() === 'gross profit', marginNumber);
+    }
     return page(incomeStatementTitle(set, scale), 'Income statement', 'Financials', 'high', [
-      { kind: 'table', table: income },
+      { kind: 'table', table: incomeTable },
       { kind: 'chart', chart: bridge },
       commentary(largestMoverCaption(income.rows, scale)),
       // The same treatment page 7 gives negative assets. Brightsphere heads
@@ -415,8 +493,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       // page's FOOTNOTES, below — see `periodWindowFootnotes`.
     ], 'portrait', [
       ...statementNotes,
-      ...bridgeNote,
-      ...periodWindowFootnotes(panels, 'trend-gross-margin', 'Income statement', statementNotes.length + bridgeNote.length + 1),
+      ...bridgeNote.footnotes,
+      ...marginNote,
     ]);
   };
 
@@ -449,11 +527,21 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // The cash page is the one sheet carrying BOTH windows — the table's
     // period opening balance and the twelve-month line beneath it — and it
     // was the one page with no note saying so. See `cashWindowFootnotes`.
-    page(cashTitle(set, scale), 'Cash', 'Financials', 'high',
-      buildCashBlocks(cash, cashBridge, line, set, scale), 'portrait', [
-        ...statementNotes,
-        ...cashWindowFootnotes(trend, line !== null, statementNotes.length + 1),
-      ]);
+    (() => {
+      const windowNotes = cashWindowFootnotes(trend, line !== null, statementNotes.length + 1);
+      // "Opening cash in the table above is the balance at the START of the
+      // reporting period" — printed under a table whose Opening cash row
+      // carried no marker at all, which is the sharpest of the twelve
+      // unanchored notes because the sentence names the row out loud.
+      const table = windowNotes.length === 0 ? cash : anchorRow(
+        cash, (row) => row.label.toLowerCase() === 'opening cash', statementNotes.length + 1,
+      );
+      return page(cashTitle(set, scale), 'Cash', 'Financials', 'high',
+        buildCashBlocks(table, cashBridge, line, set, scale), 'portrait', [
+          ...statementNotes,
+          ...windowNotes,
+        ]);
+    })();
 
   let cashLine = cashTrend;
   let cashPage = cashSheet(cashLine);
@@ -464,7 +552,19 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     cashPage = cashSheet(cashLine);
   }
 
-  const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
+  // PAGE 7'S MEMORANDUM MARKS THE TWO ROWS ITS BALANCES SIT INSIDE. Trade
+  // receivables and trade payables are not rows of this table — they are the
+  // splits a reader has to be given because the day counts on pages 3 and 9
+  // are taken on them — so the marker goes on Current assets and Current
+  // liabilities, which is where those balances are. It is the one numbered
+  // footnote whose subject is a figure the sheet does not print, and marking
+  // the rows that contain it is the closest thing to an anchor that is true.
+  const positionTable = anchorRow(
+    anchorRow(position, (row) => row.label.toLowerCase() === 'current assets',
+      statementNotes.length + 1),
+    (row) => row.label.toLowerCase() === 'current liabilities', statementNotes.length + 1,
+  );
+  const positionBlocks = buildPositionBlocks(positionTable, buildPositionCompositionChart(set, scale), set, scale);
   const trendBlocks = buildTrendBlocks(trendPanels);
 
   const staleLedger = ledgerStalenessNote(input.ledgerVersion, trend, set.currentWindow.end);
@@ -542,7 +642,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     ]),
     cashPage,
     page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
-      { kind: 'scorecard', groups: scorecard },
+      { kind: 'scorecard', groups: scorecardWithDebtorDaysNote },
       commentary(scorecardCaption(scorecard)),
       // ONE note, not two. "Targets" and "Not meaningful" were definitions,
       // and they now sit with the other sixteen on the basis page — this page
@@ -578,7 +678,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       disclose('Scoring basis', [
         note('Definitions', 'Each metric is scored against the platform\'s default target. A target on a metric the figures cannot support is not counted as scored; the basis page defines the terms and every formula used here.'),
       ]),
-    ], 'portrait', periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1)),
+    ], 'portrait', debtorDaysFootnote),
     // PORTRAIT, like the other eleven. This was the one landscape sheet in
     // the pack — six panels three across needed the width — and printed and
     // bound it was the sheet a director had to turn. Two across at 83mm fits

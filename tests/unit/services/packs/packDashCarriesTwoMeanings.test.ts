@@ -82,3 +82,43 @@ describe('the second meaning is really on the paper', () => {
     }
   });
 });
+
+/**
+ * THE BRACKET RULE CARVED OUT NO PROSE EXCEPTION, AND THE PROSE IS RIGHT.
+ *
+ * Page 12 said negatives print "in brackets — (12 345) — for currency,
+ * percentages and ratios alike. No minus sign is used anywhere in this pack."
+ * The derived sentences print "Operating margin is a negative 1522.9%": no
+ * bracket and no minus. Both are deliberate — `pctWithWord` names the
+ * direction in WORDS because two captions once printed a bare magnitude above
+ * a table reading the negative of it — so the rule had to admit the practice
+ * rather than the practice change.
+ */
+describe('page 12 states how a negative reads in prose as well as in a table', () => {
+  it.each(FIXTURES)('%s', (unusedName, input) => {
+    const negatives = definitions(input).find((t) => t.term === 'Negative figures')!;
+    expect(negatives.definition).toMatch(/in prose, in words/);
+    // The bracket rule itself is untouched, and still names all three kinds.
+    expect(negatives.definition).toMatch(/In brackets/);
+    for (const kind of ['currency', 'percentages', 'ratios']) {
+      expect(negatives.definition).toContain(kind);
+    }
+    expect(negatives.definition).toMatch(/No minus sign is used anywhere in this pack/);
+  });
+
+  it('and the prose the exception is about is really there', () => {
+    // Anti-vacuity: a carve-out for a practice the pack had abandoned would
+    // be a rule about nothing.
+    const prose: string[] = [];
+    for (const page of buildBoardPackPages(liveDemoRenderedInput).pages) {
+      prose.push(page.title);
+      for (const block of page.blocks) {
+        if (block.kind === 'disclosure') prose.push(...block.disclosure.notes.map((n) => n.body));
+        if (block.kind === 'narrative' && block.narrative.body !== null) {
+          prose.push(block.narrative.body);
+        }
+      }
+    }
+    expect(prose.join(' ')).toMatch(/a negative \d/);
+  });
+});

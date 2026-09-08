@@ -193,8 +193,15 @@ describe('board pack page 11, the matters table', () => {
     // where several matters share a value, and the demo pack carries one.
     const { container } = render(<PackPagesView document={buildBoardPackPages(liveDemoInput)} />);
     await act(async () => {});
+    // SCOPED TO THE COLLAPSED-COLUMN LIST. Page 11 now renders a SECOND
+    // `.pack-table-notes` list — the lettered reason under the QUANTUM
+    // column's `n/m`, which was the one not-meaningful figure in the pack
+    // that carried none. That list is a different thing and reads "n/m —
+    // <reason>", so the uniform-column assertion below is taken on the notes
+    // that actually collapse a column.
     const notes = [...container.querySelectorAll('#pack-page-11 .pack-table-notes dd')]
-      .map((dd) => dd.textContent ?? '');
+      .map((dd) => dd.textContent ?? '')
+      .filter((text) => !text.startsWith('n/m —'));
 
     expect(notes.length).toBeGreaterThan(0);
     for (const note of notes) {
@@ -212,7 +219,12 @@ describe('board pack page 11, the matters table', () => {
     const { container } = render(<PackPagesView document={buildBoardPackPages(brightsphereInput)} />);
     const cells = [...container.querySelectorAll('.pack-matters tbody td')]
       .map((td) => td.textContent);
-    expect(cells[1]).toBe('n/m');
+    // `n/m` FOLLOWED BY ITS LETTERED MARK. The cell used to read a bare
+    // `n/m`, which is the pack's convention broken in the one place it was
+    // broken: every other not-meaningful figure carries a superscript to its
+    // reason. `startsWith` rather than equality, because the mark is the
+    // point.
+    expect(cells[1]).toMatch(/^n\/m[a-z]?$/);
   });
 });
 

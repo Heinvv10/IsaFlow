@@ -125,11 +125,24 @@ describe('sheet 11 spends its prose budget on matters', () => {
     const doc = buildBoardPackPages(liveDemoRenderedInput);
     const page = pageNamed(doc.pages, 'Matters for the board');
     const table = page.blocks.find((b) => b.kind === 'matters')!;
-    // Seven, not six. Restoring the two-note block takes this to six and the
-    // omitted count below to 23.
+    // SIX, AND THE SEVENTH WAS SPENT DELIBERATELY. This asserted seven, and
+    // the row that has gone bought the lettered reason under the QUANTUM
+    // column's `n/m` — the one not-meaningful figure in the pack carrying
+    // none, on both companies. The note is reserved in `mattersBudgetMm`
+    // rather than discovered by `fitPageToBox`, which is the difference
+    // between a page that prints one fewer matter and a page that apologises
+    // for its own layout; charging for it without reserving it dropped the
+    // "What was checked" disclosure instead.
+    //
+    // It could not be paid for in prose: the reserve is a whole line of the
+    // notes list either way, and shortening the reason itself does not bring
+    // the row back (measured, both a 46-character and a 95-character
+    // wording). What is still true is the rule this test exists for — prose
+    // on this page is paid for in matters rows, so a fourth line of the
+    // support block would cost a SECOND one.
     expect(table.kind === 'matters' ? table.matters.length : 0,
-      'sheet 11 prints fewer matters than its paper allows').toBe(7);
-    expect(table.kind === 'matters' ? table.omitted?.count ?? 0 : 0).toBe(22);
+      'sheet 11 prints fewer matters than its paper allows').toBe(6);
+    expect(table.kind === 'matters' ? table.omitted?.count ?? 0 : 0).toBe(23);
     // AND THE MATTER THAT CAME BACK CARRIES A RAND AMOUNT — the point of the
     // row is that real exposure is on the page rather than summarised in the
     // tail.

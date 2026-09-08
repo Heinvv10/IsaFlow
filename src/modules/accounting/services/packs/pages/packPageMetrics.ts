@@ -129,7 +129,22 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
     }
     case 'matters': {
       // See `mattersTableMm` for why a row costs its longest cell.
+      //
+      // AND THE LETTERED n/m REASONS UNDER IT, WHICH THIS DID NOT CHARGE FOR
+      // AND WHICH THE TABLE NOW PRINTS. The QUANTUM column's `n/m` was the
+      // one not-meaningful figure in the pack with no lettered reason;
+      // `MattersTable` renders `NotMeaningfulNotes` for it like every other
+      // table, and the moment it did, `manyLongNullQuantumMatters` — the
+      // fixture that exists because page 11 once spilled — went to thirteen
+      // sheets. A block whose renderer draws something this function does not
+      // measure is exactly how the three overflows `packTextMetrics` was
+      // written for happened. Measured through the same
+      // `notMeaningfulNotesMm` the statement and scorecard blocks use.
+      const quanta = block.matters.map((m) => m.quantum);
       return mattersTableMm(block.matters)
+        + notMeaningfulNotesMm(
+          block.omitted === null ? quanta : [...quanta, block.omitted.quantum], width,
+        )
         + (block.omitted === null ? 0 : MATTERS_OMITTED_NOTE_MM);
     }
     case 'statTiles':

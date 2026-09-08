@@ -32,7 +32,7 @@ import {
   demoInput,
   demoSet,
 } from './fixtures/boardPackInputs';
-import { liveDemoRenderedInput } from './fixtures/liveDemoBoardPack';
+import { liveDemoRenderedInput, liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
 import { MATTERS_NAV_LABEL } from '@/modules/accounting/services/packs/pages/packMattersPage';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
@@ -302,11 +302,29 @@ describe('the reconciliation states what the difference consists of', () => {
     // 4 476 and nothing on the sheet accounts for the 19.
     expect(body()).toMatch(figure('4 165'));
     expect(body()).toMatch(/documents with no due date, which reach no aging bucket/);
-    expect(body()).toMatch(figure('4 494'));
     // And the arithmetic closes: the items sum to the gap they are said to
     // decompose, on the figures as printed.
     const gap = LIVE.subledgerTotal! - LIVE.controlBalance!;
     expect(ITEMS.reduce((s, i) => s + i.amount, 0)).toBeCloseTo(gap, 2);
+  });
+
+  it('prints no difference figure its own components cannot reach', () => {
+    // It stated "Of the 4 494 between that subledger and the control
+    // account, 4 175 … and 320 …" — and 4 175 + 320 is 4 495. Both were
+    // right: the raw components sum to the raw gap exactly, and the two
+    // components each round UP while the gap rounds down. A stated total its
+    // own components do not add to is the one thing this sheet exists not to
+    // do, on the round whose whole subject is two figures that must add up.
+    //
+    // So no gap figure is printed, and every relation on the block closes on
+    // its face instead: 4 146 against (330) is the stated 4 476; 4 146 plus
+    // 19 is the stated subledger of 4 165; and 4 165 against (330) is 4 495,
+    // which is what the two components add to.
+    const text = body();
+    expect(text).not.toMatch(figure('4 494'));
+    const printed = (n: number) => Math.round(n / 1_000);
+    expect(ITEMS.reduce((s, i) => s + printed(i.amount), 0))
+      .toBe(printed(LIVE.subledgerTotal!) - printed(LIVE.controlBalance!));
   });
 
   it('drops the aging leg where every document can be aged', () => {
@@ -458,5 +476,117 @@ describe('the debtors-base note reaches the page a board reads first', () => {
       expect(page.footnotes.some((f) => f.text.startsWith(OMISSION_MARK)),
         'page 4 apologised for its layout').toBe(false);
     }
+  });
+});
+
+/**
+ * THE ONE n/m IN THE PACK THAT CARRIED NO LETTERED REASON.
+ *
+ * Page 11's QUANTUM column prints `n/m` on every matter with no single rand
+ * amount — the overdue AFS filings, on both companies — and the reason was
+ * attached to the figure all along. `MattersTable` never collected it, so the
+ * pack's own convention ("the reason is always one lettered mark away") held
+ * everywhere except the governance page.
+ */
+describe('the matters page\'s n/m carries its reason like every other', () => {
+  it('attaches a reason to every unquantified matter, on both companies', () => {
+    for (const input of [liveDemoShortPanelsInput, brightsphereReceivablesGapInput]) {
+      const page = buildBoardPackPages(input).pages
+        .find((p) => p.navLabel === MATTERS_NAV_LABEL)!;
+      const block = page.blocks.find((b) => b.kind === 'matters')!;
+      const rows = block.kind === 'matters' ? block.matters : [];
+      const unquantified = rows.filter((m) => m.quantum.value === null);
+      expect(unquantified.length, 'no unquantified matter prints on this pack')
+        .toBeGreaterThan(0);
+      for (const matter of unquantified) {
+        expect(matter.quantum.unavailable,
+          'an n/m with no reason, on the one page that had them').toBeTruthy();
+      }
+    }
+  });
+
+  it('and the page reserves the paper that note takes', () => {
+    // Charging for the note without reserving it took page 11 of the live
+    // demo pack over its box, and `fitPageToBox` paid by dropping the "What
+    // was checked" disclosure — the page acquired a reason for its n/m and
+    // apologised for its own layout in the same breath.
+    for (const input of [liveDemoShortPanelsInput, brightsphereReceivablesGapInput]) {
+      const page = buildBoardPackPages(input).pages
+        .find((p) => p.navLabel === MATTERS_NAV_LABEL)!;
+      expect(page.footnotes.some((f) => f.text.startsWith(OMISSION_MARK)),
+        'page 11 apologised for its layout').toBe(false);
+      expect(page.blocks.some((b) => b.kind === 'disclosure'
+        && b.disclosure.heading === 'What was checked'),
+      'page 11 dropped the disclosure that answers what was checked').toBe(true);
+    }
+  });
+});
+
+/**
+ * K1 — TWO CORRECT RULINGS THAT COLLIDED.
+ *
+ * The debtors-base note fires wherever debtor days is measured and the two
+ * readings differ; page 11's reconciliation fires only where a sheet PRINTS
+ * an aged debtors total. On the demo those conditions come apart, and page 4
+ * said "the matters page sets out what the difference consists of" over a
+ * matters page carrying no such section. A pointer to a page that does not
+ * carry the thing is the defect a director catches live in the meeting.
+ */
+describe('the debtors-base note points at page 11 only where page 11 carries it', () => {
+  const baseNote = (input: BoardPackInput): string => {
+    const page = buildBoardPackPages(input).pages
+      .find((p) => p.navLabel === 'Commentary and actions')!;
+    return page.blocks
+      .filter((b) => b.kind === 'disclosure' && b.disclosure.heading === RECEIVABLES_BASE_HEADING)
+      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes.map((n) => n.body) : []))
+      .join(' ');
+  };
+
+  it('makes no cross-reference on a pack whose matters page has no reconciliation', () => {
+    const text = baseNote(liveDemoShortPanelsInput);
+    expect(text, 'the demo pack stopped stating its debtors base').not.toBe('');
+    expect(text).not.toMatch(/matters page/);
+    // The clause was redundant there anyway: this note states both figures.
+    expect(text).toMatch(figure('10 724'));
+    // And the page it would have pointed at really does not carry it.
+    const matters = buildBoardPackPages(liveDemoShortPanelsInput).pages
+      .find((p) => p.navLabel === MATTERS_NAV_LABEL)!;
+    expect(matters.blocks.some((b) => b.kind === 'disclosure'
+      && b.disclosure.heading === RECEIVABLES_RECONCILIATION_HEADING)).toBe(false);
+  });
+
+  it('makes the cross-reference where the matters page does carry it', () => {
+    // Brightsphere prints an aged debtors total, so page 11 reconciles the
+    // two figures and the pointer resolves. Same note, opposite company.
+    const withGap: BoardPackInput = {
+      ...brightsphereReceivablesGapInput,
+      set: {
+        ...brightsphereReceivablesGapInput.set,
+        current: { ...brightsphereReceivablesGapInput.set.current, revenue: 5_000_000 },
+      },
+    };
+    const text = baseNote(withGap);
+    if (text === '') return; // debtor days not measurable on this shape
+    expect(text).toMatch(/matters page sets out what the difference consists of/);
+    const matters = buildBoardPackPages(withGap).pages.find((p) => p.navLabel === MATTERS_NAV_LABEL)!;
+    expect(matters.blocks.some((b) => b.kind === 'disclosure'
+      && b.disclosure.heading === RECEIVABLES_RECONCILIATION_HEADING)).toBe(true);
+  });
+
+  it('the pointer tracks the page, not the company', () => {
+    // The condition read straight off the model, so the two can never come
+    // apart again: the clause is present exactly when an aged debtors total
+    // is, which is exactly when page 11 reconciles.
+    const withTotal = receivablesBaseNote(
+      { agedDebtorsTotal: 4_145_971.5, subledgerTotal: 4_164_721.5, controlBalance: -329_700, items: [], unexplained: 0 },
+      -329_700, PACK_SCALE, true,
+    );
+    const without = receivablesBaseNote(
+      { agedDebtorsTotal: null, subledgerTotal: 10_724_260.43, controlBalance: 59_240, items: [], unexplained: 0 },
+      59_240, PACK_SCALE, true,
+    );
+    const body = (b: typeof withTotal) => (b?.kind === 'disclosure' ? b.disclosure.notes[0]!.body : '');
+    expect(body(withTotal)).toMatch(/matters page/);
+    expect(body(without)).not.toMatch(/matters page/);
   });
 });

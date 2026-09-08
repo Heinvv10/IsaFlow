@@ -136,6 +136,22 @@ export interface PackTableRow {
   /** One figure per column this row has a value for — a subtotal row may
    *  carry only `actual` and `prior`, never a synthesised `change`. */
   figures: Partial<Record<PackTableColumnKey, PackFigure>>;
+  /**
+   * Index into the page's numbered `footnotes`, where one is ABOUT this row.
+   *
+   * The pack ran two footnote systems and only the lettered one worked. The
+   * `n/m` marks have always pointed at their reasons; the NUMBERED footnotes
+   * at the foot of pages 5 to 9 pointed at nothing — twelve of them on the
+   * demo pack, every one unanchored, including "Opening cash in the table
+   * above is the balance at the START of the reporting period" printed under
+   * a table whose Opening cash row carried no marker. A numbered note with no
+   * superscript is a promise the page does not keep, and it is the same
+   * defect the pack twice fixed by DELETING an orphan footnote.
+   *
+   * Same shape and name as `PackScorecardRow.footnote`, which page 9 has
+   * always used correctly, so there is one convention rather than two.
+   */
+  footnote?: number;
 }
 
 /**
@@ -146,6 +162,13 @@ export interface PackTableRow {
  * that keeps its own copy of the labels is a gate that passes a table printing
  * something else.
  */
+/** A numbered footnote anchored to a column heading — see
+ *  `PackTable.columnNotes`. */
+export interface PackTableColumnNote {
+  column: PackTableColumnKey;
+  footnote: number;
+}
+
 export const PACK_TABLE_COLUMN_LABEL: Record<PackTableColumnKey, string> = {
   actual: 'Actual',
   prior: 'Prior',
@@ -171,6 +194,16 @@ export interface PackTable {
   scale: string;
   columns: readonly PackTableColumnKey[];
   rows: PackTableRow[];
+  /**
+   * Numbered footnotes anchored to a COLUMN HEADER rather than to a row.
+   *
+   * "The prior column is the period 26 April 2025 to 31 December 2025 — 250
+   * days" is a statement about a column, and there is no row to hang it on:
+   * it qualifies every cell under one heading. Anchoring it to the heading is
+   * what the sentence already claims in words, and it is the only one of the
+   * numbered footnotes whose subject is not a row or a note.
+   */
+  columnNotes?: readonly PackTableColumnNote[];
 }
 
 export type PackScorecardStatus = 'met' | 'missed' | 'notMeaningful' | 'unscored';

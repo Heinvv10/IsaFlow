@@ -13,6 +13,9 @@ import { mattersExposure, omittedQuantum, type SelectedMatters } from './packMat
 import { matterSourcesInWords } from './packDerivedMatters';
 import { remainingPageMm } from './packPageFit';
 import { MATTERS_OMITTED_NOTE_MM } from './packPageMetrics';
+import { notMeaningfulNotesMm } from './packBlockHeights';
+import { PAGE_WIDTH_MM } from './packTextMetrics';
+import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackMatter } from './packMatters';
 import { formatMoney, inScale, type MoneyScale } from '@/lib/format/money';
@@ -200,9 +203,42 @@ export function buildMattersSupportBlocks(
  * discovered: the probe below carries an empty table, and the moment the
  * selection leaves a matter out the block grows that note.
  */
-export function mattersBudgetMm(support: PackPageBlock[], title: string): number {
+export function mattersBudgetMm(
+  support: PackPageBlock[],
+  title: string,
+  /** Every matter the page could print, printed or not — see
+   *  `quantumNoteReserve`. */
+  allMatters: readonly PackMatter[] = [],
+): number {
   return remainingPageMm(page(title, MATTERS_NAV_LABEL, 'Governance', 'medium', [
     { kind: 'matters', matters: [], omitted: null },
     ...support,
-  ])) - MATTERS_OMITTED_NOTE_MM;
+  ])) - MATTERS_OMITTED_NOTE_MM - quantumNoteReserve(allMatters);
+}
+
+/**
+ * PAPER FOR THE LETTERED REASON UNDER THE QUANTUM COLUMN, RESERVED RATHER
+ * THAN DISCOVERED.
+ *
+ * The QUANTUM column's `n/m` was the one not-meaningful figure in the pack
+ * carrying no lettered reason, and `MattersTable` now prints one — through
+ * the same `NotMeaningfulNotes` every other table uses. The moment it did,
+ * page 11 of the live demo pack went over its box and `fitPageToBox` paid for
+ * the note by dropping the "What was checked" disclosure: the page acquired a
+ * reason for its n/m and apologised for its own layout in the same breath.
+ *
+ * The probe in `mattersBudgetMm` measures an EMPTY table, so it cannot see a
+ * note whose existence depends on which matters the selection goes on to
+ * make. Reserved the same way `MATTERS_OMITTED_NOTE_MM` is, and for the same
+ * reason: a block the selection will grow has to be paid for before the
+ * selection runs, not after.
+ *
+ * Reserved only where a matter with no rand amount EXISTS — a pack whose
+ * every matter is quantified prints no such note, and charging it for one
+ * would cost a row to reserve nothing.
+ */
+function quantumNoteReserve(allMatters: readonly PackMatter[]): number {
+  if (!allMatters.some((matter) => matter.quantum === null)) return 0;
+  return notMeaningfulNotesMm([{ value: null, unavailable: NO_QUANTUM } as PackFigure],
+    PAGE_WIDTH_MM.portrait);
 }

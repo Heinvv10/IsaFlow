@@ -267,7 +267,6 @@ function decomposition(
       + `${money(subledgerTotal)}, the ${money(unageable)} between them documents with no due `
       + 'date, which reach no aging bucket.';
 
-  const gap = round2(subledgerTotal - controlBalance);
   // "4 175 open documents carrying no link to a journal entry" reads as a
   // COUNT of documents, and the first draft printed exactly that. The amount
   // and the population are two different facts and the row is worth more
@@ -283,8 +282,25 @@ function decomposition(
   const list = clauses.length === 1
     ? clauses[0]!
     : `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]!}`;
-  return `${legOne} Of the ${money(gap)} between that subledger and the trade-receivable `
-    + `control account in the general ledger, ${list}.`;
+  // THE DIFFERENCE IS NOT PRINTED AS A FIGURE, AND THAT IS THE ROUNDING TRAP
+  // RATHER THAN A SHORTENING.
+  //
+  // It read "Of the 4 494 between that subledger and the control account,
+  // 4 175 … and 320 …" — and 4 175 + 320 is 4 495. Both are right: the raw
+  // components sum to the raw gap exactly (the service closes to nothing
+  // unexplained), and 4 174 721.50 and 319 700 each round UP while
+  // 4 494 421.50 rounds down. A stated total its own components do not reach
+  // is the one thing this sheet exists to not do.
+  //
+  // Printing no total makes every relation on the block close on its face:
+  // the headline is 4 146 against (330), a difference of 4 476 — exact; the
+  // first leg is 4 146 plus 19 into a subledger of 4 165 — exact; and a
+  // reader taking 4 165 against (330) gets 4 495, which is what the two
+  // components add to. The alternative was a rounding footnote on the one
+  // page in the pack whose paper is measured in matters rows, to explain a
+  // discrepancy that need not be printed at all.
+  return `${legOne} Between that subledger and the trade-receivable control account in the `
+    + `general ledger: ${list}.`;
 }
 
 /** The heading page 4's debtors-base disclosure prints under. */
@@ -348,6 +364,24 @@ export function receivablesBaseNote(
   if (Math.round(round2(subledgerTotal - tradeReceivables) / MONEY_SCALES[scale]) === 0) return null;
 
   const money = (n: number) => inProse(formatMoney(n, { scale }));
+  // THE POINTER EXISTS ONLY WHERE THE PAGE IT POINTS AT CARRIES THE THING.
+  //
+  // This note fires wherever debtor days is measured and the two readings
+  // differ; page 11's reconciliation fires only where a sheet PRINTS an aged
+  // debtors total. On the demo those two conditions come apart: page 4 said
+  // "the matters page sets out what the difference consists of" and the demo's
+  // matters page carries no such section, because its largest debtor is under
+  // the concentration threshold and no aged total is printed anywhere. A
+  // pointer to a page that does not carry the thing is the defect a director
+  // catches live in the meeting, and it was introduced by two correct rulings
+  // meeting each other.
+  //
+  // Narrowed rather than reversed: the clause is redundant on the demo anyway,
+  // because this note states BOTH figures itself. Where page 11 does carry the
+  // reconciliation — Brightsphere — the pointer is worth having and prints.
+  const pointer = read.agedDebtorsTotal === null
+    ? ''
+    : ' — the matters page sets out what the difference consists of —';
   return mustDisclose(RECEIVABLES_BASE_HEADING, [
     note('The base',
       inScale(
@@ -357,9 +391,8 @@ export function receivablesBaseNote(
         + `same date is ${money(subledgerTotal)}`,
         scale,
       )
-      + '. The two are not reconciled — the matters page sets out what the difference consists '
-      + 'of where the pack states a debtors total — and this pack does not recompute the ratio '
-      + 'on the other base. Read the day count as a measure of the control account, not of what '
+      + `. The two are not reconciled${pointer} and this pack does not recompute the ratio on `
+      + 'the other base. Read the day count as a measure of the control account, not of what '
       + 'customers owe.'),
   ]);
 }

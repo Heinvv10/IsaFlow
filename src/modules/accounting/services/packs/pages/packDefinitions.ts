@@ -170,7 +170,21 @@ const TERMS: PackDefinition[] = [
     // carries the exclusion in one word, and the entry is three lines as it
     // was; the minus-sign claim beside it is untouched.
     term: 'Negative figures',
-    definition: 'In brackets — (12 345) — for currency, percentages and ratios alike. No minus sign is used anywhere in this pack. Only a positive value takes a +.',
+    // AND THE RULE CARVES OUT THE PROSE, WHICH DOES NOT USE BRACKETS AND WAS
+    // NOT MEANT TO. The pack's derived sentences print "Operating margin is a
+    // negative 1522.9%" — no bracket and no minus — under a rule saying
+    // negatives are bracketed, for currency, percentages and ratios alike.
+    // Both are deliberate: `pctWithWord` names the direction in WORDS because
+    // two captions once printed a bare magnitude above a table reading the
+    // negative of it, and a bracketed percentage inside a sentence reads as
+    // an aside rather than a sign. What was missing is the rule admitting it.
+    //
+    // "alike" pays for the clause and the entry does not move: this one has
+    // between sixteen and eighteen characters of wrap on `liveDemoBridge`,
+    // page 12 composes at 252.41mm of 255 before and after, and at nineteen
+    // the fitter drops the Colour key. All three kinds are still listed, so
+    // nothing the word emphasised has gone.
+    definition: 'In brackets — (12 345) — for currency, percentages and ratios; in prose, in words. No minus sign is used anywhere in this pack. Only a positive value takes a +.',
   },
   {
     // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatMoney`

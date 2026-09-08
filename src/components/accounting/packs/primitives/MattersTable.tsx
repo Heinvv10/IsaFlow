@@ -27,6 +27,7 @@
 import { formatMoney, inScale, type MoneyScale } from '@/lib/format/money';
 import { mattersColumnPercents } from '@/modules/accounting/services/packs/pages/packMattersColumns';
 import type { PackFigure } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
+import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
 import type { PackMatterFigure } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface MattersTableProps {
@@ -82,6 +83,19 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
   const isLong = matters.length > ZEBRA_ROW_THRESHOLD;
   const uniform = uniformColumns(matters);
   const columns = PROSE_COLUMNS.filter((c) => !uniform.includes(c.key));
+  // THE ONE n/m IN THE PACK THAT CARRIED NO LETTERED REASON.
+  //
+  // The QUANTUM column prints `n/m` on every matter with no single rand
+  // amount — the overdue AFS filings, on both companies — and the reason was
+  // attached to the figure all along (`NO_QUANTUM`, through
+  // `PackFigureProvenance.figure`). This renderer simply never collected it,
+  // so page 11 printed a bare `n/m` under a pack whose stated convention is
+  // that the reason is always one lettered mark away, and every other n/m in
+  // the document honours it. `collectReasons` and `NotMeaningfulNotes` are
+  // the same two primitives `ComparativeTable` uses, so the mark, the letter
+  // sequence and the note list are the pack's, not a second rendering of
+  // them.
+  const reasons = collectReasons(matters.map((m) => m.quantum).concat(omitted?.quantum ?? []));
 
   return (
     <>
@@ -123,7 +137,11 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
                 * measured zero as an en dash and page 12 now defines it that
                 * way. A quantum that does not exist is the pack's other
                 * convention, which page 12 also defines. */}
-              <td>{matter.quantum.value === null ? 'n/m' : formatMoney(matter.quantum.value, { scale })}</td>
+              <td>
+                {matter.quantum.value === null
+                  ? <NotMeaningfulCell figure={matter.quantum} reasons={reasons} />
+                  : formatMoney(matter.quantum.value, { scale })}
+              </td>
               {columns.map((c) => <td key={c.key}>{matter[c.key]}</td>)}
             </tr>
           ))}
@@ -160,6 +178,7 @@ export function MattersTable({ matters, omitted, scale }: MattersTableProps) {
             : `In total they come to ${inScale(formatMoney(omitted.quantum.value, { scale }), scale)}.`}
         </p>
       )}
+      <NotMeaningfulNotes reasons={reasons} />
       {uniform.length > 0 && (
         <dl className="pack-table-notes">
           {PROSE_COLUMNS.filter((c) => uniform.includes(c.key)).map((c) => (

@@ -694,6 +694,21 @@ export const brightsphereReceivablesGapInput: BoardPackInput = {
   ...brightsphereLiveInput,
   matters: [
     {
+      // THE UNQUANTIFIED ROW THE LIVE PACK PRINTS FIRST. `selectPrintedMatters`
+      // orders matters with no single rand amount ahead of the largest by
+      // exposure, so this is row one of the live client's page 11 — and it is
+      // the row whose QUANTUM cell prints `n/m`. Without it no fixture could
+      // reach the lettered reason under that column, which is the defect
+      // `MattersTable` carried until it collected reasons like every other
+      // table in the pack.
+      kind: 'finding',
+      issue: 'Annual Financial Statements for FY2026: 10 days overdue (due 28 August 2026)',
+      quantum: null,
+      owner: 'Company secretary',
+      movement: 'Not tracked — no prior board pack is stored to compare against.',
+      decisionRequired: BOARD_DECISIONS.overdueFiling,
+    },
+    {
       kind: 'finding',
       issue: "Aged debtor concentration: Blitz Fibre owes 3 192, 77.0% of all debtors owed on the aged debtors report, which come to 4 146, in R'000",
       quantum: 3_191_824,

@@ -11,6 +11,7 @@
  */
 import { formatFigureText } from './packFigureText';
 import { collectReasons, NotMeaningfulCell, NotMeaningfulNotes } from './notMeaningfulNotes';
+import { FootnoteMarker } from './FootnoteMarker';
 import type { MoneyScale } from '@/lib/format/money';
 import { PACK_TABLE_COLUMN_LABEL } from '@/modules/accounting/services/packs/pages/packBlockModel';
 import type {
@@ -46,6 +47,12 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
     table.rows.some((row) => row.figures[col] !== undefined),
   );
   const isLong = table.rows.length > ZEBRA_ROW_THRESHOLD;
+  // THE NUMBERED FOOTNOTES GET THEIR SUPERSCRIPTS HERE, and until now this
+  // table drew none — the pack's whole numbered series pointed at nothing on
+  // pages 5 to 8. Same primitive `ScorecardTable` has always used for the
+  // same purpose, so the two tables mark a footnote identically.
+  const columnNote = (col: PackTableColumnKey): number | null =>
+    table.columnNotes?.find((n) => n.column === col)?.footnote ?? null;
   const notes = collectReasons(table.rows.flatMap((row) => columns.map((col) => row.figures[col])));
 
   /**
@@ -84,14 +91,20 @@ export function ComparativeTable({ table, scale }: ComparativeTableProps) {
         <tr>
           <th />
           {columns.map((col) => (
-            <th key={col}>{PACK_TABLE_COLUMN_LABEL[col]}</th>
+            <th key={col}>
+              {PACK_TABLE_COLUMN_LABEL[col]}
+              <FootnoteMarker number={columnNote(col)} />
+            </th>
           ))}
         </tr>
       </thead>
       <tbody>
         {table.rows.map((row, index) => (
           <tr key={`${row.label}-${index}`} className={ROW_ROLE_CLASS[row.role]}>
-            <td style={{ paddingLeft: `${row.level * INDENT_MM_PER_LEVEL}mm` }}>{row.label}</td>
+            <td style={{ paddingLeft: `${row.level * INDENT_MM_PER_LEVEL}mm` }}>
+              {row.label}
+              <FootnoteMarker number={row.footnote ?? null} />
+            </td>
             {columns.map((col) => (
               <td key={col}>{cell(row, col)}</td>
             ))}

@@ -321,8 +321,61 @@ export function buildCashTable(set: PackFigureSet, p: PackFigureProvenance): Pac
         + 'no earlier opening cash balance to measure this one against.',
     },
     { label: 'Operating cash flow', key: 'cash.operating', source: 'packFigureSet.current.operatingCashFlow', actual: current.operatingCashFlow ?? null, prior: prior?.operatingCashFlow ?? null, unavailable: 'No operating cash flow figure was captured for this period.' },
-    { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null, unavailable: 'No capital expenditure figure was captured for this period.' },
+    { label: 'Investing cash flow', key: 'cash.investing', source: 'packStatementTables.investingCashFlow', actual: investing(current), prior: prior ? investing(prior) : null, // AND THE REASON NAMES THIS ROW'S OWN NOUN FIRST. It read "No capital
+    // expenditure figure was captured" under a row labelled Investing cash
+    // flow — a reader looks up the marker on one measure and is told about
+    // another, and every other reason in the pack names the row it sits on.
+    // The capex clause stays because it is the actual cause: this row IS
+    // capital expenditure, negated, and nothing else.
+    unavailable: 'Investing cash flow is taken from capital expenditure, and no capital expenditure figure was captured for this period.' },
     { label: 'Financing cash flow', key: 'cash.financing', source: 'packFigureSet.current.financingCashFlow', actual: current.financingCashFlow ?? null, prior: prior?.financingCashFlow ?? null, unavailable: 'No financing cash flow figure was captured for this period.' },
     { label: 'Closing cash', key: 'cash.closing', source: 'packFigureSet.current.cash', role: 'total', actual: current.cash, prior: prior?.cash ?? null },
   ], set, false);
+}
+
+/**
+ * ANCHORING A NUMBERED FOOTNOTE TO THE THING IT IS ABOUT.
+ *
+ * The pack ran two footnote systems and only the lettered one worked: every
+ * `n/m` mark points at its reason, and the numbered notes at the foot of
+ * pages 5 to 8 pointed at nothing at all. "Opening cash in the table above is
+ * the balance at the START of the reporting period" printed under a table
+ * whose Opening cash row carried no marker; "The prior column is the period
+ * 26 April 2025 to 31 December 2025" printed under a column heading that said
+ * only "Prior".
+ *
+ * These two stamp the marker on, and they are HERE rather than in the page
+ * builder because the page builder is a sequence and this is a fact about a
+ * table's shape. They take a predicate rather than a row index for the reason
+ * `packStatementIdentities` takes one: a row's position moves with the
+ * company's chart of accounts and its ROLE does not.
+ *
+ * A predicate matching nothing is not silently ignored — see `anchorRow`.
+ */
+export function anchorRow(
+  table: PackTable,
+  matches: (row: PackTableRow) => boolean,
+  footnote: number,
+): PackTable {
+  const rows = table.rows.map((row) => (matches(row) ? { ...row, footnote } : row));
+  if (rows.every((row, i) => row === table.rows[i])) {
+    // A footnote whose anchor does not exist is the defect this function was
+    // written to remove, so it fails loudly rather than printing the note
+    // unanchored again. Every caller anchors a footnote the page is already
+    // printing, so this is unreachable from the composer and is the guard
+    // that keeps it so.
+    throw new Error(`anchorRow: footnote ${footnote} matched no row of this table`);
+  }
+  return { ...table, rows };
+}
+
+export function anchorColumn(
+  table: PackTable,
+  column: PackTableColumnKey,
+  footnote: number,
+): PackTable {
+  if (!table.columns.includes(column)) {
+    throw new Error(`anchorColumn: footnote ${footnote} names a '${column}' column this table has no`);
+  }
+  return { ...table, columnNotes: [...(table.columnNotes ?? []), { column, footnote }] };
 }

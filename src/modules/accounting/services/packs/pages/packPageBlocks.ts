@@ -41,7 +41,13 @@ import type {
   PackTable,
 } from './packPageModel';
 
-export const note = (heading: string, body: string): PackDisclosureNote => ({ heading, body });
+export const note = (
+  heading: string,
+  body: string,
+  /** The numbered page footnote this note's claim is qualified by, where it
+   *  has one — see `PackDisclosureNote.footnote` and `anchorRow`. */
+  footnote?: number,
+): PackDisclosureNote => (footnote === undefined ? { heading, body } : { heading, body, footnote });
 
 export const disclose = (
   heading: string,
@@ -592,7 +598,7 @@ export function bridgeSignFootnote(
   chart: PackChartSpec,
   scale: MoneyScale,
   number: number,
-): PackFootnote[] {
+): { footnotes: PackFootnote[]; anchor: string | null } {
   const bars = chart.waterfallBars ?? [];
   const rows = new Map(table.rows.map((row) => [row.label.toLowerCase(), row.figures.actual?.value ?? null]));
 
@@ -612,7 +618,12 @@ export function bridgeSignFootnote(
     return (bar.paint === 'favourable' && step < 0) || (bar.paint === 'unfavourable' && step > 0);
   });
   const named = diverged ?? contrary;
-  if (named === undefined) return [];
+  // NO EXEMPLAR, NO FOOTNOTE — and therefore no anchor either. The caller
+  // reads `anchor` to put the superscript on the row this sentence is about,
+  // which is why the label is returned rather than only printed: a footnote
+  // naming Cost of sales and marking nothing is the unanchored series this
+  // whole round is removing.
+  if (named === undefined) return { footnotes: [], anchor: null };
 
   const step = named.end - named.start;
   const klass = named.paint === 'favourable' ? 'an income line' : 'a cost line';
@@ -631,7 +642,7 @@ export function bridgeSignFootnote(
     : `${named.label} is drawn in ${ink}, because it is ${klass}, and points `
       + `${step < 0 ? 'DOWN' : 'UP'}, because that is the direction it moved profit this period.`;
 
-  return [{
+  return { anchor: named.label, footnotes: [{
     number,
     // REQUIRED — see `PackFootnote.required`. This is the only thing on the
     // sheet that reconciles a table cell with the bar drawn from it, and on
@@ -643,5 +654,5 @@ export function bridgeSignFootnote(
       + `by its effect on net profit — up where the line added to it, down where it took away — `
       + `and COLOURS it by what the line is: green for income, red for cost, in every pack and `
       + `whichever way the period ran. ${example}`,
-  }];
+  }] };
 }
