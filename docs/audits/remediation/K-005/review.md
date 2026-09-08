@@ -4,4 +4,4 @@ Reviewer approved a3278226 against 222eb799 using committed source; no blocking 
 
 R-003 preserves the separate first-registration ownership question; uniqueness does not prove provider ownership. Migration test must run alone because it drops/restores its index in the disposable fixture.
 
-Review found stale capture API documentation describing new email addresses as 6-hex. Corrected canonical documentation to 32-hex and regenerated its mirror. No application change was needed. Full CI remains pending.
+Review found stale capture API documentation describing new email addresses as 6-hex. Corrected canonical documentation to 32-hex and regenerated its mirror. No application change was needed. Full CI passed, including 9,304 unit tests, 384 component tests and production build; 234 tests skipped.

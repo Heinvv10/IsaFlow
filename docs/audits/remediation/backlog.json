@@ -187,10 +187,9 @@
       "correctedTrigger": "Duplicate WhatsApp number registered by two companies; valid signed webhook selects one and inserts a review event. Credential-missing503 and invalidsignature403 controls pass. External sender membership alone is not a proven bypass.",
       "severityRationale": "Confirmed ambiguous tenant attribution of inbound WhatsApp capture. First-registration provider ownership retained separately as R003.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "222eb799",
-      "status": "in-progress",
+      "currentSha": "8cff145616389fcbd05deed6220e62d86d9dec36",
+      "status": "code-verified",
       "dependencies": [
-        "Named commit review/fullCI/draft PR",
         "Migration617 target preflight/deployment require authorization",
         "R003 separately tracks first-registration number ownership"
       ],
@@ -202,10 +201,16 @@
         "K-005/red.log",
         "K-005/workflow-initial.log",
         "K-005/workflow-final.log",
-        "K-005/historical-review.md"
+        "K-005/historical-review.md",
+        "K-005/regression.log",
+        "K-005/typecheck.log",
+        "K-005/register-check.log",
+        "K-005/review.md",
+        "K-005/ci.log",
+        "K-005/result.md"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "a3278226",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/350",
       "deployedSha": null,
       "historicalDataImpact": "Potential legacy assignment/misrouting review remains open; no production query, number transfer or data repair executed.",
       "canonicalItem": null,
