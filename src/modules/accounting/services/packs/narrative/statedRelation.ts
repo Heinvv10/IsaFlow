@@ -23,30 +23,29 @@
  * The shape of the fix, in one place so the next sentence of this class has
  * somewhere to be written:
  *
- * - The relation is a `Relation` VALUE, produced by `relationOf` from the two
- *   numbers. Nothing else can make one.
- * - The wording is a `Record<Relation, string>` — TOTAL over the union, so a
- *   caller that has thought about only one case does not compile. That is the
- *   same device `DELTA_ABSENCE` uses in `derivedCaptions.ts`, for the same
- *   reason: the branch a fixture never reaches is the branch that ships
- *   wrong.
+ * - The relation is a VALUE, produced from the two numbers — `profitStanding`
+ *   here, `rankedBy` below. Nothing else can make one.
+ * - The wording is a `Record` over that union — TOTAL, so a caller that has
+ *   thought about only one case does not compile. That is the same device
+ *   `DELTA_ABSENCE` uses in `derivedCaptions.ts`, for the same reason: the
+ *   branch a fixture never reaches is the branch that ships wrong.
  * - The caller cannot get the clause without handing over both figures, so
  *   there is no phrasing under which a sentence can claim a comparison the
  *   code did not take.
+ *
+ * A GENERIC `relationOf` / `statedRelation` pair lived here too — above /
+ * below / equal over any two numbers, with a total record of clauses. It
+ * never acquired a caller: both sentences that needed this shape wanted the
+ * PROFIT question rather than the ordering one, and `profitStanding` answers
+ * that in the four cases a director reads. Two exported functions with no
+ * call site and no test are two more places for the next defect to be
+ * written, so they are gone; the discipline they were written to enforce is
+ * the paragraph above and is enforced by what is left.
  *
  * A test that only ever sees the true case is what let all three ship, so
  * every consumer of this module is pinned against a fixture in which the
  * relation is FALSE as well as one in which it holds.
  */
-
-/**
- * Where a subject figure stands against a reference figure.
- *
- * `equal` is a member rather than a rounding of `below`, because "the same
- * loss" and "a smaller loss" are different sentences to a director — and
- * Brightsphere's April is exactly the equal case.
- */
-export type Relation = 'above' | 'below' | 'equal';
 
 /**
  * The tolerance two figures are called equal within: one cent, the same
@@ -56,27 +55,6 @@ export type Relation = 'above' | 'below' | 'equal';
  * of numbers.
  */
 const EQUAL_WITHIN = 0.01;
-
-/** The relation, TAKEN FROM THE NUMBERS. The only way to make a `Relation`. */
-export function relationOf(subject: number, reference: number): Relation {
-  const gap = subject - reference;
-  if (Math.abs(gap) <= EQUAL_WITHIN) return 'equal';
-  return gap > 0 ? 'above' : 'below';
-}
-
-/**
- * The clause for the relation these two figures are actually in.
- *
- * `clauses` is total over `Relation`, so the case a fixture never reaches is
- * a case the author had to write down.
- */
-export function statedRelation(
-  subject: number,
-  reference: number,
-  clauses: Record<Relation, string>,
-): string {
-  return clauses[relationOf(subject, reference)];
-}
 
 /**
  * WHETHER A FIGURE IS A PROFIT, on the pack's own convention: above zero is a

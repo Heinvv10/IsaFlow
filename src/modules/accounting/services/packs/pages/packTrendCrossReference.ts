@@ -411,22 +411,6 @@ export function periodWindowFootnotes(
   panelId: string,
   pageName: string,
   number: number,
-  /**
-   * A clause the CALLING page needs on this row, appended inside the same
-   * footnote.
-   *
-   * Page 9 prints `Debtor days · 213 · target 30 · MISSED` in red against a
-   * base page 4 disowns — "read the day count as a measure of the control
-   * account, not of what customers owe" — and the row carrying that red
-   * judgement said only that the figure is annualised. The cross-reference
-   * ran one way.
-   *
-   * It rides in THIS footnote rather than in one of its own because sheet 9
-   * has 2.77mm of paper and a second footnote costs 3.88: the marker is
-   * already on the row a reader meets, and the clause fits inside the two
-   * lines this note already wraps to.
-   */
-  extra = '',
 ): PackFootnote[] {
   const counterpart = PERIOD_COUNTERPARTS[panelId];
   if (counterpart === undefined) return [];
@@ -438,13 +422,21 @@ export function periodWindowFootnotes(
     text:
       // "ON THIS PAGE — THE SCORECARD PAGE —" NAMES THE SHEET IT IS PRINTED
       // ON, TWICE. A reader holding sheet 9 does not need to be told sheet 9
-      // is sheet 9, and the twenty-two characters are what carry the base
-      // caveat onto the row that prints a red MISS. `pageName` is still the
+      // is sheet 9, and the room the twenty-two characters cost is room the
+      // fullest pages in the pack do not have. `pageName` is still the
       // parameter the caller passes, because it is what the OTHER end of the
       // cross-reference is named by.
+      //
+      // THE BASE CAVEAT IS NOT APPENDED HERE. It used to be — this function
+      // took an `extra` clause so page 9's red `Debtor days` row could carry
+      // the disowned-base sentence inside this footnote — and
+      // `packScorecardNotes` now builds that sheet's whole row note itself,
+      // in wording shortened for the paper it has (`debtorWindow`). The
+      // parameter outlived its caller by a round, documented at length,
+      // deletable with the suite green.
       `${measure} on this page is the figure for the WHOLE `
       + `reporting period, ${counterpart.wholePeriodBasis}; the trends page plots the same measure `
-      + `a month at a time. Different windows: the two need not agree.${extra}`,
+      + 'a month at a time. Different windows: the two need not agree.',
   }];
 }
 

@@ -9,6 +9,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { PackRefusal, packRefusalMessages } from '@/modules/accounting/services/packs/packRefusal';
+import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
+import { brightsphereLiveInput } from './fixtures/boardPackInputs';
 import { fitPageReport, OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import type { PackDisclosureNote, PackPage, PackPageBlock } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -225,5 +227,80 @@ describe('a page the composer cannot fit', () => {
     const { page: fitted, dropped } = fitPageReport(subject);
     expect(fitted).toBe(subject);
     expect(dropped).toEqual({ notes: 0, requiredNotes: 0, footnotes: 0, from: [] });
+  });
+});
+
+/**
+ * AND THE COMPOSER REALLY CALLS IT, ON A DOCUMENT BUILT FROM AN INPUT.
+ *
+ * Everything above holds `fitPageReport` on a page assembled by hand. That
+ * left a gap a mutation found: `fitPageToBox` — the wrapper
+ * `buildBoardPackPages` actually calls on all eleven body pages and on the
+ * basis page — can be made the identity function with this file green, with
+ * nine of the eleven `packSheetCount` fixtures green, and with the whole unit
+ * suite green apart from the two probes in that file that build an
+ * overflowing page themselves. The per-fixture sheet counts show the fixtures
+ * FIT; they do not show the trimming works, because none of them reaches it.
+ *
+ * THIS ONE REACHES IT, FROM AN INPUT. The lever is an approved board
+ * commentary of eight paragraphs on the live Brightsphere pack — the pack's
+ * fixtures all carry `commentary: null`, because nothing in this codebase
+ * stores board commentary yet, and a chair who writes a page of it is the
+ * ordinary case the day one does. Page 4 then measures past its sheet and the
+ * composer has to trim it.
+ */
+describe('the composer trims a page its input overflowed', () => {
+  const PARAGRAPH =
+    'Trading in the second half held up against a first half that carried the year, and the board '
+    + 'should read the margin recovery as a mix effect rather than a pricing gain: the two largest '
+    + 'contracts renewed at the same rates and the improvement is in what it cost to serve them. ';
+
+  const withCommentary = (paragraphs: number): BoardPackInput => ({
+    ...brightsphereLiveInput,
+    commentary: { status: 'approved', body: PARAGRAPH.repeat(paragraphs), actions: [] },
+  });
+
+  const commentaryPage = (paragraphs: number) => buildBoardPackPages(withCommentary(paragraphs))
+    .pages.find((p) => p.navLabel === 'Commentary and actions')!;
+
+  const headings = (page: ReturnType<typeof commentaryPage>): string[] => page.blocks
+    .flatMap((b) => (b.kind === 'disclosure' ? [b.disclosure.heading] : []));
+
+  it('leaves a page its input did not overflow exactly as it composed it', () => {
+    // THE CONTROL. Without this the assertions below are satisfied by a
+    // composer that trims every page — and the sheet either way is twelve.
+    const short = commentaryPage(1);
+    expect(headings(short)).toEqual(['How this page is prepared', 'How current these figures are']);
+    expect(short.footnotes.filter((f) => f.text.startsWith(OMISSION_MARK))).toEqual([]);
+    expect(pageMm(short)).toBeLessThanOrEqual(pageBoxMm(short));
+  });
+
+  it('drops the optional prose first, keeps the disclosure it must make, and says so', () => {
+    const long = commentaryPage(8);
+
+    // IT FITS. Under an identity fitter this page measures 269mm in a 255mm
+    // box and takes a thirteenth sheet under a contents page that says twelve.
+    expect(pageMm(long), 'the composed page is still past its sheet').toBeLessThanOrEqual(pageBoxMm(long));
+
+    // AND IN THE RIGHT ORDER. The pack's own commentary about the page went —
+    // both notes, so the block with it — and the ledger-currency disclosure,
+    // which is required, is untouched. A trimmer that took them the other way
+    // round would also produce a page that fits.
+    expect(headings(long)).toEqual(['How current these figures are']);
+    const required = long.blocks.find(
+      (b) => b.kind === 'disclosure' && b.disclosure.required === true,
+    );
+    expect(required?.kind === 'disclosure' ? required.disclosure.notes.length : 0)
+      .toBe(1);
+
+    // AND THE PAGE SAYS WHAT IT LOST, naming the disclosure it came off.
+    const said = long.footnotes.find((f) => f.text.startsWith(OMISSION_MARK));
+    expect(said, 'the page dropped prose and printed nothing to say so').toBeDefined();
+    expect(said!.text).toContain('2 explanatory notes');
+    expect(said!.text).toContain('\u201cHow this page is prepared\u201d');
+    // Nothing came out of a disclosure the pack is required to make.
+    expect(said!.text).not.toContain('required to make');
+    // The figures are all still there — which is the promise the sentence makes.
+    expect(long.blocks.some((b) => b.kind === 'narrative')).toBe(true);
   });
 });

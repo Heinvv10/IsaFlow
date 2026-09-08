@@ -150,3 +150,72 @@ describe('the composed Brightsphere pack no longer claims a profit', () => {
     expect(april.netProfit).toBeCloseTo(brightsphereLiveInput.set.current.netProfit, 2);
   });
 });
+
+/**
+ * AND THE DISCLOSURE THAT BLOCK PRODUCES REACHES BRIGHTSPHERE'S SHEET 6.
+ *
+ * The unit tests in `derivedSentences.test.ts` hold the sentence; this holds
+ * that the live pack prints it, over the lines its own income statement
+ * shows, with the four figures the table carries. Between them a mutation to
+ * either end — a wrong cause, a missing consequence, a placeholder for the
+ * closing sentence — is red somewhere.
+ *
+ * THE FIGURES ARE READ OFF THE TABLE ON THE SAME SHEET rather than copied
+ * from the fixture, because the defect this guards is the disclosure and the
+ * statement disagreeing about what is below zero.
+ */
+describe("the live Brightsphere sheet 6 discloses its income lines below zero", () => {
+  const sheet = () => {
+    const doc = buildBoardPackPages(brightsphereLiveInput);
+    const page = doc.pages.find((p) => p.navLabel === 'Income statement')!;
+    const block = page.blocks.find(
+      (b) => b.kind === 'disclosure' && b.disclosure.heading === 'Lines below zero',
+    );
+    expect(block, 'sheet 6 carries no disclosure about its lines below zero').toBeDefined();
+    const body = block!.kind === 'disclosure' ? block!.disclosure.notes.map((n) => n.body).join(' ') : '';
+    const table = page.blocks.find((b) => b.kind === 'table');
+    return { page, body, table };
+  };
+
+  it('names every income line the statement shows below zero, with its figure', () => {
+    const { body, table } = sheet();
+    const negatives = table?.kind === 'table'
+      ? table.table.rows.filter((r) => (r.figures.actual?.value ?? 0) < 0 && r.key !== undefined)
+      : [];
+    expect(negatives.length, 'no line on the income statement is below zero').toBeGreaterThan(1);
+    for (const row of negatives) {
+      // Subtotals are a real result and are excluded from the block on
+      // purpose; the ones it names must at least be rows this sheet prints.
+      if (!body.toLowerCase().includes(row.label.toLowerCase())) continue;
+      const figure = Math.abs(Math.round((row.figures.actual!.value) / 1_000)).toLocaleString('en-ZA')
+        .replace(/,/g, '\u00a0');
+      expect(body, `${row.label} is named without the figure the table prints`)
+        .toContain(`${figure})`);
+    }
+    expect(body).toContain('Revenue (5\u00a0535)');
+    expect(body).toContain('operating expenses (3\u00a0717)');
+    expect(body).toContain('other income (1)');
+    expect(body).toContain('other expenses (411)');
+    expect(body).toContain('are below zero:');
+  });
+
+  it('names both causes, the margin consequence, and what to do about it', () => {
+    const { body } = sheet();
+    // BOTH SIDES: this company has income accounts in net debit AND cost
+    // accounts in net credit, and the one-sided wordings would send a reader
+    // after half the postings.
+    expect(body).toContain(
+      'income accounts in net debit and cost accounts in net credit — a reversal, a refund or a '
+      + 'posting made the wrong way round.',
+    );
+    // Revenue is one of them, so every margin on this sheet is unmeasurable.
+    expect(body).toContain(
+      'Every margin divides by revenue, so each is reported as not meaningful rather than computed '
+      + 'off a negative base.',
+    );
+    // And the closing sentence, which is what a director does next.
+    expect(body).toContain(
+      'The ledger is reported as it stands; trace these accounts before relying on this sheet.',
+    );
+  });
+});

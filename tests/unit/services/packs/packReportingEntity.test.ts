@@ -31,6 +31,31 @@ import {
 import { liveDemoBridgeInput, liveDemoInput } from './fixtures/liveDemoBoardPack';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
+/**
+ * A COMPANY WHOSE LEGAL NAME IS NOT THE NAME ITS FIGURES CARRY.
+ *
+ * Every other fixture sets `companyLegalName` to the same string as
+ * `set.current.companyName`, so `toContain(companyLegalName)` passes whichever
+ * of the two the basis page reads — and the assertion below exists to
+ * distinguish exactly those two. Swapping the source to the figures' name is
+ * green on all six of them.
+ *
+ * This is the shape the distinction is about and it is not a contrivance: the
+ * legal name comes off `companies.name` through `getCompanyName`, and the
+ * figure set carries whatever the ledger extract was labelled with — a
+ * trading name, an abbreviation, the name before a change of registration.
+ * The pack's cover claims the legal one and the basis page must claim the
+ * same entity the cover does.
+ */
+const tradingNameInput: BoardPackInput = {
+  ...brightsphereInput,
+  companyLegalName: 'Brightsphere Holdings (Pty) Ltd',
+  set: {
+    ...brightsphereInput.set,
+    current: { ...brightsphereInput.set.current, companyName: 'Britech' },
+  },
+};
+
 const FIXTURES: Record<string, BoardPackInput> = {
   demo: demoInput,
   brightsphere: brightsphereInput,
@@ -38,6 +63,7 @@ const FIXTURES: Record<string, BoardPackInput> = {
   'no ratio panels': noRatioPanelsInput,
   live: liveDemoInput,
   'live, with the EBITDA bridge that rounds': liveDemoBridgeInput,
+  'a company trading under a name its ledger extract does not carry': tradingNameInput,
 };
 
 /**
@@ -87,6 +113,14 @@ describe('the basis of preparation names the entity it reports on', () => {
       // is only auditable if it is the same entity the cover claims.
       expect(fact, 'the fact does not name the company the cover names')
         .toContain(input.companyLegalName);
+      // AND IT IS THE LEGAL NAME RATHER THAN THE FIGURES'. On a company whose
+      // ledger extract carries a trading name, reading `set.current.companyName`
+      // instead would name an entity the cover does not claim — and on every
+      // other fixture the two strings are identical, so nothing would notice.
+      if (input.set.current.companyName !== input.companyLegalName) {
+        expect(fact, 'the fact names the figures\' company name, not the legal one off the cover')
+          .not.toContain(input.set.current.companyName);
+      }
       // AND THE BASIS ITSELF. A name alone leaves the boundary question open,
       // which is the half of this defect that survived a rename.
       expect(fact!.toLowerCase(), 'the fact names an entity and states no consolidation basis')
@@ -102,6 +136,27 @@ describe('the basis of preparation names the entity it reports on', () => {
   it('is checking a real name on every fixture', () => {
     for (const [name, input] of Object.entries(FIXTURES)) {
       expect(input.companyLegalName.length, `${name} has no legal name`).toBeGreaterThan(3);
+    }
+  });
+
+  /**
+   * AND THE DISTINCTION THE ASSERTION ABOVE DRAWS IS DRAWN ON A REAL SHAPE.
+   *
+   * The `not.toContain` arm only runs where the two names differ, so a fixture
+   * set in which they never differ would silently skip it — which is what the
+   * other six do. This requires at least one that does, and requires the two
+   * strings to be genuinely distinguishable: `Brightsphere Holdings` contains
+   * `Brightsphere`, so a near-miss pair would pass `not.toContain` on a page
+   * that read the wrong field.
+   */
+  it('carries a fixture whose legal name and figures name are different strings', () => {
+    const differing = Object.values(FIXTURES)
+      .filter((input) => input.set.current.companyName !== input.companyLegalName);
+    expect(differing.length, 'no fixture separates the legal name from the figures\' name')
+      .toBeGreaterThan(0);
+    for (const input of differing) {
+      expect(input.companyLegalName).not.toContain(input.set.current.companyName);
+      expect(input.set.current.companyName).not.toContain(input.companyLegalName);
     }
   });
 });

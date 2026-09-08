@@ -107,6 +107,26 @@ describe('a panel drawn over part of the window says why', () => {
     expect(body).not.toMatch(/Revenue|Operating expenses|Net profit|Cash/);
   });
 
+  /**
+   * ONE SHORTENED PANEL IS ONE PANEL, AND THE NOTE HAS FOUR AGREEMENTS IN IT.
+   *
+   * The only fixture with shortened panels shortens exactly two, so every
+   * singular arm of this sentence was unreachable and forcing the plural was
+   * green. A pack that shortens one — a company whose revenue starts mid-window
+   * and whose debtor days are measurable throughout — would have printed
+   * "Gross margin are drawn over fewer than the 12 months … those panels start
+   * … each panel's own title states".
+   */
+  it('speaks in the singular where exactly one panel is shortened', () => {
+    const body = shortenedPanelsNote(['Gross margin'], liveDemoShortPanelsInput.trend)!;
+    const note = body.kind === 'disclosure' ? body.disclosure.notes[0]!.body : '';
+    expect(note).toContain('Gross margin is drawn over fewer than the 12 months');
+    expect(note).toContain('so that panel starts at the first month it can be measured');
+    expect(note).toContain("its own title states how many periods it covers");
+    // And none of the plural forms survives anywhere in the sentence.
+    expect(note).not.toMatch(/are drawn over fewer|those panels start|they can be measured|each panel's own title/);
+  });
+
   it('refuses to speak about a window it was not given', () => {
     expect(shortenedPanelsNote([], liveDemoShortPanelsInput.trend)).toBeNull();
     expect(shortenedPanelsNote(['Gross margin'], [])).toBeNull();

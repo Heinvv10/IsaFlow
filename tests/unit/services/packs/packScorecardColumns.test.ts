@@ -12,6 +12,7 @@
  * narrower than its longest token clips it, which is a worse defect than the
  * one being fixed.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   SCORECARD_TABLE_MM,
@@ -22,6 +23,17 @@ import {
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { brightsphereReceivablesGapInput } from './fixtures/boardPackInputs';
 import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
+
+/**
+ * The horizontal padding a scorecard cell really gets, off the stylesheet the
+ * browser loads — `.pack-table td { padding: <vertical> <horizontal>; }`.
+ */
+const CSS_CELL_PADDING_MM = ((): number => {
+  const css = readFileSync('styles/packPrint.css', 'utf8');
+  const rule = /\.pack-table td \{[^}]*padding:\s*[\d.]+mm\s+([\d.]+)mm/.exec(css);
+  expect(rule, 'packPrint.css states no padding for .pack-table td').not.toBeNull();
+  return Number.parseFloat(rule![1]!);
+})();
 
 describe('the five scorecard blocks share one column grid', () => {
   it.each([[true], [false]])('widths sum to the measure (trend: %s)', (showsTrend) => {
@@ -41,16 +53,45 @@ describe('the five scorecard blocks share one column grid', () => {
   });
 
   it('gives TARGET and STATUS room for the widest token they can hold', () => {
-    // The clipping guard. TARGET must fit a day count and a signed
-    // percentage; STATUS must fit its longest label. Both at their own size,
-    // through the pack's own ruler.
+    // The clipping guard, AGAINST THE CONTENT BOX AND NOT THE BARE TEXT.
+    //
+    // It compared `singleLineMm(token) <= target` while `target` is
+    // `singleLineMm(WIDEST_TARGET) + padding`, and `WIDEST_TARGET` is one of
+    // the tokens — so deleting the padding term made the assertion x <= x and
+    // it stayed green. A column sized to its text and not to its cell clips
+    // by exactly the padding, which is the defect this module exists to stop,
+    // and print geometry cannot see it either: a too-narrow column wraps
+    // rather than running off the paper.
     const { target, status } = scorecardColumnsMm(true);
     for (const token of ['+35.0%', '30 days', '1.50', '(1 234.5)%', '–']) {
-      expect(singleLineMm(token, 9), `TARGET clips ${token}`).toBeLessThanOrEqual(target);
+      expect(singleLineMm(token, 9) + CSS_CELL_PADDING_MM * 2, `TARGET clips ${token}`)
+        .toBeLessThanOrEqual(target);
     }
     for (const label of ['NOT MEANINGFUL', 'UNSCORED', 'MISSED', 'MET']) {
-      expect(singleLineMm(label, 8), `STATUS clips ${label}`).toBeLessThanOrEqual(status);
+      expect(singleLineMm(label, 8) + CSS_CELL_PADDING_MM * 2, `STATUS clips ${label}`)
+        .toBeLessThanOrEqual(status);
     }
+  });
+
+  /**
+   * AND THE PADDING IT IS HELD AGAINST IS THE ONE THE STYLESHEET SETS.
+   *
+   * `CELL_PADDING_MM` is a private constant in the module; the browser lays
+   * the cell out from `.pack-table td` in `packPrint.css`. Two numbers for one
+   * quantity drift, and the drift is invisible — it shows up as a clipped
+   * target on paper. Read here the way `packInkContrast` reads its colour
+   * tokens, so a change to the stylesheet that the module does not follow is a
+   * red test rather than a render nobody looks at closely.
+   */
+  it('charges at least the padding the stylesheet actually sets', () => {
+    expect(CSS_CELL_PADDING_MM, 'no horizontal padding parsed out of .pack-table td')
+      .toBeGreaterThan(0);
+    // The module may be MORE generous than the stylesheet — it charges 3mm
+    // against the sheet's 2 — but never less, or the cell is narrower than
+    // its content.
+    const { target, status } = scorecardColumnsMm(true);
+    expect(target - singleLineMm('(1 234.5)%', 9)).toBeGreaterThanOrEqual(CSS_CELL_PADDING_MM * 2);
+    expect(status - singleLineMm('NOT MEANINGFUL', 8)).toBeGreaterThanOrEqual(CSS_CELL_PADDING_MM * 2);
   });
 
   it('and no scorecard the pack composes prints a wider TARGET or STATUS', () => {
@@ -73,8 +114,10 @@ describe('the five scorecard blocks share one column grid', () => {
                 expect(Math.abs(row.target), 'a target wider than the column was sized for')
                   .toBeLessThan(1_234.5);
               }
-              expect(singleLineMm('NOT MEANINGFUL', 8)).toBeLessThanOrEqual(status);
-              expect(singleLineMm('30 days', 9)).toBeLessThanOrEqual(target);
+              expect(singleLineMm('NOT MEANINGFUL', 8) + CSS_CELL_PADDING_MM * 2)
+                .toBeLessThanOrEqual(status);
+              expect(singleLineMm('30 days', 9) + CSS_CELL_PADDING_MM * 2)
+                .toBeLessThanOrEqual(target);
             }
           }
         }

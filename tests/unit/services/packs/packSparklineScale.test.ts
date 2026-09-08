@@ -125,6 +125,32 @@ describe('the highlights sparklines', () => {
     expect(text).toContain('Gross margin and Debtor days are in other units');
   });
 
+  /**
+   * ONE LINE IN ANOTHER UNIT IS ONE LINE.
+   *
+   * The footnote's tail agrees with a count — "Gross margin and Debtor days
+   * ARE in other units" — and every fixture in this suite draws both of the
+   * pack's two non-money series, so the singular arm was unreachable and
+   * forcing the plural was green. It is not a contrived shape: debtor days is
+   * null in a month with no revenue base, and a company that bills nothing on
+   * credit has no month in which it is defined, so its tile is drawn without a
+   * line at all and gross margin stands alone.
+   */
+  it('says one measure IS in other units where only one is drawn', () => {
+    const noDebtors = SPREAD.map((point) => ({ ...point, debtorDays: null }));
+    const tiles = tilesFor(noDebtors);
+    const byLabel = new Map(tiles.map((t) => [t.label, t]));
+    // The premise: debtor days has no line to scale, gross margin does.
+    expect(byLabel.get('Debtor days')!.sparklineScale).toBeNull();
+    expect(byLabel.get('Gross margin')!.sparklineScale!.shared).toBe(false);
+
+    const text = buildHighlightsBlocks(tiles, "R'000", 'ZAR', null, null)
+      .footnotes.map((f) => f.text).join(' ');
+    expect(text).toContain('Gross margin is in other units, each drawn on its own.');
+    expect(text).not.toContain('are in other units');
+    expect(text).not.toContain('Debtor days');
+  });
+
   it('states a domain the lines were actually drawn on', () => {
     const tiles = tilesFor(SPREAD);
     const money = tiles.filter((t) => t.sparklineScale?.shared === true);

@@ -5,6 +5,7 @@ import {
   highlightsTitle,
   incomeStatementTitle,
   largestMoverCaption,
+  impossibleIncomeLinesSentence,
   positionTitle,
   scorecardCaption,
   scorecardTitle,
@@ -329,6 +330,21 @@ describe('trendsCaption', () => {
   it('says so plainly when there are no panels', () => {
     expect(trendsCaption([])).toMatch(/no trend panels/i);
   });
+
+  /**
+   * ONE PANEL IS ONE MEASURE. No fixture in the suite draws a single panel —
+   * the packs draw four and six — so the singular arm could be forced to the
+   * plural constant with everything green, and a pack whose ledger supports
+   * one measure would print "1 measures are drawn over the period".
+   *
+   * It is reachable: `buildTrendPanels` drops every measure the ledger cannot
+   * support, and a company with cash and nothing else keeps one.
+   */
+  it('says one measure IS drawn where the ledger supports only one panel', () => {
+    const caption = trendsCaption([panel('p1', 'Cash held flat')]);
+    expect(caption).toMatch(/^1 measure is drawn over the period;/);
+    expect(caption).not.toMatch(/measures are/);
+  });
 });
 
 describe("a tile's caption, where the tile shows no movement", () => {
@@ -356,5 +372,68 @@ describe("a tile's caption, where the tile shows no movement", () => {
     // one that breaks it, and a caption that is false on a board pack is
     // worse than a render that stops.
     expect(() => tileCaption(tile(null, null))).toThrow(/states no reason/);
+  });
+});
+
+/**
+ * SHEET 6'S DISCLOSURE ABOUT INCOME LINES THE WRONG SIDE OF ZERO.
+ *
+ * ~400 characters of prose that the live Brightsphere pack actually prints,
+ * and nothing asserted a word of it: no test imported this function, and no
+ * composed-document prose test matched a phrase in it. Its closing sentence
+ * could be replaced with a placeholder, on a director's income statement,
+ * with the whole suite green.
+ *
+ * Four things carry meaning here and each is held separately: the list and
+ * its figures, the agreement of the verb with the count, WHICH cause is named
+ * (an income account in net debit and a cost account in net credit are
+ * different postings to go looking for), and the consequence clause, which
+ * belongs to revenue alone because revenue is what every margin divides by.
+ */
+describe('impossibleIncomeLinesSentence', () => {
+  const line = (label: string, amount: number) => ({ label, amount });
+
+  it('names one line in the singular and does not reach for the revenue consequence', () => {
+    const text = impossibleIncomeLinesSentence([line('Other income', -1_000)], 'income', PACK_SCALE, false);
+    expect(text).toMatch(/^Other income \(1\) is below zero: /);
+    expect(text).not.toMatch(/are below zero/);
+    // Nothing divides by other income.
+    expect(text).not.toContain('Every margin divides by revenue');
+    expect(text).toContain('income accounts in net debit');
+    expect(text).not.toContain('cost accounts in net credit');
+    expect(text.endsWith(
+      ' The ledger is reported as it stands; trace these accounts before relying on this sheet.',
+    ), `the closing sentence is not the one the sheet prints: ${text}`).toBe(true);
+  });
+
+  it('names the cost cause on its own, and the two sides together as a third', () => {
+    const cost = impossibleIncomeLinesSentence(
+      [line('Operating expenses', -3_717_000), line('Other expenses', -411_000)], 'cost', PACK_SCALE, false);
+    expect(cost).toMatch(/^Operating expenses \(3 717\) and other expenses \(411\) are below zero: /);
+    expect(cost).toContain('cost accounts in net credit');
+    expect(cost).not.toContain('income accounts in net debit');
+
+    const both = impossibleIncomeLinesSentence(
+      [line('Revenue', -5_535_000), line('Other expenses', -411_000)], 'both', PACK_SCALE, true);
+    expect(both).toContain('income accounts in net debit and cost accounts in net credit');
+    // Three sides, three sentences: an arm that fell back on another's wording
+    // would send a reader after the wrong posting.
+    expect(new Set([cost, both]).size).toBe(2);
+  });
+
+  it('states the margin consequence only where REVENUE is one of the lines', () => {
+    const withRevenue = impossibleIncomeLinesSentence(
+      [line('Revenue', -5_535_000)], 'income', PACK_SCALE, true);
+    const without = impossibleIncomeLinesSentence(
+      [line('Other income', -1_000)], 'income', PACK_SCALE, false);
+    expect(withRevenue).toContain(
+      ' Every margin divides by revenue, so each is reported as not meaningful rather than '
+      + 'computed off a negative base.',
+    );
+    expect(without).not.toContain('Every margin divides by revenue');
+    // And the consequence sits BEFORE the closing sentence rather than after
+    // it — the sheet's last word is what to do about it.
+    expect(withRevenue.indexOf('Every margin divides'))
+      .toBeLessThan(withRevenue.indexOf('The ledger is reported as it stands'));
   });
 });

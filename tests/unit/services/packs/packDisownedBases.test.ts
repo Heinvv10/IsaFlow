@@ -19,7 +19,7 @@ import { buildBoardPackPages } from '@/modules/accounting/services/packs/pages/b
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPagesDocument, PackScorecardRow } from '@/modules/accounting/services/packs/pages/packPageModel';
 import {
-  disownedBases, METRIC_INPUTS, NO_DECLARED_INPUTS,
+  disownedBases, disownedBasesFootnoteText, METRIC_INPUTS, NO_DECLARED_INPUTS,
 } from '@/modules/accounting/services/packs/pages/packDisownedBases';
 import { SCORECARD_METRICS } from '@/modules/accounting/services/packs/pages/packScorecard';
 import type { PackScorecardGroup } from '@/modules/accounting/services/packs/pages/packPageModel';
@@ -175,6 +175,80 @@ describe('a scored row says when its base is one the pack qualifies', () => {
     expect(
       disownedBases(groups, false, [{ label: 'Current assets', amount: -1 }]).map((d) => d.metric),
     ).toEqual(['Current ratio']);
+  });
+
+  /**
+   * THE OTHER STATE, WHICH NEITHER COMPOSED FIXTURE REACHES.
+   *
+   * Both packs put `trade receivables` in page 7's impossible set, so the
+   * balance-sheet arm already selects every row the receivables arm would —
+   * `receivablesUnreconciled` was passed `false` everywhere in this file and
+   * hard-coding it false is green. The shape this is about is the ordinary
+   * one: a sound balance sheet with an out-of-balance customer subledger,
+   * which is page 4's debtors-base note firing on its own.
+   *
+   * It is also the only path to the third arm of the footnote. With both
+   * states live the sentence says "which this pack qualifies elsewhere";
+   * with only the balance sheet, "which the balance sheet says cannot be
+   * held as stated". The unreconciled-only wording had no caller.
+   */
+  it('flags the receivables ratios alone when only page 4 disowns their base', () => {
+    const row = (metric: string): PackScorecardGroup['rows'][number] => ({
+      metric,
+      actual: { value: 3, format: 'ratio', source: 'x.y' },
+      target: 1,
+      prior: null,
+      status: 'met',
+      trend: null,
+      trendSvg: null,
+      bulletSvg: null,
+    });
+    const groups: PackScorecardGroup[] = [
+      { letter: 'B', name: 'Liquidity', rows: [row('Current ratio'), row('Cash ratio')] },
+      { letter: 'C', name: 'Working capital', rows: [row('Debtor days'), row('Creditor days'), row('Cash conversion cycle')] },
+    ];
+    // Page 7 names nothing: the balance sheet is sound.
+    const flagged = disownedBases(groups, true, []);
+    expect(flagged.map((d) => d.metric)).toEqual(['Debtor days', 'Cash conversion cycle']);
+    for (const base of flagged) {
+      expect(base.unreconciled, `${base.metric} is not marked unreconciled`).toBe(true);
+      expect(base.impossible, `${base.metric} claims the balance sheet disowns it`).toBe(false);
+      expect(base.fields).toEqual(['trade receivables']);
+    }
+    // AND THE SENTENCE IS THE ONE THAT NAMES PAGE 4 — not the balance-sheet
+    // wording, and not the both-states one. This is the sentence a tenant
+    // with an out-of-balance subledger and a sound balance sheet prints.
+    expect(disownedBasesFootnoteText(flagged)).toBe(
+      'Scored on trade receivables, which the commentary page says is not reconciled; '
+      + 'this pack does not adjust.',
+    );
+    // The mirror: with the flag off, the same rows carry nothing at all.
+    expect(disownedBases(groups, false, [])).toEqual([]);
+  });
+
+  /**
+   * AND THE THREE WORDINGS ARE THREE WORDINGS.
+   *
+   * One arm per state, and the balance-sheet arm reached for the receivables
+   * one for a round because it was written as a shared clause. Asserting the
+   * unreconciled sentence alone would pass a function that printed it for
+   * every state.
+   */
+  it('says which page disowned the base, and the three states read differently', () => {
+    const base = (impossible: boolean, unreconciled: boolean): Parameters<typeof disownedBasesFootnoteText>[0][number] => ({
+      metric: 'Debtor days',
+      fields: ['trade receivables'],
+      impossible,
+      unreconciled,
+    });
+    const unreconciledOnly = disownedBasesFootnoteText([base(false, true)])!;
+    const impossibleOnly = disownedBasesFootnoteText([base(true, false)])!;
+    const both = disownedBasesFootnoteText([base(true, true)])!;
+    expect(unreconciledOnly).toContain('the commentary page says is not reconciled');
+    expect(impossibleOnly).toContain('the balance sheet says cannot be held as stated');
+    expect(both).toContain('this pack qualifies elsewhere');
+    expect(new Set([unreconciledOnly, impossibleOnly, both]).size, 'two states print the same sentence').toBe(3);
+    expect(disownedBasesFootnoteText([])).toBeNull();
   });
 
   /**
