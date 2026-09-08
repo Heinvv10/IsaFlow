@@ -101,7 +101,7 @@ import {
 // Debtor days printed 213 on the scorecard page and 63.7 on the trends
 // page, one sheet apart, with nothing on either saying that one is the
 // period and the other a month.
-import { cashWindowFootnotes, periodWindowFootnotes } from './packTrendCrossReference';
+import { cashWindowFootnotes, PERIOD_COUNTERPARTS, periodWindowFootnotes } from './packTrendCrossReference';
 import { formatPackPeriod } from './packPeriodLabel';
 import {
   buildBasisPage,
@@ -114,6 +114,7 @@ import {
   type UnnumberedPage,
 } from './packFrontMatter';
 import { ledgerStalenessNote } from './packLedgerStaleness';
+import { disownedBases, disownedBasesFootnoteText } from './packDisownedBases';
 import { shortenedPanelsNote } from './packShortenedPanels';
 import {
   receivablesBaseNote,
@@ -296,10 +297,11 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     scale,
     ['both', 'debtorOnly'].includes(dayCountsMeasured(set)),
   ) !== null;
-  const debtorDaysFootnote = periodWindowFootnotes(
-    panels, 'trend-debtor-days', 'Scorecard', 1,
-    debtorsBaseApplies ? ' On the control account, not the subledger.' : '',
-  );
+  // Only whether the panel is DRAWN — the sentence itself is built below,
+  // shorter, for a sheet with 1.11mm of paper. The gate this preserves is
+  // that the note fires only where the trends page actually plots the
+  // measure it points at.
+  const debtorDaysFootnote = periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1);
   // AND PAGE 9'S PRIOR COLUMN CARRIES THE SAME NOTE THE OTHER THREE SHEETS DO.
   //
   // Pages 6, 7 and 8 mark their PRIOR heading and date the comparative; page
@@ -310,15 +312,60 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // page's numbering is its own.
   const scorecardPriorNote = comparativePeriod === null
     ? null
-    : priorColumnFootnote(comparativePeriod, set.currentWindow, debtorDaysFootnote.length + 1);
-  const scorecardWithDebtorDaysNote = debtorDaysFootnote.length === 0 ? scorecard : scorecard.map(
-    (group) => ({
-      ...group,
-      rows: group.rows.map((row) => (
-        row.metric.toLowerCase() === 'debtor days' ? { ...row, footnote: 1 } : row
-      )),
-    }),
-  );
+    : priorColumnFootnote(comparativePeriod, set.currentWindow, 2);
+  // AND EVERY SCORED ROW STANDING ON A FIGURE THE PACK QUALIFIES SAYS SO.
+  //
+  // Sheet 9 prints `Current ratio · (0.14) · target 1.50 · MISSED` in red on
+  // a numerator sheet 7 calls a balance that cannot be held; Brightsphere's
+  // ONLY scored target is the same ratio, on current assets of (3 372). The
+  // pack scored a judgement against figures it disowns two pages earlier, and
+  // the cross-reference ran one way. Derived from `METRIC_INPUTS` — which
+  // ledger figures each ratio is taken on — so it cannot be true of one ratio
+  // and not the next.
+  //
+  // ONE NOTE FOR EVERY SCORED ROW THAT NEEDS ONE, AND THAT IS ARITHMETIC.
+  // Carried as its own footnote the sheet needs 256.11mm of a 255mm box —
+  // over by 1.11, and the smallest thing on that page is a footnote line at
+  // 3.88, so paying for it means dropping a note some earlier gate asked for.
+  // Folded into the debtor-days note it costs that note a third line and
+  // saves a whole footnote: net nothing, and both rows point at one place.
+  //
+  // The DISOWNED sentence leads, because the rows that carry the marker
+  // without a note of their own are the ratio rows, and a Current ratio
+  // marker landing on a note that opens "Debtor days on this page" is a
+  // pointer to the wrong subject.
+  const disowned = disownedBases(scorecard, set, debtorsBaseApplies);
+  const disownedText = disownedBasesFootnoteText(disowned);
+  // THE WINDOW HALF IS BUILT SHORT, FOR THIS SHEET ONLY.
+  //
+  // Page 6's version of this sentence ends "Different windows: the two need
+  // not agree", and says "the same measure" where "it" will do — right there,
+  // on a sheet with room. Here the two clauses cost 110 characters the page
+  // does not have, page 12's Debtor days entry states the conclusion in those
+  // words, and the sentence in front of this one already says the ratio's
+  // base is qualified and unadjusted. The ANNUALISATION is what a director
+  // reading 213 against a 30-day target needs and it is taken from the same
+  // `PERIOD_COUNTERPARTS` datum page 6 prints, so the two sheets cannot come
+  // to disagree about it.
+  const debtorWindow = debtorDaysFootnote.length === 0 ? null
+    : 'Debtor days here is the figure for the WHOLE reporting period, '
+      + `${PERIOD_COUNTERPARTS['trend-debtor-days']!.wholePeriodBasis}; the trends page plots it `
+      + 'a month at a time.';
+  const rowNoteText = [disownedText, debtorWindow]
+    .filter((part): part is string => part !== undefined && part !== null)
+    .join(' ');
+  const rowNote = rowNoteText === '' ? [] : [{ number: 1, required: true as const, text: rowNoteText }];
+  const flagged = new Set([
+    ...disowned.map((d) => d.metric),
+    ...(debtorDaysFootnote.length === 0 ? [] : ['debtor days']),
+  ].map((m) => m.toLowerCase()));
+  const scoredOnDisowned = rowNote.length === 0 ? scorecard : scorecard.map((group) => ({
+    ...group,
+    rows: group.rows.map((row) => (
+      flagged.has(row.metric.toLowerCase()) ? { ...row, footnote: 1 } : row
+    )),
+  }));
+
   // PAGE 11'S OWN BLOCKS, BEFORE ITS TABLE — because the table's budget is
   // whatever they leave behind. ONE selection, read by page 4's panel and
   // page 11's table alike: derived twice, they contradicted each other. See
@@ -784,7 +831,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     ]),
     cashPage,
     page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
-      { kind: 'scorecard', groups: scorecardWithDebtorDaysNote, priorFootnote: scorecardPriorNote?.number ?? null },
+      { kind: 'scorecard', groups: scoredOnDisowned, priorFootnote: scorecardPriorNote?.number ?? null },
       commentary(scorecardCaption(scorecard)),
       // ONE note, not two. "Targets" and "Not meaningful" were definitions,
       // and they now sit with the other sixteen on the basis page — this page
@@ -830,9 +877,10 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
         // sheet 9 had 1.71mm.
         note('Definitions', 'A target the figures cannot support is not scored; the basis page defines the terms.'),
       ]),
-    ], 'portrait', scorecardPriorNote === null
-      ? debtorDaysFootnote
-      : [...debtorDaysFootnote, scorecardPriorNote]),
+    ], 'portrait', [
+      ...rowNote,
+      ...(scorecardPriorNote === null ? [] : [scorecardPriorNote]),
+    ]),
     // PORTRAIT, like the other eleven. This was the one landscape sheet in
     // the pack — six panels three across needed the width — and printed and
     // bound it was the sheet a director had to turn. Two across at 83mm fits

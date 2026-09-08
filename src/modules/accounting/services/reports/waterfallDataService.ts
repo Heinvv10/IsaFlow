@@ -55,6 +55,11 @@ export interface WaterfallStep {
  * favourable when the step grows profit), never the step's `color` hint here,
  * so a falling revenue bar is red because profit fell — which is what it did.
  */
+/** Two decimals, for comparing two readings of one balance. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export function buildProfitWaterfall(data: {
   revenue: number;
   costOfSales: number;
@@ -63,6 +68,9 @@ export function buildProfitWaterfall(data: {
   otherIncome: number;
   otherExpenses: number;
   netProfit: number;
+  /** The classifier's OWN operating profit, where the caller has one — see
+   *  the Operating Profit step below. */
+  operatingProfit?: number;
 }): WaterfallStep[] {
   const steps: WaterfallStep[] = [];
   let running = 0;
@@ -86,6 +94,27 @@ export function buildProfitWaterfall(data: {
   // Other Income: added.
   steps.push({ label: 'Other Income', start: running, end: running + data.otherIncome, value: data.otherIncome, isSubtotal: false, color: 'green' });
   running += data.otherIncome;
+
+  // OPERATING PROFIT IS A WAYPOINT THE WALK PASSES THROUGH, AND IT WAS THE
+  // ONE SUBTOTAL THE BRIDGE DID NOT DRAW.
+  //
+  // The statement has three — gross profit, operating profit, net profit —
+  // and the bridge drew the first and the last. The running total here IS
+  // operating profit by `aggregateFigures`' own definition (gross profit less
+  // operating expenses plus other income), so a reader tracing the bars past
+  // Other Income was standing on a figure the sheet above prints as a row and
+  // the chart did not mark. An enumeration that omits one of its own members
+  // without saying so is the defect page 6's footnote exists to close.
+  //
+  // DRAWN ONLY WHERE IT AGREES WITH THE FIGURE THE STATEMENT PRINTS. The
+  // classifier issues its own `operatingProfit` and this walk derives one; on
+  // both companies they agree to the cent, and where they do not, the bar
+  // would be a third figure for one line — so the caller is told and page 6
+  // names the omission instead. Same refusal `decomposition` makes when two
+  // readings of the control account disagree.
+  if (data.operatingProfit === undefined || round2(data.operatingProfit) === round2(running)) {
+    steps.push({ label: 'Operating Profit', start: 0, end: running, value: running, isSubtotal: true, color: running >= 0 ? 'teal' : 'red' });
+  }
 
   // Other Expenses: subtracted.
   steps.push({ label: 'Other Expenses', start: running, end: running - data.otherExpenses, value: -data.otherExpenses, labelValue: data.otherExpenses, isSubtotal: false, color: 'red' });

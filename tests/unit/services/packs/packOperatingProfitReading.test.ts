@@ -160,7 +160,16 @@ describe('the operating line has one reading', () => {
     const offenders = tsFilesUnder(PACK_SERVICES)
       .filter((path) => !ALLOWED.has(path.split('/').pop()!))
       .filter((path) => {
-        const source = code(readFileSync(path, 'utf8'));
+        // PASSING THE SANCTIONED READING ON IS NOT A RAW READ. The rule is
+        // that nobody reads `ReportPackFigures.operatingProfit` except
+        // `operatingProfitOf`; a property whose VALUE is that call is the
+        // rule being obeyed, and the third pattern above — any object literal
+        // in a call carrying the key — cannot tell the two apart. Page 6's
+        // bridge hands the classifier's figure to `buildProfitWaterfall` so
+        // the Operating Profit subtotal is drawn only where the walk lands on
+        // the number the table prints.
+        const source = code(readFileSync(path, 'utf8'))
+          .replace(/operatingProfit:\s*operatingProfitOf\([^)]*\),?/g, '');
         return RAW_READS.some((pattern) => pattern.test(source));
       });
     expect(offenders).toEqual([]);

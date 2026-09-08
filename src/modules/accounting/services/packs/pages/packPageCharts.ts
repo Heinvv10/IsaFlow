@@ -46,6 +46,7 @@ import {
   UNCAPTURED_SHARE_LIMIT,
   uncapturedShare,
 } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
+import { operatingProfitOf } from '@/modules/accounting/services/packs/figures/packMetricReads';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackChartSpec, PackWaterfallBar, PlugReason } from './packPageModel';
 
@@ -322,6 +323,10 @@ export function buildProfitWaterfallChart(
     otherIncome: f.otherIncome ?? 0,
     otherExpenses: f.otherExpenses ?? 0,
     netProfit: f.netProfit,
+    // The figure page 6's TABLE prints on its Operating profit row, so the
+    // bridge draws that subtotal only where its own walk lands on the same
+    // number — see the step in `buildProfitWaterfall`.
+    operatingProfit: operatingProfitOf(f),
   });
   const omitted = omittedLines([
     ['Revenue', f.revenue],

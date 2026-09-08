@@ -297,8 +297,11 @@ function decomposition(
       ? ''
       : ` The report ages the whole of an open customer subledger of ${money(subledgerTotal)}.`)
     : ` The report ages ${money(read.agedDebtorsTotal ?? 0)} of an open customer subledger of `
-      + `${money(subledgerTotal)}, the ${money(unageable)} between them documents with no due `
-      + 'date, which reach no aging bucket.';
+      // "the 19 between them documents with no due date" has no verb — the
+      // reading meant is that the 19 IS documents of that kind. Six
+      // characters, and the clause parses.
+      + `${money(subledgerTotal)}, the ${money(unageable)} between them being documents with no `
+      + 'due date, which reach no aging bucket.';
 
   // "4 175 open documents carrying no link to a journal entry" reads as a
   // COUNT of documents, and the first draft printed exactly that. The amount

@@ -176,7 +176,7 @@ export const PERIOD_COUNTERPARTS: Record<string, PeriodCounterpart> = {
     // and "a month at a time" rather than "one month at a time" in the frame
     // below: six characters, which is what carries the base caveat onto the
     // row that prints a red MISS without this note taking a third line.
-    wholePeriodBasis: "annualised on 365 days whatever the period's length",
+    wholePeriodBasis: 'annualised on 365 days whatever its length',
   },
 };
 
@@ -271,7 +271,12 @@ export function trendWindowNote(
     .map((x) => x.counterpart.measure);
   const comparative = without.length === 0
     ? ' against the comparative'
-    : ` — against the comparative but ${inWords(without)}`;
+    // "BUT" READ AS A CONJUNCTION AND LEFT THE CLAUSE WITHOUT A VERB.
+    // "…on the scorecard page — against the comparative but gross margin and
+    // debtor days." parses as a sentence that stops mid-thought; the reading
+    // meant was "except". Brightsphere's copy is complete only because it
+    // needs no exception at all, which is how it survived a gate.
+    : ` — against the comparative, except ${inWords(without)}`;
   // Debtor days is measured differently as well as over a different window,
   // and a note that named only the window would be doing to that measure what
   // this whole file used to do to revenue.
@@ -360,7 +365,11 @@ export function trendWindowNote(
   return {
     heading: 'Period',
     body:
-      'Each panel plots one MONTH. The same measures print for the WHOLE reporting period — '
+      // "the WHOLE period", not "the WHOLE reporting period": the contrast in
+      // this sentence is with a MONTH, which the clause before it states, and
+      // the ten characters are what carry "except" in place of the "but" that
+      // left the exception clause without a verb.
+      'Each panel plots one MONTH. The same measures print for the WHOLE period — '
       + `${inWords(where)}${comparative}. Different windows: the two `
       + `need not agree.${debtorDays}${partRatios}`,
   };

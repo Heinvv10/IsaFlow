@@ -51,7 +51,7 @@ describe('the comparative list accounts for every panel on the sheet', () => {
     // measure's absence — BOTH of them. The demo pack's page 9 prints Debtor
     // days PRIOR as `n/m`, the same state as gross margin's, and the sentence
     // named gross margin alone: a list disproved by the sheet it points at.
-    expect(body).toMatch(/against the comparative but gross margin and debtor days/);
+    expect(body).toMatch(/against the comparative, except gross margin and debtor days/);
   });
 
   it('claims the comparative without exception where every measure has one', () => {

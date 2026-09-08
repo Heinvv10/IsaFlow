@@ -38,6 +38,7 @@ import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/
 import { comparativeLengthClause, formatPackTimestamp } from './packPeriodLabel';
 import type { PeriodWindow } from '@/modules/accounting/services/reports/priorPeriod';
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
+import { ledgerStalenessCaveat } from './packLedgerCurrency';
 import { buildDefinitions } from './packDefinitions';
 import { liquidityMetricNames, NO_INVENTORY_CLASSIFIED } from './packScorecard';
 import type { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
@@ -334,6 +335,16 @@ export function buildBasis(
   const caveats: string[] = [];
   if (set.current.classificationCaveat) caveats.push(set.current.classificationCaveat);
   if (set.current.inventoryCaveat) caveats.push(INVENTORY_CAVEAT);
+  // HOW CURRENT THE FIGURES ARE IS A CAVEAT, NOT ONLY A SHEET-4 BLOCK.
+  //
+  // The demo pack's period qualification — the fiscal period it ends in is
+  // still open — reaches the cover and the contents page. Brightsphere's is
+  // larger and surfaced once: nothing has been posted since 29 April, five
+  // months before the period end, stated on sheet 4 alone while its cover and
+  // caveats said only that no commentary had been approved. A director
+  // reading sheets 1 to 3 formed a view of a period the ledger never covered.
+  const stale = ledgerStalenessCaveat(ledgerVersion, trend, set.currentWindow.end);
+  if (stale !== null) caveats.push(stale);
   // The SAME sentence the cover prints — one definition, because they are one
   // claim, and a pack whose cover says DRAFT while its caveats do not is a
   // pack that disagrees with itself about its own status.

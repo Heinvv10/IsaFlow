@@ -46,8 +46,9 @@
  * after the watermark is proof the watermark is not the reason the series
  * ends where it does.
  */
-import { formatPackDate } from './packPeriodLabel';
 import { mustDisclose, note } from './packPageBlocks';
+import { formatPackDate } from './packPeriodLabel';
+import { staleMonths } from './packLedgerCurrency';
 import type { PackPageBlock } from './packPageModel';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
@@ -55,25 +56,7 @@ import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTre
  *  carries THIS block rather than any disclosure that mentions a ledger. */
 export const LEDGER_STALE_HEADING = 'How current these figures are';
 
-/** A month with nothing at all posted in it — the same test page 5's caption
- *  applies (`monthlyResultsCaption`), read off the same `PackTrendPoint`, so
- *  the count here and the count there cannot come to differ. */
-function isNil(point: PackTrendPoint): boolean {
-  return point.revenue === 0 && point.expenses === 0;
-}
 
-/**
- * The months of the series that fall wholly after the ledger watermark.
- *
- * Compared on the `YYYY-MM` key against the watermark's own year and month,
- * so a watermark of 29 April excludes April itself: April has postings in it
- * — that is what made it the watermark — and counting it would state that a
- * month the board can see figures for is empty.
- */
-function monthsAfter(trend: PackTrendPoint[], ledgerVersion: string): PackTrendPoint[] {
-  const watermark = ledgerVersion.slice(0, 7);
-  return trend.filter((point) => point.month > watermark);
-}
 
 /**
  * Page 4's ledger-currency disclosure, or null where the ledger is current.
@@ -90,13 +73,9 @@ export function ledgerStalenessNote(
   trend: PackTrendPoint[],
   periodEnd: string,
 ): PackPageBlock | null {
-  if (ledgerVersion === null) return null;
-  const posted = ledgerVersion.slice(0, 10);
-  if (posted >= periodEnd) return null;
-
-  const after = monthsAfter(trend, ledgerVersion);
-  const nil = after.filter(isNil);
-  if (nil.length === 0 || nil.length !== after.length) return null;
+  const stale = staleMonths(ledgerVersion, trend, periodEnd);
+  if (stale === null) return null;
+  const { posted, nil } = stale;
 
   // THE COUNT IS OF THE SERIES' OWN MONTHS, and it is stated as a count
   // rather than as a span in days: page 5 prints those months as rows and

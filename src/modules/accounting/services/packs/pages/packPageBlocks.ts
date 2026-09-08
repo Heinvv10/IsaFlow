@@ -653,7 +653,15 @@ export function buildTrendBlocks(
       // specification, quoted to a board. What a director needs is which six
       // a board pack carries and which of them this company's ledger could
       // not support; the authority for the six is not their business.
-      note('Why', `A board pack tracks six measures on this page — revenue, gross margin %, operating expenses, net profit, cash and debtor days — and ${drawn.length} of the six could be drawn for this company. ${PANEL_OMITTED_RULE}: gross margin % and debtor days both need positive revenue, and no period here had any. Nothing is inferred in its place.`),
+      // AND THE TWO COUNTS ARE THE SAME KIND OF THING. It read "tracks SIX
+      // measures … and 4 OF THE SIX", a word and a digit for one number in
+      // one sentence, on a page whose caption two blocks above opens "4
+      // measures are drawn over the period". The pack sets counts as digits
+      // everywhere else — "2 caveats qualify these figures", "0 of 3 scored
+      // targets" — so the word was the outlier. Both are taken from
+      // `TRENDS_PANELS_SPECIFIED` now rather than typed, which is also what
+      // stops the sentence claiming six on the day the spec asks for seven.
+      note('Why', `A board pack tracks ${TRENDS_PANELS_SPECIFIED} measures on this page — revenue, gross margin %, operating expenses, net profit, cash and debtor days — and ${drawn.length} of the ${TRENDS_PANELS_SPECIFIED} could be drawn for this company. ${PANEL_OMITTED_RULE}: gross margin % and debtor days both need positive revenue, and no period here had any. Nothing is inferred in its place.`),
     ]));
   }
   return trendBlocks;

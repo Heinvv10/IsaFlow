@@ -195,7 +195,7 @@ describe('the month-versus-period note', () => {
       // This call passes no reading, so the default says every cell prints
       // one and only the structural half can fire.
       const without = [...drawn].filter((id) => !PERIOD_COUNTERPARTS[id]!.printsAgainstComparative);
-      expect(/against the comparative but /.test(note!.body)).toBe(without.length > 0);
+      expect(/against the comparative, except /.test(note!.body)).toBe(without.length > 0);
       // And gross margin is the measure that differs, so this can fail.
       expect(PERIOD_COUNTERPARTS['trend-gross-margin']!.printsAgainstComparative).toBe(false);
     });

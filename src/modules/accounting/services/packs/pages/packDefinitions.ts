@@ -194,7 +194,23 @@ const TERMS: PackDefinition[] = [
     // page 12 composes at 252.41mm of 255 before and after, and at nineteen
     // the fitter drops the Colour key. All three kinds are still listed, so
     // nothing the word emphasised has gone.
-    definition: 'In brackets — (12 345) — for currency, percentages and ratios; in prose, in words. No minus sign is used anywhere in this pack. Only a positive value takes a +.',
+    // "IN PROSE, IN WORDS" IS TRUE OF PERCENTAGES AND OF NOTHING ELSE.
+    // `pctWithWord` writes "a negative 1522.9%" in a sentence; money in a
+    // sentence keeps its brackets — page 11 prints "trade receivables of
+    // (330)" and page 7 "working capital stands at (3 821)" — so the rule as
+    // written was contradicted by the pack on nearly every prose sheet. The
+    // gate reads that as an imprecise sentence rather than an inconsistent
+    // pack, and it is right: the practice is deliberate and only the
+    // description was loose.
+    //
+    // AND IT IS PAID FOR OUT OF THIS ENTRY, which had under five characters
+    // of wrap on `liveDemoBridge` — page 12 composes at 252.41mm of 255 there
+    // and the fitter answers one more line by dropping a whole glossary
+    // entry. "anywhere" was emphasis carrying nothing (nine), and "money" is
+    // the word this pack uses for the thing "currency" named (four). The
+    // scope — a PERCENTAGE, in PROSE — is the whole of the correction and
+    // both halves of it survive.
+    definition: 'In brackets — (12 345) — for money, percentages and ratios; a percentage in prose, in words. No minus sign is used in this pack. Only a positive value takes a +.',
   },
   {
     // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatMoney`

@@ -32,9 +32,12 @@ const COMPANIES: Record<string, BoardPackInput> = {
 function periodNote(doc: PackPagesDocument): string {
   const page = doc.pages.find((p) => p.navLabel === 'Trends');
   expect(page, 'this pack has no trends page').toBeDefined();
+  // By its HEADING, not by a phrase in its body: the body is prose this
+  // branch keeps shortening, and a finder that matches on wording silently
+  // returns nothing the next time a word is spent.
   const body = page!.blocks
     .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []))
-    .find((n) => n.body.includes('WHOLE reporting period'));
+    .find((n) => n.heading === 'Period');
   return body?.body ?? '';
 }
 
@@ -59,7 +62,7 @@ describe('page 10 excepts every measure whose comparative cell is empty', () => 
       if (note === '' || !note.includes('debtor days')) return; // no panel, nothing claimed
 
       const printed = scorecardPrior(doc, 'debtor days');
-      const excepted = /but [^.]*debtor days/.test(note);
+      const excepted = /except [^.]*debtor days/.test(note);
       expect(
         excepted,
         printed
@@ -87,6 +90,6 @@ describe('page 10 excepts every measure whose comparative cell is empty', () => 
     const allPrinted = measures.every((m) => note.includes(m));
     if (!allPrinted) return;
     expect(note, 'Brightsphere excepts a measure its own sheets print a prior for')
-      .not.toMatch(/but [^.]*(revenue|operating expenses|net profit)/);
+      .not.toMatch(/except [^.]*(revenue|operating expenses|net profit)/);
   });
 });

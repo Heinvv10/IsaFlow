@@ -222,8 +222,12 @@ describe('a nil movement is not drawn, on any line', () => {
       revenue: 0, costOfSales: 0, grossProfit: 0,
       operatingExpenses: 0, otherIncome: 0, otherExpenses: 0, netProfit: 0,
     });
-    expect(steps.map(s => s.label)).toEqual(['Gross Profit', 'Net Profit']);
-    expect(steps.filter(s => s.isSubtotal).map(s => s.label)).toEqual(['Gross Profit', 'Net Profit']);
+    // THREE SUBTOTALS, because the walk passes through three: the statement
+    // prints gross profit, operating profit and net profit, and the bridge
+    // drew the first and the last until this round.
+    expect(steps.map(s => s.label)).toEqual(['Gross Profit', 'Operating Profit', 'Net Profit']);
+    expect(steps.filter(s => s.isSubtotal).map(s => s.label))
+      .toEqual(['Gross Profit', 'Operating Profit', 'Net Profit']);
   });
 
   it('leaves the running total unbroken across a dropped line', () => {

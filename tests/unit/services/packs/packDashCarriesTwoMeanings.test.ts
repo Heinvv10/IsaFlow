@@ -97,13 +97,18 @@ describe('the second meaning is really on the paper', () => {
 describe('page 12 states how a negative reads in prose as well as in a table', () => {
   it.each(FIXTURES)('%s', (unusedName, input) => {
     const negatives = definitions(input).find((t) => t.term === 'Negative figures')!;
-    expect(negatives.definition).toMatch(/in prose, in words/);
+    // AND THE WORDS RULE IS SCOPED TO WHAT IT IS TRUE OF. It read "in prose,
+    // in words" without qualification, and money in prose keeps its brackets
+    // — page 11 prints "trade receivables of (330)", page 7 "working capital
+    // stands at (3 821)". The practice is deliberate on both counts; only the
+    // sentence was loose.
+    expect(negatives.definition).toMatch(/a percentage in prose, in words/);
     // The bracket rule itself is untouched, and still names all three kinds.
     expect(negatives.definition).toMatch(/In brackets/);
-    for (const kind of ['currency', 'percentages', 'ratios']) {
+    for (const kind of ['money', 'percentages', 'ratios']) {
       expect(negatives.definition).toContain(kind);
     }
-    expect(negatives.definition).toMatch(/No minus sign is used anywhere in this pack/);
+    expect(negatives.definition).toMatch(/No minus sign is used in this pack/);
   });
 
   it('and the prose the exception is about is really there', () => {
