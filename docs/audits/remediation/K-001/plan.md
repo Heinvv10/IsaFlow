@@ -45,3 +45,7 @@ Keep `verifyToken` as the secure default for every existing completed-auth calle
 Exact behavior files: src/lib/auth/gotrue.ts and pages/api/auth/2fa-challenge.ts. Tests: pending-mfa-access.test.ts, assurance-specific GoTrue tests, relevant existing auth/print/caller suites. Follow-up tests must cover phone factors, malformed/mismatched provider identity, provider failure, AAL2, and pending challenge semantics. Do not move to K-002 before K-001's remaining gates are accounted for.
 
 Caller-review correction: end-impersonation is also a restricted identity-only recovery caller. Its new regression showed the initial gate stranded an admin on an MFA target (401 instead of 200). Preserve raw signature + existing stash ownership validation there; it only restores the stashed admin session, whose subsequent requests remain MFA-gated. The unrelated-user ownership negative case must remain 403. Behavior scope now includes pages/api/auth/end-impersonation.ts.
+
+## Final code verification
+
+The historical open gates above are superseded by delegation-result.md and final-push-ci.log: regression, real provider/current-schema workflow, named commit review, full CI and draft PR345 are complete. Pristine historical migration replay and deployment remain separate open requirements.
