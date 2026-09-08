@@ -129,6 +129,42 @@ describe('the pack states the basis it was prepared on, or says it states none',
     }
   });
 
+  /**
+   * A BASIS STATED ACROSS TWO SHEETS SAYS SO ON THE SHEET IT IS STATED ON.
+   *
+   * The going-concern line is on page 2 and the other eight basis facts are
+   * on page 12 — and a basis split across two sheets where neither names the
+   * other is the cross-reference defect this branch has fixed six times. It
+   * is not that here: the note sits in "The basis, in short", one line under
+   * the note that ends "Full basis on page 12", so a reader who meets the
+   * going-concern statement is told in the same block where the rest of the
+   * basis lives.
+   *
+   * THE OTHER DIRECTION IS NOT PRINTED, and that is measured rather than
+   * forgotten. Page 12 has 2.6mm of paper spare on the shape whose EBITDA
+   * bridge does not add as printed, and the cheapest cross-reference that
+   * block can carry costs 4.2mm — one line, whichever note it is appended to
+   * and whether it goes in the title, the standard-and-currency fact or the
+   * ledger version. A pointer that printed on eleven shapes and not the
+   * twelfth would be the per-shape variance the going-concern line itself was
+   * moved here to avoid.
+   */
+  it('names where the rest of the basis is, in the block that carries it', () => {
+    for (const [name, input] of Object.entries(FIXTURES)) {
+      const doc = buildBoardPackPages(input);
+      const block = doc.pages[1]!.blocks.find((b) => b.kind === 'disclosure'
+        && b.disclosure.notes.some((n) => n.body === GOING_CONCERN_NOTE));
+      expect(block, `${name}: page 2 carries no block with the going-concern note in it`)
+        .toBeDefined();
+      const bodies = block!.kind === 'disclosure' ? block!.disclosure.notes.map((n) => n.body) : [];
+      expect(
+        bodies.some((b) => b.includes(`Full basis on page ${doc.pages.length}`)),
+        `${name}: the going-concern note is stranded — its block does not say where the rest of `
+          + `the basis is: ${bodies.join(' / ')}`,
+      ).toBe(true);
+    }
+  });
+
   it('costs no sheet its own prose', () => {
     // It is on page 2 because page 12 has 0.0mm spare on the EBITDA-rounding
     // shape and this fact needs 4.2mm of it — buyable only by dropping the
