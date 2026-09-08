@@ -1,0 +1,14 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST /api/accounting/mfa-integration-fixture","timestamp":"2026-09-08T16:28:53.077Z","component":"API","requestId":"01M20XKPEMDSM2F5GNACTJXY69","data":{"type":"request","method":"POST","url":"/api/accounting/mfa-integration-fixture","query":{"id":"24269a95-1872-4098-b82e-030441789d8c"}}}
+{"level":"info","message":"API Response: POST /api/accounting/mfa-integration-fixture - 200 (183ms)","timestamp":"2026-09-08T16:28:53.260Z","component":"API","requestId":"01M20XKPEMDSM2F5GNACTJXY69","data":{"type":"response","method":"POST","url":"/api/accounting/mfa-integration-fixture","statusCode":200,"duration":"183ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-08T16:28:53.260Z","component":"http","requestId":"01M20XKPEMDSM2F5GNACTJXY69","data":{"event":"request_completed","route":"/api/accounting/mfa-integration-fixture","method":"POST","status":200,"durationMs":183,"userId":"209f1154-0f11-48ee-a2c2-ef7a39aaa0fe","companyId":null,"outcome":"ok"}}
+{"level":"info","message":"withPlatformAdmin slow request","timestamp":"2026-09-08T16:28:53.270Z","component":"Auth","data":{"ms":206,"url":"/api/accounting/mfa-integration-fixture"}}
+{"level":"warn","message":"withAuth: invalid token","timestamp":"2026-09-08T16:28:53.297Z","component":"Auth","data":{"message":"MFA challenge required or factor state unavailable"}}
+{"level":"info","message":"impersonation ended","timestamp":"2026-09-08T16:28:53.432Z","component":"Admin","data":{"admin":"209f1154-0f11-48ee-a2c2-ef7a39aaa0fe","target":"24269a95-1872-4098-b82e-030441789d8c"}}
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  18:28:51
+   Duration  1.87s (transform 166ms, setup 0ms, import 269ms, tests 1.49s, environment 0ms)
