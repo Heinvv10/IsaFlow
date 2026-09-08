@@ -430,7 +430,14 @@ export function buildDefinitions(
         + 'operating profit plus the period\'s movement on depreciation and amortisation. That '
         + 'movement is a NET CREDIT here — more reversed out of those accounts than posted in — so '
         + 'the add-back is negative and EBITDA sits below operating profit. The ledger\'s movement, '
-        + 'not a sign error.'
+        // AND THAT THE RECONCILIATION IS ALL OF IT, which the other arm says
+        // and this one dropped — on the company whose add-back is negative
+        // and needs the assurance most. Its ONLY non-IFRS measure was
+        // reconciled with no claim that the reconciliation was exhaustive.
+        // Three words, because page 12 has about 1.7mm of paper: the other
+        // arm's "(already stated before interest and tax)" is the acronym
+        // above it restated, and is not what went missing.
+        + 'not a sign error. No other adjustments.'
       : 'Earnings before interest, tax, depreciation and amortisation — a non-IFRS measure, taken '
         + 'from operating profit (already stated before interest and tax) plus the depreciation and '
         + 'amortisation charged in the period. '

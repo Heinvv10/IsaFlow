@@ -408,6 +408,15 @@ export type PackPageBlock =
        * came from — R7's approved/derived split, applied to a bullet list.
        */
       boardActions?: string[];
+      /**
+       * The COUNTS below that panel — "1 further matter follows on the
+       * matters page", "27 further matters are not printed in this pack".
+       *
+       * Separate because they are statements ABOUT the list rather than
+       * members of it: set as list items they read as two more decisions, and
+       * a director scanning a panel of three counts five.
+       */
+      boardActionsTail?: string[];
     }
   // Spec §4.A page 11 is a TABLE — issue, quantum, owner, movement, decision
   // — and `PackTable`'s column keys are financial (actual/prior/change/…),

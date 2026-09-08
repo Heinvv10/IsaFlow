@@ -253,7 +253,14 @@ export function buildCommentaryBlocks(
   selection: SelectedMatters,
 ): PackPageBlock[] {
   return [
-    { kind: 'narrative', narrative, boardActions: boardActionItems(selection) },
+    // THE COUNTS ARE NOT DECISIONS. `boardActionsTail` is set smaller and
+    // outside the list — see `BoardActions`.
+    {
+      kind: 'narrative',
+      narrative,
+      boardActions: boardActionItems(selection).items,
+      boardActionsTail: boardActionItems(selection).tail,
+    },
     disclose('How this page is prepared', [
       // NEITHER SENTENCE NAMES A COLUMN, because the page has two shapes.
       // With commentary approved the two sit side by side; with it pending

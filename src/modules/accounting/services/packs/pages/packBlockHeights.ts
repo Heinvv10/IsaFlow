@@ -181,14 +181,25 @@ export function disclosureMm(disclosure: PackDisclosure, orientation: PageOrient
  * and the block costs both, one after the other. See `packPrint.css` for why
  * a one-line column beside a five-paragraph one had to stop.
  */
-export function narrativeMm(narrative: PackNarrative, boardActions: string[], orientation: PageOrientation): number {
+export function narrativeMm(
+  narrative: PackNarrative,
+  boardActions: string[],
+  orientation: PageOrientation,
+  /** The counts under the panel — see `boardActionsTail`. 7.5pt over 11,
+   *  the pack's footnote setting, and charged because the renderer draws
+   *  them: a block whose renderer prints something this does not measure is
+   *  how the three overflows `packTextMetrics` exists for happened. */
+  boardActionsTail: string[] = [],
+): number {
   const width = PAGE_WIDTH_MM[orientation];
   const pending = narrative.status === 'pending';
   // `.pack-narrative-source` — one line beside the prose, where the measure
   // is two thirds of the page, and two in the panel, where it is a third.
   const source = lines(1, 11);
+  const tailOf = (widthMm: number): number => (boardActionsTail.length === 0 ? 0
+    : 2 + lines(wrappedLines(boardActionsTail.join(' '), 7.5, widthMm), 11));
   const panelOf = (widthMm: number): number => (boardActions.length === 0 ? 0
-    : lines(1, 15) + 1 + lines(2, 11) + 1.5 + listMm(boardActions, widthMm - 8));
+    : lines(1, 15) + 1 + lines(2, 11) + 1.5 + listMm(boardActions, widthMm - 8) + tailOf(widthMm - 8));
 
   if (pending) {
     const placeholder = lines(1, 15);

@@ -206,7 +206,11 @@ export function printedCaveats(page: UnnumberedPage, basis: PackBasis): number {
  */
 const colourKey = (bridges: number): string =>
   `On the ${bridges === 1 ? 'bridge' : 'bridges'}, green is an income line, red a cost line and dark ink a total; `
-  + 'the two also differ in lightness, so a monochrome copy still separates them. '
+  // "THE TWO" AFTER A LIST OF THREE. The sentence enumerates green, red and
+  // dark ink and then guarantees the greyscale separation for a pair with no
+  // antecedent — understating a fact the pack can state in full. Measured off
+  // the vector at 400dpi: green 137, red 80, ink 36, all three separate.
+  + 'all three also differ in lightness, so a monochrome copy still separates them. '
   + 'The balance sheet\'s bands are one ink at three lightnesses, legended on the chart. '
   + 'Red on the scorecard marks a missed target.';
 

@@ -26,7 +26,10 @@ function panelAndTable(doc: PackPagesDocument) {
   const panel = blocks.find((b) => b.kind === 'narrative' && b.boardActions !== undefined);
   if (table?.kind !== 'matters') throw new Error('no matters block');
   if (panel?.kind !== 'narrative' || panel.boardActions === undefined) throw new Error('no action panel');
-  return { table, actions: panel.boardActions };
+  // BOTH HALVES OF THE PANEL. The counts are set below the list now — a
+  // statement about a list is not a member of it — and reading `boardActions`
+  // alone made every assertion about a remainder read `undefined`.
+  return { table, actions: [...panel.boardActions, ...(panel.boardActionsTail ?? [])] };
 }
 
 describe('the matters selection', () => {

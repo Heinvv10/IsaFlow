@@ -655,9 +655,14 @@ describe('the decomposition says whether it closes', () => {
 
   it('says the parts are all of it when nothing is left over', () => {
     expect(prose(['document_not_linked_to_journal', 'posting_with_no_document']))
-      .toContain('Together they account for all of it.');
+      .toContain('Together they account for all of it, before rounding.');
   });
 
+  // AND IT SAYS AT WHICH PRECISION. The demo's printed split is
+  // 10 665 + 2 + (1) = 10 666 against a stated difference of 10 665 — inside
+  // the rounding the pack declares, but this sentence makes an explicit
+  // CLOSURE claim on its own face, and a closure claim that does not close by
+  // one is a different thing from a page without a pointer.
   it('says nothing of the sort when the service could not account for a residual', () => {
     const note = prose(['document_not_linked_to_journal', 'unexplained_difference']);
     expect(note).toContain('could not account for');
@@ -666,6 +671,6 @@ describe('the decomposition says whether it closes', () => {
   });
 
   it('agrees its verb with one part', () => {
-    expect(prose(['posting_with_no_document'])).toContain('That accounts for all of it.');
+    expect(prose(['posting_with_no_document'])).toContain('That accounts for all of it, before rounding.');
   });
 });

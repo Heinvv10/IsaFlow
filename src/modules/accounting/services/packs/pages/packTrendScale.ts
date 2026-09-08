@@ -242,12 +242,21 @@ export function movementSentence(
 ): string {
   const at = lastMonth === undefined ? '' : ` in ${lastMonth}`;
   if (first === last) {
-    // NO VERB. "Operating expenses is nil" and "Debtor days is unchanged"
-    // both read as a template that has not been told whether its subject is
-    // singular; a measure's name is a label, and a label takes a colon.
-    const level = first === 'nil' ? 'nil' : `unchanged at ${last}`;
-    const lastIs = lastMonth === undefined ? 'the last' : lastMonth;
-    return `${name}: ${level} in the first month and ${lastIs} of the ${periods}-month series.`;
+    // A SENTENCE, LIKE EVERY OTHER PANEL ON THE SHEET.
+    //
+    // This was a colon-caption to dodge subject-verb agreement — "Operating
+    // expenses IS nil" reads as a template that was never told whether its
+    // subject is plural — and it put three of Brightsphere's four panels in
+    // one voice and the fourth, and all six of the demo's, in another, with
+    // nothing saying the template had switched. The page title renders the
+    // same flat series as a sentence.
+    //
+    // The moving form below is immune to the agreement problem because "rose"
+    // and "fell" are PAST TENSE, which does not inflect for number. "Stayed"
+    // is the same word for one subject or many, so the flat case can be a
+    // sentence too and the sheet reads in one voice.
+    const lastIs = lastMonth === undefined ? 'the last month' : lastMonth;
+    return `${name} stayed at ${last} from the first month to ${lastIs}, over ${periods} periods.`;
   }
   return `${name} ${rose ? 'rose' : 'fell'} from ${first} to ${last}${at} over ${periods} periods.`;
 }

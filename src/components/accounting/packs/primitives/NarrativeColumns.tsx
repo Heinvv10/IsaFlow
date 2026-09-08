@@ -39,6 +39,8 @@ export interface NarrativeColumnsProps {
   /** Spec §4.A page 4's narrow column — see `boardActionItems`. Absent on
    *  every other narrative block in the pack. */
   boardActions?: string[];
+  /** The counts under the panel — see `BoardActionPanel`. */
+  boardActionsTail?: string[];
 }
 
 /** What each rendered status tells the reader about where the words came
@@ -52,7 +54,7 @@ const SOURCE_LABEL: Record<'approved' | 'derived', string> = {
 
 /** The derived right-hand column. Headed and sourced, so a reader can see it
  *  was not written by whoever signed the commentary beside it. */
-function BoardActionPanel({ actions }: { actions: string[] }) {
+function BoardActionPanel({ actions, tail }: { actions: string[]; tail: string[] }) {
   if (actions.length === 0) return null;
   return (
     <div className="pack-narrative-actions">
@@ -63,11 +65,19 @@ function BoardActionPanel({ actions }: { actions: string[] }) {
           <li key={index}>{action}</li>
         ))}
       </ul>
+      {/* NOT LIST ITEMS. "1 further matter follows on the matters page" is a
+        * statement about the list, and set as a bullet beside three decisions
+        * it reads as a fourth: a director scanning the panel counts five
+        * things to decide and three of them are decisions. Smaller, outside
+        * the list, in the grey the pack's footnotes use. */}
+      {tail.length > 0 && (
+        <p className="pack-narrative-actions-tail">{tail.join(' ')}</p>
+      )}
     </div>
   );
 }
 
-export function NarrativeColumns({ narrative, boardActions = [] }: NarrativeColumnsProps) {
+export function NarrativeColumns({ narrative, boardActions = [], boardActionsTail = [] }: NarrativeColumnsProps) {
   if (narrative.status === 'pending') {
     return (
       <div className="pack-narrative-columns is-pending">
@@ -78,7 +88,7 @@ export function NarrativeColumns({ narrative, boardActions = [] }: NarrativeColu
          *  to say it: one italic line does not need a 2fr column, and the
          *  action panel beside it does need more than 1fr. See packPrint.css. */}
         <p className="pack-narrative-pending">Commentary pending approval.</p>
-        <BoardActionPanel actions={boardActions} />
+        <BoardActionPanel actions={boardActions} tail={boardActionsTail} />
       </div>
     );
   }
@@ -113,7 +123,7 @@ export function NarrativeColumns({ narrative, boardActions = [] }: NarrativeColu
           </ul>
         )}
       </div>
-      <BoardActionPanel actions={boardActions} />
+      <BoardActionPanel actions={boardActions} tail={boardActionsTail} />
     </div>
   );
 }

@@ -352,8 +352,17 @@ function decomposition(
   // difference, so "they account for all of it" would be arithmetically true
   // and would tell a director the opposite of what that clause says.
   const closes = named.every((item) => item.type !== 'unexplained_difference');
+  // AND THE CLAIM SAYS WHICH PRECISION IT IS TRUE AT.
+  //
+  // On the demo the printed split is 10 665 + 2 + (1) = 10 666 against a
+  // stated difference of 10 665 — inside the rounding this pack declares, and
+  // page 12 says so in general, but the sentence beside it makes an explicit
+  // CLOSURE claim on its own face and a closure claim that does not close by
+  // one is a different thing from a page without a pointer. Three words,
+  // where a footnote would have cost this sheet a matters row.
   const closure = !closes ? ''
-    : ` ${named.length === 1 ? 'That accounts' : 'Together they account'} for all of it.`;
+    : ` ${named.length === 1 ? 'That accounts' : 'Together they account'} for all of it, `
+      + 'before rounding.';
   return `${legOne} Between that subledger and the trade-receivable control account in the `
     + `general ledger: ${list}.${closure}`;
 }

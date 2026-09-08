@@ -410,9 +410,24 @@ export function boardActionMatters(selection: SelectedMatters): PackMatter[] {
   return actionsThatFit(selection.printed);
 }
 
-export function boardActionItems(selection: SelectedMatters): string[] {
+export interface BoardActions {
+  /** The matters themselves — one decision each. */
+  items: string[];
+  /**
+   * WHAT IS NOT ON THE PANEL, which is not a matter and must not be set as
+   * one.
+   *
+   * "1 further matter follows on the matters page." and "27 further matters
+   * are not printed in this pack" are statements ABOUT the list; typeset as
+   * list items they read as two more things for the board to decide, and a
+   * director scanning a panel of decisions counts five.
+   */
+  tail: string[];
+}
+
+export function boardActionItems(selection: SelectedMatters): BoardActions {
   const { printed, omitted } = selection;
-  if (printed.length === 0) return [];
+  if (printed.length === 0) return { items: [], tail: [] };
 
   const shown = boardActionMatters(selection);
   const decisions = new Set(shown.map((m) => m.decisionRequired));
@@ -432,11 +447,12 @@ export function boardActionItems(selection: SelectedMatters): string[] {
   // six and disclosed twenty-two that follow nowhere: two derivations of one
   // quantity, in the governance section, disagreeing two sheets apart.
   const alsoOnPage = printed.length - shown.length;
+  const tail: string[] = [];
   if (alsoOnPage > 0) {
-    items.push(`${alsoOnPage} further ${alsoOnPage === 1 ? 'matter follows' : 'matters follow'} on the matters page.`);
+    tail.push(`${alsoOnPage} further ${alsoOnPage === 1 ? 'matter follows' : 'matters follow'} on the matters page.`);
   }
   if (omitted.length > 0) {
-    items.push(`${omitted.length} further ${omitted.length === 1 ? 'matter is' : 'matters are'} not printed in this pack; the matters page states what they come to.`);
+    tail.push(`${omitted.length} further ${omitted.length === 1 ? 'matter is' : 'matters are'} not printed in this pack; the matters page states what they come to.`);
   }
-  return items;
+  return { items, tail };
 }

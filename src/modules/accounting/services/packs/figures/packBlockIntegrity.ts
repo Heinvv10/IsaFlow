@@ -164,7 +164,11 @@ export function checkMattersCrossReference(doc: PackPagesDocument): string[] {
   let named = 0;
   let followOn: number | null = null;
   let notPrinted: number | null = null;
-  for (const item of panel.boardActions) {
+  // THE COUNTS MOVED OUT OF THE LIST AND THE CHECK FOLLOWED THEM. They are
+  // set below the panel now, smaller — a statement ABOUT the list is not a
+  // member of it — and reading `boardActions` alone made this refuse every
+  // pack that discloses an omission. Both halves are the panel.
+  for (const item of [...panel.boardActions, ...(panel.boardActionsTail ?? [])]) {
     const follow = FOLLOW_ON.exec(item);
     if (follow !== null) { followOn = Number(follow[1]); continue; }
     const rest = NOT_PRINTED.exec(item);

@@ -374,6 +374,13 @@ html.print-mode .pack-pages {
 .pack-narrative-actions-heading { font-size: 11pt; line-height: 15pt; font-weight: 600; margin: 0 0 1mm; }
 .pack-narrative-actions ul { margin: 1.5mm 0 0; padding-left: 4mm; }
 .pack-narrative-actions li + li { margin-top: 1.5mm; }
+/* THE COUNTS UNDER THE PANEL, NOT IN IT. "1 further matter follows on the
+ * matters page" is a statement about the list; set as a bullet beside three
+ * decisions it reads as a fourth. Footnote size and footnote grey, which is
+ * what this pack sets a statement about a list in. */
+.pack-narrative-actions-tail {
+  margin: 2mm 0 0; font-size: 7.5pt; line-height: 11pt; color: var(--pack-grey-mid);
+}
 /* The APPROVER's own action items, under their own prose — see
  * `NarrativeColumns` for why they are never merged with the derived panel. */
 .pack-narrative-approved-actions { margin: 2mm 0 0; padding-left: 4mm; }

@@ -218,7 +218,10 @@ async function agedDebtorConcentrationMatters(
     issue: `Aged debtor concentration: ${largest.entityName} owes `
       + `${formatMoney(round2(largest.total), { scale: PACK_SCALE })}, ${pct.toFixed(1)}% of all `
       + 'debtors owed on the aged debtors report, which come to '
-      + `${inScale(formatMoney(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}`,
+      // A FULL STOP, like every other matter's issue. This one ended on its
+      // unit — "…which come to 4 146, in R'000" — and sat in a column beside
+      // cells that close properly.
+      + `${inScale(formatMoney(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}.`,
     quantum: round2(largest.total),
     owner: 'Credit control',
     movement: NO_PRIOR_MEETING_RECORD,
