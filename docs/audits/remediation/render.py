@@ -10,7 +10,7 @@ backlog = json.loads((ROOT / 'backlog.json').read_text())
 items = backlog['items']
 assert {item['id'] for item in items if item['id'].startswith('K-')} == {f'K-{n:03}' for n in range(1, 282)}
 assert len({item['id'] for item in items}) == len(items)
-assert {i['id'] for i in items if not i['id'].startswith('K-')} == {'R-001', 'R-002'}
+assert {i['id'] for i in items if not i['id'].startswith('K-')} == {'R-001', 'R-002', 'R-003'}
 sources = backlog['sourceInventory']
 assert len({source['id'] for source in sources}) == len(sources)
 expected_sources = {f'A C{n}' for n in range(1, 22)} | {f'A H{n}' for n in range(1, 56)} | {f'B F{n:02}' for n in range(1, 55)}

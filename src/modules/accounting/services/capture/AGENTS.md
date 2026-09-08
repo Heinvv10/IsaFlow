@@ -74,3 +74,7 @@ Invoked by `withAuth`-wrapped API routes in `pages/api/accounting/capture/**` (a
 New email inboxes use128 random bits (32hex). Migration616 reserves each normalized email address globally, including retired rows. Collisions in existing rows stop migration for review; no address is silently reassigned. Existing short unique addresses remain supported until an authorized rotation.
 
 Minting uses INSERT ON CONFLICT DO NOTHING and at most5attempts, so a collision does not abort the outer withAuth transaction. Rotation failure rolls back its deactivation when called through the authenticated route. Inbound routing compares lower(address), requires exactly one active match, and rejects ambiguous legacy destinations before document/storage/event writes. Sender allow-list checks remain in place. External storage tests are contract-only; SQL routing/migration checks use real disposable PostgreSQL.
+
+## WhatsApp destination identity
+
+Migration617 reserves trimmed WhatsApp destinations globally, including retired rows; legacy duplicates require reviewed remediation. configureWhatsAppInbox requires the authenticated company transaction and uses a company-keyed advisory lock. It returnsnull on another-company reservation, preserving the prior active number; repeated own-number configuration is idempotent. Inbound requires one active match before query-reply routing or capture writes. This is routing integrity, not first-registration provider ownership proof (R003 remains open).

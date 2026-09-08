@@ -3,7 +3,7 @@
   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
   "baselineSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
   "scopeComplete": false,
-  "scopeNote": "All 130 explicit numbered sources mapped by claim/location to 129 unique K rows (including 10 split-source mappings). All 118 medium/low detail headings have K counterparts. Scope remains OPEN: unnumbered compound and latent claims, aggregate discrepancies, and source coverage gaps are documented in reconciliation.md; no candidate is code-validated by this mapping. Two supplemental unnumbered AP-import claims are retained as R-001/R-002, dependent on K-015; K-281 lists all six required subchecks.",
+  "scopeNote": "All 130 explicit numbered sources mapped by claim/location to 129 unique K rows (including 10 split-source mappings). All 118 medium/low detail headings have K counterparts. Scope remains OPEN: unnumbered compound and latent claims, aggregate discrepancies, and source coverage gaps are documented in reconciliation.md; no candidate is code-validated by this mapping. Two supplemental unnumbered AP-import claims are retained as R-001/R-002, dependent on K-015; K-281 lists all six required subchecks. Remediation-discovered R-003 retains the unverified first-registration WhatsApp ownership boundary; it is not an original audit ID.",
   "items": [
     {
       "id": "K-001",
@@ -184,18 +184,30 @@
       "sourceIds": [
         "A C18"
       ],
-      "correctedTrigger": "Missing Twilio credentials return 503. Validate only destination-number routing and global uniqueness; do not claim a skipped signature check.",
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Duplicate WhatsApp number registered by two companies; valid signed webhook selects one and inserts a review event. Credential-missing503 and invalidsignature403 controls pass. External sender membership alone is not a proven bypass.",
+      "severityRationale": "Confirmed ambiguous tenant attribution of inbound WhatsApp capture. First-registration provider ownership retained separately as R003.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
-      "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
+      "currentSha": "222eb799",
+      "status": "in-progress",
+      "dependencies": [
+        "Named commit review/fullCI/draft PR",
+        "Migration617 target preflight/deployment require authorization",
+        "R003 separately tracks first-registration number ownership"
+      ],
+      "testNames": [
+        "tests/integration/whatsapp-inbox-routing.int.test.ts"
+      ],
+      "evidencePaths": [
+        "K-005/plan.md",
+        "K-005/red.log",
+        "K-005/workflow-initial.log",
+        "K-005/workflow-final.log",
+        "K-005/historical-review.md"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "Potential legacy assignment/misrouting review remains open; no production query, number transfer or data repair executed.",
       "canonicalItem": null,
       "reportedSeverity": "critical"
     },
@@ -7522,6 +7534,34 @@
           "lines": "651-658"
         }
       ]
+    },
+    {
+      "id": "R-003",
+      "claim": "WhatsApp number first registration has no established provider ownership proof",
+      "area": "tenant",
+      "affectedPaths": [
+        "pages/api/accounting/capture/whatsapp-inbox.ts:POST"
+      ],
+      "sourceLabel": "Remediation discovery during K005",
+      "sourceIds": [],
+      "correctedTrigger": null,
+      "severityRationale": "Candidate provisioning-authority gap; validate provider/account model and first-claim impact before fixing.",
+      "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+      "currentSha": "222eb799",
+      "status": "candidate",
+      "dependencies": [
+        "Validate after K005, before financial candidates"
+      ],
+      "testNames": [],
+      "evidencePaths": [
+        "R-003/discovery.md"
+      ],
+      "fixCommit": null,
+      "pr": null,
+      "deployedSha": null,
+      "historicalDataImpact": "Not assessed",
+      "canonicalItem": null,
+      "reportedSeverity": "high"
     }
   ],
   "sourceInventory": [
