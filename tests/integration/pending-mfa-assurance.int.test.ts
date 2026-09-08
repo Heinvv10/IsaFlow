@@ -1,7 +1,8 @@
+import { mintImpersonationProof } from '@/lib/auth/impersonationAssurance';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { SignJWT } from 'jose';
 import { Secret, TOTP } from 'otpauth';
-import { adminCreateUser, adminDeleteUser, signIn, verifyToken, verifyTokenSignature } from '@/lib/auth/gotrue';
+import { adminCreateUser, adminDeleteUser, signIn, refresh, verifyToken, verifyTokenSignature } from '@/lib/auth/gotrue';
 import { enrollTotp, challengeFactor, verifyFactor } from '@/lib/auth/gotrue-mfa';
 
 // Explicit opt-in guards this test's user creation against accidental shared-host runs.
@@ -51,6 +52,17 @@ it('real GoTrue: no-MFA login, enrollment, denied password token, then completed
   const pending = await signIn(email, password);
   expect((await verifyTokenSignature(pending.access_token)).aal).toBe('aal1');
   await expect(verifyToken(pending.access_token)).rejects.toThrow('MFA challenge required');
+  const pendingClaims = await verifyTokenSignature(pending.access_token);
+  expect(typeof pendingClaims.session_id).toBe('string');
+  const proof = await mintImpersonationProof({ actorUserId: 'synthetic-authorized-admin',
+    targetUserId: userId!, targetSessionId: pendingClaims.session_id as string,
+    actorExpiresAt: Math.floor(Date.now() / 1000) + 120, stashExpiresAt: Math.floor(Date.now() / 1000) + 3600 });
+  expect((await verifyToken(pending.access_token, proof)).aal).toBe('aal1');
+  const rotated = await refresh(pending.refresh_token);
+  expect((await verifyTokenSignature(rotated.access_token)).session_id).toBe(pendingClaims.session_id);
+  expect((await verifyToken(rotated.access_token, proof)).aal).toBe('aal1');
+  await expect(verifyToken(rotated.access_token)).rejects.toThrow('MFA challenge required');
+
 
   // GoTrue rejects reuse of the enrollment OTP. Wait for the next real step.
   const remaining = 30_000 - (Date.now() % 30_000) + 50;
