@@ -139,6 +139,38 @@ describe('allocateTransaction — supplier payment with no invoice named', () =>
   });
 });
 
+describe('allocateTransaction — a caller that named a non-bill target', () => {
+  it('creates the document but does NOT run the supplier strategy', async () => {
+    primeSql(SPENT_TX);
+
+    // `bank-match-confirm`'s purchase-order branch: the user confirmed this
+    // line against a PO. A PO is not a bill, so there is a document to create
+    // but nothing the strategy should be allowed to settle — applying the cash
+    // to some unrelated open bill would contradict the match just confirmed.
+    await allocateTransaction(
+      COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'supplier', ENTITY_ID,
+      undefined, undefined, undefined, undefined, undefined, { autoApply: false },
+    );
+
+    expect(recordSupplierBankPayment).toHaveBeenCalledOnce();
+    expect(vi.mocked(recordSupplierBankPayment).mock.calls[0]![0]).toMatchObject({
+      autoApply: false,
+    });
+  });
+
+  it('runs the strategy by default, when no caller named anything', async () => {
+    primeSql(SPENT_TX);
+
+    await allocateTransaction(
+      COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'supplier', ENTITY_ID,
+    );
+
+    expect(vi.mocked(recordSupplierBankPayment).mock.calls[0]![0]).toMatchObject({
+      autoApply: true,
+    });
+  });
+});
+
 describe('allocateTransaction — supplier payment that NAMES a bill', () => {
   it('records the four-way match against that bill and creates no second document', async () => {
     primeSql(SPENT_TX);

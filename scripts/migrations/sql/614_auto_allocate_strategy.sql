@@ -15,10 +15,22 @@
 --   'oldest' — apply oldest bill first (FIFO), partially settling the last one.
 --   'newest' — apply newest bill first.
 --
--- BACKFILL. Every contact whose old boolean was true takes 'oldest', which is
--- what the UI told them they had switched on. The boolean columns are left in
--- place and are no longer read by anything; dropping them belongs to its own
--- migration once no deployed build writes them.
+-- NO BACKFILL, DELIBERATELY. The obvious move is to carry every ticked box
+-- over as 'oldest' — the order its own label claimed. It is the wrong move.
+-- The box was INERT for its entire life: nothing read either column, so
+-- ticking it never applied a cent. Nobody who ticked it consented to automatic
+-- cash application, because ticking it did nothing to consent to. Carrying it
+-- over would switch real cash application on, unattended, for every one of
+-- those contacts on the first bank allocation after this deploys.
+--
+-- So every contact starts at 'off' and the setting turns on only when somebody
+-- sets it deliberately, through a control that now says what it actually does.
+-- At the time of writing production carries 2 such customers (one with 43 open
+-- invoices) and 0 such suppliers, so this costs two re-ticks.
+--
+-- The boolean columns are left in place and are no longer read by anything;
+-- dropping them belongs to its own migration once no deployed build writes
+-- them.
 
 ALTER TABLE suppliers
   ADD COLUMN IF NOT EXISTS auto_allocate_strategy TEXT NOT NULL DEFAULT 'off';
@@ -41,13 +53,3 @@ BEGIN
       CHECK (auto_allocate_strategy IN ('off', 'oldest', 'newest'));
   END IF;
 END $$;
-
--- Row-local: each contact takes the strategy its own flag already claimed.
--- Deliberately NOT company-scoped — this initialises a new column from a
--- column on the same row for every tenant, not a correction to one tenant's
--- data.
-UPDATE suppliers SET auto_allocate_strategy = 'oldest'
- WHERE auto_allocate_payments = TRUE AND auto_allocate_strategy = 'off';
-
-UPDATE customers SET auto_allocate_strategy = 'oldest'
- WHERE auto_allocate_receipts = TRUE AND auto_allocate_strategy = 'off';

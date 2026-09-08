@@ -116,6 +116,14 @@ interface Row extends DbRow {
   reference: string | null;
   description: string | null;
   gl_journal_entry_id: string | null;
+  /**
+   * Which of the two streams this row came from, stated BY the query that
+   * classified it. Deriving it here from a null `supplier_name` instead would
+   * disagree with the SQL for a real, non-deleted supplier whose `name` column
+   * is null — the `s.id IS NOT NULL` page would emit it and this mapper would
+   * report it as an orphan.
+   */
+  attributed: boolean;
 }
 
 export async function getUnappliedPayments(
@@ -150,6 +158,7 @@ export async function getUnappliedPayments(
            sp.payment_date,
            sp.supplier_id,
            s.name AS supplier_name,
+           TRUE AS attributed,
            sp.total_amount,
            sp.status,
            sp.reference,
@@ -186,6 +195,7 @@ export async function getUnappliedPayments(
            sp.payment_date,
            sp.supplier_id,
            NULL::TEXT AS supplier_name,
+           FALSE AS attributed,
            sp.total_amount,
            sp.status,
            sp.reference,
@@ -274,9 +284,10 @@ function mapRow(row: Row): UnappliedPaymentRow {
     paymentNumber: row.payment_number ? String(row.payment_number) : '',
     paymentDate: fmtDate(row.payment_date),
     // NULL when the supplier row is gone or soft-deleted. Reported as
-    // unattributed rather than dropped: the cash is real either way.
-    supplierId: row.supplier_name === null ? null : (row.supplier_id ? String(row.supplier_id) : null),
-    supplierName: row.supplier_name === null ? null : String(row.supplier_name),
+    // unattributed rather than dropped: the cash is real either way. Keyed on
+    // the query's own `attributed` flag, never on the name — see the field.
+    supplierId: row.attributed && row.supplier_id ? String(row.supplier_id) : null,
+    supplierName: row.attributed && row.supplier_name !== null ? String(row.supplier_name) : null,
     paymentAmount,
     allocatedAmount: round2(allocatedAmount),
     unappliedAmount: round2(paymentAmount - allocatedAmount),

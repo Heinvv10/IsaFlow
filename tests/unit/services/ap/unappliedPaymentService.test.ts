@@ -39,6 +39,10 @@ const payRow = (over: Record<string, unknown> = {}) => ({
   reference: 'EFT-771',
   description: 'March account',
   gl_journal_entry_id: 'je1',
+  // The page query selects TRUE here and the orphan query FALSE. The mapper
+  // reads THIS, not a null name — a real supplier with a null `name` must not
+  // be reported as an orphan.
+  attributed: true,
   ...over,
 });
 
@@ -83,7 +87,7 @@ describe('getUnappliedPayments', () => {
   it('counts a payment whose supplier is gone in the totals, and never drops it', async () => {
     mockReads(
       [],
-      [payRow({ id: 'sp9', supplier_name: null, total_amount: '25000' })],
+      [payRow({ id: 'sp9', supplier_name: null, attributed: false, total_amount: '25000' })],
       totalsRow({ universe_total: 1, rows_total: 0, total_unapplied: '0', total_unattributed: '25000' }),
     );
 
@@ -98,6 +102,36 @@ describe('getUnappliedPayments', () => {
     expect(res.totalUnattributed).toBe(25000);
     // The completeness identity the caller's envelope checks.
     expect(res.rowsTotal + res.unattributed.length).toBe(res.universeTotal);
+  });
+
+  it('names the supplier on an attributed payment', async () => {
+    mockReads([payRow()], [], totalsRow());
+
+    const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
+    expect(res.rows[0]).toMatchObject({
+      supplierId: 'dddddddd-0000-4000-8000-000000000001',
+      supplierName: 'Acme Supplies',
+    });
+  });
+
+  it('keeps a supplier with a NULL name on the attributed page, not in the orphans', async () => {
+    // The page query already decided this row is attributed — it matched
+    // `s.id IS NOT NULL`. Re-deriving that from the NAME would contradict the
+    // query and move a live supplier's cash into the orphan stream.
+    mockReads([payRow({ supplier_name: null })], [], totalsRow());
+
+    const res = await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
+    expect(res.rows).toHaveLength(1);
+    expect(res.rows[0]!.supplierId).toBe('dddddddd-0000-4000-8000-000000000001');
+    expect(res.rows[0]!.supplierName).toBeNull();
+    expect(res.unattributed).toEqual([]);
+  });
+
+  it('selects the attribution flag from BOTH streams, so the mapper never guesses', async () => {
+    mockReads([payRow()], [], totalsRow());
+    await getUnappliedPayments(COMPANY, { asAt: '2026-09-08', limit: 50 });
+    expect(queryText(sqlFn.mock.calls[0]!)).toContain('TRUE AS attributed');
+    expect(queryText(sqlFn.mock.calls[1]!)).toContain('FALSE AS attributed');
   });
 
   it('takes the totals from the population, NOT from the page', async () => {

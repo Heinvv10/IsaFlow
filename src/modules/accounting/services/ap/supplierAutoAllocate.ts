@@ -54,6 +54,7 @@ import {
   planSupplierPaymentApplication,
   applySupplierPaymentPlan,
 } from './supplierPaymentApplicationService';
+import { journalIsInAPeriod } from '../shared/journalPeriodVisibility';
 import {
   EPS,
   parseAutoAllocateStrategy,
@@ -149,11 +150,19 @@ export async function recordSupplierBankPayment(args: {
   paymentDate: string;
   description: string;
   userId: string;
+  /**
+   * False when the caller has already said what this cash settles — the
+   * `bank-match-confirm` purchase-order branch, for one. The document is still
+   * created; the supplier's strategy is not run. Applying the money to a bill
+   * the caller did not name would contradict the match they just confirmed.
+   */
+  autoApply?: boolean;
 }): Promise<SupplierBankPaymentDocument> {
   const {
     companyId, supplierId, bankTxId, bankAccountId, journalEntryId,
     amount, paymentDate, description, userId,
   } = args;
+  const autoApply = args.autoApply ?? true;
 
   // `created_by` is uuid-typed and NOT NULL, and a GoTrue user id is not always
   // uuid-shaped — the same trap the customer_payments insert works around.
@@ -175,7 +184,12 @@ export async function recordSupplierBankPayment(args: {
   `) as DbRow[];
   const paymentId = String(paymentRows[0]!.id);
 
-  const strategy = await resolveSupplierAutoAllocateStrategy(companyId, supplierId);
+  // A bill must not be marked paid off a journal that is in no fiscal period —
+  // see journalPeriodVisibility. The document above stands; only the
+  // application is withheld.
+  const strategy = autoApply && await journalIsInAPeriod(companyId, journalEntryId)
+    ? await resolveSupplierAutoAllocateStrategy(companyId, supplierId)
+    : 'off';
   if (strategy === 'off') {
     log.info('Supplier bank payment recorded, left unapplied', {
       bankTxId, supplierId, paymentId, amount,

@@ -95,6 +95,7 @@ describe('recordSupplierBankPayment', () => {
   it('creates the payment document the allocation never created, carrying its journal', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])          // INSERT ... RETURNING id
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }]) // journal is in a period
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }]);
 
     const result = await recordSupplierBankPayment(ARGS);
@@ -116,6 +117,7 @@ describe('recordSupplierBankPayment', () => {
   it('leaves the payment UNAPPLIED when the supplier has no strategy', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'off' }]);
 
     const result = await recordSupplierBankPayment(ARGS);
@@ -135,6 +137,7 @@ describe('recordSupplierBankPayment', () => {
   it('treats an unreadable or missing supplier row as "off" rather than guessing', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([]);                            // supplier row gone
 
     const result = await recordSupplierBankPayment(ARGS);
@@ -146,6 +149,7 @@ describe('recordSupplierBankPayment', () => {
   it('applies oldest-first when the supplier says "oldest", partially settling the last bill', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
       .mockResolvedValueOnce([
         { id: 'bill-old', outstanding: 600 },
@@ -172,6 +176,7 @@ describe('recordSupplierBankPayment', () => {
   it('reads the bills in ASCENDING invoice date for "oldest"', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
       .mockResolvedValueOnce([]);
 
@@ -185,6 +190,7 @@ describe('recordSupplierBankPayment', () => {
   it('reads the bills in DESCENDING invoice date for "newest"', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'newest' }])
       .mockResolvedValueOnce([]);
 
@@ -197,6 +203,7 @@ describe('recordSupplierBankPayment', () => {
   it('leaves the payment unapplied when the supplier has nothing open', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
       .mockResolvedValueOnce([]);                            // no open bills
 
@@ -211,6 +218,7 @@ describe('recordSupplierBankPayment', () => {
   it('does not swallow a failure from the applier', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
       .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
       .mockResolvedValueOnce([{ id: 'bill-old', outstanding: 600 }]);
     mockPlan.mockRejectedValue(new Error('payment is being processed by another request'));
@@ -218,6 +226,64 @@ describe('recordSupplierBankPayment', () => {
     // A caught error here would commit the journal and the document while
     // reporting that nothing happened.
     await expect(recordSupplierBankPayment(ARGS)).rejects.toThrow(/another request/);
+  });
+});
+
+describe('recordSupplierBankPayment — the journal is in no fiscal period', () => {
+  it('creates the document but settles NOTHING', async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: null }]);
+
+    const result = await recordSupplierBankPayment(ARGS);
+
+    // Marking a bill paid off a journal that is in no period-scoped report —
+    // no trial balance, no VAT201, no AFS — hides the settlement behind a
+    // journal nobody can find. The cash still gets its document.
+    expect(result.paymentId).toBe(PAYMENT_ID);
+    expect(mockPlan).not.toHaveBeenCalled();
+    expect(result.unappliedRemainder).toBe(1000);
+    expect(queries().some((q) => q.includes('FROM suppliers'))).toBe(false);
+  });
+
+  it('settles nothing when the journal cannot be read back at all', async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([]);
+
+    const result = await recordSupplierBankPayment(ARGS);
+    expect(mockPlan).not.toHaveBeenCalled();
+    expect(result.unappliedRemainder).toBe(1000);
+  });
+});
+
+describe('recordSupplierBankPayment — autoApply: false', () => {
+  it('creates the document and never even reads the strategy', async () => {
+    mockSql.mockResolvedValueOnce([{ id: PAYMENT_ID }]);
+
+    const result = await recordSupplierBankPayment({ ...ARGS, autoApply: false });
+
+    expect(result.paymentId).toBe(PAYMENT_ID);
+    expect(result.strategy).toBe('off');
+    expect(result.unappliedRemainder).toBe(1000);
+    expect(mockPlan).not.toHaveBeenCalled();
+    // Not merely "did not apply" — it must not consult the supplier at all,
+    // because the caller has already said what this cash is for.
+    expect(queries().some((q) => q.includes('FROM suppliers'))).toBe(false);
+    expect(queries().some((q) => q.includes('FROM supplier_invoices'))).toBe(false);
+  });
+
+  it('applies as normal when autoApply is omitted', async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: PAYMENT_ID }])
+      .mockResolvedValueOnce([{ fiscal_period_id: 'fp-1' }])
+      .mockResolvedValueOnce([{ auto_allocate_strategy: 'oldest' }])
+      .mockResolvedValueOnce([{ id: 'bill-old', outstanding: 1000 }]);
+    mockPlan.mockResolvedValue(planFor([{ invoiceId: 'bill-old', amount: 1000 }], 0));
+    mockApply.mockImplementation(async (_c, plan) => plan);
+
+    await recordSupplierBankPayment(ARGS);
+    expect(mockPlan).toHaveBeenCalledOnce();
   });
 });
 

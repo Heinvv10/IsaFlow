@@ -23,6 +23,7 @@ import {
   planReceiptApplication,
   applyReceiptPlan,
 } from './receiptApplicationService';
+import { journalIsInAPeriod } from '../shared/journalPeriodVisibility';
 import {
   EPS,
   parseAutoAllocateStrategy,
@@ -96,12 +97,18 @@ export async function autoApplyCustomerReceipt(args: {
   companyId: string;
   customerId: string;
   paymentId: string;
+  /** The journal this receipt posted on — checked for a fiscal period. */
+  journalEntryId: string;
   amount: number;
   userId: string;
 }): Promise<CustomerReceiptApplication> {
-  const { companyId, customerId, paymentId, amount, userId } = args;
+  const { companyId, customerId, paymentId, journalEntryId, amount, userId } = args;
 
-  const strategy = await resolveCustomerAutoAllocateStrategy(companyId, customerId);
+  // See journalPeriodVisibility: an invoice must not be marked paid off a
+  // journal that appears in no period-scoped report.
+  const strategy = await journalIsInAPeriod(companyId, journalEntryId)
+    ? await resolveCustomerAutoAllocateStrategy(companyId, customerId)
+    : 'off';
   if (strategy === 'off') {
     return { appliedLines: [], unappliedRemainder: round2(amount), strategy };
   }

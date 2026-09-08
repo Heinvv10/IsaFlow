@@ -88,7 +88,15 @@ export async function allocateTransaction(
   description?: string, allocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
   invoiceId?: string,
-  opts?: PostingActorOpts,
+  /**
+   * `autoApply: false` says the CALLER has already named what this cash is for
+   * — a purchase order, say — so the payment document is still created but the
+   * supplier's `auto_allocate_strategy` is NOT run against its open bills.
+   * Applying it elsewhere would contradict the instruction the caller just
+   * gave. Default true: a line with no named target is exactly what the
+   * strategy exists to decide.
+   */
+  opts?: PostingActorOpts & { autoApply?: boolean },
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
   // FOR UPDATE: hold the row for the rest of the request so a concurrent
   // allocate blocks here rather than passing the same status check and posting
@@ -441,6 +449,9 @@ export async function allocateTransaction(
       await recordSupplierBankPayment({
         companyId,
         supplierId: entityId,
+        // See the `autoApply` note on the signature: a caller that named a
+        // target gets the document without the strategy.
+        autoApply: opts?.autoApply ?? true,
         bankTxId,
         bankAccountId,
         journalEntryId: je.id,
@@ -455,11 +466,28 @@ export async function allocateTransaction(
   // The receipt's own application, on the same rule and the same instruction.
   // The document already existed on this side; the instruction to apply it was
   // written to a column nothing read.
-  if (allocType === 'customer' && entityId && customerPaymentId && !isSpent) {
+  //
+  // `!invoiceId` and `opts?.autoApply` carry the SAME meaning as on the
+  // supplier arm above, and leaving them off this arm was a real defect:
+  //
+  //   · `confirmReceiptMatch` passes an invoiceId and then applies the very
+  //     payment this function created (it re-reads it by journal id). Applying
+  //     it here first consumes the remainder, and its own
+  //     `planReceiptApplication` then refuses — "only R0.00 of this receipt is
+  //     unapplied" — so a bank receipt match would simply stop working for any
+  //     customer with a strategy set.
+  //   · `bank-match-confirm`'s customer branch names an invoice but passes no
+  //     id, and writes `amount_paid` on it ABSOLUTELY from a value read before
+  //     this call. If the strategy settled an older invoice, both writes stand
+  //     and the subledger drops by twice the receipt. It passes
+  //     `autoApply: false`.
+  if (allocType === 'customer' && entityId && customerPaymentId && !isSpent
+      && !invoiceId && (opts?.autoApply ?? true)) {
     await autoApplyCustomerReceipt({
       companyId,
       customerId: entityId,
       paymentId: customerPaymentId,
+      journalEntryId: je.id,
       amount: totalAmount,
       userId,
     });
