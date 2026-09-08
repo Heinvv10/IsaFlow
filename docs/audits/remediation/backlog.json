@@ -22,24 +22,30 @@
       "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "status": "in-progress",
       "dependencies": [
-        "Open named-commit review: start-to-GET-to-return impersonation regression; see K-001/review-open.md",
-        "Final stable-commit CI and draft PR",
-        "Full-schema/RLS acceptance: disposable replay fails migration 220"
+        "Final integration-test commit review and CI publication; application correction review and CI passed",
+        "Historical pristine migration replay remains open at migration 253; current-schema SQL/RLS workflow passed",
+        "Deployment requires separate authorization"
       ],
       "testNames": [
-        "tests/unit/auth/pending-mfa-access.test.ts"
+        "tests/unit/auth/pending-mfa-access.test.ts",
+        "tests/integration/mfa-impersonation-postgres.int.test.ts",
+        "tests/unit/auth/impersonationAssurance.test.ts"
       ],
       "evidencePaths": [
         "K-001/plan.md",
         "K-001/red.log",
         "K-001/auth-regression-final.log",
         "K-001/provider-workflow-final.log",
-        "K-001/review-open.md"
+        "K-001/review-open.md",
+        "K-001/delegation-review.md",
+        "K-001/delegation-ci.log",
+        "K-001/delegation-postgres-rerun.log",
+        "evidence/schema-fixture.md"
       ],
-      "fixCommit": "11cb46aaa2b3b05481759cdbf9243c53440f6e24",
-      "pr": null,
+      "fixCommit": "23608ad7",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/345",
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "No historical records changed. Prior misuse not assessed; no retrospective repair authorized.",
       "canonicalItem": null,
       "reportedSeverity": "critical"
     },
