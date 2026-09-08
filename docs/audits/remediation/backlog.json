@@ -19,12 +19,11 @@
       "correctedTrigger": "Password login for a verified TOTP user yields an AAL1 token in sb-pending-mfa; transplanting it into sb-access-token reaches withAuth handler without completing TOTP.",
       "severityRationale": "Confirmed application-contract bypass of enrolled second factor using a valid password token; no claim of passwordless account compromise.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "in-progress",
+      "currentSha": "d626b33f",
+      "status": "code-verified",
       "dependencies": [
-        "Final integration-test commit review and CI publication; application correction review and CI passed",
-        "Historical pristine migration replay remains open at migration 253; current-schema SQL/RLS workflow passed",
-        "Deployment requires separate authorization"
+        "Deployment requires separate authorization; no deployed verification",
+        "Global pristine historical migration replay remains open at migration 253; current-schema K-001 SQL/RLS workflow passed"
       ],
       "testNames": [
         "tests/unit/auth/pending-mfa-access.test.ts",
@@ -40,7 +39,8 @@
         "K-001/delegation-review.md",
         "K-001/delegation-ci.log",
         "K-001/delegation-postgres-rerun.log",
-        "evidence/schema-fixture.md"
+        "evidence/schema-fixture.md",
+        "K-001/final-push-ci.log"
       ],
       "fixCommit": "23608ad7",
       "pr": "https://github.com/Heinvv10/IsaFlow/pull/345",
