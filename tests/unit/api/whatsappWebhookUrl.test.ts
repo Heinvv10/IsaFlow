@@ -20,6 +20,10 @@ vi.mock('@/modules/accounting/services/capture/whatsAppReplyService', () => ({
   sendWhatsAppMessage: vi.fn(async () => undefined),
 }));
 
+vi.mock('@/modules/accounting/services/capture/whatsAppVerificationService', () => ({
+  verifyWhatsAppDestination: vi.fn(async () => ({companyId: 'company-1', inboxId: 'inbox-1', tokenHash: 'fixture-proof'})),
+}));
+
 import handler from '../../../pages/api/accounting/capture/inbound/whatsapp';
 
 function mockReqRes() {

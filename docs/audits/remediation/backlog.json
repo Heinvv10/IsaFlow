@@ -7549,22 +7549,37 @@
       ],
       "sourceLabel": "Remediation discovery during K005",
       "sourceIds": [],
-      "correctedTrigger": null,
-      "severityRationale": "Candidate provisioning-authority gap; validate provider/account model and first-claim impact before fixing.",
+      "correctedTrigger": "Unproven first number registration activates routing; real signed inbound creates an event for that claimant. Reproduced on ff2ab7ba.",
+      "severityRationale": "Confirmed provider-to-company provisioning authority gap; proof establishes signed delivery configuration control, not legal ownership.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "222eb799",
-      "status": "candidate",
+      "currentSha": "ff2ab7ba",
+      "status": "in-progress",
       "dependencies": [
-        "Validate after K005, before financial candidates"
+        "Named fix review/full CI/draft PR",
+        "Provider sandbox acceptance and legacy rollout/reverification require separate authorized environment",
+        "Historical attribution and reserved-number transfers require reviewed evidence"
       ],
-      "testNames": [],
+      "testNames": [
+        "tests/integration/whatsapp-inbox-ownership.int.test.ts",
+        "tests/integration/whatsapp-inbox-routing.int.test.ts",
+        "tests/integration/whatsapp-ownership-browser.mjs"
+      ],
       "evidencePaths": [
-        "R-003/discovery.md"
+        "R-003/discovery.md",
+        "R-003/plan.md",
+        "R-003/red.log",
+        "R-003/workflow-final.log",
+        "R-003/routing-regression.log",
+        "R-003/regression.log",
+        "R-003/typecheck.log",
+        "R-003/browser.log",
+        "R-003/historical-impact.sql",
+        "R-003/historical-review.md"
       ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "Scoped inventory tested on disposable rows only; legacy proof not fabricated, target review/reverification and historical attribution remain open.",
       "canonicalItem": null,
       "reportedSeverity": "high"
     }

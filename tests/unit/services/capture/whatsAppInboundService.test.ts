@@ -59,9 +59,12 @@ vi.mock('@/modules/accounting/services/capture/bankTxQueryReplyService', () => (
 }));
 
 import {
-  ingestTwilioPayload,
+  ingestTwilioPayload as ingestVerifiedPayload,
   type TwilioInboundPayload,
 } from '@/modules/accounting/services/capture/whatsAppInboundService';
+
+const ingestTwilioPayload = (payload: TwilioInboundPayload) => ingestVerifiedPayload(payload, { companyId: 'company-1', inboxId: 'inbox-1', tokenHash: 'fixture-proof' });
+
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -440,4 +443,10 @@ describe('ingestTwilioPayload', () => {
 
     expect(markQueryRepliedMock).not.toHaveBeenCalled();
   });
+});
+
+it('requires a verified binding even when the destination exists', async () => {
+  sqlMock.mockClear();
+  expect(await ingestVerifiedPayload({From:'whatsapp:+27821111111',To:'whatsapp:+27820000000',MessageSid:'SM-unproven'})).toEqual({rejected:'destination verification required'});
+  expect(sqlMock).not.toHaveBeenCalled();
 });
