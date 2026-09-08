@@ -446,7 +446,12 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
   if (prior === null) {
     return {
       drawn: false,
-      why: 'Opening cash is the prior period’s closing balance, and there is no prior '
+      // STRAIGHT APOSTROPHES, LIKE THE REST OF THE PACK. This sentence and
+      // the two below carried curly ones — three of them against forty-eight
+      // straight ones on the same sheet, `R'000` among them — so page 8
+      // printed two apostrophes in one paragraph. Escaped rather than
+      // rewritten around: the wording is not what was wrong.
+      why: 'Opening cash is the prior period\'s closing balance, and there is no prior '
         + 'period. A bridge opening at zero would assert the business started the period with '
         + 'an empty bank account.',
     };
@@ -469,8 +474,8 @@ export function buildCashWaterfallChart(set: PackFigureSet, scale: MoneyScale): 
       drawn: false,
       why: `Cash moved ${inProse(formatMoney(opening, { scale }))} to ${inProse(formatMoney(current.cash, { scale }))} `
         + `over the period, a movement of ${inProse(formatMoney(movement, { scale }))}. No bridge is drawn `
-        + 'because there is nothing to bridge THROUGH: this pack’s figure set carries the '
-        + 'period’s cash totals and none of the operating, investing or financing figures a '
+        + 'because there is nothing to bridge THROUGH: this pack\'s figure set carries the '
+        + 'period\'s cash totals and none of the operating, investing or financing figures a '
         + 'cash flow statement is made of, so every step between the two balances would be one '
         + 'unmeasured step the width of the whole movement. Ask for the cash flow statement for '
         + 'the split.',

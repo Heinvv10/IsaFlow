@@ -297,13 +297,25 @@ export function buildPositionBlocks(
   // Equity is not in it. Negative equity is a real position a real business
   // can hold; it has its own §3.5 disclosure below, and folding it in here
   // would tell a director that insolvency is a posting error.
-  const impossible = position.rows
+  //
+  // AND THE MEMORANDUM COUNTS. `tradeBalancesFootnote` prints trade
+  // receivables and trade payables at the foot of this sheet — they are on
+  // the page, they are an asset and a liability, and Brightsphere's trade
+  // receivables of (330) went unremarked under a headed block about balances
+  // below zero. Reading the check off the TABLE alone is what missed it: the
+  // rule is about what the sheet states, and this sheet states two figures it
+  // does not tabulate.
+  const tabulated = position.rows
     .filter((row) => /assets$|liabilities$/i.test(row.label))
-    .map((row) => ({ label: row.label, amount: row.figures.actual?.value ?? 0 }))
-    .filter((line) => line.amount < 0);
+    .map((row) => ({ label: row.label, amount: row.figures.actual?.value ?? 0 }));
+  const memorandum = [
+    { label: 'Trade receivables', amount: set.current.accountsReceivable },
+    { label: 'Trade payables', amount: set.current.accountsPayable },
+  ];
+  const impossible = [...tabulated, ...memorandum].filter((line) => line.amount < 0);
   if (impossible.length > 0) {
-    const hasAssets = impossible.some((l) => /assets$/i.test(l.label));
-    const hasLiabilities = impossible.some((l) => /liabilities$/i.test(l.label));
+    const hasAssets = impossible.some((l) => /assets$|receivables$/i.test(l.label));
+    const hasLiabilities = impossible.some((l) => /liabilities$|payables$/i.test(l.label));
     positionBlocks.push(mustDisclose('Balances below zero', [
       note('What this means', impossibleBalancesSentence(
         impossible,
@@ -752,7 +764,13 @@ export function bridgeSignFootnote(
     text:
       `The table states each line as the ledger carries it. The bridge below POSITIONS each bar `
       + `by its effect on net profit — up where the line added to it, down where it took away — `
-      + `and COLOURS it by what the line is: green for income, red for cost, in every pack and `
-      + `whichever way the period ran. ${example}${omission}`,
+      // THREE INKS, AND THE LIST CLOSED AT TWO. The bridge draws green for
+      // income, red for cost and DARK for a total, and this sentence named
+      // the first two and stopped — on a chart whose largest marks are the
+      // totals. The third was defined on page 12's Colour key, eleven sheets
+      // from the picture it explains, so a reader of this footnote was told a
+      // complete-looking rule that its own chart breaks twice.
+      + `and COLOURS it by what the line is: green for income, red for cost, dark for a total, in `
+      + `every pack and whichever way the period ran. ${example}${omission}`,
   }] };
 }

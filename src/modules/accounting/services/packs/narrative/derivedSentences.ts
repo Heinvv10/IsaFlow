@@ -486,7 +486,12 @@ const IMPOSSIBLE_CAUSE: Record<ImpossibleSide, string> = {
     + 'accounts classified as assets carry credit balances.',
   liabilities: 'A liability below zero is not an amount that can be owed: it means one or more '
     + 'accounts classified as liabilities carry debit balances.',
-  both: 'Neither figure is a balance that can be held as stated: it means one or more accounts '
+  // "NONE OF THESE", NOT "NEITHER". The check reaches the memorandum
+  // balances now, so this arm can name three figures — Brightsphere's current
+  // assets, non-current liabilities and trade receivables — and "neither"
+  // counts to two. A word that miscounts the list beneath it is the sort of
+  // thing a director reads aloud.
+  both: 'None of these is a balance that can be held as stated: it means one or more accounts '
     + 'carry balances contrary to the band they are classified in.',
 };
 

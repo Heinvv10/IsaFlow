@@ -60,7 +60,19 @@ const DAY_COUNT_USE: Record<DayCountsMeasured, string> = {
   both: ' They are the numerators of debtor days and creditor days on the scorecard page, each column on its own period.',
   debtorOnly: ' Trade receivables is the numerator of debtor days on the scorecard page.',
   creditorOnly: ' Trade payables is the numerator of creditor days on the scorecard page.',
-  neither: ' The scorecard page states why neither day count can be measured on these figures.',
+  // AND THE REASON IS NOT ABOUT THESE FIGURES. It read "the scorecard page
+  // states why neither day count can be measured on these figures" directly
+  // after naming trade receivables and trade payables — and the scorecard's
+  // reasons are about the DENOMINATORS: revenue is not a positive base for
+  // debtor days, cost of sales is not one for creditor days. A reader sent to
+  // page 9 to find out what is wrong with the two balances just printed finds
+  // nothing said about them at all.
+  //
+  // AND IT IS TWO CHARACTERS SHORTER THAN WHAT IT REPLACES, which is the
+  // whole budget: Brightsphere's sheet 7 drops this footnote at eighty-three
+  // characters and prints "1 footnote is not printed" instead, so the
+  // correction had to be made in fewer words than the error.
+  neither: ' The scorecard says why neither day count is measured: a denominator, not these.',
 };
 
 /** Read through `packMetricReads`, which is the ONE reading of these two

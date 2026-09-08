@@ -20,7 +20,7 @@
 
 import { marginPct } from '@/modules/accounting/services/reports/marginPct';
 import { rankedBy, superlativeClause } from './statedRelation';
-import { formatMoney, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, formatRatio, inProse, pctWithWord, type MoneyScale } from '@/lib/format/money';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackMatter } from '@/modules/accounting/services/packs/pages/packMatters';
 import type { SelectedMatters } from '@/modules/accounting/services/packs/pages/packMattersPrinted';
@@ -224,9 +224,23 @@ export function positionCaption(set: PackFigureSet, scale: MoneyScale): string {
   const { currentAssets, currentLiabilities } = set.current;
   const workingCapital = currentAssets - currentLiabilities;
   const cover = marginPct(currentAssets, currentLiabilities);
+  // ONE MEASURE, AND THE SHEET NAMES THE OTHER SHEET'S UNITS FOR IT.
+  //
+  // This cover is `currentAssets / currentLiabilities` and so is the CURRENT
+  // RATIO the scorecard prints and page 12 defines — the same quotient, one
+  // sheet showing it as a percentage and another as a multiple, with nothing
+  // saying they are the same number: 13.8% here against (0.14) on page 9 for
+  // the demo company, 58.2% against (0.58) for Brightsphere. A director
+  // holding the two sheets side by side has two figures for one thing.
+  //
+  // Both conventions are printed here, once, so the identity is on the page
+  // rather than left to a reader to spot. The percentage leads because the
+  // sentence is about COVER; the ratio follows because that is what the
+  // scorecard and the glossary call it.
   const coverClause = cover === null
     ? 'Current liabilities are not a positive base, so no cover percentage is meaningful'
-    : `Current assets cover current liabilities ${pctWithWord(cover, 'at', 'at negative')}`;
+    : `Current assets cover current liabilities ${pctWithWord(cover, 'at', 'at negative')} `
+      + `— a current ratio of ${formatRatio(currentAssets / currentLiabilities)}`;
   return `${coverClause}; working capital stands at ${inProse(formatMoney(workingCapital, { scale }))}.`;
 }
 

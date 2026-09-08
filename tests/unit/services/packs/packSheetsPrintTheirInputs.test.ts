@@ -190,7 +190,13 @@ describe('the balance sheet prints the balances its day counts are taken on', ()
       ['debtor days and creditor days', 'each column on its own period']],
     ['debtor days only', withBases(1_000_000, 0), 'debtorOnly', ['Trade receivables is the numerator']],
     ['creditor days only', withBases(0, 400_000), 'creditorOnly', ['Trade payables is the numerator']],
-    ['neither', withBases(0, 0), 'neither', ['states why neither day count can be measured']],
+    // AND THE REASON IS THE DENOMINATOR, not the two balances the sentence
+    // has just named: revenue is not a positive base for debtor days, cost of
+    // sales is not one for creditor days. The footnote used to send a reader
+    // to page 9 to find out what was wrong with trade receivables, where
+    // nothing is said about them.
+    ['neither', withBases(0, 0), 'neither',
+      ['says why neither day count is measured', 'a denominator, not these']],
   ];
 
   for (const [name, set, measured, phrases] of CASES) {

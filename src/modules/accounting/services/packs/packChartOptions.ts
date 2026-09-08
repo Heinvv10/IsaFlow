@@ -239,7 +239,31 @@ function makeWaterfallRenderItem(
     // A short bar with no room above it — a near-nil step drawn at the top of
     // the plot — would get paper-on-paper, so its label goes BELOW instead,
     // where a bar drawn from the axis always has the whole plot.
-    const inside = noRoomAbove && height >= LABEL_LINE_PX + LABEL_GAP_PX * 2;
+    const fitsInside = height >= LABEL_LINE_PX + LABEL_GAP_PX * 2;
+    // A LABEL SET IN THE BAR'S OWN INK NEVER SITS ABOVE IT.
+    //
+    // A subtotal is filled with `palette.ink` and its label above it was set
+    // in `palette.ink` too, four pixels clear of a twelve-pixel line — so the
+    // type and the fill are one mark. A blind gate measured the demo pack's
+    // Gross Profit bar as running from +96 to (1 325) against a table reading
+    // (1 329) and called the bar 7.6% overstated; +96 is 16 page pixels of
+    // dark, which is exactly the label's line plus its gap. The bar is based
+    // at zero — measured off the composed SVG, rect top 61.0 with zero at
+    // 61.0 — and no arithmetic was wrong. What was wrong is that a reader
+    // could not see where the bar ended.
+    //
+    // IT HID ON THE OTHER COMPANY for the reason this branch keeps finding.
+    // Brightsphere's totals reach the top of the plot, so `noRoomAbove` put
+    // their labels INSIDE in paper, and there was no dark type above a dark
+    // bar to merge with. Right on one sheet, ambiguous on the other, off one
+    // rule that never asked what the bar was filled with.
+    //
+    // So a bar whose fill IS the label's ink carries its label inside, in
+    // paper — the placement half of what `labelInkOn` already does for
+    // contrast — and the two companies draw the same picture. A total too
+    // short to hold a line of type keeps the old fallbacks.
+    const sameInkAsFill = stepColour(step, palette) === palette.ink;
+    const inside = fitsInside && (noRoomAbove || sameInkAsFill);
     const below = noRoomAbove && !inside;
 
     return {
