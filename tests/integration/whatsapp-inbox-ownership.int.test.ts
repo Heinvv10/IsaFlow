@@ -49,7 +49,7 @@ async function configure(company:string,address:string){
   const result=response();await inboxRoute(req,result.res);return result;
 }
 async function deliver(signature?:string,toNumber=shared){
-  const body={From:'whatsapp:+27821111111',To:`whatsapp:${toNumber}`,Body:'Paid R100 at Fixture',NumMedia:'0',MessageSid:'SM-disposable-routing'};
+  const body={From:'whatsapp:+27821111111',To:`whatsapp:${toNumber}`,Body:'Paid R100 at Fixture',NumMedia:'0',WaId:'27821111111',MessageSid:'SM-disposable-routing'};
   const req=request({},'POST');req.url=url;req.body=body;
   req.headers['x-twilio-signature']=signature??twilio.getExpectedTwilioSignature(authToken,origin+url,body);
   const result=response();await webhook(req,result.res);return result;
@@ -71,9 +71,10 @@ async function start(company:string,address=shared):Promise<Pending>{
   expect(result.state.body).toMatchObject({data:{isActive:false}});
   return (result.state.body as {data:Pending}).data;
 }
-async function callback(pending:Pending,options:{to?:string;url?:string;signUrl?:string}={}){
+async function callback(pending:Pending,options:{to?:string;url?:string;signUrl?:string;body?:Record<string,string>;omit?:string[]}={}){
   const target=options.url??pending.verificationUrl;
-  const body={From:'whatsapp:+27821111111',To:`whatsapp:${options.to??pending.address}`,Body:'Paid R100 at Fixture',NumMedia:'0',MessageSid:crypto.randomUUID()};
+  const body:Record<string,string>={From:'whatsapp:+27821111111',To:`whatsapp:${options.to??pending.address}`,Body:'Paid R100 at Fixture',NumMedia:'0',WaId:'27821111111',MessageSid:crypto.randomUUID(),...options.body};
+  for(const key of options.omit??[])delete body[key];
   const req=request({},'POST');const parsed=new URL(target);
   req.url=parsed.pathname+parsed.search;req.body=body;
   req.headers['x-twilio-signature']=twilio.getExpectedTwilioSignature(authToken,options.signUrl??target,body);
@@ -188,4 +189,20 @@ it('claim RLS restricts an authenticated member to the selected company',async()
 it('historical inventory is read-only and limited to the supplied company',async()=>{
   const rows=(await pool.query(readFileSync('docs/audits/remediation/R-003/historical-impact.sql','utf8'),[second])).rows;
   expect(rows).toHaveLength(1);expect(rows[0]).toMatchObject({company_id:second,address:'+27820002008',provider_verified_at:null});
+});
+
+it('a signed outbound status callback cannot prove the recipient number',async()=>{
+  const pending=await start(first,'+27820002011');
+  await rejected(pending,{body:{MessageStatus:'delivered',SmsStatus:'delivered'}});
+});
+
+it.each(['sent','delivered','read','failed'])('signed %s status cannot establish inbound authority',async status=>{
+  const pending=await start(first,'+27820002011');
+  await rejected(pending,{body:{MessageStatus:status}});
+});
+it('missing inbound fields, wrong sender identity and query-supplied body fields do not prove a number',async()=>{
+  const pending=await start(first,'+27820002012');
+  await rejected(pending,{omit:['Body','NumMedia','WaId']});
+  await rejected(pending,{body:{WaId:'27829999999'}});
+  await rejected(pending,{omit:['Body','NumMedia','WaId'],url:pending.verificationUrl+'&Body=verification&NumMedia=0&WaId=27821111111'});
 });

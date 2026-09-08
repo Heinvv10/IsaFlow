@@ -30,7 +30,7 @@ function mockReqRes() {
   const req = {
     method: 'POST',
     headers: { 'x-twilio-signature': 'sig' },
-    body: { From: 'whatsapp:+27820000000' },
+    body: { From: 'whatsapp:+27820000000', To: 'whatsapp:+27820000001', Body: '', NumMedia: '0', WaId: '27820000000' },
   } as unknown as NextApiRequest;
   const res = {
     statusCode: 0,

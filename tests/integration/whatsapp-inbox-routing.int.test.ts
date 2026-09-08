@@ -58,7 +58,7 @@ async function configure(company:string,address:string){
   return verified;
 }
 async function deliver(signature?:string,toNumber=shared,target=callbacks.get(toNumber)??origin+url,message='Paid R100 at Fixture'){
-  const body={From:'whatsapp:+27821111111',To:`whatsapp:${toNumber}`,Body:message,NumMedia:'0',MessageSid:'SM-disposable-routing'};
+  const body={From:'whatsapp:+27821111111',To:`whatsapp:${toNumber}`,Body:message,NumMedia:'0',WaId:'27821111111',MessageSid:'SM-disposable-routing'};
   const req=request({},'POST');const parsed=new URL(target);req.url=parsed.pathname+parsed.search;req.body=body;
   req.headers['x-twilio-signature']=signature??twilio.getExpectedTwilioSignature(authToken,target,body);
   const result=response();await webhook(req,result.res);return result;

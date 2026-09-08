@@ -94,6 +94,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const payload = req.body as TwilioInboundPayload;
   const from = payload.From ?? '';
+  // A signature also authenticates outbound status callbacks. Those cannot prove
+  // control of the recipient's incoming-message webhook. Inspect signed BODY only.
+  const incoming = typeof payload.From === 'string' && /^whatsapp:\+\d{7,15}$/.test(payload.From)
+    && typeof payload.To === 'string' && /^whatsapp:\+\d{7,15}$/.test(payload.To)
+    && typeof payload.Body === 'string' && typeof payload.NumMedia === 'string'
+    && /^\d+$/.test(payload.NumMedia) && typeof payload.WaId === 'string'
+    && payload.WaId === payload.From.slice('whatsapp:+'.length)
+    && [payload.MessageStatus, payload.SmsStatus].every(status => status === undefined || status === 'received');
+  if (!incoming) return apiResponse.success(res, { rejected: 'destination verification required' });
 
   const callbackUrl = new URL(req.url ?? '', 'http://localhost');
   const tokens = callbackUrl.searchParams.getAll('token');
