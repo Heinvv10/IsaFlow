@@ -18,6 +18,12 @@
  * all 39 of Velocity Fibre's unallocated receipts (R37,719,269.77) carrying a
  * `gl_journal_entry_id` — every one made by this path.
  *
+ * WHAT CHANGED SINCE. The half of that defect BELOW this route — a supplier
+ * line with no `invoice_id` at all — is fixed in the service:
+ * `allocateTransaction` now creates the `supplier_payments` document for it and
+ * applies it when the supplier's `auto_allocate_strategy` says to. This route
+ * still owns the line that NAMES an invoice, and the split below is why.
+ *
  * ── WHY A ROUTE AND NOT A FIX INSIDE allocateTransaction ────────────────────
  *
  * `applyBankLineToSupplierInvoices` ALREADY calls `allocateTransaction` and

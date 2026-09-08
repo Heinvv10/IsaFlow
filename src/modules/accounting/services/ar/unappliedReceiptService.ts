@@ -9,6 +9,12 @@
  * document knows about it. R2.45m of the R1,429,774 AR reconciling difference
  * on Brightsphere is exactly this.
  *
+ * SINCE MIGRATION 614 that is the behaviour when the customer's
+ * `auto_allocate_strategy` is 'off', which is the default and remains the case
+ * for every customer who has not set one. A customer set to 'oldest' or
+ * 'newest' has its receipts applied at allocation time and never reaches this
+ * report — the population here is shrinking rather than gone.
+ *
  * An unapplied receipt is therefore a non-cancelled `customer_payments` row
  * whose `total_amount` exceeds the sum of its allocations. Partial application
  * counts: a R100,000 receipt with R40,000 allocated is R60,000 of unapplied

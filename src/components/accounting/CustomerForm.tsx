@@ -3,8 +3,10 @@
  * Sage-parity: all fields from Sage's New Customer form.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { localISODate } from '@/lib/dateUtils';
+
+export type AutoAllocateStrategy = 'off' | 'oldest' | 'newest';
 
 export interface CustomerFormData {
   name: string;
@@ -28,7 +30,7 @@ export interface CustomerFormData {
   opening_balance: string;
   opening_balance_date: string;
   accepts_electronic_invoices: boolean;
-  auto_allocate_receipts: boolean;
+  auto_allocate_strategy: AutoAllocateStrategy;
   statement_distribution: string;
   default_discount: string;
   default_vat_type: string;
@@ -59,7 +61,7 @@ export const INITIAL_CUSTOMER_FORM: CustomerFormData = {
   opening_balance: '',
   opening_balance_date: localISODate(),
   accepts_electronic_invoices: false,
-  auto_allocate_receipts: false,
+  auto_allocate_strategy: 'off',
   statement_distribution: 'email',
   default_discount: '0',
   default_vat_type: '',
@@ -135,6 +137,14 @@ export function CustomerForm({ form, onChange, fieldErrors = {}, categories = []
     onChange({ ...form, [key]: value });
   }
 
+  // Remembers the last order chosen (oldest/newest) while the toggle is off,
+  // so switching it back on restores that choice instead of resetting to
+  // 'oldest' every time.
+  const [lastOrder, setLastOrder] = useState<'oldest' | 'newest'>(
+    form.auto_allocate_strategy !== 'off' ? form.auto_allocate_strategy : 'oldest',
+  );
+  const autoAllocateOn = form.auto_allocate_strategy !== 'off';
+
   return (
     <>
       {/* Basic Information */}
@@ -185,8 +195,33 @@ export function CustomerForm({ form, onChange, fieldErrors = {}, categories = []
             <input type="date" value={form.opening_balance_date} onChange={(e) => set('opening_balance_date', e.target.value)} className={inputClass} />
           </Field>
         </div>
-        <div className="mt-3">
-          <Toggle checked={form.auto_allocate_receipts} onChange={v => set('auto_allocate_receipts', v)} label="Auto Allocate Receipts to Oldest Invoice" />
+        <div className="mt-3 flex items-center gap-3">
+          <Toggle
+            checked={autoAllocateOn}
+            onChange={(v) => set('auto_allocate_strategy', v ? lastOrder : 'off')}
+            label={
+              autoAllocateOn
+                ? `Auto Allocate Receipts to ${form.auto_allocate_strategy === 'newest' ? 'Newest' : 'Oldest'} Invoice`
+                : 'Auto Allocate Receipts'
+            }
+          />
+          <label className="sr-only" htmlFor="customer-auto-allocate-order">Auto allocate order</label>
+          <select
+            id="customer-auto-allocate-order"
+            disabled={!autoAllocateOn}
+            // The live strategy while the toggle is ON, so a record loaded
+            // after mount shows its own order rather than the initial guess.
+            value={autoAllocateOn ? form.auto_allocate_strategy : lastOrder}
+            onChange={(e) => {
+              const order = e.target.value as 'oldest' | 'newest';
+              setLastOrder(order);
+              set('auto_allocate_strategy', order);
+            }}
+            className={`${inputClass} w-auto disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <option value="oldest">Oldest invoice first</option>
+            <option value="newest">Newest invoice first</option>
+          </select>
         </div>
       </Card>
 
