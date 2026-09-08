@@ -177,12 +177,19 @@ describe('the month-versus-period note', () => {
       // the second. Read off `printsAgainstComparative` rather than a list
       // typed here, so the test cannot drift from the rule.
       expect(note).not.toBeNull();
-      const named = (id: string): boolean =>
-        drawn.has(id) && PERIOD_COUNTERPARTS[id]!.printsAgainstComparative;
-      expect(note!.body.includes('gross margin')).toBe(named('trend-gross-margin'));
-      expect(note!.body.includes('debtor days')).toBe(named('trend-debtor-days'));
-      expect(note!.body.includes('cash')).toBe(named('trend-cash'));
-      // And gross margin is the one that differs, so this test can fail.
+      //
+      // AND IT NAMES EVERY DRAWN PANEL, including the one whose page carries
+      // no comparative for it. Dropping gross margin from the list was the
+      // round before this one's fix and it left the sentence mapping 5 of the
+      // sheet's 6 panels; the measure is back and the comparative claim
+      // carries its own exception instead.
+      expect(note!.body.includes('gross margin')).toBe(drawn.has('trend-gross-margin'));
+      expect(note!.body.includes('debtor days')).toBe(drawn.has('trend-debtor-days'));
+      expect(note!.body.includes('cash')).toBe(drawn.has('trend-cash'));
+      // The exception is stated exactly where a drawn panel lacks one.
+      const without = [...drawn].filter((id) => !PERIOD_COUNTERPARTS[id]!.printsAgainstComparative);
+      expect(/all against the comparative but /.test(note!.body)).toBe(without.length > 0);
+      // And gross margin is the measure that differs, so this can fail.
       expect(PERIOD_COUNTERPARTS['trend-gross-margin']!.printsAgainstComparative).toBe(false);
     });
 
@@ -207,10 +214,8 @@ describe('the month-versus-period note', () => {
       // does not draw the panel must not claim it. The reciprocal footnote on
       // page 6 is where the drawn case is checked, in the test below.
       const claimsGrossMargin = /Gross margin.*(income statement|for the WHOLE)|gross margin on the income statement/i.test(text);
-      if (!drawn.has('trend-gross-margin')) {
-        expect(claimsGrossMargin, `${name}: the trends page names a gross-margin panel it does not draw`)
-          .toBe(false);
-      }
+      expect(claimsGrossMargin, `${name}: the trends page names a gross-margin panel it does not draw`)
+        .toBe(drawn.has('trend-gross-margin'));
     });
 
     it(`gives ${name}'s statement pages the reciprocal pointer only where the panel exists`, () => {

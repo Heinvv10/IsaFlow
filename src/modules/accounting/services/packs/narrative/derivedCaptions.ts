@@ -129,8 +129,15 @@ export function trendsCaption(panels: PackChartSpec[]): string {
   if (panels.length === 0) {
     return 'No trend panels are available this period.';
   }
-  const noun = panels.length === 1 ? 'metric is' : 'metrics are';
-  return `${panels.length} ${noun} tracked over the period; each panel states where it started and where it ended.`;
+  // DRAWN, NOT TRACKED — and the two words were the same page's two answers
+  // to one question. Brightsphere's sheet 10 read "4 metrics are tracked over
+  // the period" above a note reading "A board pack tracks six measures on
+  // this page … and 4 of the six could be drawn for this company", so a
+  // director met "tracked" twice on one sheet meaning two different counts.
+  // The pack TRACKS six; a page DRAWS as many as the ledger supports. One
+  // character shorter than the word it replaces.
+  const noun = panels.length === 1 ? 'measure is' : 'measures are';
+  return `${panels.length} ${noun} drawn over the period; each panel states where it started and where it ended.`;
 }
 
 /**

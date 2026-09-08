@@ -16,8 +16,7 @@ import {
   boardActionItems,
   cashCaption,
   positionCaption,
-  negativeAssetsSentence,
-  negativeLiabilitySentence,
+  impossibleBalancesSentence,
   negativeEquitySentence,
   tileCaption,
   trendsCaption,
@@ -237,27 +236,31 @@ export function buildPositionBlocks(
     { kind: 'chart', chart: compositionChart },
     commentary(positionCaption(set, scale)),
   ];
-  // The asset side FIRST where both apply: negative total assets is the
-  // stranger of the two, and it was the one the sheet said nothing about.
-  const assets = set.current.totalAssets;
-  if (assets < 0) {
-    positionBlocks.push(mustDisclose('Negative total assets', [
-      note('What this means', negativeAssetsSentence(assets, scale)),
-    ]));
-  }
-  // AND THE SAME TREATMENT FOR A NEGATIVE LIABILITY LINE. Brightsphere prints
-  // non-current liabilities of (424) — an amount that cannot be owed — on the
-  // sheet that gives negative total assets a titled block. Explaining the
-  // impossibility at TOTAL level and staying silent at COMPONENT level reads
-  // as the pack having decided the component is fine. Read off the table the
-  // page prints rather than off `set`, so the disclosure can only name a row
-  // the sheet actually shows and states that row's own label.
-  const negativeLiability = position.rows.find((row) =>
-    /liabilities$/i.test(row.label) && (row.figures.actual?.value ?? 0) < 0);
-  if (negativeLiability !== undefined) {
-    positionBlocks.push(mustDisclose('A liability below zero', [
-      note('What this means', negativeLiabilitySentence(
-        negativeLiability.label, negativeLiability.figures.actual!.value!, scale,
+  // THE SIGN CHECK, OVER EVERY ASSET AND LIABILITY LINE THIS PAGE PRINTS.
+  //
+  // It ran on TOTAL assets and on COMPONENT liabilities and on nothing else,
+  // which is what let Brightsphere print `Non-current liabilities (424)` with
+  // a headed block beside it and `Current assets (3 372)` three rows above
+  // with none: that pack's total assets are positive, and the asset check
+  // only ever looked at the total. Symmetric now — both sides, both levels —
+  // read off the table the page prints, so it can only name a row the sheet
+  // shows and states that row's own label.
+  //
+  // Equity is not in it. Negative equity is a real position a real business
+  // can hold; it has its own §3.5 disclosure below, and folding it in here
+  // would tell a director that insolvency is a posting error.
+  const impossible = position.rows
+    .filter((row) => /assets$|liabilities$/i.test(row.label))
+    .map((row) => ({ label: row.label, amount: row.figures.actual?.value ?? 0 }))
+    .filter((line) => line.amount < 0);
+  if (impossible.length > 0) {
+    const hasAssets = impossible.some((l) => /assets$/i.test(l.label));
+    const hasLiabilities = impossible.some((l) => /liabilities$/i.test(l.label));
+    positionBlocks.push(mustDisclose('Balances below zero', [
+      note('What this means', impossibleBalancesSentence(
+        impossible,
+        hasAssets && hasLiabilities ? 'both' : (hasAssets ? 'assets' : 'liabilities'),
+        scale,
       )),
     ]));
   }

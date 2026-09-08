@@ -619,10 +619,15 @@ describe('the printed board pack', () => {
     const printed = await printBoardPack(buildBoardPackPages(liveDemoInput), browser);
     const sheet = printed.sheetText
       .map((t) => t.replace(/\s+/g, ' '))
-      .find((t) => t.includes('Negative total assets'));
+      .find((t) => t.includes('Balances below zero'));
 
-    expect(sheet, 'no sheet carries the negative-assets disclosure').toBeDefined();
-    expect(sheet).toContain('asset accounts carry credit balances');
+    expect(sheet, 'no sheet carries the impossible-balances disclosure').toBeDefined();
+    expect(sheet).toContain('accounts classified as assets carry credit balances');
+    // AND IT NAMES EVERY LINE, NOT ONLY THE TOTAL. The check ran on the total
+    // alone, which is how Brightsphere printed `Current assets (3 372)` with
+    // no comment while a negative liability three rows below got a block.
+    expect(sheet).toContain('Current assets');
+    expect(sheet).toContain('total assets');
     // Beside the equity callout, not instead of it.
     expect(sheet).toContain('Negative equity');
   }, 120_000);

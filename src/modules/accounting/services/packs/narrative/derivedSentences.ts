@@ -361,23 +361,6 @@ export function negativeEquitySentence(equity: number, scale: MoneyScale): strin
   return `Total equity is ${money(equity, scale)}. Liabilities exceed assets by this amount, which may affect covenant compliance and the going-concern assessment.`;
 }
 
-/**
- * And the OTHER impossible number on the same sheet.
- *
- * The rendered pack printed total assets of (733). Negative equity got a
- * callout underneath it; negative total assets got nothing, on the same page,
- * from the same balance sheet. It is not a state a business can be in — a
- * balance sheet whose asset side is negative is telling the reader about the
- * ledger rather than about the company — and a sheet that explains the
- * lesser anomaly and stays silent about the greater one reads as though the
- * greater one is normal.
- *
- * It says what it is and what to do about it, and it does NOT restate the
- * figure the table prints three centimetres away in different words.
- */
-export function negativeAssetsSentence(assets: number, scale: MoneyScale): string {
-  return `Total assets are ${money(assets, scale)}. An asset side below zero is not a position a business can hold; it means one or more asset accounts carry credit balances — commonly a bank account overdrawn beyond its recorded facility, or a control account posted against. The balance sheet still foots, so the pack reports it as the ledger states it; it should be traced to the accounts before this pack is relied on.`;
-}
 
 /**
  * AND THE THIRD IMPOSSIBLE NUMBER, WHICH GOT NOTHING AT ALL.
@@ -422,13 +405,66 @@ export function negativeRevenueSentence(revenue: number, scale: MoneyScale): str
  * liability lines and a total; this sentence is built for whichever of them
  * is below zero and states that row's own label.
  */
-export function negativeLiabilitySentence(
-  label: string,
-  amount: number,
+export type ImpossibleSide = 'assets' | 'liabilities' | 'both';
+
+/**
+ * WHY THE BALANCE CANNOT BE WHAT IT SAYS, one clause per side.
+ *
+ * A `Record` over the union rather than a chain of `if`s — the
+ * `CREDIT_MONTH_STANDING` device — so the case a fixture never reaches is one
+ * the author still had to write a sentence for. The `both` arm is not the
+ * other two concatenated: an asset carrying credits and a liability carrying
+ * debits are the same KIND of error and a reader who is told it twice reads
+ * two problems.
+ */
+const IMPOSSIBLE_CAUSE: Record<ImpossibleSide, string> = {
+  assets: 'An asset below zero is not a balance a business can hold: it means one or more '
+    + 'accounts classified as assets carry credit balances.',
+  liabilities: 'A liability below zero is not an amount that can be owed: it means one or more '
+    + 'accounts classified as liabilities carry debit balances.',
+  both: 'Neither figure is a balance that can be held as stated: it means one or more accounts '
+    + 'carry balances contrary to the band they are classified in.',
+};
+
+/**
+ * THE SIGN CHECK, RUN ON EVERY LINE OF THE BALANCE SHEET RATHER THAN ON TWO
+ * OF THEM.
+ *
+ * The pack checked TOTAL assets and — after the round before this one —
+ * COMPONENT liabilities, and nothing else. The asymmetry did exactly what an
+ * asymmetry does: Brightsphere's page 7 printed `Non-current liabilities
+ * (424)` with a headed block explaining it and `Current assets (3 372)`
+ * three rows above with no comment at all, because that pack's total assets
+ * are POSITIVE and the asset check only ever looked at the total. The one
+ * line that fell through was the largest number it could have fallen
+ * through on, on the sheet a director reads for solvency.
+ *
+ * So the check is over every asset and liability row the page prints,
+ * component and total, both sides. Equity is deliberately NOT in it: negative
+ * equity is a real position a real business can hold, and it has its own
+ * §3.5 disclosure two blocks down.
+ *
+ * ONE NOTE, NAMING EVERY OFFENDING LINE. Page 7 composes at 253.07mm of 255
+ * on BOTH companies — 1.93mm, less than half a line — so a note per line, or
+ * a block per side, is paper the sheet does not have on either pack. The
+ * lines are listed in one sentence and the cause follows once.
+ */
+export function impossibleBalancesSentence(
+  lines: ReadonlyArray<{ label: string; amount: number }>,
+  side: ImpossibleSide,
   scale: MoneyScale,
 ): string {
-  return `${label} are ${money(amount, scale)}. A liability below zero is not an amount that can `
-    + 'be owed; it means one or more accounts classified in that band carry debit balances — a '
-    + 'classification or a posting question rather than a smaller obligation. The pack reports '
-    + 'the ledger as it stands, and the balance should be resolved before this sheet is relied on.';
+  const named = lines.map((l, i) => {
+    // The first names its measure in full; the rest are figures under it, so
+    // the sentence reads as a list rather than as three sentences run
+    // together.
+    const label = i === 0 ? `${l.label} are` : l.label.toLowerCase();
+    return `${label} ${money(l.amount, scale)}`;
+  });
+  const list = named.length === 1
+    ? named[0]!
+    : `${named.slice(0, -1).join(', ')} and ${named[named.length - 1]!}`;
+  return `${list}. ${IMPOSSIBLE_CAUSE[side]} That is a classification or a posting question `
+    + 'rather than a smaller figure, and the pack reports the ledger as it stands: the balances '
+    + 'should be resolved before this sheet is relied on.';
 }

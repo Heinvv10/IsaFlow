@@ -750,10 +750,22 @@ describe('Brightsphere as the live route composed it', () => {
     expect(income.footnotes.some((f) => f.text.startsWith(OMISSION_MARK))).toBe(false);
   });
 
-  it('pays for the room out of the bridge, at the bottom rung of the height grid', () => {
-    const chart = incomeStatement().blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
+  it('pays for the room out of the bridge, and takes back what the ladder overshot', () => {
+    // IT WAS 48 — THE BOTTOM RUNG — AND THAT WAS THE DEFECT, NOT THE RULE.
+    // The ladder steps 110 → 72 → 48 and the decision it answers is measured
+    // in tenths: this sheet missed the 72mm rung by 0.2mm and printed a 48mm
+    // bridge with 23.8mm of white under it, while the demo drew the same
+    // chart at 72. The ladder still chooses the rung; the page is then grown
+    // back into the paper it actually has.
+    const page = incomeStatement();
+    const chart = page.blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
     expect(chart.id).toBe('profit-bridge');
-    expect(chart.heightMm).toBe(48);
+    expect(chart.heightMm, 'the bridge is back on the bottom rung with paper under it')
+      .toBeGreaterThan(48);
+    // And it took only what was there: the sheet still fits.
+    expect(pageMm(page)).toBeLessThanOrEqual(pageBoxMm(page));
+    // Whole millimetres — the spare is a difference of two measured heights.
+    expect(chart.heightMm).toBe(Math.floor(chart.heightMm));
   });
 
   /**
@@ -793,13 +805,16 @@ describe('Brightsphere as the live route composed it', () => {
     expect(cash.footnotes.some((f) => f.text.startsWith(OMISSION_MARK))).toBe(false);
   });
 
-  it('leaves a page that already fits at the height its predicates chose', () => {
-    // The live demo company's sheet fits at 72mm, so nothing measures it down
-    // a further rung — a page is not made smaller than it needs to be.
+  it('never measures a page down further than it needs, and never past the tallest rung', () => {
+    // The live demo company's sheet fits at the 72mm rung, so nothing steps
+    // it down — and it then grows into the paper below it, capped at the
+    // tallest rung the spec allows.
     const demoIncome = buildBoardPackPages(liveDemoRenderedInput)
       .pages.find((page) => page.navLabel === 'Income statement')!;
     const chart = demoIncome.blocks.flatMap((b) => (b.kind === 'chart' ? [b.chart] : []))[0]!;
-    expect(chart.heightMm).toBe(72);
+    expect(chart.heightMm).toBeGreaterThanOrEqual(72);
+    expect(chart.heightMm, 'the bridge grew past the tallest rung the spec states')
+      .toBeLessThanOrEqual(CHART_HEIGHT_MM.full);
     expect(pageMm(demoIncome)).toBeLessThanOrEqual(pageBoxMm(demoIncome));
   });
 });

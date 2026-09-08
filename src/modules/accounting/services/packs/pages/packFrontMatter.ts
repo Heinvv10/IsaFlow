@@ -119,8 +119,33 @@ export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
       ]),
     ]),
     page('Contents', 'Contents', 'Front', 'low', [
-      disclose('Basis of preparation', [
-        note('In short', `${f.basis.basisOfPreparation.standard}. ${f.period}. Figures in ${f.scale} (${f.currency}), ${f.draftReasons.length > 0 ? 'draft' : 'final'}. Full basis on page ${f.basisPageNumber}.`),
+      // THE HEADING NO LONGER REPEATS THE ROW DIRECTLY ABOVE IT. The index's
+      // last line is "12 Basis of preparation" and this block's H2 was the
+      // same four words, separated from it by the table's hairline — for a
+      // beat it read as a thirteenth contents row. It is a SUMMARY of that
+      // sheet, and naming it as one says what it is and what page 12 is for.
+      disclose('The basis, in short', [
+        note('Standard and period', `${f.basis.basisOfPreparation.standard}. ${f.period}. Figures in ${f.scale} (${f.currency}), ${f.draftReasons.length > 0 ? 'draft' : 'final'}. Full basis on page ${f.basisPageNumber}.`),
+      ]),
+      // AND WHY THIS SHEET, AND SOME OF THE ONES IT INDEXES, ARE SHORT.
+      //
+      // Page 2 carries 2.4% ink against a pack median of 6.5% and runs out of
+      // content 41% up the paper — three times emptier than any other sheet,
+      // and the reader was left to decide whether that was a design or a
+      // failed render. The pack has an answer and states it on page 11, about
+      // page 11's table: it is the same twelve sheets for every company
+      // however busy its ledger. That is a fact about the DOCUMENT, and the
+      // contents page is where a reader meets the document.
+      //
+      // It is not the page-11 sentence restated: that one explains why a
+      // TABLE is held to its paper, this one explains why a SHEET can be
+      // mostly white. Both are the same design decision, said about the two
+      // places a reader meets it.
+      disclose('The shape of this pack', [
+        note('Twelve sheets', 'This pack is the same twelve sheets for every company, whatever '
+          + 'its ledger holds. A sheet with little on it is a company with little posted, not a '
+          + 'page that failed to print; where a figure or a chart cannot be drawn, the sheet says '
+          + 'so in place of it.'),
       ]),
       // THE QUALIFICATIONS, WITH THE CONTENTS, WHERE THEY ARE READ FIRST.
       //

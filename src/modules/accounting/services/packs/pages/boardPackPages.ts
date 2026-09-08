@@ -54,6 +54,7 @@ import {
   buildPositionCompositionChart,
   buildProfitWaterfallChart,
   buildTrendPanels,
+  profitBridgeAtHeight,
   shorterProfitBridge,
   TRENDS_PANELS_SPECIFIED,
 } from './packPageCharts';
@@ -517,6 +518,26 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     if (shorter === null) break;
     profitBridge = shorter;
     incomeSheet = incomeStatementSheet(profitBridge);
+  }
+  // AND THEN BACK INTO WHATEVER THE PAGE ACTUALLY HAS. The ladder steps 24
+  // and 38mm at a time and the decision it answers is measured in tenths:
+  // live Brightsphere missed the 72mm rung by 0.2mm and printed a 48mm
+  // bridge with 23.8mm of white under it, against the demo's 72. The ladder
+  // chooses the rung; the paper decides the last few millimetres. Verified
+  // by re-measuring rather than by arithmetic — the taller chart is the only
+  // thing that moves, but a page proves it fits by being measured.
+  const spare = pageBoxMm(incomeSheet) - pageMm(incomeSheet);
+  if (spare > 1) {
+    const grown = profitBridgeAtHeight(
+      set, scale, grossMarginWindowNote.length > 0, profitBridge.heightMm + spare - 0.5,
+    );
+    if (grown !== null && grown.heightMm > profitBridge.heightMm) {
+      const grownSheet = incomeStatementSheet(grown);
+      if (pageMm(grownSheet) <= pageBoxMm(grownSheet)) {
+        profitBridge = grown;
+        incomeSheet = grownSheet;
+      }
+    }
   }
 
   // PAGE 8, AS A FUNCTION OF THE CASH LINE ON IT — the same construction

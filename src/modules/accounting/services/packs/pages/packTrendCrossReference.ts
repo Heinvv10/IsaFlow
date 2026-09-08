@@ -189,9 +189,7 @@ function counterpartsByPage(panels: PackChartSpec[]): Array<{ page: string; meas
   for (const panel of panels) {
     const counterpart = PERIOD_COUNTERPARTS[panel.id];
     if (counterpart === undefined) continue;
-    // The sentence this list feeds says "against the comparative", so a
-    // measure whose page prints no comparative for it does not belong in it.
-    if (!counterpart.printsAgainstComparative) continue;
+
     const group = byPage.find((g) => g.page === counterpart.page);
     if (group) group.measures.push(counterpart.measure);
     else byPage.push({ page: counterpart.page, measures: [counterpart.measure] });
@@ -217,6 +215,36 @@ export function trendWindowNote(
   if (groups.length === 0) return null;
 
   const where = groups.map((g) => `${inWords(g.measures)} on the ${g.page}`);
+  // EVERY PANEL ON THE SHEET IS ACCOUNTED FOR, AND THE EXCEPTION IS NAMED
+  // RATHER THAN OMITTED.
+  //
+  // The round before this one DROPPED gross margin from the list, because
+  // the sentence claimed "against the comparative" and page 6 prints that
+  // measure only in the actual `% OF REVENUE` column. That traded a wrong
+  // pointer for an incomplete enumeration: the demo's note then mapped 5 of
+  // its own 6 panels while page 6's footnote 4 said from the other end that
+  // the trends page plots the same measure monthly, and Brightsphere's
+  // sentence listed all 4 of its 4 — true on one company and false on the
+  // other, which is this branch's recurring defect wearing its sixth face.
+  //
+  // So the measure is back in the list and the comparative claim carries its
+  // own exception. Naming page 9 instead was measured and is worse: the
+  // scorecard's gross-margin prior is null on the live demo company, so the
+  // pointer would resolve to an empty cell.
+  //
+  // THE WORDING IS THE SHORTEST THAT SAYS IT, and that is the whole of the
+  // design. This note has between twenty and thirty-nine characters of wrap
+  // on `liveDemoRendered`, whose page 10 composes at 252.47mm of 255, and at
+  // forty `fitPageToBox` drops the note entire. Spelling out where gross
+  // margin's comparative is not — "which the income statement prints for the
+  // actual column alone" — is ninety.
+  const without = panels
+    .map((panel) => PERIOD_COUNTERPARTS[panel.id])
+    .filter((c): c is PeriodCounterpart => c !== undefined && !c.printsAgainstComparative)
+    .map((c) => c.measure);
+  const comparative = without.length === 0
+    ? ' against the comparative'
+    : ` — all against the comparative but ${inWords(without)}`;
   // Debtor days is measured differently as well as over a different window,
   // and a note that named only the window would be doing to that measure what
   // this whole file used to do to revenue.
@@ -302,8 +330,8 @@ export function trendWindowNote(
   return {
     heading: 'Period',
     body:
-      'Each panel plots one MONTH. The same measures print for the WHOLE reporting period, '
-      + `against the comparative — ${inWords(where)}. Different windows: the two `
+      'Each panel plots one MONTH. The same measures print for the WHOLE reporting period — '
+      + `${inWords(where)}${comparative}. Different windows: the two `
       + `need not agree.${debtorDays}${partRatios}`,
   };
 }

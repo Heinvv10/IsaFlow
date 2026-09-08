@@ -33,16 +33,31 @@ function periodNote(input: BoardPackInput): string | null {
   return null;
 }
 
-describe('the comparative list names only measures printed against a comparative', () => {
-  it('drops gross margin, and keeps the five that qualify', () => {
+describe('the comparative list accounts for every panel on the sheet', () => {
+  it('names all six measures and states the one without a comparative', () => {
+    // DROPPING gross margin was the previous round's fix and it traded a
+    // wrong pointer for an incomplete enumeration: the note then mapped 5 of
+    // the sheet's own 6 panels, while page 6's footnote 4 said from the other
+    // end that the trends page plots that same measure monthly — and
+    // Brightsphere's copy listed all 4 of its 4. True on one company, false
+    // on the other.
     const body = periodNote(liveDemoShortPanelsInput);
     expect(body, 'the trends page lost its Period note').not.toBeNull();
-    expect(body).toMatch(/against the comparative/);
-    expect(body, 'gross margin is named among measures printed against a comparative')
-      .not.toMatch(/gross margin/i);
-    for (const measure of ['revenue', 'operating expenses', 'net profit', 'cash', 'debtor days']) {
-      expect(body, `the list stopped naming ${measure}`).toContain(measure);
+    for (const measure of
+      ['revenue', 'gross margin', 'operating expenses', 'net profit', 'cash', 'debtor days']) {
+      expect(body, `the list does not account for ${measure}`).toContain(measure);
     }
+    // And the exception is stated rather than left to be inferred from the
+    // measure's absence.
+    expect(body).toMatch(/all against the comparative but gross margin/);
+  });
+
+  it('claims the comparative without exception where every measure has one', () => {
+    // Brightsphere draws four panels and all four print against a
+    // comparative, so the sentence carries no exception clause at all.
+    const body = periodNote(brightsphereReceivablesGapInput)!;
+    expect(body).toMatch(/against the comparative/);
+    expect(body).not.toMatch(/but gross margin/);
   });
 
   it('and page 6 really does print gross margin without one', () => {
@@ -72,38 +87,74 @@ describe('the comparative list names only measures printed against a comparative
   });
 });
 
-describe('a liability below zero gets the treatment a negative total gets', () => {
-  const liabilityNote = (input: BoardPackInput): string | null => {
+/**
+ * THE SIGN CHECK IS SYMMETRIC, OR IT IS AN ASYMMETRY WITH A BLOCK ATTACHED.
+ *
+ * The pack checked TOTAL assets and, after the round before this one,
+ * COMPONENT liabilities. That is what let Brightsphere print `Non-current
+ * liabilities (424)` WITH a headed block and `Current assets (3 372)` three
+ * rows above with none: its total assets are positive, and the asset check
+ * only ever looked at the total. The line that fell through was the largest
+ * number that could have.
+ */
+describe('no impossible balance on the balance sheet goes unremarked', () => {
+  const balancesNote = (input: BoardPackInput): string | null => {
     for (const block of pageNamed(input, 'Balance sheet').blocks) {
       if (block.kind !== 'disclosure') continue;
-      if (block.disclosure.heading !== 'A liability below zero') continue;
+      if (block.disclosure.heading !== 'Balances below zero') continue;
       return block.disclosure.notes.map((n) => n.body).join(' ');
     }
     return null;
   };
 
-  it('names the row and says what a negative liability means', () => {
-    const body = liabilityNote(brightsphereReceivablesGapInput);
-    expect(body, 'the sheet prints a negative liability and says nothing').not.toBeNull();
-    expect(body).toMatch(/Non-current liabilities/);
-    expect(body).toMatch(/not an amount that can be owed/);
-    expect(body).toMatch(/debit balances/);
-    // Same shape as the other three impossibilities: it says the ledger is
-    // reported as it stands rather than implying the pack corrected it.
+  /** Every asset or liability line the sheet prints below zero. */
+  const impossibleRows = (input: BoardPackInput): string[] => {
+    const block = pageNamed(input, 'Balance sheet').blocks.find((b) => b.kind === 'table')!;
+    const rows = block.kind === 'table' ? block.table.rows : [];
+    return rows
+      .filter((r) => /assets$|liabilities$/i.test(r.label) && (r.figures.actual?.value ?? 0) < 0)
+      .map((r) => r.label);
+  };
+
+  it.each([
+    ['Brightsphere', brightsphereReceivablesGapInput],
+    ['the live demo company', liveDemoShortPanelsInput],
+  ])('names every impossible line on %s, whichever side it is', (unusedName, input) => {
+    const rows = impossibleRows(input);
+    expect(rows.length, 'this fixture has no impossible balance to remark on')
+      .toBeGreaterThan(0);
+    const body = balancesNote(input);
+    expect(body, 'the sheet prints a balance below zero and says nothing').not.toBeNull();
+    for (const label of rows) {
+      // Case-insensitive: the sentence lower-cases every label but the first.
+      expect(body!.toLowerCase(), `the note does not name ${label}`)
+        .toContain(label.toLowerCase());
+    }
     expect(body).toMatch(/reports the ledger as it stands/);
   });
 
-  it('and the premise is on the page — a liability row below zero', () => {
-    const block = pageNamed(brightsphereReceivablesGapInput, 'Balance sheet').blocks
-      .find((b) => b.kind === 'table')!;
-    const rows = block.kind === 'table' ? block.table.rows : [];
-    const negative = rows.filter((r) => /liabilities$/i.test(r.label)
-      && (r.figures.actual?.value ?? 0) < 0);
-    expect(negative.length, 'no liability row is below zero on this fixture').toBeGreaterThan(0);
+  it('covers component and total, asset side and liability side', () => {
+    // The four positions, on the two fixtures between them: Brightsphere has
+    // a negative asset COMPONENT and a negative liability COMPONENT; the demo
+    // has negative asset components AND a negative asset TOTAL. A check that
+    // looked at totals only, or at one side only, fails one of these.
+    expect(impossibleRows(brightsphereReceivablesGapInput)).toEqual(
+      expect.arrayContaining(['Current assets', 'Non-current liabilities']),
+    );
+    expect(impossibleRows(liveDemoShortPanelsInput)).toEqual(
+      expect.arrayContaining(['Current assets', 'Total assets']),
+    );
   });
 
-  it('is silent where every liability is a liability', () => {
-    expect(liabilityNote(demoInput)).toBeNull();
-    expect(liabilityNote(liveDemoShortPanelsInput)).toBeNull();
+  it('says which kind of impossibility it is', () => {
+    // One side named as that side; both sides named once, not twice.
+    expect(balancesNote(liveDemoShortPanelsInput))
+      .toMatch(/accounts classified as assets carry credit balances/);
+    expect(balancesNote(brightsphereReceivablesGapInput))
+      .toMatch(/carry balances contrary to the band they are classified in/);
+  });
+
+  it('is silent where every balance carries the sign it can', () => {
+    expect(balancesNote(demoInput)).toBeNull();
   });
 });

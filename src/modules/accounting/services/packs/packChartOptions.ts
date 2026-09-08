@@ -282,6 +282,29 @@ function makeWaterfallRenderItem(
 }
 
 /**
+ * THE PLOT INSETS EVERY FULL-WIDTH CHART SHARES.
+ *
+ * The waterfall and the composition bar took `left: 80, right: 24` and the
+ * full-width line took `left: 4, right: 64, containLabel: true` — so three
+ * chart kinds on one document drew their plots at three different measures
+ * and three different left edges, none of them centred on the paper. Measured
+ * on the rendered pack: 609, 515 and 581 pixels against a table measure of
+ * 753.
+ *
+ * SYMMETRIC, which is what makes the plot centred on the page rather than
+ * merely consistent. The left gutter is the y-axis labels' and cannot go; the
+ * right gutter is the line chart's end label, which needs 64. Giving both
+ * sides the larger of the two costs the bar charts some plot and buys every
+ * chart in the pack one measure and one centre line — the same trade the
+ * scorecard's `<colgroup>` makes, and the criterion it is failed on.
+ *
+ * `containLabel` is deliberately NOT set: it sizes the gutter from whatever
+ * the axis happens to print, which is exactly how the small multiples came to
+ * have three different left edges in one column.
+ */
+export const CHART_GUTTER_PX = 80;
+
+/**
  * @param scale The document's `numberConvention.scale`. REQUIRED — a bridge
  *   drawn in rands beneath a table stated in `R'000` is the 1000x misread
  *   R-P52 exists to stop, and a default would make the unsafe path the easy
@@ -299,7 +322,7 @@ export function waterfallOption(
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
   return {
     animation: false,
-    grid: { left: 80, right: 24, top: chrome.top, bottom: chrome.bottom },
+    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: chrome.top, bottom: chrome.bottom },
     tooltip: {
       // Same figure the bar prints — see `WaterfallStep.labelValue`.
       formatter: labelTooltipFormatter(steps.map((s) => s.label), steps.map((s) => s.labelValue ?? s.value), scale),
@@ -330,7 +353,7 @@ export function trendOption(
 ): EChartsCoreOption {
   return {
     animation: false,
-    grid: { left: 80, right: 24, top: 32, bottom: 64 },
+    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: 32, bottom: 64 },
     tooltip: {
       formatter: labelTooltipFormatter(points.map((p) => p.label), points.map((p) => p.value), scale),
     },
@@ -392,7 +415,7 @@ export function compositionBarOption(
 ): EChartsCoreOption {
   return {
     animation: false,
-    grid: { left: 80, right: 24, top: 40, bottom: 64 },
+    grid: { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: 40, bottom: 64 },
     tooltip: { formatter: compositionTooltip(scale) },
     legend: { bottom: 0, textStyle: { color: palette.axis } },
     xAxis: {

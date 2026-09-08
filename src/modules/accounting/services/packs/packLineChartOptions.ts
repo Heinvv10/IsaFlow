@@ -14,7 +14,7 @@
  * which is why neither showed up.
  */
 import type { EChartsCoreOption } from 'echarts/core';
-import { DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
+import { CHART_GUTTER_PX, DEFAULT_CHART_PALETTE, type ChartPalette, type TrendPoint } from './packChartOptions';
 
 /** The one ECharts label-callback field these formatters read. */
 interface LabelParam {
@@ -33,7 +33,14 @@ export function sparklineOption(
   return {
     animation: false,
     grid: { left: 2, right: 2, top: 4, bottom: 4 },
-    xAxis: { type: 'category', data: points.map((p) => p.label), show: false },
+    // THE LINE SPANS THE TILE WHATEVER THE POINT COUNT.
+    //
+    // A category axis reserves half a band at each end, so a 3-point series
+    // was drawn across a third of the width a 12-point series used: page 3's
+    // row rendered lines 147px and 106px wide, at 8px and 28px from the tile
+    // edge, in one row of tiles the reader compares by shape. The sparklines
+    // are already the same BOX; this makes them the same MEASURE.
+    xAxis: { type: 'category', data: points.map((p) => p.label), show: false, boundaryGap: false },
     yAxis: { type: 'value', show: false, scale: true },
     series: [
       {
@@ -120,9 +127,24 @@ export function smallMultipleOption(
     // found between the cash line and the Commentary heading below it. 32
     // clears a 12px label and its tick with room to spare, and the 32mm of
     // box the line was not using becomes plot.
+    // ONE LEFT EDGE FOR EVERY PANEL, AND FOR THE FULL-WIDTH LINE.
+    //
+    // The money branch used `containLabel`, which sizes the left gutter from
+    // whatever the axis happens to print — so page 10's left column drew its
+    // plots at 114, 114 and 131 pixels, three left edges in one column of
+    // three panels, because one of them prints a wider number. The ratio
+    // branch already used a fixed 80. Fixed on both now, at the gutter every
+    // other chart in the pack takes (`CHART_GUTTER_PX`), so a panel's plot
+    // starts where its neighbour's does whatever its axis says.
+    //
+    // The right gutter stays the end label's own 64 on a PANEL: six of them
+    // to a sheet is a different form from a full-width chart, and 80 either
+    // side of an 83mm box leaves too little line to read. The full-width line
+    // takes the shared gutter both sides, which is what puts it on the same
+    // measure and the same centre as the waterfall above it.
     grid: unit === null
-      ? { left: 4, right: 64, top: 12, bottom: 28, containLabel: true }
-      : { left: 80, right: 64, top: 32, bottom: 32 },
+      ? { left: CHART_GUTTER_PX, right: CHART_GUTTER_PX, top: 12, bottom: 28 }
+      : { left: CHART_GUTTER_PX, right: 64, top: 32, bottom: 32 },
     xAxis: {
       type: 'category',
       data: points.map((p) => p.label),

@@ -30,6 +30,7 @@
  * beyond being a chart.
  */
 
+import { PAGE_WIDTH_MM } from './packTextMetrics';
 import { formatMoney, inProse, type MoneyScale } from '@/lib/format/money';
 import { buildProfitWaterfall, type WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
@@ -57,7 +58,22 @@ export {
 } from './packTrendCharts';
 export type { TrendPanels } from './packTrendCharts';
 
-const FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.full };
+/**
+ * THE CHART MEASURE IS THE TABLE MEASURE.
+ *
+ * Every box here was 170mm against a text measure of 174, so no chart in the
+ * pack sat on the grid its own page's tables sit on — a 2mm step down each
+ * side, invisible in isolation and plain in a stack. The gate measured the
+ * consequence at the plot rather than the box: three different chart measures
+ * on one document, none of them the table's, none centred on it.
+ *
+ * `PAGE_WIDTH_MM.portrait` rather than a literal, so the two cannot drift:
+ * the tables take the same constant through `packMattersColumns` and
+ * `packScorecardColumns`.
+ */
+const CHART_MEASURE_MM = PAGE_WIDTH_MM.portrait;
+
+const FULL = { widthMm: CHART_MEASURE_MM, heightMm: CHART_HEIGHT_MM.full };
 
 /**
  * Page 8's bridge is the INLINE rung, not half and not full.
@@ -74,7 +90,7 @@ const FULL = { widthMm: 170, heightMm: CHART_HEIGHT_MM.full };
  * the page are now the same height as each other. Nothing is dropped from
  * the page to buy the space.
  */
-const HALF = { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline };
+const HALF = { widthMm: CHART_MEASURE_MM, heightMm: CHART_HEIGHT_MM.inline };
 
 /**
  * Spec §5.6's MIDDLE rung, which is what page 7 steps down to.
@@ -88,7 +104,7 @@ const HALF = { widthMm: 170, heightMm: CHART_HEIGHT_MM.inline };
  * ~36mm of white below the last disclosure. 72mm spends 24 of those 36 and
  * leaves the axis 168px to put eight ticks in.
  */
-const MID = { widthMm: 170, heightMm: CHART_HEIGHT_MM.half };
+const MID = { widthMm: CHART_MEASURE_MM, heightMm: CHART_HEIGHT_MM.half };
 
 type ChartBox = { widthMm: number; heightMm: number };
 
@@ -128,6 +144,42 @@ export function shorterProfitBridge(
   const rung = BRIDGE_RUNGS.findIndex((b) => b.heightMm === current.heightMm);
   const next = rung === -1 ? undefined : BRIDGE_RUNGS[rung + 1];
   return next === undefined ? null : buildProfitWaterfallChart(set, scale, false, next);
+}
+
+/**
+ * THE BRIDGE GROWN BACK INTO THE PAPER THE LADDER OVERSHOT.
+ *
+ * `shorterProfitBridge` steps down a fixed ladder — 110mm, 72, 48 — and the
+ * steps are 24 and 38mm apart while the decision they answer is measured in
+ * tenths. Live Brightsphere's income statement is the case: at the 72mm rung
+ * the sheet composes 0.2mm past its box, so the loop takes the next rung and
+ * the page prints a 48mm bridge with 23.8mm of paper under it. A quarter of
+ * the sheet is white because the chart missed by a fifth of a millimetre, and
+ * the demo renders the same chart at 72.
+ *
+ * The ladder is right for CHOOSING — a page that does not fit must give
+ * something back, and the chart is the one thing on it with a height the spec
+ * lets us pick. What it is wrong for is STOPPING: nothing says the height has
+ * to be one of three. This returns the same bridge at whatever height the
+ * page actually has room for, capped at the tallest rung, so the ladder
+ * decides the rung and the paper decides the last few millimetres.
+ *
+ * Null when there is nothing worth growing into — the caller keeps the chart
+ * it has rather than re-rendering an SVG for half a millimetre.
+ */
+export function profitBridgeAtHeight(
+  set: PackFigureSet,
+  scale: MoneyScale,
+  carriesWindowNote: boolean,
+  heightMm: number,
+): PackChartSpec | null {
+  // WHOLE MILLIMETRES. The spare is a difference of two measured heights and
+  // carries a tail of fifteen decimal places; a chart box that renders at
+  // 103.38166666666666mm makes every diff of this pack look like a change.
+  const target = Math.floor(Math.min(CHART_HEIGHT_MM.full, heightMm));
+  if (target <= 0) return null;
+  return buildProfitWaterfallChart(set, scale, carriesWindowNote,
+    { widthMm: CHART_MEASURE_MM, heightMm: target });
 }
 
 /**

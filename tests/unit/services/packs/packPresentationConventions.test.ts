@@ -124,9 +124,12 @@ describe('no page title narrates the renderer', () => {
     it(`keeps the panel count on the trends page where it is information on ${company}`, () => {
       const trends = pageNamed(doc, 'Trends');
       const text = stringsOn(trends).join('\n');
-      // Either the caption's "N metrics are tracked", or — where a measure
-      // could not be drawn — the block that names which and why.
-      expect(text).toMatch(/metrics are tracked|could be drawn for this company/);
+      // Either the caption's "N measures are drawn", or — where a measure
+      // could not be drawn — the block that names which and why. "drawn"
+      // rather than "tracked" because the pack TRACKS six and a page DRAWS
+      // what the ledger supports; one word for both counts is what put "4
+      // metrics are tracked" over "tracks six measures on this page".
+      expect(text).toMatch(/measures are drawn|could be drawn for this company/);
     });
   }
 });

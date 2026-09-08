@@ -293,7 +293,11 @@ describe('trendsCaption', () => {
 
   it('counts the tracked panels without restating their titles', () => {
     const panels = [panel('p1', 'Revenue rose 12%'), panel('p2', 'Cash held flat')];
-    expect(trendsCaption(panels)).toMatch(/2 metrics/);
+    // DRAWN, not "tracked": the pack TRACKS six measures and a page DRAWS as
+    // many as the ledger supports, and Brightsphere's sheet 10 used the one
+    // word for both counts — "4 metrics are tracked" over "tracks six
+    // measures on this page".
+    expect(trendsCaption(panels)).toMatch(/2 measures are drawn/);
     // Each panel prints its own title three centimetres away; repeating all
     // six here told the reader nothing new and was enough on its own to push
     // the landscape page onto a second sheet.
