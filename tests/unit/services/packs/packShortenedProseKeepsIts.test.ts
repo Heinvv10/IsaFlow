@@ -99,7 +99,7 @@ describe('sheet 10 keeps the month-versus-period note', () => {
     expect(period, 'sheet 10 dropped the note that reconciles its window with the statements')
       .toBeDefined();
     expect(period!.body).toMatch(/Each panel plots one MONTH/);
-    expect(period!.body).toMatch(/Different windows: the two will not agree/);
+    expect(period!.body).toMatch(/Different windows: the two need not agree/);
     // AND THE SCALE NOTE BESIDE IT, which is where the shared y-scale is
     // explained and the only place the panels off it are listed.
     expect(notes.some((n) => n.heading === 'Scale'), 'sheet 10 dropped the scale note').toBe(true);

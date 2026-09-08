@@ -161,6 +161,19 @@ export function buildMonthlyResultsTable(
 }
 
 /**
+ * PAGE 5'S SHORT NAME IN THE CONTENTS, and the one string any sheet that
+ * points a reader at this page may use.
+ *
+ * The page's own module owns the string, the way `MATTERS_NAV_LABEL` does,
+ * so a sheet that ever points a reader here names the page the Contents
+ * prints rather than a second spelling of it. Page 11's credit-month matter
+ * wanted exactly that and could not afford the six characters — see
+ * `packDerivedMatters.ts` — which is the reason this is here and used once:
+ * the next pointer at this page should not have to re-derive the name.
+ */
+export const GROUP_RESULTS_NAV_LABEL = 'Group results';
+
+/**
  * Page 5's title — a conclusion about the twelve months, not a label.
  *
  * It names the best and the worst month for net profit, which is the one

@@ -20,7 +20,13 @@ import { demoSet, brand, matters, trend } from './fixtures/boardPackInputs';
 const getCompanyName = vi.fn(async () => 'ISAFlow Demo (Pty) Ltd');
 const buildPackFigureSet = vi.fn(async () => demoSet);
 const getPackTrend = vi.fn(async () => trend);
-const buildMatters = vi.fn(async () => matters);
+// `buildMatters` hands back the matters AND the aged debtors total page 11's
+// receivables reconciliation is taken against — see `PackMattersRead`. The
+// demo fixture's total is its own control-account balance, so the two agree
+// and no reconciliation prints; a mock returning the bare array would make
+// every one of these tests build a pack with `agedDebtorsTotal` undefined.
+const mattersRead = { matters, agedDebtorsTotal: demoSet.current.accountsReceivable };
+const buildMatters = vi.fn(async () => mattersRead);
 const getBrandProfile = vi.fn(async () => null);
 const listCommentary = vi.fn(async () => [] as unknown[]);
 const getLedgerPostedThrough = vi.fn(async () => '2026-08-31T10:00:00.000Z');
@@ -75,7 +81,7 @@ beforeEach(() => {
   getCompanyName.mockResolvedValue('ISAFlow Demo (Pty) Ltd');
   buildPackFigureSet.mockResolvedValue(demoSet);
   getPackTrend.mockResolvedValue(trend);
-  buildMatters.mockResolvedValue(matters);
+  buildMatters.mockResolvedValue(mattersRead);
   getBrandProfile.mockResolvedValue(null);
   listCommentary.mockResolvedValue([]);
   getLedgerPostedThrough.mockResolvedValue('2026-08-31T10:00:00.000Z');
@@ -100,7 +106,7 @@ describe('buildBoardPackDocument tenant scope', () => {
     vi.clearAllMocks();
     buildPackFigureSet.mockResolvedValue(demoSet);
     getPackTrend.mockResolvedValue(trend);
-    buildMatters.mockResolvedValue(matters);
+    buildMatters.mockResolvedValue(mattersRead);
     listCommentary.mockResolvedValue([]);
     getLedgerPostedThrough.mockResolvedValue('2026-08-31T10:00:00.000Z');
     getPeriodStatusForDate.mockResolvedValue('open');

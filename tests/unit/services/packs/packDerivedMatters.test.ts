@@ -257,3 +257,65 @@ describe('how the credit month stands against the period', () => {
     expect(said(0, -1_544_000)).toContain('reports a loss even with the credit');
   });
 });
+
+/**
+ * THE POINTER THAT RESOLVED ON ONE COMPANY.
+ *
+ * The row named its second figure "the trends panel's net profit of (1 408)",
+ * and Brightsphere's trends page prints neither (1 408) nor anything derived
+ * from it: its net-profit panel is captioned "nil in the first month and
+ * Sep 2026 (part)" and its axis reads `–` and (5 535). The page the pointer
+ * named prints two OTHER large plausible negatives — (5 535) and (3 453) —
+ * so a director sent there to check a figure finds a different one that could
+ * be it.
+ *
+ * The demo pack's identical sentence resolves, because its net-profit panel
+ * caption happens to name the 1 908 spike. That is why it survived four
+ * rounds: a pointer tested on one company is a pointer that has not been
+ * tested. These are written on the shape that can tell the difference.
+ */
+describe('the credit-month row points at no page it cannot deliver', () => {
+  const brightsphereApril: PackTrendPoint = {
+    ...month('04', -4_128_000),
+    revenue: -5_535_000,
+    otherIncome: -1_000,
+    netProfit: -1_408_000,
+  };
+
+  const issue = (): string =>
+    creditMonthMatters([brightsphereApril], PACK_SCALE, -1_408_000)[0]!.issue;
+
+  it('does not send a reader to the trends page for a figure it does not print', () => {
+    expect(issue()).not.toMatch(/trends/i);
+    expect(issue()).not.toMatch(/panel/i);
+  });
+
+  it('still states all three figures and the addition between them', () => {
+    // The pointer went; the arithmetic did not. Credit 4 128, net profit
+    // (1 408), and the two income bands together (5 536) — the identity
+    // `netProfit = credit + revenue + otherIncome`, which page 5's row for
+    // this month prints every term of.
+    const sentence = issue();
+    for (const figure of [/4[\s  ]128/, /\(1[\s  ]408\)/, /\(5[\s  ]536\)/]) {
+      expect(sentence, `the row stopped stating ${figure}`).toMatch(figure);
+    }
+    expect(sentence).toMatch(/is that credit plus revenue and other income of/);
+  });
+
+  it('attributes the net profit to the month, which the row already names', () => {
+    // "The month's", not a page: the sentence opens with the month, so the
+    // reader has the row page 5 prints it on without the pack claiming where
+    // that is. The claim about WHERE was the false half.
+    expect(issue()).toMatch(/^04:/);
+    expect(issue()).toMatch(/the month's net profit of/);
+  });
+
+  it('is no longer than the sentence it replaces, because page 11 is budgeted in lines', () => {
+    // Six more characters — "the group results page's" for "the trends
+    // panel's" — costs the live demo pack a printed matter and moves a R339k
+    // exposure into the unprinted tail. This pins the direction: whatever a
+    // later round does to this sentence, it may not make it longer.
+    const replaced = issue().replace("the month's net profit of", "the trends panel's net profit of");
+    expect(issue().length).toBeLessThanOrEqual(replaced.length);
+  });
+});

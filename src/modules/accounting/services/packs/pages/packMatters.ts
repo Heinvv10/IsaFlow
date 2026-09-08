@@ -66,6 +66,35 @@ export interface PackMatter {
   decisionRequired: string;
 }
 
+/**
+ * WHAT A §4.A SOURCE HANDS BACK: its matters, and — for the one source that
+ * reads a total the pack goes on to print — that total.
+ *
+ * Three of the four sources return matters alone and say so by omitting the
+ * field. The aged-debtors source is the exception because page 11 PRINTS its
+ * base (4 146 on the live client) beside a balance sheet that states a
+ * different receivables figure, and the sheet has to carry the difference.
+ * The alternative was a second `getAgingReport` call from
+ * `boardPackDocument.ts` — the same subledger scan twice per render — or a
+ * string match against the issue prose this file writes, which is the
+ * technique `PackMatterKind` exists to avoid.
+ */
+interface SourceResult {
+  matters: PackMatter[];
+  /** The aged debtors report's total, in rand. Present only where that
+   *  report was read AND its total is a figure the pack prints. */
+  agedDebtorsTotal?: number;
+}
+
+/** Everything page 11 needs from the ledger: its matters, and the aged
+ *  debtors total page 11's own reconciliation note is taken against. */
+export interface PackMattersRead {
+  matters: PackMatter[];
+  /** Null where no aged-debtors total is printed anywhere in the pack — in
+   *  which case there is no contradiction on the paper to reconcile. */
+  agedDebtorsTotal: number | null;
+}
+
 const CONCENTRATION_THRESHOLD_PCT = 20;
 export const NO_PRIOR_MEETING_RECORD = 'Not tracked — no prior board pack is stored to compare against.';
 
@@ -87,9 +116,9 @@ function plural(n: number, one: string, many: string = `${one}s`): string {
 async function agedDebtorConcentrationMatters(
   companyId: string,
   window: PeriodWindow,
-): Promise<PackMatter[]> {
+): Promise<SourceResult> {
   const report = await getAgingReport(companyId, 'ar', window.end);
-  if (report.totals.total <= 0 || report.buckets.length === 0) return [];
+  if (report.totals.total <= 0 || report.buckets.length === 0) return { matters: [] };
 
   // TIE-BROKEN ON THE ENTITY, for the same reason `getUnusualJournals` now
   // carries an ORDER BY: this sentence prints a CUSTOMER'S NAME, and two
@@ -100,10 +129,10 @@ async function agedDebtorConcentrationMatters(
   const largest = [...report.buckets].sort((a, b) => b.total - a.total
     || a.entityName.localeCompare(b.entityName)
     || a.entityId.localeCompare(b.entityId))[0]!;
-  if (largest.total <= 0) return [];
+  if (largest.total <= 0) return { matters: [] };
 
   const pct = (largest.total / report.totals.total) * 100;
-  if (pct < CONCENTRATION_THRESHOLD_PCT) return [];
+  if (pct < CONCENTRATION_THRESHOLD_PCT) return { matters: [] };
 
   // AND THE BASE THE PERCENTAGE IS A SHARE OF IS PRINTED.
   //
@@ -131,19 +160,38 @@ async function agedDebtorConcentrationMatters(
   // all three named. It repeats page 11's quantum column deliberately, as the
   // credit-month matter does: a row quoting a ratio carries its numerator.
   //
-  // AND THE BASE NAMES THE REPORT IT COMES OFF, because the balance sheet
-  // disagrees with it and both are right. Brightsphere's page 11 states
-  // debtors of 4 146 and its page 7 states trade receivables of (330): the
-  // first is the aged debtors report's total of what customers owe, the
-  // second the trade-receivable control account, which carries the credit
-  // balances the aging total does not. Nothing on either sheet said they were
-  // different measures, so a director comparing the two sheets read a
-  // contradiction. Naming the report is the whole fix available here — this
-  // module reaches one of the two sources and cannot reconcile them on the
-  // paper — and it costs no page: the demo sheet composes at 250.97mm of 255
-  // with the clause exactly as it did without it, and prints the same seven
-  // matters.
-  return [{
+  // AND THE BASE NAMES THE REPORT IT COMES OFF. Brightsphere's page 11 states
+  // debtors of 4 146 and its page 7 states trade receivables of (330); the
+  // first is the aged debtors report's total of what customers owe and the
+  // second the trade-receivable control account in the general ledger.
+  // Nothing on either sheet said they were different measures, so a director
+  // comparing the two read a flat contradiction. The clause costs no page:
+  // the demo sheet composes at 250.97mm of 255 with it exactly as it did
+  // without it, and prints the same seven matters.
+  //
+  // NAMING THE SOURCE WAS NOT THE FIX, AND THE ROUND THAT THOUGHT IT WAS HAD
+  // NOT LOOKED AT THE LEDGER. The wording this replaces said page 7's figure
+  // was "the trade-receivable control account, which carries the credit
+  // balances the aging total does not" — an explanation, offered without
+  // measurement, of a 4 476 gap. It accounts for 330 of it. Read off
+  // `isaflow_dev` at 7 September 2026, Brightsphere's account 1120 holds no
+  // receivable at all: none of the 29 open customer invoices totalling
+  // R4 164 721.50 was ever posted to the general ledger, and the R329 700
+  // CREDIT that is the whole of the control balance is residue from a
+  // reversal run on 13 April 2026 that reversed two months' sales invoices
+  // twice against their receipts once, plus a R10 000 customer payment with
+  // no invoice behind it. The two figures do not reconcile because on these
+  // books they genuinely disagree.
+  //
+  // So the base goes back to the CALLER rather than being explained here.
+  // Naming a source tells a reader the two figures are measured differently;
+  // it does not tell them that the difference is unexplained, which is the
+  // thing a board needs before it takes the write-off decision this matter
+  // asks for. `packReceivablesReconciliation.ts` prints that on page 11,
+  // and it needs this number — which only this function has read.
+  return {
+    agedDebtorsTotal: report.totals.total,
+    matters: [{
     kind: 'finding',
     issue: `Aged debtor concentration: ${largest.entityName} owes `
       + `${formatMoney(round2(largest.total), { scale: PACK_SCALE })}, ${pct.toFixed(1)}% of all `
@@ -153,7 +201,8 @@ async function agedDebtorConcentrationMatters(
     owner: 'Credit control',
     movement: NO_PRIOR_MEETING_RECORD,
     decisionRequired: BOARD_DECISIONS.agedDebtorConcentration,
-  }];
+    }],
+  };
 }
 
 async function unreconciledBankMatters(companyId: string): Promise<PackMatter[]> {
@@ -239,12 +288,12 @@ function errorClass(error: unknown): string {
  *  with the label used when that source throws. */
 const SOURCES: ReadonlyArray<{
   label: string;
-  build: (companyId: string, window: PeriodWindow) => Promise<PackMatter[]>;
+  build: (companyId: string, window: PeriodWindow) => Promise<SourceResult>;
 }> = [
   { label: 'aged debtors', build: agedDebtorConcentrationMatters },
-  { label: 'unreconciled bank items', build: (companyId) => unreconciledBankMatters(companyId) },
-  { label: 'unusual journals', build: unusualJournalMatters },
-  { label: 'overdue statutory filings', build: overdueFilingMatters },
+  { label: 'unreconciled bank items', build: async (companyId) => ({ matters: await unreconciledBankMatters(companyId) }) },
+  { label: 'unusual journals', build: async (c, w) => ({ matters: await unusualJournalMatters(c, w) }) },
+  { label: 'overdue statutory filings', build: async (c, w) => ({ matters: await overdueFilingMatters(c, w) }) },
 ];
 
 /**
@@ -280,15 +329,21 @@ const NO_MATTERS: PackMatter = {
   decisionRequired: 'None. Note for the record.',
 };
 
-export async function buildMatters(companyId: string, window: PeriodWindow): Promise<PackMatter[]> {
+export async function buildMatters(
+  companyId: string,
+  window: PeriodWindow,
+): Promise<PackMattersRead> {
   const matters: PackMatter[] = [];
+  let agedDebtorsTotal: number | null = null;
 
   // Sequential, not Promise.all — `sql` in @/lib/neon routes every query
   // through the ONE request-scoped pg connection held in the async-local
   // store (see packFigureSet.ts for the same discipline and its reason).
   for (const source of SOURCES) {
     try {
-      matters.push(...(await source.build(companyId, window)));
+      const result = await source.build(companyId, window);
+      matters.push(...result.matters);
+      if (result.agedDebtorsTotal !== undefined) agedDebtorsTotal = result.agedDebtorsTotal;
     } catch (error) {
       // NOT `String(error)`, WHICH IS THE DRIVER'S OWN SENTENCE. A
       // node-postgres message carries whatever the server put in it —
@@ -306,7 +361,10 @@ export async function buildMatters(companyId: string, window: PeriodWindow): Pro
     }
   }
 
-  if (matters.length === 0) return [NO_MATTERS];
+  if (matters.length === 0) return { matters: [NO_MATTERS], agedDebtorsTotal };
 
-  return matters.sort((a, b) => Math.abs(b.quantum ?? 0) - Math.abs(a.quantum ?? 0));
+  return {
+    matters: matters.sort((a, b) => Math.abs(b.quantum ?? 0) - Math.abs(a.quantum ?? 0)),
+    agedDebtorsTotal,
+  };
 }

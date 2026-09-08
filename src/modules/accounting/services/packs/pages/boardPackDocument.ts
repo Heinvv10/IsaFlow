@@ -87,7 +87,7 @@ export async function buildBoardPackDocument(
 
   log.info(
     'buildBoardPackDocument',
-    { companyId, from, to, draftReasons: reasons, matters: matters.length, trend: trend.length },
+    { companyId, from, to, draftReasons: reasons, matters: matters.matters.length, trend: trend.length },
     'packs',
   );
 
@@ -100,7 +100,11 @@ export async function buildBoardPackDocument(
     brand,
     set,
     trend,
-    matters,
+    matters: matters.matters,
+    // Page 11's receivables reconciliation is taken against this — see
+    // `packReceivablesReconciliation.ts`. Null on a pack that prints no
+    // aged-debtors total, which is most of them.
+    agedDebtorsTotal: matters.agedDebtorsTotal,
     commentary,
     // Page 11's commentary on the matters. Nothing in this codebase stores
     // board-matter commentary — `report_commentary` rows are filed under

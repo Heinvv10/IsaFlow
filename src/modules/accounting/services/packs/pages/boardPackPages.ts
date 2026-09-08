@@ -65,6 +65,7 @@ import {
 import {
   buildMonthlyResultsTable,
   ebitdaMemoSentence,
+  GROUP_RESULTS_NAV_LABEL,
   monthlyResultsCaption,
   monthlyResultsTitle,
   trendWindowLabel,
@@ -109,6 +110,8 @@ import {
   printedCaveats,
   type UnnumberedPage,
 } from './packFrontMatter';
+import { ledgerStalenessNote } from './packLedgerStaleness';
+import { receivablesReconciliationNote } from './packReceivablesReconciliation';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import type { PackDraftReason } from './packDraftStatus';
 import type {
@@ -141,6 +144,14 @@ export interface BoardPackInput {
   set: PackFigureSet;
   trend: PackTrendPoint[];
   matters: PackMatter[];
+  /**
+   * The aged debtors report's total in RAND, where the pack prints it — the
+   * base page 11's concentration matter states its percentage against. Null
+   * where no aged-debtors total appears on any sheet, in which case there are
+   * not two debtors figures in the document and nothing to reconcile. See
+   * `packReceivablesReconciliation.ts`.
+   */
+  agedDebtorsTotal: number | null;
   /** Page 4's board commentary. Null renders the pending placeholder (R7),
    *  and is also one of the two things that keep a pack a DRAFT — see
    *  `draftReasons`. */
@@ -195,7 +206,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // whatever they leave behind. ONE selection, read by page 4's panel and
   // page 11's table alike: derived twice, they contradicted each other. See
   // `SelectedMatters` and `mattersBudgetMm`.
-  const mattersSupport = buildMattersSupportBlocks(input.mattersCommentary ?? pending);
+  // PAGE 11 CARRIES THE RECONCILIATION OF THE TWO DEBTORS FIGURES THE PACK
+  // PRINTS, and it is a SUPPORT block rather than something appended after
+  // the table, because this page's table is budgeted against whatever its
+  // support blocks leave behind — see `packReceivablesReconciliation.ts` for
+  // what that costs and why it is the right way round.
+  const mattersSupport = buildMattersSupportBlocks(
+    input.mattersCommentary ?? pending,
+    receivablesReconciliationNote(input.agedDebtorsTotal, set.current.accountsReceivable, scale),
+  );
   // The title first, from the FULL list: the budget the table spends depends
   // on how much paper the header leaves, and the headline must not change
   // when a row moves off the page.
@@ -293,7 +312,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     ]),
     commentary(monthlyResultsCaption(trend, scale)),
   ];
-  const snapshot = page(monthlyResultsTitle(trend, scale), 'Group results', 'Financials', 'high',
+  const snapshot = page(monthlyResultsTitle(trend, scale), GROUP_RESULTS_NAV_LABEL, 'Financials', 'high',
     monthlyBlocks, 'portrait', ROUNDING_FOOTNOTES);
 
   // The profit bridge reaches net profit through a step nothing measured —
@@ -393,6 +412,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   const positionBlocks = buildPositionBlocks(position, buildPositionCompositionChart(set, scale), set, scale);
   const trendBlocks = buildTrendBlocks(trendPanels);
 
+  const staleLedger = ledgerStalenessNote(input.ledgerVersion, trend, set.currentWindow.end);
+
   // Page 4 — no tabular figures. Spec §4.A keeps this page free of them; both
   // of its columns are prose.
   //
@@ -423,7 +444,15 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     'Commentary and actions',
     'Performance',
     'medium',
-    buildCommentaryBlocks(input.commentary ?? pending, matters),
+    // AND THE ONE FACT ABOUT THE FIGURE SET THAT BELONGS ON THE FIRST PAGE
+    // A BOARD READS: whether the ledger has moved since it was last posted
+    // to. Null on a current ledger, which is most packs — see
+    // `ledgerStalenessNote` for the three conditions and for why this sheet
+    // rather than page 5 or page 12.
+    [
+      ...buildCommentaryBlocks(input.commentary ?? pending, matters),
+      ...(staleLedger === null ? [] : [staleLedger]),
+    ],
     'portrait',
     [],
   );

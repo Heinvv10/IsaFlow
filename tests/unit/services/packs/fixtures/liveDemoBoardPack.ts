@@ -238,6 +238,15 @@ export const liveDemoInput: BoardPackInput = {
   set: liveDemoSet,
   trend: liveDemoTrend,
   matters: liveDemoMatters,
+  // NULL, AND NOT INHERITED FROM `demoInput`. The live demo company's largest
+  // debtor is 17.8% of its book — below `CONCENTRATION_THRESHOLD_PCT` — so
+  // `buildMatters` raises no concentration matter and no sheet of this pack
+  // states a debtors total: `liveDemoMatters` is twenty-eight unusual
+  // journals and filings, exactly as the live render produced. Inheriting
+  // `demoInput`'s 720 000 against a set whose receivables are 59 000 would
+  // have this fixture print a reconciliation between one figure the pack
+  // shows and one it invented.
+  agedDebtorsTotal: null,
   // Nothing in this codebase stores board commentary, so both narrative pages
   // printed the pending placeholder — as they did on the live render.
   commentary: null,

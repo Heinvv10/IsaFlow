@@ -44,6 +44,42 @@
  * PAGES ARE NAMED IN WORDS, never by number — page numbers come from position
  * in the sequence now, and a literal here is the class of cross-reference
  * that once sent a reader to the scorecard for the basis of preparation.
+ *
+ * "NEED NOT AGREE", NOT "WILL NOT AGREE", AND THE ONE WORD WAS FALSE ON THREE
+ * SHEETS AT ONCE. Every one of the three sentences below asserted that a
+ * month figure and a period figure CANNOT match, and each was printed above a
+ * pair that did:
+ *
+ *   - Brightsphere's cash page carried "Opening cash (267)" in its table and
+ *     "Closing cash fell from (267) at Oct 2025" in the chart caption twelve
+ *     lines under it, with `cashWindowFootnotes` between them saying the two
+ *     would not agree;
+ *   - Brightsphere's trends page asserted it of FOUR measures that equal
+ *     their period figures exactly — revenue (5 535), operating expenses
+ *     (3 717), net profit (1 408) and closing cash (3 453) — because the
+ *     company posts its whole year into one month, so that month IS the
+ *     period;
+ *   - the demo pack asserted it of closing cash, where agreement is
+ *     structurally guaranteed: cash is a STOCK, so the last point of a
+ *     12-month series and the period's closing balance are the same balance
+ *     on the same date whatever the two windows are.
+ *
+ * The third is the one that decides the word. The first two are companies a
+ * different ledger would not produce; the third is arithmetic, and no pack
+ * can ever print those two figures differently. A universal claim with a
+ * structural counter-example is not a strong statement of a true idea, it is
+ * a false sentence — and a footnote telling a director that two numbers
+ * cannot match, set above two matching numbers, is what a preparer gets asked
+ * to explain in the room.
+ *
+ * The idea itself survives intact, which is why the fix is a word and not a
+ * deletion: a month and a reporting period ARE different windows, a reader
+ * comparing them across sheets does need telling, and "need not agree" says
+ * exactly that without claiming the arithmetic forbids it. It is also
+ * character-for-character with what it replaces, which this file cares about
+ * — `trendWindowNote` has zero characters of slack on the live demo sheet
+ * (252.47mm of 255), and three more take the page to another line, at which
+ * point `fitPageToBox` answers by dropping the whole note.
  */
 import type { PackChartSpec, PackDisclosureNote, PackFootnote } from './packPageModel';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -135,7 +171,7 @@ function counterpartsByPage(panels: PackChartSpec[]): Array<{ page: string; meas
 
 /**
  * The trends page's own note: which of the measures on this page ALSO print
- * as a period figure, where, and why the two will not agree.
+ * as a period figure, where, and why the two need not agree.
  *
  * Null when no drawn panel has a counterpart — a page with nothing to
  * reconcile must not carry a paragraph reconciling it.
@@ -238,7 +274,7 @@ export function trendWindowNote(
     body:
       'Each panel plots one MONTH. The same measures print for the WHOLE reporting period, '
       + `against the comparative — ${inWords(where)}. Different windows: the two `
-      + `will not agree.${debtorDays}${partRatios}`,
+      + `need not agree.${debtorDays}${partRatios}`,
   };
 }
 
@@ -289,7 +325,7 @@ export function periodWindowFootnotes(
     text:
       `${measure} on this page — the ${pageName.toLowerCase()} page — is the figure for the WHOLE `
       + `reporting period, ${counterpart.wholePeriodBasis}; the trends page plots the same measure `
-      + 'one month at a time. Different windows: the two will not agree.',
+      + 'one month at a time. Different windows: the two need not agree.',
   }];
 }
 
@@ -324,6 +360,6 @@ export function cashWindowFootnotes(
       'Opening cash in the table above is the balance at the START of the reporting period. The '
       + `closing-cash line below it plots ${trend.length} months to the period end and opens at `
       + `${first.label}, so it starts from the balance at that month instead. Different windows: `
-      + 'the two will not agree.',
+      + 'the two need not agree.',
   }];
 }

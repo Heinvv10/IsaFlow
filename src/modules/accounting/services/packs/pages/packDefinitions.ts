@@ -195,6 +195,35 @@ const TERMS: PackDefinition[] = [
     // term: page 12 composes within 2mm of its box on live Brightsphere, and
     // this is the entry a reader looking at a small figure is already in.
     term: 'Not meaningful (n/m)',
+    // AND THE DASH CARRIES TWO MEANINGS AGAINST A SENTENCE HERE THAT SAID IT
+    // CARRIED ONE — the same defect this entry was written to close, one
+    // column further on.
+    //
+    // "A dash (–) is that zero: a figure measured and nil" is a
+    // single-meaning claim, and the scorecard breaks it: in page 9's TARGET
+    // column a dash means NO TARGET EXISTS, which is not a target of nil.
+    // The proof that the two are distinct is on the sheet itself — a cash
+    // ratio of (0.16) against a nil target would be a MISS, and the row
+    // reads UNSCORED. Four rows of the demo scorecard and five of
+    // Brightsphere's use the dash that second way, under a page that has
+    // told the reader it has one meaning.
+    //
+    // The exception is STATED under `Scored, unscored and not meaningful`
+    // rather than here, because that is the entry that owns the TARGET
+    // column and already says a metric with no target is unscored rather
+    // than assumed met — the dash is what that sentence looks like on the
+    // paper. This entry keeps only the hook, so a reader who meets a dash
+    // and reads this first is not left with the universal.
+    //
+    // BOTH HALVES COST THE PAGE NOTHING, AND THAT IS WHY THEY ARE WORDED AS
+    // THEY ARE. Page 12 has 2.59mm of paper on the live demo fixture whose
+    // EBITDA bridge rounds (`liveDemoBridgeInput`) — one added line is
+    // 2.58mm, which would leave 0.01 — and the first wording, the exception
+    // written out in full in THIS entry, put the sheet over and made it drop
+    // a basis fact. Measured per entry: this one has about ten characters of
+    // wrap left and the Scored entry about fifty, so the hook is eighteen
+    // characters here and the sentence sixty there, and page 12 composes at
+    // 252.41mm of 255 exactly as it did before.
     // AND TWO OF ITS CLAUSES WERE THE SENTENCES BESIDE THEM SAID TWICE. It
     // read "never a zero — which would say the measure was taken and found to
     // be nothing", and the next sentence defines the dash as exactly that
@@ -205,7 +234,7 @@ const TERMS: PackDefinition[] = [
     // pack stated nowhere, and this is where the paper for it comes from.
     // Every notation the entry declares — n/m, the dash, `<1` and `(<1)` —
     // is still declared.
-    definition: 'A measure the figures cannot support. The pack prints the reason rather than a number, never a zero. A dash (–) is that zero: a figure measured and nil. A real amount too small to show at this scale prints as <1, or (<1) where it is negative.',
+    definition: 'A measure the figures cannot support. The pack prints the reason rather than a number, never a zero. A dash (–) is that zero: a figure measured and nil, bar Scored below. A real amount too small to show at this scale prints as <1, or (<1) where it is negative.',
   },
   {
     term: 'Gross margin',
@@ -249,7 +278,7 @@ const TERMS: PackDefinition[] = [
     // were right and the definition was wrong. The trends page IS a
     // days-in-the-month figure (`packTrendService.debtorDays`), which is why
     // the two windows are still distinguished here.
-    definition: 'Trade receivables over revenue, times 365 — an annualised figure on the scorecard and highlights, whatever the length of the reporting period. The trends page instead multiplies each month\'s ratio by the days in that month, so the two do not agree.',
+    definition: 'Trade receivables over revenue, times 365 — an annualised figure on the scorecard and highlights, whatever the length of the reporting period. The trends page instead multiplies each month\'s ratio by the days in that month, so the two need not agree.',
   },
   {
     term: 'Creditor days',
@@ -269,7 +298,7 @@ const TERMS: PackDefinition[] = [
     // of how a target is scored belongs with the other definitions, on the
     // page that has room for it.
     term: 'Scored, unscored and not meaningful',
-    definition: 'Scored against the platform\'s default target. A metric with no target is unscored rather than assumed met; one the figures cannot support is not meaningful. Neither counts as a pass or a miss.',
+    definition: 'Scored against the platform\'s default target. A metric with no target is unscored rather than assumed met, and its TARGET cell prints a dash rather than a nil target; one the figures cannot support is not meaningful. Neither counts as a pass or a miss.',
   },
 ];
 

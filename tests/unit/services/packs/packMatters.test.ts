@@ -119,7 +119,7 @@ describe('buildMatters', () => {
     ];
     filingSpy.mockResolvedValue(filings);
 
-    const matters = await buildMatters('c1', window);
+    const matters = (await buildMatters('c1', window)).matters;
     const quanta = matters.map((m) => Math.abs(m.quantum ?? 0));
     expect([...quanta].sort((a, b) => b - a)).toEqual(quanta);
     // Pin the actual order, not just "is sorted" — a fixture where every
@@ -131,7 +131,7 @@ describe('buildMatters', () => {
   it('returns an explicit "no matters" item rather than an empty page', async () => {
     // Rubric criterion 3: a page with nothing on it does not ship.
     everySourceEmpty();
-    const matters = await buildMatters('c1', window);
+    const matters = (await buildMatters('c1', window)).matters;
     expect(matters).toHaveLength(1);
     expect(matters[0]?.issue).toMatch(/no matters/i);
     expect(matters[0]?.quantum).toBeNull();
@@ -139,7 +139,7 @@ describe('buildMatters', () => {
 
   it('reports a source that failed rather than silently omitting its matters', async () => {
     agingSpy.mockRejectedValue(new Error('timeout'));
-    const matters = await buildMatters('c1', window);
+    const matters = (await buildMatters('c1', window)).matters;
     expect(matters.some((m) => m.issue.match(/aged debtors could not be assessed/i))).toBe(true);
     expect(warn).toHaveBeenCalled();
   });
@@ -172,10 +172,10 @@ describe('buildMatters', () => {
     };
 
     agingSpy.mockResolvedValue(tied('Alpha Traders', 'Beta Supplies'));
-    const forwards = (await buildMatters('c1', window))
+    const forwards = (await buildMatters('c1', window)).matters
       .find((m) => m.issue.startsWith('Aged debtor concentration'))!.issue;
     agingSpy.mockResolvedValue(tied('Beta Supplies', 'Alpha Traders'));
-    const backwards = (await buildMatters('c1', window))
+    const backwards = (await buildMatters('c1', window)).matters
       .find((m) => m.issue.startsWith('Aged debtor concentration'))!.issue;
 
     expect(forwards, 'the fixture did not reach the concentration matter').toContain('Alpha Traders');
@@ -217,7 +217,7 @@ describe('buildMatters', () => {
   it('prints the base its percentage is a share of, and the two reproduce it', async () => {
     agingSpy.mockResolvedValue(agingWithConcentration(3_191_824, [488_225, 465_750, 172.5]));
 
-    const matter = (await buildMatters('c1', window))
+    const matter = (await buildMatters('c1', window)).matters
       .find((m) => m.issue.startsWith('Aged debtor concentration'))!;
     const { issue } = matter;
 
@@ -271,7 +271,7 @@ describe('buildMatters', () => {
       { code: '57P01' },
     );
     agingSpy.mockRejectedValue(pgError);
-    const matters = await buildMatters('c1', window);
+    const matters = (await buildMatters('c1', window)).matters;
     const failed = matters.find((m) => m.issue.startsWith('aged debtors could not be assessed'))!;
     expect(failed.issue).not.toMatch(/pg_relation_size|Error:/);
     const logged = warn.mock.calls.at(-1)?.[1] as { error: string; source: string };
@@ -305,7 +305,7 @@ describe('buildMatters', () => {
         { filingType: 'Annual Financial Statements', fiscalYear: 2024, deadline: '2024-08-28', daysOverdue: 739 },
         { filingType: 'Annual Return', fiscalYear: 2026, deadline: '2026-08-27', daysOverdue: 1 },
       ] as OverdueFiling[]);
-      const issues = (await buildMatters('c1', window)).map((m) => m.issue);
+      const issues = (await buildMatters('c1', window)).matters.map((m) => m.issue);
 
       expect(issues.some((i) => i.includes('(s)'))).toBe(false);
       expect(issues.some((i) => i.includes('12 unreconciled bank items across 2 bank accounts'))).toBe(true);
@@ -323,7 +323,7 @@ describe('buildMatters', () => {
       filingSpy.mockResolvedValue([
         { filingType: 'Annual Financial Statements', fiscalYear: 2024, deadline: '2024-08-28', daysOverdue: 739 },
       ] as OverdueFiling[]);
-      const issue = (await buildMatters('c1', window)).map((m) => m.issue).join(' ');
+      const issue = (await buildMatters('c1', window)).matters.map((m) => m.issue).join(' ');
       expect(issue).toContain('due 28 August 2024');
       expect(issue).not.toMatch(/\d{4}-\d{2}-\d{2}/);
     });
@@ -333,7 +333,7 @@ describe('buildMatters', () => {
       // in rands, unbracketed — in the same table row as a quantum column
       // stated in R'000 with spaces and brackets.
       bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 1_234_567.89 }]);
-      const matter = (await buildMatters('c1', window))
+      const matter = (await buildMatters('c1', window)).matters
         .find((m) => m.issue.includes('unreconciled bank item'))!;
       expect(matter.issue).not.toMatch(/R\s?1[ ,]?234/);
       expect(matter.quantum).toBeCloseTo(1_234_567.89, 2);
@@ -343,7 +343,7 @@ describe('buildMatters', () => {
   it('does not let one failed source suppress the matters from the others', async () => {
     agingSpy.mockRejectedValue(new Error('timeout'));
     bankSpy.mockResolvedValue([{ unreconciled_count: 3, unreconciled_balance: 15_000 }]);
-    const matters = await buildMatters('c1', window);
+    const matters = (await buildMatters('c1', window)).matters;
     expect(matters.some((m) => m.issue.match(/aged debtors could not be assessed/i))).toBe(true);
     expect(matters.some((m) => m.issue.match(/unreconciled bank item/i))).toBe(true);
   });

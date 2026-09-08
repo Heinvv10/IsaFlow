@@ -211,6 +211,14 @@ export const demoInput: BoardPackInput = {
   // It was a made-up `posted-through 2026-08-31`, which is the only reason
   // every fixture built a page 12 carrying a bare ISO date in a sentence.
   ledgerVersion: '2026-08-31T10:00:00.000Z',
+  // THE HEALTHY CASE, AND IT IS THE SAME NUMBER TWICE ON PURPOSE. This is the
+  // base the concentration matter above states (720 in R'000), and
+  // `demoSet.current.accountsReceivable` is 720 000 too — a company whose
+  // subledger and control account agree. `receivablesReconciliationNote`
+  // returns null on a nil difference, so this fixture is the proof that a
+  // pack with two agreeing debtors figures prints no reconciliation and page
+  // 11 loses no row to one.
+  agedDebtorsTotal: 720_000,
 };
 
 /** Same as `demoInput` in every other respect, but its trend genuinely draws
@@ -308,6 +316,10 @@ export const brightsphereInput: BoardPackInput = {
   commentary: null,
   mattersCommentary: null,
   ledgerVersion: null,
+  // No matter states a debtors total on this fixture — its `matters` is the
+  // explicit "every check ran clean" row — so the pack prints one debtors
+  // figure and there is nothing to reconcile.
+  agedDebtorsTotal: null,
 };
 
 /**
@@ -444,6 +456,13 @@ export const denseInput: BoardPackInput = {
   // Its own closing cash, not the demo company's — see `trendEndingAt`.
   trend: trendEndingAt(denseSet.current.cash),
   matters: denseMatters,
+  // NULL, AND NOT INHERITED FROM `demoInput`. `denseMatters` is fifteen
+  // unusual journals and no concentration, so this pack prints no aged
+  // debtors total and has one debtors figure to reconcile against nothing.
+  // Inheriting the demo's 720 000 against `denseSet`'s own receivables would
+  // put a reconciliation on the fixture that exists to fill page 11 with
+  // rows — which is exactly the paper the reconciliation would take.
+  agedDebtorsTotal: null,
   // Nothing in this codebase stores board-matter commentary, so the real pack
   // printed the pending placeholder on page 11 — and page 4's commentary was
   // unapproved too. Both placeholders, as they actually rendered.
@@ -622,4 +641,55 @@ export const brightsphereLiveInput: BoardPackInput = {
   draftReasons: ['unapprovedCommentary'],
   set: brightsphereLiveSet,
   trend: brightsphereLiveTrend,
+  // THE LIVE TENANT'S OWN WATERMARK, four and a half months before the
+  // period end. `getLedgerPostedThrough` returns this exact timestamp for
+  // Brightsphere over 1 January to 7 September 2026, and it is the fact
+  // page 4's ledger-currency note is derived from: the May–September rows of
+  // `brightsphereLiveTrend` are nil because nothing has been posted since,
+  // and until this fixture carried the timestamp no test could tell that
+  // shape from a company that genuinely stopped trading. `null` here — which
+  // it inherited — is the "no posted journal was read at all" case, and
+  // `brightsphereInput` still covers it.
+  ledgerVersion: '2026-04-29T10:39:11.480Z',
+};
+
+/**
+ * THE SHEET THE FOURTEENTH GATE REFUSED TO SEND, WITH THE TWO FIGURES THAT
+ * MADE IT REFUSE.
+ *
+ * `brightsphereLiveInput` carries the live tenant's figures and the "every
+ * check ran clean" matters row, so it exercises page 11's empty shape. The
+ * live pack's page 11 is the opposite: thirty matters, headed by a named
+ * counterparty owing 3 192 of an aged debtors report totalling 4 146, printed
+ * on the sheet facing a balance sheet stating trade receivables of (330).
+ * Both of those figures are real — 4 145 971.50 off `getAgingReport`, and
+ * `brightsphereLiveSet.current.accountsReceivable` is the ledger's own
+ * (329 700) — and their difference is what
+ * `receivablesReconciliationNote` exists to print.
+ *
+ * It is a fixture of its own rather than a change to the one above because
+ * that one is the page-11-with-nothing-on-it case and something has to keep
+ * covering it.
+ */
+export const brightsphereReceivablesGapInput: BoardPackInput = {
+  ...brightsphereLiveInput,
+  matters: [
+    {
+      kind: 'finding',
+      issue: "Aged debtor concentration: Blitz Fibre owes 3 192, 77.0% of all debtors owed on the aged debtors report, which come to 4 146, in R'000",
+      quantum: 3_191_824,
+      owner: 'Credit control',
+      movement: 'Not tracked — no prior board pack is stored to compare against.',
+      decisionRequired: BOARD_DECISIONS.agedDebtorConcentration,
+    },
+    ...Array.from({ length: 29 }, (_, i) => ({
+      kind: 'finding' as const,
+      issue: `Journal JE-2026-${String(74 + i).padStart(5, '0')} (large round-number amount): Reversal of JE-2026-${String(56 - i).padStart(5, '0')}`,
+      quantum: 207_000 - i * 1_000,
+      owner: 'Finance',
+      movement: 'Not tracked — no prior board pack is stored to compare against.',
+      decisionRequired: BOARD_DECISIONS.unusualJournal,
+    })),
+  ],
+  agedDebtorsTotal: 4_145_971.5,
 };

@@ -122,8 +122,59 @@ export function creditMonthMatters(
       // moves a real R339k exposure into the unprinted tail — the first
       // draft of this cost the demo pack a row. Three figures and the
       // addition between them, in the words the row already had.
-      + `. The quantum is that credit, ${money(creditOf(point))}; the trends panel's net profit `
-      + `of ${money(point.netProfit)} is that credit plus revenue and other income of `
+      // AND THE SECOND FIGURE NAMES THE PAGE THAT PRINTS IT, WHICH IS NOT THE
+      // ONE IT USED TO NAME. It read "the trends panel's net profit of
+      // (1 408)" — and Brightsphere's trends page prints neither (1 408) nor
+      // anything derived from it: its net-profit panel is captioned "nil in
+      // the first month and Sep 2026 (part)" and its axis reads `–` and
+      // (5 535). What the sheet DOES print is two other large plausible
+      // negatives, (5 535) and (3 453), so a director sent there to check a
+      // figure finds a different one that looks like it could be the figure.
+      // That is the exact failure the pointer round before this one fixed
+      // elsewhere, and it survived here for the same reason: the demo pack's
+      // identical sentence RESOLVES, because its net-profit panel caption
+      // happens to name the 1 908 spike. A pointer true on one company is a
+      // pointer that has not been tested.
+      //
+      // The month's net profit is a CELL OF PAGE 5, on both companies and by
+      // construction: `buildMonthlyResultsTable` prints one row per month
+      // with `netProfit` as its last column, so Brightsphere's Apr 2026 row
+      // states (1 408) and the demo's Jul 2026 row states 1 908 whatever the
+      // panel captions happen to say. The page is named through
+      // `GROUP_RESULTS_NAV_LABEL` — the string the Contents itself prints —
+      // rather than typed here, so the pointer cannot survive a page being
+      // renamed.
+      //
+      // IT NAMES NO PAGE AT ALL, AND THAT IS THE MEASUREMENT TALKING RATHER
+      // THAN A PREFERENCE. Naming the page the figure IS on would be better
+      // writing, and it does not fit: this column is budgeted in LINES of
+      // paper (`mattersBudgetMm`), so a longer issue is a real exposure
+      // moving into the unprinted tail. "the group results page's" is SIX
+      // characters more than "the trends panel's", and six is enough — the
+      // live demo pack falls from 7 printed matters of 29 to 6, and the row
+      // that leaves is a R339k payroll journal. The longer "the month's net
+      // profit of (1 408) on the group results page" costs the same row.
+      // "The month's" is seven characters SHORTER than what it replaces, so
+      // both packs print exactly what they printed before: 7 of 29 on the
+      // live demo, 6 of 30 on live Brightsphere before page 11's
+      // reconciliation note takes one, 5 of 31 after it.
+      //
+      // The month is already named — this sentence opens with it — so the
+      // reader has the row: page 5 tabulates one row per month with net
+      // profit as a column, on both companies. What has gone is the CLAIM
+      // about where it is, which is the half that was false.
+      //
+      // MEASURE IN VITEST, NOT IN A SCRATCH SCRIPT. The first version of
+      // this fix was measured with `bun` and read 7 printed matters both
+      // before and after, which is why it was written with the page name in
+      // it. `Intl.NumberFormat` groups thousands differently under bun than
+      // under the Node the test runner uses — "3.192" against "3 192" — and
+      // `packTextMetrics` measures per-character advances, so a full stop
+      // and a thin space are different widths and the two runtimes compose
+      // DIFFERENT documents. Every figure in this comment is off the same
+      // runner CI uses.
+      + `. The quantum is that credit, ${money(creditOf(point))}; the month's net profit of `
+      + `${money(point.netProfit)} is that credit plus revenue and other income of `
       + `${money(incomeOf(point))}.`,
     quantum: round2(creditOf(point)),
     owner: 'Finance',

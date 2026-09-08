@@ -286,7 +286,7 @@ describe('the printed board pack', () => {
             heading: `Measure ${i + 1}`,
             body: 'This figure is the whole reporting period, measured on the period totals; the '
               + 'trends page plots the same measure one month at a time. Different windows: the two '
-              + 'will not agree, and neither is derived from the other.',
+              + 'need not agree, and neither is derived from the other.',
           })),
         },
       }],

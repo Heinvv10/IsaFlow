@@ -140,9 +140,17 @@ export function buildMattersBlock(selection: SelectedMatters, p: PackFigureProve
  * Built before the table, because the table's budget is what these leave
  * behind.
  */
-export function buildMattersSupportBlocks(commentary: PackNarrative): PackPageBlock[] {
+export function buildMattersSupportBlocks(
+  commentary: PackNarrative,
+  /** The two-debtors-figures reconciliation, or null where the pack prints
+   *  one debtors figure. It is a SUPPORT block deliberately: see
+   *  `packReceivablesReconciliation.ts` for why it is budgeted against the
+   *  table rather than appended after it. */
+  receivables: PackPageBlock | null = null,
+): PackPageBlock[] {
   return [
     { kind: 'narrative', narrative: commentary },
+    ...(receivables === null ? [] : [receivables]),
     // TWO NOTES MERGED INTO ONE, AND THE MERGE IS THE POINT. This block is
     // not prose the fitter can drop — it is subtracted from the table's
     // budget BEFORE the selection runs (`mattersBudgetMm`), so every
