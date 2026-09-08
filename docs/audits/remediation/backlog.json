@@ -63,11 +63,11 @@
       "correctedTrigger": "Existing valid cookie, PAT or OAuth credential continues tenant requests after admin company suspension or soft deletion; real PostgreSQL controls reproduce 200 instead of403.",
       "severityRationale": "Confirmed tenant suspension/deletion does not stop authenticated tenant operations; no cross-tenant access claim.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "435071fd",
-      "status": "in-progress",
+      "currentSha": "f89375367f35398e503843f40dd4525bf879e83f",
+      "status": "code-verified",
       "dependencies": [
-        "Named fix review, full CI and draft PR",
-        "Global pristine historical replay remains open at253; current-schema workflow passed"
+        "No deployed verification; separate deployment authorization required",
+        "Global pristine historical migration replay remains open at253"
       ],
       "testNames": [
         "tests/integration/company-standing.int.test.ts"
@@ -77,10 +77,13 @@
         "K-002/red.log",
         "K-002/green.log",
         "K-002/workflow-final.log",
-        "K-002/auth-regression.log"
+        "K-002/auth-regression.log",
+        "K-002/review.md",
+        "K-002/legacy-viewer-green.log",
+        "K-002/ci.log"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "b5e0ab31f07c3793ad805c1bf467fc4b43c81ded",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/346",
       "deployedSha": null,
       "historicalDataImpact": "No historical changes. Possible prior activity after suspension not assessed; no repair authorized.",
       "canonicalItem": null,
