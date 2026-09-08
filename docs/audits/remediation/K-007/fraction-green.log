@@ -1,0 +1,1 @@
+PASS actual GRN form -> owned PO detail -> 0.10 receipt -> select same partially received PO -> default0.20 receipt -> list and SQL receipt/PO quantities agree; localhost only.
