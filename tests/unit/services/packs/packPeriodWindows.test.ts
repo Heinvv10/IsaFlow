@@ -223,6 +223,87 @@ describe('the month-versus-period note', () => {
   });
 });
 
+/**
+ * A POINTER IS A CLAIM ABOUT ANOTHER SHEET, AND IT IS CHECKED AGAINST THAT
+ * SHEET.
+ *
+ * The Period note sent net profit to the GROUP RESULTS page, which prints net
+ * profit by month and a total over the trend window — no reporting-period
+ * figure and no comparative column anywhere on it. The period's net profit is
+ * on the income statement, (1 544) against (905). A director who followed the
+ * pointer did not find nothing; the group results page's total row reads
+ * (1 901), so they found a plausible wrong number, which is worse.
+ *
+ * The five other pointers in that sentence were right, so nothing about the
+ * mechanism was broken and no string assertion on the sentence would have
+ * caught it. What catches it is reading the DESTINATION: the page the note
+ * names must actually print that measure for the whole period, against the
+ * comparative.
+ *
+ * ON THE DEMO SHAPE, and that is not a convenience. Brightsphere's activity
+ * sits in one month, so its group-results total and its income statement's
+ * period figure are the same number and the wrong pointer leads to the right
+ * one. A fixture whose months are spread is the only place the pack exposes
+ * this.
+ */
+describe('the page the trends note names carries the figure it promises', () => {
+  it('sends net profit to a sheet that prints it for the period, against a comparative', () => {
+    const doc = buildBoardPackPages(liveDemoRenderedInput);
+    const trends = doc.pages.find((p) => p.navLabel === 'Trends')!;
+    const period = trends.blocks
+      .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []))
+      .find((n) => n.heading === 'Period');
+    expect(period, 'sheet 10 carries no Period note to check').toBeDefined();
+
+    // The page is read OUT of the sentence, so the assertion follows whatever
+    // the note actually says rather than a second copy of the right answer.
+    const named = /net profit on the ([a-z ]+) page/.exec(period!.body)?.[1];
+    expect(named, `the Period note names no page for net profit: ${period!.body}`).toBeDefined();
+
+    const destination = doc.pages.find((p) => p.navLabel.toLowerCase() === named);
+    expect(destination, `net profit is sent to a "${named}" page this pack does not have`)
+      .toBeDefined();
+
+    const rows = destination!.blocks.flatMap((b) => (b.kind === 'table' ? b.table.rows : []));
+    const netProfit = rows.find((r) => /^net profit$/i.test(r.label));
+    expect(netProfit, `the ${named} page prints no net profit row for the reporting period`)
+      .toBeDefined();
+    expect(typeof netProfit!.figures.actual?.value,
+      `the ${named} page's net profit carries no period figure`).toBe('number');
+    expect(typeof netProfit!.figures.prior?.value,
+      `the ${named} page's net profit carries no comparative`).toBe('number');
+  });
+
+  /**
+   * THE PREMISE, HELD SEPARATELY. If the group results page ever grew a net
+   * profit row against a comparative, the assertion above would pass on the
+   * old wrong pointer and this fixture would stop being able to tell the two
+   * apart — so the shape that makes the test meaningful is asserted, not
+   * assumed.
+   */
+  it('is a fixture where the group results page could not answer for the period', () => {
+    const doc = buildBoardPackPages(liveDemoRenderedInput);
+    const results = doc.pages.find((p) => p.navLabel === 'Group results')!;
+    const rows = results.blocks.flatMap((b) => (b.kind === 'table' ? b.table.rows : []));
+    expect(rows.length, 'the group results page draws no table at all').toBeGreaterThan(0);
+    expect(rows.map((r) => r.label).filter((l) => /^net profit$/i.test(l)),
+      'the group results page now prints a net profit row, so the pointer test proves nothing')
+      .toEqual([]);
+    const columns = results.blocks.flatMap((b) => (b.kind === 'table' ? b.table.columns : []));
+    expect(columns, 'the group results page now carries a comparative column').not.toContain('prior');
+
+    // And the number a reader WOULD have found there is not the one the
+    // sentence promised: the window total against the period figure.
+    const total = rows.find((r) => r.role === 'total')!;
+    const income = doc.pages.find((p) => p.navLabel === 'Income statement')!;
+    const period = income.blocks.flatMap((b) => (b.kind === 'table' ? b.table.rows : []))
+      .find((r) => /^net profit$/i.test(r.label))!;
+    expect(total.figures.netProfit?.value,
+      'the two windows coincide on this fixture, so it cannot expose a wrong pointer')
+      .not.toBe(period.figures.actual?.value);
+  });
+});
+
 describe('what the pack says about its comparative period', () => {
   for (const [name, input] of FIXTURES) {
     it(`does not deny ${name}'s comparative period on any page that has one`, () => {

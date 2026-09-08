@@ -338,7 +338,21 @@ export function largestContraryFigureSentence(trend: PackTrendPoint[], scale: Mo
  * prints the en dash a money column uses for a measured zero: a dash is not a
  * word in a sentence, and `checkProse` refuses a pack that puts one there.
  */
-export function ebitdaMemoSentence(set: PackFigureSet, scale: MoneyScale): string {
+export function ebitdaMemoSentence(
+  set: PackFigureSet,
+  scale: MoneyScale,
+  /**
+   * The label the table's closing row prints — `trendWindowLabel`, passed
+   * rather than re-derived so the sentence names the row a reader can see.
+   *
+   * NULL where the sheet draws no table (`trend.length === 0`), and the
+   * windows clause is then dropped entire: with no monthly figures on the
+   * paper there is no other window to distinguish this one from, and a
+   * sentence contrasting it with rows that are not there is the same defect
+   * in the other direction.
+   */
+  windowLabel: string | null,
+): string {
   const current = inProse(formatMoney(ebitdaOf(set.current), { scale }));
   const comparative = set.prior === null
     ? 'There is no comparative period to state it against.'
@@ -351,8 +365,30 @@ export function ebitdaMemoSentence(set: PackFigureSet, scale: MoneyScale): strin
   // still on every sheet; what went was the sentence saying so.
   return `EBITDA for the reporting period is ${current}. ${comparative} It is operating profit `
     + 'plus the depreciation and amortisation charged in the period, and it is presented because a '
-    + 'board asks for it, not because a standard requires it. Every other figure on this sheet is '
-    + 'one month\'s; this one is the reporting period\'s. '
+    + 'board asks for it, not because a standard requires it. '
+    // THREE WINDOWS ON THIS SHEET, AND THE SENTENCE USED TO CLAIM TWO. It
+    // read "Every other figure on this sheet is one month's", and the table's
+    // closing row — headed with the window label, directly above this note —
+    // is the twelve months to the period end, which the derived commentary
+    // below then says in as many words ("over 12 months to Sep 2026 (part)").
+    // A reader was told the total row was a month's figure by the one
+    // paragraph on the sheet whose whole job is to say which window a figure
+    // belongs to. The window is NAMED rather than called "the total row"
+    // because the label is what the row prints.
+    //
+    // IT IS PAID FOR, NOT ADDED. This note wraps with 27 characters to spare
+    // on both live companies, and page 5 composes at 251.93mm of 255 — a
+    // second line costs 4.94mm the sheet does not have, and the note is
+    // `required`, so `fitPageToBox` cannot pay for it by dropping this and
+    // would take the sheet past its box instead. "Every figure above covers a
+    // month or <label>; this one covers the reporting period." is 108
+    // characters against the 84 it replaces, measured on the composed page:
+    // p5 stays at 251.93mm on both companies, and at 110 characters it does
+    // not.
+    + (windowLabel === null
+      ? ''
+      : `Every figure above covers a month or the ${windowLabel}; this one covers the reporting `
+        + 'period. ')
     // BOTH COLUMNS, now that page 12 bridges both. This sentence stated the
     // comparative EBITDA with the same prominence as the current one and then
     // pointed at a reconciliation that covered only the current — so the

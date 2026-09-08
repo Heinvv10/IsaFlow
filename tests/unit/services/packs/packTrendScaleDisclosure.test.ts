@@ -17,6 +17,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packTrendCharts';
+import { dominantPoint, moneyPanelScales } from '@/modules/accounting/services/packs/pages/packTrendScale';
 import { buildTrendBlocks } from '@/modules/accounting/services/packs/pages/packPageBlocks';
 import { formatDays, formatMoney, formatPctLevel } from '@/lib/format/money';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
@@ -303,6 +304,61 @@ describe('the share page 10 prints is the share page 10 defines', () => {
     expect(pct(axis), 'the fixture cannot tell the two readings apart').not.toBe(pct(travel));
     expect(claimed).toBe(pct(axis));
     expect(claimed).not.toBe(pct(travel));
+  });
+
+  /**
+   * AND IT STATES WHAT THE SPAN IS TAKEN ACROSS, which is the half of the
+   * definition the sheet was missing.
+   *
+   * The shared domain is computed over EVERY money series before any of them
+   * is moved off it, so on the demo shape the counterfactual's high — 58 —
+   * is the OPERATING EXPENSES axis's top, and operating expenses is a panel
+   * the Scale note two centimetres below says is on its OWN scale. Every
+   * figure in the claim is right; its DOMAIN was never printed, so a director
+   * recomputing it over the two series the sheet says share the scale gets a
+   * different answer and reads the panel as wrong. A claim whose domain is
+   * unstated is uncheckable however sound its arithmetic.
+   *
+   * Held as the arithmetic, not as the sentence: the residual high must be
+   * out of reach of the shared-scale series, which is what makes stating the
+   * domain necessary, and the caption must then state it.
+   */
+  it('states the domain of the shared span, and the span really does exceed the shared panels', () => {
+    const built = buildTrendPanels(roundingSplit, PACK_SCALE);
+    const series = [
+      roundingSplit.map((p) => p.revenue),
+      roundingSplit.map((p) => p.operatingExpenses),
+      roundingSplit.map((p) => p.netProfit),
+      roundingSplit.map((p) => p.cash),
+    ];
+    const { panels: scales } = moneyPanelScales(series);
+    const dominant = dominantPoint(series);
+    expect(dominant, 'this fixture has no scale-setting month, so it prints no counterfactual')
+      .not.toBeNull();
+    expect(built.ownScale.length,
+      'every money panel shares the scale here, so the domain cannot be ambiguous').toBeGreaterThan(0);
+
+    // The residual high, over every money series with the dominant point
+    // removed, against the highest the SHARED-scale series alone can reach.
+    const without = series.map((values, i) => (i === dominant!.seriesIndex
+      ? values.filter((_, j) => j !== dominant!.pointIndex)
+      : values));
+    const sharedOnly = without.filter((_, i) => scales[i]!.shared).flat();
+    expect(dominant!.residual.max,
+      'the residual high is reachable from the shared-scale panels, so this fixture cannot show '
+      + 'why the domain has to be stated')
+      .toBeGreaterThan(Math.max(0, ...sharedOnly));
+
+    // So the sheet says which panels the span was taken over, and the count
+    // is the money panels — both the ones drawn on the shared scale and the
+    // ones drawn off it.
+    const caption = buildTrendBlocks(built)
+      .flatMap((b) => (b.kind === 'narrative' ? [b.narrative.body] : []))
+      .join(' ');
+    const money = built.sharedScale.length + built.ownScale.length;
+    expect(money).toBe(series.length);
+    expect(caption, 'the page states the shared span and never says what it is taken across')
+      .toContain(`over all ${money} money panels`);
   });
 
   it('defines that percentage as the axis, in the caption above the panels', () => {

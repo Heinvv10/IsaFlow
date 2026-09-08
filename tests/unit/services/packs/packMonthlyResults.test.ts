@@ -157,13 +157,52 @@ describe('the pack\'s one non-IFRS measure', () => {
     }
   });
 
+  /**
+   * THREE WINDOWS ON SHEET 5, AND THE NOTE USED TO CLAIM TWO.
+   *
+   * "Every other figure on this sheet is one month's; this one is the
+   * reporting period's" is disproved by the row directly above it: the
+   * table's closing row is headed with its own window — "12 months to Sep
+   * 2026 (part)" — and the derived commentary directly below says "over 12
+   * months to Sep 2026 (part)" in as many words. The one paragraph on the
+   * sheet whose job is to say which window a figure belongs to was telling a
+   * reader the total row was a month's figure.
+   *
+   * Held against the TABLE rather than against a string: the note must name
+   * the window the closing row prints, whatever that row is called, so a
+   * relabelled row cannot leave the sentence behind.
+   */
+  it('names every window the sheet prints, on both companies', () => {
+    for (const [name, input] of [['demo', liveDemoRenderedInput], ['brightsphere', brightsphereLiveInput]] as const) {
+      const page5 = buildBoardPackPages(input).pages.find((p) => p.number === 5)!;
+      const rows = page5.blocks.flatMap((b) => (b.kind === 'table' ? b.table.rows : []));
+      const total = rows.find((r) => r.role === 'total');
+      expect(total, `${name} sheet 5 draws no closing row, so it states no second window`)
+        .toBeDefined();
+
+      const ebitda = page5.blocks
+        .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes : []))
+        .find((n) => n.heading === 'EBITDA');
+      expect(ebitda, `${name} sheet 5 states no EBITDA`).toBeDefined();
+
+      // The closing row's window is a THIRD window, not one of the months.
+      expect(rows.filter((r) => r.role !== 'total').map((r) => r.label),
+        `${name}: the closing row is labelled as one of the months`).not.toContain(total!.label);
+
+      expect(ebitda!.body,
+        `${name}: the EBITDA note does not name the window the closing row prints (${total!.label})`)
+        .toContain(total!.label);
+    }
+  });
+
   it('states the period\'s figure and its comparative, never a bare dash', () => {
-    const sentence = ebitdaMemoSentence(liveDemoRenderedInput.set, PACK_SCALE);
+    const sentence = ebitdaMemoSentence(liveDemoRenderedInput.set, PACK_SCALE, '12 months to Sep 2026 (part)');
     expect(sentence).toMatch(/EBITDA for the reporting period is /);
     expect(sentence).not.toMatch(/is –/);
     const noPrior = ebitdaMemoSentence(
       { ...liveDemoRenderedInput.set, prior: null },
       PACK_SCALE,
+      '12 months to Sep 2026 (part)',
     );
     expect(noPrior).toContain('no comparative period');
   });

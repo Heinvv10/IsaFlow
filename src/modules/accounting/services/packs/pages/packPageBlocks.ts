@@ -430,9 +430,57 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
   // are one string off `panels.sharedRange` rather than two formattings of
   // one domain.
   const citesShare = panels.ownScale.length > 0 && panels.sharedRange !== null;
+  // AND WHAT THE SPAN IS TAKEN ACROSS, which is the half a reader cannot
+  // derive from the sheet. The shared domain is computed over EVERY money
+  // series before any of them is moved off it (`moneyPanelScales`), so on the
+  // live demo pack it runs (1 621) — cash's low — to 1 908 — net profit's
+  // high — and the counterfactual in the net-profit caption lands on 58,
+  // which is the OPERATING EXPENSES axis's high. Every one of those figures
+  // is right. But the Scale note two centimetres below says net profit and
+  // cash share the scale while revenue and operating expenses are on their
+  // own, so a director recomputing the caption's claim over the two series
+  // the sheet says share it gets (1 621) to (11) and reads the panel as
+  // wrong. The domain was never stated, and a claim whose domain is unstated
+  // is unverifiable however sound its arithmetic — the same failure the
+  // sentence beside it was written to fix when it started printing the
+  // denominator. Stated HERE because this is where the range is defined, and
+  // in the COMMENTARY because `fitPageToBox` never takes one: the Scale note
+  // is a disclosure and can be dropped, taking the definition with it.
+  // It costs no line — the block wraps with the clause inside its existing
+  // measure, and page 10 composes at 248.24mm of 255 with it and without it.
+  // AND WHAT THE SPAN IS TAKEN ACROSS, which is the half a reader cannot get
+  // off the sheet. The shared domain is computed over EVERY money series
+  // before any of them is moved off it (`moneyPanelScales`), so on the live
+  // demo pack it runs (1 621) — cash's low — to 1 908 — net profit's high —
+  // and the counterfactual in the net-profit caption lands on 58, which is
+  // the OPERATING EXPENSES axis's high. Every one of those figures is right.
+  // But the Scale note below says net profit and cash share the scale while
+  // revenue and operating expenses are on their own, so a director who
+  // recomputes the caption's claim over the two series the sheet says share
+  // it gets (1 621) to (11) and reads the panel as wrong. A claim whose
+  // DOMAIN is unstated is uncheckable however sound its arithmetic — the same
+  // failure this sentence was written to fix when it started printing the
+  // denominator, one level up.
+  //
+  // IT IS PAID FOR OUT OF THE SENTENCE, NOT ADDED TO THE PAGE. Sheet 10
+  // composes at 252.47mm of 255 on the tightest fixture and this block wraps
+  // with 17 characters to spare; a line costs 5.29mm, and `fitPageToBox`
+  // answers by dropping the Period note — the month-versus-period
+  // reconciliation — so the sheet would lose that to gain this. "over that
+  // span" goes: "a panel's percentage OF IT" already names the span it is
+  // taken over, and the clause was a second naming of the same quantity.
+  // Net 10 characters, measured on the composed page: 252.47mm before and
+  // after, both notes still printed.
+  //
+  // THE COUNT IS DERIVED, never the literal four. `sharedScale` and
+  // `ownScale` are the money panels, split by which domain each was drawn
+  // against; `ownUnits` is the ratio panels, which are in no money domain and
+  // are excluded from the shared span by construction.
+  const moneyPanels = panels.sharedScale.length + panels.ownScale.length;
   trendBlocks.push(commentary(citesShare
-    ? `${trendsCaption(drawn)} The shared y-scale spans ${panels.sharedRange}; a panel's `
-      + 'percentage of it is its own axis, both ends printed, over that span.'
+    ? `${trendsCaption(drawn)} The shared y-scale spans ${panels.sharedRange}, over all `
+      + `${moneyPanels} money panels; a panel's percentage of it is its own axis, both ends `
+      + 'printed.'
     : trendsCaption(drawn)));
   // The window note is DERIVED from the panels this page draws — see
   // `trendWindowNote`. Pushed unconditionally, it printed "Gross margin is

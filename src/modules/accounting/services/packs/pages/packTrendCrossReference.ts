@@ -94,7 +94,17 @@ export const PERIOD_COUNTERPARTS: Record<string, PeriodCounterpart> = {
   'trend-revenue': { measure: 'revenue', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
   'trend-gross-margin': { measure: 'gross margin', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
   'trend-operating-expenses': { measure: 'operating expenses', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
-  'trend-net-profit': { measure: 'net profit', page: 'group results page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  // THE INCOME STATEMENT, NOT THE GROUP RESULTS PAGE. The group results page
+  // prints net profit BY MONTH and a total over the trend window; it carries
+  // no reporting-period figure and no comparative column, so a director who
+  // followed this pointer found the twelve-month total — (1 901) on the live
+  // demo pack — where the sentence promised the period's (1 544) against a
+  // comparative of (905). A plausible wrong number is worse than none, and
+  // this was the one wrong destination in a sentence whose other five
+  // pointers were right. It is invisible on a company whose activity sits in
+  // one month, where the two windows coincide, which is why the test that
+  // holds it uses the demo shape.
+  'trend-net-profit': { measure: 'net profit', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
   'trend-cash': { measure: 'cash', page: 'cash page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
   'trend-debtor-days': {
     measure: 'debtor days',

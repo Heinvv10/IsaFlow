@@ -289,7 +289,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // `ebitdaMemoSentence` for why it is stated rather than tabulated, and
     // why sheet 6 could not take it with the note that has to identify it.
     mustDisclose('The reporting period\'s EBITDA', [
-      note('EBITDA', ebitdaMemoSentence(set, scale)),
+      note('EBITDA', ebitdaMemoSentence(set, scale, trend.length === 0 ? null : trendWindowLabel(trend))),
     ]),
     commentary(monthlyResultsCaption(trend, scale)),
   ];
