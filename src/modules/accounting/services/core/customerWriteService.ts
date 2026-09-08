@@ -88,15 +88,15 @@ function assertName(name: string | undefined): string {
 }
 
 /**
- * `autoAllocateStrategy` wins when given; otherwise the deprecated boolean is
- * mapped (true -> 'oldest', false -> 'off') so an old caller still works.
- * Returns undefined when neither was supplied, meaning "leave it alone" on an
- * update. Throws before the value can reach the DB CHECK constraint, which
+ * The strategy to write, or `undefined` for "leave it alone" on an update.
+ *
+ * Takes ONLY the new field. The deprecated boolean is not a parameter because
+ * it is not an input to this decision — see the note below on why it stopped
+ * being one. Throws before the value can reach the DB CHECK constraint, which
  * would otherwise surface as an opaque 23514.
  */
 function resolveStrategy(
   strategy: string | undefined,
-  legacyBoolean: boolean | undefined,
 ): AutoAllocateStrategy | undefined {
   if (strategy !== undefined) {
     const parsed = parseAutoAllocateStrategy(strategy);
@@ -107,7 +107,8 @@ function resolveStrategy(
     }
     return parsed;
   }
-  // THE LEGACY BOOLEAN NO LONGER TURNS ANYTHING ON. It used to map true ->
+  // THE LEGACY BOOLEAN NO LONGER TURNS ANYTHING ON, AND IS NO LONGER READ
+  // HERE AT ALL. It used to map true ->
   // 'oldest', which made it the last path by which a contact could arrive at a
   // strategy nobody chose — reachable by any caller still sending the old
   // field: an external API consumer, an import, or the previous build during a
@@ -126,7 +127,7 @@ export async function createCustomer(
   input: CustomerWriteInput,
 ): Promise<DbRow> {
   const name = assertName(input.name);
-  const strategy = resolveStrategy(input.autoAllocateStrategy, input.autoAllocateReceipts) ?? 'off';
+  const strategy = resolveStrategy(input.autoAllocateStrategy) ?? 'off';
   const rows = (await sql`
     INSERT INTO customers (
       company_id, name, email, phone, mobile, fax, web_address,
@@ -208,7 +209,7 @@ export async function updateCustomer(
   }
   // undefined = "leave it alone"; COALESCE below handles that the same way it
   // handles every other omitted field.
-  const strategy = resolveStrategy(input.autoAllocateStrategy, input.autoAllocateReceipts);
+  const strategy = resolveStrategy(input.autoAllocateStrategy);
 
   const rows = (await sql`
     UPDATE customers SET

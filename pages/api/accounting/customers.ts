@@ -130,8 +130,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         categoryId: s('category_id'), cashSale: bool('cash_sale'),
         openingBalance: n('opening_balance'), openingBalanceDate: s('opening_balance_date'),
         acceptsElectronicInvoices: bool('accepts_electronic_invoices'),
-        // auto_allocate_strategy wins when supplied; an older client sending only
-        // the legacy boolean still works via autoAllocateReceipts below.
+        // auto_allocate_strategy is the only field that decides this. The
+        // legacy boolean below is still ACCEPTED but no longer selects a
+        // strategy: an old client sending only `auto_allocate_receipts: true`
+        // gets no error and no effect. Deliberate — see the note on the
+        // supplier route and migration 614.
         autoAllocateStrategy: s('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
         autoAllocateReceipts: bool('auto_allocate_receipts'),
         statementDistribution: s('statement_distribution'),
