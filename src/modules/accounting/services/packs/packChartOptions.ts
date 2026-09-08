@@ -46,6 +46,7 @@ import type {
 } from 'echarts';
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { contrastRatio } from '@/lib/brand/contrast';
+import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import {
   axisDomain,
@@ -296,6 +297,19 @@ function makeWaterfallRenderItem(
             // as the only thing separating an increase from a decrease on
             // them. The label was being drawn the whole time.
             fill: inside ? labelInkOn(stepColour(step, palette), palette) : palette.ink,
+            // AND THE PACK'S FACE, NAMED HERE BECAUSE THIS IS A RAW ZRENDER
+            // TEXT AND NOT AN ECHARTS LABEL.
+            //
+            // A `custom` series draws its own elements, and a zrender text
+            // takes its font from `style.font`, whose default is the literal
+            // `12px sans-serif` — it does not read `option.textStyle` the way
+            // an axis label does. So `renderChartSvg` stamping the family on
+            // the option reached every label on the sheet EXCEPT these, and
+            // the bridge's bar values kept printing in whatever Chromium
+            // resolves `sans-serif` to. On the demo income statement that put
+            // `1 431` on the sheet twice in two typefaces — once in the Cost
+            // of sales row, once on its own bar a centimetre below.
+            fontFamily: PACK_FONT_STACK,
             align: 'center',
             verticalAlign: inside || below ? 'top' : 'bottom',
           },

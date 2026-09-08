@@ -39,7 +39,9 @@ const STATUS_LABEL: Record<PackScorecardStatus, string> = {
   unscored: 'Unscored',
 };
 
-const TREND_GLYPH: Record<PackTrendDirection, string> = { up: '▲', down: '▼', flat: '■' };
+/** Same three marks as the KPI tile's delta, and for the same reason — see
+ *  `DELTA_GLYPH` in `KpiTileWithSparkline.tsx`. */
+const TREND_GLYPH: Record<PackTrendDirection, string> = { up: '↑', down: '↓', flat: '→' };
 
 function assertRowCaps(groups: PackScorecardGroup[]): void {
   const total = groups.reduce((sum, group) => sum + group.rows.length, 0);

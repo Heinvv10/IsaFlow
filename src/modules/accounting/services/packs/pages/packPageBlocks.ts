@@ -27,7 +27,7 @@ import type { SelectedMatters } from './packMattersPrinted';
 import { matterSourcesInWords } from './packDerivedMatters';
 import { PANEL_OMITTED_RULE } from './packShortenedPanels';
 import { trendWindowNote } from './packTrendCrossReference';
-import { formatMoney, formatPctLevel, type MoneyScale } from '@/lib/format/money';
+import { formatMoney, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_COMPONENTS_NOTE } from './packBasis';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -128,6 +128,36 @@ function shortWindowClause(tiles: PackKpiTile[]): string {
     + 'so lines of the same width do not all cover the same months.';
 }
 
+/**
+ * WHICH LINES ARE DRAWN TO ONE MEASURE, AND WHICH ARE NOT.
+ *
+ * Page 10 already states this rule about its own panels — "Net profit and Cash
+ * share one y-scale, so neither of them can look like it moved more than it
+ * did" — and page 3 drew every line to the full height of its own tile while
+ * saying nothing. The picture is fixed in `packHighlights`; this is the half
+ * of the fix a reader can check. Without it the sheet has a shared scale whose
+ * domain is nowhere on the page, which is the same disclosure failure in the
+ * other direction.
+ *
+ * Read off `sparklineScale`, which is what the tile was DRAWN with, so the
+ * sentence and the picture cannot drift apart. Empty when no money line is
+ * drawn — there is then no shared scale to describe.
+ */
+function sharedScaleClause(tiles: PackKpiTile[], scale: MoneyScale): string {
+  const shared = tiles.filter((t) => t.sparklineScale?.shared === true);
+  const own = tiles.filter((t) => t.sparklineScale !== null && !t.sparklineScale.shared);
+  if (shared.length === 0) return '';
+  const domain = shared[0]!.sparklineScale!;
+  const range = `${inProse(formatMoney(domain.min, { scale }))} to `
+    + `${inProse(formatMoney(domain.max, { scale }))}`;
+  const rest = own.length === 0
+    ? ''
+    : ` ${inWords(own.map((t) => t.label))} ${own.length === 1 ? 'is' : 'are'} in other units, `
+      + `each drawn on its own.`;
+  return ` ${inWords(shared.map((t) => t.label))} share one y-scale, ${range}, so none of them `
+    + `can look like it moved more than it did.${rest}`;
+}
+
 /** Page 3 — the whole period in one page. Spec §4.A: eight tiles, each with
  *  its delta and the basis that delta is measured against. */
 export function buildHighlightsBlocks(
@@ -163,9 +193,18 @@ export function buildHighlightsBlocks(
         // with no comparative period had been collapsed into one null. Both
         // halves now read the SAME `comparativePeriod` the basis page prints,
         // so the pack cannot say one thing on sheet 3 and another on sheet 12.
+        // AND THE ABSENCES, IN THE SAME NOTE. These were two notes, and the
+        // second — "Absent comparatives" — spent a heading and a line saying
+        // where the reasons are and that a movement is never drawn from zero.
+        // Both halves are about the comparative, so both belong to the note
+        // that names it, and the heading the merge saves is what pays for the
+        // scale sentence in footnote 1. Sheet 3 composes at 99.7% of its box
+        // on Brightsphere's live figures: a new statement here has to displace
+        // an old one or the sheet prints an apology for its layout instead.
         note('Comparison basis', comparative === null
           ? 'This pack has no comparative period, so no tile shows a movement and none is shown as a move from zero.'
-          : `Each movement is measured against ${comparative.label} — the comparative period the basis page states, and the prior column the statement pages print.`),
+          : `Each movement is measured against ${comparative.label} — the comparative period the basis page states, and the prior column the statement pages print. `
+            + 'A movement is never shown as a move from zero; a tile with none says why in its line of the Commentary above.'),
         // SHORTENED, AND WHAT WENT WAS THE RESTATEMENT. It read "— the
         // comparative period carries no value for that measure, or its prior
         // figure is not a positive base —", which is the Commentary block
@@ -179,8 +218,7 @@ export function buildHighlightsBlocks(
         // Commentary block's lines, one per tile, three centimetres up the
         // sheet. A reader who looks where a note sends them and finds nothing
         // stops trusting the note.
-        ...(comparative === null ? [] : [note('Absent comparatives',
-          'A tile with no movement says why in its line of the Commentary above. A movement is never shown as a move from zero.')]),
+
         // AND THAT THE PERIOD STOPS PART-WAY THROUGH ITS LAST MONTH.
         //
         // Page 3 was the only substantive sheet in the pack with no
@@ -229,7 +267,8 @@ export function buildHighlightsBlocks(
       number: SPARKLINE_FOOTNOTE,
       text: "Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the monthly "
         + `trend series, a different window. ${sparklineCount} of ${highlightTiles.length} tiles carry one; the rest `
-        + `have no monthly series behind them.${shortWindowClause(highlightTiles)}`,
+        + `have no monthly series behind them.${shortWindowClause(highlightTiles)}`
+        + sharedScaleClause(highlightTiles, scale),
     }],
   };
 }

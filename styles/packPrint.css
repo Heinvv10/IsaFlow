@@ -267,7 +267,7 @@ html.print-mode .pack-pages {
 
 /* Task 13 — the KPI tile, its delta and its inline sparkline. The delta's
  * colour (favourable/unfavourable) is never the ONLY cue: `.pack-kpi-delta-cue`
- * carries a shape glyph (▲/▼/■) alongside it — rubric criterion 7, a
+ * carries a shape glyph (↑/↓/→) alongside it — rubric criterion 7, a
  * deuteranopic reader cannot rely on colour alone. */
 .pack-kpi-tile { display: flex; flex-direction: column; gap: 1mm; }
 .pack-kpi-label { font-size: 9pt; line-height: 12pt; color: var(--pack-grey-strong); }

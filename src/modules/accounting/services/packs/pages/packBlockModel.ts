@@ -104,6 +104,23 @@ export interface PackKpiTile {
    * titles — and `tileCaption` is page 3's version of that sentence.
    */
   sparklineWindow: { plotted: number; of: number } | null;
+  /**
+   * THE Y-DOMAIN THE SPARKLINE IS DRAWN ON, and whether other tiles are drawn
+   * on it too — null where there is no sparkline.
+   *
+   * Every line used to be normalised to its own tile, which is the one scale
+   * on the sheet the page never stated. A rand swing of 37 and a rand swing of
+   * 2 692 came out 313 px and 303 px tall in one row, and on Brightsphere the
+   * smaller swing was drawn the deeper. The money lines share a domain now,
+   * exactly as page 10's money panels do; a series in another unit — a
+   * percentage, a day count — cannot join a rand domain, so it keeps its own
+   * and `sharedScaleClause` says which is which.
+   *
+   * Carried on the TILE rather than derived at the page, because the page's
+   * sentence and the picture must come from one reading: a footnote that
+   * recomputes the domain is a second answer to "what was drawn".
+   */
+  sparklineScale: { min: number; max: number; shared: boolean } | null;
 }
 
 export interface PackStatItem {

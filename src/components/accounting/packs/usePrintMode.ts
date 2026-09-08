@@ -39,6 +39,10 @@
  * holds that list to the stylesheet's.
  */
 import { useEffect, useLayoutEffect, useState } from 'react';
+import {
+  PACK_FONT_FAMILY, PACK_FONT_WEIGHTS, PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY,
+  packFooterFaceCss,
+} from '@/lib/charts/packFont';
 import type { PackDocumentSection } from '@/modules/accounting/services/packs/packDocument';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -89,16 +93,16 @@ export function countPageModelCharts(pages: PackPage[]): number {
 
 /**
  * The family every pack position is set in, and the three weights it is set
- * at — the `@font-face` rules of `styles/packPrint.css`, named here so the
- * readiness gate can wait for exactly them.
+ * at — re-exported from `lib/charts/packFont`, which is where they are
+ * declared so the SERVER-side chart renderer can name the same family without
+ * importing a React hook.
  *
- * Exported for `tests/unit/print/fontsSelfHosted.test.ts`, which reads the
- * stylesheet and fails when a face is declared there and missing here. A face
- * this list does not name is a face the gate does not wait for, which is the
- * whole defect.
+ * Re-exported here for `tests/unit/print/fontsSelfHosted.test.ts`, which reads
+ * the stylesheet and fails when a face is declared there and missing here. A
+ * face this list does not name is a face the gate does not wait for, which is
+ * the whole defect.
  */
-export const PACK_FONT_FAMILY = 'IBM Plex Sans';
-export const PACK_FONT_WEIGHTS = [400, 500, 600] as const;
+export { PACK_FONT_FAMILY, PACK_FONT_WEIGHTS };
 
 /**
  * The shorthand `FontFaceSet` matches faces by. The size is arbitrary and
@@ -117,6 +121,52 @@ function faceSpec(weight: number): string {
  */
 const FIGURE_GLYPHS = '0123456789()–';
 
+
+/** The shorthand the footer face is matched by, at the one weight it is cut at. */
+const FOOTER_FACE_SPEC = `400 1em "${PACK_FOOTER_FONT_FAMILY}"`;
+
+/**
+ * THE PAGE LOADS THE FOOTER'S FACE SO THE FOOTER CAN PAINT WITH IT.
+ *
+ * The page itself never sets a word in this family. It exists because Chromium
+ * draws the running footer (`printFurniture.ts`) in a document of its own that
+ * inherits no stylesheet and, on a page served from a real origin, may fetch
+ * nothing at all — so the only face the footer can paint with is a data URI
+ * whose resource THIS document has already loaded. Chromium matches the
+ * resource, not the family, which is why the family name here is one nothing
+ * else uses and the CSS comes from `packFooterFaceCss` on both sides.
+ *
+ * Before it did this, all 24 footers of both packs printed in Noto Sans — a
+ * third typeface in a document set in one, for one furniture element.
+ *
+ * FETCHED AND RE-ENCODED RATHER THAN BUNDLED. The bytes stay the one woff2 in
+ * `public/fonts`, so there is no second copy to drift, and the 84 kB of base64
+ * never enters the app's stylesheet or any JavaScript chunk. A failure here
+ * REJECTS: the page then never becomes print-ready and the renderer fails on
+ * its own timeout, which is the same policy the three declared faces are held
+ * to.
+ *
+ * Idempotent — `useEffect` runs twice under StrictMode, and a second identical
+ * `<style>` would be a second resource for Chromium to match against.
+ */
+async function loadFooterFace(target: Document, fonts: FontFaceSet): Promise<void> {
+  const ID = 'pack-footer-face';
+  if (target.getElementById(ID) === null) {
+    const response = await fetch(`/fonts/${PACK_FOOTER_FACE_FILE}`);
+    if (!response.ok) {
+      throw new Error(`packFontsLoaded: the footer face did not load (HTTP ${response.status})`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    const style = target.createElement('style');
+    style.id = ID;
+    style.textContent = packFooterFaceCss(btoa(binary));
+    target.head.appendChild(style);
+  }
+  await fonts.load(FOOTER_FACE_SPEC, FIGURE_GLYPHS);
+}
+
 /**
  * Every declared face, requested and then verified. Resolves false when one
  * of them is not available afterwards, which keeps the page from ever
@@ -131,12 +181,14 @@ export async function packFontsLoaded(target: Document): Promise<boolean> {
   // that runs this pack. Nothing can be awaited and nothing can be verified,
   // so the gate declines to block on a question it cannot ask.
   if (fonts === undefined) return true;
+  await loadFooterFace(target, fonts);
   await Promise.all(PACK_FONT_WEIGHTS.map((weight) => fonts.load(faceSpec(weight), FIGURE_GLYPHS)));
   // `load()` resolves with the faces it matched — including with none at all,
   // for a family the document never declared. `ready` then settles whatever
   // else the page has started, and `check()` is the actual assertion.
   await fonts.ready;
-  return PACK_FONT_WEIGHTS.every((weight) => fonts.check(faceSpec(weight), FIGURE_GLYPHS));
+  return PACK_FONT_WEIGHTS.every((weight) => fonts.check(faceSpec(weight), FIGURE_GLYPHS))
+    && fonts.check(FOOTER_FACE_SPEC, FIGURE_GLYPHS);
 }
 
 /**

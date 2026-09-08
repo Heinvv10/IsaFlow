@@ -31,7 +31,7 @@ import {
 } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
-import { sparklineOption } from '@/modules/accounting/services/packs/packLineChartOptions';
+import { sharedDomain, sparklineOption } from '@/modules/accounting/services/packs/packLineChartOptions';
 import { CHART_HEIGHT_MM, renderChartSvg } from '@/lib/charts/ssrSvg';
 import type { PackKpiTile } from './packPageModel';
 
@@ -89,19 +89,47 @@ function movementFor(
   };
 }
 
-/** A sparkline and the window it covers, or nulls where there is no series.
- *  The two travel together because a line is only readable beside another
- *  line if a reader can see which months each of them holds. */
-type Sparkline = Pick<PackKpiTile, 'sparklineSvg' | 'sparklineWindow'>;
+/** A sparkline, the window it covers and the domain it is drawn on, or nulls
+ *  where there is no series. The three travel together because a line is only
+ *  readable beside another line if a reader can see which months each of them
+ *  holds AND which of them are drawn to one measure. */
+type Sparkline = Pick<PackKpiTile, 'sparklineSvg' | 'sparklineWindow' | 'sparklineScale'>;
 
-const NO_SPARKLINE: Sparkline = { sparklineSvg: null, sparklineWindow: null };
+const NO_SPARKLINE: Sparkline = { sparklineSvg: null, sparklineWindow: null, sparklineScale: null };
 
-function sparklineFor(points: PackTrendPoint[], series: (p: PackTrendPoint) => number): Sparkline {
+/**
+ * The MONEY tiles' one y-domain — the same rule, and the same function, page
+ * 10 uses across its money panels.
+ *
+ * Taken over every rand series page 3 draws rather than per tile, so a small
+ * movement is drawn small. `sharedDomain` also puts zero inside it, which is
+ * what lets a reader see which side of break-even a line sits on: on the live
+ * demo company cash is negative in every month of the window.
+ *
+ * A tile whose series is in another unit is NOT in here, and must not be — a
+ * percentage and a rand amount on one axis is a category error, not a shared
+ * scale.
+ */
+function moneyDomain(points: PackTrendPoint[]): { min: number; max: number } {
+  return sharedDomain([
+    points.map((p) => p.revenue),
+    points.map((p) => p.netProfit),
+    points.map((p) => p.cash),
+  ]);
+}
+
+/** A money tile's line, on the domain every money tile shares. */
+function sparklineFor(
+  points: PackTrendPoint[],
+  series: (p: PackTrendPoint) => number,
+  domain: { min: number; max: number },
+): Sparkline {
   if (points.length === 0) return NO_SPARKLINE;
   const trendPoints = points.map((point) => ({ label: point.label, value: series(point) }));
   return {
-    sparklineSvg: renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE),
+    sparklineSvg: renderChartSvg(sparklineOption(trendPoints, undefined, domain), SPARKLINE_SIZE),
     sparklineWindow: { plotted: points.length, of: points.length },
+    sparklineScale: { ...domain, shared: true },
   };
 }
 
@@ -119,9 +147,16 @@ function sparklineForNullable(
   const defined = points.filter((point) => series(point) !== null);
   if (defined.length === 0) return NO_SPARKLINE;
   const trendPoints = defined.map((point) => ({ label: point.label, value: series(point) as number }));
+  const values = trendPoints.map((point) => point.value);
   return {
     sparklineSvg: renderChartSvg(sparklineOption(trendPoints), SPARKLINE_SIZE),
     sparklineWindow: { plotted: defined.length, of: points.length },
+    // ITS OWN, AND RECORDED AS ITS OWN. These two series are a percentage and
+    // a day count; there is no domain they could share with the rand lines,
+    // so the tile says `shared: false` and the page's footnote names them.
+    // The domain is what the axis actually took — `scale: true` on a series
+    // with no zero in it, which is what an unstated `min`/`max` means.
+    sparklineScale: { min: Math.min(...values), max: Math.max(...values), shared: false },
   };
 }
 
@@ -200,9 +235,13 @@ export function buildHighlightTiles(
   // `buildBoardPackPages` derives `comparativePeriod` from, and the thing a
   // tile with no movement must not confuse with an unusable base.
   const hasComparative = prior !== null;
+  // ONE domain, read once and handed to all three money tiles. Computing it
+  // inside `sparklineFor` would give three tiles three chances to disagree
+  // about the scale they are said to share.
+  const money = moneyDomain(trend);
 
   return [
-    buildTile('Revenue', revenue, prior?.revenue ?? null, sparklineFor(trend, (t) => t.revenue), hasComparative),
+    buildTile('Revenue', revenue, prior?.revenue ?? null, sparklineFor(trend, (t) => t.revenue, money), hasComparative),
     buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, sparklineForNullable(trend, (t) => t.grossMarginPct), hasComparative),
     // No monthly operating-profit series EXISTS, and the four bands that
     // would make one are not a substitute. `PackTrendPoint` carries turnover,
@@ -214,8 +253,8 @@ export function buildHighlightTiles(
     // could silently disagree with the tile it sits beside. This tile stays
     // without one until the service issues the series.
     buildTile('Operating profit', operatingProfit, prior ? operatingProfitOf(prior) : null, NO_SPARKLINE, hasComparative),
-    buildTile('Net profit', netProfit, prior?.netProfit ?? null, sparklineFor(trend, (t) => t.netProfit), hasComparative),
-    buildTile('Cash', cash, prior?.cash ?? null, sparklineFor(trend, (t) => t.cash), hasComparative),
+    buildTile('Net profit', netProfit, prior?.netProfit ?? null, sparklineFor(trend, (t) => t.netProfit, money), hasComparative),
+    buildTile('Cash', cash, prior?.cash ?? null, sparklineFor(trend, (t) => t.cash, money), hasComparative),
     // No monthly totalEquity series exists — same reason as operating profit.
     buildTile('Debt-to-equity', leverage, priorRatios?.debtToEquity ?? null, NO_SPARKLINE, hasComparative, true),
     buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, sparklineForNullable(trend, (t) => t.debtorDays), hasComparative, true),

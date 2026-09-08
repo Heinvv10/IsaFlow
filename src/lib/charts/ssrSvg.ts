@@ -13,6 +13,7 @@
 import { createHash } from 'node:crypto';
 
 import { echarts } from '@/lib/charts/echarts';
+import { PACK_FONT_STACK } from '@/lib/charts/packFont';
 
 export const PX_PER_MM = 96 / 25.4;
 
@@ -122,6 +123,59 @@ function stableIds(svg: string): string {
   return rewrite((index) => `zr${hash}-${index}`);
 }
 
+
+/**
+ * NO CHART LEAVES HERE SET IN THE RENDERER'S DEFAULT FACE.
+ *
+ * The option's `textStyle` reaches an axis label and an ECharts series label,
+ * and it does NOT reach a raw zrender text drawn by a `custom` series: that
+ * takes `style.font`, whose default is the literal `12px sans-serif`, and
+ * zrender emits it as the `font` shorthand rather than as `font-family`. The
+ * profit bridge's bar values are exactly such elements, so the pack's family
+ * was set on every chart and the bridge's own figures still printed in
+ * whatever Chromium resolves a bare `sans-serif` to — Liberation Sans in the
+ * Gotenberg image. On the demo income statement that put `1 431` on one sheet
+ * twice in two typefaces, once in the Cost of sales row and once on its own
+ * bar a centimetre below.
+ *
+ * A default that silently produces a second typeface cannot be guarded by
+ * setting a value somewhere; it has to be guarded by reading what came out.
+ *
+ * THE GENERIC KEYWORDS ONLY, AND THAT IS THE WHOLE RULE. A bare `sans-serif`
+ * is never something a caller decided — every builder in this repo names a
+ * face — so it is always the renderer's default arriving unset. A caller that
+ * genuinely asks for another family is making a choice, and this is a shared
+ * SSR renderer rather than a pack-private one, so it is not the place to
+ * legislate which face a chart may be set in. What the PACK is allowed to
+ * embed is held on the printed file instead, by
+ * `tests/unit/print/packOneTypeface.test.ts`.
+ */
+const RENDERER_DEFAULT_FACES = new Set(['sans-serif', 'serif', 'monospace']);
+
+function assertNoDefaultFontFamily(svg: string): void {
+  // FROM `style` ATTRIBUTES ONLY, which is where zrender puts a font and is
+  // the one position in the document where the token means a typeface. A chart
+  // LABEL is ledger data — a cost centre, a project code — and scanning the
+  // whole markup reads it as one. This file has been bitten by matching a
+  // token anywhere instead of where it means something twice already; see
+  // `stableIds` and `assertStyleBlockIsOurs`.
+  const declarations = [...svg.matchAll(/\sstyle="([^"]*)"/g)].map((m) => m[1]!);
+  const families = declarations.flatMap((style) => [
+    ...[...style.matchAll(/font-family\s*:\s*([^;]*)/g)].map((m) => m[1]!.trim()),
+    // zrender's own spelling for a raw text element is the `font` SHORTHAND —
+    // `font: 12px sans-serif` — which no `font-family` scan would ever see.
+    ...[...style.matchAll(/(?:^|;)\s*font\s*:\s*[\d.]+px\s+([^;]*)/g)].map((m) => m[1]!.trim()),
+  ]);
+  const bare = [...new Set(families.filter((family) => RENDERER_DEFAULT_FACES.has(family)))];
+  if (bare.length > 0) {
+    throw new Error(
+      `renderChartSvg: refusing a chart whose text is set in the renderer's default face (${bare.join(', ')}). `
+      + 'Name a family on the element that emitted it — a `custom` series text takes '
+      + '`style.fontFamily`, not `option.textStyle`.',
+    );
+  }
+}
+
 export function renderChartSvg(
   option: unknown,
   opts: { widthMm: number; heightMm: number },
@@ -135,10 +189,29 @@ export function renderChartSvg(
     // identical with the flag true, false, or absent. It is kept because the
     // option is handed to a headless renderer that must never be asked for a
     // partial frame, but do not believe it is what makes the chart appear.
-    chart.setOption({ ...(option as Record<string, unknown>), animation: false });
+    // THE FAMILY, ON EVERY CHART, FROM ONE PLACE.
+    //
+    // ECharts writes `font-family` as an ATTRIBUTE on every `<text>` it
+    // emits, and its default is the literal `sans-serif` — so a chart inlined
+    // into the pack does not inherit the page's face, it overrides it with
+    // whatever Chromium resolves `sans-serif` to (Liberation Sans in the
+    // Gotenberg image). Set here rather than in the five option builders
+    // because a sixth builder would be a sixth chance to forget, and because
+    // `renderChartSvg` is the pack's ONLY producer of chart markup — the
+    // statutory AFS renderer has its own (`afs/serverChartSvg.ts`) and its own
+    // typography, so this does not reach it.
+    //
+    // BEFORE the caller's option, so a chart that genuinely needs another face
+    // can still say so; nothing in the pack does.
+    chart.setOption({
+      textStyle: { fontFamily: PACK_FONT_STACK },
+      ...(option as Record<string, unknown>),
+      animation: false,
+    });
     const svg = stableIds(chart.renderToSVGString());
     assertNoExternalReferences(svg);
     assertStyleBlockIsOurs(svg);
+    assertNoDefaultFontFamily(svg);
     return svg as TrustedChartSvg;
   } finally {
     chart.dispose();

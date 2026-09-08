@@ -24,9 +24,12 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { chromium, type Browser } from 'playwright';
+import { chromium, type Browser, type Page } from 'playwright';
 import { PackPagesView } from '@/components/accounting/packs/PackPagesView';
 import { HEADER_HTML, PDF_MARGIN_MM, mm } from '@/lib/pdf/pdfTransport';
+import {
+  PACK_FOOTER_FACE_FILE, PACK_FOOTER_FONT_FAMILY, packFooterFaceCss,
+} from '@/lib/charts/packFont';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 const ROOT = path.resolve(__dirname, '../../..');
@@ -248,6 +251,33 @@ const PX_PER_MM = 96 / 25.4;
 /** A landscape sheet's content width — A4's long edge less the same left and
  *  right margins. */
 const LANDSCAPE_WIDTH_PX = Math.round((297 - PDF_MARGIN_MM.left - PDF_MARGIN_MM.right) * PX_PER_MM);
+
+
+/**
+ * WHAT `usePrintMode` DOES BEFORE THE PAGE SAYS IT IS PRINT-READY, done here
+ * because this harness renders static markup and runs no hook.
+ *
+ * Chromium will paint the running footer with a webfont ONLY if the main
+ * document has already loaded the identical data URI — see `packFooterFaceCss`.
+ * A harness that skipped this would print a footer in Noto Sans and report a
+ * defect the app does not have; one that faked it with its own CSS string
+ * would go green on a spelling the app never emits, so the string comes from
+ * the same function the app and the footer template both call.
+ *
+ * That the APP performs these steps is held by
+ * `tests/unit/components/packs/printFontsGate.test.ts`.
+ */
+async function loadFooterFace(page: Page): Promise<void> {
+  const css = packFooterFaceCss(
+    readFileSync(path.join(ROOT, 'public', 'fonts', PACK_FOOTER_FACE_FILE)).toString('base64'),
+  );
+  await page.evaluate(async ([faceCss, family]) => {
+    const style = document.createElement('style');
+    style.textContent = faceCss;
+    document.head.appendChild(style);
+    await document.fonts.load(`400 1em "${family}"`, '0123456789');
+  }, [css, PACK_FOOTER_FONT_FAMILY]);
+}
 
 export async function printBoardPack(
   document: PackPagesDocument,
@@ -474,6 +504,8 @@ export async function printBoardPack(
         stacked: panelBox.top >= placeholderBox.bottom - 1,
       };
     }, PX_PER_MM);
+
+    if (footerHtml !== undefined) await loadFooterFace(page);
 
     const pdf = await page.pdf({
       format: 'A4',

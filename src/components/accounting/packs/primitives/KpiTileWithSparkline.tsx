@@ -41,7 +41,17 @@ function deltaDirection(value: number): DeltaDirection {
   return 'flat';
 }
 
-const DELTA_GLYPH: Record<DeltaDirection, string> = { up: '▲', down: '▼', flat: '■' };
+/**
+ * ARROWS THE PACK'S OWN FACE CAN SET.
+ *
+ * These were `▲ ▼ ■` (U+25B2 / U+25BC / U+25A0). IBM Plex Sans has none of the
+ * three, so Chromium substituted a face that does — Liberation Sans — and the
+ * printed pack carried a foreign typeface for one glyph in the middle of a
+ * sentence set in Plex. `↑ ↓ →` are all in the face, are three distinct shapes
+ * in greyscale, and are the conventional direction marks: the colour is still
+ * never the only cue.
+ */
+const DELTA_GLYPH: Record<DeltaDirection, string> = { up: '↑', down: '↓', flat: '→' };
 
 export function KpiTileWithSparkline({ tile, scale }: KpiTileWithSparklineProps) {
   const { label, figure, delta, trendFootnote, sparklineSvg } = tile;

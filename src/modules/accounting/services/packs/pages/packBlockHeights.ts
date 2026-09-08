@@ -240,7 +240,7 @@ export function kpiTileHeight(tile: KpiTile): number {
   const figure = tile.figure.value === null
     ? lines(wrappedLines(tile.figure.unavailable ?? '', 11, KPI_COLUMN_MM), 14)
     : lines(1, 25);
-  // The delta prints as a glyph, a percentage and its basis — "▲ up 12.4%
+  // The delta prints as a glyph, a percentage and its basis — "↑ up 12.4%
   // against prior period". The words around the basis are the widest the
   // formatter emits.
   const delta = tile.delta === null ? 0
