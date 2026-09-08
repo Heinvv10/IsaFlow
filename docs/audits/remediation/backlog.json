@@ -7552,10 +7552,9 @@
       "correctedTrigger": "Unproven first number registration activates routing; real signed inbound creates an event for that claimant. Reproduced on ff2ab7ba.",
       "severityRationale": "Confirmed provider-to-company provisioning authority gap; proof establishes signed delivery configuration control, not legal ownership.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "ff2ab7ba",
-      "status": "in-progress",
+      "currentSha": "f303b9f3afbe0390718753d095db585b16a59fe2",
+      "status": "code-verified",
       "dependencies": [
-        "Named fix review/full CI/draft PR",
         "Provider sandbox acceptance and legacy rollout/reverification require separate authorized environment",
         "Historical attribution and reserved-number transfers require reviewed evidence"
       ],
@@ -7574,10 +7573,16 @@
         "R-003/typecheck.log",
         "R-003/browser.log",
         "R-003/historical-impact.sql",
-        "R-003/historical-review.md"
+        "R-003/historical-review.md",
+        "R-003/review.md",
+        "R-003/provider-contract.md",
+        "R-003/logging-red.log",
+        "R-003/provenance-red.log",
+        "R-003/ci.log",
+        "R-003/result.md"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "6ed297f1;66793126",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/351",
       "deployedSha": null,
       "historicalDataImpact": "Scoped inventory tested on disposable rows only; legacy proof not fabricated, target review/reverification and historical attribution remain open.",
       "canonicalItem": null,
