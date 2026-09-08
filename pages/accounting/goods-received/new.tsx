@@ -23,6 +23,10 @@ interface POItem {
   quantity_received: number;
 }
 
+function remainingQuantity(item: POItem): number {
+  return Math.max(0, Math.round(Number(item.quantity) * 100) - Math.round(Number(item.quantity_received || 0) * 100)) / 100;
+}
+
 const inp = 'w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 transition-colors';
 const lbl = 'block text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5';
 const card = 'bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm';
@@ -69,7 +73,7 @@ export default function NewGRNPage() {
         setPoItems(items);
         const qtys: Record<string, number> = {};
         for (const item of items) {
-          const remaining = Math.max(0, Number(item.quantity) - Number(item.quantity_received || 0));
+          const remaining = remainingQuantity(item);
           qtys[item.id] = remaining;
         }
         setReceivedQtys(qtys);
@@ -204,7 +208,8 @@ export default function NewGRNPage() {
                               <input
                                 type="number"
                                 min={0}
-                                max={Math.max(0, Number(item.quantity) - Number(item.quantity_received || 0))}
+                                step={0.01}
+                                max={remainingQuantity(item)}
                                 value={receivedQtys[item.id] ?? 0}
                                 onChange={(e) => setReceivedQtys((prev) => ({ ...prev, [item.id]: Number(e.target.value) }))}
                                 className={`${inp} text-right w-24`}
