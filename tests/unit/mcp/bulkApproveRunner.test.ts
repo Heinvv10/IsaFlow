@@ -28,9 +28,15 @@ vi.mock('@/lib/neon', () => ({
 vi.mock('@/lib/mcp/tools/bulkApprovePeriods', () => ({
   resolvePeriodSkips: vi.fn(async () => new Map()),
 }));
+vi.mock('@/modules/accounting/services/gl/fiscalPeriodService', () => ({
+  getFiscalPeriodIdForDate: vi.fn(async () => 'period-1'),
+}));
 
 import { withSavepoint } from '@/lib/neon';
 import { resolvePeriodSkips } from '@/lib/mcp/tools/bulkApprovePeriods';
+import {
+  getFiscalPeriodIdForDate,
+} from '@/modules/accounting/services/gl/fiscalPeriodService';
 import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
 import {
   type BulkApproveAdapter,
@@ -67,6 +73,7 @@ function adapterOver(
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(resolvePeriodSkips).mockResolvedValue(new Map());
+  vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue('period-1');
   vi.mocked(withSavepoint).mockImplementation(
     (async (_n: string, fn: () => Promise<unknown>) => fn()) as never,
   );
@@ -336,5 +343,108 @@ describe('postPartitionedDocuments — a deadlock is fatal but retryable', () =>
       ctx, [{ index: 0, id: ID(1) }, { index: 1, id: ID(2) }], adapter, () => null,
     )).rejects.toBeInstanceOf(BulkAllocationLineError);
     expect(posted).toEqual([]);
+  });
+});
+
+/**
+ * Adversarial review, 2026-09-08 (MEDIUM). "Auto-creatable" is not "created".
+ * `resolvePeriodSkips` passes any date whose fiscal year is inside the
+ * auto-create window, assuming `ensureFiscalPeriodForDate` will build it — but
+ * that call RETHROWS when the build genuinely fails (a partially-created year
+ * already carrying the label, or a range that overlaps existing periods). On
+ * element 37 of a historical reload that would unwind all 100, which is exactly
+ * what the period pre-check exists to prevent.
+ *
+ * Decided by OUTCOME — does a period cover the date now? — never by the error's
+ * wording, which pg rewords and localises.
+ */
+describe('postPartitionedDocuments — a period that could not be created is a skip', () => {
+  const boom = () => new Error('Fiscal year 2019 already exists');
+
+  it('SKIPS the element when no period covers its date afterwards', async () => {
+    vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue(null);
+    const adapter = adapterOver([], async (_c, id) => {
+      if (id === ID(2)) throw boom();
+      return { id };
+    });
+    const { posted, raced } = await postPartitionedDocuments(
+      ctx,
+      [{ index: 0, id: ID(1), entryDate: '2026-09-01' },
+       { index: 1, id: ID(2), entryDate: '2019-06-15' },
+       { index: 2, id: ID(3), entryDate: '2026-09-01' }],
+      adapter, () => null,
+    );
+    // The other 99 survive — the whole point.
+    expect(posted.map((p) => p.id)).toEqual([ID(1), ID(3)]);
+    expect(raced[0]!.reason).toContain('no fiscal period could be resolved or created');
+    expect(raced[0]!.reason).toContain('2019-06-15');
+  });
+
+  /** The other direction: a period exists, so the failure was something else. */
+  it('still THROWS when a period does cover the date — the fault was real', async () => {
+    vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue('period-1');
+    const adapter = adapterOver([], async () => { throw boom(); });
+    await expect(postPartitionedDocuments(
+      ctx, [{ index: 0, id: ID(1), entryDate: '2026-09-01' }], adapter, () => null,
+    )).rejects.toBeInstanceOf(BulkAllocationLineError);
+  });
+
+  /** A document with no date cannot be diagnosed this way, so it stays fatal. */
+  it('throws when the element carries no date to check', async () => {
+    vi.mocked(getFiscalPeriodIdForDate).mockResolvedValue(null);
+    const adapter = adapterOver([], async () => { throw boom(); });
+    await expect(postPartitionedDocuments(
+      ctx, [{ index: 0, id: ID(1) }], adapter, () => null,
+    )).rejects.toBeInstanceOf(BulkAllocationLineError);
+    expect(getFiscalPeriodIdForDate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Adversarial review, 2026-09-08 (MEDIUM). The AR arm's compare-and-swap is
+ * stronger than a lock against double-posting and WEAKER against hanging: the
+ * loser blocks for the winner's whole transaction, which for a bulk approve is
+ * 100 PDF renders and uploads. approveCustomerInvoice now bounds that at 5s and
+ * raises a typed error, so the runner must treat it like the other two arms'.
+ */
+describe('postPartitionedDocuments — every arm\'s lock timeout is a skip', () => {
+  it.each([
+    'SUPPLIER_INVOICE_LOCK_TIMEOUT',
+    'CREDIT_NOTE_LOCK_TIMEOUT',
+    'CUSTOMER_INVOICE_LOCK_TIMEOUT',
+  ])('skips %s rather than failing the batch', async (code) => {
+    const busy = Object.assign(new Error('busy'), { code });
+    const adapter = adapterOver([], async (_c, id) => {
+      if (id === ID(1)) throw busy;
+      return { id };
+    });
+    const { posted, raced } = await postPartitionedDocuments(
+      ctx, [{ index: 0, id: ID(1) }, { index: 1, id: ID(2) }], adapter, () => null,
+    );
+    expect(posted.map((p) => p.id)).toEqual([ID(2)]);
+    expect(raced[0]!.reason).toContain('retry');
+  });
+});
+
+/**
+ * Adversarial review, 2026-09-08 (LOW). customer_invoices.invoice_date is
+ * NULLABLE, unlike its supplier and credit-note twins. fmtDate(null) is '',
+ * which matches no period window and would fall through to the auto-create
+ * branch, where fiscalYearOfDate throws on an unparseable date — a whole batch
+ * lost to one undated row.
+ */
+describe('partitionDocuments — an undated document is skipped, not fatal', () => {
+  it('skips a null document date and never asks for a period verdict on it', async () => {
+    const { postable, skipped } = await partitionDocuments(
+      'company-1', [ID(1), ID(2)],
+      adapterOver([
+        { id: ID(1), status: 'draft', entryDate: null as unknown as string },
+        { id: ID(2), status: 'draft', entryDate: '2026-09-01' },
+      ]),
+    );
+    expect(postable.map((p) => p.id)).toEqual([ID(2)]);
+    expect(skipped[0]!.reason).toContain('no document date');
+    const [, dates] = vi.mocked(resolvePeriodSkips).mock.calls[0]!;
+    expect(dates).toEqual(['2026-09-01']);
   });
 });

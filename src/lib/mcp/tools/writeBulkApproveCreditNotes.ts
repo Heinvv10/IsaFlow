@@ -228,7 +228,7 @@ export const bulkApproveCreditNotesTool: McpTool = {
     // for. Standalone notes sort under '' and are mutually unconstrained, which
     // is correct: they take no second lock.
     const ordered = [...postable]
-      .map((p) => ({ ...p, group: states.get(p.id)?.lockGroup ?? '' }))
+      .map((p) => ({ ...p, group: states.get(p.id)?.lockGroup ?? '', entryDate: states.get(p.id)?.entryDate }))
       .sort((a, b) => (a.group !== b.group
         ? (a.group < b.group ? -1 : 1)
         : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));

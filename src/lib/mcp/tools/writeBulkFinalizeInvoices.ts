@@ -199,7 +199,11 @@ export const bulkFinalizeInvoicesTool: McpTool = {
     // posted. Ordered by id rather than the agent's order for the same reason
     // the AP arm is — a stable total order over the rows two batches might
     // share is what keeps them from deadlocking on each other.
-    const ordered = [...postable].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const ordered = [...postable]
+      // The date rides along so the posting loop can tell a failed fiscal-period
+      // creation (a skip) from a genuine fault (which unwinds the batch).
+      .map((p) => ({ ...p, entryDate: states.get(p.id)?.entryDate }))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const { posted, raced } = await postPartitionedDocuments(ctx, ordered, adapter, racedReason);
 
     const byId = new Map(ordered.map((o) => [o.id, o.index]));

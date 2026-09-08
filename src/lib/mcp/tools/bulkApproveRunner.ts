@@ -52,6 +52,9 @@ import { fmtDate } from '@/lib/fmtDate';
 import { BulkAllocationLineError } from '../bulkAllocationLineError';
 import { safeLineDetail } from './bulkAllocationPost';
 import { resolvePeriodSkips } from './bulkApprovePeriods';
+import {
+  getFiscalPeriodIdForDate,
+} from '@/modules/accounting/services/gl/fiscalPeriodService';
 import type { McpToolContext } from '../types';
 
 /** One document the batch declined to touch, addressed by the agent's own index. */
@@ -136,7 +139,11 @@ export async function partitionDocuments(
   // stale date mask the real reason the element was skipped.
   const candidates = ids
     .map((id, index) => ({ index, id, state: states.get(id) }))
-    .filter((c) => c.state !== undefined && adapter.approvableStatuses.includes(c.state.status));
+    .filter((c) => c.state !== undefined
+      && adapter.approvableStatuses.includes(c.state.status)
+      // An undated document is skipped below; asking for a period verdict on ''
+      // would reach the auto-create branch, where fiscalYearOfDate throws.
+      && fmtDate(c.state.entryDate) !== '');
   const periodSkips = await resolvePeriodSkips(
     companyId, candidates.map((c) => c.state!.entryDate),
   );
@@ -162,7 +169,20 @@ export async function partitionDocuments(
       });
       continue;
     }
-    const periodReason = periodSkips.get(fmtDate(state.entryDate));
+    // `customer_invoices.invoice_date` is NULLABLE (its supplier and credit-note
+    // twins are NOT NULL). fmtDate(null) is '', which matches no period window
+    // and would fall through to the auto-create branch, where fiscalYearOfDate
+    // throws on an unparseable date — a whole batch lost to one undated row.
+    // There are none in dev today; the column permits them.
+    const entryDate = fmtDate(state.entryDate);
+    if (!entryDate) {
+      skipped.push({
+        index, document_id: id,
+        reason: 'has no document date, so no fiscal period can be resolved for it',
+      });
+      continue;
+    }
+    const periodReason = periodSkips.get(entryDate);
     if (periodReason) {
       skipped.push({ index, document_id: id, reason: periodReason });
       continue;
@@ -181,6 +201,7 @@ export async function partitionDocuments(
 const LOCK_TIMEOUT_CODES = new Set([
   'SUPPLIER_INVOICE_LOCK_TIMEOUT',
   'CREDIT_NOTE_LOCK_TIMEOUT',
+  'CUSTOMER_INVOICE_LOCK_TIMEOUT',
 ]);
 
 /** Postgres `deadlock_detected` — this transaction was chosen as the victim. */
@@ -212,7 +233,7 @@ export interface PostedBatch<TResult> {
  */
 export async function postPartitionedDocuments<TResult>(
   ctx: McpToolContext,
-  ordered: readonly { index: number; id: string }[],
+  ordered: readonly { index: number; id: string; entryDate?: string | Date }[],
   adapter: BulkApproveAdapter<TResult>,
   /** Reads the settled status of a raced document, for the skip reason. */
   racedReason: (err: unknown) => string | null,
@@ -220,7 +241,7 @@ export async function postPartitionedDocuments<TResult>(
   const posted: TResult[] = [];
   const raced: SkippedDocument[] = [];
 
-  for (const { index, id } of ordered) {
+  for (const { index, id, entryDate } of ordered) {
     // Sequential, never Promise.all: these share one pg connection, and
     // concurrent statements on it interleave and corrupt the savepoint stack
     // (postgresql-gotchas §36).
@@ -253,6 +274,37 @@ export async function postPartitionedDocuments<TResult>(
           index, id,
           'deadlocked against another request holding these rows — nothing was posted, retry the batch',
         );
+      }
+      // AUTO-CREATABLE IS NOT THE SAME AS CREATED, and the pre-check cannot
+      // see the difference. `resolvePeriodSkips` passes any date whose fiscal
+      // year is inside the auto-create window, on the assumption that
+      // `ensureFiscalPeriodForDate` will build it. That call RETHROWS when the
+      // build genuinely fails and no period exists afterwards — which happens
+      // in two ordinary situations: a partially-created year (some period rows
+      // already carry that `fiscal_year` label, so `createFiscalYear` refuses
+      // as "already exists") and a computed range that overlaps existing
+      // periods (`FiscalPeriodOverlapError`). Either one, on element 37 of a
+      // historical reload, would unwind all 100 — the exact outcome the period
+      // pre-check exists to prevent, reached through the branch it added.
+      //
+      // Decided by OUTCOME, never by the error's text or SQLSTATE: does a
+      // period cover this date NOW? The element's savepoint has already rolled
+      // back, so anything the failed creation wrote is gone and the connection
+      // is usable. If no period covers the date, the element could not have
+      // posted for a reason that is about this document's date alone — a skip,
+      // like the closed period it sits beside. (`fiscalPeriodAutoCreate` itself
+      // decides its own race the same way, and for the same reason: matching
+      // messages rots on the next shape pg words differently.)
+      if (entryDate) {
+        const covering = await getFiscalPeriodIdForDate(ctx.companyId, entryDate);
+        if (!covering) {
+          raced.push({
+            index, document_id: id,
+            reason: `no fiscal period could be resolved or created for ${fmtDate(entryDate)}`
+              + ' — create the fiscal year, then retry this document',
+          });
+          continue;
+        }
       }
       // NEVER err.message verbatim: the registry renders this text, and a pg
       // error's message names tables, columns and constraints.

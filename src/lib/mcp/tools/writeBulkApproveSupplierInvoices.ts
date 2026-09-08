@@ -162,7 +162,7 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
       );
     }
 
-    const { postable, skipped } = await partitionDocuments(ctx.companyId, ids, adapter);
+    const { postable, skipped, states } = await partitionDocuments(ctx.companyId, ids, adapter);
 
     if (args.dry_run === true) {
       const preview = ok({
@@ -194,7 +194,11 @@ export const bulkApproveSupplierInvoicesTool: McpTool = {
     // Sorted by invoice id, NOT the agent's order: each element takes a row
     // lock held to the end of the request, so two overlapping batches in
     // opposite orders would deadlock (40P01).
-    const ordered = [...postable].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const ordered = [...postable]
+      // The date rides along so the posting loop can tell a failed fiscal-period
+      // creation (a skip) from a genuine fault (which unwinds the batch).
+      .map((p) => ({ ...p, entryDate: states.get(p.id)?.entryDate }))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     const { posted, raced } = await postPartitionedDocuments(ctx, ordered, adapter, racedReason);
 
     // Back into the agent's own order, carrying its indexes — a human reads
