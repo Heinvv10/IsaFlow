@@ -130,11 +130,25 @@ async function agedDebtorConcentrationMatters(
   // the twelfth gate called it the pack's most damaging defect. Three figures,
   // all three named. It repeats page 11's quantum column deliberately, as the
   // credit-month matter does: a row quoting a ratio carries its numerator.
+  //
+  // AND THE BASE NAMES THE REPORT IT COMES OFF, because the balance sheet
+  // disagrees with it and both are right. Brightsphere's page 11 states
+  // debtors of 4 146 and its page 7 states trade receivables of (330): the
+  // first is the aged debtors report's total of what customers owe, the
+  // second the trade-receivable control account, which carries the credit
+  // balances the aging total does not. Nothing on either sheet said they were
+  // different measures, so a director comparing the two sheets read a
+  // contradiction. Naming the report is the whole fix available here — this
+  // module reaches one of the two sources and cannot reconcile them on the
+  // paper — and it costs no page: the demo sheet composes at 250.97mm of 255
+  // with the clause exactly as it did without it, and prints the same seven
+  // matters.
   return [{
     kind: 'finding',
     issue: `Aged debtor concentration: ${largest.entityName} owes `
       + `${formatMoney(round2(largest.total), { scale: PACK_SCALE })}, ${pct.toFixed(1)}% of all `
-      + `debtors owed, which come to ${inScale(formatMoney(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}`,
+      + 'debtors owed on the aged debtors report, which come to '
+      + `${inScale(formatMoney(report.totals.total, { scale: PACK_SCALE }), PACK_SCALE)}`,
     quantum: round2(largest.total),
     owner: 'Credit control',
     movement: NO_PRIOR_MEETING_RECORD,

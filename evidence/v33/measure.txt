@@ -1,0 +1,29 @@
+# Mean 8-bit luminance per page as a % of white (LOWER = more ink). v32 -> v33.
+
+===== demo =====
+p-01 Cover                          v32  96.1%   v33  96.1%   +0.0
+p-02 Contents                       v32  98.5%   v33  98.5%   +0.0
+p-03 Highlights                     v32  96.7%   v33  96.7%   +0.0
+p-04 Commentary and actions         v32  97.2%   v33  97.2%   +0.0
+p-05 Group results                  v32  96.2%   v33  96.2%   +0.0
+p-06 Income statement               v32  96.2%   v33  96.2%   -0.0
+p-07 Balance sheet                  v32  96.5%   v33  96.4%   -0.1
+p-08 Cash                           v32  97.0%   v33  97.0%   -0.0
+p-09 Scorecard                      v32  97.3%   v33  97.3%   -0.0
+p-10 Trends                         v32  96.3%   v33  96.3%   -0.0
+p-11 Matters for the board          v32  97.0%   v33  97.0%   +0.0
+p-12 Basis of preparation           v32  95.4%   v33  95.4%   +0.0
+
+===== brightsphere =====
+p-01 Cover                          v32  96.0%   v33  96.0%   +0.0
+p-02 Contents                       v32  98.6%   v33  98.6%   +0.0
+p-03 Highlights                     v32  96.6%   v33  96.6%   +0.0
+p-04 Commentary and actions         v32  97.1%   v33  97.1%   -0.0
+p-05 Group results                  v32  96.4%   v33  96.4%   +0.0
+p-06 Income statement               v32  96.7%   v33  96.7%   -0.0
+p-07 Balance sheet                  v32  96.0%   v33  96.0%   -0.0
+p-08 Cash                           v32  97.0%   v33  97.0%   -0.0
+p-09 Scorecard                      v32  97.4%   v33  97.4%   +0.0
+p-10 Trends                         v32  97.3%   v33  97.3%   +0.0
+p-11 Matters for the board          v32  97.1%   v33  97.1%   -0.0
+p-12 Basis of preparation           v32  95.3%   v33  95.3%   +0.0

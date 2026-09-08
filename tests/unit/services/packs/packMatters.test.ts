@@ -228,6 +228,15 @@ describe('buildMatters', () => {
     const base = Number(/come to ([\d\u2009\u00a0 ]+)/.exec(issue)![1]!.replace(/[^\d]/g, ''));
     expect(base, 'the matter states no base for its percentage').toBeGreaterThan(0);
 
+    // AND THE BASE NAMES THE REPORT IT IS READ OFF. Brightsphere's page 11
+    // states debtors of 4 146 and its page 7 states trade receivables of
+    // (330): the aging total is what customers owe, the balance-sheet line is
+    // the control account net of credit balances, and until the report was
+    // named a director comparing two sheets read a contradiction between
+    // them.
+    expect(issue, 'the base does not say which report it comes from')
+      .toContain('of all debtors owed on the aged debtors report');
+
     // The quantum the table prints, at the pack's own scale — and the
     // sentence states the SAME figure, because page 4 has no column to read
     // it from.

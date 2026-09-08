@@ -64,15 +64,43 @@ interface PeriodCounterpart {
   /** Which page carries the period figure, in the words the contents entry
    *  for that page uses. */
   page: string;
+  /**
+   * HOW THE PERIOD FIGURE IS ARRIVED AT, on the page that prints it.
+   *
+   * Required on every entry rather than defaulted, because the one measure
+   * where it is not "the period totals" is the one where the reader is most
+   * likely to be misled, and a default is what an author forgets. Debtor days
+   * is ANNUALISED: 59 over 101 times 365 is the 213 the scorecard prints,
+   * over a reporting period of 250 days — on the period's own day count the
+   * same book is 146 days. A director reads 213 against a 30-day target and
+   * a third of that gap is the multiplier, which page 12 discloses and page 9
+   * did not.
+   *
+   * The clause is spent out of the sentence it replaces, not added to it:
+   * page 9 composes at 253.29mm in a 255mm box, so a second line of footnote
+   * costs 3.88mm the sheet does not have and `fitPageToBox` answers by
+   * dropping the whole note. "annualised on 365 days whatever the period's
+   * own length" is shorter than "measured on the period totals" plus the
+   * 30 characters of slack the wrapped pair had left, and the page does not
+   * move.
+   */
+  wholePeriodBasis: string;
 }
 
+/** What every measure but one is: a total over the reporting window. */
+const ON_THE_PERIOD_TOTALS = 'measured on the period totals';
+
 export const PERIOD_COUNTERPARTS: Record<string, PeriodCounterpart> = {
-  'trend-revenue': { measure: 'revenue', page: 'income statement page' },
-  'trend-gross-margin': { measure: 'gross margin', page: 'income statement page' },
-  'trend-operating-expenses': { measure: 'operating expenses', page: 'income statement page' },
-  'trend-net-profit': { measure: 'net profit', page: 'group results page' },
-  'trend-cash': { measure: 'cash', page: 'cash page' },
-  'trend-debtor-days': { measure: 'debtor days', page: 'scorecard page' },
+  'trend-revenue': { measure: 'revenue', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-gross-margin': { measure: 'gross margin', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-operating-expenses': { measure: 'operating expenses', page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-net-profit': { measure: 'net profit', page: 'group results page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-cash': { measure: 'cash', page: 'cash page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
+  'trend-debtor-days': {
+    measure: 'debtor days',
+    page: 'scorecard page',
+    wholePeriodBasis: "annualised on 365 days whatever the period's own length",
+  },
 };
 
 /** "a, b and c". */
@@ -144,7 +172,7 @@ export function trendWindowNote(
   // 6.5mm on a sheet that composes within 12 of its box.
   //
   // AND IT QUALIFIES THE ENDPOINT RATHER THAN ONLY EXPLAINING THE METHOD.
-  // It read "…is taken on the days posted, not a full one", which states how
+  // It read "…is taken on the sums posted, not a full one", which states how
   // the number was made and leaves the reader to draw the conclusion. Page 10
   // is the only sheet in the pack that plots RATIOS ending in the stub, and
   // it was the only sheet not carrying the cover's "not comparable with the
@@ -154,10 +182,36 @@ export function trendWindowNote(
   // other sheet's does, in the pack's own words (`partialMonthClause`), so
   // one wording covers the whole document.
   //
+  // AND THE UNIT IS THE MONEY, NOT A DAY COUNT. It read "taken on the days
+  // posted", which page 12 disproves in its own words: the trends page
+  // "multiplies each month's ratio by the days in that month", and Sep's 60
+  // debtor days is 59 over 30 times THIRTY, not times the seven days posted.
+  // The clause was describing the numerator's window with the denominator's
+  // multiplier and got a reader to the wrong arithmetic either way, so it
+  // names the sums the ratio is taken on and makes no claim about days at
+  // all. "sums" for "days" is character-for-character, which is the whole of
+  // why it is that word: this note has ZERO characters of slack — three more
+  // takes it to another line and `fitPageToBox` answers by dropping the note
+  // entire, which is measured, not feared (252.47mm of 255 with the clause,
+  // 236.04 with three characters added, the difference being the note).
+  //
+  // AND THE UNIT IS THE MONEY, NOT A DAY COUNT. It read "taken on the days
+  // posted", which page 12 disproves in its own words: the trends page
+  // "multiplies each month's ratio by the days in that month", and Sep's 60
+  // debtor days is 59 over 30 times THIRTY, not times the seven days posted.
+  // The clause was describing the numerator's window with the denominator's
+  // multiplier and got a reader to the wrong arithmetic either way, so it
+  // names the sums the ratio is taken on and makes no claim about days at
+  // all. "sums" for "days" is character-for-character, which is the whole of
+  // why it is that word: this note has ZERO characters of slack — three more
+  // takes it to another line and `fitPageToBox` answers by dropping the note
+  // entire, which is measured, not feared (252.47mm of 255 with the clause,
+  // 236.04 with three characters added, the difference being the note).
+  //
   // ONE CLAUSE, AND THE LENGTH IS AGAIN THE WHOLE OF THE DESIGN — the same
   // lesson the `debtorDays` clause above records. The first wording named the
   // panels ("Gross margin and Debtor days end on the part month: a ratio
-  // there is computed on the days posted, so its level is not comparable with
+  // there is computed on the sums posted, so its level is not comparable with
   // the months before it") and ran to two lines, and `fitPageToBox` paid for
   // them by dropping THIS ENTIRE NOTE from the live demo pack — so the sheet
   // lost the whole month-versus-period reconciliation in order to qualify two
@@ -167,7 +221,7 @@ export function trendWindowNote(
   // MEANS for a ratio, and that is what this says.
   const partRatios = ratiosEndingOnPartMonth.length === 0
     ? ''
-    : ' A ratio ending in the part month is taken on the days posted, so its level is not '
+    : ' A ratio ending in the part month is taken on the sums posted, so its level is not '
       + 'comparable with the months before it.';
   return {
     heading: 'Period',
@@ -224,7 +278,7 @@ export function periodWindowFootnotes(
     number,
     text:
       `${measure} on this page — the ${pageName.toLowerCase()} page — is the figure for the WHOLE `
-      + 'reporting period, measured on the period totals; the trends page plots the same measure '
+      + `reporting period, ${counterpart.wholePeriodBasis}; the trends page plots the same measure `
       + 'one month at a time. Different windows: the two will not agree.',
   }];
 }

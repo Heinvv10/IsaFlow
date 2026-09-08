@@ -35,7 +35,8 @@ import type {
   PackPagesDocument,
 } from './packPageModel';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
-import { formatPackTimestamp } from './packPeriodLabel';
+import { comparativeLengthClause, formatPackTimestamp } from './packPeriodLabel';
+import type { PeriodWindow } from '@/modules/accounting/services/reports/priorPeriod';
 import { draftStatusSentence, type PackDraftReason } from './packDraftStatus';
 import { buildDefinitions } from './packDefinitions';
 import { liquidityMetricNames, NO_INVENTORY_CLASSIFIED } from './packScorecard';
@@ -223,12 +224,37 @@ export const ROUNDING_FOOTNOTES: PackFootnote[] = [{ number: 1, text: ROUNDING_C
  * built from `comparative.label` rather than re-formatted here, so the printed
  * claim and the one the integrity gate checks are the same string; a second
  * formatting of the same dates is how the page and the gate start disagreeing.
+ *
+ * AND ITS LENGTH, BESIDE THE COLUMN IT QUALIFIES. 1 January to 7 September
+ * 2026 is 250 days and 26 April to 31 December 2025 is also 250 — which is
+ * what makes the prior column, every change percentage taken across it and
+ * every annualised day count comparable at all, and the pack stated it
+ * nowhere. `comparativeLengthClause` MEASURES the two windows rather than
+ * asserting a match, so a pack whose comparative is a different length prints
+ * the mismatch in the same place.
+ *
+ * HERE AND NOT ON PAGE 12, AND THAT WAS MEASURED. Page 12's own "Comparative
+ * period" fact reads across an 83mm column at 8.5pt and is one line with five
+ * characters to spare, so any clause at all takes it to two — and on the live
+ * demo fixture whose EBITDA bridge rounds, page 12 composes at 252.41mm in a
+ * 255mm box, so that line costs 4.24mm the sheet does not have and
+ * `fitPageToBox` answers by dropping the Colour key. This footnote is one
+ * line with 57 characters spare on all three statement pages, and it prints
+ * directly under the column it is about rather than three sheets away.
  */
-export function statementFootnotes(comparative: PackComparativePeriod | null): PackFootnote[] {
+export function statementFootnotes(
+  comparative: PackComparativePeriod | null,
+  /** The window the ACTUAL column was read over — see `comparativeLengthClause`. */
+  reportingWindow: PeriodWindow,
+): PackFootnote[] {
   if (comparative === null) return ROUNDING_FOOTNOTES;
   return [
     ...ROUNDING_FOOTNOTES,
-    { number: 2, text: `The prior column is the period ${comparative.label}.` },
+    {
+      number: 2,
+      text: `The prior column is the period ${comparative.label} — `
+        + `${comparativeLengthClause(reportingWindow, comparative)}`,
+    },
   ];
 }
 

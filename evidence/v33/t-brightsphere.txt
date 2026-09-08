@@ -1,0 +1,750 @@
+              BRIG H TSP H ERE TECH N OL OG IES (P TY ) LTD
+
+
+
+
+                                                      IFRS FOR SMES
+
+
+
+        Brightsphere Technologies (Pty) Ltd
+                                                         Board Pack
+                                          1 January 2026 to 7 September 2026
+
+
+
+
+                        T
+                     AF
+                  DR
+
+
+
+                                                        Generated 2026-09-08
+
+
+                                                Confidential — for board use
+ Preparation Prepared by IsaFlow on 8 September 2026. This pack is a DRAFT — no commentary on this period
+                                  has been approved, so nobody has signed off what it says.
+    Period covered Sep 2026 is a part month: it covers 7 of its 30 days, so its figure is not comparable with the
+                                                          months before it.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026   Confidential — for board use · DRAFT   1 / 12
+Contents
+
+1 Cover
+
+2 Contents
+
+3 Highlights
+
+4 Commentary and actions
+
+5 Group results
+
+6 Income statement
+
+7 Balance sheet
+
+8 Cash
+
+9 Scorecard
+
+10 Trends
+
+11 Matters for the board
+
+12 Basis of preparation
+Basis of preparation
+                        T
+                     AF
+In short IFRS for SMEs. 1 January 2026 to 7 September 2026. Figures in R'000 (ZAR), draft. Full basis on page
+12.
+
+Caveats
+Caveat 1 No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be
+computed. No acid-test ratio is published; liquidity is read off the current and cash ratios.
+                  DR
+
+Caveat 2 This pack is a DRAFT — no commentary on this period has been approved, so nobody has signed off what
+it says.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026   Confidential — for board use · DRAFT   2 / 12
+H I G H L I G H TS                                                                                                             PE RFO RMAN CE
+
+Revenue of (5 535). There is no meaningful operating margin on non-
+positive turnover.
+           1                                                                                                                    1
+Revenue                               Gross margin                           Operating profit                       Net profit
+
+(5 535)                               Revenue is not
+                                      positive, so there is                  (1 819)                                (1 408)
+                                      no turnover to take a
+                                      margin of.
+
+
+
+
+       1
+Cash                                  Debt-to-equity                         Debtor days                            Working capital
+
+(3 453)                               Equity is negative —
+                                      liabilities exceed
+                                                                             Revenue is not
+                                                                             positive, so days of                   (9 164)
+                                      assets, so this ratio                  sales outstanding
+                                      inverts and cannot be                  cannot be measured.
+
+
+
+                           T          ranked.
+                        AF
+Commentary
+Revenue The prior figure is not a positive base, so no percentage change is meaningful.
+Gross margin Not available. Revenue is not positive, so there is no turnover to take a margin of.
+                     DR
+
+Operating profit The prior figure is not a positive base, so no percentage change is meaningful.
+Net profit The prior figure is not a positive base, so no percentage change is meaningful.
+Cash The prior figure is not a positive base, so no percentage change is meaningful.
+Debt-to-equity Not available. Equity is negative — liabilities exceed assets, so this ratio inverts and cannot be
+ranked.
+Debtor days Not available. Revenue is not positive, so days of sales outstanding cannot be measured.
+Working capital The prior figure is not a positive base, so no percentage change is meaningful.
+
+Reading these tiles
+Comparison basis Each movement is measured against 26 April 2025 to 31 December 2025 — the comparative
+period the basis page states, and the prior column the statement pages print.
+Absent comparatives A tile with no movement says why in its own caption above. A movement is never shown as a
+move from zero.
+Part month Every tile covers the whole period, whose last month — Sep 2026 — is 7 of its 30 days.
+Scale Figures are in R'000 (ZAR). Figures are rounded to the nearest R'000, so components may not add exactly
+to the totals shown.
+1 Each tile's figure covers the WHOLE reporting period; the sparkline beside it runs over the monthly trend series, a different window. 3 of 8 tiles
+  carry one; the rest have no monthly series behind them and show none rather than a line drawn from a single point.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026            Confidential — for board use · DRAFT          3 / 12
+C O M M E N TA R Y A N D A C T I O N S                                                                            PE RFO RMAN CE
+
+3 of 31 matters requiring a board decision are put to the board on this
+page, the largest carrying 4 128 of exposure, in R'000.
+
+Commentary pending approval.
+
+   For the board
+   D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
+
+      Annual Financial Statements for FY2026: 10 days overdue (due 28
+      August 2026) — Whether to file immediately, accepting any penalty
+      exposure.
+      Apr 2026: expenses for the month are a net credit — more was reversed
+      out of expense accounts than was posted into them, so the month
+      reports a loss even with the credit, as the period does. The quantum is
+      that credit, 4 128; the trends panel's net profit of (1 408) is that credit
+      plus revenue and other income of (5 536). Whether the reversals behind
+      the credit belong to this period.
+      Aged debtor concentration: Blitz Fibre owes 3 192, 77.0% of all debtors
+      owed on the aged debtors report, which come to 4 146, in R'000 —
+
+
+
+
+                        T
+      Whether to escalate, hold credit, or refer the account for write-off.
+      3 further matters follow on the matters page.
+                     AF
+      25 further matters are not printed in this pack; the matters page states
+      what they come to.
+
+How this page is prepared
+Commentary This page carries the board's own commentary on the period. It prints only once an approver has
+signed it; until then the page says so rather than printing unapproved text.
+                  DR
+
+Action panel The panel headed 'For the board' is derived from the same checks the matters page tabulates —
+aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings — in the order
+the matters page prints them: matters with no single rand amount first, then the largest by exposure. It is
+machine-written and states the decision each matter is waiting on, never a recommendation.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026   Confidential — for board use · DRAFT   4 / 12
+G R O U P R E S U LT S                                                                                                       FI N AN CI AL S
+
+Net profit is lowest at (1 408) in Apr 2026 and highest at nil in 11 of
+the 12 months.
+
+                                                                   R'000
+                                                             OTHE R              COS T OF                                                NE T
+                                    RE VE NU E                                                   OPE RATI NG       OTHE R
+                                                            I NCOME                 S AL E S                                          PROFI T
+
+Oct 2025                                      –                     –                     –                   –          –                  –
+
+Nov 2025                                      –                     –                     –                   –          –                  –
+
+Dec 2025                                      –                     –                     –                   –          –                  –
+
+Jan 2026                                      –                     –                     –                   –          –                  –
+
+Feb 2026                                      –                     –                     –                   –          –                  –
+
+Mar 2026                                      –                     –                     –                   –          –                  –
+
+Apr 2026                               (5 535)                     (1)                    –            (3 717)       (411)            (1 408)
+
+May 2026                                      –                     –                     –                   –          –                  –
+
+Jun 2026                                      –                     –                     –                   –          –                  –
+
+Jul 2026
+
+Aug 2026
+                        T                     –
+
+                                              –
+                                                                    –
+
+                                                                    –
+                                                                                          –
+
+                                                                                          –
+                                                                                                              –
+
+                                                                                                              –
+                                                                                                                         –
+
+                                                                                                                         –
+                                                                                                                                            –
+
+                                                                                                                                            –
+                     AF
+Sep 2026 (part)                               –                     –                     –                   –          –                  –
+
+12 months to Sep 2026
+                                       (5 535)                     (1)                    –            (3 717)       (411)            (1 408)
+(part)
+
+
+Reading this table
+                  DR
+
+The columns Revenue is turnover; Other income is what the income statement reports separately. Expenses fall
+in three: Cost of sales; Operating, above the operating line; Other, below it. The two income columns less the
+three expense columns are the month's net profit, so each row adds across.
+The window This table covers 12 months to Sep 2026 (part), which is the series page 10 draws. The income
+statement overleaf carries the reporting period's own totals against the comparative. Sep 2026 is a part month:
+it covers 7 of its 30 days, so its figure is not comparable with the months before it.
+
+The reporting period's EBITDA
+EBITDA EBITDA for the reporting period is (1 971). The comparative period's is nil. It is operating profit plus the
+depreciation and amortisation charged in the period, and it is presented because a board asks for it, not because
+a standard requires it. Every other figure on this sheet is one month's; this one is the reporting period's. The basis
+of preparation reconciles both to operating profit line by line.
+
+  D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
+
+  Nothing at all is posted in 11 of the 12 months shown: Apr 2026 alone carries the whole of the postings over 12
+  months to Sep 2026 (part). The largest figure among the months above is Apr 2026's revenue of (5 535): more
+  was reversed out of those accounts than was posted into them.
+1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026          Confidential — for board use · DRAFT       5 / 12
+I N C O M E S TAT E M E N T                                                                                                                   FI N AN CI AL S
+
+Revenue of (5 535) gives no meaningful margin base.
+
+                                                                         R'000
+                                                ACTU AL           PRI OR                CHANG E              CHANG E %                      % OF RE VE NU E
+                                                                                                                            a                               b
+Revenue                                          (5 535)                 –               (5 535)                       n/m                            n/m
+                                                                                                                            a                               b
+   Cost of sales                                        –                –                      –                      n/m                            n/m
+                                                                                                                            a                               b
+Gross profit                                     (5 535)                 –               (5 535)                      n/m                             n/m
+                                                                                                                            a                               b
+   Operating expenses                            (3 717)                 –               (3 717)                       n/m                            n/m
+                                                                                                                            a                               b
+   Other income                                        (1)               –                   (1)                       n/m                            n/m
+                                                                                                                            a                               b
+Operating profit                                 (1 819)                 –               (1 819)                      n/m                             n/m
+                                                                                                                            a                               b
+   Other expenses                                  (411)                 –                (411)                        n/m                            n/m
+                                                                                                                            a                               b
+Net profit                                       (1 408)                 –               (1 408)                      n/m                             n/m
+
+a n/m — The prior figure is not a positive base, so no percentage change is meaningful.
+b n/m — Revenue for the period is not positive, so a share of it is not meaningful.
+
+
+
+
+                         T
+Revenue of (5 535) bridges to net profit of (1 408).
+                       R'000
+                       –
+                      AF
+                 (1 000)       (5 535)                        (5 535)                                               (411)          (1 408)
+                                                                                (3 717)             (1)
+                 (2 000)
+                 (3 000)
+                 (4 000)
+                 (5 000)                          –
+                 (6 000)
+                                  e                s              it                s               me                es               it
+                                nu              ale            rof              en
+                                                                                  se              co                ns              rof
+                              ve              fS             sP                                                   pe              tP
+                            Re             sto            ros                Exp             er In              Ex              Ne
+                                         Co              G                 g                h                 r
+                                                                        tin               Ot                he
+                                                                                                          Ot
+                   DR
+
+                                                                     era
+                                                                   Op
+
+
+  D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
+  Revenue moved the most in money, down 5 535.
+
+Negative revenue
+What this means Revenue is (5 535). Turnover below zero is not a period a business can trade — it means the
+revenue accounts are in net debit, commonly credit notes or reversals exceeding the period's invoicing, or a
+receipt posted to an income account the wrong way round. Every margin in this pack divides by revenue, so each
+of them is reported as not meaningful rather than computed off a negative base. The pack reports the ledger as it
+stands; the revenue accounts should be traced before it is relied on.
+1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
+2 The prior column is the period 26 April 2025 to 31 December 2025 — 250 days, the same length as the reporting period.
+3 The table states each line as the ledger carries it. The bridge below POSITIONS each bar by its effect on net profit — up where the line added to
+  it, down where it took away — and COLOURS it by what the line is: green for income, red for cost, in every pack and whichever way the period
+  ran. Operating Expenses of (3 717) in the table is labelled with that same figure on the bridge, drawn UPWARDS because that is the direction it
+  increases profit, and in red, because it is a cost line. The label and the position are the same fact read two ways.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026                     Confidential — for board use · DRAFT          6 / 12
+BAL AN CE S H E E T                                                                                                               FI N AN CI AL S
+
+Negative equity of (2 176).
+
+                                                                     R'000
+                                                              ACTU AL                PRI OR                 CHANG E                 CHANG E %
+
+   Current assets                                                (3 372)                  143                 (3 515)                (2463.6%)
+
+   Non-current assets                                             6 564               6 412                        152                      +2.4%
+
+Total assets                                                      3 192               6 555                   (3 363)                      (51.3%)
+
+   Current liabilities                                            5 792               7 747                   (1 955)                      (25.2%)
+                                                                                                                                                   a
+   Non-current liabilities                                        (424)               (424)                         –                        n/m
+
+Total liabilities                                                 5 368               7 323                   (1 955)                      (26.7%)
+                                                                                                                                                   a
+Total equity                                                     (2 176)              (768)                   (1 408)                        n/m
+a n/m — The prior figure is not a positive base, so no percentage change is meaningful.
+
+
+Assets of 3 192 are matched by liabilities of 5 368 and equity of (2 176).
+
+                     R'000
+                8 000
+
+                6 000
+                          T
+                       AF
+                4 000
+
+                2 000
+
+                     –
+
+               (2 000)
+                    DR
+
+               (4 000)
+                                                Prior                                                    Current
+
+
+                                                        Assets         Liabilities         Equity
+
+
+  D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
+  Current assets cover current liabilities at negative 58.2%; working capital stands at (9 164).
+
+Negative equity
+Consequence Total equity is (2 176). Liabilities exceed assets by this amount, which may affect covenant
+compliance and the going-concern assessment.
+1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
+2 The prior column is the period 26 April 2025 to 31 December 2025 — 250 days, the same length as the reporting period.
+3 Memorandum: trade receivables are (330) and trade payables nil at the period end, against nil and nil at the comparative period end, in R'000.
+  The scorecard page states why neither day count can be measured on these figures.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026               Confidential — for board use · DRAFT       7 / 12
+CAS H                                                                                                                             FI N AN CI AL S
+
+Cash stands at (3 453); the comparative cash figure is negative, so the
+percentage change is not meaningful.
+
+                                                                       R'000
+                                                         ACTU AL                PRI OR                CHANG E                          CHANG E %
+                                                                                          a                      a                                a
+Opening cash                                                 (267)                n/m                      n/m                              n/m
+                                                                  b                       b                      b                                b
+Operating cash flow                                          n/m                  n/m                      n/m                              n/m
+                                                                   c                      c                      c                                c
+Investing cash flow                                          n/m                  n/m                      n/m                              n/m
+                                                                  d                       d                      d                                d
+Financing cash flow                                          n/m                  n/m                      n/m                              n/m
+                                                                                                                                                  e
+Closing cash                                              (3 453)                (267)                  (3 186)                             n/m
+
+a n/m — The period before the comparative period is not in this pack, so there is no earlier opening cash balance to measure this one against.
+b n/m — No operating cash flow figure was captured for this period.
+c n/m — No capital expenditure figure was captured for this period.
+d n/m — No financing cash flow figure was captured for this period.
+e n/m — The prior figure is not a positive base, so no percentage change is meaningful.
+
+
+Movement in cash, and why no bridge is drawn
+
+
+
+                         T
+This period Cash moved (267) to (3 453) over the period, a movement of (3 186). No bridge is drawn because
+there is nothing to bridge THROUGH: this pack’s figure set carries the period’s cash totals and none of the
+                      AF
+operating, investing or financing figures a cash flow statement is made of, so every step between the two
+balances would be one unmeasured step the width of the whole movement. Ask for the cash flow statement for
+the split.
+
+Closing cash fell from (267) at Oct 2025 to (3 453) at Sep 2026 (part), over 12 periods. Sep 2026 is a part
+month: it covers 7 of its 30 days, so its figure is not comparable with the months before it.
+                   DR
+
+                             R'000
+                         –
+
+                     (500)
+
+                   (1 000)
+
+                   (1 500)
+
+                   (2 000)
+
+                   (2 500)
+
+                   (3 000)
+
+                   (3 500)                                                                                                   (3 453)
+                       Oct 2025                                                                                      Sep 2026 (part)
+
+
+
+Commentary
+This period No operating cash flow figure was captured for this period.
+1 Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.
+2 The prior column is the period 26 April 2025 to 31 December 2025 — 250 days, the same length as the reporting period.
+3 Opening cash in the table above is the balance at the START of the reporting period. The closing-cash line below it plots 12 months to the
+  period end and opens at Oct 2025, so it starts from the balance at that month instead. Different windows: the two will not agree.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026           Confidential — for board use · DRAFT           8 / 12
+S CO RE CARD                                                                                                                PE RFO RMAN CE
+
+0 of 1 scored target was met this period.
+
+A. Profitability
+ ME TRI C                                                  ACTU AL              TARG E T          PRI OR                                 S TATU S
+                                                                     a                                      a
+ Gross margin                                                  n/m              +35.0%                n/m                NOT ME ANINGFU L
+                                                                     a                                      a
+ Operating margin                                              n/m                     –              n/m                NOT ME ANINGFU L
+
+
+B. Liquidity
+ ME TRI C                                                     ACTU AL                TARG E T                   PRI OR                   S TATU S
+
+ Current ratio                                                     (0.58)                  1.50                   0.02               MISSE D
+
+ Cash ratio                                                        (0.60)                     –                 (0.03)            U NSCORE D
+
+
+C. Working capital
+ ME TRI C                                                  ACTU AL              TARG E T          PRI OR                                 S TATU S
+                                                                     b                                   b
+ Debtor days                                                   n/m              30 days               n/m
+
+
+
+
+                         T
+                                                                                                                         NOT ME ANINGFU L
+                                                                     c                                      c
+ Creditor days                                                 n/m                     –              n/m                NOT ME ANINGFU L
+                      AF
+D. Leverage
+ ME TRI C                                                  ACTU AL              TARG E T          PRI OR                                 S TATU S
+                                                                     d                                   d
+ Debt-to-equity                                                n/m                 0.50               n/m                NOT ME ANINGFU L
+                                                                     e                                   e
+ Interest cover                                                n/m                     –              n/m                NOT ME ANINGFU L
+                   DR
+
+E. Cash flow
+ ME TRI C                                                  ACTU AL              TARG E T          PRI OR                                 S TATU S
+                                                                     f                                      f
+ Operating cash flow                                           n/m                     –              n/m                NOT ME ANINGFU L
+                                                                     g                                      g
+ Cash conversion cycle                                         n/m                     –              n/m                NOT ME ANINGFU L
+
+
+a n/m — Revenue is not positive, so there is no turnover to take a margin of.
+b n/m — Revenue is not positive, so days of sales outstanding cannot be measured.
+c n/m — Cost of sales is not positive, so days of purchases outstanding cannot be measured.
+d n/m — Equity is negative — liabilities exceed assets, so this ratio inverts and cannot be ranked.
+e n/m — Interest expense is not captured in the pack figure set.
+f n/m — No operating cash flow figure was captured for this period.
+g n/m — No inventory could be identified in the chart of accounts, so the cash conversion cycle cannot be computed.
+
+
+  D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
+  0 of 1 scored target was met this period, with 1 missed.
+
+Scoring basis
+Definitions Each metric is scored against the platform's default target. A target on a metric the figures cannot
+support is not counted as scored; the basis page defines the terms and every formula used here.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026             Confidential — for board use · DRAFT       9 / 12
+TRE N D S                                                                                                          PE RFO RMAN CE
+
+Revenue is nil in both the first and last of the 12 months, and (5 535)
+at its furthest, in Apr 2026.
+
+Revenue: nil in the first month and Sep 2026 (part) of the 12-          Operating expenses: nil in the first month and Sep 2026
+month series.                                                           (part) of the 12-month series.
+
+       –                                    –                                  –                                  –
+
+
+  (5 535)                                                                 (5 535)
+    Oct 2025                      Sep 2026 (part)                           Oct 2025                    Sep 2026 (part)
+
+
+
+
+Net profit: nil in the first month and Sep 2026 (part) of the           Cash fell from (267) to (3 453) in Sep 2026 (part) over 12
+12-month series.                                                        periods.
+
+       –                                    –                                  –
+
+
+                                                                                                                  (3 453)
+  (5 535)                                                                 (5 535)
+    Oct 2025                      Sep 2026 (part)                           Oct 2025                    Sep 2026 (part)
+
+
+
+
+                        T
+  D ERIVED F ROM T HE F IGU RES — NOT REVIEWED COMMENTARY
+                     AF
+  4 metrics are tracked over the period; each panel states where it started and where it ended.
+
+Reading these panels
+Scale Revenue, Operating expenses, Net profit and Cash share one y-scale, so none of them can look like it moved
+more than it did.
+                  DR
+
+Period Each panel plots one MONTH. The same measures print for the WHOLE reporting period, against the
+comparative — revenue and operating expenses on the income statement page, net profit on the group results
+page and cash on the cash page. Different windows: the two will not agree.
+
+Panels not drawn
+Why A board pack tracks six measures on this page — revenue, gross margin %, operating expenses, net profit,
+cash and debtor days — and 4 of the six could be drawn for this company. A panel is omitted when its figure is not
+meaningful in every period of the window: gross margin % and debtor days both need positive revenue, and no
+period here had any. Nothing is inferred in its place.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026   Confidential — for board use · DRAFT   10 / 12
+M AT T E R S F O R T H E B O A R D                                                                                             G O VE RN AN CE
+
+31 matters require a board decision, 30 of them carrying 9 386 of
+exposure, in R'000.
+
+                                                                                                                       D E CI S I ON
+ ISSUE                                                        QU ANTU M (R'0 0 0 )       OWNE R
+                                                                                                                       RE QU I RE D
+
+ Annual Financial Statements for FY2026: 10                                     n/m      Company secretary             Whether to file
+ days overdue (due 28 August 2026)                                                                                     immediately,
+                                                                                                                       accepting any penalty
+                                                                                                                       exposure.
+
+ Apr 2026: expenses for the month are a net                                   4 128      Finance                       Whether the
+ credit — more was reversed out of expense                                                                             reversals behind the
+ accounts than was posted into them, so the                                                                            credit belong to this
+ month reports a loss even with the credit, as                                                                         period.
+ the period does. The quantum is that credit,
+ 4 128; the trends panel's net profit of (1 408)
+ is that credit plus revenue and other income of
+ (5 536).
+
+ Aged debtor concentration: Blitz Fibre owes                                  3 192      Credit control                Whether to escalate,
+
+
+
+
+                         T
+ 3 192, 77.0% of all debtors owed on the aged
+ debtors report, which come to 4 146, in R'000
+                                                                                                                       hold credit, or refer
+                                                                                                                       the account for write-
+                                                                                                                       off.
+                      AF
+ Journal JE-2026-00084 (large round-number                                       207     Finance                       Whether the entry's
+ amount): Reversal of JE-2026-00056                                                                                    evidence stands, or it
+                                                                                                                       is referred for
+                                                                                                                       reversal.
+
+ Journal JE-2026-00086 (large round-number                                       207     Finance                       Whether the entry's
+                   DR
+
+ amount): Reversal of JE-2026-00055                                                                                    evidence stands, or it
+                                                                                                                       is referred for
+                                                                                                                       reversal.
+
+ Journal JE-2026-00124 (large round-number                                       161     Finance                       Whether the entry's
+ amount): Reversal of JE-2026-00016                                                                                    evidence stands, or it
+                                                                                                                       is referred for
+                                                                                                                       reversal.
+
+25 further matters are not printed. A board pack is the same twelve sheets for every company however busy its ledger, so this table is held to the
+paper this page has: matters with no single rand amount are listed first, then the largest by exposure. In total they come to 1 491, in R'000.
+
+Movement Not tracked — no prior board pack is stored to compare against. The same for every matter listed above.
+
+
+Commentary pending approval.
+
+What was checked
+Sources Aged debtor concentration, unreconciled bank items, unusual journals and overdue statutory filings. A
+source that fails is named as a matter, never dropped. No prior pack is stored, so movement is untracked.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026           Confidential — for board use · DRAFT        11 / 12
+B A S I S O F P R E PA R AT I O N                                                                                       G O VE RN AN CE
+
+Prepared under IFRS for SMEs from the IsaFlow general ledger, in
+R'000; 2 caveats qualify these figures, printed with the contents.
+
+Basis of preparation
+Standard IFRS for SMEs                                                  Rounding Figures are rounded to the nearest R'000, so
+Period 1 January 2026 to 7 September 2026. The series ends              components may not add exactly to the totals shown. A ratio
+on a part month: Sep 2026 covers 7 of its 30 days.                      taken on the unrounded figures may not reproduce from the
+Comparative period 26 April 2025 to 31 December 2025                    rounded ones beside it.
+Currency and rounding ZAR, figures in R'000.                            Extracted at 8 September 2026 at 03:20 SAST
+Source system IsaFlow general ledger                                    Ledger version 29 April 2026 at 12:39 SAST
+
+Negative figures                                                        Current ratio
+  In brackets — (12 345) — for currency, percentages and                   Current assets divided by current liabilities.
+  ratios alike. No minus sign is used anywhere in this pack.
+                                                                        Cash ratio
+  Only a positive value takes a +.
+                                                                          Cash and cash equivalents divided by current liabilities.
+Not meaningful (n/m)
+                                                                        Debt-to-equity
+  A measure the figures cannot support. The pack prints the
+                                                                          Total liabilities divided by total equity. Not reported on
+  reason rather than a number, never a zero. A dash (–) is that
+                                                                          negative equity: the quotient inverts.
+  zero: a figure measured and nil. A real amount too small to
+  show at this scale prints as <1, or (<1) where it is negative.        Interest cover
+
+Gross margin
+
+
+
+                        T
+   Gross profit (revenue less cost of sales), as a percentage of
+   revenue.
+                                                                           Operating profit divided by net interest expense. This pack
+                                                                           captures no interest expense line, so it is reported as not
+                                                                           meaningful.
+                     AF
+                                                                        Debtor days
+Operating margin
+                                                                          Trade receivables over revenue, times 365 — an annualised
+  Operating profit as a percentage of revenue.
+                                                                          figure on the scorecard and highlights, whatever the length
+Net profit margin                                                         of the reporting period. The trends page instead multiplies
+  Net profit, as a percentage of revenue.                                 each month's ratio by the days in that month, so the two do
+                                                                          not agree.
+EBITDA
+                  DR
+
+  Earnings before interest, tax, depreciation and amortisation          Creditor days
+  — a non-IFRS measure: operating profit plus the period's                 Trade payables over cost of sales, times 365 — annualised,
+  movement on depreciation and amortisation. That                          whatever the length of the reporting period. Not reported
+  movement is a NET CREDIT here — more reversed out of                     where there is no cost of sales.
+  those accounts than posted in — so the add-back is negative
+                                                                        Cash conversion cycle
+  and EBITDA sits below operating profit. The ledger's
+                                                                          Debtor days plus inventory days, less creditor days — each
+  movement, not a sign error.
+                                                                          annualised on 365 days, as above. Not reported where no
+                                            ACTU AL     PRI OR            account is classified as inventory.
+    Operating profit (IFRS)                   (1 819)          –
+                                                                        Operating cash flow
+    Add back: depreciation and                                            Cash generated by operations before investing and financing
+                                                (152)          –
+    amortisation                                                          activities.
+    EBITDA                                    (1 971)          –        Scored, unscored and not meaningful
+                                                                          Scored against the platform's default target. A metric with
+Working capital
+                                                                          no target is unscored rather than assumed met; one the
+  Current assets less current liabilities, in rand.
+                                                                          figures cannot support is not meaningful. Neither counts as
+                                                                          a pass or a miss.
+
+
+Colour
+Key On the bridges, green is an income line, red a cost line and dark ink a total; the two also differ in lightness, so
+a monochrome copy still separates them. The balance sheet's bands are one ink at three lightnesses, legended
+on the chart. Red on the scorecard marks a missed target.
+
+
+
+
+Brightsphere Technologies (Pty) Ltd · Board Pack · 1 January 2026 to 7 September 2026     Confidential — for board use · DRAFT         12 / 12
+

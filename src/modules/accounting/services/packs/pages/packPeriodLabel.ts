@@ -79,3 +79,38 @@ export function formatPackTimestamp(value: string): string {
   if (day === '') return value;
   return `${day} ${part('month')} ${part('year')} at ${part('hour')}:${part('minute')} SAST`;
 }
+
+/**
+ * WHETHER THE COMPARATIVE IS THE SAME LENGTH AS THE PERIOD IT SITS BESIDE.
+ *
+ * The fifteenth gate withheld credit for this rather than failing a
+ * criterion: 1 January to 7 September 2026 is 250 days and 26 April to 31
+ * December 2025 is also 250, which is what makes the prior column and the
+ * annualised day counts comparable at all, and the pack said so nowhere. A
+ * reader who checks it has the most reassuring fact about the comparison; a
+ * reader who does not check it is entitled to be told.
+ *
+ * It states the MEASUREMENT and not a verdict, so the clause is as true of a
+ * pack whose windows differ — which is the case a director needs it for. The
+ * day counts are inclusive of both endpoints, counted off the ISO parts
+ * through `Date.UTC` rather than `new Date(iso)`: this host is UTC+2 and a
+ * local-midnight parse is a day short of the window it is measuring.
+ */
+function inclusiveDays(start: string, end: string): number {
+  const utc = (iso: string): number => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return Date.UTC(y ?? 0, (m ?? 1) - 1, d ?? 1);
+  };
+  return Math.round((utc(end) - utc(start)) / 86_400_000) + 1;
+}
+
+export function comparativeLengthClause(
+  current: { start: string; end: string },
+  prior: { start: string; end: string },
+): string {
+  const days = inclusiveDays(prior.start, prior.end);
+  const reporting = inclusiveDays(current.start, current.end);
+  return days === reporting
+    ? `${days} days, the same length as the reporting period.`
+    : `${days} days against the reporting period's ${reporting}.`;
+}

@@ -174,7 +174,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
           start: set.priorWindow.start,
           end: set.priorWindow.end,
         };
-  const statementNotes = statementFootnotes(comparativePeriod);
+  const statementNotes = statementFootnotes(comparativePeriod, set.currentWindow);
 
   const tiles = buildHighlightTiles(set, trend, p);
   const monthlyResults = buildMonthlyResultsTable(trend, p);

@@ -145,10 +145,22 @@ const TERMS: PackDefinition[] = [
     // not, so the pack prints "+77.8%" in a change column and "626" in a
     // money column two centimetres apart. It is consistent within every
     // column and unambiguous, and it was the one convention in the pack that
-    // page 12 applied without declaring. Stated as the rule the three
-    // formatters actually follow — only a CHANGE takes the sign — rather than
-    // as "percentages take a plus", which is false of page 10's shares and
-    // page 5's biggest-month share.
+    // page 12 applied without declaring.
+    //
+    // THE NOUN IS "VALUE", AND THE ROUND THAT WROTE "CHANGE" GOT THE PACK'S
+    // OWN PRACTICE WRONG. A + is not confined to a change column: page 6's
+    // % of revenue column prints +100.0%, +1410.8%, +223.7% and +11.6%, and
+    // page 9 prints a target of +35.0% — five signed figures on two sheets,
+    // none of them a change, each disproving the sentence that was meant to
+    // describe them. The practice itself never wavered, which is why eleven
+    // gates read the column and the clause and only the fourteenth put them
+    // side by side.
+    //
+    // The clause is an EXCLUSION and stays one: it says a + never sits on a
+    // figure that is not positive, not that every positive figure takes one
+    // (money does not — page 6 prints 626 unsigned two centimetres from
+    // +77.8%). "Value" is the widest noun the exclusion is true of, and it is
+    // one character shorter than the word it replaces.
     //
     // THE WORD IS "ONLY", AND IT IS FIVE CHARACTERS OF PAPER. The clause
     // began "A change carries a + where it is positive; a level and an amount
@@ -158,7 +170,7 @@ const TERMS: PackDefinition[] = [
     // carries the exclusion in one word, and the entry is three lines as it
     // was; the minus-sign claim beside it is untouched.
     term: 'Negative figures',
-    definition: 'In brackets — (12 345) — for currency, percentages and ratios alike. No minus sign is used anywhere in this pack. Only a positive change takes a +.',
+    definition: 'In brackets — (12 345) — for currency, percentages and ratios alike. No minus sign is used anywhere in this pack. Only a positive value takes a +.',
   },
   {
     // THE DASH MEANT TWO THINGS AND THIS PAGE DEFINED NEITHER. `formatMoney`

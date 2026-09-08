@@ -25,7 +25,9 @@ import {
   tradeBalancesFootnote,
 } from '@/modules/accounting/services/packs/pages/packTradeBalances';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
+import { comparativeLengthClause } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
 import { formatMoney, inProse, MONEY_SCALES } from '@/lib/format/money';
+import { formatFigureText } from '@/components/accounting/packs/primitives/packFigureText';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -80,7 +82,51 @@ describe('the balance sheet prints the balances its day counts are taken on', ()
       expect(memo).toContain(inWords(input.set.current.accountsPayable));
       expect(memo).toContain(`in ${PACK_SCALE}`);
     });
+
+    it(`states the comparative balances wherever there is a comparative — ${name}`, () => {
+      const memo = pageNamed(input, 'Balance sheet').footnotes
+        .map((f) => f.text).find((t) => t.startsWith('Memorandum:'))!;
+      const prior = input.set.prior;
+      if (prior === null) {
+        expect(memo, 'a first-period pack has no comparative to name').not.toContain('comparative period end');
+        return;
+      }
+      expect(memo).toContain('at the comparative period end');
+      expect(memo).toContain(inWords(prior.accountsReceivable));
+      expect(memo).toContain(inWords(prior.accountsPayable));
+    });
   }
+
+  /**
+   * THE PRIOR COLUMN'S TURN — 1 035 comes back out.
+   *
+   * The fifteenth gate found the scorecard's creditor days PRIOR of 1 035 was
+   * the one figure in either pack whose numerator appeared on no sheet: the
+   * memorandum carried the actual column's balances and stopped there. The
+   * same division as the actual column, on the comparative period's own
+   * payable and cost of sales, both now printed.
+   */
+  it('the printed comparative payable reproduces the printed prior creditor days', () => {
+    const set = liveDemoRenderedInput.set;
+    expect(set.prior, 'this fixture must be a company that HAS a comparative').not.toBeNull();
+
+    const row = buildBoardPackPages(liveDemoRenderedInput).pages
+      .flatMap((p) => p.blocks)
+      .flatMap((b) => (b.kind === 'scorecard' ? b.groups.flatMap((g) => g.rows) : []))
+      .find((r) => r.metric === 'Creditor days');
+    expect(row?.prior?.value, 'the scorecard prints no prior creditor days').not.toBeNull();
+    const days = row!.prior!.value!;
+
+    expect((set.prior!.accountsPayable / set.prior!.costOfSales) * 365).toBeCloseTo(days, 1);
+
+    // And off the ROUNDED pair a director divides, to the drift page 12's
+    // rounding note licenses — half a unit each way on each input.
+    const fromTheSheet = (printed(set.prior!.accountsPayable) / printed(set.prior!.costOfSales)) * 365;
+    const half = MONEY_SCALES[PACK_SCALE] / 2;
+    const bound = days
+      * (half / Math.abs(set.prior!.accountsPayable) + half / Math.abs(set.prior!.costOfSales));
+    expect(Math.abs(fromTheSheet - days)).toBeLessThanOrEqual(bound);
+  });
 
   /**
    * THE POINT OF PRINTING THEM — 213 comes back out.
@@ -136,7 +182,12 @@ describe('the balance sheet prints the balances its day counts are taken on', ()
   });
 
   const CASES: Array<[string, PackFigureSet, string, string[]]> = [
-    ['both measurable', withBases(1_000_000, 400_000), 'both', ['debtor days and creditor days']],
+    // The scope clause is part of the claim, not decoration: without it the
+    // sentence says the two balances are the numerators of BOTH scorecard
+    // columns, which was true of the actual column alone until the
+    // comparative pair was printed beside them.
+    ['both measurable', withBases(1_000_000, 400_000), 'both',
+      ['debtor days and creditor days', 'each column on its own period']],
     ['debtor days only', withBases(1_000_000, 0), 'debtorOnly', ['Trade receivables is the numerator']],
     ['creditor days only', withBases(0, 400_000), 'creditorOnly', ['Trade payables is the numerator']],
     ['neither', withBases(0, 0), 'neither', ['states why neither day count can be measured']],
@@ -244,6 +295,89 @@ describe('two conventions the pack applied and did not declare', () => {
     expect(money(1_000_000)).not.toContain('+');
 
     expect(proseOf(pageNamed(liveDemoRenderedInput, 'Basis of preparation')))
-      .toContain('Only a positive change takes a +.');
+      .toContain('Only a positive value takes a +.');
+  });
+
+  /**
+   * THE NOUN, HELD TO THE SHEETS THAT DISPROVED THE OLD ONE.
+   *
+   * "Only a positive CHANGE takes a +" was written to describe a practice it
+   * got wrong: page 6's `% of revenue` column and page 9's target both print
+   * signed positives and neither is a change. This is that condition, taken
+   * off the composed pages rather than off a belief about them — so the day
+   * a signed non-change stops printing, the assertion says so instead of
+   * quietly licensing the narrower word again.
+   */
+  it('the pack signs positive percentages that are not changes', () => {
+    const doc = buildBoardPackPages(liveDemoRenderedInput);
+    const signedNonChange = [...doc.provenance.all().entries()]
+      .filter(([source]) => source.includes('pctOfRevenue') || source.includes('target'))
+      .flatMap(([source, list]) => list.map((f) => ({ source, f })))
+      .filter(({ f }) => f.format === 'pct' && (f.value ?? 0) > 0);
+
+    expect(signedNonChange.length, 'no positive percentage that is not a change').toBeGreaterThan(0);
+    for (const { f } of signedNonChange) {
+      expect(formatFigureText(f), `${f.source} prints unsigned`).toContain('+');
+    }
+
+    const basis = proseOf(pageNamed(liveDemoRenderedInput, 'Basis of preparation'));
+    expect(basis, 'the noun is disproved by the figures above').not.toContain('positive change takes');
+  });
+});
+
+/**
+ * TWO THINGS THE PACK KNEW AND DID NOT SAY WHERE THEY WERE READ.
+ *
+ * None of these failed a criterion in the fifteenth gate. Each is a fact the
+ * pack already holds, printed on the sheet the reader meets the number on.
+ */
+describe('facts stated where the figure is read', () => {
+  /**
+   * The comparative is EXACTLY as long as the reporting period — 250 days
+   * each — which is what makes the prior column and every annualised day
+   * count comparable at all, and the pack said so nowhere. It is stated on
+   * the statement pages, under the column it qualifies, because page 12's
+   * own fact list cannot afford the line (see `statementFootnotes`).
+   */
+  it('every prior column states its own length against the period\'s', () => {
+    for (const [name, input] of [LIVE[0]!, LIVE[1]!]) {
+      const carrying = buildBoardPackPages(input).pages
+        .filter((p) => p.footnotes.some((f) => f.text.startsWith('The prior column is the period')));
+      expect(carrying.length, `${name} prints no prior-column footnote`).toBeGreaterThan(0);
+      for (const page of carrying) {
+        const note = page.footnotes.find((f) => f.text.startsWith('The prior column is the period'))!;
+        expect(note.text, `page ${page.number} states no comparative length`).toContain('250 days');
+        expect(note.text).toContain('the same length as the reporting period');
+      }
+    }
+
+    // NOT A CONSTANT: a comparative of a different length says so instead.
+    expect(comparativeLengthClause(
+      { start: '2026-01-01', end: '2026-09-07' },
+      { start: '2025-07-01', end: '2025-12-31' },
+    )).toBe("184 days against the reporting period's 250.");
+  });
+
+  /**
+   * 213 days against a 30-day target, and a third of that gap is the 365-day
+   * multiplier: on the period's own 250 days the same book is 146. Page 12
+   * disclosed it; page 9, where a director reads the number beside its
+   * target, did not.
+   */
+  it('the scorecard says its day count is annualised, on the scorecard', () => {
+    const scorecard = pageNamed(liveDemoRenderedInput, 'Scorecard');
+    const rows = scorecard.blocks
+      .flatMap((b) => (b.kind === 'scorecard' ? b.groups.flatMap((g) => g.rows) : []));
+    const debtorDays = rows.find((r) => r.metric === 'Debtor days');
+    // NOT VACUOUS: the page must actually print the annualised count against
+    // a target, or the sentence explains nothing.
+    expect(debtorDays?.actual.value, 'no debtor days on the scorecard').not.toBeNull();
+    expect(debtorDays?.target, 'no target to read it against').not.toBeNull();
+
+    expect(proseOf(scorecard)).toContain('annualised on 365 days');
+    // And it is NOT claimed of a measure that is not annualised: the income
+    // statement carries the same footnote for gross margin.
+    expect(proseOf(pageNamed(liveDemoRenderedInput, 'Income statement')))
+      .not.toContain('annualised on 365 days');
   });
 });

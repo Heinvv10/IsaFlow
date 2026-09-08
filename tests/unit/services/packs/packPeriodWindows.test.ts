@@ -109,6 +109,14 @@ describe('the part-month ratio clause', () => {
             + 'not say the endpoint is not comparable with the months before it'
           : 'the page qualifies a part-month ratio it does not draw',
       ).toBe(built.ratiosEndingOnPartMonth.length > 0);
+
+      // AND IT MAKES NO CLAIM PAGE 12 DISPROVES. "taken on the days posted"
+      // said the multiplier was the seven days posted; page 12 says the
+      // trends page "multiplies each month's ratio by the days in that
+      // month", and the arithmetic sides with page 12 — Sep's 60 debtor days
+      // is 59 over 30 times thirty. The clause names the SUMS it is taken on
+      // and leaves the day count to the page that defines it.
+      expect(note!.body, 'page 12 owns the day-count multiplier').not.toContain('days posted');
     });
   }
 
