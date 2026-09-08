@@ -33,14 +33,16 @@ import { withSavepoint } from '@/lib/neon';
 import { resolvePeriodSkips } from '@/lib/mcp/tools/bulkApprovePeriods';
 import { BulkAllocationLineError } from '@/lib/mcp/bulkAllocationLineError';
 import {
-  MAX_DOCUMENTS,
   type BulkApproveAdapter,
   type DocumentState,
-  nothingToApproveText,
-  parseDocumentIds,
   partitionDocuments,
   postPartitionedDocuments,
 } from '@/lib/mcp/tools/bulkApproveRunner';
+import {
+  MAX_DOCUMENTS,
+  nothingToApproveText,
+  parseDocumentIds,
+} from '@/lib/mcp/tools/bulkApproveArgs';
 
 const ctx = { companyId: 'company-1', userId: 'user-1' } as never;
 const ID = (n: number) => `0a000000-0000-4000-8000-${String(n).padStart(12, '0')}`;

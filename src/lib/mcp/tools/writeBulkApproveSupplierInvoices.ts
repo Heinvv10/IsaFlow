@@ -22,14 +22,16 @@ import { approveSupplierInvoice } from '@/modules/accounting/services/ap/supplie
 import { validateSystemAccounts } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { mcpPostingOpts } from '../mcpActor';
 import {
-  MAX_DOCUMENTS,
   type BulkApproveAdapter,
   type DocumentState,
-  nothingToApproveText,
-  parseDocumentIds,
   partitionDocuments,
   postPartitionedDocuments,
 } from './bulkApproveRunner';
+import {
+  MAX_DOCUMENTS,
+  nothingToApproveText,
+  parseDocumentIds,
+} from './bulkApproveArgs';
 import { ok, toolError } from './toolHelpers';
 
 const TOOL = 'bulk_approve_supplier_invoices';
