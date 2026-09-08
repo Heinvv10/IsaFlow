@@ -86,10 +86,10 @@ export async function ingestTwilioPayload(
   const inboxRows = (await sql`
     SELECT id, company_id
     FROM capture_inboxes
-    WHERE address = ${toNumber}
+    WHERE btrim(address) = ${toNumber}
       AND channel = 'whatsapp'
       AND is_active = true
-    LIMIT 1
+    LIMIT 2
   `) as Row[];
 
   if (inboxRows.length === 0) {
@@ -99,6 +99,11 @@ export async function ingestTwilioPayload(
       'whatsapp-inbound',
     );
     return { rejected: 'no matching inbox' };
+  }
+
+  if (inboxRows.length > 1) {
+    log.warn('whatsAppInbound: ambiguous destination rejected', { toNumber }, 'whatsapp-inbound');
+    return { rejected: 'ambiguous inbox' };
   }
 
   const inbox = inboxRows[0]!;
