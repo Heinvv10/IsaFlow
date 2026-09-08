@@ -14,7 +14,7 @@ Four ingestion channels: PWA upload, Postmark inbound email, Twilio WhatsApp WAB
 
 ### Inbox + config
 - `GET /api/accounting/capture/inbox` — pending events with joined extraction (`?status=`)
-- `GET|POST /api/accounting/capture/inbox-address` — get / regenerate 6-hex email inbox slug (deactivates prior)
+- `GET|POST /api/accounting/capture/inbox-address` — get / regenerate 32-hex email inbox slug (deactivates prior)
 - `GET|POST /api/accounting/capture/whatsapp-inbox` — get / configure WABA number (E.164 validated); `{ address }`;409 when reserved by another company, old destination preserved
 
 ### Per-event actions
