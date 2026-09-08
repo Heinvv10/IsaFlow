@@ -145,11 +145,10 @@
       "correctedTrigger": "24-bit generator produces a duplicate across two companies because schema uniqueness is company-local; privileged inbound LIMIT1 stores a document/event under one ambiguous destination. All three claims reproduced with realSQL.",
       "severityRationale": "Confirmed routing ambiguity can misattribute inbound financial documents; no claim that every random collision was exploited.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "de4d3d62",
-      "status": "in-progress",
+      "currentSha": "01f94839978a6b6e0f06c7c29344c1a240a148b5",
+      "status": "code-verified",
       "dependencies": [
-        "Named commit review/fullCI/draft PR",
-        "Migration616 must pass target collision preflight; no production migration authorized",
+        "Migration616 target collision preflight and deployment require separate authorization",
         "Legacy short addresses and historical attribution need owner-approved review/rotation"
       ],
       "testNames": [
@@ -163,10 +162,12 @@
         "K-004/workflow-final.log",
         "K-004/regression.log",
         "K-004/historical-impact.sql",
-        "K-004/historical-review.md"
+        "K-004/historical-review.md",
+        "K-004/review.md",
+        "K-004/ci.log"
       ],
-      "fixCommit": null,
-      "pr": null,
+      "fixCommit": "235bb407",
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/348",
       "deployedSha": null,
       "historicalDataImpact": "Scoped read-only inventory prepared/tested on disposable data. Historical collisions and short addresses may remain; no production inventory, rotation or reassignment executed.",
       "canonicalItem": null,
