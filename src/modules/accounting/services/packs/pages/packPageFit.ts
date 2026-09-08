@@ -214,41 +214,6 @@ function lastTrimmableNote(blocks: PackPageBlock[], level: 'optional' | 'require
   return null;
 }
 
-/**
- * THE ONE LEVER THAT DROPS NOTHING, AND SO THE FIRST ONE PULLED.
- *
- * `.pack-narrative-columns` is `2fr 1fr` for an approved narrative and one
- * full-measure column for a pending one, so signing the commentary moved
- * page 4's DERIVED action panel — which comes from the matters model and has
- * nothing to do with the commentary — out of 174mm of measure and into 43mm.
- * The live demo company's three actions cost 75.1mm at the first and 183.2mm
- * at the second: the page needed 288.7mm of a 255mm sheet, every lever below
- * this one takes prose the block had not got, and the composer refused the
- * whole document. It did so for a six-word commentary as readily as for a
- * long one — the body's length never entered into it — and no fixture could
- * see it, because nothing stores board commentary yet and every fixture
- * carries `commentary: null`.
- *
- * Stacking the panel under the prose is a layout the stylesheet already
- * draws, at the measure it already draws it at, and it costs the reader
- * nothing: every derived action still prints, in full, in the order it came.
- * So it is pulled BEFORE any note is taken, and it is not counted in
- * `Dropped` — a page that gives up nothing has nothing to disclose.
- *
- * A PAGE THAT ALREADY FITS IS NEVER RESTACKED. Side by side is what page 4
- * was designed around; this is the shape it falls back to where that will not
- * go on the paper, not a replacement for it.
- */
-function stackNarrativeActions(blocks: PackPageBlock[]): boolean {
-  const index = blocks.findIndex((b) => b.kind === 'narrative'
-    && (b.boardActions ?? []).length > 0 && b.stackActions !== true);
-  if (index === -1) return false;
-  const block = blocks[index]!;
-  if (block.kind !== 'narrative') return false;
-  blocks[index] = { ...block, stackActions: true };
-  return true;
-}
-
 /** The last index matching `keep`, or null. */
 function lastIndex<T>(items: T[], keep: (item: T) => boolean): number | null {
   for (let i = items.length - 1; i >= 0; i -= 1) if (keep(items[i]!)) return i;
@@ -303,7 +268,6 @@ export function fitPageReport<T extends MeasurablePage>(
   // needed one note off, and under-trims the page where the allowance turns
   // out to be too small. Measuring the actual document stops as soon as the
   // actual document fits.
-  let restacked = false;
   const over = () => pageMm({
     ...page,
     blocks,
@@ -315,23 +279,10 @@ export function fitPageReport<T extends MeasurablePage>(
     // over again on the next turn of the loop and takes one more. What makes
     // that safe rather than clever is `assertFits` below, which re-checks the
     // finished page against the footnote it really carries.
-    // ONLY WHERE SOMETHING HAS ACTUALLY BEEN DROPPED. The page prints this
-    // footnote when it gives something up and not otherwise, so a loop that
-    // charges for it before anything has gone is measuring a document that
-    // will never exist — and it charged for one on a page whose only lever
-    // was `stackNarrativeActions`, which drops nothing, and bought the
-    // phantom footnote's room by taking a real note.
-    footnotes: tookSomething(dropped)
-      ? [...footnotes, omissionFootnote(dropped, footnotes)]
-      : footnotes,
+    footnotes: [...footnotes, omissionFootnote(dropped, footnotes)],
   }) > box;
 
   while (over()) {
-    // NOTHING IS GIVEN UP UNTIL THIS HAS BEEN TRIED — see
-    // `stackNarrativeActions`. It is not recorded in `dropped` because it
-    // drops nothing, which also means it cannot on its own make the page
-    // print an omission footnote.
-    if (stackNarrativeActions(blocks)) { restacked = true; continue; }
     const optional = lastTrimmableNote(blocks, 'optional');
     if (optional !== null) { dropNote(blocks, optional, dropped); dropped.notes += 1; continue; }
     // LAST-FIRST, PAST THE ONES THAT EXPLAIN A FIGURE. `footnotes.pop()` took
@@ -356,13 +307,8 @@ export function fitPageReport<T extends MeasurablePage>(
   // fixtures — the trimming below runs on live data and on this file's own
   // tests, never on a fixture.
   if (!tookSomething(dropped)) {
-    // A page whose only lever was the restack comes back CHANGED and with
-    // nothing to disclose: the layout moved, no prose did. Returning `page`
-    // here would hand back the two-column shape that did not fit and then
-    // assert it against the sheet.
-    const relaid = restacked ? { ...page, blocks } : page;
-    assertFits(page, relaid, reserveMm);
-    return { page: relaid, dropped: NOTHING };
+    assertFits(page, page, reserveMm);
+    return { page, dropped: NOTHING };
   }
 
   const fitted = { ...page, blocks, footnotes: [...footnotes, omissionFootnote(dropped, footnotes)] };

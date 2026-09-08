@@ -28,6 +28,7 @@ import { narrativeMm } from '@/modules/accounting/services/packs/pages/packBlock
 import { pageBoxMm, pageMm } from '@/modules/accounting/services/packs/pages/packPageMetrics';
 import { OMISSION_MARK } from '@/modules/accounting/services/packs/pages/packPageFit';
 import { PackRefusal } from '@/modules/accounting/services/packs/packRefusal';
+import { relaidNarrative } from '@/modules/accounting/services/packs/pages/packNarrativeLayout';
 import {
   liveDemoApprovedCommentaryInput,
   liveDemoOverlongCommentaryInput,
@@ -145,5 +146,120 @@ describe('a pack whose commentary a human signed', () => {
     }
     expect(refusal, 'a four-thousand-word commentary composed a twelve-sheet pack').not.toBeNull();
     expect(refusal!.message).toContain('Commentary and actions');
+  });
+});
+
+/**
+ * THE TRIGGER ITSELF, PINNED.
+ *
+ * The composed assertions above go red if the fallback disappears, but they
+ * go red as a REFUSAL — an exception with a millimetre count in it — which
+ * is a confusing way to learn that a layout rule was deleted. These hold the
+ * rule directly: when it fires, when it does not, and that firing costs the
+ * page nothing.
+ */
+describe('the layout decision page 4 makes before it is held to its sheet', () => {
+  const NOTE = { heading: 'Reading this page', body: 'The prior column is the comparative period '
+    + 'the basis page states, and a movement is never shown as a move from zero.' };
+
+  const page = (blocks: PackPage['blocks']): PackPage => ({
+    number: 4,
+    title: 'Three matters need a decision this period.',
+    navLabel: 'Commentary and actions',
+    section: 'Commentary',
+    orientation: 'portrait',
+    density: 'high',
+    blocks,
+    footnotes: [],
+  });
+
+  const narrative = (actions: string[]): PackPage['blocks'][number] => ({
+    kind: 'narrative',
+    narrative: { status: 'approved', body: 'Trading held up.', actions: [] },
+    boardActions: actions,
+  });
+
+  /** Enough derived actions, at enough length, that a third of the measure
+   *  cannot hold them — the shape that refused the pack. */
+  const CROWDED = Array.from({ length: 7 }, (unused, i) =>
+    `Annual Financial Statements for FY202${i} is overdue and the board should record who is `
+    + 'accountable for the filing, the date by which it will be lodged, and what the exposure is '
+    + 'if it is not.');
+
+  it('stacks a page the two-column layout puts past its sheet', () => {
+    const subject = page([narrative(CROWDED)]);
+    expect(pageMm(subject), 'the fixture fits as composed, so the rule is not being tested')
+      .toBeGreaterThan(pageBoxMm(subject));
+    const relaid = relaidNarrative(subject);
+    const block = relaid.blocks[0]!;
+    expect(block.kind === 'narrative' && block.stackActions).toBe(true);
+    expect(pageMm(relaid)).toBeLessThanOrEqual(pageBoxMm(relaid));
+  });
+
+  it('gives up nothing to do it — same blocks, same actions, same footnotes', () => {
+    const subject = page([narrative(CROWDED), { kind: 'disclosure', disclosure: {
+      heading: 'How this page is prepared', notes: [NOTE, NOTE] } }]);
+    const relaid = relaidNarrative(subject);
+    expect(relaid.blocks).toHaveLength(subject.blocks.length);
+    expect(relaid.footnotes).toEqual(subject.footnotes);
+    const before = subject.blocks[0]!;
+    const after = relaid.blocks[0]!;
+    expect(after.kind === 'narrative' && after.boardActions)
+      .toEqual(before.kind === 'narrative' && before.boardActions);
+    // The disclosure beside it is untouched: this is not a trim, and the
+    // fitter's list of what it may take is unchanged by it.
+    expect(relaid.blocks[1]).toBe(subject.blocks[1]);
+  });
+
+  it('leaves a page that already fits exactly as it was, object and all', () => {
+    const subject = page([narrative([CROWDED[0]!])]);
+    expect(pageMm(subject)).toBeLessThanOrEqual(pageBoxMm(subject));
+    expect(relaidNarrative(subject)).toBe(subject);
+  });
+
+  it('leaves an over-full page with nothing to restack to the fitter', () => {
+    const subject = page([{ kind: 'disclosure', disclosure: {
+      heading: 'How this page is prepared', notes: Array.from({ length: 40 }, () => NOTE) } }]);
+    expect(pageMm(subject)).toBeGreaterThan(pageBoxMm(subject));
+    expect(relaidNarrative(subject)).toBe(subject);
+  });
+
+  /**
+   * AND IT DOES NOT MAKE A PAGE WORSE TO OBEY ITSELF.
+   *
+   * Stacking is the shorter shape for every panel these packs produce, but it
+   * is not shorter by arithmetic: the two-column row costs the TALLER of its
+   * columns and the stacked one costs their SUM, so where the prose and the
+   * panel are of a size — three derived actions against eleven paragraphs
+   * here — the fallback would add millimetres to a page that is already over. It stays in columns
+   * and the fitter deals with the page as composed, which is the right answer:
+   * the two-column layout is the one page 4 was designed around.
+   */
+  it('leaves the page in columns where stacking would be the taller shape', () => {
+    const body = ('Trading held up in the second half and the margin recovery is a mix effect '
+      + 'rather than a pricing gain. ').repeat(11);
+    const balanced: PackPage['blocks'][number] = {
+      kind: 'narrative',
+      narrative: { status: 'approved', body, actions: [] },
+      boardActions: Array.from({ length: 3 }, (unused, i) =>
+        `Annual Financial Statements for FY202${i} is overdue and the board should record who is `
+        + 'accountable.'),
+    };
+    const filler: PackPage['blocks'][number] = { kind: 'disclosure', disclosure: {
+      heading: 'How this page is prepared', notes: Array.from({ length: 20 }, () => NOTE) } };
+    const subject = page([balanced, filler]);
+    // The premise, both halves: the page is over, AND stacking would be worse.
+    expect(pageMm(subject)).toBeGreaterThan(pageBoxMm(subject));
+    const stackedBlock = { ...balanced, stackActions: true };
+    expect(pageMm(page([stackedBlock, filler])), 'stacking is not the taller shape here')
+      .toBeGreaterThan(pageMm(subject));
+    expect(relaidNarrative(subject)).toBe(subject);
+  });
+
+  it('leaves a narrative with no derived panel alone — there is nothing to stack', () => {
+    const subject = page([narrative([]), { kind: 'disclosure', disclosure: {
+      heading: 'How this page is prepared', notes: Array.from({ length: 40 }, () => NOTE) } }]);
+    expect(pageMm(subject)).toBeGreaterThan(pageBoxMm(subject));
+    expect(relaidNarrative(subject)).toBe(subject);
   });
 });

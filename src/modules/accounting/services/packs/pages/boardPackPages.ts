@@ -70,6 +70,7 @@ import { withDerivedMatters } from './packDerivedMatters';
 import { partialMonthClauseFor, partialMonthOf } from './packPartialMonth';
 import { selectPrintedMatters } from './packMattersPrinted';
 import { fitPageToBox } from './packPageFit';
+import { relaidNarrative } from './packNarrativeLayout';
 import {
   buildMattersBlock,
   buildMattersSupportBlocks,
@@ -520,7 +521,13 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     // EVERY page, held to its sheet — the same rule the matters table spends
     // its budget under, applied to the prose on the other eleven. A page that
     // already fits comes back untouched.
-    ...body.map((p2) => fitPageToBox(p2)),
+    //
+    // LAYOUT FIRST, THEN THE FIT. `relaidNarrative` decides which of page 4's
+    // two shapes the narrative block is drawn in — see the module, and note
+    // that it drops nothing. It runs BEFORE `fitPageToBox` because that
+    // function may take disclosure notes and page footnotes and nothing else,
+    // and that list is the guarantee no figure is ever trimmed off a sheet.
+    ...body.map((p2) => fitPageToBox(relaidNarrative(p2))),
     fitPageToBox(basisPage),
   ]);
 
