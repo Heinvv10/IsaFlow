@@ -1,135 +1,67 @@
-# Handoff — 2026-09-04 13:03 SAST
+# Handoff — 2026-09-07 18:05 SAST
 
 **Project:** IsaFlow
-**Branch:** `master` (clean, pushed — `067488ea`)
-**Session goal:** Run round 2 of the MCP assurance programme as integrator — build the remaining endpoints across parallel agents, blind-review everything, then merge and deploy.
+**Branch:** `master` (clean, in sync with origin, nothing unpushed)
+**Session goal:** Work the eleven-defect connector brief at `~/Downloads/isaflow-dev-brief.md` (Velocity Fibre rebuild, 2–7 Sep) — verify each claim against the code, then fix the ones that are real.
 
 ## Status
 
-**Shipped.** Production is `8c48dd8b`, deployed 12:44 SAST. Seven PRs (#311–#317) merged, six migrations applied, and every claim verified against the production database rather than the deploy log. `origin/master` matches the deployed SHA.
+Two PRs merged and **deployed to production**. Prod = master = `2f909043`, deployed 17:58 SAST, verified: `RELEASE_SHA` on the deploy dir matches, service active, `/api/health` returns `{"status":"ok","db":"ok"}`, post-deploy gate green (health + golden paths + integrity). Rollback snapshot at `/home/velo/isaflow-rollback` holds `9207fae5`.
 
-The programme deliberately shipped **tooling, not corrections**. The books are unchanged: no control-account merge has been run, no subtype has been rewritten, no depreciation posted. Four decisions remain with Hein, listed under Open questions.
+Five brief items are closed. Three defects the reviews found that were **not** in the brief are also closed. The remaining brief items each need a decision or a bigger piece of work — none is half-done.
 
 ## What got done this session
 
-| PR | Branch | What it ships |
-|---|---|---|
-| #311 | `mcp/r2-contracts-register` | 4 CI gates + 2 contract rules + 2 `CLAUDE.md` rules; B60, B64–B68 |
-| #312 | `mcp/r2-portfolio-design` | Design note: **do not build** the portfolio workbench over MCP |
-| #313 | `mcp/r2-subtype-evidence` | The R82.7m gross-profit evidence + worklist; B61–B63 |
-| #314 | `mcp/r2-depreciation` | `reconcile_fixed_assets`, `run_depreciation` |
-| #315 | `mcp/r2-reclassification` | `propose_reclassification`, `post_reclassification_batch`; migration 600 |
-| #316 | `mcp/r2-merge-gl-accounts` | `merge_gl_accounts`; migrations 595 + 596 |
-| #317 | `mcp/r2-system-account-seed` | Seed fix + backfill; migrations 605 + 606 + 607 |
+**PR #338 — `9207fae5`** — bank allocation direction + CSV Reference column
+- `allocateTransaction` computed `isSpent` and used it in 2 of 4 branches. `supplier` always posted DR AP / CR Bank, `customer` always DR Bank / CR AR. A supplier refund (money in) was booked as a payment out: bank wrong by 2x, call returns success, no unallocated line to find it by. **R261,651.64 on Velocity Fibre** across 5 lines.
+- Three things rode on the sign and were each wrong on a refund: VAT account (a refund reverses INPUT tax; key now follows alloc type, only DR/CR follows sign), the 4-way match (gated on `isSpent`), and the `customer_payments` insert (gated on `!isSpent`).
+- Apply path is **refused, not guessed**: `signMismatchReason` in `src/modules/accounting/services/bank/bankLineDirection.ts`, pre-write on all three surfaces.
+- CSV `Reference` column now persists (`bankCsvParserGeneric.ts`), resolvable via `bank_reference`.
 
-Six branches carry **two independent blind-review APPROVEDs** each (general + adversarial). MCP tool count: 109 → **114** (65 read / 49 write).
+**PR #339 — `2f909043`** — bulk-create duplicate skip
+- A repeated `(supplier_id, invoice_number)` is skipped, not a refusal of the whole call. A repeat must be **identical** (whole parsed element); same pair + any difference = refusal naming the differing fields.
+- `flowQuantityFor` counts what will be created, not what was sent — skipped elements were being billed with no refund path.
+- File split: `writeBulkInvoices.ts` 355 -> 208, plus `writeBulkCustomerInvoices.ts` (120) and `bulkInvoiceDuplicateSkip.ts` (142).
 
-### Deploy walkthrough (production, verified post-deploy)
-
-| PR | Surface | Verified? |
-|---|---|---|
-| #311 | CI gates | ℹ️ infra-only — all 4 ran green in the production deploy's own CI step |
-| #312, #313 | Docs | ℹ️ docs-only — no runtime surface |
-| #314, #315, #316 | New MCP tools | ⛔ **NOT WALKED** — registered in all 3 manifests and counted (114), but **no tool was invoked against production**. Inertness confirmed; behaviour not exercised live. |
-| #317 | Seed backfill | ✅ **walked** — 16 inserts landed (7× `3300`, 8× `4410`, 1× `6010`); all 14 system roles now held on all 8 live tenants; RLS confirmed |
-
-**The three new write tools have never been called in production.** That is by design — running one is a data correction awaiting Hein — but it means their live behaviour is unproven beyond dry runs taken during review.
-
-### Post-deploy verification (queried against `isaflow`, not read from the log)
-
-- Migrations 595, 596, 600, 605, 606, 607 — all applied 10:44 UTC.
-- **16 inserts**, matching the preview exactly.
-- All **14 system roles** held on all **8 live tenants**; zero gaps.
-- **Zero** unprotected `company_id` tables platform-wide; `gl_account_merges`, `reclassification_batches`, `reclassification_batch_lines` all `rowsecurity | forced | 1 policy`.
-- Health `{"status":"ok","db":"ok"}`; golden paths green; integrity green.
+**Found by review, not in the brief — all fixed in #338/#339:**
+1. `pages/api/accounting/bank-match-confirm.ts` — the sign fix *created* a regression here. Before, GL and subledger were both wrong in the same direction so they stayed equal; after, GL raises the AP liability while the route still reduces `amount_paid`, diverging by 2x. Now refuses pre-write (`withAuth` commits on a 4xx, so it must be pre-write).
+2. `buildAutoCreateLines` (`bankRulesMatchingHelpers.ts`) — the **unattended rule sweep** had the identical sign defect, and the CSV Reference fix *activated* `match_field='reference'` rules that had never matched anything. The P1 half armed the P0 half.
+3. `signMismatchReason` passed a zero line; `skipReasonForInvoice(state, id, 0)` runs `0 > 500.01` = false, so it was postable and threw mid-write, unwinding a whole 500-line batch.
 
 ## What's next
 
-1. **Decide the nine subtype writes.** Worklist: `docs/mcp/SUBTYPE-REMEDIATION-PROPOSAL.md` on `master`. Five of nine move money. This is the only open item whose cost rises with time.
-2. **Decide whether the C4 writer should be stopped** before any merge is signed.
-3. **Hand the AFS R700 bug to whoever owns AFS.**
-4. **Prune the 7 merged worktrees** (`w0`–`w6` under `.claude/worktrees/`) once nobody needs the review artefacts in them.
+1. **FibreFlow procurement 403** (brief #4) — largest open item: R33.4m of PO bills, ~R29m wrong on AP, FY26 cannot close. Root cause found: `procurement` is on `MCP_DENIED_GROUPS` in `FF_Next.js/src/lib/auth/mcpDeniedAreas.ts:61`, a deliberate deny-list applied in `middleware.ts:226` before the handler. **Not a token/scope grant** — no permission gets past it and there is no per-path allow mechanism. Needs a code change in FF_Next.js plus Hein's decision (procurement was deny-listed on purpose).
+2. **Brief #9 — bulk approve** — `bulk_approve_supplier_invoices` / `bulk_finalize_invoices` / `bulk_approve_credit_notes`. `approve_supplier_invoice` POSTS a journal (DR Expense + DR VAT / CR AP), so these are ledger-writing tools: per-element savepoints (see `bulkAllocationPost.ts`), skip-vs-throw partitioning, per-element metering. Run two reviewers from the start.
+3. **Flaky CI gate** — `tests/unit/components/reports/reportPacksShareMount.test.tsx:110` aborted a production deploy. It waits for a button then assumes a fetch fired; `asked.find(...)!` returns undefined under load and `new URL(undefined, base)` does not throw, so it fails as `expected null to be 'board'` instead of "no call happened". One-line fix: `await waitFor(() => expect(asked.some(u => u.startsWith('/api/accounting/commentary?'))).toBe(true))` before the assertions. NOT done — it is the reporting workstream's file with WS4b in flight at `613c97e7`.
+4. **Brief #6 — `search_gl`** still caps at 200 rows with no cursor. `general_ledger` (PR #309) covers the use case with a keyset cursor; cheapest fix is a cross-reference in `search_gl`'s description.
 
 ## Open questions / blockers
 
-- **The nine subtype writes.** Velocity reports a **96.6% gross margin against a real −1.9%**. `accountClassification.ts` defaults a NULL expense subtype into operating expenses, so **R82,727,277.95** of direct cost sits below the gross-profit line. Net profit unchanged at −R34,816,224.89 before and after — that invariant is what proves it is a reclassification, not a restatement. All 36 fiscal periods are open and nothing is filed, so exposure is nil today; AFS sections cache a `data_snapshot` nothing invalidates, so it gets materially harder after any year-end sign-off.
-- **C4 — something posts to Velocity's `1120`/`2110` unattended.** `postedThrough` moved mid-review. This is now a constraint on *when* a merge can be signed, not just a data-quality concern.
-- **AFS direct cash flow is broken on `master`.** Three assertions in `afs-cash-flow-direct.int.test.ts` fail deterministically, each off by exactly R700 — reproduced at clean `549516ed` in a detached worktree, so it predates this programme. One is the test proving a liability with a cash subtype is not counted as cash. All three off by the same amount points at a single misclassified R700 line. **Unowned.**
-- **POPIA question (from #312):** is a member's own membership sufficient consent for a third-party MCP client to read that company? Not answerable from code. If yes, the portfolio workbench objections become engineering debt and the honest build is a multi-company grant with per-company audit rows.
+- **The R261,651.64 already in Velocity's books is uncorrected.** The deploy fixed what gets posted from here; it changed nothing historical. Needs the GL-vs-bank diff re-run on (date, signed amount) against prod, then a correcting journal. Hein said "dont worry about accounting issues now" — this is deliberately out of scope, not forgotten.
+- Whether to fix the flaky reporting test (item 3) or hand it to the WS owner.
+- Brief #8 (`posted_through` ~1h lag) **could not be reproduced**: `trial_balance` reads `gl_journal_lines` directly, no materialized view, no cache, and `posted_through` is `MAX(created_at)` of consumed rows. Needs a repro from the brief's author before it is worth chasing.
 
 ## Context the next session needs
 
-### Before running any merge — this is the part that lives in a person
-
-Both merge reviewers converged on this independently:
-
-1. **A balanced trial balance afterwards is guaranteed by construction and proves nothing.** A repoint changes no debit and no credit. The response says so in three places; a signer under time pressure still reads it as confirmation. Say it out of band.
-2. **The guard refuses a wrong CLASS, never a wrong TARGET within a class.** `SYS-7 → 1140 VAT Input` is dead. `SYS-7 → any other ordinary asset account` passes every check and produces a preview that looks exactly like the right one. The account codes and names in the dry run are the only thing standing there.
-3. **Sign the dry run and run the merge in the same sitting.** `movedLinesDigest` makes a stale signature **detectable, not harmless** — differing digests tell you to stop, but nothing recovers a merge already run against the wrong set. On a generic failure, re-run the dry run rather than retrying the merge.
-
-### `deploy.sh` traps (both hit this session)
-
-- **There is NO `--dry-run`.** The flag is silently ignored and a real deploy starts. Harmless only because migrations run *after* the build. There is also **no business-hours gate in the script** — that rule is policy, enforced by the human/agent.
-- **It builds from the WORKING TREE, not a git ref.** An untracked `glAccountLock.ts` left in the main repo by a drifted session differed from the merged version by **48 lines** — the pre-review copy carrying a docblock a reviewer had corrected — and is what would have shipped. Caught only because a rebase refused to overwrite it. **Before any deploy:** `git ls-files --others --exclude-standard` and diff untracked source files against `origin/master`. The stray is preserved at the session scratchpad under `stray/glAccountLock.ts.stray`.
-
-### Failure classes this programme cost something to learn
-
-Recorded in project memory; all four earned their place:
-
-- **A test that cannot fail** — seven instances, four found by their own authors. Source-text assertions passing on a comment; a timeout test passing in 5,092ms; a DB test reporting PASS with the database down; a test named *"the check FIRES"* whose only assertion passed because the field did not exist.
-- **A guard applied to one side only** — four instances, including the one that would have put **R32,704,547.38** of fictitious input tax on a SARS return (`account_type` checked, `account_subtype` never).
-- **Accurate detail, wrong summary** — six instances, three of them the integrator's. The actionable sentence is the one that is wrong, and no test catches it. B68 named `NO_LEDGER_READ` when six of nine sites use `NO_LEDGER_ROWS`; B37 was marked flat `FIXED` while half-fixed.
-- **Evidence beats a concurrently-arriving instruction.** A measurement that kills a finding decides it — reply with the data, do not implement and then reverse.
-
-### Things tried that did not work
-
-- **`bash scripts/deploy.sh --dry-run`** — flag does not exist; started a real deploy. Killed at 400s; verified nothing reached the database.
-- **Resolving the tool-count conflicts by taking either side.** Three branches each asserted an absolute count from master's 109 (111, 110, 111). All mutually incompatible. Correct resolution was **the sum**: 114 / 65 / 49.
-- **A timing-based assertion for the `dbReachable` coupling** — passed straight through its own mutation, because a real Postgres on `localhost:5432` rejects a fake password fast enough to look like a short-circuit. Replaced with a mechanism assertion (`pg.Client.connect` never called).
-
-### DO NOT RESURRECT
-
-- **`figure_guards` as a hardcoded object literal** (`reconcileFixedAssets.ts`) — reviewed and rejected. A label declaring that a guard exists is not a measurement that one ran; it is the same shape as a synthesised `universeTotal`. Labels must be derived from a comparison the call actually performed, at the **wire boundary** over the rows the response carries. `CONTRACTS.md` cites this as the worked example *because it got it wrong first*.
-- **A `string[]` compatibility field for `missingSystemAccounts`** — built, then backed out on evidence. `chart_of_accounts_health` has been called **0 times in 6,615 production MCP calls**. Do not re-add a shim for a consumer that does not exist; re-run the `mcp_tool_calls` query if you want to reopen it.
-- **`UPDATE gl_journal_lines SET gl_account_id = …`** for reclassification — explicitly rejected. It rewrites posted history, silently changes a signed period's trial balance, and destroys the original classification. Reclassification posts a new journal.
-- **Deleting `isVatPeriodLocked`** as a dead export — declined, and vindicated: `reclassification/planGuards.ts:156` now calls it.
-
-### Cross-branch coupling that no single file can enforce
-
-`vatReturnService.ts:103` still reads `account_subtype IN ('vat_input','vat_output','tax')`. That one line is why **two shipped guards** treat `'tax'` as VAT: `accountReportingClass.ts`'s `VAT_CLASS_SUBTYPES` and `reclassification/planGuards.ts`'s `VAT_RETURN_SUBTYPES`. **B37 is marked FIXED and is only half-fixed** — the control sense closed (`vatBoxBasis.ts:56`), the line-membership sense live. Whoever fixes that line must drop `'tax'` from **both** guards in the same PR, or both start refusing legitimate operations on every PAYE and income-tax account (Brightsphere has two live).
-
-### Scheduled follow-ups, already registered
-
-- **B68** — nine tool files fabricate `posted_through` as `1970-01-01T00:00:00`. **Search the literal, not the constant name**: six use `NO_LEDGER_ROWS`, two `NO_LEDGER_READ` (coincidentally, not by import), one a `postedThroughOr` helper. A CI gate baselines the nine and self-cleans, so a tenth site fails immediately and a fixed-then-regressed site cannot be masked.
-- **`admin_expense → IS160`** maps to AFS line *"Accounting officer's remuneration"*. ISAFlow Demo's `5600` now holds **R4,015,449.28 across 390 lines** on that line. Pre-existing mapping defect, deliberately untouched; `afs_account_mappings` is empty platform-wide so nothing has been generated wrong yet.
-- **156 tables** are baselined in `scripts/ci/migration-rls.baseline` as gate blind spots — migrations 348/498 grant RLS dynamically by catalogue query, naming no table as text. Distinct in kind from the `posted-through-sentinel.baseline`, whose entries are known defects that **should** shrink to zero.
+- **Brief claims are not ground truth — two were wrong.** #10 said a `(supplier_id, invoice_number)` constraint rejected the batch: verified against the live schema, `supplier_invoices` has **no** unique index on invoice_number (only the PK) and `idx_supplier_invoices_duplicate_fp` is non-unique. The tool's own in-batch guard was the whole cause. #11 (deactivated-account error naming one account) was **already fixed** — `InactiveAccountError` lists all, ordered by code.
+- **Run the adversarial reviewer on anything touching money.** Across two PRs the general reviewer approved and the adversarial reviewer found: money silently discarded, PAYG tenants billed for work never done, and the change's headline behaviour untested. Same diffs. The general reviewer verified every claim *made*; the adversarial one asked what the code fails to consider.
+- **A guard fails in both directions.** #339's strict comparison (added to stop a wrong skip losing money) then wrongly refused `tax_rate` omitted vs `tax_rate: 15` — the same bill, since the service applies `?? 15`. Constant defaults are resolved via an imported constant (`src/modules/accounting/constants/supplierInvoiceDefaults.ts`, created for exactly this — do not restate `15`); computed defaults (`dueDate` from `calculateDueDate`) are deliberately NOT resolved.
+- **`node_modules` was missing declared deps twice.** `echarts`, `@testing-library/*`, `happy-dom` (then `pptxgenjs` after merging master) were in `package.json` but absent, failing type-check/component-tests/build before any of this session's code was touched. `bun install` fixed it both times; lockfile unchanged.
+- **`git status` hides untracked files** in this repo (`status.showUntrackedFiles=no`). Before a deploy, check with `git status -uall --short` — 75 untracked files were present, none in build paths.
+- The deploy's CI gate runs **before** the build, migrations and rsync, so a gate failure touches production not at all. Confirmed live when the flaky test aborted the first attempt.
+- `bun run agent-docs:generate` now emits **74** mirrors (was 60) after merging master.
+- `.claude.md` "## Recent changes" has **no blank line** after the heading post-merge — an insert asserting on `"## Recent changes\n\n"` fails silently in a background job. Read the HEAD of background output, not just the tail.
 
 ## Git state
 
-- **Uncommitted:** clean
-- **Unpushed commits:** none (`master` = `origin/master` = `067488ea`)
-- **Stashes:** 16 — **all pre-existing from earlier sessions.** `git stash` is now forbidden repo-wide (`CLAUDE.md`); `refs/stash` is shared across all worktrees and a bare `pop` took another session's work this session. Do not `pop` any of them blind.
-- **Worktrees:** 14. Seven (`w0`–`w6` under `.claude/worktrees/`) are this programme's, all merged, safe to prune — they still hold untracked review artefacts (`review-*.md`, `merge-final-report.md`) not committed anywhere.
-
-## Session teardown
-
-- `gh run watch` processes: **0**
-- Stray `next build` / `vitest`: **2** — both belong to the **FibreFlow** GitHub Actions runner (`/home/gha-fibreflow/...`), not this project. Leave them.
-- Test DB containers: none
-- Worktrees: 14 (see above)
+- **Uncommitted:** `.claude/handoffs/LATEST.md` — pre-existing at session start (another session copied `2026-09-06-1654.md` over it without committing). Not this session's.
+- **Unpushed commits:** none
+- **Stashes:** 3, all pre-existing and belonging to other work — `stash@{0}`/`stash@{1}` on `refactor/afs-validation-helpers`, `stash@{2}` on master. **Do not `git stash pop`** — `refs/stash` is shared across all worktrees (repo CLAUDE.md rule).
+- **Background processes at teardown:** 0 `gh run watch`, 0 test-db containers. Live: a vitest fork in the `ws4-board` worktree (~11h, another session), a `next dev` on port 3471 in a scratchpad worktree (~7.8h), and FF_Next.js CI runners (different repo). None in this checkout — nothing to kill for this session.
+- **27 worktrees** registered. Nothing in this session used one.
 
 ## Where to resume
 
-Read this file, then decide the subtype writes: `docs/mcp/SUBTYPE-REMEDIATION-PROPOSAL.md` on `master`. To re-derive the headline before acting:
-
-```sql
--- Velocity Fibre gross margin, as reported vs real
-SELECT ga.account_type,
-       CASE WHEN ga.account_subtype IS NULL THEN 'NO subtype' ELSE ga.account_subtype END AS cls,
-       round(sum(jl.debit - jl.credit), 2) AS net
-FROM gl_journal_lines jl
-JOIN gl_accounts ga ON ga.id = jl.gl_account_id
-WHERE ga.company_id = '4a159669-2f50-46b5-a7b8-2e94dab3d495'
-  AND ga.account_type IN ('expense','revenue')
-GROUP BY 1, 2 ORDER BY 1, 2;
-```
+Read this file, then pick one:
+- FibreFlow scope decision: `FF_Next.js/src/lib/auth/mcpDeniedAreas.ts:61` (remove `procurement` from the group, or add a per-path allow for `/api/procurement/purchase-orders` + `/grn`).
+- Bulk approve: model on `src/lib/mcp/tools/writeSupplierInvoices.ts:129` (`approveSupplierInvoiceTool`) and `src/lib/mcp/tools/bulkAllocationPost.ts` for the per-line savepoint pattern.
