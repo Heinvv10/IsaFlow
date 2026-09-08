@@ -142,18 +142,33 @@
       "sourceIds": [
         "A C17"
       ],
-      "correctedTrigger": null,
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "24-bit generator produces a duplicate across two companies because schema uniqueness is company-local; privileged inbound LIMIT1 stores a document/event under one ambiguous destination. All three claims reproduced with realSQL.",
+      "severityRationale": "Confirmed routing ambiguity can misattribute inbound financial documents; no claim that every random collision was exploited.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
-      "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
+      "currentSha": "de4d3d62",
+      "status": "in-progress",
+      "dependencies": [
+        "Named commit review/fullCI/draft PR",
+        "Migration616 must pass target collision preflight; no production migration authorized",
+        "Legacy short addresses and historical attribution need owner-approved review/rotation"
+      ],
+      "testNames": [
+        "tests/integration/capture-inbox-routing.int.test.ts",
+        "tests/unit/services/capture/captureInboxService.test.ts"
+      ],
+      "evidencePaths": [
+        "K-004/plan.md",
+        "K-004/red.log",
+        "K-004/migration-green.log",
+        "K-004/workflow-final.log",
+        "K-004/regression.log",
+        "K-004/historical-impact.sql",
+        "K-004/historical-review.md"
+      ],
       "fixCommit": null,
       "pr": null,
       "deployedSha": null,
-      "historicalDataImpact": "Not assessed",
+      "historicalDataImpact": "Scoped read-only inventory prepared/tested on disposable data. Historical collisions and short addresses may remain; no production inventory, rotation or reassignment executed.",
       "canonicalItem": null,
       "reportedSeverity": "critical"
     },
