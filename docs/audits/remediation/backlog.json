@@ -16,15 +16,27 @@
       "sourceIds": [
         "B F01"
       ],
-      "correctedTrigger": null,
-      "severityRationale": "Source priority only; impact and reachability not yet validated.",
+      "correctedTrigger": "Password login for a verified TOTP user yields an AAL1 token in sb-pending-mfa; transplanting it into sb-access-token reaches withAuth handler without completing TOTP.",
+      "severityRationale": "Confirmed application-contract bypass of enrolled second factor using a valid password token; no claim of passwordless account compromise.",
       "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
       "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-      "status": "candidate",
-      "dependencies": [],
-      "testNames": [],
-      "evidencePaths": [],
-      "fixCommit": null,
+      "status": "in-progress",
+      "dependencies": [
+        "Open named-commit review: start-to-GET-to-return impersonation regression; see K-001/review-open.md",
+        "Final stable-commit CI and draft PR",
+        "Full-schema/RLS acceptance: disposable replay fails migration 220"
+      ],
+      "testNames": [
+        "tests/unit/auth/pending-mfa-access.test.ts"
+      ],
+      "evidencePaths": [
+        "K-001/plan.md",
+        "K-001/red.log",
+        "K-001/auth-regression-final.log",
+        "K-001/provider-workflow-final.log",
+        "K-001/review-open.md"
+      ],
+      "fixCommit": "11cb46aaa2b3b05481759cdbf9243c53440f6e24",
       "pr": null,
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
