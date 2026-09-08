@@ -190,16 +190,6 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   finalize_invoice: null,
   approve_supplier_invoice: null,
   post_journal: null,
-  // The bulk approve arms, free for the SAME reason and not by oversight: each
-  // element approves a document whose creation was already billed, so pricing
-  // the approval would charge twice for one bill. Deliberately NOT a per-element
-  // multiple of some other code — charging N times what the single tool charges
-  // is the rule, and N x 0 is 0. If any of the three single tools above ever
-  // gains a price, its bulk arm must become a per-element debit (see
-  // flowQuantityFor), not a flat one.
-  bulk_approve_supplier_invoices: null,
-  bulk_finalize_invoices: null,
-  bulk_approve_credit_notes: null,
 
   // ── Bank allocation is free in the app (bank.allocate is unused there) ───
   suggest_bank_allocation: null,
