@@ -96,6 +96,7 @@ const TOOL_FLOW_OPERATIONS: Record<string, FlowOperationCode | null> = {
   // surface like list_agent_postings. Both free, like every other read.
   suggest_receipt_matches: null,
   list_unapplied_receipts: null,
+  list_unapplied_payments: null,
   // Period control and bank completeness. Free, and deliberately so: these are
   // the review surfaces the safety model depends on. Charging to ask "is this
   // period open" or "does this account's history have a hole in it" would put a

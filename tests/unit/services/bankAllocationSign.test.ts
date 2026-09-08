@@ -55,6 +55,22 @@ vi.mock('@/modules/accounting/services/capture/fourWayMatchService', () => ({
   recordPaymentMatch: vi.fn(),
 }));
 
+// This file is about the SIGN of the journal, not about what happens to the
+// cash afterwards. The document/apply routing has its own file
+// (bank/supplierBankLineDocument.test.ts); mocked here so a supplier line does
+// not reach the real payment writer through a mocked `sql`.
+vi.mock('@/modules/accounting/services/ap/supplierAutoAllocate', () => ({
+  recordSupplierBankPayment: vi.fn(async () => ({
+    paymentId: 'payment-1', appliedLines: [], unappliedRemainder: 0, strategy: 'off',
+  })),
+}));
+vi.mock('@/modules/accounting/services/ar/customerAutoAllocate', () => ({
+  autoApplyCustomerReceipt: vi.fn(async () => ({
+    appliedLines: [], unappliedRemainder: 0, strategy: 'off',
+  })),
+}));
+
+import { recordSupplierBankPayment } from '@/modules/accounting/services/ap/supplierAutoAllocate';
 import { sql, withTransaction } from '@/lib/neon';
 import { createJournalEntry, postJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
@@ -116,7 +132,7 @@ function setup(kind: 'supplier' | 'customer', amount: number) {
     .mockResolvedValueOnce([{ id: JL_ID }])
     .mockResolvedValue([txRow(amount)]);
 
-  mockWithTx.mockImplementation(async (fn) => { await fn(vi.fn().mockResolvedValue(undefined)); });
+  mockWithTx.mockImplementation(async (fn) => { await fn(vi.fn().mockResolvedValue([{ id: 'cp-1' }])); });
 
   mockGetSystemAccountId.mockImplementation(async (key: string) => {
     if (key === 'payable') return AP_ID;
@@ -206,16 +222,20 @@ describe('allocateTransaction — supplier lines follow the sign', () => {
     expect(mockRecordPaymentMatch).not.toHaveBeenCalled();
   });
 
-  it('still 4-way matches a payment out', async () => {
+  it('records a payment DOCUMENT for a payment out, and matches no bill', async () => {
+    // This used to assert the opposite: that the service picked the supplier's
+    // most recently created unpaid bill and flagged it `payment_matched` for
+    // the whole line, with `amount_paid` untouched and no payment document
+    // anywhere. That guess is gone — the cash gets a document, and a bill is
+    // matched only when the caller names one.
     mockSql.mockReset();
     mockSql
       .mockResolvedValueOnce([txRow(-115)])
       .mockResolvedValueOnce([{ name: 'RohCap' }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: JL_ID }])
-      .mockResolvedValueOnce([{ id: 'inv-1' }])
       .mockResolvedValue([txRow(-115)]);
-    mockWithTx.mockImplementation(async (fn) => { await fn(vi.fn().mockResolvedValue(undefined)); });
+    mockWithTx.mockImplementation(async (fn) => { await fn(vi.fn().mockResolvedValue([])); });
     mockGetSystemAccountId.mockResolvedValue(AP_ID);
     mockCreateJE.mockResolvedValue({ id: JE_ID } as never);
     mockPostJE.mockResolvedValue(undefined);
@@ -226,7 +246,8 @@ describe('allocateTransaction — supplier lines follow the sign', () => {
     await allocateTransaction(
       COMPANY_ID, BANK_TX_ID, null, USER_ID, undefined, 'supplier', SUPPLIER_ID,
     );
-    expect(mockRecordPaymentMatch).toHaveBeenCalledWith(COMPANY_ID, 'inv-1', 115);
+    expect(mockRecordPaymentMatch).not.toHaveBeenCalled();
+    expect(recordSupplierBankPayment).toHaveBeenCalledOnce();
   });
 });
 
@@ -263,7 +284,7 @@ describe('allocateTransaction — customer lines follow the sign', () => {
     mockWithTx.mockImplementation(async (fn) => {
       await fn(vi.fn().mockImplementation((strings: TemplateStringsArray) => {
         inserts.push(strings.join(''));
-        return Promise.resolve(undefined);
+        return Promise.resolve([{ id: 'cp-1' }]);
       }));
     });
     const { allocateTransaction } = await import(
@@ -282,7 +303,7 @@ describe('allocateTransaction — customer lines follow the sign', () => {
     mockWithTx.mockImplementation(async (fn) => {
       await fn(vi.fn().mockImplementation((strings: TemplateStringsArray) => {
         inserts.push(strings.join(''));
-        return Promise.resolve(undefined);
+        return Promise.resolve([{ id: 'cp-1' }]);
       }));
     });
     const { allocateTransaction } = await import(

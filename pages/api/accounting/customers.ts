@@ -11,6 +11,7 @@ import {
   createCustomer,
   ContactValidationError,
 } from '@/modules/accounting/services/core/customerWriteService';
+import type { AutoAllocateStrategy } from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { withAuth, type CompanyAuthedRequest, withWriteAccess} from '@/lib/auth';
 import { withCsrf } from '@/lib/auth/withCsrf';
 import { log } from '@/lib/logger';
@@ -129,6 +130,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         categoryId: s('category_id'), cashSale: bool('cash_sale'),
         openingBalance: n('opening_balance'), openingBalanceDate: s('opening_balance_date'),
         acceptsElectronicInvoices: bool('accepts_electronic_invoices'),
+        // auto_allocate_strategy wins when supplied; an older client sending only
+        // the legacy boolean still works via autoAllocateReceipts below.
+        autoAllocateStrategy: s('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
         autoAllocateReceipts: bool('auto_allocate_receipts'),
         statementDistribution: s('statement_distribution'),
         defaultDiscount: n('default_discount'), defaultVatType: s('default_vat_type'),

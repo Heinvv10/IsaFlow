@@ -27,10 +27,12 @@
  *    receipt went to the NULL one while thirty-six others went elsewhere.
  *    Picking one would hide that R10,000 behind a tidier-looking reconciliation.
  *
- *  - It finds cash on the control account with NO payment document behind it.
- *    `allocateTransaction` skips its payment INSERT when it cannot resolve a
- *    uuid-shaped user, so that cash is invisible to every tool that reads
- *    payment rows, `list_unapplied_receipts` included.
+ *  - It finds cash on the control account with NO payment document behind it:
+ *    a hand-written journal, a receipt whose INSERT `allocateTransaction`
+ *    skipped because no uuid-shaped user resolved, or any supplier payment
+ *    posted before migration 614, when that path created no document at all.
+ *    That cash is invisible to every tool that reads payment rows —
+ *    `list_unapplied_receipts` and `list_unapplied_payments` included.
  *
  *  - It answers as at a DATE. Both sides move together: the subledger is
  *    reconstructed by the same settlement rewind the aging reports use

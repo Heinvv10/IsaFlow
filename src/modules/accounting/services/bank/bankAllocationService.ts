@@ -14,6 +14,8 @@ import { mapTxRow } from './bankTransactionQueryService';
 import type { BankTransaction } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import { recordPaymentMatch } from '../capture/fourWayMatchService';
+import { recordSupplierBankPayment } from '../ap/supplierAutoAllocate';
+import { autoApplyCustomerReceipt } from '../ar/customerAutoAllocate';
 import { unwindBankAllocationApplication } from './bankAllocationUnwind';
 import type { BankAllocationUnwindResult } from './bankAllocationUnwind';
 import { lockBankTransactionForUpdate } from './bankTxLock';
@@ -86,7 +88,15 @@ export async function allocateTransaction(
   description?: string, allocType: AllocationType = 'account', entityId?: string,
   vatCode?: string, cc1Id?: string, cc2Id?: string, buId?: string,
   invoiceId?: string,
-  opts?: PostingActorOpts,
+  /**
+   * `autoApply: false` says the CALLER has already named what this cash is for
+   * — a purchase order, say — so the payment document is still created but the
+   * supplier's `auto_allocate_strategy` is NOT run against its open bills.
+   * Applying it elsewhere would contradict the instruction the caller just
+   * gave. Default true: a line with no named target is exactly what the
+   * strategy exists to decide.
+   */
+  opts?: PostingActorOpts & { autoApply?: boolean },
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
   // FOR UPDATE: hold the row for the rest of the request so a concurrent
   // allocate blocks here rather than passing the same status check and posting
@@ -367,6 +377,7 @@ export async function allocateTransaction(
     }
   }
 
+  let customerPaymentId: string | null = null;
   // Atomically update bank_transactions and optionally insert the customer_payment record.
   // If either write fails the whole block rolls back — no orphaned allocation state.
   await withTransaction(async (wTx) => {
@@ -388,7 +399,7 @@ export async function allocateTransaction(
         WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
     }
     if (allocType === 'customer' && entityId && paymentUserId && !isSpent) {
-      await wTx`
+      const inserted = (await wTx`
         INSERT INTO customer_payments (
           company_id, client_id, payment_date, total_amount, payment_method,
           bank_reference, bank_account_id, description, status,
@@ -398,41 +409,88 @@ export async function allocateTransaction(
           ${tx.reference || tx.bank_reference || tx.description || null},
           ${bankAccountId}::UUID, ${entryDesc}, 'confirmed',
           ${je.id}::UUID, ${paymentUserId}::UUID, ${paymentUserId}::UUID, NOW()
-        )`;
+        )
+        RETURNING id`) as Row[];
+      // Captured so the receipt can be APPLIED below. Before this the row was
+      // inserted and its id thrown away, which is why every one of them landed
+      // in list_unapplied_receipts.
+      customerPaymentId = inserted.length > 0 ? String(inserted[0]!.id) : null;
     }
   });
 
-  // 4-way match: prefer the explicit invoiceId (from bankMatchCandidates), fall
-  // back to the most-recent unpaid invoice for the supplier. The explicit path
-  // is correct when multiple invoices are outstanding; the fallback keeps older
-  // call sites functional without requiring them to know the invoice.
+  // ── The supplier side of the cash ──────────────────────────────────────────
   //
-  // `isSpent` gates it: a refund is not a payment, and flagging the most recent
-  // unpaid bill `payment_matched` for money coming back IN records a settlement
-  // that never happened — on a bill the caller never named.
+  // TWO DIFFERENT THINGS, and conflating them is what broke this path.
+  //
+  // A caller that NAMES a bill is running the four-way match against that bill,
+  // and `applyBankLineToSupplierInvoices` — which is the caller that names one
+  // — owns the payment document and the application itself. Only the match flag
+  // belongs here.
+  //
+  // A caller that names NO bill used to fall through to a lookup that took the
+  // supplier's most recently CREATED unpaid bill and flagged it
+  // `payment_matched` for the whole line, without moving `amount_paid` by a
+  // cent — a settlement recorded against a bill nobody chose, on a payment
+  // document that did not exist. That lookup is gone. The cash now gets the
+  // document it always needed, and is applied only on the supplier's own
+  // instruction (`auto_allocate_strategy`, migration 614).
+  //
+  // `isSpent` gates both: a refund is money coming back IN and is not a payment.
   if (allocType === 'supplier' && entityId && isSpent) {
-    try {
-      let targetInvoiceId: string | null = invoiceId ?? null;
-      if (!targetInvoiceId) {
-        const unpaidRows = (await sql`
-          SELECT id FROM supplier_invoices
-          WHERE company_id = ${companyId}::UUID
-            AND supplier_id = ${entityId}::UUID
-            AND payment_matched = false
-            AND status NOT IN ('cancelled', 'paid')
-          ORDER BY created_at DESC
-          LIMIT 1
-        `) as Row[];
-        if (unpaidRows.length > 0 && unpaidRows[0]!.id) {
-          targetInvoiceId = String(unpaidRows[0]!.id);
-        }
+    if (invoiceId) {
+      try {
+        await recordPaymentMatch(companyId, invoiceId, totalAmount);
+      } catch (matchErr) {
+        log.error('4-way match check failed — allocation still recorded', { bankTxId, entityId, invoiceId, error: matchErr }, 'accounting');
       }
-      if (targetInvoiceId) {
-        await recordPaymentMatch(companyId, targetInvoiceId, totalAmount);
-      }
-    } catch (matchErr) {
-      log.error('4-way match check failed — allocation still recorded', { bankTxId, entityId, invoiceId, error: matchErr }, 'accounting');
+    } else {
+      // NOT caught. This writes, and a caught write is a partial commit under a
+      // success response — see the header of ap/supplierAutoAllocate.ts.
+      await recordSupplierBankPayment({
+        companyId,
+        supplierId: entityId,
+        // See the `autoApply` note on the signature: a caller that named a
+        // target gets the document without the strategy.
+        autoApply: opts?.autoApply ?? true,
+        bankTxId,
+        bankAccountId,
+        journalEntryId: je.id,
+        amount: totalAmount,
+        paymentDate: txDate,
+        description: entryDesc,
+        userId,
+      });
     }
+  }
+
+  // The receipt's own application, on the same rule and the same instruction.
+  // The document already existed on this side; the instruction to apply it was
+  // written to a column nothing read.
+  //
+  // `!invoiceId` and `opts?.autoApply` carry the SAME meaning as on the
+  // supplier arm above, and leaving them off this arm was a real defect:
+  //
+  //   · `confirmReceiptMatch` passes an invoiceId and then applies the very
+  //     payment this function created (it re-reads it by journal id). Applying
+  //     it here first consumes the remainder, and its own
+  //     `planReceiptApplication` then refuses — "only R0.00 of this receipt is
+  //     unapplied" — so a bank receipt match would simply stop working for any
+  //     customer with a strategy set.
+  //   · `bank-match-confirm`'s customer branch names an invoice but passes no
+  //     id, and writes `amount_paid` on it ABSOLUTELY from a value read before
+  //     this call. If the strategy settled an older invoice, both writes stand
+  //     and the subledger drops by twice the receipt. It passes
+  //     `autoApply: false`.
+  if (allocType === 'customer' && entityId && customerPaymentId && !isSpent
+      && !invoiceId && (opts?.autoApply ?? true)) {
+    await autoApplyCustomerReceipt({
+      companyId,
+      customerId: entityId,
+      paymentId: customerPaymentId,
+      journalEntryId: je.id,
+      amount: totalAmount,
+      userId,
+    });
   }
 
   log.info('Allocated bank transaction', { bankTxId, journalEntryId: je.id, allocType, entityId, contraAccountId }, 'accounting');

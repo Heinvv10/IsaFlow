@@ -11,6 +11,12 @@
  * against a Sage book showing every one of them paid, with AP overstated by
  * R613,642.
  *
+ * THAT NARRATIVE IS HISTORY FOR THE NO-INVOICE PATH. `allocateTransaction` no
+ * longer guesses a bill: it creates the payment document and applies it only on
+ * the supplier's `auto_allocate_strategy` (migration 614), through this very
+ * service. `recordPaymentMatch` now runs only when the caller NAMED the bill.
+ * This service is still what clears a payment that was left unapplied.
+ *
  * So, like its AR twin, this posts NO JOURNAL. The cash has already left the
  * bank; posting again would double the payment. It moves the subledger into
  * agreement with the GL: allocation rows, `amount_paid`, status, and

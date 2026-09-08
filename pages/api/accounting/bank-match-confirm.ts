@@ -144,9 +144,17 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       const invoiceTotal = Number(ci.total_amount);
       const outstandingBalance = invoiceTotal - currentPaid;
 
-      // Create GL entry: DR Bank, CR Accounts Receivable
+      // Create GL entry: DR Bank, CR Accounts Receivable.
+      //
+      // `autoApply: false`: this branch settles `candidateId` itself, with the
+      // absolute `amount_paid` write below, computed from a balance read
+      // BEFORE this call. Letting the customer's auto-allocate strategy also
+      // apply the receipt would reduce the subledger twice for one deposit —
+      // once on whichever invoice the strategy picked, once here — while the
+      // AR control account moved only by the line.
       await allocateTransaction(
         companyId, bankTransactionId, '', userId, undefined, 'customer', customerId,
+        undefined, undefined, undefined, undefined, undefined, { autoApply: false },
       );
 
       // Update invoice payment tracking
@@ -176,9 +184,19 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       }
       const supplierId = String(poRows[0]!.supplier_id);
 
-      // Create GL entry: DR Accounts Payable, CR Bank
+      // Create GL entry: DR Accounts Payable, CR Bank.
+      //
+      // `autoApply: false`: the user confirmed this line against a PURCHASE
+      // ORDER, and a purchase order is not a bill. The payment document is
+      // created — the cash left the bank and needs one — but the supplier's
+      // auto-allocate strategy is NOT run, because settling some unrelated
+      // open bill with money the user just told us was for this PO would
+      // contradict the match they confirmed. The cash stays unapplied and
+      // `list_unapplied_payments` reports it against the bill it eventually
+      // belongs to.
       await allocateTransaction(
         companyId, bankTransactionId, '', userId, undefined, 'supplier', supplierId,
+        undefined, undefined, undefined, undefined, undefined, { autoApply: false },
       );
 
       await sql`

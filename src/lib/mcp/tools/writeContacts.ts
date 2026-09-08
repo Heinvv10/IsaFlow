@@ -40,9 +40,25 @@ import {
   customerBelongsToCompany,
   supplierBelongsToCompany,
 } from '@/modules/accounting/services/core/contactDirectoryService';
+import {
+  AUTO_ALLOCATE_STRATEGIES,
+  type AutoAllocateStrategy,
+} from '@/modules/accounting/services/shared/autoAllocateStrategy';
 import { NOT_FOUND, guardCastableArgs, ok, strArg, toolError } from './toolHelpers';
 
 const SCOPE = 'write:contacts';
+
+// inputSchema.enum below is DOCUMENTATION ONLY — the MCP transport does not
+// validate against it (see the house rule in allocationLine.ts). An
+// out-of-range value is not silently dropped here: it is passed through to
+// createCustomer/updateCustomer/createSupplier/updateSupplier, whose own
+// resolveStrategy() throws a ContactValidationError naming the allowed
+// values, which the existing catch block below turns into a toolError.
+
+const AUTO_ALLOCATE_STRATEGY_DESCRIPTION =
+  "'off' leaves a payment/receipt unapplied for list_unapplied_payments / list_unapplied_receipts "
+  + "to clear; 'oldest' applies it to the oldest open document first (FIFO), partially settling the "
+  + "last one; 'newest' applies newest first. Supersedes the deprecated boolean below.";
 
 const CUSTOMER_FIELDS = {
   name: { type: 'string', maxLength: 255, description: 'Trading name. Rejected over 255 characters — it identifies the record.' },
@@ -60,7 +76,17 @@ const CUSTOMER_FIELDS = {
   notes: { type: 'string' },
   default_vat_type: { type: 'string' },
   default_discount: { type: 'number', description: 'Percent.' },
-  auto_allocate_receipts: { type: 'boolean', description: 'Whether receipts are matched to invoices automatically.' },
+  auto_allocate_strategy: {
+    type: 'string',
+    enum: [...AUTO_ALLOCATE_STRATEGIES],
+    description: AUTO_ALLOCATE_STRATEGY_DESCRIPTION,
+  },
+  auto_allocate_receipts: {
+    type: 'boolean',
+    description:
+      "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; "
+      + 'ignored when auto_allocate_strategy is also given.',
+  },
 } as const;
 
 const SUPPLIER_FIELDS = {
@@ -86,7 +112,17 @@ const SUPPLIER_FIELDS = {
   is_active: { type: 'boolean' },
   notes: { type: 'string' },
   category: { type: 'string' },
-  auto_allocate_payments: { type: 'boolean' },
+  auto_allocate_strategy: {
+    type: 'string',
+    enum: [...AUTO_ALLOCATE_STRATEGIES],
+    description: AUTO_ALLOCATE_STRATEGY_DESCRIPTION,
+  },
+  auto_allocate_payments: {
+    type: 'boolean',
+    description:
+      "DEPRECATED — use auto_allocate_strategy. true maps to 'oldest', false to 'off'; "
+      + 'ignored when auto_allocate_strategy is also given.',
+  },
 } as const;
 
 function customerInput(args: Record<string, unknown>): CustomerWriteInput {
@@ -106,6 +142,9 @@ function customerInput(args: Record<string, unknown>): CustomerWriteInput {
     notes: strArg(args, 'notes'),
     defaultVatType: strArg(args, 'default_vat_type'),
     defaultDiscount: numArg(args, 'default_discount'),
+    // Not validated here — an out-of-range value reaches the service's own
+    // resolveStrategy() and throws, rather than being silently dropped.
+    autoAllocateStrategy: strArg(args, 'auto_allocate_strategy') as AutoAllocateStrategy | undefined,
     autoAllocateReceipts: boolArg(args, 'auto_allocate_receipts'),
   };
 }
@@ -128,6 +167,9 @@ function supplierInput(args: Record<string, unknown>): SupplierWriteInput {
     isActive: boolArg(args, 'is_active'),
     notes: strArg(args, 'notes'),
     category: strArg(args, 'category'),
+    // Not validated here — an out-of-range value reaches the service's own
+    // resolveStrategy() and throws, rather than being silently dropped.
+    autoAllocateStrategy: strArg(args, 'auto_allocate_strategy') as AutoAllocateStrategy | undefined,
     autoAllocatePayments: boolArg(args, 'auto_allocate_payments'),
   };
 }
