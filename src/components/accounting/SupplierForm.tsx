@@ -3,8 +3,10 @@
  * Used by pages/accounting/suppliers/new.tsx (and future edit page).
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { localISODate } from '@/lib/dateUtils';
+
+export type AutoAllocateStrategy = 'off' | 'oldest' | 'newest';
 
 export interface SupplierFormData {
   name: string;
@@ -26,7 +28,7 @@ export interface SupplierFormData {
   bank_account_type: string;
   opening_balance: string;
   opening_balance_date: string;
-  auto_allocate_payments: boolean;
+  auto_allocate_strategy: AutoAllocateStrategy;
 }
 
 export const INITIAL_SUPPLIER_FORM: SupplierFormData = {
@@ -49,7 +51,7 @@ export const INITIAL_SUPPLIER_FORM: SupplierFormData = {
   bank_account_type: 'current',
   opening_balance: '',
   opening_balance_date: localISODate(),
-  auto_allocate_payments: false,
+  auto_allocate_strategy: 'off',
 };
 
 const ACCOUNT_TYPES = [
@@ -117,6 +119,14 @@ export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
   function set<K extends keyof SupplierFormData>(key: K, value: SupplierFormData[K]) {
     onChange({ ...form, [key]: value });
   }
+
+  // Remembers the last order chosen (oldest/newest) while the toggle is off,
+  // so switching it back on restores that choice instead of resetting to
+  // 'oldest' every time.
+  const [lastOrder, setLastOrder] = useState<'oldest' | 'newest'>(
+    form.auto_allocate_strategy !== 'off' ? form.auto_allocate_strategy : 'oldest',
+  );
+  const autoAllocateOn = form.auto_allocate_strategy !== 'off';
 
   return (
     <>
@@ -261,19 +271,40 @@ export function SupplierForm({ form, onChange, fieldErrors = {} }: Props) {
           <button
             type="button"
             role="switch"
-            aria-checked={form.auto_allocate_payments}
-            onClick={() => set('auto_allocate_payments', !form.auto_allocate_payments)}
+            aria-checked={autoAllocateOn}
+            onClick={() => set('auto_allocate_strategy', autoAllocateOn ? 'off' : lastOrder)}
             className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-              form.auto_allocate_payments ? 'bg-teal-600' : 'bg-[var(--ff-bg-tertiary)]'
+              autoAllocateOn ? 'bg-teal-600' : 'bg-[var(--ff-bg-tertiary)]'
             }`}
           >
             <span
               className={`inline-block h-4 w-4 rounded-full bg-white shadow ring-0 transition-transform ${
-                form.auto_allocate_payments ? 'translate-x-4' : 'translate-x-0'
+                autoAllocateOn ? 'translate-x-4' : 'translate-x-0'
               }`}
             />
           </button>
-          <span className="text-sm text-[var(--ff-text-secondary)]">Auto Allocate Payments to Oldest Invoice</span>
+          <span className="text-sm text-[var(--ff-text-secondary)]">
+            {autoAllocateOn
+              ? `Auto Allocate Payments to ${form.auto_allocate_strategy === 'newest' ? 'Newest' : 'Oldest'} Invoice`
+              : 'Auto Allocate Payments'}
+          </span>
+          <label className="sr-only" htmlFor="supplier-auto-allocate-order">Auto allocate order</label>
+          <select
+            id="supplier-auto-allocate-order"
+            disabled={!autoAllocateOn}
+            // The live strategy while the toggle is ON, so a record loaded
+            // after mount shows its own order rather than the initial guess.
+            value={autoAllocateOn ? form.auto_allocate_strategy : lastOrder}
+            onChange={(e) => {
+              const order = e.target.value as 'oldest' | 'newest';
+              setLastOrder(order);
+              set('auto_allocate_strategy', order);
+            }}
+            className={`${selectClass} w-auto disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <option value="oldest">Oldest invoice first</option>
+            <option value="newest">Newest invoice first</option>
+          </select>
         </div>
       </Card>
 

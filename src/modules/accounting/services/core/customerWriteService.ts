@@ -21,6 +21,13 @@
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
+import {
+  AUTO_ALLOCATE_STRATEGIES,
+  parseAutoAllocateStrategy,
+  type AutoAllocateStrategy,
+} from '../shared/autoAllocateStrategy';
+
+export type { AutoAllocateStrategy };
 
 const MAX_NAME = 255;
 const MAX_TEXT = 255;
@@ -47,6 +54,8 @@ export interface CustomerWriteInput {
   openingBalance?: number | null;
   openingBalanceDate?: string | null;
   acceptsElectronicInvoices?: boolean;
+  autoAllocateStrategy?: AutoAllocateStrategy;
+  /** @deprecated Legacy boolean from migration 246. Use autoAllocateStrategy — true maps to 'oldest'. */
   autoAllocateReceipts?: boolean;
   statementDistribution?: string | null;
   defaultDiscount?: number | null;
@@ -78,11 +87,46 @@ function assertName(name: string | undefined): string {
   return t;
 }
 
+/**
+ * `autoAllocateStrategy` wins when given; otherwise the deprecated boolean is
+ * mapped (true -> 'oldest', false -> 'off') so an old caller still works.
+ * Returns undefined when neither was supplied, meaning "leave it alone" on an
+ * update. Throws before the value can reach the DB CHECK constraint, which
+ * would otherwise surface as an opaque 23514.
+ */
+function resolveStrategy(
+  strategy: string | undefined,
+  legacyBoolean: boolean | undefined,
+): AutoAllocateStrategy | undefined {
+  if (strategy !== undefined) {
+    const parsed = parseAutoAllocateStrategy(strategy);
+    if (!parsed) {
+      throw new ContactValidationError(
+        `auto_allocate_strategy must be one of: ${AUTO_ALLOCATE_STRATEGIES.join(', ')}`,
+      );
+    }
+    return parsed;
+  }
+  // THE LEGACY BOOLEAN NO LONGER TURNS ANYTHING ON. It used to map true ->
+  // 'oldest', which made it the last path by which a contact could arrive at a
+  // strategy nobody chose — reachable by any caller still sending the old
+  // field: an external API consumer, an import, or the previous build during a
+  // rolling deploy. Migration 614 refused to carry the old ticks over for
+  // exactly that reason (nothing ever read them, so nobody consented to cash
+  // application by ticking one); honouring the same tick when it arrives over
+  // the wire would have re-opened the door the migration closed. Nothing
+  // in-tree sends it — the forms, the REST routes and the MCP contact tools all
+  // moved to `auto_allocate_strategy` — so an old caller's boolean is now
+  // simply ignored rather than obeyed.
+  return undefined;
+}
+
 export async function createCustomer(
   companyId: string,
   input: CustomerWriteInput,
 ): Promise<DbRow> {
   const name = assertName(input.name);
+  const strategy = resolveStrategy(input.autoAllocateStrategy, input.autoAllocateReceipts) ?? 'off';
   const rows = (await sql`
     INSERT INTO customers (
       company_id, name, email, phone, mobile, fax, web_address,
@@ -90,7 +134,7 @@ export async function createCustomer(
       billing_address, shipping_address, contact_person,
       payment_terms, payment_terms_type, credit_limit, is_active, notes,
       category_id, cash_sale, opening_balance, opening_balance_date,
-      accepts_electronic_invoices, auto_allocate_receipts,
+      accepts_electronic_invoices, auto_allocate_strategy, auto_allocate_receipts,
       statement_distribution, default_discount, default_vat_type,
       subject_to_drc_vat, invoices_viewable_online,
       default_price_list
@@ -117,7 +161,8 @@ export async function createCustomer(
       ${input.openingBalance ?? 0},
       ${trimmed(input.openingBalanceDate)}::DATE,
       ${input.acceptsElectronicInvoices ?? false},
-      ${input.autoAllocateReceipts ?? false},
+      ${strategy},
+      ${strategy !== 'off'},
       ${trimmed(input.statementDistribution) ?? 'email'},
       ${input.defaultDiscount ?? 0},
       ${trimmed(input.defaultVatType)},
@@ -161,6 +206,9 @@ export async function updateCustomer(
   if (input.name !== undefined) {
     name = assertName(input.name);
   }
+  // undefined = "leave it alone"; COALESCE below handles that the same way it
+  // handles every other omitted field.
+  const strategy = resolveStrategy(input.autoAllocateStrategy, input.autoAllocateReceipts);
 
   const rows = (await sql`
     UPDATE customers SET
@@ -187,7 +235,10 @@ export async function updateCustomer(
       subject_to_drc_vat = COALESCE(${input.subjectToDrcVat ?? null}, subject_to_drc_vat),
       accepts_electronic_invoices =
         COALESCE(${input.acceptsElectronicInvoices ?? null}, accepts_electronic_invoices),
-      auto_allocate_receipts = COALESCE(${input.autoAllocateReceipts ?? null}, auto_allocate_receipts),
+      auto_allocate_strategy = COALESCE(${strategy ?? null}, auto_allocate_strategy),
+      auto_allocate_receipts = COALESCE(
+        ${strategy !== undefined ? strategy !== 'off' : null}, auto_allocate_receipts
+      ),
       statement_distribution = COALESCE(${trimmed(input.statementDistribution)}, statement_distribution),
       invoices_viewable_online = COALESCE(${input.invoicesViewableOnline ?? null}, invoices_viewable_online),
       default_price_list = COALESCE(${trimmed(input.defaultPriceList)}, default_price_list),
