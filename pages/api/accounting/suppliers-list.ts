@@ -104,8 +104,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         bankBranchCode: str('bank_branch_code'), bankAccountType: str('bank_account_type'),
         isActive: bool('is_active'), notes: str('notes'), category: str('category'),
         openingBalance: num('opening_balance'), openingBalanceDate: str('opening_balance_date'),
-        // auto_allocate_strategy wins when supplied; an older client sending only
-        // the legacy boolean still works via autoAllocatePayments below.
+        // auto_allocate_strategy is the only field that decides this. The
+        // legacy boolean below is still ACCEPTED and still written to its own
+        // column, but it no longer selects a strategy: an old client sending
+        // only `auto_allocate_payments: true` gets no error and no effect.
+        // That is deliberate — migration 614 refused to carry the historical
+        // ticks over because nothing ever read them, so nobody consented to
+        // automatic cash application by ticking one, and honouring the same
+        // tick over the wire would re-open the door the migration closed.
         autoAllocateStrategy: str('auto_allocate_strategy') as AutoAllocateStrategy | undefined,
         autoAllocatePayments: bool('auto_allocate_payments'),
       })];
