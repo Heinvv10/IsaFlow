@@ -300,6 +300,9 @@ async function cleanupCompany(db: Pool, CO: string): Promise<void> {
   await db.query(
     `DELETE FROM payment_allocations WHERE payment_id IN
        (SELECT id FROM supplier_payments WHERE company_id = $1::UUID)`, [CO]);
+  await db.query(
+    `DELETE FROM supplier_payment_allocations WHERE payment_id IN
+       (SELECT id FROM supplier_payments WHERE company_id = $1::UUID)`, [CO]);
   await db.query('DELETE FROM supplier_payments WHERE company_id = $1::UUID', [CO]);
   await db.query('DELETE FROM bank_transactions WHERE company_id = $1::UUID', [CO]);
   await db.query('DELETE FROM supplier_invoices WHERE company_id = $1::UUID', [CO]);

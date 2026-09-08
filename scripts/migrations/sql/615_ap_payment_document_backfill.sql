@@ -217,6 +217,15 @@ facts AS (
     -- which would take out the whole view over a case the CASE below refuses
     -- three lines earlier. A NULL here (no match, or two) leaves this FALSE
     -- and the ambiguity/absence outcomes decide the row.
+    --
+    -- `si.company_id` / `sp2.company_id` look redundant beside a supplier id
+    -- and are NOT. `supplier_invoices_supplier_id_fkey` and
+    -- `supplier_payments_supplier_id_fkey` reference `suppliers(id)` with no
+    -- company pairing, so a bill whose supplier belongs to ANOTHER tenant is
+    -- insertable — and without these filters such a row would grant history to
+    -- a supplier that has none here, re-arming the exact line the guard just
+    -- refused. No fixture with clean data can catch their removal; that makes
+    -- them uncatchable, not unnecessary.
     CASE WHEN COALESCE(ARRAY_LENGTH(resolved.supplier_ids, 1), 0) = 1 THEN
       EXISTS (SELECT 1 FROM supplier_invoices si
                WHERE si.company_id = resolved.company_id
@@ -282,6 +291,13 @@ facts AS (
     -- the supplier money-out path today, which is why this is a guard and not
     -- a fix, but a supplier line that ever lands in that shape is named rather
     -- than skipped in silence.
+    -- COUNTS EVERY BANK ROW TOUCHING THE JOURNAL, not just the candidates: no
+    -- `status`, no `allocation_type`, no sign filter. That is a superset, so an
+    -- unallocated or account-allocated row on the same journal will suppress a
+    -- line that is otherwise the only candidate on it. The direction is the
+    -- safe one — refuse and report, never mint — and the outcome name stays
+    -- literally true. Whoever works the exception list should know they may be
+    -- hunting a second payment that does not exist.
     (SELECT COUNT(*) FROM bank_transactions b2
        JOIN gl_journal_lines jl2
          ON jl2.id = b2.matched_journal_line_id
@@ -377,6 +393,14 @@ BEGIN
   -- this cash. It is uuid-typed and NOT NULL on both tables, so it needs no
   -- resolution — and attributing the document to whoever moved the money beats
   -- attributing it to whoever ran the backfill.
+  --
+  -- THAT NOT NULL IS LOAD-BEARING and there is no longer a guard behind it. An
+  -- earlier `journal_has_no_author` outcome was removed as unreachable, which
+  -- it is: `gl_journal_entries.created_by` is NOT NULL with zero nulls, and a
+  -- missing journal row lands on `journal_not_posted` via IS DISTINCT FROM. If
+  -- that constraint is ever relaxed, this INSERT dies on a null violation
+  -- INSIDE the data-modifying CTE and takes the whole tenant's batch with it
+  -- rather than reporting the one line. Re-add the outcome if it is.
   --
   -- `payment_number` is left to trg_sp_payment_number, which is BEFORE INSERT
   -- FOR EACH ROW and therefore sees each preceding row of this statement.

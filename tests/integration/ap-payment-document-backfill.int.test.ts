@@ -252,6 +252,28 @@ describeIfDb('AP payment-document backfill (migration 615)', () => {
     await db.query(`UPDATE supplier_payments SET status = 'processed' WHERE id = $1::UUID`, [id]);
   });
 
+  it('refuses to roll back a payment allocated through the LEGACY table', async () => {
+    // `supplier_payment_allocations` holds zero rows and has no writer today,
+    // which is exactly why this needs a test: a guard whose justification is
+    // "the day anything starts writing them" is the kind a future cleanup
+    // deletes. It cascades on delete like the live table, so a rollback that
+    // ignores it destroys those rows in silence. This is the ONLY arm of the
+    // refusal that fires here — the payment stays `processed` and has no
+    // `payment_allocations` row.
+    const id = await createdPaymentId(db, BATCH_1);
+    await db.query(
+      `INSERT INTO supplier_payment_allocations (payment_id, invoice_id, amount_allocated)
+       VALUES ($1::UUID, $2::UUID, 50)`,
+      [id, BILL],
+    );
+    await expect(
+      db.query('SELECT * FROM ap_rollback_supplier_payment_document_backfill($1::UUID)', [BATCH_1]),
+    ).rejects.toThrow(/Rollback refused/);
+    const still = await db.query('SELECT 1 FROM supplier_payments WHERE id = $1::UUID', [id]);
+    expect(still.rowCount).toBe(1);
+    await db.query('DELETE FROM supplier_payment_allocations WHERE payment_id = $1::UUID', [id]);
+  });
+
   it('will not record a second live created row for one bank line', async () => {
     // `uq_ap_pdb_created_line` is the hard floor under idempotency — the one
     // that holds if every guard in the view is wrong at once. Nothing else in

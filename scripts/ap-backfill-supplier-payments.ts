@@ -201,6 +201,40 @@ async function main(): Promise<void> {
       }
       if (plan.rows.length === 0) console.log('  (none)');
 
+      // A REFUSAL THAT UN-REFUSES ITSELF. `supplier_has_no_ledger_history`
+      // reads the supplier's bills and payments at run time, so one ordinary
+      // bill captured against that supplier later — by anybody, for anything —
+      // silently converts the refusal into a mint on the next run, and nobody
+      // revisits the identity question that caused the refusal. The refusals
+      // are in the log, so the clearing can at least be SAID OUT LOUD.
+      //
+      // It reports across COMMITTED runs only — a dry run rolls its own log
+      // rows back with everything else, so the first dry run against a tenant
+      // has nothing to compare to. That is correct rather than a gap: there is
+      // no earlier refusal until a run has actually refused something.
+      const uncleared = await client.query(
+        `SELECT DISTINCT l.bank_transaction_id::TEXT AS id, l.amount, l.reason
+           FROM ap_payment_document_backfill l
+           JOIN ap_payment_document_backfill_candidates c
+             ON c.bank_transaction_id = l.bank_transaction_id
+          WHERE l.company_id = $1::UUID
+            AND l.outcome = 'skipped'
+            AND l.reason = 'supplier_has_no_ledger_history'
+            AND c.outcome = 'create'`,
+        [companyId],
+      );
+      if (uncleared.rows.length > 0) {
+        console.log(
+          `\nPREVIOUSLY REFUSED, NOW ELIGIBLE — ${uncleared.rows.length} line(s).`
+          + ' A run refused these for having no ledger history; the supplier has since'
+          + ' acquired one. Nothing re-examined who the supplier is. Settle them by hand'
+          + ' or accept them deliberately:',
+        );
+        for (const r of uncleared.rows) {
+          console.log(`  ${r.id}  ${money(Number(r.amount)).padStart(18)}`);
+        }
+      }
+
       const before = await readInvariants(companyId);
       const visBefore = await readVisible(companyId);
 
@@ -236,20 +270,47 @@ async function main(): Promise<void> {
       console.log(`  ROWS   unapplied payment count       ${String(visBefore.unappliedRows).padStart(18)} -> ${String(visAfter.unappliedRows).padStart(18)}`);
       console.log(`  ROWS   supplier_payments rows        ${String(visBefore.paymentRows).padStart(18)} -> ${String(visAfter.paymentRows).padStart(18)}`);
 
-      // Per supplier, largest first. This is where a name-resolution mistake
-      // would show: a supplier whose created total does not match the bank
-      // lines its name is on.
+      // EVERY supplier, and every column an operator needs to spot a wrong one.
+      //
+      // This block is the ONLY human control over the one defect this design
+      // cannot close in SQL. `bank_transactions` carries no supplier id, so the
+      // supplier is resolved by NAME, and a supplier renamed with its old name
+      // reused makes "exactly one match" the wrong row with no independent
+      // witness (see the view's own note). `supplier_has_no_ledger_history`
+      // narrows that to suppliers with nothing else in the tenant — an impostor
+      // needs exactly one bill to get past it.
+      //
+      // So it is printed IN FULL and grouped by supplier ID, not name. It was
+      // `LIMIT 10 ORDER BY amount DESC`, which showed ten rows of six hundred
+      // and put the largest first — and the odd shapes are the SMALL ones: the
+      // nine lines this run refuses for no history total R1,795.50 between
+      // them. Nothing puts an impostor in a top ten by amount.
+      //
+      // `bills` and `first_seen` are the eyeball columns. A supplier taking
+      // R50,000 of backfilled cash on the strength of one R250 bill is the
+      // demonstrated attack, and it is visible here or nowhere.
       const bySupplier = await client.query(
-        `SELECT s.name, COUNT(*)::INT AS n, SUM(l.amount) AS amount
+        `SELECT s.id::TEXT AS supplier_id, s.name, COUNT(*)::INT AS n, SUM(l.amount) AS amount,
+                (SELECT COUNT(*) FROM supplier_invoices si
+                  WHERE si.company_id = l.company_id AND si.supplier_id = s.id)::INT AS bills,
+                MIN(s.created_at)::DATE::TEXT AS supplier_created,
+                MIN(b.transaction_date)::TEXT AS earliest_line
            FROM ap_payment_document_backfill l
            JOIN suppliers s ON s.id = l.supplier_id AND s.company_id = l.company_id
+           JOIN bank_transactions b ON b.id = l.bank_transaction_id
           WHERE l.batch_id = $1::UUID AND l.outcome = 'created'
-          GROUP BY s.name ORDER BY SUM(l.amount) DESC LIMIT 10`,
+          GROUP BY s.id, s.name, l.company_id ORDER BY s.name`,
         [batchId],
       );
-      console.log('\nCREATED, BY SUPPLIER (top 10)');
+      console.log(`\nCREATED, BY SUPPLIER — all ${bySupplier.rows.length}. READ THIS LIST.`);
+      console.log(`  ${'supplier'.padEnd(46)} ${'lines'.padStart(5)} ${'amount'.padStart(18)} ${'bills'.padStart(5)}  created / earliest line`);
       for (const r of bySupplier.rows) {
-        console.log(`  ${String(r.name).slice(0, 52).padEnd(54)} ${String(r.n).padStart(4)}  ${money(Number(r.amount)).padStart(18)}`);
+        const flagged = Number(r.bills) <= 1 ? ' <-- CHECK' : '';
+        console.log(
+          `  ${String(r.name).slice(0, 44).padEnd(46)} ${String(r.n).padStart(5)} `
+          + `${money(Number(r.amount)).padStart(18)} ${String(r.bills).padStart(5)}  `
+          + `${r.supplier_created} / ${r.earliest_line}  ${r.supplier_id}${flagged}`,
+        );
       }
 
       // The reconciliation's decomposition either side, printed in full: the
