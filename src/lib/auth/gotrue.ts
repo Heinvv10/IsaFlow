@@ -49,12 +49,36 @@ function jwtKey(): Uint8Array {
   return new TextEncoder().encode(getEnv('JWT_SECRET'));
 }
 
-export async function verifyToken(token: string): Promise<GoTrueClaims> {
+/** Signature-only identity for pending MFA and owned-session recovery. Not a session gate. */
+export async function verifyTokenSignature(token: string): Promise<GoTrueClaims> {
   const { payload } = await jwtVerify(token, jwtKey(), { algorithms: ['HS256'] });
   if (typeof payload.sub !== 'string') {
     throw new Error('JWT missing sub claim');
   }
   return payload as GoTrueClaims;
+}
+
+/** Completed-session gate shared by every protected authentication entry point. */
+export async function verifyToken(token: string): Promise<GoTrueClaims> {
+  const claims = await verifyTokenSignature(token);
+  if (claims.aal === 'aal2') return claims;
+  // Password tokens remain AAL1 even when MFA is enrolled. Cookie names do not
+  // prove challenge completion; consult current enrollment before authorizing.
+  const res = await gotrueFetch('/user', { method: 'GET' }, {
+    apikey: getEnv('SUPABASE_ANON_KEY'), Authorization: `Bearer ${token}`,
+  });
+  if (!res.ok) throw new Error(`Session assurance check failed: ${res.status}`);
+  const user: unknown = await res.json();
+  if (!user || typeof user !== 'object' || !('id' in user) || user.id !== claims.sub) {
+    throw new Error('Session assurance identity mismatch');
+  }
+  const factors = 'factors' in user ? user.factors : [];
+  if (!Array.isArray(factors) || factors.some((factor: unknown) =>
+    !factor || typeof factor !== 'object' || !('status' in factor) || factor.status !== 'unverified'
+  )) {
+    throw new Error('MFA challenge required or factor state unavailable');
+  }
+  return claims;
 }
 
 async function gotrueFetch(
