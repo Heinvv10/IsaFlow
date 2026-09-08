@@ -120,7 +120,23 @@ export interface PackKpiTile {
    * sentence and the picture must come from one reading: a footnote that
    * recomputes the domain is a second answer to "what was drawn".
    */
-  sparklineScale: { min: number; max: number; shared: boolean } | null;
+  sparklineScale: {
+    min: number;
+    max: number;
+    shared: boolean;
+    /**
+     * WHAT UNIT THOSE TWO NUMBERS ARE IN.
+     *
+     * Page 3's footnote states the shared money domain and, for a line that
+     * cannot join it, has to state that line's own — and `(1 621) to 1 908`
+     * is not how a percentage or a day count is written. The unit travels
+     * with the domain rather than being inferred from the tile's label,
+     * because a label is prose and this is what the axis was drawn in. Page
+     * 10 prints both ends of these same two measures (`5323.5%`,
+     * `60 days`); this is page 3's half of the same convention.
+     */
+    unit: 'money' | 'percentage' | 'days';
+  } | null;
 }
 
 export interface PackStatItem {

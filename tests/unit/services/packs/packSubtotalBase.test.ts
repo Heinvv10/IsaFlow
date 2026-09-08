@@ -25,6 +25,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCashWaterfallChart, buildProfitWaterfallChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
+import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 import type { PackChartSpec } from '@/modules/accounting/services/packs/pages/packChartModel';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 import { brightsphereLiveSet } from './fixtures/boardPackInputs';
@@ -45,7 +46,13 @@ function rects(svg: string): Rect[] {
       fill: m[5]!,
     }));
   const widest = Math.max(...all.map((r) => r.width));
-  return all.filter((r) => r.width < widest).map(({ centre, top, bottom, fill }) => ({ centre, top, bottom, fill }));
+  // AND NOT THE PAPER GROUND UNDER A LABEL. A label drawn clear of its bar
+  // gets an opaque rect of its own so a gridline cannot run through the
+  // figure; it is a rect in the same group, and counting it as a bar pairs
+  // every subsequent bar with the wrong step. No bar is filled in paper.
+  return all
+    .filter((r) => r.width < widest && r.fill.toLowerCase() !== DEFAULT_CHART_PALETTE.paper.toLowerCase())
+    .map(({ centre, top, bottom, fill }) => ({ centre, top, bottom, fill }));
 }
 
 function labels(svg: string): Label[] {

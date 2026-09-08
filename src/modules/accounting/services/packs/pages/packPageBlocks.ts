@@ -27,7 +27,7 @@ import type { SelectedMatters } from './packMattersPrinted';
 import { matterSourcesInWords } from './packDerivedMatters';
 import { PANEL_OMITTED_RULE } from './packShortenedPanels';
 import { trendWindowNote } from './packTrendCrossReference';
-import { formatMoney, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
+import { formatDays, formatMoney, formatPctLevel, inProse, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
 import { ROUNDING_COMPONENTS_NOTE } from './packBasis';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
@@ -143,6 +143,22 @@ function shortWindowClause(tiles: PackKpiTile[]): string {
  * sentence and the picture cannot drift apart. Empty when no money line is
  * drawn — there is then no shared scale to describe.
  */
+/**
+ * The ends of a tile's OWN axis, in the unit that axis was drawn in.
+ *
+ * The unit travels on `sparklineScale` rather than being read off the label,
+ * and the formatters are the pack's own — the same `formatPctLevel` and
+ * `formatDays` page 10's panels print their ends with, so the two sheets
+ * cannot state one measure's range two ways.
+ */
+function ownRange(tile: PackKpiTile, scale: MoneyScale): string {
+  const domain = tile.sparklineScale!;
+  const print = (value: number): string => (domain.unit === 'percentage'
+    ? formatPctLevel(value)
+    : domain.unit === 'days' ? formatDays(value) : inProse(formatMoney(value, { scale })));
+  return `${print(domain.min)} to ${print(domain.max)}`;
+}
+
 function sharedScaleClause(tiles: PackKpiTile[], scale: MoneyScale): string {
   const shared = tiles.filter((t) => t.sparklineScale?.shared === true);
   const own = tiles.filter((t) => t.sparklineScale !== null && !t.sparklineScale.shared);
@@ -150,10 +166,21 @@ function sharedScaleClause(tiles: PackKpiTile[], scale: MoneyScale): string {
   const domain = shared[0]!.sparklineScale!;
   const range = `${inProse(formatMoney(domain.min, { scale }))} to `
     + `${inProse(formatMoney(domain.max, { scale }))}`;
+  // AND A LINE THAT CANNOT JOIN THAT DOMAIN STATES ITS OWN.
+  //
+  // It said only that gross margin and debtor days "are in other units, each
+  // drawn on its own" — no range, neither end, nowhere on the sheet. Measured
+  // off the demo render, the gross-margin sparkline travels 65.5pt and debtor
+  // days 66.5pt beside a revenue line travelling 0.8pt, so a reader could not
+  // tell off page 3 whether gross margin moved five points or 6 462. The pack
+  // knows the convention — page 10 prints both ends of these same two
+  // measures — and this was the one place its own "state the axis" discipline
+  // lapsed. Brightsphere never failed it, because all three of its lines are
+  // money and share the stated domain.
   const rest = own.length === 0
     ? ''
-    : ` ${inWords(own.map((t) => t.label))} ${own.length === 1 ? 'is' : 'are'} in other units, `
-      + `each drawn on its own.`;
+    : ` ${inWords(own.map((t) => `${t.label} on ${ownRange(t, scale)}`))} `
+      + `${own.length === 1 ? 'is' : 'are'} in other units, each drawn on its own.`;
   return ` ${inWords(shared.map((t) => t.label))} share one y-scale, ${range}, so none of them `
     + `can look like it moved more than it did.${rest}`;
 }

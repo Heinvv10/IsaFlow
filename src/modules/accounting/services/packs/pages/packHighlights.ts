@@ -129,7 +129,7 @@ function sparklineFor(
   return {
     sparklineSvg: renderChartSvg(sparklineOption(trendPoints, undefined, domain), SPARKLINE_SIZE),
     sparklineWindow: { plotted: points.length, of: points.length },
-    sparklineScale: { ...domain, shared: true },
+    sparklineScale: { ...domain, shared: true, unit: 'money' },
   };
 }
 
@@ -143,6 +143,8 @@ function sparklineFor(
 function sparklineForNullable(
   points: PackTrendPoint[],
   series: (p: PackTrendPoint) => number | null,
+  /** The unit its own axis is in — see `PackKpiTile.sparklineScale`. */
+  unit: 'percentage' | 'days',
 ): Sparkline {
   const defined = points.filter((point) => series(point) !== null);
   if (defined.length === 0) return NO_SPARKLINE;
@@ -156,7 +158,7 @@ function sparklineForNullable(
     // so the tile says `shared: false` and the page's footnote names them.
     // The domain is what the axis actually took — `scale: true` on a series
     // with no zero in it, which is what an unstated `min`/`max` means.
-    sparklineScale: { min: Math.min(...values), max: Math.max(...values), shared: false },
+    sparklineScale: { min: Math.min(...values), max: Math.max(...values), shared: false, unit },
   };
 }
 
@@ -242,7 +244,7 @@ export function buildHighlightTiles(
 
   return [
     buildTile('Revenue', revenue, prior?.revenue ?? null, sparklineFor(trend, (t) => t.revenue, money), hasComparative),
-    buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, sparklineForNullable(trend, (t) => t.grossMarginPct), hasComparative),
+    buildTile('Gross margin', grossMargin, prior ? marginPct(prior.revenue - prior.costOfSales, prior.revenue) : null, sparklineForNullable(trend, (t) => t.grossMarginPct, 'percentage'), hasComparative),
     // No monthly operating-profit series EXISTS, and the four bands that
     // would make one are not a substitute. `PackTrendPoint` carries turnover,
     // other income, cost of sales and the operating band, so the subtraction
@@ -257,7 +259,7 @@ export function buildHighlightTiles(
     buildTile('Cash', cash, prior?.cash ?? null, sparklineFor(trend, (t) => t.cash, money), hasComparative),
     // No monthly totalEquity series exists — same reason as operating profit.
     buildTile('Debt-to-equity', leverage, priorRatios?.debtToEquity ?? null, NO_SPARKLINE, hasComparative, true),
-    buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, sparklineForNullable(trend, (t) => t.debtorDays), hasComparative, true),
+    buildTile('Debtor days', debtorDays, priorRatios && prior && prior.revenue > 0 ? priorRatios.debtorDays : null, sparklineForNullable(trend, (t) => t.debtorDays, 'days'), hasComparative, true),
     // No monthly working-capital series exists — same reason as above.
     buildTile('Working capital', workingCapital, priorRatios?.workingCapital ?? null, NO_SPARKLINE, hasComparative),
   ];

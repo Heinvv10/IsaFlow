@@ -72,6 +72,23 @@ describe('PackPagesView', () => {
     expect(container.querySelector('style')?.innerHTML).toContain('--pack-brand: #1a3a5c');
   });
 
+  /**
+   * THE COVER'S DATE IS THE PACK'S DATE FORM, NOT THE WIRE'S.
+   *
+   * It printed the ISO string off `generatedAt` — the only `2026-09-07` in
+   * twelve sheets, on the same page as "Prepared by IsaFlow on 7 September
+   * 2026" and against page 12's "Extracted at 7 September 2026". Nothing
+   * contradicted, which is why fifteen gates read past it; one fact in two
+   * formats on one page is still a seam a director notices.
+   */
+  it('dates the cover the way the rest of the pack dates things', () => {
+    const cover: PackPage = { number: 1, title: 'ISAFlow Demo (Pty) Ltd', section: 'Front',
+      orientation: 'portrait', density: 'low', blocks: [], footnotes: [] };
+    render(<PackPagesView document={{ ...doc, pages: [cover] }} />);
+    expect(screen.getByText('Generated 7 September 2026')).toBeInTheDocument();
+    expect(screen.queryByText(/Generated 2026-09-07/)).toBeNull();
+  });
+
   it('renders one .pack-page element per model page', () => {
     const pages = [1, 2, 3].map((number) => ({
       number, title: `Page ${number}`, section: 'Performance' as const,

@@ -10,6 +10,7 @@
  */
 import type { ReactNode } from 'react';
 import { PACK_LABELS } from '@/modules/accounting/services/packs/packSections';
+import { formatPackDate } from '@/modules/accounting/services/packs/pages/packPeriodLabel';
 import type { PackPagesDocument } from '@/modules/accounting/services/packs/pages/packPageModel';
 
 export interface PackCoverV2Props {
@@ -24,7 +25,13 @@ export function PackCoverV2({ document, children }: PackCoverV2Props) {
   // Date only, same reasoning as the legacy cover: the pack is a period
   // document, and a UTC generation timestamp on an SAST page invites a wrong
   // reading of the day.
-  const generated = document.generatedAt.slice(0, 10);
+  //
+  // AND IN THE PACK'S OWN DATE FORM. It printed the bare ISO string, which
+  // was the only `2026-09-08` in twelve sheets — on the same page as
+  // "Prepared by IsaFlow on 8 September 2026" and against page 12's
+  // "Extracted at 8 September 2026". One fact, three renderings, two formats.
+  // `formatPackDate` is the one the other two already go through.
+  const generated = formatPackDate(document.generatedAt.slice(0, 10));
 
   return (
     // `data-brand-name` is what the brand band prints. The band is a

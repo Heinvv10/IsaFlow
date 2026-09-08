@@ -40,19 +40,22 @@ function fakeApi(): CustomSeriesRenderItemAPI {
 function renderRect(series: CustomSeries, dataIndex: number): { x: number; y: number; width: number; height: number } {
   const params = { dataIndex } as unknown as CustomSeriesRenderItemParams;
   const result = series.renderItem(params, fakeApi()) as CustomSeriesRenderItemReturn & {
-    children?: Array<{ type: string; shape?: { x: number; y: number; width: number; height: number }; style?: { fill: string } }>;
+    children?: Array<{ type: string; name?: string; shape?: { x: number; y: number; width: number; height: number }; style?: { fill: string } }>;
   };
-  const rect = result.children?.find((c) => c.type === 'rect');
-  if (!rect?.shape) throw new Error('renderItem did not return a rect child');
+  // BY NAME. A label drawn clear of its bar is given a paper ground so a
+  // gridline cannot run through the figure, and that ground is a rect too —
+  // `find(type === 'rect')` took it and measured the label's box as the bar.
+  const rect = result.children?.find((c) => c.name === 'bar');
+  if (!rect?.shape) throw new Error('renderItem did not return a bar rect');
   return rect.shape;
 }
 
 function rectColour(series: CustomSeries, dataIndex: number): string {
   const params = { dataIndex } as unknown as CustomSeriesRenderItemParams;
   const result = series.renderItem(params, fakeApi()) as CustomSeriesRenderItemReturn & {
-    children?: Array<{ type: string; style?: { fill: string } }>;
+    children?: Array<{ type: string; name?: string; style?: { fill: string } }>;
   };
-  const rect = result.children?.find((c) => c.type === 'rect');
+  const rect = result.children?.find((c) => c.name === 'bar');
   return rect?.style?.fill ?? '';
 }
 

@@ -28,18 +28,27 @@
 import { describe, expect, it } from 'vitest';
 import { buildProfitWaterfallChart } from '@/modules/accounting/services/packs/pages/packPageCharts';
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
+import { DEFAULT_CHART_PALETTE } from '@/modules/accounting/services/packs/packChartOptions';
 import { brightsphereSet } from './fixtures/boardPackInputs';
 import type { PackFigureSet } from '@/modules/accounting/services/packs/figures/packFigureSet';
 
 /** Every bar the renderer emitted: its category index, its top and its
- *  drawn height, straight off the path the renderer wrote. */
+ *  drawn height, straight off the path the renderer wrote.
+ *
+ *  NOT the paper ground drawn under a label that sits clear of its bar — see
+ *  `LABEL_KNOCKOUT_PAD_PX`. That is a rect in the same group with the same
+ *  `ecmeta_data_index`, and taking it for the bar reads a step's top off a
+ *  label's box. A bar is never filled in paper: `stepColour` returns an ink,
+ *  a favourable or an unfavourable, and the ground is the one white rect. */
 function bars(svg: string): Array<{ index: number; top: number; height: number }> {
-  const pattern = /<path\b[^>]*d="M([-\d.]+) ([-\d.]+)l[-\d.]+ 0l0 ([-\d.]+)l[^"]*"[^>]*ecmeta_data_index="(\d+)"[^>]*><\/path>/gi;
-  return [...svg.matchAll(pattern)].map((m) => ({
-    index: Number(m[4]),
-    top: Number(m[2]),
-    height: Number(m[3]),
-  }));
+  const pattern = /<path\b[^>]*d="M([-\d.]+) ([-\d.]+)l[-\d.]+ 0l0 ([-\d.]+)l[^"]*"[^>]*fill="(#[0-9a-f]{6})"[^>]*ecmeta_data_index="(\d+)"[^>]*><\/path>/gi;
+  return [...svg.matchAll(pattern)]
+    .filter((m) => m[4]!.toLowerCase() !== DEFAULT_CHART_PALETTE.paper.toLowerCase())
+    .map((m) => ({
+      index: Number(m[5]),
+      top: Number(m[2]),
+      height: Number(m[3]),
+    }));
 }
 
 /** Brightsphere's own figures with a cost of sales of R400 — three ten-

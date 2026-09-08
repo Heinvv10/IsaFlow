@@ -47,6 +47,7 @@ import type {
 import type { WaterfallStep } from '@/modules/accounting/services/reports/waterfallDataService';
 import { contrastRatio } from '@/lib/brand/contrast';
 import { PACK_FONT_STACK } from '@/lib/charts/packFont';
+import { textWidthEms, WIDTH_SAFETY } from './pages/packTextMetrics';
 import { formatMoney, type MoneyScale } from '@/lib/format/money';
 import {
   axisDomain,
@@ -192,6 +193,42 @@ const LABEL_LINE_PX = 12;
 const NIL_STEP_RULE_PX = 1;
 
 /**
+ * A GRIDLINE MAY NOT RUN THROUGH A FIGURE.
+ *
+ * Brightsphere's sheet 6 drew the `(1 000)` gridline (y 397.1pt, the full
+ * width of the plot) straight through the `(411)` label sitting outside its
+ * bar — at 500dpi the rule cuts the bottom of both parentheses. It was the
+ * only visible strike in twenty-four sheets, and the demo's near-miss shows
+ * why: `1 431` sits across the zero line at 391.1pt and is invisible only
+ * because the red bar is painted over the gridline and the label sits on the
+ * bar. Paint order saves the one and not the other, so the picture is one
+ * condition — a shorter bar, a different domain — away from the same strike
+ * on either company.
+ *
+ * A label INSIDE its bar already has a knockout: the bar. A label above or
+ * below one has nothing behind it but the plot, so it gets a paper rect of
+ * its own. Not a paint-order fix, because there is nothing wrong with the
+ * paint order — the label is already drawn after the gridlines; what shows
+ * through is the gap between the glyphs' strokes, and only an opaque ground
+ * closes that.
+ */
+const LABEL_KNOCKOUT_PAD_PX = 2;
+
+/**
+ * How wide a chart label is drawn, in pixels.
+ *
+ * The pack's own ruler — the same em table and the same `WIDTH_SAFETY` the
+ * page composer measures prose with, so the knockout is at least as wide as
+ * the glyphs whatever the renderer does with them. Generous is the safe
+ * direction here: a knockout wider than its text hides a millimetre more
+ * gridline; a knockout narrower than its text leaves a rule running out of
+ * the side of a figure, which is the defect.
+ */
+function labelWidthPx(text: string, fontPx: number): number {
+  return textWidthEms(text) * fontPx * WIDTH_SAFETY;
+}
+
+/**
  * WHICH INK A LABEL DRAWN INSIDE A BAR IS SET IN — decided by contrast
  * against the fill, not assumed.
  *
@@ -282,11 +319,44 @@ function makeWaterfallRenderItem(
     const inside = fitsInside && (noRoomAbove || sameInkAsFill);
     const below = noRoomAbove && !inside;
 
+    const text = formatMoney(step.labelValue ?? step.value, { scale });
+    const textY = inside ? y + LABEL_GAP_PX : below ? y + height + LABEL_GAP_PX : above;
+    // THE GROUND UNDER A LABEL THAT IS NOT ON ITS BAR — see
+    // `LABEL_KNOCKOUT_PAD_PX`. Inside the bar the fill is the ground already,
+    // and a paper rect there would punch a hole in the bar.
+    const knockoutW = labelWidthPx(text, LABEL_LINE_PX) + LABEL_KNOCKOUT_PAD_PX * 2;
+    const knockout = inside ? [] : [{
+      type: 'rect' as const,
+      // NAMED, because the bar is a rect too and a reader of this group —
+      // `packChartOptions.test.ts` reads it by name — must not take the
+      // ground for the bar.
+      name: 'labelGround',
+      // `above` anchors the text's BOTTOM and `below` its top — see
+      // `verticalAlign` on the label. The ground follows the same anchor, or
+      // it covers the wrong line of the plot.
+      shape: {
+        x: x + width / 2 - knockoutW / 2,
+        y: (below ? textY : textY - LABEL_LINE_PX) - LABEL_KNOCKOUT_PAD_PX,
+        width: knockoutW,
+        height: LABEL_LINE_PX + LABEL_KNOCKOUT_PAD_PX * 2,
+      },
+      style: { fill: palette.paper },
+    }];
+
     return {
       type: 'group',
       children: [
+        // THE KNOCKOUT FIRST, AND THE BAR AFTER IT. It never overlaps the bar
+        // — it exists only where the label sits clear of one — so the order
+        // between those two is free, and drawing it first keeps every bar's
+        // `<path>` immediately followed by its own `<text>` in the emitted
+        // SVG. `packWaterfallLegibility.test.ts` pairs a bar with its label by
+        // that adjacency, which is the renderer's own pairing rather than a
+        // guessed coordinate match, and an element between them breaks it.
+        ...knockout,
         {
           type: 'rect',
+          name: 'bar',
           shape: { x, y, width, height: drawnHeight },
           style: { fill: stepColour(step, palette) },
         },
@@ -297,12 +367,12 @@ function makeWaterfallRenderItem(
             // `WaterfallStep.labelValue`. The bar's direction already carries
             // the effect; printing the negation of the figure in the table on
             // the same sheet made the chart look like it disagreed with it.
-            text: formatMoney(step.labelValue ?? step.value, { scale }),
+            text,
             x: x + width / 2,
             // A bar that reaches the top of the domain has no room above it,
             // so its label sits just inside the bar instead of half off the
             // paper. See `LABEL_GAP_PX`.
-            y: inside ? y + LABEL_GAP_PX : below ? y + height + LABEL_GAP_PX : above,
+            y: textY,
             // INSIDE THE BAR IT IS SET IN PAPER, NOT INK. Every bar drawn
             // from the axis reaches the top of its own plot, so `clipped` is
             // true of every TOTAL — and ink on an ink-filled total bar is an

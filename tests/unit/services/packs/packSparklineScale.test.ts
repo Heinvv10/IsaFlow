@@ -23,10 +23,14 @@
  * for page 10's panels.
  */
 import { describe, expect, it } from 'vitest';
+import { formatDays, formatMoney, formatPctLevel, inProse } from '@/lib/format/money';
+import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import { buildHighlightTiles } from '@/modules/accounting/services/packs/pages/packHighlights';
 import { buildHighlightsBlocks } from '@/modules/accounting/services/packs/pages/packPageBlocks';
 import { PackFigureProvenance } from '@/modules/accounting/services/packs/figures/packFigureProvenance';
-import { demoSet, trend } from './fixtures/boardPackInputs';
+import { brightsphereLiveInput, demoSet, trend } from './fixtures/boardPackInputs';
+import { liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
+import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 import type { PackKpiTile } from '@/modules/accounting/services/packs/pages/packPageModel';
 
@@ -122,7 +126,25 @@ describe('the highlights sparklines', () => {
     // cash's floor of (1 600) and the max is net profit's 2 700.
     expect(text).toContain('(1\u00a0600) to 2\u00a0700');
     expect(text).toContain('Revenue, Net profit and Cash share one y-scale');
-    expect(text).toContain('Gross margin and Debtor days are in other units');
+    // AND EACH OF THE TWO THAT CANNOT JOIN IT STATES ITS OWN ENDS, in its own
+    // unit. It used to say only that they were "in other units, each drawn on
+    // its own" — no range, neither end, nowhere on the sheet — beside lines
+    // whose stated domain a reader CAN check. The values are the ones the
+    // tiles were drawn on, read off the same `sparklineScale`.
+    const margin = byLabel.get('Gross margin')!.sparklineScale!;
+    const days = byLabel.get('Debtor days')!.sparklineScale!;
+    expect(text).toContain(
+      `Gross margin on ${formatPctLevel(margin.min)} to ${formatPctLevel(margin.max)}`,
+    );
+    expect(text).toContain(
+      `Debtor days on ${formatDays(days.min)} to ${formatDays(days.max)}`,
+    );
+    expect(text).toContain('are in other units, each drawn on its own.');
+    // The units are not interchangeable: a day count printed as a percentage
+    // is a different claim about the same picture.
+    expect(margin.unit).toBe('percentage');
+    expect(days.unit).toBe('days');
+    expect(byLabel.get('Revenue')!.sparklineScale!.unit).toBe('money');
   });
 
   /**
@@ -146,7 +168,11 @@ describe('the highlights sparklines', () => {
 
     const text = buildHighlightsBlocks(tiles, "R'000", 'ZAR', null, null)
       .footnotes.map((f) => f.text).join(' ');
-    expect(text).toContain('Gross margin is in other units, each drawn on its own.');
+    const margin = byLabel.get('Gross margin')!.sparklineScale!;
+    expect(text).toContain(
+      `Gross margin on ${formatPctLevel(margin.min)} to ${formatPctLevel(margin.max)} `
+      + 'is in other units, each drawn on its own.',
+    );
     expect(text).not.toContain('are in other units');
     expect(text).not.toContain('Debtor days');
   });
@@ -166,5 +192,67 @@ describe('the highlights sparklines', () => {
     const values = SPREAD.flatMap((p) => [p.revenue, p.netProfit, p.cash]);
     expect(money[0]!.sparklineScale!.min).toBe(Math.min(0, ...values));
     expect(money[0]!.sparklineScale!.max).toBe(Math.max(0, ...values));
+  });
+});
+
+/**
+ * EVERY LINE PAGE 3 DRAWS HAS ITS DOMAIN ON THE SHEET.
+ *
+ * A blind visual gate, re-run against a clean-room copy of the render, took
+ * the demo pack's sheet 3 for stating the shared money domain and nothing
+ * else: gross margin and debtor days were said to be "in other units, each
+ * drawn on its own" with no range, neither end, anywhere on the page. The
+ * consequence is measurable off the render — the gross-margin sparkline
+ * travels 65.5pt and debtor days 66.5pt beside a revenue line travelling
+ * 0.8pt — so a reader could not tell whether gross margin moved five points
+ * or 6 462. Page 10 prints both ends of these same two measures, so this was
+ * the one place the pack's own "state the axis" discipline lapsed.
+ *
+ * Brightsphere never failed it: its three sparklines are all money and all
+ * share the stated domain. That asymmetry is why this is asserted over BOTH
+ * companies and over every drawn line rather than over the two that were
+ * wrong.
+ */
+describe('page 3 states the domain of every line it draws', () => {
+  const COMPANIES: Record<string, BoardPackInput> = {
+    'the demo company': liveDemoShortPanelsInput,
+    Brightsphere: brightsphereLiveInput,
+  };
+
+  const printed = (value: number, unit: 'money' | 'percentage' | 'days'): string => (
+    unit === 'percentage' ? formatPctLevel(value)
+      : unit === 'days' ? formatDays(value)
+        : inProse(formatMoney(value, { scale: PACK_SCALE })));
+
+  for (const [company, input] of Object.entries(COMPANIES)) {
+    it(`names both ends of every sparkline's axis on ${company}`, () => {
+      const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Highlights')!;
+      const said = page.footnotes.map((f) => f.text).join(' ');
+      const drawn = page.blocks.flatMap((b) => (b.kind === 'kpiTiles' ? b.tiles : []))
+        .filter((t) => t.sparklineScale !== null);
+      expect(drawn.length, `${company}: page 3 draws no sparkline, so nothing is checked`)
+        .toBeGreaterThan(0);
+      for (const tile of drawn) {
+        const domain = tile.sparklineScale!;
+        for (const end of [domain.min, domain.max]) {
+          expect(
+            said,
+            `${company}: ${tile.label} is drawn on ${printed(domain.min, domain.unit)} to `
+              + `${printed(domain.max, domain.unit)} and the sheet states no ${printed(end, domain.unit)}`,
+          ).toContain(printed(end, domain.unit));
+        }
+      }
+    });
+  }
+
+  it('is not satisfied by the money domain alone — the demo draws two lines that cannot join it', () => {
+    // The premise. On a pack where every line shares one domain, the loop
+    // above is satisfied by the one shared range and says nothing about the
+    // rule it exists for.
+    const page = buildBoardPackPages(liveDemoShortPanelsInput).pages
+      .find((p) => p.navLabel === 'Highlights')!;
+    const own = page.blocks.flatMap((b) => (b.kind === 'kpiTiles' ? b.tiles : []))
+      .filter((t) => t.sparklineScale !== null && !t.sparklineScale.shared);
+    expect(own.map((t) => t.label)).toEqual(['Gross margin', 'Debtor days']);
   });
 });
