@@ -451,7 +451,21 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
     // `formatPctLevel`, not `${n}%` — see `moneyPanel`: the panel title and
     // this note print the SAME share two centimetres apart, and one of them
     // was dropping a trailing zero.
-    const named = inWords(panels.ownScale.map((p) => `${p.name} (${formatPctLevel(p.sharePct)})`));
+    // AND THE SHARE IS NOT IN BRACKETS, BECAUSE BRACKETS ARE THE SIGN.
+    //
+    // Page 12 declares "In brackets — (12 345) — for money, percentages and
+    // ratios. No minus sign is used in this pack", and this sentence printed
+    // "Revenue (1.0%) and Operating expenses (1.6%)" — two POSITIVE shares,
+    // which under the pack's own rule read as negative 1.0% and negative
+    // 1.6%. The same two numbers print unbracketed as positives in the panel
+    // captions on the same sheet: one quantity, one sheet, two glyphs, one of
+    // them meaning the opposite sign.
+    //
+    // The brackets here were parentheses, not the notation — which is the
+    // trap, because on this sheet both readings are live. Everywhere else the
+    // pack writes a negative percentage in WORDS ("a negative 1522.9%") for
+    // exactly this reason: to keep the bracket meaning one thing.
+    const named = inWords(panels.ownScale.map((p) => `${p.name} at ${formatPctLevel(p.sharePct)}`));
     // WHAT THE PERCENTAGE IS OF, IN THE SENTENCE THAT MAKES THE CLAIM. The
     // page asserted "1.1% of the shared range" and printed nothing a reader
     // could check it against, so a reviewer took the spans off the two
@@ -479,10 +493,10 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
     // undisclosed denominator. The commentary block above — which the fitter
     // never touches — carries the range, and every panel now prints the ends
     // of its own axis, so the number is on the sheet twice already.
-    offShared.push(`${named} (too little of it to register)`);
+    offShared.push(`${named}, too little of it to register`);
   }
   if (panels.ownUnits.length > 0) {
-    offShared.push(`${inWords(panels.ownUnits)} (different units)`);
+    offShared.push(`${inWords(panels.ownUnits)}, in different units`);
   }
   if (offShared.length > 0) {
     // "the panels above", not "the SHARED-SCALE panels", was a position on
@@ -490,8 +504,13 @@ function scaleNote(panels: TrendPanels): PackDisclosureNote | null {
     // nothing above it, so for that one the caution named nothing. The
     // panels are laid out two across in an order the data decides, so any
     // wording that points by position is wrong on some company.
-    parts.push(`${inWords(offShared)} are on their OWN scales, so their slopes are not comparable `
-      + 'with the shared-scale panels.');
+    // JOINED WITH ", and ", NOT `inWords`. Each entry now carries its reason
+    // as a comma-delimited aside rather than in brackets, so `inWords`'s bare
+    // " and " would run the second group's subject into the first group's
+    // aside; and the clause that follows needs its own comma to close the
+    // last aside before the verb.
+    parts.push(`${offShared.join(', and ')}, are on their OWN scales, so their slopes are not `
+      + 'comparable with the shared-scale panels.');
   }
   // A pack that draws no panel at all has no scale to describe, and a headed
   // note with an empty body is a heading the page cannot honour.
