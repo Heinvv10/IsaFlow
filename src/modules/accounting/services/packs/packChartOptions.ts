@@ -220,6 +220,7 @@ function makeWaterfallRenderItem(
   palette: ChartPalette,
   scale: MoneyScale,
   domain: { min: number; max: number },
+  onFloored: ((label: string) => void) | undefined,
 ): CustomSeriesRenderItem {
   return function renderItem(params: CustomSeriesRenderItemParams, api: CustomSeriesRenderItemAPI) {
     const step = steps[params.dataIndex];
@@ -236,6 +237,13 @@ function makeWaterfallRenderItem(
     // See `NIL_STEP_RULE_PX`: a zero-height step paints a rule on its running
     // total rather than nothing at all.
     const drawnHeight = Math.max(height, NIL_STEP_RULE_PX);
+    // AND THE SHEET IS TOLD WHICH BAR THAT WAS. A bar drawn taller than its
+    // own figure is the one mark on a bridge a reader cannot check against
+    // the axis, so the rule has to be declared where it fired — and the only
+    // place the firing is known is here, where the pixels are. Reported
+    // rather than re-derived: the height that trips the floor is pixels of a
+    // plot box no caller computes.
+    if (height < NIL_STEP_RULE_PX) onFloored?.(step.label);
 
     // The top of the plot, asked of the coordinate system rather than assumed
     // from `grid.top`: `containLabel` and the axis name both move it, and the
@@ -395,6 +403,11 @@ export function waterfallOption(
   palette: ChartPalette = DEFAULT_CHART_PALETTE,
   intervals = 6,
   compact = false,
+  /** Called once per bar the floor above actually grew — see
+   *  `NIL_STEP_RULE_PX`. The caller carries the labels onto the chart spec so
+   *  the sheet can declare the rule; a bar may be reported more than once,
+   *  because ECharts may call `renderItem` more than once per datum. */
+  onFloored?: (label: string) => void,
 ): EChartsCoreOption {
   const domain = axisDomain(steps.flatMap((s) => [s.start, s.end]), intervals);
   const chrome = compact ? WATERFALL_CHROME.compact : WATERFALL_CHROME.full;
@@ -416,7 +429,7 @@ export function waterfallOption(
       {
         name: 'waterfall',
         type: 'custom',
-        renderItem: makeWaterfallRenderItem(steps, palette, scale, domain),
+        renderItem: makeWaterfallRenderItem(steps, palette, scale, domain, onFloored),
         clip: true,
         data: steps.map((s) => [s.start, s.end]),
       },

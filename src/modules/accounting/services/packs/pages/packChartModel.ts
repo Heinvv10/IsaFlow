@@ -136,6 +136,28 @@ export interface PackChartSpec {
   /** Populated only when `kind === 'waterfall'`; that is what the bars-sum-
    *  to-endpoints check reads instead of the SVG string. */
   waterfallBars?: PackWaterfallBar[];
+  /**
+   * Every bar the renderer drew TALLER THAN ITS OWN FIGURE, in the order the
+   * walk reaches them.
+   *
+   * A step whose rect would be under a pixel is given a one-pixel rule on its
+   * running total instead of painting nothing — see `NIL_STEP_RULE_PX`. That
+   * is the right mark: on Brightsphere's page 6 it is 0.28mm of ink for a
+   * figure of (1) against a 5 535 axis, and the alternative renders nothing,
+   * which this pack's own rule reserves for a nil line. But it is the one bar
+   * on a bridge a reader cannot check against the axis, so the sheet has to
+   * say so: `bridgeSignFootnote` names these beside the lines it did not draw
+   * at all.
+   *
+   * It comes back FROM the render for the same reason `omittedBars` comes
+   * back from the builder: the floor fires on pixels of a plot box no caller
+   * computes, and a predicate re-derived here would agree with the drawing by
+   * coincidence.
+   *
+   * Empty on a bridge that drew every bar at its true height, and absent on a
+   * chart that is not a bridge.
+   */
+  flooredBars?: string[];
   /** The figures this chart's title asserts — see `PackChartClaim`. */
   claims?: PackChartClaim[];
   /**

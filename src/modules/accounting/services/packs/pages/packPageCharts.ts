@@ -372,15 +372,27 @@ export function buildProfitWaterfallChart(
   const bridgeTitle = `Revenue of ${inProse(formatMoney(f.revenue, { scale }))} bridges to net `
     + `profit of ${inProse(formatMoney(f.netProfit, { scale }))}.`;
   const plot = svgBoxFor(box, bridgeTitle);
+  // WHICH BARS THE RENDERER HAD TO FLOOR, collected as it draws them — see
+  // `PackChartSpec.flooredBars`. A Set because ECharts may call `renderItem`
+  // more than once for a datum, and the sheet names each bar once.
+  const floored = new Set<string>();
+  const svg = renderChartSvg(
+    waterfallOption(bridged, scale, undefined, intervalsFor(box), isCompact(box), (label) => floored.add(label)),
+    plot,
+  );
   return {
     id: 'profit-bridge',
     title: bridgeTitle,
     kind: 'waterfall',
-    svg: renderChartSvg(waterfallOption(bridged, scale, undefined, intervalsFor(box), isCompact(box)), plot),
+    svg,
     heightMm: box.heightMm,
     plotMm: plot.heightMm,
     waterfallBars: bars,
     omittedBars: omitted,
+    // In the order the walk reaches them, not the order the renderer happened
+    // to draw them, so the sentence reads down the bridge like the omission
+    // one beside it.
+    flooredBars: bars.map((bar) => bar.label).filter((label) => floored.has(label)),
   };
 }
 

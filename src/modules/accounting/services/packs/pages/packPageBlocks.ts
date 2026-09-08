@@ -844,16 +844,30 @@ export function bridgeSignFootnote(
   // WHAT THE BRIDGE LEFT OUT, which is a statement about the drawing whether
   // or not there is a sign to reconcile — see `PackChartSpec.omittedBars`.
   const omitted = chart.omittedBars ?? [];
-  // TWO RULES, TWO SENTENCES. `omittedBars` carries both the nil movement
+  // THREE RULES, THREE SENTENCES. `omittedBars` carries both the nil movement
   // lines and the operating-profit subtotal the walk refused, and "a line
   // with a nil figure for the period is not drawn: Operating Profit" is
   // false of the second — the subtotal is dropped on a disagreement with the
   // row three centimetres above, not on a nil.
+  //
+  // AND THE THIRD IS THE ONE BAR THE READER CANNOT CHECK AGAINST THE AXIS.
+  // A step whose rect would be under a pixel is drawn as a hairline on its
+  // running total rather than as nothing (`NIL_STEP_RULE_PX`), so on
+  // Brightsphere's page 6 an Other Income of (1) is drawn at forty-odd times
+  // its own height while every other bar on the sheet is exact to a tenth of
+  // a percent. The mark is right — 0.28mm of ink, and the alternative renders
+  // nothing, which the first sentence above reserves for a nil line — and it
+  // was undisclosed, one clause away from the rule it most resembles.
   const nilLines = omitted.filter((label) => label !== OPERATING_PROFIT_BAR);
+  const floored = chart.flooredBars ?? [];
   const omission = [
     nilLines.length === 0
       ? ''
       : ` A line with a nil figure for the period is not drawn: ${inWords(nilLines)}.`,
+    floored.length === 0
+      ? ''
+      : ` A line too small to draw at this scale is drawn as a hairline, so read its figure from `
+        + `the label rather than against the axis: ${inWords(floored)}.`,
     omitted.includes(OPERATING_PROFIT_BAR)
       ? ' The operating profit subtotal is not drawn: this bridge\'s own walk and the figure the '
         + 'table above states do not agree, and the bar would be a second figure for one line.'
