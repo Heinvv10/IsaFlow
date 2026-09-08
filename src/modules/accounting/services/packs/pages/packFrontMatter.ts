@@ -98,6 +98,16 @@ export interface PackFrontMatter {
   basisPageNumber: number;
 }
 
+/**
+ * The going-concern line page 2 prints — see the note that uses it.
+ *
+ * Exported so the tests read the string the page prints rather than a second
+ * spelling of it, and so the day a going-concern assessment IS captured there
+ * is one place that changes.
+ */
+export const GOING_CONCERN_NOTE =
+  'This pack states no going-concern basis; the assessment is a matter for the board.';
+
 /** Pages 1 and 2 — the cover and the contents. */
 export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
   return [
@@ -139,6 +149,41 @@ export function buildFrontPages(f: PackFrontMatter): UnnumberedPage[] {
       // sheet, and naming it as one says what it is and what page 12 is for.
       disclose('The basis, in short', [
         note('Standard and period', `${f.basis.basisOfPreparation.standard}. ${f.period}. Figures in ${f.scale} (${f.currency}), ${f.draftReasons.length > 0 ? 'draft' : 'final'}. Full basis on page ${f.basisPageNumber}.`),
+        // THE BASIS THE FIGURES WERE PREPARED ON, WHICH THIS PACK CANNOT
+        // ASSERT AND THEREFORE DOES NOT.
+        //
+        // Page 7 tells both companies that liabilities exceeding assets "may
+        // affect covenant compliance and the going-concern assessment" — on
+        // negative equity of (4 087) and (2 176) — and no sheet then said
+        // what basis the figures were prepared on. For an entity in that
+        // position it is the one basis element a director looks for, and a
+        // pack that raises going concern and never states it is incomplete
+        // in the way that matters most.
+        //
+        // IT SAYS THERE IS NONE RATHER THAN ASSERTING ONE. A going-concern
+        // basis is a judgement about the twelve months after the reporting
+        // date — funding, forecasts, undertakings — and nothing in this
+        // ledger carries any of it. Printing "prepared on the going-concern
+        // basis" would be the pack vouching for a conclusion it has no
+        // evidence of, on the two companies where the conclusion is least
+        // safe. A stated absence is something a board can act on; an
+        // unsupported assertion is not.
+        //
+        // AND IT IS ON THIS SHEET RATHER THAN PAGE 12. Page 12 has 0.0mm of
+        // paper spare on the shape whose EBITDA bridge does not add as
+        // printed, and a ninth basis fact needs 4.2mm of it: it could only be
+        // bought by dropping the Colour key, which is the pack's own reading
+        // key for the bridges, and buying a disclosure by dropping one is not
+        // a gain. This sheet is titled "The basis, in short" — it is a basis
+        // sheet by its own name, it is where a reader meets the basis first,
+        // and it has the room.
+        //
+        // UNCONDITIONAL, ON EVERY PACK AND EVERY SHAPE. Not "wherever it
+        // fits", which would put it on page 12 for one company and here for
+        // another — the asymmetry class this branch exists to close — and not
+        // conditional on negative equity, which would make the sentence's
+        // PRESENCE a signal about the figures.
+        note('Going concern', GOING_CONCERN_NOTE),
       ]),
       // AND WHY THIS SHEET, AND SOME OF THE ONES IT INDEXES, ARE SHORT.
       //
