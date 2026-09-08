@@ -376,8 +376,34 @@ export function ebitdaMemoSentence(
   // line of 9.5pt on both companies. That line is what pays for the
   // largest-figure sentence in the caption below. The fact it restated is
   // still on every sheet; what went was the sentence saying so.
+  // AND IT IS TRUE ON A COMPANY THAT CHARGED NOTHING, WHICH IT WAS NOT.
+  //
+  // It read "plus the depreciation and amortisation CHARGED in the period".
+  // Brightsphere's movement on those accounts is a net CREDIT — more reversed
+  // out than posted in — so page 12's reconciliation reads (1 819) plus (152)
+  // and lands at (1 971), EBITDA BELOW operating profit. Against a sentence
+  // saying the add-back is what was charged, that arithmetic reads as a sign
+  // error: the exact misreading page 12's own entry was made sign-aware to
+  // prevent. The wording was fixed on the glossary page and left as
+  // boilerplate here.
+  //
+  // MOVEMENT, NOT A SECOND SIGN-AWARE BRANCH. Naming the credit here as well
+  // costs 86 characters and Brightsphere's sheet 5 answers by dropping a note
+  // — buying an explanation with an explanation, which is the trade this
+  // branch keeps refusing. "The movement on depreciation and amortisation"
+  // is true whichever way those accounts ran, and page 12 carries the sign
+  // clause in full beside the reconciliation that prompts the question.
+  //
+  // AND THE LENGTH IS MEASURED, NOT COUNTED. "the period's movement on
+  // depreciation and amortisation" is one character SHORTER than the phrase
+  // it replaces and still costs sheet 5 a line — the words break differently
+  // — and the fitter answers by dropping a note from this very disclosure.
+  // The period is already this sentence's subject, so dropping "the
+  // period's" costs nothing and buys the line back. Both accounts stay
+  // named: EBITDA is defined by its D and its A, and a sheet that presents a
+  // non-IFRS measure has to say what is in it.
   return `EBITDA for the reporting period is ${current}. ${comparative} It is operating profit `
-    + 'plus the depreciation and amortisation charged in the period, and it is presented because a '
+    + 'plus the movement on depreciation and amortisation, and it is presented because a '
     + 'board asks for it, not because a standard requires it. '
     // THREE WINDOWS ON THIS SHEET, AND THE SENTENCE USED TO CLAIM TWO. It
     // read "Every other figure on this sheet is one month's", and the table's

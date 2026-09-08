@@ -226,9 +226,13 @@ describe('DEFAULT_CHART_PALETTE', () => {
       fav: DEFAULT_CHART_PALETTE.fav,
       unfav: DEFAULT_CHART_PALETTE.unfav,
       prior: FALLBACK.prior,
-      // The axis grey IS the theme's tertiary text colour — the same grey the
-      // rest of the app uses for secondary labels.
-      axis: FALLBACK.textTertiary,
+      // THE AXIS GREY IS NOT THE THEME'S ANY MORE, and that is deliberate.
+      // It was `textTertiary`, #9ca3af — 2.54:1 on paper, and 2.16:1 as an
+      // eight-point panel label. Tertiary text on a screen is a hint a reader
+      // can ignore; on this pack the axis is the only evidence for the claims
+      // page 10 makes about its own scales. See `packInkContrast.test.ts`,
+      // which holds it above 4.5:1, and `PRINT_AXIS` for the reasoning.
+      axis: DEFAULT_CHART_PALETTE.axis,
       // The categorical ramp is NOT one of the theme's semantic five — it is
       // a scale, for a chart whose bands are categories rather than
       // directions. Asserted separately below.
@@ -239,6 +243,16 @@ describe('DEFAULT_CHART_PALETTE', () => {
       // ink-filled total bar has to be set in it or it is invisible.
       paper: '#ffffff',
     });
+  });
+
+  /**
+   * AND THE AXIS IS DELIBERATELY NOT THE APP'S TERTIARY TEXT — the one field
+   * above that stopped tracking the theme, so the shape assertion cannot
+   * check it against anything and this does.
+   */
+  it('does not take the app theme\'s tertiary grey for its axis', () => {
+    expect(DEFAULT_CHART_PALETTE.axis).not.toBe(FALLBACK.textTertiary);
+    expect(DEFAULT_CHART_PALETTE.axis).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
   /**

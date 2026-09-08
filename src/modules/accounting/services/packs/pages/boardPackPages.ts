@@ -43,7 +43,7 @@ import {
   scorecardTitle,
   trendsTitle,
 } from '@/modules/accounting/services/packs/narrative/derivedSentences';
-import { buildBasis, ROUNDING_FOOTNOTES, statementFootnotes } from './packBasis';
+import { buildBasis, priorColumnFootnote, ROUNDING_FOOTNOTES, statementFootnotes } from './packBasis';
 import { dayCountsMeasured, tradeBalancesFootnote } from './packTradeBalances';
 import { buildHighlightTiles } from './packHighlights';
 import { buildScorecardGroups } from './packScorecard';
@@ -264,6 +264,17 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
   // row with nothing on it. Set only where the footnote is actually printed —
   // the panel it reciprocates is not drawn on every pack.
   const debtorDaysFootnote = periodWindowFootnotes(panels, 'trend-debtor-days', 'Scorecard', 1);
+  // AND PAGE 9'S PRIOR COLUMN CARRIES THE SAME NOTE THE OTHER THREE SHEETS DO.
+  //
+  // Pages 6, 7 and 8 mark their PRIOR heading and date the comparative; page
+  // 9 prints PRIOR five times and marked none — on the sheet where the
+  // comparative is most treacherous, since creditor days prior is a 365-day
+  // annualisation taken over a 250-day comparative. Same sentence
+  // (`priorColumnFootnote`), numbered after the debtor-days note because this
+  // page's numbering is its own.
+  const scorecardPriorNote = comparativePeriod === null
+    ? null
+    : priorColumnFootnote(comparativePeriod, set.currentWindow, debtorDaysFootnote.length + 1);
   const scorecardWithDebtorDaysNote = debtorDaysFootnote.length === 0 ? scorecard : scorecard.map(
     (group) => ({
       ...group,
@@ -708,7 +719,7 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     ]),
     cashPage,
     page(scorecardTitle(score.met, score.total), 'Scorecard', 'Performance', 'high', [
-      { kind: 'scorecard', groups: scorecardWithDebtorDaysNote },
+      { kind: 'scorecard', groups: scorecardWithDebtorDaysNote, priorFootnote: scorecardPriorNote?.number ?? null },
       commentary(scorecardCaption(scorecard)),
       // ONE note, not two. "Targets" and "Not meaningful" were definitions,
       // and they now sit with the other sixteen on the basis page — this page
@@ -742,9 +753,21 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
       // two lines of 9.5pt — measured, on the one page in the pack with less
       // than two millimetres of slack.
       disclose('Scoring basis', [
-        note('Definitions', 'Each metric is scored against the platform\'s default target. A target on a metric the figures cannot support is not counted as scored; the basis page defines the terms and every formula used here.'),
+        // ONE LINE SHORTER, AND WHAT WENT IS THE HALF PAGE 12 ALREADY MAKES.
+        //
+        // It opened "Each metric is scored against the platform's default
+        // target" — which page 12's glossary states in those words, and which
+        // the TARGET column states by existing. What a reader cannot get
+        // anywhere but here is the EXCLUSION, because this sheet prints a
+        // target on a row its own count leaves out; that clause and the
+        // pointer both stay. The line buys the comparative-period footnote
+        // above: the disclosure's is 4.94mm and the footnote's is 3.88, and
+        // sheet 9 had 1.71mm.
+        note('Definitions', 'A target the figures cannot support is not scored; the basis page defines the terms.'),
       ]),
-    ], 'portrait', debtorDaysFootnote),
+    ], 'portrait', scorecardPriorNote === null
+      ? debtorDaysFootnote
+      : [...debtorDaysFootnote, scorecardPriorNote]),
     // PORTRAIT, like the other eleven. This was the one landscape sheet in
     // the pack — six panels three across needed the width — and printed and
     // bound it was the sheet a director had to turn. Two across at 83mm fits

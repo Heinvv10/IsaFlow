@@ -72,7 +72,7 @@ export function PackBlockView({ block, scale }: PackBlockViewProps) {
     case 'table':
       return <ComparativeTable table={block.table} scale={scale} />;
     case 'scorecard':
-      return <ScorecardTable groups={block.groups} scale={scale} />;
+      return <ScorecardTable groups={block.groups} scale={scale} priorFootnote={block.priorFootnote ?? null} />;
     case 'chart':
       return <PackChartBlock chart={block.chart} />;
     case 'smallMultiples':

@@ -112,7 +112,13 @@ html.print-mode {
   --pack-baseline: 4.5mm;
   --pack-ink: #1a1a1a;
   --pack-grey-strong: #4a4a4a;
-  --pack-grey-mid: #8a8a8a;
+  /* 5.33:1, up from #8a8a8a's 3.45:1. This carries the FOOTNOTES — 7.5pt, and
+   * the only place several of the pack's rules are stated — plus the cover
+   * meta, the contents numbers and every "unscored" cell. Below 4.5:1 a line
+   * of 7.5pt type is a rule a reader can see is there and cannot read, which
+   * is worse than not printing it. `--pack-grey-strong` was already 8.86:1
+   * and does not move. */
+  --pack-grey-mid: #6b6b6b;
   --pack-rule: #d8d8d8;
   --pack-tint: #f5f5f5;
   /* Overridden per-request by the brand style block — Task 5. */

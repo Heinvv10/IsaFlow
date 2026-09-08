@@ -248,14 +248,34 @@ export function statementFootnotes(
   reportingWindow: PeriodWindow,
 ): PackFootnote[] {
   if (comparative === null) return ROUNDING_FOOTNOTES;
-  return [
-    ...ROUNDING_FOOTNOTES,
-    {
-      number: 2,
-      text: `The prior column is the period ${comparative.label} — `
-        + `${comparativeLengthClause(reportingWindow, comparative)}`,
-    },
-  ];
+  return [...ROUNDING_FOOTNOTES, priorColumnFootnote(comparative, reportingWindow, 2)];
+}
+
+/**
+ * THE COMPARATIVE'S PERIOD, AS ONE SENTENCE FOR EVERY SHEET THAT PRINTS A
+ * PRIOR COLUMN.
+ *
+ * Pages 6, 7 and 8 each marked their PRIOR heading and pointed here. Page 9
+ * prints PRIOR five times and marked none — on the sheet where the
+ * comparative is most treacherous: creditor days prior of 1 035 is a 365-day
+ * annualisation taken over a 250-day comparative, and the prior current and
+ * cash ratios both read (0.05). The rule was applied to three sheets of four.
+ *
+ * It takes its NUMBER from the caller because page 9's footnote numbering is
+ * its own — the debtor-days note is 1 there when the trends page draws that
+ * panel — and it is one function because four sheets stating the comparative
+ * period in four places is four places for it to drift.
+ */
+export function priorColumnFootnote(
+  comparative: PackComparativePeriod,
+  reportingWindow: PeriodWindow,
+  number: number,
+): PackFootnote {
+  return {
+    number,
+    text: `The prior column is the period ${comparative.label} — `
+      + `${comparativeLengthClause(reportingWindow, comparative)}`,
+  };
 }
 
 /** The part-month sentence for this series, or null. */

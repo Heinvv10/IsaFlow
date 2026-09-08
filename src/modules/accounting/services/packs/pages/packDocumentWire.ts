@@ -133,7 +133,15 @@ function adoptBlock(block: Unbranded<PackPageBlock>): PackPageBlock {
     case 'kpiTiles':
       return { kind: 'kpiTiles', tiles: block.tiles.map(adoptTile) };
     case 'scorecard':
-      return { kind: 'scorecard', groups: block.groups.map(adoptScorecardGroup) };
+      return {
+        kind: 'scorecard',
+        groups: block.groups.map(adoptScorecardGroup),
+        // The PRIOR heading's footnote number. Carried across explicitly like
+        // every other field on this boundary — the switch here is the runtime
+        // validator the component tree no longer has, so a field it drops is a
+        // marker that silently stops printing.
+        priorFootnote: block.priorFootnote ?? null,
+      };
     // Every remaining kind carries no `TrustedChartSvg` field, so it crosses
     // the wire unchanged. Listed one by one rather than caught by a `default`
     // so that a new SVG-bearing block kind is a COMPILE ERROR here instead of

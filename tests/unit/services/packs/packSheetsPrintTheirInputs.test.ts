@@ -273,7 +273,7 @@ describe('two conventions the pack applied and did not declare', () => {
     expect(printedButUnscored.length, 'no row prints a target it is not scored on').toBeGreaterThan(0);
 
     expect(proseOf(pageNamed(liveDemoRenderedInput, 'Scorecard')))
-      .toContain('A target on a metric the figures cannot support is not counted as scored');
+      .toContain('A target the figures cannot support is not scored');
   });
 
   /**

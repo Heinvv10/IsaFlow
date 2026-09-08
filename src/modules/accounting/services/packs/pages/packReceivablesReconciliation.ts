@@ -299,8 +299,27 @@ function decomposition(
   // components add to. The alternative was a rounding footnote on the one
   // page in the pack whose paper is measured in matters rows, to explain a
   // discrepancy that need not be printed at all.
+  // AND THAT THEY CLOSE IT, which is the point of listing them and the one
+  // thing the block did not say. On Brightsphere the two documented
+  // categories ARE the whole difference; a reader was given a list of parts
+  // and left to wonder whether it was all of them, which turns a proof into
+  // an inventory.
+  //
+  // NO NEW FIGURE. "4 175 and 320 make 4 495" would put a second total beside
+  // the headline's 4 476 and invite exactly the rounding question the
+  // paragraph above avoids printing a total to escape.
+  //
+  // AND IT IS CONDITIONAL ON THERE BEING NOTHING LEFT OVER.
+  // `unexplained_difference` is one of the service's own reconciling types
+  // and gets a clause like any other — "left over, which this reconciliation
+  // could not account for". A list that includes it still sums to the
+  // difference, so "they account for all of it" would be arithmetically true
+  // and would tell a director the opposite of what that clause says.
+  const closes = named.every((item) => item.type !== 'unexplained_difference');
+  const closure = !closes ? ''
+    : ` ${named.length === 1 ? 'That accounts' : 'Together they account'} for all of it.`;
   return `${legOne} Between that subledger and the trade-receivable control account in the `
-    + `general ledger: ${list}.`;
+    + `general ledger: ${list}.${closure}`;
 }
 
 /** The heading page 4's debtors-base disclosure prints under. */

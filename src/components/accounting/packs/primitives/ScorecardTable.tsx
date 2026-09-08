@@ -128,9 +128,14 @@ export interface ScorecardTableProps {
   groups: PackScorecardGroup[];
   /** The document's `numberConvention.scale` — see `formatFigureText`. */
   scale: MoneyScale;
+  /** The page footnote the PRIOR heading points at — see the block model.
+   *  Marked on EVERY group, because every group prints the heading: pages 6,
+   *  7 and 8 mark their one, and one marker on the first of five leaves four
+   *  bare headings claiming a comparative period nothing on the sheet dates. */
+  priorFootnote?: number | null;
 }
 
-export function ScorecardTable({ groups, scale }: ScorecardTableProps) {
+export function ScorecardTable({ groups, scale, priorFootnote = null }: ScorecardTableProps) {
   assertRowCaps(groups);
 
   // One note list for the WHOLE scorecard rather than one per group: the same
@@ -175,7 +180,7 @@ export function ScorecardTable({ groups, scale }: ScorecardTableProps) {
               <th>Metric</th>
               <th>Actual</th>
               <th>Target</th>
-              <th>Prior</th>
+              <th>Prior<FootnoteMarker number={priorFootnote} /></th>
               {showsTrend && <th>Trend</th>}
               <th>Status</th>
             </tr>

@@ -53,12 +53,35 @@ export function scoredTargetsSentence(met: number, total: number): string {
   return `${met} of ${total} ${noun} met this period`;
 }
 
+/**
+ * AND IT WAS THE PAGE'S OWN TITLE WITH FOUR WORDS ON THE END.
+ *
+ * Page 9's heading reads "0 of 3 scored targets were met this period." and
+ * its derived commentary read "0 of 3 scored targets were met this period,
+ * with 3 missed." — three centimetres apart, on the sheet whose own §5.7 rule
+ * says a caption restating the title pads the page with an echo.
+ * `positionCaption` cites that rule and obeys it; this one broke it, and the
+ * missed count is arithmetic a reader already has from the two numbers above.
+ *
+ * WHICH GROUPS is what the title cannot say. A director reading "0 of 3" asks
+ * where, and the letters are on the sheet: naming them turns a restatement
+ * into the one sentence on the page that points somewhere.
+ */
 export function scorecardCaption(groups: PackScorecardGroup[]): string {
-  const { met, total } = scorecardScore(groups);
+  const { total } = scorecardScore(groups);
   if (total === 0) return scoredTargetsSentence(0, 0);
-  const missed = total - met;
-  const missedClause = missed > 0 ? `, with ${missed} missed` : '';
-  return `${scoredTargetsSentence(met, total)}${missedClause}.`;
+  const missedIn = groups.filter((g) => g.rows.some((r) => r.status === 'missed')).map((g) => g.name);
+  if (missedIn.length > 0) return `The misses are in ${namedInWords(missedIn)}.`;
+  const scoredIn = groups
+    .filter((g) => g.rows.some((r) => r.status === 'met' || r.status === 'missed'))
+    .map((g) => g.name);
+  return `The scored targets are in ${namedInWords(scoredIn)}.`;
+}
+
+/** "a", "a and b", "a, b and c" — the pack's list voice. */
+function namedInWords(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 }
 
 /**

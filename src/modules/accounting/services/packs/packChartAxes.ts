@@ -104,19 +104,35 @@ const CATEGORICAL_BANDS = ['#15202b', '#5b7185', '#a9b8c4', '#d7dee4'] as const;
  * Not in `theme.ts`'s FALLBACK: that is the app's on-screen semantic pair and
  * nothing about a screen is photocopied. This is the PRINT palette.
  *
- * `axis` is the theme's `textTertiary`: the axis labels and ticks are the
- * same grey as tertiary text everywhere else in the app. `ink` and `prior`
- * map one-to-one.
+ * `ink` and `prior` map one-to-one to the theme's.
+ *
+ * `axis` NO LONGER DOES, AND THAT IS THE POINT. It was the theme's
+ * `textTertiary`, `#9ca3af` — 2.54:1 on paper, and 2.16:1 as an eight-point
+ * panel label once the rasteriser has thinned the strokes. Tertiary text on a
+ * screen is a hint a reader can ignore; on this pack it is the only evidence
+ * for the claims the sheets make about themselves. Page 10 states that a
+ * rescaled panel prints its own axis at both ends and quotes 37, 58, 1 908
+ * and (1 621) — figures that appear NOWHERE ELSE IN THE PACK — so the sheet
+ * earns its claim and then sets the proof of it at half the contrast of its
+ * own footnotes. The zero end is a bare en dash at that weight, which is
+ * effectively nothing.
+ *
+ * `#5f6b7a` is 5.43:1, clear of the 4.5:1 a line of eight-point type needs
+ * with room for the thinning, and still recedes behind `ink` at 16.5:1 —
+ * which is what an axis is for. The gridlines keep `prior`: a hairline rule
+ * is not type, and darkening every one of them changes what the charts are
+ * rather than what can be read off them.
  */
 const PRINT_FAV = '#2e9d63';
 const PRINT_UNFAV = '#8c2f2f';
+const PRINT_AXIS = '#5f6b7a';
 
 export const DEFAULT_CHART_PALETTE: ChartPalette = {
   ink: FALLBACK.ink,
   fav: PRINT_FAV,
   unfav: PRINT_UNFAV,
   prior: FALLBACK.prior,
-  axis: FALLBACK.textTertiary,
+  axis: PRINT_AXIS,
   categorical: CATEGORICAL_BANDS,
   paper: '#ffffff',
 };

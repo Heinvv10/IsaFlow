@@ -166,19 +166,27 @@ describe('scorecardCaption', () => {
     bulletSvg: null,
   });
 
-  it('counts met and missed among scored rows', () => {
+  // THE CAPTION IS NO LONGER THE TITLE. It read the page's own heading with
+  // ", with N missed" appended — the echo §5.7 forbids, and arithmetic a
+  // reader already has from the two numbers above it. It names WHERE instead,
+  // which is the question "0 of 3" leaves a director holding.
+  it('names the groups the misses are in', () => {
     const groups: PackScorecardGroup[] = [
       { letter: 'A', name: 'Growth', rows: [row('met'), row('met'), row('missed')] },
+      { letter: 'B', name: 'Liquidity', rows: [row('missed')] },
+      { letter: 'C', name: 'Efficiency', rows: [row('met')] },
     ];
-    expect(scorecardCaption(groups)).toMatch(/2 of 3 scored targets were met/);
-    expect(scorecardCaption(groups)).toMatch(/1 missed/);
+    expect(scorecardCaption(groups)).toBe('The misses are in Growth and Liquidity.');
+    // AND IT DOES NOT RESTATE THE TITLE, which is the whole point.
+    expect(scorecardCaption(groups)).not.toMatch(/scored targets? w(as|ere) met/);
   });
 
-  it('excludes unscored and notMeaningful rows from the denominator', () => {
+  it('names where the scored targets are when none was missed', () => {
     const groups: PackScorecardGroup[] = [
-      { letter: 'A', name: 'Growth', rows: [row('met'), row('unscored'), row('notMeaningful')] },
+      { letter: 'A', name: 'Growth', rows: [row('met')] },
+      { letter: 'B', name: 'Liquidity', rows: [row('unscored'), row('notMeaningful')] },
     ];
-    expect(scorecardCaption(groups)).toMatch(/1 of 1 scored target was met/);
+    expect(scorecardCaption(groups)).toBe('The scored targets are in Growth.');
   });
 
   /**
@@ -189,8 +197,6 @@ describe('scorecardCaption', () => {
    * be written twice and both copies were wrong.
    */
   it('agrees noun and verb with the number of scored targets', () => {
-    const one: PackScorecardGroup[] = [{ letter: 'A', name: 'Growth', rows: [row('missed')] }];
-    expect(scorecardCaption(one)).toMatch(/^0 of 1 scored target was met this period, with 1 missed\.$/);
     expect(scorecardTitle(0, 1)).toBe('0 of 1 scored target was met this period.');
     expect(scorecardTitle(1, 3)).toBe('1 of 3 scored targets were met this period.');
     expect(scorecardTitle(3, 3)).toBe('3 of 3 scored targets were met this period.');

@@ -42,6 +42,9 @@ function anchored(page: PackPage): Set<number> {
     }
     if (block.kind === 'scorecard') {
       for (const g of block.groups) for (const r of g.rows) if (r.footnote !== undefined) out.add(r.footnote);
+      // The PRIOR heading is an anchor too — five of them, one per lettered
+      // group, on the sheet that prints the column five times.
+      if (block.priorFootnote !== null && block.priorFootnote !== undefined) out.add(block.priorFootnote);
     }
     if (block.kind === 'kpiTiles') {
       for (const t of block.tiles) if (t.trendFootnote !== null) out.add(t.trendFootnote);

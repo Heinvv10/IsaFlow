@@ -378,7 +378,20 @@ export type PackPageBlock =
   | { kind: 'kpiTiles'; tiles: PackKpiTile[] }
   | { kind: 'statTiles'; groups: PackStatGroup[] }
   | { kind: 'table'; table: PackTable }
-  | { kind: 'scorecard'; groups: PackScorecardGroup[] }
+  | {
+      kind: 'scorecard';
+      groups: PackScorecardGroup[];
+      /**
+       * The page footnote its PRIOR headings point at, or null where the
+       * pack has no comparative period.
+       *
+       * The scorecard's five lettered groups are five `<table>`s of one grid,
+       * so PRIOR is printed five times; pages 6, 7 and 8 marked their single
+       * one and this sheet marked none. Carried on the BLOCK rather than per
+       * group — it is one column of one grid and one note.
+       */
+      priorFootnote?: number | null;
+    }
   | { kind: 'chart'; chart: PackChartSpec }
   | { kind: 'smallMultiples'; panels: PackChartSpec[] }
   | {

@@ -37,6 +37,7 @@ import { MATTERS_NAV_LABEL } from '@/modules/accounting/services/packs/pages/pac
 import { PACK_SCALE } from '@/modules/accounting/services/packs/pages/packBasis';
 import type { BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import type { PackPage } from '@/modules/accounting/services/packs/pages/packPageModel';
+import type { ReconcilingItem } from '@/modules/accounting/services/reconciliation/reconcilingItemTypes';
 
 /**
  * A receivables read with NO decomposition — the shape the pack composes when
@@ -588,5 +589,62 @@ describe('the debtors-base note points at page 11 only where page 11 carries it'
     const body = (b: typeof withTotal) => (b?.kind === 'disclosure' ? b.disclosure.notes[0]!.body : '');
     expect(body(withTotal)).toMatch(/matters page/);
     expect(body(without)).not.toMatch(/matters page/);
+  });
+});
+
+/**
+ * A LIST OF PARTS IS NOT A PROOF UNTIL THE SHEET SAYS IT IS ALL OF THEM.
+ *
+ * Brightsphere's block names 4 175 across 29 unlinked documents and 320
+ * across 98 postings that reference no document — and those two ARE the whole
+ * difference between the subledger and the control account. The page listed
+ * them and stopped, so a director could not tell an itemisation from a
+ * sample.
+ *
+ * It is conditional on nothing being left over: `unexplained_difference` is
+ * one of the service's own reconciling types and carries its own clause, and
+ * a list containing it still sums to the difference — so the closure would be
+ * arithmetically true while telling a reader the opposite of what that clause
+ * says.
+ */
+describe('the decomposition says whether it closes', () => {
+  const items = (types: string[]): ReconcilingItem[] => types.map((type, i) => ({
+    bridge: 'subledger_to_control',
+    type,
+    amount: 100_000 * (i + 1),
+    description: type,
+    documentIds: ['a', 'b'],
+    documentNumbers: [],
+  } as unknown as ReconcilingItem));
+
+  /** The note's prose, which the builder returns as a disclosure block. */
+  const prose = (types: string[]): string => {
+    const block = receivablesReconciliationNote(read(types), -330_000, PACK_SCALE);
+    expect(block, 'no reconciliation block was built').not.toBeNull();
+    return block!.kind === 'disclosure' ? block!.disclosure.notes.map((n) => n.body).join(' ') : '';
+  };
+
+  const read = (types: string[]): PackReceivablesRead => ({
+    agedDebtorsTotal: 4_146_000,
+    subledgerTotal: 4_165_000,
+    controlBalance: -330_000,
+    items: items(types),
+    unexplained: null,
+  });
+
+  it('says the parts are all of it when nothing is left over', () => {
+    expect(prose(['document_not_linked_to_journal', 'posting_with_no_document']))
+      .toContain('Together they account for all of it.');
+  });
+
+  it('says nothing of the sort when the service could not account for a residual', () => {
+    const note = prose(['document_not_linked_to_journal', 'unexplained_difference']);
+    expect(note).toContain('could not account for');
+    expect(note, 'the block claims a closure over an item that is explicitly not closed')
+      .not.toMatch(/account for all of it/);
+  });
+
+  it('agrees its verb with one part', () => {
+    expect(prose(['posting_with_no_document'])).toContain('That accounts for all of it.');
   });
 });
