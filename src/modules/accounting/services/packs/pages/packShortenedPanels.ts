@@ -48,6 +48,26 @@ import { mustDisclose, note } from './packPageBlocks';
 import type { PackPageBlock } from './packPageModel';
 import type { PackTrendPoint } from '@/modules/accounting/services/packs/packTrendService';
 
+/**
+ * THE OMISSION HALF OF THE RULE, WRITTEN ONCE.
+ *
+ * "A panel is omitted when its figure is not meaningful in every period of
+ * the window" reads two ways — "not (meaningful in every period)", which is
+ * the demo's shortened gross-margin panel and would make the sentence
+ * contradict a panel three centimetres above it, and "(not meaningful) in
+ * every period", which is what it means. The negation is what does it: move
+ * it onto the quantifier and the sentence has one reading.
+ *
+ * It is a CONSTANT because the pack states this rule on two different sheets
+ * — page 10 when a panel is absent, page 4 when one starts late — and those
+ * two are halves of a single rule: omit where the measure exists nowhere in
+ * the window, shorten where it exists in part of it. Stated twice in two
+ * wordings, one of them was loose and nothing could notice; stated once, a
+ * reader meeting either sheet gets the same sentence.
+ */
+export const PANEL_OMITTED_RULE =
+  'A panel is omitted where its figure is meaningful in no period of the window';
+
 /** The heading the note prints under. */
 export const SHORTENED_PANELS_HEADING = 'Panels that cover part of the window';
 
@@ -78,7 +98,6 @@ export function shortenedPanelsNote(
       + `whose base is nil, so ${isOne ? 'that panel starts' : 'those panels start'} at the `
       + `first month ${isOne ? 'it' : 'they'} can be measured rather than being plotted as a `
       + `zero, and ${isOne ? 'its own title' : "each panel's own title"} states how many periods `
-      + 'it covers. A panel whose measure is meaningful in no month of the window is not drawn '
-      + 'at all, and the trends page says so where that happens.'),
+      + `it covers. ${PANEL_OMITTED_RULE}, and the trends page says so where that happens.`),
   ]);
 }

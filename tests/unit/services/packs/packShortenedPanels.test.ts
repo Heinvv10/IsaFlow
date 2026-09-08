@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { buildBoardPackPages, type BoardPackInput } from '@/modules/accounting/services/packs/pages/boardPackPages';
 import { buildTrendPanels } from '@/modules/accounting/services/packs/pages/packTrendCharts';
 import {
+  PANEL_OMITTED_RULE,
   SHORTENED_PANELS_HEADING,
   shortenedPanelsNote,
 } from '@/modules/accounting/services/packs/pages/packShortenedPanels';
@@ -81,7 +82,7 @@ describe('a panel drawn over part of the window says why', () => {
     // And it states the OTHER half of the same rule, which is the half
     // Brightsphere prints on page 10 — so a reader meeting either behaviour
     // has both.
-    expect(body).toMatch(/is not drawn at all/);
+    expect(body).toContain(PANEL_OMITTED_RULE);
   });
 
   it('is silent where every drawn panel covers the whole window', () => {
@@ -109,5 +110,42 @@ describe('a panel drawn over part of the window says why', () => {
   it('refuses to speak about a window it was not given', () => {
     expect(shortenedPanelsNote([], liveDemoShortPanelsInput.trend)).toBeNull();
     expect(shortenedPanelsNote(['Gross margin'], [])).toBeNull();
+  });
+});
+
+/**
+ * ONE RULE, ONE WORDING — AND THE LOOSE HALF READ AS ITS OWN OPPOSITE.
+ *
+ * Page 10 said "A panel is omitted when its figure is not meaningful in every
+ * period of the window", which parses two ways: "not (meaningful in every
+ * period)" is the demo's shortened gross-margin panel, and would have the
+ * sentence contradict a panel three centimetres above it. Page 4's half said
+ * it precisely. They are two halves of a single rule — omit where the measure
+ * exists nowhere in the window, shorten where it exists in part of it — so
+ * they are now ONE string, and neither sheet can drift from the other.
+ */
+describe('both halves of the panel rule are the same sentence', () => {
+  const disclosures = (input: BoardPackInput): string => buildBoardPackPages(input).pages
+    .flatMap((p) => p.blocks)
+    .flatMap((b) => (b.kind === 'disclosure' ? b.disclosure.notes.map((n) => n.body) : []))
+    .join(' ');
+
+  it('states the omission rule with the negation on the quantifier, not the verb', () => {
+    // The ambiguous form is the defect, so it is what the test forbids.
+    for (const input of [liveDemoShortPanelsInput, brightsphereReceivablesGapInput]) {
+      const prose = disclosures(input);
+      expect(prose).not.toMatch(/not meaningful in every period/);
+      expect(prose).toContain(PANEL_OMITTED_RULE);
+    }
+  });
+
+  it('and the two sheets that state it cannot word it differently', () => {
+    // Page 10 states it when a panel is ABSENT; page 4 when one starts LATE.
+    // Brightsphere has the first, the demo the second, and neither pack
+    // carries both — so the only thing holding the two wordings together is
+    // that there is one wording.
+    expect(disclosures(brightsphereReceivablesGapInput)).toContain(PANEL_OMITTED_RULE);
+    expect(disclosures(liveDemoShortPanelsInput)).toContain(PANEL_OMITTED_RULE);
+    expect(PANEL_OMITTED_RULE).toMatch(/meaningful in no period/);
   });
 });

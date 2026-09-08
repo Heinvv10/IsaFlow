@@ -24,6 +24,7 @@ import {
 import { TRENDS_PANELS_SPECIFIED, type PackCashBridge, type TrendPanels } from './packPageCharts';
 import type { SelectedMatters } from './packMattersPrinted';
 import { matterSourcesInWords } from './packDerivedMatters';
+import { PANEL_OMITTED_RULE } from './packShortenedPanels';
 import { trendWindowNote } from './packTrendCrossReference';
 import { formatMoney, formatPctLevel, type MoneyScale } from '@/lib/format/money';
 import { disproportionatePlugSentence } from '@/modules/accounting/services/packs/figures/packWaterfallIntegrity';
@@ -543,7 +544,7 @@ export function buildTrendBlocks(panels: TrendPanels): PackPageBlock[] {
       // specification, quoted to a board. What a director needs is which six
       // a board pack carries and which of them this company's ledger could
       // not support; the authority for the six is not their business.
-      note('Why', `A board pack tracks six measures on this page — revenue, gross margin %, operating expenses, net profit, cash and debtor days — and ${drawn.length} of the six could be drawn for this company. A panel is omitted when its figure is not meaningful in every period of the window: gross margin % and debtor days both need positive revenue, and no period here had any. Nothing is inferred in its place.`),
+      note('Why', `A board pack tracks six measures on this page — revenue, gross margin %, operating expenses, net profit, cash and debtor days — and ${drawn.length} of the six could be drawn for this company. ${PANEL_OMITTED_RULE}: gross margin % and debtor days both need positive revenue, and no period here had any. Nothing is inferred in its place.`),
     ]));
   }
   return trendBlocks;
