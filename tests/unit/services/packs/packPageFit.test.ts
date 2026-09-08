@@ -243,11 +243,11 @@ describe('a page the composer cannot fit', () => {
  * FIT; they do not show the trimming works, because none of them reaches it.
  *
  * THIS ONE REACHES IT, FROM AN INPUT. The lever is an approved board
- * commentary of eight paragraphs on the live Brightsphere pack — the pack's
+ * commentary of ten paragraphs on the live Brightsphere pack — the pack's
  * fixtures all carry `commentary: null`, because nothing in this codebase
  * stores board commentary yet, and a chair who writes a page of it is the
- * ordinary case the day one does. Page 4 then measures past its sheet and the
- * composer has to trim it.
+ * ordinary case the day one does. Page 4 then measures 286.3mm against a
+ * 255mm sheet and the composer has to trim it.
  */
 describe('the composer trims a page its input overflowed', () => {
   const PARAGRAPH =
@@ -276,9 +276,9 @@ describe('the composer trims a page its input overflowed', () => {
   });
 
   it('drops the optional prose first, keeps the disclosure it must make, and says so', () => {
-    const long = commentaryPage(8);
+    const long = commentaryPage(10);
 
-    // IT FITS. Under an identity fitter this page measures 269mm in a 255mm
+    // IT FITS. Under an identity fitter this page measures 286.3mm in a 255mm
     // box and takes a thirteenth sheet under a contents page that says twelve.
     expect(pageMm(long), 'the composed page is still past its sheet').toBeLessThanOrEqual(pageBoxMm(long));
 

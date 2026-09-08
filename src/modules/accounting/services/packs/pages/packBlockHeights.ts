@@ -190,6 +190,16 @@ export function narrativeMm(
    *  them: a block whose renderer prints something this does not measure is
    *  how the three overflows `packTextMetrics` exists for happened. */
   boardActionsTail: string[] = [],
+  /**
+   * Whether this block is drawn in the ONE-COLUMN shape — see
+   * `PackPageBlock`'s `stackActions` and `stackNarrativeActions` below.
+   *
+   * The flag is the BLOCK's rather than this function's opinion, because
+   * `NarrativeColumns` has to draw whichever layout was measured: a page
+   * measured stacked and drawn in columns is a page over its sheet with
+   * nothing on it to say so.
+   */
+  stackActions = false,
 ): number {
   const width = PAGE_WIDTH_MM[orientation];
   const pending = narrative.status === 'pending';
@@ -210,12 +220,25 @@ export function narrativeMm(
     return placeholder + PENDING_ROW_GAP_MM + panel;
   }
 
-  const proseWidth = (width - GUTTER_MM) * (2 / 3);
-  const body = narrative.body === null
-    ? lines(1, 15)
-    : source + lines(wrappedLines(narrative.body, 10, proseWidth), 15);
-  const approved = narrative.actions.length === 0 ? 0 : 2 + listMm(narrative.actions, proseWidth - 4);
-  return Math.max(body + approved, panelOf((width - GUTTER_MM) / 3 - 4));
+  /** The prose column and the approver's own action list, at a given measure. */
+  const proseOf = (widthMm: number): number => {
+    const body = narrative.body === null
+      ? lines(1, 15)
+      : source + lines(wrappedLines(narrative.body, 10, widthMm), 15);
+    return body + (narrative.actions.length === 0 ? 0 : 2 + listMm(narrative.actions, widthMm - 4));
+  };
+
+  // STACKED: the prose over the panel, both at the full measure — the same
+  // one-column shape `is-pending` draws for this same panel.
+  if (stackActions && boardActions.length > 0) {
+    return proseOf(width) + PENDING_ROW_GAP_MM + panelOf(PENDING_PANEL_MM - 4);
+  }
+  // SIDE BY SIDE: `2fr 1fr`, so the row costs the taller of its two columns.
+  // The prose is charged at two thirds of the measure even where there is no
+  // panel beside it and `is-single` gives it all of it — generous by a few
+  // lines on the four sheets carrying a derived caption, and generous is the
+  // direction that cannot spill a page.
+  return Math.max(proseOf((width - GUTTER_MM) * (2 / 3)), panelOf((width - GUTTER_MM) / 3 - 4));
 }
 
 /** A `<ul>` of prose items, each wrapped to `widthMm`, 1.5mm apart. */

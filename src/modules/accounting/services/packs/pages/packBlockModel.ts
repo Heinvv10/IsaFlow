@@ -450,6 +450,26 @@ export type PackPageBlock =
        * a director scanning a panel of three counts five.
        */
       boardActionsTail?: string[];
+      /**
+       * DRAW THE PANEL UNDER THE PROSE RATHER THAN BESIDE IT.
+       *
+       * `.pack-narrative-columns` is `2fr 1fr` for an approved narrative and
+       * one full-measure column for a pending one, so signing the commentary
+       * moved this panel — which comes from the MATTERS and has nothing to do
+       * with the commentary — out of 174mm of measure and into 43mm. The live
+       * demo company's three derived actions cost 75.1mm at the first and
+       * 183.2mm at the second: page 4 needed 288.7mm of a 255mm sheet and the
+       * composer refused the whole document, for any non-empty approved
+       * commentary, whatever it said. Every fixture carried
+       * `commentary: null`, so nothing saw it.
+       *
+       * Set by `fitPageToBox` and by nothing else — see
+       * `stackNarrativeActions`. It is the one lever in the fit that drops
+       * NOTHING, which is why it is pulled before any note is taken, and why
+       * a page that already fits is never restacked: the side-by-side layout
+       * is what page 4 was designed around and it is kept wherever it fits.
+       */
+      stackActions?: boolean;
     }
   // Spec §4.A page 11 is a TABLE — issue, quantum, owner, movement, decision
   // — and `PackTable`'s column keys are financial (actual/prior/change/…),

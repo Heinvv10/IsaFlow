@@ -348,7 +348,15 @@ html.print-mode .pack-pages {
  * across the whole page is about a hundred characters to the line — and
  * keeps roughly the depth it had, so the sheet does not gain white by the
  * fix. `packBlockHeights.narrativeMm` charges for the stack. */
-.pack-narrative-columns.is-pending {
+.pack-narrative-columns.is-pending,
+/* AND WHERE APPROVED COMMENTARY WOULD SQUEEZE THE PANEL INTO A THIRD OF THE
+ * MEASURE FOR NO GAIN. The derived panel runs the full 174mm beside a pending
+ * placeholder and used to drop to 43mm the moment a human signed the
+ * commentary — the same three action items measuring 75mm and then 183mm, on
+ * a sheet with 37mm spare, so the pack refused to compose for any non-empty
+ * commentary at all. `narrativeStacks` decides, in the height model, and
+ * hands the answer here; nothing is dropped either way. */
+.pack-narrative-columns.is-stacked {
   grid-template-columns: minmax(0, 1fr);
   row-gap: 2mm;
 }

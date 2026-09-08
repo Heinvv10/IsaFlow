@@ -153,7 +153,8 @@ export function blockMm(block: PackPageBlock, orientation: PageOrientation): num
         sum + (i === 0 ? 0 : 4) + lines(1, 15) + 1.5
         + Math.ceil(g.stats.length / 4) * (lines(2, 11) + 0.5 + lines(1, 16)), 0);
     case 'narrative':
-      return narrativeMm(block.narrative, block.boardActions ?? [], orientation, block.boardActionsTail ?? []);
+      return narrativeMm(block.narrative, block.boardActions ?? [], orientation,
+        block.boardActionsTail ?? [], block.stackActions === true);
     case 'disclosure':
       return disclosureMm(block.disclosure, orientation);
     case 'definitions': {

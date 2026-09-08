@@ -127,6 +127,36 @@ describe('NarrativeColumns', () => {
     expect(panel.textContent).toMatch(/Derived from the figures/);
   });
 
+  /**
+   * THE DRAWN LAYOUT IS THE MEASURED ONE.
+   *
+   * The height model and this component are two readings of one page. A page
+   * measured stacked and drawn in two columns is a page over its sheet with
+   * nothing on it to say so — and the stacked shape exists precisely because
+   * the two-column one would not fit. `PackPageBlock.stackActions` is the
+   * composer's single answer; this asserts the class the stylesheet keys off
+   * it, in both directions, and that it is READ rather than re-derived.
+   */
+  it('draws the layout the composer measured, both ways round', () => {
+    const narrative = { status: 'approved' as const, body: 'Trading held up.', actions: [] };
+    const actions = ['Finance: confirm supporting evidence for the FY2024 filing.'];
+
+    const columns = render(<NarrativeColumns narrative={narrative} boardActions={actions} />);
+    expect(columns.container.querySelector('.pack-narrative-columns')!.className)
+      .not.toContain('is-stacked');
+    columns.unmount();
+
+    const stacked = render(
+      <NarrativeColumns narrative={narrative} boardActions={actions} stackActions />,
+    );
+    const el = stacked.container.querySelector('.pack-narrative-columns')!;
+    expect(el.className).toContain('is-stacked');
+    // The panel is still THERE and still whole — stacking is a layout, not a
+    // budget, and nothing about it may drop an action.
+    expect(el.querySelector('.pack-narrative-actions')!.textContent)
+      .toContain('confirm supporting evidence');
+  });
+
   it('renders no action panel for a DRAFT narrative', () => {
     // A page carrying only the panel would read as a page whose commentary is
     // fine, rather than one whose commentary is unapproved model output.

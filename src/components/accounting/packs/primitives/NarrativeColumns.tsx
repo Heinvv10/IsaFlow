@@ -41,6 +41,11 @@ export interface NarrativeColumnsProps {
   boardActions?: string[];
   /** The counts under the panel — see `BoardActionPanel`. */
   boardActionsTail?: string[];
+  /** Draw the panel under the prose rather than beside it — the composer's
+   *  decision, off `PackPageBlock.stackActions`. Never re-derived here: the
+   *  height model measured one of the two layouts and this has to be that
+   *  one, or the page is over its sheet with nothing to say so. */
+  stackActions?: boolean;
 }
 
 /** What each rendered status tells the reader about where the words came
@@ -77,7 +82,9 @@ function BoardActionPanel({ actions, tail }: { actions: string[]; tail: string[]
   );
 }
 
-export function NarrativeColumns({ narrative, boardActions = [], boardActionsTail = [] }: NarrativeColumnsProps) {
+export function NarrativeColumns({
+  narrative, boardActions = [], boardActionsTail = [], stackActions = false,
+}: NarrativeColumnsProps) {
   if (narrative.status === 'pending') {
     return (
       <div className="pack-narrative-columns is-pending">
@@ -108,8 +115,16 @@ export function NarrativeColumns({ narrative, boardActions = [], boardActionsTai
   // content it was drawn for is absent. Same collapse `is-pending` already
   // does in the other direction.
   const single = boardActions.length === 0;
+  // AND WHERE THE COMPOSER SAID SO, THE PANEL GOES UNDER THE PROSE — the
+  // same one-column shape `is-pending` already draws for this same panel.
+  // Approving commentary moves the derived actions from the full 174mm into
+  // 43mm of measure, and on a company with three of them that alone is 183mm
+  // of an already-full sheet: page 4 refused to compose at all, for any
+  // non-empty commentary, whatever it said. `PackPageBlock.stackActions` is
+  // the composer's answer and is read, never re-derived — see the prop.
+  const stacked = !single && stackActions;
   return (
-    <div className={`pack-narrative-columns is-${narrative.status}${single ? ' is-single' : ''}`}>
+    <div className={`pack-narrative-columns is-${narrative.status}${single ? ' is-single' : ''}${stacked ? ' is-stacked' : ''}`}>
       <div className="pack-narrative-body">
         <span className="pack-narrative-source">{SOURCE_LABEL[narrative.status]}</span>
         {narrative.body}

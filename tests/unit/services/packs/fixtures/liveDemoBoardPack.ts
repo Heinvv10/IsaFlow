@@ -327,6 +327,52 @@ export const liveDemoShortPanelsInput: BoardPackInput = {
 };
 
 /**
+ * A CHAIR WHO SIGNED THE COMMENTARY — the shape no fixture in this suite had.
+ *
+ * Every pack fixture carries `commentary: null`, because nothing in this
+ * codebase stores board commentary yet, and that absence hid a refusal:
+ * approving commentary moves the DERIVED action panel out of the full 174mm
+ * measure it takes beside the pending placeholder and into the 1fr of a
+ * `2fr 1fr` grid — 43mm of text measure. The live demo company's three
+ * derived actions cost 75.1mm at the first and 183.2mm at the second, so
+ * page 4 needed 288.7mm of a 255mm sheet and `fitPageToBox` refused the whole
+ * document. The commentary's own length had nothing to do with it: a six-word
+ * body and a twenty-sentence body produced the same 288.7mm.
+ *
+ * Two lengths, because the fix and its BOUND are different facts. This is a
+ * board commentary at the length a chair actually writes — three short
+ * paragraphs.
+ */
+const CHAIR_PARAGRAPH =
+  'Trading held up in the second half and the margin recovery is a mix effect rather than a '
+  + 'pricing gain: the two largest contracts renewed at the same rates. ';
+
+export const liveDemoApprovedCommentaryInput: BoardPackInput = {
+  ...liveDemoShortPanelsInput,
+  commentary: {
+    status: 'approved',
+    body: CHAIR_PARAGRAPH.repeat(3),
+    actions: ['Approve the revised facility limit before the November draw.'],
+  },
+};
+
+/**
+ * AND THE SAME PACK WITH A COMMENTARY NOBODY WRITES — thirty paragraphs, some
+ * four thousand words on one sheet.
+ *
+ * This one still refuses, and that is the pack's designed behaviour rather
+ * than the defect above: a page whose remaining prose is all required, over a
+ * contents page that indexes twelve sheets, is refused rather than composed
+ * across two. It is here so the boundary is a measured fact and not an
+ * assumption — the fix is that a commentary a person would write composes,
+ * not that no commentary can ever be too long.
+ */
+export const liveDemoOverlongCommentaryInput: BoardPackInput = {
+  ...liveDemoShortPanelsInput,
+  commentary: { status: 'approved', body: CHAIR_PARAGRAPH.repeat(30), actions: [] },
+};
+
+/**
  * THE TWO SHAPES THAT PRINTED FOURTEEN AND THIRTEEN SHEETS.
  *
  * `MATTERS_PRINTED_MAX` seeded its keep-set with EVERY null-quantum matter
