@@ -86,12 +86,29 @@ describe('the rounding disclosure', () => {
     }
   });
 
-  it('is one string, and the statement footnote carries half of it', () => {
+  it('is one claim, and the statement footnote carries half of it', () => {
     // The ratio clause belongs under the `% of revenue` column too, and does
     // not fit there — see `ROUNDING_FOOTNOTES`. What must hold is that the
-    // two are the SAME sentence rather than two wordings of one convention:
+    // two are the SAME claim rather than two wordings of one convention:
     // the footnote says less, never something different.
-    expect(ROUNDING_NOTE.startsWith(ROUNDING_COMPONENTS_NOTE)).toBe(true);
+    //
+    // IT USED TO BE `ROUNDING_NOTE.startsWith(ROUNDING_COMPONENTS_NOTE)`, AND
+    // THAT WAS A STRONGER RULE THAN THE PACK NEEDS. The footnote prints ALONE
+    // on a statement sheet, so it has to name the scale to stand up; the
+    // basis fact prints two rows under `Standard and currency`, which states
+    // the scale already, and that restatement was the fourth line of an 83mm
+    // column — the line page 12's `Reporting entity` fact is set in. The
+    // claim itself is written once in `packBasis.ts` and both notes are built
+    // from it, so this asserts the shared clause instead of a shared prefix.
+    // Mutation: reword either note's components half by hand and this fails.
+    const clause = 'components may not add exactly to the totals shown';
+    expect(ROUNDING_COMPONENTS_NOTE, 'the footnote no longer makes the components claim')
+      .toContain(clause);
+    expect(ROUNDING_NOTE.toLowerCase(), 'the basis fact no longer makes the components claim')
+      .toContain(clause);
+    // And the footnote is still the half that can stand alone: it names the
+    // scale, and the basis fact does not have to.
+    expect(ROUNDING_COMPONENTS_NOTE).toContain(PACK_SCALE);
     expect(ROUNDING_NOTE).toContain(ROUNDING_RATIOS_NOTE);
     for (const [name, input] of FIXTURES) {
       const footnotes = buildBoardPackPages(input).pages

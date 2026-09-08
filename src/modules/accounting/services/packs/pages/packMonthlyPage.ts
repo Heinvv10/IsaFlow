@@ -15,7 +15,7 @@ import { commentary, mustDisclose, note } from './packPageBlocks';
 import { page, type UnnumberedPage } from './packFrontMatter';
 import {
   ebitdaMemoSentence,
-  GROUP_RESULTS_NAV_LABEL,
+  MONTHLY_RESULTS_NAV_LABEL,
   monthlyResultsCaption,
   monthlyResultsTitle,
   trendWindowLabel,
@@ -160,7 +160,7 @@ const monthlyBlocks: PackPageBlock[] = [
   ]),
   commentary(monthlyResultsCaption(trend, scale)),
 ];
-const snapshot = page(monthlyResultsTitle(trend, scale), GROUP_RESULTS_NAV_LABEL, 'Financials', 'high',
+const snapshot = page(monthlyResultsTitle(trend, scale), MONTHLY_RESULTS_NAV_LABEL, 'Financials', 'high',
   monthlyBlocks, 'portrait', ROUNDING_FOOTNOTES);
 
   return snapshot;

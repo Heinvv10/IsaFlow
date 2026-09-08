@@ -55,12 +55,24 @@ const FIXTURES: Record<string, BoardPackInput> = {
   'live, with the EBITDA bridge that rounds': liveDemoBridgeInput,
 };
 
-/** Every fact `buildBasisPage` puts on the page, by the heading it prints. */
+/**
+ * Every fact `buildBasisPage` puts on the page, by the heading it prints.
+ *
+ * NINE FACTS IN EIGHT NOTES. `Reporting entity` is new — a basis of
+ * preparation that never says what entity it reports on is incomplete, which
+ * is what the thirty-first visual gate failed criterion 11 on — and
+ * `Standard` and `Currency and rounding` are now one note, `Standard and
+ * currency`, carrying both verbatim. That merge and the scale restatement
+ * dropped from `ROUNDING_NOTE` are what paid for the new fact: page 12's
+ * headroom is unchanged to the hundredth of a millimetre on all six fixtures
+ * (2.59mm on `live, with the EBITDA bridge that rounds`, the tightest), so
+ * nothing below was traded for it.
+ */
 const BASIS_FACTS = [
-  'Standard',
+  'Standard and currency',
+  'Reporting entity',
   'Period',
   'Comparative period',
-  'Currency and rounding',
   'Source system',
   'Rounding',
   'Extracted at',
@@ -69,7 +81,7 @@ const BASIS_FACTS = [
 
 describe('page 12 never trims the basis of preparation', () => {
   for (const [name, input] of Object.entries(FIXTURES)) {
-    it(`prints all eight basis facts on ${name}`, () => {
+    it(`prints every basis fact on ${name}`, () => {
       const page = buildBoardPackPages(input).pages.at(-1)!;
       expect(page.navLabel).toBe('Basis of preparation');
       const basis = page.blocks.find(

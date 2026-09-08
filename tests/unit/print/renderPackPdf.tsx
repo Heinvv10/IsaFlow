@@ -189,7 +189,7 @@ export interface PrintedPack {
    * here. Both strings printed on every sheet, in the right positions, in the
    * right order — and the CATEGORY LABEL was the largest, darkest element on
    * all ten content sheets while the conclusion sat under it at roughly half
-   * its size. A board read "Group results" first and "An operating loss of
+   * its size. A board read "Monthly results" first and "An operating loss of
    * (1 545) on revenue of 101" second, which is the hierarchy the benchmark
    * inverts. Null on a sheet missing either element.
    */

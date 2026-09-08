@@ -217,6 +217,10 @@ const colourKey = (bridges: number): string =>
 /** The last page — spec §4.A page 12. */
 export function buildBasisPage(
   basis: PackBasis,
+  /** The legal name on the cover — page 12's `Reporting entity` fact. Taken
+   *  as a value rather than off `PackBasis`, because `buildBasis` composes
+   *  from the FIGURES and the company's name is not one of them. */
+  companyName: string,
   period: string,
   comparativePeriod: PackComparativePeriod | null,
   scale: MoneyScale,
@@ -242,7 +246,36 @@ export function buildBasisPage(
   const title = basisTitle(basis, scale, caveatsPrinted);
   return page(title, BASIS_NAV_LABEL, 'Governance', 'medium', [
     disclose('Basis of preparation', [
-      note('Standard', basis.basisOfPreparation.standard),
+      // THE STANDARD AND THE UNIT, IN ONE FACT.
+      //
+      // Two one-line facts saying eleven and twenty-two characters each, in
+      // an 83mm column: `Standard` printed "IFRS for SMEs" and left two
+      // thirds of its line white, and `Currency and rounding` printed
+      // "ZAR, figures in R'000." beside it. Both facts survive verbatim; what
+      // goes is a line of paper, and `Reporting entity` below is what it
+      // buys. See `ROUNDING_NOTE` for the second line this page bought the
+      // same way.
+      note('Standard and currency', `${basis.basisOfPreparation.standard}. ${currency} in ${scale}.`),
+      // THE PACK NAMES THE ENTITY IT REPORTS ON, AND SAYS WHAT IT DID NOT
+      // CONSOLIDATE INTO IT.
+      //
+      // Page 12 named a standard, a period, a comparative, a currency, a
+      // rounding rule, a source system, an extraction time and a ledger
+      // version — and never the reporting entity. Sheet 5 was meanwhile
+      // headed "Group results" (see `MONTHLY_RESULTS_NAV_LABEL`), so the pack
+      // asserted a boundary in a header over a basis page that neither
+      // confirmed nor denied one. Renaming the sheet removes the assertion;
+      // it does not make the basis complete, because a basis of preparation
+      // that does not say what entity it reports on is incomplete whatever
+      // the sheets are called. Both halves are fixed, and this is the half
+      // that is a fact rather than a name.
+      //
+      // IT IS A FACT THE PACK ALREADY HAS. `companyName` is the legal name on
+      // the cover, and `buildBoardPackDocument` reads one company's ledger for
+      // one `company_id` — there is no consolidation step anywhere in this
+      // module — so "alone" and "not consolidated" are statements about how
+      // the document was built, not a policy asserted on the company's behalf.
+      note('Reporting entity', `${companyName} alone. These figures are not consolidated.`),
       // AND WHICH PART OF IT THE MONTHLY SERIES DOES NOT COVER IN FULL. The
       // series runs to the month CONTAINING the reporting date, so on a pack
       // run mid-month its last point is a stub — and page 10 quoted one as a
@@ -251,8 +284,11 @@ export function buildBasisPage(
       note('Comparative period', comparativePeriod === null
         ? 'None. There is no prior period with a ledger to compare against, so no statement carries a comparative column.'
         : comparativePeriod.label),
-      note('Currency and rounding', `${currency}, figures in ${scale}.`),
       note('Source system', basis.basisOfPreparation.sourceSystem),
+      // SIXTH, AND THAT IS MEASURED RATHER THAN AESTHETIC. This is the only
+      // multi-line fact in the block, and `balancedLines` splits the list
+      // IN ORDER: with the long note here the two columns come out level on
+      // every fixture, and moving it costs the page a line it does not have.
       note('Rounding', ROUNDING_NOTE),
       note('Extracted at', basis.basisOfPreparation.extractedAt),
       note('Ledger version', basis.basisOfPreparation.ledgerVersion),

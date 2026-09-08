@@ -78,7 +78,7 @@ function build(basis: PackBasis) {
     contents: fittedContents,
     listMm: contentsListMm(NAV_LABELS),
     basisPage: fitPageToBox(buildBasisPage(
-      basis, '1 January 2026 to 7 September 2026', null, PACK_SCALE, 'ZAR',
+      basis, 'Fixture (Pty) Ltd', '1 January 2026 to 7 September 2026', null, PACK_SCALE, 'ZAR',
       printedCaveats(fittedContents, basis),
     )),
   };
@@ -96,7 +96,7 @@ function printedOn(page: UnnumberedPage): number {
  *  and costs the sheet a line — so the strings are what this fixture carries
  *  rather than a count. */
 const NAV_LABELS = [
-  'Cover', 'Contents', 'Highlights', 'Commentary and actions', 'Group results',
+  'Cover', 'Contents', 'Highlights', 'Commentary and actions', 'Monthly results',
   'Income statement', 'Balance sheet', 'Cash', 'Scorecard', 'Trends',
   'Matters for the board', 'Basis of preparation',
 ];

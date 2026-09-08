@@ -238,7 +238,7 @@ describe('the printed board pack', () => {
     // disclosures and the caption, and no chart to step down a rung — so the
     // trimmer took the rounding footnote and then the second note of "Reading
     // this table", the window note that says what period the table covers and
-    // which month of it is a stub. `ABRIDGED = 'Group results'` was named
+    // which month of it is a stub. `ABRIDGED = 'Monthly results'` was named
     // here, and asserted to still be happening, so the exception could not
     // outlive the decision that was pending on it.
     //

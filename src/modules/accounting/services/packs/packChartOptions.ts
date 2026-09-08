@@ -202,7 +202,14 @@ const NIL_STEP_RULE_PX = 1;
  * would have traded one silent illegibility for another. Paper where paper
  * reads, ink where ink does.
  */
-function labelInkOn(fill: string, palette: ChartPalette): string {
+/**
+ * EXPORTED so `packInkContrast.test.ts` can hold the pair it produces to the
+ * same 4.5:1 floor every other ink in this pack is held to. That file checked
+ * every ink the pack sets type in EXCEPT this one — a label set INSIDE a bar,
+ * where the background is the bar's fill and not the paper — which is exactly
+ * the reading the thirty-first visual gate came back on.
+ */
+export function labelInkOn(fill: string, palette: ChartPalette): string {
   return contrastRatio(fill, palette.paper) >= contrastRatio(fill, palette.ink)
     ? palette.paper
     : palette.ink;

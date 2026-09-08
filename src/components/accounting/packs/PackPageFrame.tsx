@@ -41,7 +41,7 @@ export function PackPageFrame({ page, children }: PackPageFrameProps) {
           * CONCLUSION by rule (`assertPageTitleIsAMessage`) — was a standfirst
           * beneath it at 12pt against 16pt, so the largest, darkest thing on
           * every one of the ten content sheets was a category noun: a board
-          * read "Group results" first and "An operating loss of (1 545) on
+          * read "Monthly results" first and "An operating loss of (1 545) on
           * revenue of 101" second. The benchmark inverts that, and the spec
           * asks for a title that states a conclusion about the period, which a
           * half-size subtitle under a label is not.

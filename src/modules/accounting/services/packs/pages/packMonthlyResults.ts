@@ -170,8 +170,32 @@ export function buildMonthlyResultsTable(
  * wanted exactly that and could not afford the six characters — see
  * `packDerivedMatters.ts` — which is the reason this is here and used once:
  * the next pointer at this page should not have to re-derive the name.
+ *
+ * IT WAS "GROUP RESULTS", WHICH ASSERTED A BOUNDARY THIS PACK CANNOT SUPPORT.
+ *
+ * The word "group" appeared exactly twice in the document — this heading and
+ * the contents line built from it — and was defined nowhere. Page 12 names
+ * one source ledger and the cover names one `(Pty) Ltd`, so a reader had a
+ * header claiming a consolidation over a basis page that neither confirmed
+ * nor denied one; on a single entity that overstates the boundary, and on a
+ * real group it is a consolidation policy that was never stated. Either way
+ * the basis of preparation is incomplete, which is how the visual gate
+ * scored it.
+ *
+ * The sheet is a month-by-month table of ONE entity's results — see
+ * `buildMonthlyResultsTable`, one row per month of the trend series — so
+ * "Monthly results" is what it has always been, and it asserts nothing the
+ * pack does not print. The boundary itself is now STATED rather than merely
+ * un-asserted: page 12 carries a `Reporting entity` fact naming the company
+ * and saying the figures are not consolidated (`packFrontMatter.ts`), so
+ * renaming the sheet is not a way of avoiding the question.
+ *
+ * TWO CHARACTERS LONGER, AND THAT IS PAID FOR. The contents index reserves
+ * by measured label (`fitContentsPage`) and the running footer sets this
+ * string at 7.5pt across the full measure; both are re-measured by
+ * `packSheetCount` and `packPageFit` on every fixture.
  */
-export const GROUP_RESULTS_NAV_LABEL = 'Group results';
+export const MONTHLY_RESULTS_NAV_LABEL = 'Monthly results';
 
 /**
  * Page 5's title — a conclusion about the twelve months, not a label.

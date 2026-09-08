@@ -311,7 +311,7 @@ describe('the credit-month row points at no page it cannot deliver', () => {
   });
 
   it('is no longer than the sentence it replaces, because page 11 is budgeted in lines', () => {
-    // Six more characters — "the group results page's" for "the trends
+    // Six more characters — "the monthly results page's" for "the trends
     // panel's" — costs the live demo pack a printed matter and moves a R339k
     // exposure into the unprinted tail. This pins the direction: whatever a
     // later round does to this sentence, it may not make it longer.

@@ -511,8 +511,8 @@ export function buildBoardPackPages(input: BoardPackInput): PackPagesDocument {
     .flatMap((p2) => p2.blocks)
     .filter((b) => b.kind === 'chart' && b.chart.kind === 'waterfall').length;
   const basisPage = buildBasisPage(
-    basis, input.period, comparativePeriod, scale, currency, printedCaveats(fittedContents, basis),
-    bridgesDrawn,
+    basis, input.companyLegalName, input.period, comparativePeriod, scale, currency,
+    printedCaveats(fittedContents, basis), bridgesDrawn,
   );
   const pages = numbered([
     cover!,

@@ -229,7 +229,7 @@ describe("page 5 remarks on page 5's largest figure", () => {
       const biggest = largestMonthCell(trend);
       expect(biggest, 'this fixture has no monthly figures').toBeGreaterThan(0);
 
-      const caption = proseOf(pageNamed(input, 'Group results'));
+      const caption = proseOf(pageNamed(input, 'Monthly results'));
       expect(caption).toContain('The largest figure among the months above the wrong side of its band is');
       expect(caption).toContain(money(-biggest));
       expect(caption).toContain('more was reversed out of those accounts than was posted into them');

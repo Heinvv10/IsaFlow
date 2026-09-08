@@ -186,7 +186,7 @@ export function creditMonthMatters(
       // with `netProfit` as its last column, so Brightsphere's Apr 2026 row
       // states (1 408) and the demo's Jul 2026 row states 1 908 whatever the
       // panel captions happen to say. The page is named through
-      // `GROUP_RESULTS_NAV_LABEL` — the string the Contents itself prints —
+      // `MONTHLY_RESULTS_NAV_LABEL` — the string the Contents itself prints —
       // rather than typed here, so the pointer cannot survive a page being
       // renamed.
       //
@@ -194,11 +194,11 @@ export function creditMonthMatters(
       // THAN A PREFERENCE. Naming the page the figure IS on would be better
       // writing, and it does not fit: this column is budgeted in LINES of
       // paper (`mattersBudgetMm`), so a longer issue is a real exposure
-      // moving into the unprinted tail. "the group results page's" is SIX
+      // moving into the unprinted tail. "the monthly results page's" is SIX
       // characters more than "the trends panel's", and six is enough — the
       // live demo pack falls from 7 printed matters of 29 to 6, and the row
       // that leaves is a R339k payroll journal. The longer "the month's net
-      // profit of (1 408) on the group results page" costs the same row.
+      // profit of (1 408) on the monthly results page" costs the same row.
       // "The month's" is seven characters SHORTER than what it replaces, so
       // both packs print exactly what they printed before: 7 of 29 on the
       // live demo, 6 of 30 on live Brightsphere before page 11's

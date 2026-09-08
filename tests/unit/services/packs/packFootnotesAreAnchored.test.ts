@@ -112,7 +112,7 @@ describe('the anchors are on the thing each footnote is about', () => {
     // its column totals are one out. The page has always printed the
     // rounding note; nothing pointed at it, so an absolute claim stood
     // unqualified on the table that disproves it.
-    const page = pageNamed(liveDemoShortPanelsInput, 'Group results');
+    const page = pageNamed(liveDemoShortPanelsInput, 'Monthly results');
     const table = page.blocks.find((b) => b.kind === 'table')!;
     const total = table.kind === 'table'
       ? table.table.rows.filter((r) => r.role === 'total').at(-1) : undefined;

@@ -257,11 +257,11 @@ describe('the month-versus-period note', () => {
  * A POINTER IS A CLAIM ABOUT ANOTHER SHEET, AND IT IS CHECKED AGAINST THAT
  * SHEET.
  *
- * The Period note sent net profit to the GROUP RESULTS page, which prints net
+ * The Period note sent net profit to the MONTHLY RESULTS page, which prints net
  * profit by month and a total over the trend window — no reporting-period
  * figure and no comparative column anywhere on it. The period's net profit is
  * on the income statement, (1 544) against (905). A director who followed the
- * pointer did not find nothing; the group results page's total row reads
+ * pointer did not find nothing; the monthly results page's total row reads
  * (1 901), so they found a plausible wrong number, which is worse.
  *
  * The five other pointers in that sentence were right, so nothing about the
@@ -305,22 +305,22 @@ describe('the page the trends note names carries the figure it promises', () => 
   });
 
   /**
-   * THE PREMISE, HELD SEPARATELY. If the group results page ever grew a net
+   * THE PREMISE, HELD SEPARATELY. If the monthly results page ever grew a net
    * profit row against a comparative, the assertion above would pass on the
    * old wrong pointer and this fixture would stop being able to tell the two
    * apart — so the shape that makes the test meaningful is asserted, not
    * assumed.
    */
-  it('is a fixture where the group results page could not answer for the period', () => {
+  it('is a fixture where the monthly results page could not answer for the period', () => {
     const doc = buildBoardPackPages(liveDemoRenderedInput);
-    const results = doc.pages.find((p) => p.navLabel === 'Group results')!;
+    const results = doc.pages.find((p) => p.navLabel === 'Monthly results')!;
     const rows = results.blocks.flatMap((b) => (b.kind === 'table' ? b.table.rows : []));
-    expect(rows.length, 'the group results page draws no table at all').toBeGreaterThan(0);
+    expect(rows.length, 'the monthly results page draws no table at all').toBeGreaterThan(0);
     expect(rows.map((r) => r.label).filter((l) => /^net profit$/i.test(l)),
-      'the group results page now prints a net profit row, so the pointer test proves nothing')
+      'the monthly results page now prints a net profit row, so the pointer test proves nothing')
       .toEqual([]);
     const columns = results.blocks.flatMap((b) => (b.kind === 'table' ? b.table.columns : []));
-    expect(columns, 'the group results page now carries a comparative column').not.toContain('prior');
+    expect(columns, 'the monthly results page now carries a comparative column').not.toContain('prior');
 
     // And the number a reader WOULD have found there is not the one the
     // sentence promised: the window total against the period figure.

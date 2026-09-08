@@ -156,7 +156,7 @@ export const PERIOD_COUNTERPARTS: Record<string, PeriodCounterpart> = {
   'trend-revenue': { measure: 'revenue', printsAgainstComparative: true, page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
   'trend-gross-margin': { measure: 'gross margin', printsAgainstComparative: false, page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
   'trend-operating-expenses': { measure: 'operating expenses', printsAgainstComparative: true, page: 'income statement page', wholePeriodBasis: ON_THE_PERIOD_TOTALS },
-  // THE INCOME STATEMENT, NOT THE GROUP RESULTS PAGE. The group results page
+  // THE INCOME STATEMENT, NOT THE MONTHLY RESULTS PAGE. The monthly results page
   // prints net profit BY MONTH and a total over the trend window; it carries
   // no reporting-period figure and no comparative column, so a director who
   // followed this pointer found the twelve-month total — (1 901) on the live

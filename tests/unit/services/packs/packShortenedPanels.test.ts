@@ -30,7 +30,7 @@ import { brightsphereReceivablesGapInput } from './fixtures/boardPackInputs';
 import { liveDemoRenderedInput, liveDemoShortPanelsInput } from './fixtures/liveDemoBoardPack';
 
 function windowNote(input: BoardPackInput): string {
-  const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Group results')!;
+  const page = buildBoardPackPages(input).pages.find((p) => p.navLabel === 'Monthly results')!;
   for (const block of page.blocks) {
     if (block.kind !== 'disclosure') continue;
     const note = block.disclosure.notes.find((n) => n.heading === 'The window');

@@ -152,8 +152,16 @@ export const PACK_SCALE: MoneyScale = "R'000";
  * total — a reader who adds a column and finds it a thousand out is entitled
  * to know that is the rounding rather than an error in the pack.
  */
+const COMPONENTS_CLAUSE = 'components may not add exactly to the totals shown';
+
+/** `clause` as a sentence of its own — the only difference between the two
+ *  wordings below, and therefore the only thing that can drift. */
+function asSentence(clause: string): string {
+  return `${clause[0]!.toUpperCase()}${clause.slice(1)}.`;
+}
+
 export const ROUNDING_COMPONENTS_NOTE =
-  "Figures are rounded to the nearest R'000, so components may not add exactly to the totals shown.";
+  `Figures are rounded to the nearest ${PACK_SCALE}, so ${COMPONENTS_CLAUSE}.`;
 
 /**
  * AND THE HALF OF ROUNDING THAT IS NOT ABOUT ADDING UP.
@@ -192,10 +200,28 @@ export const ROUNDING_COMPONENTS_NOTE =
 export const ROUNDING_RATIOS_NOTE =
   'A ratio taken on the unrounded figures may not reproduce from the rounded ones beside it.';
 
-/** The pack's ONE rounding convention, both halves of it. One string, because
- *  two wordings of one convention is one edit away from a basis page and a
- *  statement footnote disagreeing about how this pack rounds. */
-export const ROUNDING_NOTE = `${ROUNDING_COMPONENTS_NOTE} ${ROUNDING_RATIOS_NOTE}`;
+/**
+ * The pack's ONE rounding convention, both halves of it — and it does NOT
+ * restate the scale, because the fact two rows above it on page 12 states it.
+ *
+ * It used to be `${ROUNDING_COMPONENTS_NOTE} ${ROUNDING_RATIOS_NOTE}` exactly,
+ * so the basis fact opened "Figures are rounded to the nearest R'000" under a
+ * `Standard and currency` fact reading "IFRS for SMEs. ZAR in R'000." — the
+ * scale said twice in one two-column block, and a fourth line of an 83mm
+ * column. That line is what page 12 had left, and the `Reporting entity` fact
+ * is what it now buys (see `buildBasisPage`): the pack names the entity it
+ * reports on and states that nothing is consolidated into it, paid for out of
+ * a restatement rather than out of a fact.
+ *
+ * BOTH WORDINGS ARE STILL ONE CLAIM, WHICH IS WHAT THE OLD `startsWith`
+ * INVARIANT WAS PROTECTING. `COMPONENTS_CLAUSE` is the claim, written once;
+ * the footnote wraps it in the scale because it prints alone on a statement
+ * sheet and has to stand up there, and page 12 sets it as its own sentence
+ * because the scale is already beside it. `packRoundingDisclosure.test.ts`
+ * asserts the shared clause rather than the shared prefix, so the two can
+ * still never say different things about how this pack rounds.
+ */
+export const ROUNDING_NOTE = `${asSentence(COMPONENTS_CLAUSE)} ${ROUNDING_RATIOS_NOTE}`;
 
 /**
  * The same convention as a page footnote, for the statement pages.

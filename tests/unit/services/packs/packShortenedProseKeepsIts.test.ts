@@ -56,7 +56,7 @@ function notesUnder(page: PackPage, heading: string): Array<{ heading: string; b
 
 describe('sheet 5 keeps both notes of a disclosure it is required to make', () => {
   it.each(FIXTURES)('%s', (unused, input) => {
-    const page = pageNamed(buildBoardPackPages(input).pages, 'Group results');
+    const page = pageNamed(buildBoardPackPages(input).pages, 'Monthly results');
     const notes = notesUnder(page, 'Reading this table');
     // A pack with no monthly series carries "No monthly series" instead, and
     // has no window to state.
@@ -86,7 +86,7 @@ describe('sheet 5 keeps both notes of a disclosure it is required to make', () =
    */
   it('states the stub month on the packs whose series ends on one', () => {
     for (const input of [liveDemoRenderedInput, brightsphereLiveInput]) {
-      const page = pageNamed(buildBoardPackPages(input).pages, 'Group results');
+      const page = pageNamed(buildBoardPackPages(input).pages, 'Monthly results');
       const window = notesUnder(page, 'Reading this table')![1]!.body;
       expect(window, 'the part-month clause is not on sheet 5')
         .toMatch(/is a part month: it covers \d+ of its \d+ days/);
