@@ -12,3 +12,9 @@ it('never derives missing transactions from empty days or completeness from a ma
  .toContain('independent_statement_review_unavailable');
  expect(analyseBankStatementCompleteness({...row(),sourceBytesVerified:false}).missing).toContain('source_statement_bytes_unavailable_or_changed');
 });
+it('allows a completed local independent review to clear comparison unknowns while changed bytes still refuse',()=>{
+ const reviewed={...row(),independentlyReviewed:true,sourceCount:0,opening:'-10',closing:'-10',importedCount:0,importedNet:'0'};
+ expect(analyseBankStatementCompleteness(reviewed)).toMatchObject({missing:[],reasons:[],amount:'0'});
+ expect(analyseBankStatementCompleteness({...reviewed,sourceBytesVerified:false}).missing).toContain('source_statement_bytes_unavailable_or_changed');
+ expect(analyseBankStatementCompleteness({...reviewed,importedCount:1,importedNet:'1'}).reasons).toEqual(['statement_count_difference','statement_balance_difference']);
+});
