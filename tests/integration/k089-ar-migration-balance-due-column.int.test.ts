@@ -31,11 +31,14 @@ const USER = randomUUID();
 const OTHER_COMPANY = randomUUID();
 /** Has every system account the import needs EXCEPT opening_balance_equity. */
 const NO_EQUITY_COMPANY = randomUUID();
+/** June 2026 is a CLOSED fiscal period here; August is open. */
+const CLOSED_PERIOD_COMPANY = randomUUID();
 const TAG = `K089-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 let pool: Pool;
 let sessionId: string;
 let noEquitySessionId: string;
+let closedPeriodSessionId: string;
 
 function run<T>(c: PoolClient, fn: () => Promise<T>, companyId = COMPANY): Promise<T> {
   return als.run({ client: c, userId: USER, companyId, claims: {} } as never, fn);
@@ -64,8 +67,9 @@ describeIfDb('K-089 AR migration import writes only real columns', () => {
     await company(COMPANY, `K089 ${TAG}`, TAG);
     await company(OTHER_COMPANY, `K089 other ${TAG}`, `${TAG}-B`);
     await company(NO_EQUITY_COMPANY, `K089 no-equity ${TAG}`, `${TAG}-C`);
+    await company(CLOSED_PERIOD_COMPANY, `K089 closed-period ${TAG}`, `${TAG}-D`);
 
-    for (const c of [COMPANY, OTHER_COMPANY, NO_EQUITY_COMPANY]) {
+    for (const c of [COMPANY, OTHER_COMPANY, NO_EQUITY_COMPANY, CLOSED_PERIOD_COMPANY]) {
       await sql`INSERT INTO customers (name, company_id) VALUES (${'ACME ' + TAG}, ${c}::UUID)`;
     }
 
@@ -79,13 +83,18 @@ describeIfDb('K-089 AR migration import writes only real columns', () => {
            normal_balance, is_active, is_system_account)
         VALUES (${companyId}::UUID, ${code}, ${name}, ${type}, ${subtype}, ${normal}, true, true)`;
     };
-    for (const c of [COMPANY, NO_EQUITY_COMPANY]) {
+    for (const c of [COMPANY, NO_EQUITY_COMPANY, CLOSED_PERIOD_COMPANY]) {
       await acct(c, '4000', 'K089 Revenue', 'revenue', 'default_revenue', 'credit');
       await acct(c, '1100', 'K089 AR', 'asset', 'receivable', 'debit');
       await acct(c, '2120', 'K089 VAT Output', 'liability', 'vat_output', 'credit');
     }
     // Only COMPANY gets the clearing account the settlement leg needs.
     await acct(COMPANY, '3100', 'K089 Opening Balance Equity', 'equity', 'opening_balance_equity', 'credit');
+    await acct(CLOSED_PERIOD_COMPANY, '3100', 'K089 Opening Balance Equity', 'equity', 'opening_balance_equity', 'credit');
+    await sql`
+      INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+      VALUES (${CLOSED_PERIOD_COMPANY}::UUID, 'Jun 2026', 4, 2027, '2026-06-01', '2026-06-30', 'closed'),
+             (${CLOSED_PERIOD_COMPANY}::UUID, 'Aug 2026', 6, 2027, '2026-08-01', '2026-08-31', 'open')`;
     clearSystemAccountCache();
 
     const session = async (companyId: string) => ((await sql`
@@ -96,10 +105,11 @@ describeIfDb('K-089 AR migration import writes only real columns', () => {
       RETURNING id`) as { id: string }[])[0]!.id;
     sessionId = await session(COMPANY);
     noEquitySessionId = await session(NO_EQUITY_COMPANY);
+    closedPeriodSessionId = await session(CLOSED_PERIOD_COMPANY);
   });
 
   afterAll(async () => {
-    for (const c of [COMPANY, OTHER_COMPANY, NO_EQUITY_COMPANY]) {
+    for (const c of [COMPANY, OTHER_COMPANY, NO_EQUITY_COMPANY, CLOSED_PERIOD_COMPANY]) {
       await sql`UPDATE customer_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${c}::UUID`;
       await sql`DELETE FROM customer_invoices WHERE company_id = ${c}::UUID`;
       await sql`DELETE FROM gl_journal_lines WHERE company_id = ${c}::UUID`;
@@ -111,7 +121,8 @@ describeIfDb('K-089 AR migration import writes only real columns', () => {
       await sql`DELETE FROM gl_accounts WHERE company_id = ${c}::UUID`;
       await sql`DELETE FROM fiscal_periods WHERE company_id = ${c}::UUID`;
     }
-    await sql`DELETE FROM companies WHERE id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NO_EQUITY_COMPANY}::UUID)`;
+    await sql`DELETE FROM companies WHERE id IN (
+      ${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NO_EQUITY_COMPANY}::UUID, ${CLOSED_PERIOD_COMPANY}::UUID)`;
     await pool.end();
   }, 60000);
 
@@ -196,20 +207,36 @@ describeIfDb('K-089 AR migration import writes only real columns', () => {
     }
   }, 60000);
 
-  it('merges the step flag and appends errors instead of erasing the earlier steps', async () => {
+  it('merges the step flag and supersedes only its own errors, without growing on a re-run', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      await run(c, () => importARInvoices(COMPANY, sessionId, [
-        invoice({ invoiceNumber: `${TAG}-flags`, customerName: 'Nobody Ltd Unmatched 9182736450' }),
-      ], USER));
+      const badRow = [invoice({ invoiceNumber: `${TAG}-flags`, customerName: 'Nobody Ltd Unmatched 9182736450' })];
+      await run(c, () => importARInvoices(COMPANY, sessionId, badRow, USER));
 
-      const sess = (await c.query(
+      const first = (await c.query(
         `SELECT steps_completed, errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
         [sessionId, COMPANY],
       )).rows[0];
-      expect(sess.steps_completed).toMatchObject({ coa: true, customers: true, ar_invoices: true });
-      expect(sess.errors.map((e: { step: string }) => e.step)).toEqual(['customers', 'ar_invoices']);
+      expect(first.steps_completed).toMatchObject({ coa: true, customers: true, ar_invoices: true });
+      // The earlier step's error survives, and this run's is recorded.
+      expect(first.errors.map((e: { step: string }) => e.step)).toEqual(['customers', 'ar_invoices']);
+
+      // Re-running the step must replace its own errors, not append them again.
+      await run(c, () => importARInvoices(COMPANY, sessionId, badRow, USER));
+      const second = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      expect(second.errors.map((e: { step: string }) => e.step)).toEqual(['customers', 'ar_invoices']);
+
+      // And a clean re-run clears what the failed attempt left behind.
+      await run(c, () => importARInvoices(COMPANY, sessionId, [invoice({ invoiceNumber: `${TAG}-flags-ok` })], USER));
+      const third = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      expect(third.errors.map((e: { step: string }) => e.step)).toEqual(['customers']);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
@@ -251,43 +278,71 @@ describeIfDb('K-089 AR migration import writes only real columns', () => {
   }, 60000);
 
   it('a failure after the INSERT rolls the whole row back, invoice and journal alike', async () => {
-    // NO_EQUITY_COMPANY has no opening_balance_equity account, so the
-    // settlement leg throws AFTER the invoice row and its origination journal
-    // have already been written. Nothing of that row may survive.
+    // June 2026 is a CLOSED period for this company, so postJournalEntry
+    // refuses AFTER the invoice row has already been written. Nothing of that
+    // row may survive. August is open, so the row after it must still import.
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      const result = await run(c, () => importARInvoices(NO_EQUITY_COMPANY, noEquitySessionId, [
-        invoice({ invoiceNumber: `${TAG}-late-fail`, amountPaid: 40 }),
-        invoice({ invoiceNumber: `${TAG}-after`, amountPaid: 0 }),
-      ], USER), NO_EQUITY_COMPANY);
+      const result = await run(c, () => importARInvoices(CLOSED_PERIOD_COMPANY, closedPeriodSessionId, [
+        invoice({ invoiceNumber: `${TAG}-late-fail`, invoiceDate: '2026-06-30', dueDate: '2026-09-30' }),
+        invoice({ invoiceNumber: `${TAG}-after`, invoiceDate: '2026-08-31', dueDate: '2026-09-30' }),
+      ], USER), CLOSED_PERIOD_COMPANY);
 
       expect(result.imported).toBe(1);
       expect(result.skipped).toBe(1);
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]!.row).toBe(0);
+      expect(result.errors[0]!.message).toContain('closed fiscal period');
 
-      const orphan = (await c.query(
-        `SELECT COUNT(*)::INT AS n FROM customer_invoices
-          WHERE company_id = $1 AND invoice_number = $2`,
-        [NO_EQUITY_COMPANY, `${TAG}-late-fail`],
-      )).rows[0];
-      expect(orphan.n).toBe(0);
+      const survivors = (await c.query(
+        `SELECT invoice_number FROM customer_invoices WHERE company_id = $1 ORDER BY invoice_number`,
+        [CLOSED_PERIOD_COMPANY],
+      )).rows;
+      expect(survivors.map(r => r.invoice_number)).toEqual([`${TAG}-after`]);
 
       const strayJournal = (await c.query(
         `SELECT COUNT(*)::INT AS n FROM gl_journal_entries
           WHERE company_id = $1 AND description LIKE $2`,
-        [NO_EQUITY_COMPANY, `%${TAG}-late-fail%`],
+        [CLOSED_PERIOD_COMPANY, `%${TAG}-late-fail%`],
       )).rows[0];
       expect(strayJournal.n).toBe(0);
-
-      const after = (await c.query(
-        `SELECT COUNT(*)::INT AS n FROM customer_invoices
-          WHERE company_id = $1 AND invoice_number = $2`,
-        [NO_EQUITY_COMPANY, `${TAG}-after`],
-      )).rows[0];
-      expect(after.n).toBe(1);
       await c.query('SELECT 1');
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('fails the whole step once, before writing anything, when the clearing account is missing', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await expect(run(c, () => importARInvoices(NO_EQUITY_COMPANY, noEquitySessionId, [
+        invoice({ invoiceNumber: `${TAG}-noeq-1`, amountPaid: 40 }),
+        invoice({ invoiceNumber: `${TAG}-noeq-2`, amountPaid: 40 }),
+      ], USER), NO_EQUITY_COMPANY)).rejects.toThrow(/opening_balance_equity/);
+
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM customer_invoices WHERE company_id = $1`,
+        [NO_EQUITY_COMPANY],
+      )).rows[0];
+      expect(rows.n).toBe(0);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('still imports unpaid invoices for a company with no clearing account', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const result = await run(c, () => importARInvoices(NO_EQUITY_COMPANY, noEquitySessionId, [
+        invoice({ invoiceNumber: `${TAG}-noeq-unpaid`, amountPaid: 0 }),
+      ], USER), NO_EQUITY_COMPANY);
+      expect(result.imported).toBe(1);
+      expect(result.errors).toEqual([]);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();

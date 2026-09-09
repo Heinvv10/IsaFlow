@@ -10,6 +10,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
+import { resolveSettlementAccountId } from './migrationPostingSupport';
 import type { DbRow } from '@/types/db';
 
 
@@ -113,6 +114,11 @@ export async function importARInvoices(
   const arAccountId      = await getSystemAccountId('receivable', companyId);
   const revenueAccountId = await getSystemAccountId('default_revenue', companyId);
   const vatOutputId      = await getSystemAccountId('vat_output', companyId);
+
+  const settlementAccountId = await resolveSettlementAccountId(
+    companyId,
+    invoices.some(inv => (inv.amountPaid ?? 0) > 0),
+  );
 
   const custRows = (await sql`
     SELECT id, name FROM customers WHERE company_id = ${companyId}::UUID
@@ -222,16 +228,16 @@ export async function importARInvoices(
         // by exactly amountPaid. The contra is opening balance equity — the
         // clearing account for everything that happened before the cutover; a
         // bank leg would invent a cash movement the bank's own opening balance
-        // already accounts for. Resolved here rather than above so a company
-        // with no such account can still import unpaid invoices.
-        if (amountPaid > 0) {
-          const obeAccountId = await getSystemAccountId('opening_balance_equity', companyId);
+        // already accounts for. The account is resolved once for the whole
+        // step, so a company without one fails the step with a single message
+        // instead of failing once per part-paid row.
+        if (amountPaid > 0 && settlementAccountId) {
           const settlement = await createJournalEntry(companyId, {
             entryDate: inv.invoiceDate,
             description: `Migrated AR invoice ${inv.invoiceNumber} — settled before cutover`,
             source: 'auto_migration',
             lines: [
-              { glAccountId: obeAccountId, debit: amountPaid, credit: 0,          description: `Opening balance equity — ${inv.invoiceNumber}` },
+              { glAccountId: settlementAccountId, debit: amountPaid, credit: 0,   description: `Opening balance equity — ${inv.invoiceNumber}` },
               { glAccountId: arAccountId,  debit: 0,          credit: amountPaid, description: `AR settled — ${inv.invoiceNumber}` },
             ],
           }, userId);

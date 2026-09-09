@@ -10,6 +10,7 @@ import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService'
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from '../core/migrationService';
 import { matchContact } from '../core/migrationImportService';
+import { resolveSettlementAccountId, rethrowIfDuplicateIndexMissing } from '../core/migrationPostingSupport';
 import { computeFingerprint } from '../capture/captureDeduplicationService';
 type Row = DbRow;
 
@@ -42,6 +43,11 @@ export async function importAPInvoices(
   const apAccountId      = await getSystemAccountId('payable', companyId);
   const expenseAccountId = await getSystemAccountId('default_expense', companyId);
   const vatInputId       = await getSystemAccountId('vat_input', companyId);
+
+  const settlementAccountId = await resolveSettlementAccountId(
+    companyId,
+    invoices.some(inv => (inv.amountPaid ?? 0) > 0),
+  );
 
   const supRows = (await sql`
     SELECT id, COALESCE(company_name, name) AS name, vat_number FROM suppliers
@@ -101,7 +107,7 @@ export async function importAPInvoices(
             ${inv.reference ?? null}, ${userId}::UUID,
             ${migFingerprint}
           )
-          ON CONFLICT (company_id, duplicate_fingerprint)
+          ON CONFLICT (company_id, supplier_id, duplicate_fingerprint)
             WHERE duplicate_fingerprint IS NOT NULL AND deleted_at IS NULL
           DO NOTHING
           RETURNING id
@@ -155,17 +161,17 @@ export async function importAPInvoices(
         // by exactly amountPaid. The contra is opening balance equity — the
         // clearing account for everything that happened before the cutover; a
         // bank leg would invent a cash movement the bank's own opening balance
-        // already accounts for. Resolved here rather than above so a company
-        // with no such account can still import unpaid invoices.
-        if (amountPaid > 0) {
-          const obeAccountId = await getSystemAccountId('opening_balance_equity', companyId);
+        // already accounts for. The account is resolved once for the whole
+        // step, so a company without one fails the step with a single message
+        // instead of failing once per part-paid row.
+        if (amountPaid > 0 && settlementAccountId) {
           const settlement = await createJournalEntry(companyId, {
             entryDate: inv.invoiceDate,
             description: `Migrated AP invoice ${inv.invoiceNumber} — settled before cutover`,
             source: 'auto_migration',
             lines: [
               { glAccountId: apAccountId,  debit: amountPaid, credit: 0,          description: `AP settled — ${inv.invoiceNumber}` },
-              { glAccountId: obeAccountId, debit: 0,          credit: amountPaid, description: `Opening balance equity — ${inv.invoiceNumber}` },
+              { glAccountId: settlementAccountId, debit: 0,   credit: amountPaid, description: `Opening balance equity — ${inv.invoiceNumber}` },
             ],
           }, userId);
           await postJournalEntry(companyId, settlement.id, userId);
@@ -174,6 +180,7 @@ export async function importAPInvoices(
       });
       if (rowImported) imported++; else skipped++;
     } catch (err) {
+      rethrowIfDuplicateIndexMissing(err);
       const msg = err instanceof Error ? err.message : String(err);
       errors.push({ step: 'ap_invoices', row: i, message: msg });
       skipped++;

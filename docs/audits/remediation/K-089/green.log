@@ -1,5 +1,6 @@
-# GREEN — K-015 + K-089 after the blind-review remediation
-# Fixture PostgreSQL (isaflow_schema_fixture), migration 625 applied.
+# GREEN — K-015 + K-089 after the second blind review (N1-N6)
+# Fixture PostgreSQL (isaflow_schema_fixture), migration 625 applied in its
+# supplier-scoped form.
 
 $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts" "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
 
@@ -7,42 +8,48 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
 
 
  Test Files  2 passed (2)
-      Tests  16 passed (16)
-   Start at  06:23:31
-   Duration  1.54s (transform 789ms, setup 0ms, import 1.16s, tests 1.19s, environment 0ms)
+      Tests  23 passed (23)
+   Start at  09:08:18
+   Duration  2.66s (transform 785ms, setup 0ms, import 1.45s, tests 2.98s, environment 0ms)
 
 
-## Mutation checks — production code temporarily reverted one at a time, then restored
+## Mutation checks — production code or schema reverted one at a time, then restored
 
- 1. re-add `balance_due` to the AP INSERT               -> k015: 5 failed | 3 passed (8)
- 2. re-add `balance_due` to the AR INSERT               -> k089: 5 failed | 3 passed (8)
- 3. `external_ref` -> `reference` in the AR INSERT      -> k089: 5 failed | 3 passed (8)
- 4. drop `external_system` from the AR INSERT           -> k089: 1 failed | 7 passed (8)
- 5. AP per-row savepoint removed (plain IIFE)           -> k015: 2 failed | 6 passed (8)
- 6. AR per-row savepoint removed (plain IIFE)           -> k089: 2 failed | 6 passed (8)
- 7. AP settlement leg removed                           -> k015: 2 failed | 6 passed (8)
- 8. AR settlement leg removed                           -> k089: 2 failed | 6 passed (8)
- 9. AP `ON CONFLICT` arbiter removed (target-less)      -> k015: 8 passed (8)  <- see note
- 9b. migration 625's unique index DROPped               -> k015: 5 failed | 3 passed (8)
-10. AR duplicate-reason error push removed              -> k089: 1 failed | 7 passed (8)
-11. amount-consistency check removed (AP)               -> k015: 1 failed | 7 passed (8)
-12. `steps_completed` back to whole-value replacement   -> k015: 1 failed | 7 passed (8)
-13. `errors` back to whole-value overwrite              -> k089: 1 failed | 7 passed (8)
-14. request schema amounts/dates weakened to `z.any()`  -> unit: 4 failed | 7 passed (11)
+Round 2 (findings N1-N6):
+ N1.  unique index back to (company_id, duplicate_fingerprint), ON CONFLICT to match
+        -> k015: 1 failed | 12 passed (13)  ["lets two VAT-less suppliers hold the same
+           invoice number and amount" — the cross-supplier false duplicate is back]
+ N1b. named 23505 translation removed from createSupplierInvoice
+        -> k015: 1 failed | 12 passed (13)
+ N3.  rethrowIfDuplicateIndexMissing() call removed
+        -> k015: 1 failed | 12 passed (13)  [the run answers 200 with imported: 0 again]
+ N4.  clearing account resolved per row again, falling back to null
+        -> k015: 1 failed | 12 passed (13)  [step no longer fails once, up front]
+ N6.  errors back to a plain append
+        -> k089: 1 failed | 9 passed (10)   [a re-run reports the same row twice]
 
-Note on 9: the index, not the arbiter clause, is what makes the duplicate guard work — a
-target-less `ON CONFLICT DO NOTHING` fires on any unique index, so removing the target alone
-changes nothing once 625 is applied. 9b drops the index instead and takes the tests red, which
-is the check that matters and also proves 625 must be applied before this code ships.
+Round 1 (the earlier findings) is unchanged and still holds; those 14 checks are in the
+previous revision of this file, in commit fdcf3522.
 
-All mutations restored; the run above is 16/16 green.
+All mutations restored; the run above is 23/23 green.
+
+## Migration 625
+
+Re-applied to the fixture in its supplier-scoped form after being dropped:
+  CREATE UNIQUE INDEX uq_supplier_invoices_supplier_fingerprint
+    ON public.supplier_invoices (company_id, supplier_id, duplicate_fingerprint)
+    WHERE duplicate_fingerprint IS NOT NULL AND deleted_at IS NULL
+Re-running the file is a no-op (IF NOT EXISTS).
+NOT run against production, read-only included — the pre-flight query is in fix.md for the
+deploy operator.
+
+bun scripts/audit-migration-naming.ts   -> no new duplicate prefixes (338 files)
+bun scripts/ci/check-migration-rls.ts   -> OK
 
 ## Unit tests
 
-`bunx vitest run tests/unit/migration/migrationRowSchemas.test.ts`  -> 11 passed (new)
-`bunx vitest run tests/unit/services/core/migrationImportService.test.ts` -> 2 passed
-  (its mocked `sql` queue is positional and needed the new source_system lookup inserted —
-   exactly the breakage the full-suite run is meant to catch)
+`bunx vitest run tests/unit/migration/migrationRowSchemas.test.ts`         -> 11 passed
+`bunx vitest run tests/unit/services/core/migrationImportService.test.ts`  -> 2 passed
 
 ## Full unit suite (clean shell, DATABASE_URL and the fixture env unset)
 
@@ -50,14 +57,13 @@ All mutations restored; the run above is 16/16 green.
   Test Files  785 passed | 36 skipped (821)
        Tests  9331 passed | 234 skipped (9565)
 
-At the default 10s timeout this box — shared with several other agents running suites at the
-same time — fails a different handful of unrelated tests on every run (cashFlowReport,
-trackerExclusion, bankAllocationUnwind, bank-allocation date tests). Each passes in isolation and
-none touch a file this branch changes. The 60s run above is the honest number.
+The 60s timeout is deliberate. At the default 10s this box — shared with several other agents
+running suites at the same time — fails a different handful of unrelated tests on every run;
+each passes in isolation and none touch a file this branch changes.
 
 ## Gates
 
-bunx tsc --noEmit                                  -> exit 0
-bunx eslint <changed src/ and pages/ files>        -> exit 0
+bunx tsc --noEmit                            -> exit 0
+bunx eslint <changed src/ and pages/ files>  -> exit 0
   (tests/** cannot be linted in this repo: tsconfig excludes it, so eslint reports a parse error
    for any test file — pre-existing, not caused by this change)

@@ -31,6 +31,7 @@ import { als } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import { clearSystemAccountCache } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { importAPInvoices } from '@/modules/accounting/services/ap/migrationApService';
+import { createSupplierInvoice } from '@/modules/accounting/services/ap/supplierInvoiceService';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -40,11 +41,14 @@ const USER = randomUUID();
 const OTHER_COMPANY = randomUUID();
 /** Has every system account the import needs EXCEPT opening_balance_equity. */
 const NO_EQUITY_COMPANY = randomUUID();
+/** June 2026 is a CLOSED fiscal period here; August is open. */
+const CLOSED_PERIOD_COMPANY = randomUUID();
 const TAG = `K015-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 
 let pool: Pool;
 let sessionId: string;
 let noEquitySessionId: string;
+let closedPeriodSessionId: string;
 
 function run<T>(c: PoolClient, fn: () => Promise<T>, companyId = COMPANY): Promise<T> {
   return als.run({ client: c, userId: USER, companyId, claims: {} } as never, fn);
@@ -73,10 +77,16 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     await company(COMPANY, `K015 ${TAG}`, TAG);
     await company(OTHER_COMPANY, `K015 other ${TAG}`, `${TAG}-B`);
     await company(NO_EQUITY_COMPANY, `K015 no-equity ${TAG}`, `${TAG}-C`);
+    await company(CLOSED_PERIOD_COMPANY, `K015 closed-period ${TAG}`, `${TAG}-D`);
 
     await sql`INSERT INTO suppliers (name, company_id) VALUES (${'ACME ' + TAG}, ${COMPANY}::UUID)`;
     await sql`INSERT INTO suppliers (name, company_id) VALUES (${'ACME ' + TAG}, ${OTHER_COMPANY}::UUID)`;
     await sql`INSERT INTO suppliers (name, company_id) VALUES (${'ACME ' + TAG}, ${NO_EQUITY_COMPANY}::UUID)`;
+    await sql`INSERT INTO suppliers (name, company_id) VALUES (${'ACME ' + TAG}, ${CLOSED_PERIOD_COMPANY}::UUID)`;
+    // A second VAT-less supplier in the SAME company: computeFingerprint folds
+    // a missing VAT number to the literal 'no-vat', so this one shares a
+    // fingerprint with ACME for any identical invoice number and amount.
+    await sql`INSERT INTO suppliers (name, company_id) VALUES (${'BETA ' + TAG}, ${COMPANY}::UUID)`;
 
     const acct = async (
       companyId: string, code: string, name: string,
@@ -88,13 +98,18 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
            normal_balance, is_active, is_system_account)
         VALUES (${companyId}::UUID, ${code}, ${name}, ${type}, ${subtype}, ${normal}, true, true)`;
     };
-    for (const c of [COMPANY, NO_EQUITY_COMPANY]) {
+    for (const c of [COMPANY, NO_EQUITY_COMPANY, CLOSED_PERIOD_COMPANY]) {
       await acct(c, '6000', 'K015 Expense', 'expense', 'default_expense', 'debit');
       await acct(c, '2100', 'K015 AP', 'liability', 'payable', 'credit');
       await acct(c, '2200', 'K015 VAT Input', 'asset', 'vat_input', 'debit');
     }
     // Only COMPANY gets the clearing account the settlement leg needs.
     await acct(COMPANY, '3100', 'K015 Opening Balance Equity', 'equity', 'opening_balance_equity', 'credit');
+    await acct(CLOSED_PERIOD_COMPANY, '3100', 'K015 Opening Balance Equity', 'equity', 'opening_balance_equity', 'credit');
+    await sql`
+      INSERT INTO fiscal_periods (company_id, period_name, period_number, fiscal_year, start_date, end_date, status)
+      VALUES (${CLOSED_PERIOD_COMPANY}::UUID, 'Jun 2026', 4, 2027, '2026-06-01', '2026-06-30', 'closed'),
+             (${CLOSED_PERIOD_COMPANY}::UUID, 'Aug 2026', 6, 2027, '2026-08-01', '2026-08-31', 'open')`;
     clearSystemAccountCache();
 
     const session = async (companyId: string) => ((await sql`
@@ -105,12 +120,15 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       RETURNING id`) as { id: string }[])[0]!.id;
     sessionId = await session(COMPANY);
     noEquitySessionId = await session(NO_EQUITY_COMPANY);
+    closedPeriodSessionId = await session(CLOSED_PERIOD_COMPANY);
   });
 
   afterAll(async () => {
-    const companies = [COMPANY, OTHER_COMPANY, NO_EQUITY_COMPANY];
+    const companies = [COMPANY, OTHER_COMPANY, NO_EQUITY_COMPANY, CLOSED_PERIOD_COMPANY];
     for (const c of companies) {
       await sql`UPDATE supplier_invoices SET gl_journal_entry_id = NULL WHERE company_id = ${c}::UUID`;
+      await sql`DELETE FROM supplier_invoice_items WHERE supplier_invoice_id IN (
+        SELECT id FROM supplier_invoices WHERE company_id = ${c}::UUID)`;
       await sql`DELETE FROM supplier_invoices WHERE company_id = ${c}::UUID`;
       await sql`DELETE FROM gl_journal_lines WHERE company_id = ${c}::UUID`;
       await sql`DELETE FROM gl_journal_entries WHERE company_id = ${c}::UUID`;
@@ -121,7 +139,8 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       await sql`DELETE FROM gl_accounts WHERE company_id = ${c}::UUID`;
       await sql`DELETE FROM fiscal_periods WHERE company_id = ${c}::UUID`;
     }
-    await sql`DELETE FROM companies WHERE id IN (${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NO_EQUITY_COMPANY}::UUID)`;
+    await sql`DELETE FROM companies WHERE id IN (
+      ${COMPANY}::UUID, ${OTHER_COMPANY}::UUID, ${NO_EQUITY_COMPANY}::UUID, ${CLOSED_PERIOD_COMPANY}::UUID)`;
     await pool.end();
   }, 60000);
 
@@ -204,21 +223,36 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
-  it('merges the step flag and appends errors instead of erasing the earlier steps', async () => {
+  it('merges the step flag and supersedes only its own errors, without growing on a re-run', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      await run(c, () => importAPInvoices(COMPANY, sessionId, [
-        bill({ invoiceNumber: `${TAG}-flags`, supplierName: 'Nobody Ltd Unmatched 9182736450' }),
-      ], USER));
+      const badRow = [bill({ invoiceNumber: `${TAG}-flags`, supplierName: 'Nobody Ltd Unmatched 9182736450' })];
+      await run(c, () => importAPInvoices(COMPANY, sessionId, badRow, USER));
 
-      const sess = (await c.query(
+      const first = (await c.query(
         `SELECT steps_completed, errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
         [sessionId, COMPANY],
       )).rows[0];
-      expect(sess.steps_completed).toMatchObject({ coa: true, suppliers: true, ap_invoices: true });
-      // The suppliers step's error survives, and this run's is appended.
-      expect(sess.errors.map((e: { step: string }) => e.step)).toEqual(['suppliers', 'ap_invoices']);
+      expect(first.steps_completed).toMatchObject({ coa: true, suppliers: true, ap_invoices: true });
+      // The earlier step's error survives, and this run's is recorded.
+      expect(first.errors.map((e: { step: string }) => e.step)).toEqual(['suppliers', 'ap_invoices']);
+
+      // Re-running the step must replace its own errors, not append them again.
+      await run(c, () => importAPInvoices(COMPANY, sessionId, badRow, USER));
+      const second = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      expect(second.errors.map((e: { step: string }) => e.step)).toEqual(['suppliers', 'ap_invoices']);
+
+      // And a clean re-run clears what the failed attempt left behind.
+      await run(c, () => importAPInvoices(COMPANY, sessionId, [bill({ invoiceNumber: `${TAG}-flags-ok` })], USER));
+      const third = (await c.query(
+        `SELECT errors FROM migration_sessions WHERE id = $1 AND company_id = $2`,
+        [sessionId, COMPANY],
+      )).rows[0];
+      expect(third.errors.map((e: { step: string }) => e.step)).toEqual(['suppliers']);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
@@ -261,44 +295,165 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
   }, 60000);
 
   it('a failure after the INSERT rolls the whole row back, invoice and journal alike', async () => {
-    // NO_EQUITY_COMPANY has no opening_balance_equity account, so the
-    // settlement leg throws AFTER the invoice row and its origination journal
-    // have already been written. Nothing of that row may survive.
+    // June 2026 is a CLOSED period for this company, so postJournalEntry
+    // refuses AFTER the invoice row has already been written. Nothing of that
+    // row may survive. August is open, so the row after it must still import.
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      const result = await run(c, () => importAPInvoices(NO_EQUITY_COMPANY, noEquitySessionId, [
-        bill({ invoiceNumber: `${TAG}-late-fail`, amountPaid: 40 }),
-        bill({ invoiceNumber: `${TAG}-after`, amountPaid: 0 }),
-      ], USER), NO_EQUITY_COMPANY);
+      const result = await run(c, () => importAPInvoices(CLOSED_PERIOD_COMPANY, closedPeriodSessionId, [
+        bill({ invoiceNumber: `${TAG}-late-fail`, invoiceDate: '2026-06-30', dueDate: '2026-09-30' }),
+        bill({ invoiceNumber: `${TAG}-after`, invoiceDate: '2026-08-31', dueDate: '2026-09-30' }),
+      ], USER), CLOSED_PERIOD_COMPANY);
 
       expect(result.imported).toBe(1);
       expect(result.skipped).toBe(1);
       expect(result.errors).toHaveLength(1);
       expect(result.errors[0]!.row).toBe(0);
+      expect(result.errors[0]!.message).toContain('closed fiscal period');
 
-      const orphan = (await c.query(
-        `SELECT COUNT(*)::INT AS n FROM supplier_invoices
-          WHERE company_id = $1 AND invoice_number = $2`,
-        [NO_EQUITY_COMPANY, `${TAG}-late-fail`],
-      )).rows[0];
-      expect(orphan.n).toBe(0);
+      const survivors = (await c.query(
+        `SELECT invoice_number FROM supplier_invoices WHERE company_id = $1 ORDER BY invoice_number`,
+        [CLOSED_PERIOD_COMPANY],
+      )).rows;
+      expect(survivors.map(r => r.invoice_number)).toEqual([`${TAG}-after`]);
 
       const strayJournal = (await c.query(
         `SELECT COUNT(*)::INT AS n FROM gl_journal_entries
           WHERE company_id = $1 AND description LIKE $2`,
-        [NO_EQUITY_COMPANY, `%${TAG}-late-fail%`],
+        [CLOSED_PERIOD_COMPANY, `%${TAG}-late-fail%`],
       )).rows[0];
       expect(strayJournal.n).toBe(0);
+      await c.query('SELECT 1');
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
 
-      // The row after the failure still imported, and the session update ran.
-      const after = (await c.query(
+  it('fails the whole step once, before writing anything, when the clearing account is missing', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await expect(run(c, () => importAPInvoices(NO_EQUITY_COMPANY, noEquitySessionId, [
+        bill({ invoiceNumber: `${TAG}-noeq-1`, amountPaid: 40 }),
+        bill({ invoiceNumber: `${TAG}-noeq-2`, amountPaid: 40 }),
+      ], USER), NO_EQUITY_COMPANY)).rejects.toThrow(/opening_balance_equity/);
+
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM supplier_invoices WHERE company_id = $1`,
+        [NO_EQUITY_COMPANY],
+      )).rows[0];
+      expect(rows.n).toBe(0);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('still imports unpaid invoices for a company with no clearing account', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const result = await run(c, () => importAPInvoices(NO_EQUITY_COMPANY, noEquitySessionId, [
+        bill({ invoiceNumber: `${TAG}-noeq-unpaid`, amountPaid: 0 }),
+      ], USER), NO_EQUITY_COMPANY);
+      expect(result.imported).toBe(1);
+      expect(result.errors).toEqual([]);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('aborts the run with a named error when migration 625 has not been applied', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      // Dropping inside the transaction is local to this connection.
+      await c.query('DROP INDEX uq_supplier_invoices_supplier_fingerprint');
+
+      await expect(run(c, () => importAPInvoices(COMPANY, sessionId, [
+        bill({ invoiceNumber: `${TAG}-no-index` }),
+      ], USER))).rejects.toThrow(/migration 625/);
+
+      // The old behaviour was 200 with imported: 0 and a raw Postgres message
+      // on every row; the run must stop instead.
+      const rows = (await c.query(
         `SELECT COUNT(*)::INT AS n FROM supplier_invoices
           WHERE company_id = $1 AND invoice_number = $2`,
-        [NO_EQUITY_COMPANY, `${TAG}-after`],
+        [COMPANY, `${TAG}-no-index`],
       )).rows[0];
-      expect(after.n).toBe(1);
-      await c.query('SELECT 1');
+      expect(rows.n).toBe(0);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('lets two VAT-less suppliers hold the same invoice number and amount', async () => {
+    // computeFingerprint folds a missing VAT number to 'no-vat', so both rows
+    // carry an identical fingerprint. Keying the unique index on supplier_id is
+    // what stops that being a false duplicate — for the wizard and for the five
+    // other paths that stamp this column on a plain INSERT.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const suppliers = (await c.query(
+        `SELECT id, name FROM suppliers WHERE company_id = $1 ORDER BY name`,
+        [COMPANY],
+      )).rows;
+      expect(suppliers).toHaveLength(2);
+
+      const insert = (supplierId: string, n: string) => c.query(
+        `INSERT INTO supplier_invoices
+           (company_id, supplier_id, invoice_number, invoice_date, due_date,
+            subtotal, tax_amount, total_amount, status, created_by, duplicate_fingerprint)
+         VALUES ($1, $2, $3, '2026-06-30', '2026-07-30', 100, 15, 115, 'approved', $4, $5)
+         RETURNING id`,
+        [COMPANY, supplierId, n, USER, `no-vat|${TAG}-shared|115`],
+      );
+
+      await insert(suppliers[0].id, `${TAG}-shared-a`);
+      await insert(suppliers[1].id, `${TAG}-shared-b`);
+
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM supplier_invoices
+          WHERE company_id = $1 AND duplicate_fingerprint = $2`,
+        [COMPANY, `no-vat|${TAG}-shared|115`],
+      )).rows[0];
+      expect(rows.n).toBe(2);
+
+      // The same supplier twice is still refused, by the named constraint.
+      await expect(insert(suppliers[0].id, `${TAG}-shared-c`))
+        .rejects.toMatchObject({ code: '23505', constraint: 'uq_supplier_invoices_supplier_fingerprint' });
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
+  it('the ordinary create path names the duplicate instead of raising a bare 23505', async () => {
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      const supplierId = (await c.query(
+        `SELECT id FROM suppliers WHERE company_id = $1 AND name = $2`,
+        [COMPANY, `ACME ${TAG}`],
+      )).rows[0].id;
+
+      const input = {
+        invoiceNumber: `${TAG}-ordinary`,
+        supplierId,
+        invoiceDate: '2026-06-30',
+        items: [{ description: 'Consulting', quantity: 1, unitPrice: 100, taxRate: 15 }],
+      };
+
+      const created = await run(c, () => createSupplierInvoice(COMPANY, input, USER));
+      expect(created.invoiceNumber).toBe(`${TAG}-ordinary`);
+
+      await expect(run(c, () => createSupplierInvoice(COMPANY, input, USER)))
+        .rejects.toThrow(/already has an invoice/);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
