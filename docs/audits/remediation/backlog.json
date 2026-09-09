@@ -9859,7 +9859,8 @@
       "claim": "",
       "area": "accounting/ui",
       "affectedPaths": [
-        "pages/accounting/suppliers.tsx"
+        "pages/accounting/suppliers.tsx",
+        "src/.../useBankTxActions.ts"
       ],
       "sourceLabel": "",
       "sourceIds": [],
@@ -9881,7 +9882,7 @@
       "title": "suppliers.tsx still reads the un-unwrapped API envelope, the second page PR #253's sweep missed",
       "severity": "medium",
       "source": "Raised by the K-015 r2 blind reviewer while confirming HIGH 1; recorded 2026-09-09",
-      "processNotes": "PR #253 swept the codebase for double-wrapped apiResponse envelopes read as json.data.<field>. Two pages were missed: pages/accounting/migration/ap-invoices.tsx:108-111 (being fixed under K-015) and pages/accounting/suppliers.tsx:82 (out of K-015's scope, still live). apiResponse.success wraps an already-wrapped payload, so json.data.<field> is always undefined and the page silently does nothing or renders empty. Same class as feedback_api_response_shape and feedback_null_fallback_hides_api_error: a ?? [] or ?? 0 fallback turns the mismatch into empty UI instead of an error. Check whether the sweep missed others."
+      "processNotes": "PR #253 swept the codebase for double-wrapped apiResponse envelopes read as json.data.<field>. Two pages were missed: pages/accounting/migration/ap-invoices.tsx:108-111 (being fixed under K-015) and pages/accounting/suppliers.tsx:82 (out of K-015's scope, still live). apiResponse.success wraps an already-wrapped payload, so json.data.<field> is always undefined and the page silently does nothing or renders empty. Same class as feedback_api_response_shape and feedback_null_fallback_hides_api_error: a ?? [] or ?? 0 fallback turns the mismatch into empty UI instead of an error. Check whether the sweep missed others. UPDATE 2026-09-09: the K-110 fixer found a third instance -- useBankTxActions.handleBulkAccept reads json.message where apiResponse.error() nests it at json.error.message. That is the same envelope class in a different shape (error path rather than data path), so the re-run of PR #253's sweep must cover BOTH json.data.<field> and json.message readers."
     },
     {
       "id": "R-041",
