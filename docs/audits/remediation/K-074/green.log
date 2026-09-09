@@ -1,0 +1,40 @@
+# K-071 GREEN evidence (worktree .worktrees/fix-K-071, branch fix/audit-k071-k074-bank-import-match)
+
+$ bun run test:integration -- tests/integration/k071-bank-import-best-effort-savepoint.int.test.ts \
+    tests/integration/k071-bank-import-autopost-adjacent.int.test.ts \
+    tests/integration/k074-bank-match-confirm-supplier-balance.int.test.ts
+ Test Files  3 passed (3)
+      Tests  9 passed (9)
+(real PostgreSQL fixture: isaflow_schema_fixture on 127.0.0.1:33140, production schema, zero rows)
+
+## Mutation proof — production change reverted, tests go RED again, then restored
+
+1. K-071: `withSavepoint('bank_import_autopost', ...)` removed from bankImportService.ts,
+   sweep call restored inline.
+     Test Files  2 failed (2)
+          Tests  4 failed (4)
+   × keeps the imported statement when the post-import sweep fails
+   × reports the swallowed sweep failure in the returned errors
+   × does not lose a second company imported in the same request transaction
+   × reports a clean import when the sweep succeeds
+
+2. K-074a: `balance = ${newBalance}::NUMERIC,` re-added to the supplier_invoices UPDATE.
+     Tests  2 failed | 3 passed (5)
+   × records the payment on the bill the way bank-match-confirm writes it
+   × settles a partial payment and leaves the generated balance consistent
+   (both fail with SQLSTATE 428C9, column "balance" can only be updated to DEFAULT)
+
+3. K-074b: catch-all reverted to `apiResponse.badRequest(res, message)`.
+     Tests  1 failed | 4 passed (5)
+   × answers 500 — not a committing 400 — when the write path throws after the GL post
+
+Files restored byte-for-byte after each mutation (git diff --stat unchanged: 3 files, +61 -16).
+
+## Full unit suite, fixture env UNSET (env -u DATABASE_URL bunx vitest run)
+ Test Files  792 passed | 36 skipped (828)
+      Tests  9439 passed | 234 skipped (9673)
+
+## Static gates
+$ bunx tsc --noEmit                                          -> exit 0, no output
+$ bunx eslint pages/api/accounting/bank-match-confirm.ts \
+     src/modules/accounting/services/bank/bankImportService.ts -> exit 0, no output

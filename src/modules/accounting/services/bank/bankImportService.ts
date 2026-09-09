@@ -3,7 +3,7 @@
  * Bank Import Service — statement import and persistence
  */
 
-import { transaction, sql, withTransaction } from '@/lib/neon';
+import { transaction, sql, withTransaction, withSavepoint } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { sweep } from './autoPostGateService';
 import {
@@ -233,27 +233,42 @@ export async function importParsedTransactions(
       ? [{ row: 0, error: 'Transfer counterpart linking failed — transfers may still show as unallocated. Re-link from the bank transactions page.' }]
       : [];
 
-    // Auto-provisional posting for outflows (best-effort)
+    // Auto-provisional posting for outflows (best-effort). The savepoint is
+    // what makes the swallowing catch safe, for the same reason the transfer
+    // link passes carry one: inside a request the sweep runs on the request's
+    // own client, so an error the catch alone "handles" leaves the transaction
+    // aborted (25P02) and the COMMIT that follows is executed as a ROLLBACK —
+    // discarding the import the caller was just told succeeded.
+    let autoPostFailed = false;
     try {
-      const outflowIds = (await sql`
-        SELECT id FROM bank_transactions
-        WHERE company_id = ${companyId}::UUID
-          AND import_batch_id = ${batchId}::UUID
-          AND amount < 0
-          AND status = 'imported'
-      `) as { id: string }[];
-      if (outflowIds.length > 0) {
-        const systemUser = '00000000-0000-0000-0000-000000000000';
-        await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
-      }
+      await withSavepoint('bank_import_autopost', async () => {
+        const outflowIds = (await sql`
+          SELECT id FROM bank_transactions
+          WHERE company_id = ${companyId}::UUID
+            AND import_batch_id = ${batchId}::UUID
+            AND amount < 0
+            AND status = 'imported'
+        `) as { id: string }[];
+        if (outflowIds.length > 0) {
+          const systemUser = '00000000-0000-0000-0000-000000000000';
+          await sweep(companyId, outflowIds.map((r) => String(r.id)), 'import', systemUser);
+        }
+      });
     } catch (provErr) {
+      autoPostFailed = true;
       log.warn('auto-post sweep failed after parsed import — non-fatal', { batchId, error: provErr }, 'accounting');
     }
+
+    // Same reasoning as linkErrors: a swallowed failure that only reaches a log
+    // line reads to the caller as a clean import.
+    const autoPostErrors = autoPostFailed
+      ? [{ row: 0, error: 'Auto-posting of imported outflows failed — the transactions were imported but are still unposted. Post them from the bank transactions page.' }]
+      : [];
 
     return {
       batchId,
       transactionCount: parseResult.transactions.length,
-      errors: [...parseResult.errors, ...linkErrors],
+      errors: [...parseResult.errors, ...linkErrors, ...autoPostErrors],
     };
   } catch (err) {
     log.error('Failed to import parsed bank transactions', { error: err }, 'accounting');
