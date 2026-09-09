@@ -3,11 +3,12 @@
  * Bank Allocation Service — Sage Process Bank equivalent (allocate, split, reverse)
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql, withSavepoint, withTransaction } from '@/lib/neon';
 import { fmtDate } from '@/lib/fmtDate';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
-import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
+import { createJournalEntry, postJournalEntry, resolveReversalDate } from '../gl/journalEntryService';
+import { getPeriodStatusForDate } from '../gl/periodStatusService';
 import type { JournalEntryMeta, PostingActorOpts } from '../gl/journalEntryMeta';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { mapTxRow } from './bankTransactionQueryService';
@@ -603,6 +604,46 @@ export async function splitAllocateTransaction(
 // ── Reverse Reconciled ────────────────────────────────────────────────────────
 
 /**
+ * Refuse a reversal whose contra could never post — BEFORE the unwind writes.
+ *
+ * `resolveReversalDate` checks an EXPLICIT reversal_date, but its default arm
+ * falls back to today without checking that today's period is open. That
+ * fallback is the reachable trigger: `postJournalEntry` then raises
+ * `ClosedFiscalPeriodError` several writes after `unwindBankAllocationApplication`
+ * has already reopened the invoice and deleted the allocation rows, and the
+ * route answers 400 — which `withAuth` COMMITs, because it only ROLLBACKs on
+ * `statusCode >= 500`. Checking the resolved date here turns that corrupting
+ * 400 into an honest refusal that has written nothing.
+ */
+async function assertReversalDatePostable(
+  companyId: string, journalEntryId: string, requested: string | undefined,
+): Promise<void> {
+  const rows = (await sql`
+    SELECT entry_date FROM gl_journal_entries
+    WHERE id = ${journalEntryId}::UUID AND company_id = ${companyId}::UUID`) as Row[];
+  if (rows.length === 0) throw new Error('Cannot reverse: journal entry not found');
+  const originalDate = fmtDate(rows[0]!.entry_date as string | Date);
+  const reversalDate = await resolveReversalDate(companyId, originalDate, requested);
+  const status = await getPeriodStatusForDate(companyId, reversalDate);
+  // `closed` ONLY — `no_period` is deliberately allowed through. createJournalEntry
+  // calls ensureFiscalPeriodForDate, which CREATES the fiscal year on demand for
+  // any year inside the auto-create window, and the only uncovered date that can
+  // reach here is today: resolveReversalDate has already proven an explicit date
+  // open, and its default arm returns either an open original date or today.
+  // Today is always inside that window, so refusing here would turn a reversal
+  // that used to auto-create its year into a 400 — the one outcome
+  // fiscalPeriodAutoCreate.ts was written to avoid. A guard fronting a write must
+  // refuse only what the write itself refuses.
+  if (status !== 'closed') return;
+  // getPeriodStatusForDate reports 'closed' for a LOCKED period too, so the
+  // message names both rather than telling someone to re-open a locked period.
+  throw new Error(
+    `Cannot reverse: the fiscal period covering ${reversalDate} is not open (closed or locked). `
+    + 'Re-open it before reversing.',
+  );
+}
+
+/**
  * Undo an allocation: post the contra for the matched journal, then return the
  * bank transaction to 'imported'.
  *
@@ -620,26 +661,41 @@ export async function reverseReconciledTransaction(
     throw new Error('Can only reverse allocated, matched, or reconciled transactions');
   }
   let journalEntryId: string | null = null;
-  // Reported rather than discarded: `void_receipt` delegates to this function
-  // and previously had to answer "0 invoices reopened" for the branch that does
-  // the MOST work, because the counts were computed here and thrown away. An
-  // agent reading that reply concludes nothing was undone and re-applies the
-  // receipt. Callers that do not care keep ignoring the return value.
-  let unwound: BankAllocationUnwindResult = {
-    invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
-  };
   if (tx.matched_journal_line_id) {
     const jlRows = (await sql`
       SELECT jl.journal_entry_id FROM gl_journal_lines jl
       WHERE jl.id = ${tx.matched_journal_line_id}::UUID AND jl.company_id = ${companyId}::UUID`) as Row[];
     if (jlRows.length > 0 && jlRows[0]!.journal_entry_id) {
       journalEntryId = String(jlRows[0]!.journal_entry_id);
+      // Read-only, and before the first write of this function.
+      await assertReversalDatePostable(companyId, journalEntryId, opts?.reversalDate);
+    }
+  }
+
+  // Every WRITE below runs inside one savepoint. The unwind has to precede the
+  // contra (see the comment on it), so without this a throw from the contra
+  // leaves the subledger unwound with the cash journal still standing — and a
+  // 400 from the route COMMITs that. Rolling the pair back together is what
+  // makes a refusal mean "nothing happened"; the bank-line reset joins them so
+  // a failure there cannot strand a reset line either.
+  //
+  // This depends on there BEING a request transaction: withSavepoint degrades to
+  // a bare fn() outside one, and each bare `sql` then auto-commits on its own.
+  // lockBankTransactionForUpdate above throws outside a request transaction, so
+  // no caller can reach this line without one — that refusal is what keeps this
+  // guarantee true, and a future cron caller would hit it rather than silently
+  // getting the pre-fix behaviour back.
+  const unwound = await withSavepoint('bank_reverse_reconciled', async () => {
+    let result: BankAllocationUnwindResult = {
+      invoicesReopened: 0, amountUnapplied: 0, paymentsCancelled: 0,
+    };
+    if (journalEntryId) {
       // BEFORE the contra is posted, not after. A line that named an invoice
       // moved the subledger; reversing the journal while that stands returns
       // the credit to the control account with the invoice still reading as
       // settled, which widens the subledger-to-control gap behind an
-      // ordinary-looking reversal. If this throws, nothing has been posted.
-      unwound = await unwindBankAllocationApplication(companyId, journalEntryId);
+      // ordinary-looking reversal.
+      result = await unwindBankAllocationApplication(companyId, journalEntryId);
       const { reverseJournalEntry } = await import('../gl/journalEntryService');
       try {
         await reverseJournalEntry(companyId, journalEntryId, userId, opts);
@@ -647,27 +703,33 @@ export async function reverseReconciledTransaction(
         throw new Error(`Cannot reverse: ${e instanceof Error ? e.message : 'Journal reversal failed'}`);
       }
     }
-  }
 
-  // Reset the bank transaction. If this fails after a successful GL reversal,
-  // log the inconsistency for manual correction.
-  try {
-    await sql`
-      UPDATE bank_transactions
-      SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
-          linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
-          allocation_rule_id = NULL, allocation_rule_name = NULL,
-          -- Reversing one line takes it OUT of its batch: the batch no longer
-          -- owns a journal here, and a later re-allocation must not be swept
-          -- up by reverse_bank_allocation_batch.
-          allocation_batch_id = NULL,
-          updated_at = NOW()
-      WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
-  } catch (resetErr) {
-    log.error('Bank transaction reset failed after GL reversal — manual correction required',
-      { bankTxId, journalEntryId, error: resetErr }, 'accounting');
-    throw resetErr;
-  }
+    // Reset the bank transaction. If this fails after a successful GL reversal,
+    // log the inconsistency; the savepoint then takes the reversal back with it.
+    try {
+      await sql`
+        UPDATE bank_transactions
+        SET status = 'imported', matched_journal_line_id = NULL, reconciliation_id = NULL,
+            linked_po_id = NULL, allocation_type = NULL, allocated_entity_name = NULL,
+            allocation_rule_id = NULL, allocation_rule_name = NULL,
+            -- Reversing one line takes it OUT of its batch: the batch no longer
+            -- owns a journal here, and a later re-allocation must not be swept
+            -- up by reverse_bank_allocation_batch.
+            allocation_batch_id = NULL,
+            updated_at = NOW()
+        WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID`;
+    } catch (resetErr) {
+      log.error('Bank transaction reset failed after GL reversal — rolling the reversal back',
+        { bankTxId, journalEntryId, error: resetErr }, 'accounting');
+      throw resetErr;
+    }
+    return result;
+  });
   log.info('Reversed reconciled bank transaction', { bankTxId, userId }, 'accounting');
+  // Reported rather than discarded: `void_receipt` delegates to this function
+  // and previously had to answer "0 invoices reopened" for the branch that does
+  // the MOST work, because the counts were computed here and thrown away. An
+  // agent reading that reply concludes nothing was undone and re-applies the
+  // receipt. Callers that do not care keep ignoring the return value.
   return unwound;
 }
