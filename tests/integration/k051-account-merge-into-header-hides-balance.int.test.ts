@@ -42,6 +42,7 @@ const raceTarget = crypto.randomUUID(), raceSource = crypto.randomUUID();
 const raceIntruder = crypto.randomUUID();
 const sageTarget = crypto.randomUUID(), sageSource = crypto.randomUUID();
 const postedExpenseParent = crypto.randomUUID(), postedAssetParent = crypto.randomUUID();
+const scopeParent = crypto.randomUUID();
 const AS_AT = '2026-03-31';
 
 async function postJournal(entryNumber: string, legs: [string, number, number][]) {
@@ -133,8 +134,9 @@ beforeAll(async () => {
      VALUES($1,$2,'K051-2000','K051 Sage cashbook (level 1 leaf)','asset','debit',1,true,NULL),
             ($3,$2,'K051-2050','K051 Sage petty cash','asset','debit',3,true,NULL),
             ($4,$2,'K051-6700','K051 Admin expenses (posted, level 2)','expense','debit',2,true,NULL),
-            ($5,$2,'K051-2100','K051 Deposits paid (posted, level 2)','asset','debit',2,true,NULL)`,
-    [sageTarget, company, sageSource, postedExpenseParent, postedAssetParent]);
+            ($5,$2,'K051-2100','K051 Deposits paid (posted, level 2)','asset','debit',2,true,NULL),
+            ($6,$2,'K051-2200','K051 Rent deposits (unposted, level 2)','asset','debit',2,true,NULL)`,
+    [sageTarget, company, sageSource, postedExpenseParent, postedAssetParent, scopeParent]);
   // The expense journal below gives the company a non-zero current-year result,
   // and `balanceSheetService` then resolves the retained-earnings role.
   await pool.query(
@@ -269,13 +271,79 @@ it('merges a Sage level-1 leaf target — a childless target loses nothing', asy
   expect(await assetsOnBalanceSheet()).toBeCloseTo(before, 2);
 });
 
+/**
+ * `assertParentUsable` locks a leaf-rule parent before its posted-lines read,
+ * so it needs the request transaction `withAuth` and the MCP bearer pipeline
+ * supply in production.
+ */
+async function parentCheck(parentId: string, childType: string) {
+  const client = await getPoolForTests().connect();
+  try {
+    await client.query('BEGIN');
+    const result = await als.run(
+      { client, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0],
+      () => assertParentUsable(company, parentId, childType),
+    );
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally { (client as PoolClient).release(); }
+}
+
 it('lets a posted level-2 EXPENSE parent take a child, and refuses the asset one', async () => {
   // `assertParentUsable` guards the third write path — createAccount and
   // reclassifyAccount. It carried the same false reason the merge guard did.
-  await expect(assertParentUsable(company, postedExpenseParent, 'expense'))
+  await expect(parentCheck(postedExpenseParent, 'expense'))
     .resolves.toEqual({ childLevel: 3 });
-  await expect(assertParentUsable(company, postedAssetParent, 'asset'))
+  await expect(parentCheck(postedAssetParent, 'asset'))
     .rejects.toThrow(/journal lines posted to it/);
+});
+
+it('refuses a parent whose first lines land while the create waits', async () => {
+  // The race the parent lock closes, run in the order the guard cannot control.
+  // A holds FOR UPDATE on the empty parent and posts its first line; B's
+  // createAccount check starts inside that window. Before the lock, B read zero
+  // posted lines, waited only at its INSERT, and then attached a child to an
+  // account that by then carried a balance — the level-2 asset header this
+  // guard exists to refuse. Now B waits at the lock and reads the settled row.
+  const holder = await getPoolForTests().connect();
+  let verdict: Promise<unknown>;
+  try {
+    await holder.query('BEGIN');
+    await als.run(
+      { client: holder, userId: user, companyId: company, claims: {} } as unknown as Parameters<typeof als.run>[0],
+      async () => {
+        const { lockGlAccountsForUpdate } = await import(
+          '../../src/modules/accounting/services/gl/glAccountLock');
+        await lockGlAccountsForUpdate(company, [scopeParent]);
+      },
+    );
+    const { rows } = await holder.query(
+      `INSERT INTO gl_journal_entries(company_id,entry_number,entry_date,description,source,status,created_by,posted_at)
+       VALUES($1,'K051-JE-LATE','2026-03-15'::date,'K051 late posting','manual','posted',$2,NOW()) RETURNING id`,
+      [company, user]);
+    await holder.query(
+      'INSERT INTO gl_journal_lines(journal_entry_id,gl_account_id,debit,credit,company_id) VALUES($1,$2,$3,$4,$5)',
+      [rows[0].id, scopeParent, 75, 0, company]);
+    // B starts while A still holds the row: it must block, not decide.
+    verdict = parentCheck(scopeParent, 'asset');
+    // And it must STILL be blocked when A commits — otherwise B would be
+    // reading the settled row by luck and the assertion below would hold with
+    // no lock in the code at all.
+    const raced = await Promise.race([
+      verdict.then(() => 'settled', () => 'settled'),
+      new Promise((resolve) => { setTimeout(() => resolve('blocked'), 150); }),
+    ]);
+    expect(raced).toBe('blocked');
+    await holder.query('COMMIT');
+  } catch (err) {
+    await holder.query('ROLLBACK');
+    throw err;
+  } finally { (holder as PoolClient).release(); }
+
+  await expect(verdict).rejects.toThrow(/journal lines posted to it/);
 });
 
 it("ignores another tenant's child when judging a level-1 leaf target", async () => {

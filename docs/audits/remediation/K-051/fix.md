@@ -27,7 +27,7 @@ lines, which contributes nothing to move — the same refinement `accountParentR
 - `src/modules/accounting/services/gl/accountParentRules.ts` (the THIRD guard: same type
   scoping, and its refusal no longer names the balance sheet for an expense parent)
 
-**Tests.** `tests/integration/k051-account-merge-into-header-hides-balance.int.test.ts` — 11 tests,
+**Tests.** `tests/integration/k051-account-merge-into-header-hides-balance.int.test.ts` — 12 tests,
 real disposable Postgres. The refusal with the balance sheet unchanged and the child unmoved; an
 already-header target refused when the source carries lines; the same target admitted from an empty
 source; a R300 balance merged into a leaf target and asserted ON the target's own balance-sheet
@@ -36,7 +36,10 @@ target reported as a cycle; another tenant's child ignored; and a two-connection
 `FOR UPDATE` on the target blocks both a child INSERT and a reparent UPDATE with `55P03`. Two
 more close mutations the earlier round left alive: a Sage level-1 CHILDLESS target taking a
 source that carries R120, and `assertParentUsable` admitting a posted level-2 expense parent
-while still refusing the asset one.
+while still refusing the asset one. Round 4 adds the parent-lock race: one connection holds
+`FOR UPDATE` on an empty level-2 asset parent and posts its first line, a second connection's
+`assertParentUsable` is proven to be still BLOCKED when the first commits (a 150 ms race against
+the pending promise, not a sleep-and-hope), and it then refuses on the settled row.
 
 **Migration.** None.
 
@@ -47,6 +50,15 @@ parent takes FOR KEY SHARE on the target row, which conflicts with the merge's F
 waits, lands after the merge, and `assertParentUsable` then refuses it because the target carries
 posted lines. Proved, not assumed. This does NOT carry to the reclassification, which locks the
 journal lines and not the account — see K-052's fix.md; that path takes its own FOR UPDATE.
+
+**`assertParentUsable` now locks its parent too, and that is what makes the paragraph above true.**
+Ordering a transaction is not deciding it: `createAccount` formed its verdict before its INSERT
+took FOR KEY SHARE and never re-read, so the blocked INSERT resumed and committed a child onto an
+account that had acquired posted lines while it waited — the header this guard exists to refuse,
+reproduced with two clients. The `FOR UPDATE` is taken BEFORE the posted-lines read, under the same
+level/type narrowing (an expense chart edit still takes no lock), so the second transaction reads
+the settled row. It requires a request transaction; every production caller of `createAccount` and
+`reclassifyAccount` — the POST route, the row editor and the two MCP tools — runs inside one.
 
 **Historical-data impact.** Merges already performed into a level <= 2 asset/liability/equity
 target have removed that account's balance from the balance sheet and the trend report. No debit or
@@ -66,3 +78,14 @@ WHERE ga.level < 3
 **Limits.** The guard mirrors the reports' predicate as it stands today; a report that changes its
 own selection rule must change this helper with it. Accounts already sitting under a header are not
 repaired by this change.
+
+## Round-4 dispositions (blind re-review `2cc28c2f`)
+
+| Finding | Disposition |
+|---|---|
+| MED-1 — the target lock was taken on the PREVIEW path both files say it must not be | **Fixed.** `GuardInput.lockCandidateLines` is required and decides the account lock as well as the line lock, so a preview holds nothing; `planFromArgs`'s pre-write catch now also translates `GL_ACCOUNT_LOCK_TIMEOUT`, which would otherwise reach the agent as GENERIC_FAILURE. Three new DB tests without a request transaction (preview admits, preview still refuses a header, expense target admits on the write path) and two new unit tests on the catch. Removing the flag from the condition fails 2 tests; removing the type narrowing fails 1; narrowing the catch back fails 1. |
+| MED-2 — the lock was one-sided, so the window was ordered, not closed | **Fixed.** `assertParentUsable` takes the mirror `FOR UPDATE` on the parent before its posted-lines read. The reviewer's interleaving is now the new K-051 test, and it goes red with the lock removed. |
+| LOW-1 — the mock's `accountType` is not load-bearing while the comment says it is | **Fixed.** The comment in `reclassificationLockSequence.test.ts` now names `level` as the load-bearing field and says the type is realism at level 3. |
+| LOW-2 — the concurrency test leaks its transaction when it fails | **Fixed.** The race test has the same `catch { ROLLBACK }` as the file's `admit()` helper. Re-run under the reviewer's own mutation (lock the SOURCE): the test fails in 6 ms, `afterAll` does not block, and the fixture DB is left with zero `K05*` rows and zero idle-in-transaction connections. |
+| LOW-3a — the type narrowing that keeps expense targets lock-free was unproven | **Fixed** by the write-path expense test above. |
+| LOW-3b — `company_id` on `assertParentUsable`'s posted-lines read is unproven | **Kept, not proven — disputed.** Reaching it needs a `gl_journal_lines` row whose `company_id` disagrees with its account's, which no code path writes and no constraint permits by accident; a fixture that fabricates one would assert only that we ignore corrupt data. The scope stays because every query in this codebase carries it, which is the same disposition round 2 reached for `hasJournalLines`. |

@@ -77,3 +77,38 @@ Second pass, 2026-09-09: blind-review findings in scratchpad/review-k051.md (4 M
     and source arms apart to word the refusal.
     LOW-5. isReportVisibleLeaf's docstring now records that validateLeafAccount is deliberately
     stricter, and why the two may disagree about an expense header.
+
+── ROUND 4 (blind re-review 2cc28c2f: 2 MEDIUM, 3 LOW) ────────────────────────
+
+13. MED-1. The target lock was unconditional, so `propose_reclassification` and a dry run held
+    FOR UPDATE on the account for the length of a preview — the opposite of what planFromArgs's
+    parameter doc and plan.ts's comment both say. `GuardInput.lockCandidateLines` is now required
+    and gates the account lock, and `planFromArgs` translates GL_ACCOUNT_LOCK_TIMEOUT alongside
+    RECLASS_LINE_LOCKED (uncaught it renders as GENERIC_FAILURE, naming nothing).
+
+14. MED-2. `assertParentUsable` locks the parent FOR UPDATE before its posted-lines read. The
+    one-sided lock only ordered the two transactions: createAccount decided before its INSERT took
+    FOR KEY SHARE and never re-read, so the blocked INSERT resumed and committed the header anyway.
+
+15. Tests: k051 12 passed, k052 12 passed (was 11 + 9), reclassificationTools 15 passed,
+    reclassificationLockSequence 7 passed. Command:
+    bunx vitest run --config vitest.integration.config.ts tests/integration/k051-*.int.test.ts \
+      tests/integration/k052-*.int.test.ts   -> 2 files, 24 passed.
+
+16. Mutations, each applied to the final code and reverted:
+    - drop `input.lockCandidateLines &&` (lock on the preview path)      -> 2 failed  KILLED
+    - drop `isSubjectToLeafRule(...)` (lock every write-path target)     -> 1 failed  KILLED
+    - drop `lockGlAccountsForUpdate` from assertParentUsable             -> 1 failed  KILLED
+    - narrow the catch back to RECLASS_LINE_LOCKED only                  -> 1 failed  KILLED
+    - LOW-2 check: lock the SOURCE instead of the target (the reviewer's own mutation)
+      -> 1 failed in 6 ms, NO afterAll hook timeout; psql afterwards: 0 rows LIKE 'K05%',
+         0 connections idle in transaction. The leak is closed.
+
+17. Full unit suite, DATABASE_URL and PLATFORM_ADMIN_DATABASE_URL unset:
+    792 files passed | 36 skipped; 9436 passed | 234 skipped; ZERO failures.
+    bunx tsc --noEmit clean. eslint clean on the 4 changed src files.
+    bun run agent-docs:check OK (74 mirrors).
+    File sizes: planGuards 220, accountParentRules 138, reclassificationShared 209 — all < 300.
+
+18. LOW-3b (company_id on assertParentUsable's posted-lines read) is kept and recorded as
+    unproven in fix.md, with the argument. Everything else in round 3 is fixed.

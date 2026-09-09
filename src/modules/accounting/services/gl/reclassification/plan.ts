@@ -128,7 +128,9 @@ export async function planReclassification(
   // correctly does nothing.
   //
   // Write path only: `propose_reclassification` and a dry run take no lock, so
-  // a preview never blocks a real batch on 414 posted lines.
+  // a preview never blocks a real batch on 414 posted lines. The same flag has
+  // already decided the target-account lock inside `admitReclassification`, so
+  // a preview holds nothing at all.
   let lockedLineIds: ReadonlySet<string> | undefined;
   if (input.lockCandidateLines) {
     const locked = await lockReclassLinesForUpdate(companyId, rows.map((r) => r.line_id));

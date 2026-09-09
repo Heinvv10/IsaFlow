@@ -34,6 +34,7 @@ vi.mock('@/modules/accounting/services/gl/reclassification/post', () => ({
 import { proposeReclassificationTool } from '@/lib/mcp/tools/reclassificationPropose';
 import { postReclassificationBatchTool } from '@/lib/mcp/tools/writeReclassification';
 import { assertEnvelopeSound } from '@/lib/mcp/contracts';
+import { GlAccountLockTimeoutError } from '@/modules/accounting/services/gl/glAccountLock';
 import type { McpToolContext } from '@/lib/mcp/types';
 
 const CTX = {
@@ -153,6 +154,29 @@ describe('propose_reclassification', () => {
     );
     expect(out.isError).toBe(true);
     expect(planReclassification).not.toHaveBeenCalled();
+  });
+
+  it('renders a GL account lock timeout as the refusal that names the account', async () => {
+    // Both of the plan's locks are taken before anything is posted, so a
+    // timeout on either is write-free and belongs in the pre-write catch.
+    // Uncaught, `registry.call` renders it as GENERIC_FAILURE — "the operation
+    // failed" — and the wording that tells the agent WHICH account is busy, and
+    // that a retry is the answer, is discarded. `writeMergeGlAccounts` matches
+    // the same code for the same reason.
+    planReclassification.mockRejectedValue(new GlAccountLockTimeoutError(TGT));
+    const out = await proposeReclassificationTool.handler(
+      { source_account_id: SRC, target_account_id: TGT }, CTX,
+    );
+    expect(out.isError).toBe(true);
+    expect(out.content[0]!.text).toContain(TGT);
+    expect(out.content[0]!.text).toContain('retry');
+  });
+
+  it('still rethrows a failure that is not one of the two known write-free locks', async () => {
+    planReclassification.mockRejectedValue(new Error('connection terminated'));
+    await expect(proposeReclassificationTool.handler(
+      { source_account_id: SRC, target_account_id: TGT }, CTX,
+    )).rejects.toThrow('connection terminated');
   });
 });
 
