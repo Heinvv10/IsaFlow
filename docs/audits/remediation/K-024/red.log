@@ -1,0 +1,59 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k024-annual-export-declarable-status.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: GET /api/payroll/irp5/easyfile-export","timestamp":"2026-09-09T03:35:41.837Z","component":"API","requestId":"01M223RNGCDAHRPC4R703ERCQG","data":{"type":"request","method":"GET","url":"/api/payroll/irp5/easyfile-export","query":{"taxYear":"2026"}}}
+(node:750646) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+{"level":"info","message":"e@syFile IRP5 export generated","timestamp":"2026-09-09T03:35:41.842Z","component":"easyFileExport","requestId":"01M223RNGCDAHRPC4R703ERCQG","data":{"companyId":"135327e0-0627-4940-9f93-c0e1ef662bc9","taxYear":2026,"employees":1,"bytes":531}}
+{"level":"info","message":"API Response: GET /api/payroll/irp5/easyfile-export - 200 (5ms)","timestamp":"2026-09-09T03:35:41.842Z","component":"API","requestId":"01M223RNGCDAHRPC4R703ERCQG","data":{"type":"response","method":"GET","url":"/api/payroll/irp5/easyfile-export","statusCode":200,"duration":"5ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:35:41.842Z","component":"http","requestId":"01M223RNGCDAHRPC4R703ERCQG","data":{"event":"request_completed","route":"/api/payroll/irp5/easyfile-export","method":"GET","status":200,"durationMs":5,"userId":"9e380480-2b17-455c-809a-ded6d44c56c2","companyId":"135327e0-0627-4940-9f93-c0e1ef662bc9","outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/payroll/emp501/export","timestamp":"2026-09-09T03:35:41.848Z","component":"API","requestId":"01M223RNGRMB83T8VTECAW43T9","data":{"type":"request","method":"GET","url":"/api/payroll/emp501/export","query":{"taxYear":"2026"}}}
+{"level":"info","message":"EMP501 export requested","timestamp":"2026-09-09T03:35:41.848Z","component":"emp501Export","requestId":"01M223RNGRMB83T8VTECAW43T9","data":{"companyId":"135327e0-0627-4940-9f93-c0e1ef662bc9","taxYear":2026}}
+{"level":"info","message":"API Response: GET /api/payroll/emp501/export - 200 (1ms)","timestamp":"2026-09-09T03:35:41.849Z","component":"API","requestId":"01M223RNGRMB83T8VTECAW43T9","data":{"type":"response","method":"GET","url":"/api/payroll/emp501/export","statusCode":200,"duration":"1ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:35:41.850Z","component":"http","requestId":"01M223RNGRMB83T8VTECAW43T9","data":{"event":"request_completed","route":"/api/payroll/emp501/export","method":"GET","status":200,"durationMs":2,"userId":"9e380480-2b17-455c-809a-ded6d44c56c2","companyId":"135327e0-0627-4940-9f93-c0e1ef662bc9","outcome":"ok"}}
+ ❯ tests/integration/k024-annual-export-declarable-status.int.test.ts (2 tests | 2 failed) 359ms
+   × IRP5 e@syFile export declares only approved/paid remuneration 70ms
+   × EMP501 CSV export declares only approved/paid remuneration 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k024-annual-export-declarable-status.int.test.ts > IRP5 e@syFile export declares only approved/paid remuneration
+AssertionError: expected '3601,1210000' to be '3601,10000' // Object.is equality
+
+Expected: "3601,10000"
+Received: "3601,1210000"
+
+ ❯ tests/integration/k024-annual-export-declarable-status.int.test.ts:103:21
+    101|   const field3601 = file.split(/\r?\n/).find((l) => l.startsWith('3601…
+    102|   // Gross must be the approved run alone (10 000), not 10 000 + 500 0…
+    103|   expect(field3601).toBe('3601,10000');
+       |                     ^
+    104|   const field4102 = file.split(/\r?\n/).find((l) => l.startsWith('4102…
+    105|   expect(field4102).toBe('4102,1000');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k024-annual-export-declarable-status.int.test.ts > EMP501 CSV export declares only approved/paid remuneration
+AssertionError: expected 'Grace Hopper,1234567890,1210000.00,50…' not to contain '1210000.00'
+
+Expected: "1210000.00"
+Received: "Grace Hopper,1234567890,1210000.00,501000.00,0.00,0.00"
+
+ ❯ tests/integration/k024-annual-export-declarable-status.int.test.ts:115:24
+    113|   const dataLine = csv.split('\n')[1] ?? '';
+    114|   expect(dataLine).toContain('10000.00');
+    115|   expect(dataLine).not.toContain('1210000.00');
+       |                        ^
+    116| });
+    117|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  05:35:41
+   Duration  746ms (transform 120ms, setup 0ms, import 291ms, tests 359ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
