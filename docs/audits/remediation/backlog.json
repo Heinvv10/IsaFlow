@@ -368,7 +368,7 @@
    "currentSha": "0882a6c3",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
    ],
    "testNames": [
     "tests/integration/k009-migration-rollback-deletes-existing-accounts.int.test.ts"
@@ -403,7 +403,7 @@
    "currentSha": "8e5c7d2c",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
    ],
    "testNames": [
     "tests/integration/k010-concurrent-journal-reversal.int.test.ts"
@@ -439,7 +439,7 @@
    "currentSha": "65580385",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
    ],
    "testNames": [
     "tests/integration/k011-credit-note-apply-lost-update.int.test.ts"
@@ -591,7 +591,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "5672a828",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k015-ap-migration-balance-due-column.int.test.ts"
    ],
@@ -859,7 +861,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "dd112c24",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k022-payroll-recalc-drops-loan-deduction.int.test.ts"
    ],
@@ -890,7 +894,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "abc3ae3c",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k023-sdl-invented-salary.int.test.ts"
    ],
@@ -962,7 +968,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "24a47b59",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k025-once-off-batch-recurs.int.test.ts"
    ],
@@ -993,9 +1001,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "b8d13138",
+   "currentSha": "7b1018e9",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k026-below-threshold-expense-repeat.int.test.ts"
    ],
@@ -1003,14 +1013,14 @@
     "K-026/red.log",
     "K-026/validation.md"
    ],
-   "fixCommit": "637b6609;b8d13138",
+   "fixCommit": "637b6609;b8d13138;7b1018e9",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k026-below-threshold-write-access",
-   "reviewRounds": 1
+   "reviewRounds": 2
   },
   {
    "id": "K-027",
@@ -1029,7 +1039,7 @@
    "currentSha": "d1d6211c",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
    ],
    "testNames": [
     "tests/integration/k027-tax-depreciation-carry-forward.int.test.ts"
@@ -1063,7 +1073,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "7f92a7cb",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/afs-pre-export-checks.int.test.ts",
     "tests/integration/k028-ppe-additions-include-prior-year.int.test.ts"
@@ -1097,7 +1109,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "de50a3f5",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k-029-depreciation-method.int.test.ts"
    ],
@@ -1167,10 +1181,10 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "939e9b6a",
+   "currentSha": "6263cd63",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
    ],
    "testNames": [
     "tests/integration/k-031-efiling-vat201-source.int.test.ts"
@@ -1179,7 +1193,7 @@
     "K-031/red.log",
     "K-031/validation.md"
    ],
-   "fixCommit": "939e9b6a",
+   "fixCommit": "5dc684ac;680bbad6;cbf61a69;939e9b6a;6263cd63",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
@@ -1241,7 +1255,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "9e387b2e",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k-033-subscription-period-advances-before-settlement.int.test.ts"
    ],
@@ -1274,7 +1290,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "9e387b2e",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k-034-cancel-at-period-end-ignored.int.test.ts"
    ],
@@ -1308,7 +1326,7 @@
    "currentSha": "af38f359",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
    ],
    "testNames": [
     "tests/integration/k-035-webhook-redelivery-discarded.int.test.ts"
@@ -1343,7 +1361,7 @@
    "currentSha": "af38f359",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending"
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
    ],
    "testNames": [
     "tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts"
@@ -1406,9 +1424,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "ae56895c",
+   "currentSha": "2be882f0",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k-038-sage-migration-discards-amount-paid.int.test.ts"
    ],
@@ -1416,14 +1436,14 @@
     "K-038/red.log",
     "K-038/validation.md"
    ],
-   "fixCommit": "ae56895c",
+   "fixCommit": "2a1380a8;2ca3f9d0;ae56895c;67e4395c;2be882f0",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k038-sage-payment-balances",
-   "reviewRounds": 3
+   "reviewRounds": 4
   },
   {
    "id": "K-039",
@@ -1440,9 +1460,11 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "3db0b88e",
+   "currentSha": "6789f9d7",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k-039-practice-rate-override-column-mismatch.int.test.ts"
    ],
@@ -1450,14 +1472,14 @@
     "K-039/red.log",
     "K-039/validation.md"
    ],
-   "fixCommit": "3db0b88e",
+   "fixCommit": "4feeefc9;3db0b88e;6789f9d7",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k039-practice-rate-columns",
-   "reviewRounds": 2
+   "reviewRounds": 3
   },
   {
    "id": "K-040",
@@ -1474,9 +1496,11 @@
    "correctedTrigger": "withAuth supplies an outer transaction. Validate WIP locking and markEntriesBilled count races; do not claim no transaction.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "091900c5",
+   "currentSha": "ef9989f7",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [
     "tests/integration/k-040-wip-overlapping-runs-double-bill.int.test.ts"
    ],
@@ -1484,14 +1508,14 @@
     "K-040/red.log",
     "K-040/validation.md"
    ],
-   "fixCommit": "091900c5",
+   "fixCommit": "091900c5;a3afc4b4;ef9989f7",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k040-wip-run-lock",
-   "reviewRounds": 1
+   "reviewRounds": 2
   },
   {
    "id": "K-041",
@@ -2762,8 +2786,8 @@
    "currentSha": "5672a828",
    "status": "in-progress",
    "dependencies": [
-    "Independent review rounds complete; full CI, PR and merge pending",
-    "Fixed on the K-015 branch (sibling root cause), review round 4 in progress"
+    "Fixed on the K-015 branch (sibling root cause), review round 4 in progress",
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
    ],
    "testNames": [
     "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
@@ -8224,7 +8248,9 @@
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "7f92a7cb",
    "status": "in-progress",
-   "dependencies": [],
+   "dependencies": [
+    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+   ],
    "testNames": [],
    "evidencePaths": [
     "K-028/validation.md"
