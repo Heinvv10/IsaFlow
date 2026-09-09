@@ -1,7 +1,8 @@
 import type {ControlTx} from './contracts';
+import {assertCompensationWindow} from './payrollCompensationWindows';
 import {assertControlledEffectPermit,type ControlledEffectPermit} from './approvalExecutionService';
 import {loadPayrollCompensationIntent,type CompensationEffectResult} from './payrollCompensationMaterial';
-import {loadPayrollCompensationSources,compensationFingerprint,type CompensationRow} from './payrollCompensationSource';
+import {loadPayrollCompensationSources,compensationFingerprint,assignmentState,type CompensationRow} from './payrollCompensationSource';
 import {readControlEntityVersion} from './operationVersions';
 import {recordCommittedChange} from './changeEventService';
 /** Only the shared execution kernel can issue this transaction-bound effect authority. */
@@ -11,6 +12,7 @@ export async function executePayrollCompensationEffect(ctx:ControlTx,intentId:st
  const company=ctx.principal.companyId;let inserted=0,ended=0,amended=0;
  for(const action of plan.actions){
   const before=sources.assignments.find(row=>row.id===action.assignmentId)??null;
+  const accountingDate=assertCompensationWindow(action,before?assignmentState(before,action.kind):null,sources.company,sources.runs);
   let rows:CompensationRow[];
   if(action.kind==='assign'){
    rows=await ctx.sql`INSERT INTO payroll_employee_components(id,employee_id,component_id,amount,effective_from,effective_to,is_recurring)
@@ -30,7 +32,7 @@ export async function executePayrollCompensationEffect(ctx:ControlTx,intentId:st
   if(rows.length!==1)throw new Error('Compensation assignment changed before effect');
   const ref={entityType:'payroll_employee_component',entityId:action.assignmentId},prior=await readControlEntityVersion(ctx,ref);
   await recordCommittedChange(ctx,{...ref,previousVersion:prior?.version??null,newVersion:(prior?.version??0)+1,action:`payroll_compensation.${action.kind}`,
-   accountingDate:permit.accountingDate,before,after:rows[0]!,bindingHash:null,protectedEvidenceRef:null,operationId:permit.operationId});
+   accountingDate,before,after:rows[0]!,bindingHash:null,protectedEvidenceRef:null,operationId:permit.operationId});
  }
  if(plan.source.kind==='batch'){
   const rows=await ctx.sql`UPDATE payroll_batches SET status='posted',posted_at=clock_timestamp(),posted_by=${ctx.principal.personId},updated_at=clock_timestamp()
