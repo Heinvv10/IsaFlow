@@ -474,7 +474,6 @@ describe('write-tool manifest invariants', () => {
       // gates changing what is in the ledger, so it gates this too.
       'merge_gl_accounts',
       'perform_bank_reconciliation',
-      'prepare_bank_operation',
       'post_journal',
       // create_pay_run opens an empty period and posts nothing; posting the
       // payroll journal writes to gl_journal_entries, so only this one posts.
@@ -482,6 +481,7 @@ describe('write-tool manifest invariants', () => {
       // A reclassification posts real journals to the ledger, so it needs the
       // same explicit opt-in every other posting path does.
       'post_reclassification_batch',
+      'prepare_bank_operation',
       'reopen_fiscal_period',
       'reverse_allocations',
       'reverse_bank_allocation',
