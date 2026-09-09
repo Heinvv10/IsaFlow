@@ -109,9 +109,9 @@ export async function resolveRate(
   onDate: string,
 ): Promise<number | null> {
   const override = (await sql`
-    SELECT rate FROM practice_client_rate_overrides
+    SELECT COALESCE(rate_per_hour, rate) AS rate FROM practice_client_rate_overrides
     WHERE company_id = ${companyId}::UUID
-      AND user_id    = ${userId}::UUID
+      AND COALESCE(staff_user_id, user_id) = ${userId}::UUID
       AND client_id  = ${clientId}::UUID
       AND effective_from <= ${onDate}::DATE
       AND (effective_to IS NULL OR effective_to >= ${onDate}::DATE)
