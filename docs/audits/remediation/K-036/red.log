@@ -1,0 +1,61 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/audit-remediation-20260908
+
+{"level":"info","message":"API Request: POST ","timestamp":"2026-09-09T03:39:48.758Z","component":"API","requestId":"01M22406MN4PSC7CBJV47HVM76","data":{"type":"request","method":"POST","url":""}}
+{"level":"info","message":"API Response: POST  - 200 (44ms)","timestamp":"2026-09-09T03:39:48.801Z","component":"API","requestId":"01M22406MN4PSC7CBJV47HVM76","data":{"type":"response","method":"POST","url":"","statusCode":200,"duration":"44ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:39:48.802Z","component":"http","requestId":"01M22406MN4PSC7CBJV47HVM76","data":{"event":"request_completed","route":"","method":"POST","status":200,"durationMs":45,"userId":null,"companyId":null,"outcome":"ok"}}
+{"level":"info","message":"API Request: GET /api/portal/payments/paystack/verify?ref=k036_verify_ref","timestamp":"2026-09-09T03:39:48.863Z","component":"API","requestId":"01M22406QYSCJ6NV1HKEAXY0GR","data":{"type":"request","method":"GET","url":"/api/portal/payments/paystack/verify?ref=k036_verify_ref","query":{"ref":"k036_verify_ref"}}}
+{"level":"info","message":"API Response: GET /api/portal/payments/paystack/verify?ref=k036_verify_ref - 200 (25ms)","timestamp":"2026-09-09T03:39:48.887Z","component":"API","requestId":"01M22406QYSCJ6NV1HKEAXY0GR","data":{"type":"response","method":"GET","url":"/api/portal/payments/paystack/verify?ref=k036_verify_ref","statusCode":200,"duration":"25ms"}}
+{"level":"info","message":"request_completed","timestamp":"2026-09-09T03:39:48.887Z","component":"http","requestId":"01M22406QYSCJ6NV1HKEAXY0GR","data":{"event":"request_completed","route":"/api/portal/payments/paystack/verify","method":"GET","status":200,"durationMs":25,"userId":null,"companyId":null,"outcome":"ok"}}
+ ❯ tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts (2 tests | 2 failed) 575ms
+     × webhook: marks the invoice paid without a payment row or a journal 78ms
+     × verify route: same subledger-only write on the return-page fallback 78ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts > K-036 Paystack invoice payments never reach the general ledger > webhook: marks the invoice paid without a payment row or a journal
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts:162:28
+    160|     expect(after.invoice.status).toBe('paid');
+    161|     // ...but nothing was recorded against bank or accounts receivable.
+    162|     expect(after.payments).toBe(1);
+       |                            ^
+    163|     expect(after.journals).toBe(1);
+    164|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts > K-036 Paystack invoice payments never reach the general ledger > verify route: same subledger-only write on the return-page fallback
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/integration/k-036-paystack-invoice-payment-not-in-gl.int.test.ts:180:28
+    178|     const after = await ledgerFootprint();
+    179|     expect(Number(after.invoice.amount_paid)).toBeCloseTo(INVOICE_TOTA…
+    180|     expect(after.payments).toBe(1);
+       |                            ^
+    181|     expect(after.journals).toBe(1);
+    182|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  05:39:47
+   Duration  1.52s (transform 266ms, setup 0ms, import 639ms, tests 575ms, environment 0ms)
+
+error: script "test:integration" exited with code 1
