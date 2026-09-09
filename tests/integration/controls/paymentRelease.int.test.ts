@@ -47,7 +47,7 @@ it('refuses individual reversal of a one-child batch before journal or settlemen
  await pool.query(`INSERT INTO supplier_payment_batches(id,company_id,batch_number,batch_date,total_amount,payment_count,payment_method,status,created_by)
   VALUES($1,$2,$3,'2026-09-09',115,1,'eft','processed',$4)`,[batch,fixture.companyA,batch,fixture.u1.id]);
  await pool.query(`INSERT INTO supplier_payments(id,company_id,supplier_id,payment_number,payment_date,total_amount,status,batch_id,created_by)
-  VALUES($1,$2,$3,$4,'2026-09-09',115,'processed',$5,$6)`,[payment,fixture.companyA,supplier,payment,batch,fixture.u1.id]);
+  VALUES($1,$2,$3,$4,'2026-09-09',115,'processed',$5,$6)`,[payment,fixture.companyA,supplier,payment.slice(0,30),batch,fixture.u1.id]);
  await expect(actor(()=>voidSupplierPayment(fixture.companyA,payment,fixture.u1.id))).rejects.toThrow('batch');
  const result=await pool.query('SELECT status FROM supplier_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,payment]);
  expect(result.rows[0].status).toBe('processed');
@@ -189,4 +189,15 @@ it('direct materialization binds later committed invoice changes without central
  // Synthetic writer observation: actual committed row change, no external financial transaction.
  await pool.query('UPDATE supplier_invoices SET amount_paid=1 WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice]);
  await expect(actor(ctx=>loadPaymentReleaseIntent(ctx,intent.intentId))).rejects.toThrow();
+});
+
+it.each(['doubled','reversed direction','wrong bank'] as const)('refuses a fresh release intent when its posted settlement journal is %s',async corruption=>{
+ const {batch}=await postedBatch();
+ if(corruption==='doubled')await pool.query(`UPDATE gl_journal_lines SET debit=debit*2,credit=credit*2 WHERE company_id=$1
+  AND journal_entry_id=(SELECT gl_journal_entry_id FROM supplier_payment_batches WHERE company_id=$1 AND id=$2)`,[fixture.companyA,batch.id]);
+ else if(corruption==='reversed direction')await pool.query(`UPDATE gl_journal_lines SET debit=credit,credit=debit WHERE company_id=$1
+  AND journal_entry_id=(SELECT gl_journal_entry_id FROM supplier_payment_batches WHERE company_id=$1 AND id=$2)`,[fixture.companyA,batch.id]);
+ else await pool.query(`UPDATE gl_journal_lines SET gl_account_id=$3 WHERE company_id=$1 AND gl_account_id=$4
+  AND journal_entry_id=(SELECT gl_journal_entry_id FROM supplier_payment_batches WHERE company_id=$1 AND id=$2)`,[fixture.companyA,batch.id,accounts.default_expense,accounts.bank]);
+ await expect(actor(ctx=>createPaymentReleaseIntent(ctx,{batchId:batch.id,channel:'eft',bankFormat:'fnb'}))).rejects.toThrow('settlement');
 });
