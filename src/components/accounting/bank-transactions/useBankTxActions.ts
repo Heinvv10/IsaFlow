@@ -162,7 +162,7 @@ export function buildBankTxActions(deps: ActionDeps) {
         body: JSON.stringify({ action: 'bulk_accept', bankTransactionIds: Array.from(selectedIds) }),
       });
       const json = await res.json();
-      if (!res.ok || json.success === false) throw new Error(json.message || 'Failed to mark as reviewed');
+      if (!res.ok || json.success === false) throw new Error(json.error?.message || json.message || 'Failed to mark as reviewed');
       const accepted: number = json.data?.accepted ?? selectedIds.size;
       if (accepted < selectedIds.size) {
         notify.warning(`${accepted} of ${selectedIds.size} transaction(s) marked as reviewed`, `${selectedIds.size - accepted} were already reviewed or no longer eligible`);

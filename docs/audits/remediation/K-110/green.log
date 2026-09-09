@@ -87,3 +87,16 @@ isaflow_dev and deleted afterwards) rendered:
   "Cannot delete cost centre that is used by 1 employee(s). Deactivate instead."
 in the page's red banner, HTTP 400, row still listed. Screenshot: browser-delete-refusal.png.
 Before the route fix the same run showed "Action failed"; before the envelope fix, "Failed".
+
+=== Round 4 (LOW-1..LOW-5) — 2026-09-09 ===
+Integration (fixture DB, 7 files): 28 passed / 28
+Components (2 files): 9 passed / 9   [7 before round 4; +1 LOW-3 name, +1 LOW-5 envelope]
+Full unit suite, DATABASE_URL UNSET: 801 files passed / 40 skipped; 9557 tests passed / 243 skipped
+bunx tsc --noEmit: clean
+bunx eslint costCentreUsageGuard.ts useBankTxActions.ts: clean
+bun run agent-docs:check: OK, 74 mirrors match
+Mutation proof:
+  - removed the CostCentreActionError constructor -> "names the refusal type so it does not log as a plain Error" FAILED
+  - reverted useBankTxActions.ts:165 to json.message only -> "surfaces the API refusal from the nested error envelope" FAILED
+  both restored; 9/9 green again.
+LOW-2 probe: SELECT name FROM schema_migrations WHERE name LIKE '649%' OR name LIKE '660%' on isaflow_dev -> 0 rows.
