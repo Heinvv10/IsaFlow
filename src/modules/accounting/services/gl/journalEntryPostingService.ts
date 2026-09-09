@@ -255,6 +255,7 @@ export async function reverseJournalEntry(
       projectId: l.projectId,
       costCenterId: l.costCenterId,
       buId: l.buId,
+      vatType: l.vatType,
     }));
 
     // A correction belongs in the period it corrects. Dating every reversal to
