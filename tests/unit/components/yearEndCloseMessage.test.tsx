@@ -43,7 +43,7 @@ async function clickClose() {
 describe('year-end page success message', () => {
   it('renders the DORMANT year sentence instead of claiming a journal was created', async () => {
     mockApi({
-      closingEntry: null, periodsLocked: 12, alreadyClosed: false, netIncome: 0,
+      closingEntry: null, periodsLockedInYear: 12, alreadyClosed: false, netIncome: 0,
       message: 'Year 2025 closed. No posted profit or loss in the year, so no closing journal was needed.',
     });
     await clickClose();
@@ -53,7 +53,7 @@ describe('year-end page success message', () => {
 
   it('renders the ALREADY-CLOSED sentence, naming the journal an earlier close wrote', async () => {
     mockApi({
-      closingEntry: { id: 'je-1', entry_number: 'YE-2025' }, periodsLocked: 12,
+      closingEntry: { id: 'je-1', entry_number: 'YE-2025' }, periodsLockedInYear: 12,
       alreadyClosed: true, netIncome: 0,
       message: 'Year 2025 was already closed. Its closing journal YE-2025 is unchanged and nothing was posted.',
     });
@@ -64,7 +64,7 @@ describe('year-end page success message', () => {
 
   it('renders the ordinary close sentence, with the amount the service reported', async () => {
     mockApi({
-      closingEntry: { id: 'je-2', entry_number: 'YE-2025' }, periodsLocked: 12,
+      closingEntry: { id: 'je-2', entry_number: 'YE-2025' }, periodsLockedInYear: 12,
       alreadyClosed: false, netIncome: 1300,
       message: 'Year 2025 closed. Net income R1300.00 transferred to Retained Earnings.',
     });
@@ -78,7 +78,7 @@ describe('year-end page success message', () => {
     // entry number is taken. A green tick beside that sentence reads as
     // "nothing to do here", which is the opposite of what it says.
     mockApi({
-      closingEntry: { id: 'je-1', entry_number: 'YE-2025' }, periodsLocked: 12,
+      closingEntry: { id: 'je-1', entry_number: 'YE-2025' }, periodsLockedInYear: 12,
       alreadyClosed: true, netIncome: 150, unclosedNetIncome: 150,
       message: 'Year 2025 was already closed. Its closing journal YE-2025 is unchanged and '
         + 'nothing was posted. WARNING: R150.00 of profit or loss has been posted into this '

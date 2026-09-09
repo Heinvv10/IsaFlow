@@ -208,5 +208,39 @@ describe('withFlowMeter', () => {
 
     expect(mockRefund).toHaveBeenCalledOnce();
     expect(res.headers['X-Flow-Refunded']).toBe('true');
+    // And the balance header tells the truth about the wallet. It was set from
+    // the DEBIT (97) before the handler ran; leaving it there on a refunded
+    // 2xx — the one refund path that reaches a response a client renders an
+    // "X Flows used" toast on — advertises a charge that was reversed.
+    expect(res.headers['X-Flow-Balance-After']).toBe('100');
+  });
+
+  it('restates the balance header from the refund on a 4xx too', async () => {
+    mockGetPlan.mockResolvedValueOnce({ planCode: 'payg', planId: 'p', subscriptionId: 's' });
+    mockDeduct.mockResolvedValueOnce({ balanceAfter: 97 });
+    mockRefund.mockResolvedValueOnce({ balanceAfter: 100 });
+
+    const handler = vi.fn(async (_req, res: ReturnType<typeof mockRes>) => { res.statusCode = 422; });
+    const wrapped = withFlowMeter('invoice.create', 3)(handler);
+    const res = mockRes();
+    await wrapped({ companyId: 'co-1' } as never, res as never);
+
+    expect(res.headers['X-Flow-Balance-After']).toBe('100');
+  });
+
+  it('leaves the debit balance standing when the refund itself FAILS', async () => {
+    // The header must never claim a refund that did not happen: the wallet
+    // still carries the debit, so 97 is the true balance.
+    mockGetPlan.mockResolvedValueOnce({ planCode: 'payg', planId: 'p', subscriptionId: 's' });
+    mockDeduct.mockResolvedValueOnce({ balanceAfter: 97 });
+    mockRefund.mockRejectedValueOnce(new Error('wallet locked'));
+
+    const handler = vi.fn(async (_req, res: ReturnType<typeof mockRes>) => { res.statusCode = 422; });
+    const wrapped = withFlowMeter('invoice.create', 3)(handler);
+    const res = mockRes();
+    await wrapped({ companyId: 'co-1' } as never, res as never);
+
+    expect(res.headers['X-Flow-Balance-After']).toBe('97');
+    expect(res.headers['X-Flow-Refunded']).toBeUndefined();
   });
 });

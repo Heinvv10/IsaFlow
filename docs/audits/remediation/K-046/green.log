@@ -200,3 +200,47 @@ FLAKINESS
 
 NOT DONE
   Migration 627 deliberately NOT renumbered — see fix.md, it is a merge-time action.
+
+
+================================================================================
+ROUND 5 — the eight findings of review-k046-r4.md (0 HIGH / 1 MEDIUM / 7 LOW)
+================================================================================
+
+GREEN (fixture DB: isaflow_schema_fixture, real Postgres, random UUIDs, rows cleaned up)
+  tests/integration/k-046-year-end-entry-number-taken.int.test.ts   6 passed
+  tests/integration/k113-year-end-close-rerun.int.test.ts
+  tests/integration/k-046-year-end-close-adjacent.int.test.ts
+  tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts
+  tests/integration/k-046-year-end-squatter-race.int.test.ts        (NEW)
+                                             → 5 files, 21 passed
+
+  unit: yearEndClosePostingGuard (10), fiscalPeriodTools (34), withFlowMeter (12),
+        glEntrySourceConstraint, yearEndCloseMessage, yearEndCloseDryRun,
+        yearEndInsertColumnsDb (3), yearEndRetainedEarnings, yearEndService
+                                             → 9 files, 101 passed
+
+MUTATIONS (production change reverted, test re-run, then restored)
+  M-1a  would_post returned unconditionally on a dry run
+        → fiscalPeriodTools.test.ts            2 failed / 32 passed   RED
+  M-1b  dry-run unclosedNetIncome hardcoded to 0
+        → k-046-year-end-entry-number-taken    1 failed / 5 passed    RED
+  L-4   alreadyClosedResult reuses the caller's netIncome instead of re-reading
+        → k-046-year-end-entry-number-taken    2 failed / 4 passed    RED
+        (the DETERMINISTIC test fails; the race test's failure is incidental)
+  L-5   the catch rethrows instead of returning the typed refusal
+        → yearEndClosePostingGuard             2 failed / 8 passed    RED
+        → k-046-year-end-squatter-race         1 failed               RED
+  L-6   X-Flow-Balance-After left at the debit after a refund
+        → withFlowMeter.test.ts                2 failed / 10 passed   RED
+
+GATES
+  bunx tsc --noEmit                          → clean
+  bunx eslint <6 changed src files>          → clean
+  bun run agent-docs:check                   → OK: 74 mirror(s) match
+  FULL unit suite, DATABASE_URL UNSET:
+    env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL bunx vitest run
+    → Test Files 800 passed | 40 skipped (840)
+      Tests      9565 passed | 243 skipped (9808)
+
+NOT DONE
+  Migration 627 still deliberately NOT renumbered — merge-time action, see fix.md.

@@ -9,8 +9,12 @@
 import { sql, withTransaction, type TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { roundToCents, validateJournalEntry } from '../../utils/doubleEntry';
-import { reloadNetIncome } from './yearEndJournalBuilder';
-import type { CloseYearResult, YearEndJournalPreview } from './yearEndCloseService';
+import { reloadNetIncome, type FiscalYearRange } from './yearEndJournalBuilder';
+import type { CloseYearError, CloseYearResult, YearEndJournalPreview } from './yearEndCloseTypes';
+
+/** The two refusals a row holding the closing entry number can earn. */
+export type ClosingNumberRefusal =
+  Extract<CloseYearError, { error: 'closing_entry_number_taken' | 'closing_journal_not_posted' }>;
 
 export interface ClosingJournalResult {
   /** NULL only for a dormant year: nothing to transfer, so nothing to write. */
@@ -57,6 +61,39 @@ export async function findClosingJournal(
     LIMIT 1
   `) as Record<string, unknown>[];
   return rows[0] ?? null;
+}
+
+/**
+ * What a row holding `YE-<year>` means — a refusal, or NULL when it is the
+ * year's own posted closing journal and the year is simply closed.
+ *
+ * Shared by the pre-INSERT lookup and by the 23505 catch below. A squatter that
+ * takes the number BETWEEN those two differs from one that was already sitting
+ * there only in timing, and answering the second with a rethrown 23505 → HTTP
+ * 500 is exactly the opacity the typed refusal was written to remove.
+ */
+export function classifyClosingJournal(
+  entryNumber: string,
+  row: Record<string, unknown>,
+): ClosingNumberRefusal | null {
+  if (String(row.source) !== 'year_end') {
+    return {
+      error: 'closing_entry_number_taken',
+      entryNumber,
+      entryId: String(row.id),
+      source: String(row.source),
+      status: String(row.status),
+    };
+  }
+  if (row.status !== 'posted') {
+    return {
+      error: 'closing_journal_not_posted',
+      entryNumber,
+      entryId: String(row.id),
+      status: String(row.status),
+    };
+  }
+  return null;
 }
 
 /**
@@ -197,7 +234,7 @@ export async function alreadyClosedResult(
   yearLabel: string,
   existingEntry: Record<string, unknown>,
   netIncome: number,
-  yearRange: Record<string, unknown>,
+  yearRange: FiscalYearRange,
 ): Promise<CloseYearResult> {
   const lockedRows = (await sql`
     SELECT count(*)::int AS n FROM fiscal_periods
@@ -210,7 +247,7 @@ export async function alreadyClosedResult(
   const entryNumber = String(existingEntry.entry_number ?? '');
   return {
     closingEntry: existingEntry,
-    periodsLocked: lockedRows[0]?.n ?? 0,
+    periodsLockedInYear: lockedRows[0]?.n ?? 0,
     alreadyClosed: true,
     netIncome,
     unclosedNetIncome,

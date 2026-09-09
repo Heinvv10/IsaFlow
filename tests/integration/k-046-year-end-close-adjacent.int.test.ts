@@ -186,18 +186,18 @@ describe('year-end close with a contra revenue account (tenant A)', () => {
     // false zero. What is pinned here is only that the live re-run writes no
     // second journal and does not misreport.
     const again = await closeFiscalYear(a.company, '2025', user) as {
-      alreadyClosed: boolean; periodsLocked: number;
+      alreadyClosed: boolean; periodsLockedInYear: number;
       closingEntry: { entry_number: string } | null; message: string;
     };
     expect(again.alreadyClosed).toBe(true);
     expect(again.closingEntry?.entry_number).toBe('YE-2025');
     expect(again.message).toMatch(/already closed/i);
-    // periodsLocked is an OBSERVATION even here, where the call locks nothing:
+    // periodsLockedInYear is an OBSERVATION even here, where the call locks nothing:
     // it reports the periods that carry `locked`, read back from the table.
     const stillLocked = await pool.query(
       "SELECT count(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2 AND status='locked'",
       [a.company, '2025']);
-    expect(again.periodsLocked).toBe(stillLocked.rows[0].n);
+    expect(again.periodsLockedInYear).toBe(stillLocked.rows[0].n);
 
     const count = await pool.query(
       "SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'", [a.company]);
@@ -267,7 +267,7 @@ describe('a year with nothing to transfer still closes', () => {
     // no such thing as a legal empty journal. The year must still close: a
     // company that traded not at all would otherwise carry it open forever.
     const result = await closeFiscalYear(d.company, '2025', user) as
-      { netIncome: number; closingEntry: null; periodsLocked: number; alreadyClosed: boolean; message: string };
+      { netIncome: number; closingEntry: null; periodsLockedInYear: number; alreadyClosed: boolean; message: string };
     expect(result.netIncome).toBe(0);
     expect(result.closingEntry).toBeNull();
     expect(result.alreadyClosed).toBe(false);
@@ -276,8 +276,8 @@ describe('a year with nothing to transfer still closes', () => {
     const lockedNow = await pool.query(
       "SELECT count(*)::int AS n FROM fiscal_periods WHERE company_id=$1 AND fiscal_year=$2 AND status='locked'",
       [d.company, '2025']);
-    expect(result.periodsLocked).toBe(1);
-    expect(result.periodsLocked).toBe(lockedNow.rows[0].n);
+    expect(result.periodsLockedInYear).toBe(1);
+    expect(result.periodsLockedInYear).toBe(lockedNow.rows[0].n);
     expect(result.message).toMatch(/no posted profit or loss/i);
 
     const written = await pool.query(
