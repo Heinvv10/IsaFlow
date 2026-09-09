@@ -1,16 +1,16 @@
 CREATE FUNCTION
 ALTER FUNCTION
 REVOKE
+GRANT
 NOTICE:  relation "control_entity_versions" already exists, skipping
 NOTICE:  relation "control_protected_evidence" already exists, skipping
+CREATE TABLE
+CREATE TABLE
 NOTICE:  relation "control_change_events" already exists, skipping
-NOTICE:  relation "control_change_events_entity_idx" already exists, skipping
-NOTICE:  relation "control_change_events_operation_idx" already exists, skipping
-GRANT
-CREATE TABLE
-CREATE TABLE
 CREATE TABLE
 CREATE INDEX
+NOTICE:  relation "control_change_events_entity_idx" already exists, skipping
+NOTICE:  relation "control_change_events_operation_idx" already exists, skipping
 CREATE INDEX
 ALTER TABLE
 ALTER TABLE

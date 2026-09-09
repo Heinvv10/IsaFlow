@@ -8,6 +8,9 @@ CREATE TABLE IF NOT EXISTS control_operation_approvals (
   decided_at timestamptz, consumed_at timestamptz, consumed_effect_id uuid,
   PRIMARY KEY(company_id,id), CHECK(expires_at > requested_at)
 );
+ALTER TABLE control_operation_approvals ADD COLUMN IF NOT EXISTS requester_auth_method text NOT NULL DEFAULT 'unknown';
+ALTER TABLE control_operation_approvals ADD COLUMN IF NOT EXISTS requester_grant_id uuid;
+ALTER TABLE control_operation_approvals ADD COLUMN IF NOT EXISTS requester_granted_scopes text[];
 CREATE TABLE IF NOT EXISTS control_operation_decisions (
   company_id uuid NOT NULL, approval_id uuid NOT NULL, policy_id text NOT NULL, person_id text NOT NULL,
   decision text NOT NULL CHECK(decision IN ('approved','rejected')), evidence_refs jsonb NOT NULL,
@@ -19,7 +22,7 @@ CREATE TABLE IF NOT EXISTS control_policy_exposure (
   company_id uuid NOT NULL REFERENCES companies(id), policy_id text NOT NULL, beneficiary_key text NOT NULL,
   currency text NOT NULL, window_start date NOT NULL, operation text NOT NULL, entity_id text NOT NULL,
   amount numeric NOT NULL CHECK(amount >= 0), state text NOT NULL CHECK(state IN ('reserved','committed')),
-  approval_id uuid, UNIQUE(company_id,policy_id,operation,entity_id),
+  approval_id uuid, UNIQUE(company_id,policy_id,operation,entity_id,beneficiary_key,currency),
   FOREIGN KEY(company_id,approval_id) REFERENCES control_operation_approvals(company_id,id)
 );
 CREATE INDEX IF NOT EXISTS control_policy_exposure_window_idx
@@ -33,6 +36,22 @@ CREATE TABLE IF NOT EXISTS control_operation_effects (
 ALTER TABLE approval_rules ADD COLUMN IF NOT EXISTS control_version bigint NOT NULL DEFAULT 1;
 ALTER TABLE approval_rules ADD COLUMN IF NOT EXISTS aggregate_window_days integer;
 ALTER TABLE approval_rules ADD COLUMN IF NOT EXISTS aggregate_by text;
+-- Acquire the tenant policy lock before PostgreSQL locks any target tuple.
+CREATE OR REPLACE FUNCTION public.control_lock_approval_policy_statement() RETURNS trigger
+LANGUAGE plpgsql SET search_path = pg_catalog, public, app AS $$
+DECLARE v_company uuid := app.current_company_id();
+BEGIN
+  IF v_company IS NOT NULL THEN
+    PERFORM pg_advisory_xact_lock(hashtextextended('control-policy:' || v_company::text,0));
+  ELSIF current_user = 'app_user' THEN
+    RAISE EXCEPTION 'Authenticated policy tenant required' USING ERRCODE='42501';
+  END IF;
+  RETURN NULL;
+END;
+$$;
+DROP TRIGGER IF EXISTS control_lock_approval_policy_statement ON approval_rules;
+CREATE TRIGGER control_lock_approval_policy_statement BEFORE INSERT OR UPDATE OR DELETE ON approval_rules
+  FOR EACH STATEMENT EXECUTE FUNCTION public.control_lock_approval_policy_statement();
 CREATE OR REPLACE FUNCTION public.control_version_approval_policy() RETURNS trigger
 LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
 BEGIN
@@ -59,18 +78,20 @@ DROP TRIGGER IF EXISTS control_version_approval_policy ON approval_rules;
 CREATE TRIGGER control_version_approval_policy BEFORE INSERT OR UPDATE OR DELETE ON approval_rules
   FOR EACH ROW EXECUTE FUNCTION public.control_version_approval_policy();
 
+DROP FUNCTION IF EXISTS public.control_approval_authorities(uuid,uuid);
 CREATE OR REPLACE FUNCTION public.control_approval_authorities(p_company uuid,p_approval uuid)
 RETURNS TABLE(person_id text,role text,is_active boolean,status text,suspended_at timestamptz,
-  company_status text,company_suspended_at timestamptz,permissions jsonb)
+  company_status text,company_suspended_at timestamptz,permissions jsonb,grant_valid boolean,current_scopes text[])
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, app, auth AS $$
-DECLARE v_person text;
+DECLARE v_person text; v_request record; v_grant_valid boolean := false; v_current_scopes text[];
 BEGIN
   IF p_company IS DISTINCT FROM app.current_company_id() OR NOT EXISTS(
     SELECT 1 FROM public.company_users cu WHERE cu.company_id=p_company AND cu.user_id=auth.uid()::text
   ) OR NOT EXISTS(SELECT 1 FROM public.control_operation_approvals a WHERE a.company_id=p_company AND a.id=p_approval) THEN
     RAISE EXCEPTION 'Approval authorities unavailable' USING ERRCODE='42501';
   END IF;
-  -- Lock current caller and every bound decision person in the same stable order.
+  PERFORM pg_advisory_xact_lock(hashtextextended('control-authority:' || p_company::text,0));
+  -- Lock the complete participant population only after the authority serialization lock.
   FOR v_person IN SELECT DISTINCT ids.id FROM (
     SELECT auth.uid()::text AS id UNION ALL
     SELECT a.requester_person_id FROM public.control_operation_approvals a WHERE a.company_id=p_company AND a.id=p_approval UNION ALL
@@ -82,9 +103,27 @@ BEGIN
       ORDER BY cp.module_key FOR SHARE;
   END LOOP;
   PERFORM 1 FROM public.companies c WHERE c.id=p_company FOR SHARE;
+  SELECT a.* INTO v_request FROM public.control_operation_approvals a WHERE a.company_id=p_company AND a.id=p_approval;
+  IF v_request.requester_auth_method='cookie' THEN v_grant_valid := true;
+  ELSIF v_request.requester_auth_method='pat' THEN
+    SELECT g.revoked_at IS NULL AND g.expires_at > clock_timestamp(),g.scopes INTO v_grant_valid,v_current_scopes
+      FROM public.personal_access_tokens g WHERE g.company_id=p_company AND g.user_id=v_request.requester_person_id
+        AND g.id=v_request.requester_grant_id FOR SHARE;
+  ELSIF v_request.requester_auth_method='oauth' THEN
+    SELECT g.revoked_at IS NULL AND g.access_token_expires_at > clock_timestamp(),g.scopes INTO v_grant_valid,v_current_scopes
+      FROM public.oauth_authorisations g WHERE g.company_id=p_company AND g.user_id=v_request.requester_person_id
+        AND g.id=v_request.requester_grant_id FOR SHARE;
+  END IF;
+  IF v_request.requester_auth_method <> 'cookie' THEN
+    SELECT COALESCE(array_agg(scope),ARRAY[]::text[]) INTO v_current_scopes FROM unnest(v_current_scopes) scope
+      WHERE scope=ANY(v_request.requester_granted_scopes);
+  END IF;
+
   RETURN QUERY SELECT DISTINCT u.id::text,cu.role::text,u.is_active,u.status::text,u.suspended_at,
     c.status::text,c.suspended_at,COALESCE((SELECT jsonb_agg(to_jsonb(cp) ORDER BY cp.module_key)
-      FROM public.company_user_permissions cp WHERE cp.company_id=p_company AND cp.user_id=u.id),'[]'::jsonb)
+      FROM public.company_user_permissions cp WHERE cp.company_id=p_company AND cp.user_id=u.id),'[]'::jsonb),
+    CASE WHEN u.id=v_request.requester_person_id THEN COALESCE(v_grant_valid,false) ELSE true END,
+    CASE WHEN u.id=v_request.requester_person_id THEN v_current_scopes ELSE NULL::text[] END
     FROM (
       SELECT auth.uid()::text AS person_id UNION
       SELECT a.requester_person_id FROM public.control_operation_approvals a WHERE a.company_id=p_company AND a.id=p_approval UNION
@@ -107,7 +146,8 @@ CREATE POLICY tenant_isolation ON control_operation_approvals TO app_user
   USING(company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()))
   WITH CHECK(company_id = app.current_company_id() AND company_id IN (SELECT auth.user_companies()));
 REVOKE ALL ON control_operation_approvals FROM app_user,PUBLIC;
-GRANT SELECT,INSERT,UPDATE ON control_operation_approvals TO app_user;
+GRANT SELECT,INSERT ON control_operation_approvals TO app_user;
+GRANT UPDATE(status,decided_at,consumed_at,consumed_effect_id) ON control_operation_approvals TO app_user;
 GRANT ALL ON control_operation_approvals TO migration_admin;
 
 ALTER TABLE control_operation_decisions ENABLE ROW LEVEL SECURITY;
@@ -139,3 +179,6 @@ CREATE POLICY tenant_isolation ON control_operation_effects TO app_user
 REVOKE ALL ON control_operation_effects FROM app_user,PUBLIC;
 GRANT SELECT,INSERT ON control_operation_effects TO app_user;
 GRANT ALL ON control_operation_effects TO migration_admin;
+
+CREATE UNIQUE INDEX IF NOT EXISTS control_operation_effects_intent_idx
+  ON control_operation_effects(company_id,operation_id,operation,entity_type,entity_id);
