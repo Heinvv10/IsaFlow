@@ -34,3 +34,48 @@ GATES
   bunx tsc --noEmit                                  -> exit 0, no output
   bunx eslint <the three changed src files>          -> exit 0, no output
   bunx tsx scripts/ci/check-migration-rls.ts         -> OK
+
+────────────────────────────────────────────────────────────────────────────
+REVIEW FOLLOW-UP ROUND (blind review of 3222d0a6 + c16abdde: 1 HIGH, 2 MEDIUM, 5 LOW)
+────────────────────────────────────────────────────────────────────────────
+
+GREEN (fixture DB, migration 627 applied — pg_get_constraintdef LIKE '%year_end%' -> t)
+  bunx vitest run --config vitest.integration.config.ts
+      tests/integration/k-046-year-end-close-adjacent.int.test.ts
+      tests/integration/k-046-year-end-contra-balance-negative-debit.int.test.ts
+  Test Files  2 passed (2)
+  Tests       9 passed (9)      [3 validator RED file, 6 adjacent]
+
+  env -u DATABASE_URL bunx vitest run
+      tests/unit/services/yearEndClosePostingGuard.test.ts
+      tests/unit/services/glEntrySourceConstraint.test.ts
+      tests/unit/services/gl/yearEndInsertColumnsDb.test.ts
+  Test Files  3 passed (3)
+  Tests       12 passed (12)
+
+MUTATION 4 — buildPreview appends the retained-earnings line unconditionally (`if (true)`)
+  k-046-year-end-close-adjacent: Tests 3 failed | 3 passed (6)
+  (break-even, dormant and the re-run case all go RED)
+
+MUTATION 5 — postClosingJournal skips the already-closed lookup (`if (false)`)
+  k-046-year-end-close-adjacent: Tests 1 failed | 5 passed (6)
+  ("reports the existing journal on a second close" goes RED)
+
+MUTATION 6 — postClosingJournal skips the validateJournalEntry refusal (`if (false)`)
+  yearEndClosePostingGuard: Tests 2 failed | 1 passed (3)
+
+MUTATION 7 — drop the `no_fiscal_period` case from pages/api/accounting/year-end.ts
+  bunx tsc --noEmit ->
+    pages/api/accounting/year-end.ts(108,17): error TS2322: Type
+    '{ error: "no_fiscal_period"; entryDate: string; }' is not assignable to type 'never'.
+  (the exhaustiveness default is a real gate, not a comment)
+
+FULL UNIT SUITE (env -u DATABASE_URL bunx vitest run --maxWorkers=4)
+  Test Files  793 passed | 36 skipped (829)
+  Tests       9438 passed | 234 skipped (9672)
+
+GATES
+  bunx tsc --noEmit                                  -> exit 0, no output
+  bunx eslint <the five changed src/pages files>     -> exit 0, no output
+  bun run agent-docs:generate                        -> only gl/AGENTS.md changed
+  migration prefix 627 re-checked against origin/master (53539623) -> still free

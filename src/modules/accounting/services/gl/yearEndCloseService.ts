@@ -29,14 +29,14 @@
  *    match is now preferred explicitly.
  */
 
-import { sql, withTransaction } from '@/lib/neon';
+import { sql } from '@/lib/neon';
 import type { AccountBalanceRow } from './yearEndJournalBuilder';
 import { log } from '@/lib/logger';
 import { fmtDate } from '@/lib/fmtDate';
 import { getFiscalPeriodIdForDate } from './fiscalPeriodService';
 import { getFiscalYearStartMonth } from './fiscalYearBasis';
 import { buildPreview, resolveRetainedEarnings } from './yearEndJournalBuilder';
-import { validateJournalEntry } from '../../utils/doubleEntry';
+import { postClosingJournal } from './yearEndJournalPoster';
 import { fiscalYearRange } from './fiscalYearCalendar';
 
 export interface YearEndJournalLine {
@@ -58,7 +58,17 @@ export interface YearEndJournalPreview {
 }
 
 export interface CloseYearResult {
-  closingEntry: Record<string, unknown>;
+  /**
+   * NULL for a year with nothing to close. A dormant year — no posted P&L
+   * movement at all — has an empty journal, and an empty journal is not a
+   * legal one to write. The year still CLOSES: every period is locked, which
+   * is the part callers act on. `periodsLocked` says so without making them
+   * read the null.
+   */
+  closingEntry: Record<string, unknown> | null;
+  periodsLocked: true;
+  /** True when the year already had a closing journal and nothing was written. */
+  alreadyClosed: boolean;
   netIncome: number;
   message: string;
 }
@@ -193,85 +203,24 @@ export async function closeFiscalYear(
   const fiscalPeriodId = await getFiscalPeriodIdForDate(companyId, preview.entryDate);
   if (!fiscalPeriodId) return { error: 'no_fiscal_period', entryDate: preview.entryDate };
 
-  const closingEntry = await postClosingJournal(
+  const { entry: closingEntry, alreadyClosed } = await postClosingJournal(
     companyId, userId, yearLabel, preview, fiscalPeriodId,
   );
 
   log.info('Year-end processed', {
-    year: yearLabel, entryId: closingEntry.id, netIncome, module: 'accounting',
+    year: yearLabel, entryId: closingEntry?.id ?? null, alreadyClosed, netIncome, module: 'accounting',
   });
 
   return {
     closingEntry,
+    periodsLocked: true,
+    alreadyClosed,
     netIncome,
-    message: `Year ${yearLabel} closed. Net income R${netIncome.toFixed(2)} transferred to Retained Earnings.`,
+    message: alreadyClosed
+      ? `Year ${yearLabel} was already closed. Its closing journal `
+        + `${String(closingEntry?.entry_number ?? '')} is unchanged and nothing was posted.`
+      : closingEntry
+        ? `Year ${yearLabel} closed. Net income R${netIncome.toFixed(2)} transferred to Retained Earnings.`
+        : `Year ${yearLabel} closed. No posted profit or loss in the year, so no closing journal was needed.`,
   };
-}
-
-async function postClosingJournal(
-  companyId: string,
-  userId: string,
-  yearLabel: string,
-  preview: YearEndJournalPreview,
-  fiscalPeriodId: string | null,
-): Promise<Record<string, unknown>> {
-  // Balance and per-line validity are checked HERE, before the transaction
-  // opens, because this path INSERTs straight at status='posted' and therefore
-  // never meets the two guards every other poster does: `createJournalEntry`
-  // runs `validateJournalEntry`, and `trg_gl_je_balanced` fires BEFORE UPDATE
-  // only, so a row born posted never trips it.
-  //
-  // Until migration 627 the `source` CHECK was standing in for that guard by
-  // rejecting 'year_end' outright, which is why the close could not run at all
-  // (see tests/unit/services/glEntrySourceConstraint.test.ts). Admitting the
-  // source without this check would un-gate an unvalidated posting path.
-  // Converting to createJournalEntry/postJournalEntry is not available: the
-  // close requires every period CLOSED, and postJournalEntry refuses any
-  // period that is not OPEN.
-  const validation = validateJournalEntry(preview.lines.map((l) => ({
-    glAccountId: l.accountId, debit: l.debit, credit: l.credit,
-  })));
-  if (!validation.valid) {
-    throw new Error(`Year-end closing journal is invalid: ${validation.errors.join('; ')}`);
-  }
-
-  // Atomic: a partial year-end close is unrecoverable — half the P&L zeroed and
-  // the periods left open.
-  return withTransaction(async (tx) => {
-    // NO total_debit / total_credit. Those columns do not exist on
-    // gl_journal_entries — not in isaflow_dev, not in production — so this
-    // INSERT raised 42703 and EVERY live year-end close failed before writing a
-    // line, over MCP and through the UI route alike. Brightsphere's four
-    // unclosed years are that, not an oversight by whoever runs the close. The
-    // totals live on the lines and every reader derives them (see
-    // transactionLedgerService, sageMigrationCompareService); the preview still
-    // reports them to the caller, which is where they were actually wanted.
-    const closingRows = await tx`
-      INSERT INTO gl_journal_entries (
-        id, company_id, entry_number, entry_date, fiscal_period_id, description,
-        source, status, created_by, created_at, posted_by, posted_at, posting_agent
-      ) VALUES (
-        gen_random_uuid(), ${companyId}, ${preview.entryNumber}, ${preview.entryDate},
-        ${fiscalPeriodId}, ${preview.description}, 'year_end', 'posted',
-        ${userId}, NOW(), ${userId}, NOW(), 'system:year-end-close'
-      ) RETURNING *
-    `;
-    const entry = (closingRows as Record<string, unknown>[])[0];
-    if (!entry) throw new Error('Failed to create closing journal entry');
-
-    for (const line of preview.lines) {
-      await tx`
-        INSERT INTO gl_journal_lines (id, journal_entry_id, gl_account_id, debit, credit, description, created_at, company_id)
-        VALUES (gen_random_uuid(), ${entry.id}, ${line.accountId}, ${line.debit}, ${line.credit},
-                'Year-end close', NOW(), ${companyId}::UUID)
-      `;
-    }
-
-    await tx`
-      UPDATE fiscal_periods SET status = 'locked'
-      WHERE fiscal_year = ${yearLabel} AND company_id = ${companyId}
-    `;
-
-    return entry;
-  });
 }

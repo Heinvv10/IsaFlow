@@ -109,10 +109,21 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
    * INSERT-at-posted path and cannot become postJournalEntry — the year-end
    * close requires every period CLOSED and postJournalEntry refuses a period
    * that is not OPEN — so what came off the list is the guard, not the
-   * requirement: yearEndCloseService.postClosingJournal now runs
+   * requirement: yearEndJournalPoster.postClosingJournal now runs
    * validateJournalEntry over the closing lines itself, before the transaction
    * opens. The test below pins that, so removing the check puts the union and
    * the constraint back in an unsafe state loudly rather than silently.
+   *
+   * The guard set is NOT identical, and the difference is deliberate. The
+   * canonical path is createJournalEntry + postJournalEntry, and the second
+   * half also refuses lines on a DEACTIVATED account
+   * (journalEntryPostingService.assertNoInactiveAccountLines). The close does
+   * not, because closing a withdrawn account is precisely how its balance gets
+   * zeroed: refusing would strand the tenant, whose account cannot be cleared
+   * without the close and cannot be closed without being reactivated first,
+   * every year, forever. The equity side needs no exemption — systemAccountResolver
+   * only caches accounts with is_active = true, so an inactive retained-earnings
+   * account is refused as no_retained_earnings well before the poster runs.
    */
   it('keeps the two unconverted direct-INSERT sources OUT of the union and the constraint', () => {
     const allowed = new Set(sourcesInConstraint(latestSourceConstraintSql()));
@@ -137,10 +148,13 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
     // The source is only safe to admit because postClosingJournal replaces the
     // guard the constraint was providing. If this call goes away, the
     // INSERT-at-posted path is unvalidated again and year_end must go back on
-    // the dead list above.
-    const closeService = readFileSync(
-      join(process.cwd(), 'src/modules/accounting/services/gl/yearEndCloseService.ts'), 'utf8');
-    const postClosing = closeService.slice(closeService.indexOf('async function postClosingJournal'));
+    // the dead list above. This is a grep and a grep alone: it would pass on a
+    // commented-out or conditional call, so the BEHAVIOURAL cover is
+    // tests/unit/services/yearEndClosePostingGuard.test.ts, which drives an
+    // unbalanced preview through the close and expects the refusal.
+    const poster = readFileSync(
+      join(process.cwd(), 'src/modules/accounting/services/gl/yearEndJournalPoster.ts'), 'utf8');
+    const postClosing = poster.slice(poster.indexOf('export async function postClosingJournal'));
     expect(
       postClosing,
       'postClosingJournal must validate the closing journal before writing it',

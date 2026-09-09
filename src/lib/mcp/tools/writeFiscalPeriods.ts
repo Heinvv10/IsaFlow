@@ -267,9 +267,13 @@ export const yearEndCloseTool: McpTool = {
       fiscal_year: year,
       dry_run: false,
       net_income: result.netIncome,
-      journal_entry_id: String(result.closingEntry.id),
-      entry_number: String(result.closingEntry.entry_number),
-      periods_locked: true,
+      // NULL for a dormant year: nothing was posted to any P&L account, so
+      // there is no closing journal to write. The year still closes and the
+      // periods still lock, which is what the caller acts on.
+      journal_entry_id: result.closingEntry ? String(result.closingEntry.id) : null,
+      entry_number: result.closingEntry ? String(result.closingEntry.entry_number) : null,
+      periods_locked: result.periodsLocked,
+      already_closed: result.alreadyClosed,
       message: result.message,
     });
   },
