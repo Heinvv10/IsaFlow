@@ -26,10 +26,8 @@ import {
   matchTransaction,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 import {
-  applyBankLineToSupplierInvoices,
-  validateBankSupplierPayment,
-} from '@/modules/accounting/services/ap/supplierBankPaymentService';
-import { EPS, round2 } from '@/modules/accounting/services/ap/supplierAllocationLines';
+  confirmSupplierInvoiceMatch,
+} from '@/modules/accounting/services/bank/confirmSupplierMatch';
 import {
   signMismatchReason,
   type SettlementKind,
@@ -93,58 +91,28 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       if (wrongWay) return apiResponse.badRequest(res, wrongWay);
     }
     const paymentAmount = Math.abs(signedAmount);
+    // Named in the response when a branch creates a payment document, so the
+    // screen can say which one settled the line.
+    let settlement: { supplierPaymentId: string; paymentNumber: string; allocated: number } | undefined;
 
     if (candidateType === 'supplier_invoice') {
-      const invRows = (await sql`
-        SELECT id, total_amount, amount_paid
-        FROM supplier_invoices WHERE id = ${candidateId}::UUID AND company_id = ${companyId}
-      `) as Row[];
-      if (invRows.length === 0) {
-        return apiResponse.notFound(res, 'Supplier invoice', candidateId);
+      // The whole arm lives in `confirmSupplierInvoiceMatch`: what it may
+      // settle, what it must refuse, and — load-bearing — the fact that every
+      // refusal is decided from READS, before the first write, because a 4xx
+      // raised after one COMMITs it.
+      const outcome = await confirmSupplierInvoiceMatch(
+        companyId, bankTransactionId, candidateId, userId, paymentAmount,
+      );
+      if (!outcome.ok) {
+        return outcome.kind === 'not_found'
+          ? apiResponse.notFound(res, 'Supplier invoice', candidateId)
+          : apiResponse.badRequest(res, outcome.message);
       }
-      const inv = invRows[0]!;
-      const outstandingBalance = round2(Number(inv.total_amount) - Number(inv.amount_paid || 0));
-      if (outstandingBalance <= EPS) {
-        return apiResponse.badRequest(res, 'This supplier invoice is already fully paid.');
-      }
-      // A line bigger than the bill applies what the bill can take; the rest
-      // stays unapplied ON THE PAYMENT DOCUMENT, where list_unapplied_payments
-      // can see it. Capping the subledger without a document to hold the
-      // remainder is what split AP control from the aging.
-      const allocations = [{
-        invoiceId: candidateId,
-        amount: round2(Math.min(paymentAmount, outstandingBalance)),
-      }];
-
-      // READS ONLY, and BEFORE the first write. Every refusal this operation
-      // can make — line already allocated, closed or missing fiscal period,
-      // cancelled bill, money the wrong way — is answered here as a 4xx that
-      // carries its own remedy. After this call the catch-all answers 500 so
-      // the request rolls back, which also means it can say nothing useful.
-      try {
-        await validateBankSupplierPayment(companyId, bankTransactionId, allocations);
-      } catch (refusal) {
-        return apiResponse.badRequest(
-          res, refusal instanceof Error ? refusal.message : 'Match refused',
-        );
-      }
-
-      // The document, the journal and the subledger in ONE operation, the way
-      // every other AP settlement path writes them. The bare `amount_paid`
-      // UPDATE this branch used to carry created no supplier_payments row and
-      // no payment_allocations row, so unallocating the line reversed the GL
-      // and left the bill paid forever — bankAllocationUnwind finds its work
-      // through those two tables.
-      const applied = await applyBankLineToSupplierInvoices(companyId, {
-        bankTxId: bankTransactionId, userId, allocations,
-      });
-
-      log.info('Confirmed match: supplier invoice', {
-        bankTransactionId, candidateId, paymentAmount, outstandingBalance,
-        supplierPaymentId: applied.supplierPaymentId,
-        allocated: applied.allocatedTotal,
-        unappliedRemainder: applied.unappliedRemainder,
-      }, 'accounting-api');
+      settlement = {
+        supplierPaymentId: outcome.supplierPaymentId,
+        paymentNumber: outcome.paymentNumber,
+        allocated: outcome.allocated,
+      };
 
     } else if (candidateType === 'customer_invoice') {
       const ciRows = (await sql`
@@ -278,7 +246,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       log.info('Confirmed match: journal line', { bankTransactionId, candidateId }, 'accounting-api');
     }
 
-    return apiResponse.success(res, { matched: true, candidateType, candidateId });
+    return apiResponse.success(res, { matched: true, candidateType, candidateId, ...settlement });
   } catch (err) {
     // 500, not 400. Every throw reachable here happens at or after
     // `allocateTransaction`, which has already posted a journal, touched

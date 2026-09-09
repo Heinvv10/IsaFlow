@@ -105,3 +105,55 @@ $ bunx eslint pages/api/accounting/bank-match-confirm.ts \
      src/modules/accounting/services/bank/bankImportService.ts -> exit 0
 $ bun run agent-docs:check                                    -> 74 mirrors OK
 File sizes: bank-match-confirm.ts 297 lines, bankImportService.ts 284 — both <= 300.
+
+════════════════════════════════════════════════════════════════════════════
+ROUND 3 — the four blind-review findings on 4c857048 (1 MEDIUM, 3 LOW)
+════════════════════════════════════════════════════════════════════════════
+
+$ bun run test:integration -- (the four K-071/K-074 files)
+ Test Files  4 passed (4)
+      Tests  16 passed (16)
+$ bunx vitest run tests/unit/services/bank/confirmSupplierMatch.test.ts
+      Tests  6 passed (6)   (new file)
+
+## Mutation proof, one probe per finding — reverted, RED, restored
+
+G. MEDIUM-1 — over-payment capped again (`min(paymentAmount, outstanding)`) instead of refused:
+   × refuses an over-payment rather than leaving a credit the AP aging cannot see
+     (1 failed | 4 passed)
+
+H. MEDIUM-1 (second half) — `...settlement` dropped from the success payload:
+   × names the payment document it created in the response   (1 failed | 4 passed)
+
+I. LOW-1 — `validation` no longer handed to applyBankLineToSupplierInvoices:
+   × validates once and hands that same result to the write   (1 failed | 5 passed)
+
+J. LOW-2 — `leg()` unscoped again (no journal_entry_id filter) with a second
+   journal seeded on the same AP account, which is what any earlier test in the
+   file would leave behind:
+   × settles the bill with a payment document, and the journal balances
+     (1 failed | 4 passed)
+   This is the probe that shows the old assertion was position-dependent: it
+   passed only because that test ran first against a fresh company.
+
+LOW-3 is a documentation-size item; see fix.md for what was done and what was
+deliberately not.
+
+## Full unit suite, fixture env UNSET (env -u DATABASE_URL bunx vitest run)
+ Test Files  1 failed | 792 passed | 36 skipped (829)
+      Tests  1 failed | 9444 passed | 234 skipped (9679)
+
+The one failure is `tests/unit/services/cashFlowReport.test.ts` — a file this
+branch does not touch — failing with `Test timed out in 10000ms` at a machine
+load average of 145 (many parallel agents on this host). It passes on its own:
+`bunx vitest run tests/unit/services/cashFlowReport.test.ts` → 2 passed, 1.6s.
+An earlier run at the same load failed 5 untouched files the same way and a
+later one failed only this. Reported as what it is — a load-induced timeout, not
+a regression — rather than reported green.
+
+## Static gates
+$ bunx tsc --noEmit                                          -> exit 0
+$ bunx eslint <the four changed source files>                -> exit 0
+$ bun run agent-docs:check                                   -> 74 mirrors OK
+File sizes: bank-match-confirm.ts 265, confirmSupplierMatch.ts 113,
+supplierBankPaymentService.ts 256, bankImportService.ts 284 — all <= 300.
