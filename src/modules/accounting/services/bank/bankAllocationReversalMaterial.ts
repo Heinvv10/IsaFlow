@@ -1,3 +1,4 @@
+import {assertTransferBankLinks} from './bankAllocationTransferOriginal';
 import {assertControlledEffectPermit,type ControlledEffectPermit} from '../controls/approvalExecutionService';
 import {createHash} from 'node:crypto';
 import {canonicalJson} from '../controls/canonical';
@@ -20,6 +21,7 @@ export async function loadBankAllocationReversal(ctx:ControlTx,id:string,permit?
  const [effect]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${company}::uuid AND operation='bank_allocation.reverse'
   AND entity_type='bank_allocation_reversal_intent' AND entity_id=${id} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{afterFingerprint:string;reversalJournalEntryId:string}}[];
  if(effect){
+  if(original.transfer)assertTransferBankLinks(original.transfer.banks,original.journal,original.lines,true);
   if(effect.result.afterFingerprint!==fingerprint||!original.journal.reversed_at||original.sources.bank.status!=='imported'
    ||!contras.some(j=>j.id===effect.result.reversalJournalEntryId&&j.status==='posted'))throw new Error('Bank reversal receipt changed');
  }else if(!permit&&(contras.some(j=>j.status==='posted')||original.journal.reversed_at))throw new Error('Bank allocation already reversed');

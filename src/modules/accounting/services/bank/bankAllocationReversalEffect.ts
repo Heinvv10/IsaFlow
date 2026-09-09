@@ -40,11 +40,13 @@ export async function executeBankAllocationReversalEffect(ctx:ControlTx,intentId
   const after=(updates as Row[])[0];if(!after)throw new Error('Allocation reversal payment disappeared');
   await recordBankAllocationChild(ctx,permit,original.plan.kind==='customer'?'customer_payment':'supplier_payment',before,after,'bank_allocation.payment_cancelled');
  }
+ for(const before of original.transfer?.banks??[original.sources.bank]){
  const [after]=await ctx.sql`UPDATE bank_transactions SET status='imported',matched_journal_line_id=NULL,reconciliation_id=NULL,linked_po_id=NULL,
-  allocation_type=NULL,allocated_entity_name=NULL,allocation_rule_id=NULL,allocation_rule_name=NULL,allocation_batch_id=NULL,updated_at=clock_timestamp()
-  WHERE company_id=${company}::uuid AND id=${original.plan.bankTransactionId}::uuid RETURNING *` as Row[];
+  transfer_journal_entry_id=NULL,counterparty_account_id=NULL,allocation_type=NULL,allocated_entity_name=NULL,allocation_rule_id=NULL,allocation_rule_name=NULL,allocation_batch_id=NULL,updated_at=clock_timestamp()
+  WHERE company_id=${company}::uuid AND id=${before.id}::uuid RETURNING *` as Row[];
  if(!after)throw new Error('Allocation reversal bank disappeared');
- await recordBankAllocationChild(ctx,permit,'bank_transaction',original.sources.bank,after,'bank_allocation.reversed');
+ await recordBankAllocationChild(ctx,permit,'bank_transaction',before,after,'bank_allocation.reversed');
+ }
  const observed=await loadBankAllocationReversal(ctx,intentId,permit);
  return{intentId,bankTransactionId:original.plan.bankTransactionId,originalJournalEntryId:String(original.journal.id),reversalJournalEntryId:contra.id,
   afterFingerprint:observed.fingerprint,invoicesReopened:original.sources.invoices.length,
