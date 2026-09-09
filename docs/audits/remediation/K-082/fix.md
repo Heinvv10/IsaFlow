@@ -1,46 +1,62 @@
 # K-082 — fix: days past due measured from the oldest unsettled instalment
 
 **Trigger.** `assessLoan` picked the reference instalment with
-`schedule.find((r) => !r.skip && r.date >= asOfDate)` — the NEXT instalment, which is never in the
-past. `computeDaysPastDue`'s `asOf <= scheduled` guard therefore returned 0 on every call,
-`determineEclStage(0)` returned stage 1, and stages 2 and 3 were unreachable.
+`schedule.find((r) => !r.skip && r.date >= asOfDate)` — the NEXT instalment, never in the past. The
+`asOf <= scheduled` guard therefore returned 0 on every call, `determineEclStage(0)` returned
+stage 1, and stages 2 and 3 were unreachable.
 
-**Before / after.** Before, every `loan_compliance_assessments` row recorded 0 days past due and
-stage 1 whatever the arrears. After, the reference date is the OLDEST non-skipped instalment that
-fell due on or before `asOfDate` and is not covered by a posted payment, and the count runs from
-that date forward to `asOfDate`. `computeDaysPastDue` no longer measures `paid − scheduled`, the
-lateness of the last payment received, which answers a different question and reported 0 for a
-borrower who had simply stopped paying. The stage thresholds were already correct and are
-unchanged; a borrower 122 days in arrears now stages 3 and carries the lifetime ECL.
+**Before / after.** The reference date is now the OLDEST non-skipped instalment that fell due on or
+before `asOfDate` and has no receipt, and the count runs from there to `asOfDate`. The
+`paid − scheduled` branch, which measured the lateness of the last payment received, is gone. Stage
+thresholds are untouched.
 
-**Files.** `src/modules/accounting/services/loans/loanComplianceService.ts`.
+**Settlement comes only from `loan_payments`.** That table is the receipt subledger, UNIQUE on
+`(company_id, loan_id, period_number)`.
+
+**Files.** `loanComplianceService.ts`, new `loanArrearsService.ts`.
 
 **Tests.** `tests/unit/services/loans/loanCompliance-k082-dpd-future-instalment.test.ts` —
-8 passed, covering a paid-up loan staying at stage 1, skipped instalments ignored, and a loan with
-no payment ever posted. `tests/integration/k082-loan-arrears-staging.int.test.ts` — 3 passed on
-real PostgreSQL, including a paid-up borrower in a second tenant.
+11 passed. `tests/integration/k082-loan-arrears-staging.int.test.ts` — 5 passed on real
+PostgreSQL, including a tenant whose period journals are all posted and who has paid nothing.
 
-**Mutation proof.** Restoring the `>= asOfDate` find gave unit 5 failed / 3 passed and integration
-2 failed / 1 passed. Restored.
+**Mutation proof.** Restoring the `>= asOfDate` find: unit 5 failed, integration 2 failed.
+Reinstating the `loan_gl_postings` fallback as settlement evidence (H1): unit 1 failed,
+integration 2 failed.
 
 **Migration.** None.
 
-**Historical-data impact.** Every assessment ever written understates DPD, stage and ECL.
-Read-only detection, NOT run against production:
+## Review dispositions
+
+**H1 — fixed, and further than the review proposed.** `loan_gl_postings` is written only by
+`postPeriodJournals`, which posts the CONTRACTUAL instalment journal whether or not cash arrived,
+dated to the schedule. The review proposed falling back to it when a loan has no `loan_payments`
+rows. That fallback reinstates the defect for exactly the case H1 describes: a company posting its
+journals on time for a borrower who pays nothing has no receipts, hits the fallback, and reads as
+current. There is no fallback. A loan with no receipts captured measures arrears from its oldest
+due instalment, which is the honest reading of the data and the conservative direction for a loss
+allowance, and the assessment records a `notes` line saying the basis was an absent subledger. Both
+the `notes` behaviour and the posted-not-paid tenant are covered by tests.
+
+The review is also right that `K-082/fix.md` and the module docs previously claimed no
+instalment-level subledger existed. That was wrong and is corrected here and in `.claude.md`.
+
+**Historical-data impact.** Every assessment ever written understates DPD, stage and ECL. The table
+is append-only, so the correction is to re-run assessments after deploy. Re-running will move
+exposures into stages 2 and 3 and raise the loss allowance, which changes reported profit.
+Expect loans whose receipts were never captured in `loan_payments` to appear in arrears; the
+`notes` column marks those, and the remedy is to record the payments. Read-only detection, NOT run
+against production:
 
 ```sql
 SELECT company_id, count(*) AS assessments,
-       count(*) FILTER (WHERE ifrs9_stage = 1) AS stage_1,
-       count(*) FILTER (WHERE days_past_due = 0) AS zero_dpd,
-       max(assessment_date) AS latest
+       count(*) FILTER (WHERE days_past_due = 0) AS zero_dpd
 FROM loan_compliance_assessments GROUP BY company_id;
+
+SELECT l.company_id, count(*) AS loans_without_receipts
+FROM loans l WHERE NOT EXISTS (SELECT 1 FROM loan_payments p
+  WHERE p.company_id = l.company_id AND p.loan_id = l.id)
+GROUP BY 1;
 ```
 
-`zero_dpd = assessments` means no assessment ever detected arrears. The table is append-only, so
-the correction is to re-run assessments after deploy, not to edit rows. Moving exposures into
-stages 2 and 3 raises the loss allowance and changes reported profit.
-
-**Limits.** An instalment counts as settled when a payment posted on or after its due date, which
-is the best `loan_gl_postings` supports — it records posting dates, not which instalments a payment
-covered. A part-payment therefore settles every instalment up to its date. Allocating payments to
-instalments needs a subledger this module does not have.
+**Limits.** Settlement is per instalment period, so a part-payment recorded against a period
+settles that period in full. `loan_payments` has no partial-settlement concept to read.

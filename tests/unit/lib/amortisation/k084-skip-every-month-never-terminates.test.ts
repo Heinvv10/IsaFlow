@@ -79,6 +79,39 @@ describe('K-084 amortise term-extension cap', () => {
     ).toThrow(/skips more periods/i);
   });
 
+  it('computes the 11-skip-month loan the validator still accepts', async () => {
+    // Review H3: the cap and validateCreate must refuse the same inputs. With
+    // k months skipped the extension converges to term * k / (12 - k), so 11
+    // months costs 11x the term and only 12 never terminates. A cap of 5x
+    // threw here, turning a finite 719-row schedule into a 500 for a loan
+    // createLoan accepts and getOrComputeSchedule recomputes.
+    const { amortise } = await import('@/lib/amortisation/engine');
+    const rows = amortise(
+      { ...base, termMonths: 60, recurringSkipMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] } as never,
+      [], [],
+    );
+    expect(rows.length).toBe(719);
+    expect(rows[rows.length - 1]!.date.slice(0, 4) < '2100').toBe(true);
+  });
+
+  it('accepts every skip count the validator accepts, at every term', async () => {
+    const { amortise } = await import('@/lib/amortisation/engine');
+    for (const termMonths of [12, 24, 60, 120, 360]) {
+      for (let k = 1; k <= 11; k++) {
+        const recurringSkipMonths = Array.from({ length: k }, (_, i) => i + 1);
+        expect(() =>
+          amortise({ ...base, termMonths, recurringSkipMonths } as never, [], []),
+        ).not.toThrow();
+      }
+      expect(() =>
+        amortise(
+          { ...base, termMonths, recurringSkipMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] } as never,
+          [], [],
+        ),
+      ).toThrow(/skips more periods/i);
+    }
+  });
+
   it('still extends the term for an ordinary two-month payment holiday', async () => {
     const { amortise } = await import('@/lib/amortisation/engine');
     const rows = amortise({ ...base, recurringSkipMonths: [1, 2] } as never, [], []);

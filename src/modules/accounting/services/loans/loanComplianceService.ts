@@ -5,6 +5,9 @@ import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { amortise } from '@/lib/amortisation/engine';
 import type { LoanInputs, RatePoint, ScheduleRow } from '@/lib/amortisation/types';
+import { arrearsBasisNote, computeDaysPastDue, resolveArrears } from './loanArrearsService';
+
+export { computeDaysPastDue } from './loanArrearsService';
 
 type Row = DbRow;
 
@@ -106,22 +109,6 @@ export function computeEclAmount(
   const exposure = next12.reduce((s, r) => s + r.interest + r.principal, 0);
   const amount = exposure * PD_STAGE1 * LGD;
   return { stage, method: '12m', amount: Math.max(0, amount) };
-}
-
-export function computeDaysPastDue(
-  _lastPaymentDate: string | null,
-  asOfDate: string,
-  scheduledDate?: string | null,
-): number {
-  if (!scheduledDate) return 0;
-  // scheduledDate is the oldest instalment that is still unsettled; arrears run
-  // from that due date forward to the assessment date. Measuring the lateness of
-  // the last payment received instead answers a different question and reports 0
-  // for a borrower who has simply stopped paying.
-  const scheduled = new Date(scheduledDate).getTime();
-  const asOf = new Date(asOfDate).getTime();
-  if (asOf <= scheduled) return 0;
-  return Math.max(0, Math.round((asOf - scheduled) / (1000 * 60 * 60 * 24)));
 }
 
 // ── NPV impact for modification accounting ──────────────────────────────────
@@ -239,8 +226,6 @@ function mapAssessment(r: Row): Assessment {
   };
 }
 
-// ── assessLoan ─────────────────────────────────────────────────────────────
-
 export async function assessLoan(
   companyId: string,
   loanId: string,
@@ -264,25 +249,9 @@ export async function assessLoan(
 
   const nca = checkNcaCompliance(schedule);
 
-  // Find latest posted payment to derive DPD
-  const lastPay = (await sql`
-    SELECT MAX(posting_date) AS last_payment_date
-    FROM loan_gl_postings
-    WHERE company_id = ${companyId} AND loan_id = ${loanId}
-  `) as Row[];
-  const lastPaymentDate = lastPay[0]?.last_payment_date != null
-    ? fmtDate(lastPay[0]!.last_payment_date)
-    : null;
-
-  // Arrears run backwards: the reference date is the OLDEST instalment that
-  // fell due on or before asOfDate and has not been settled. An instalment
-  // counts as settled when a payment posted on or after its due date. Taking
-  // the NEXT instalment instead makes the reference date always future-dated,
-  // which forces days past due to 0 and every exposure to stage 1.
-  const oldestUnsettled = schedule.find(
-    (r) => !r.skip && r.date <= asOfDate && (lastPaymentDate == null || r.date > lastPaymentDate),
+  const { scheduledDate, lastPaymentDate, hasReceipts } = await resolveArrears(
+    companyId, loanId, schedule, asOfDate,
   );
-  const scheduledDate = oldestUnsettled ? oldestUnsettled.date : null;
 
   const dpd = computeDaysPastDue(lastPaymentDate, asOfDate, scheduledDate);
   const stage = determineEclStage(dpd);
@@ -294,17 +263,19 @@ export async function assessLoan(
   const remainingSchedule = schedule.filter((r) => r.date > asOfDate);
   const ecl = computeEclAmount(stage, outstanding, remainingSchedule);
 
+  const notes = arrearsBasisNote(hasReceipts, dpd);
+
   const inserted = (await sql`
     INSERT INTO loan_compliance_assessments (
       company_id, loan_id, assessment_date,
       nca_flagged, nca_period, ifrs9_stage,
       days_past_due, ecl_amount, ecl_method,
-      outstanding, assessed_by
+      outstanding, assessed_by, notes
     ) VALUES (
       ${companyId}, ${loanId}, ${asOfDate},
       ${nca.flagged}, ${nca.firstBreachPeriod}, ${stage},
       ${dpd}, ${ecl.amount}, ${ecl.method},
-      ${outstanding}, ${userId}
+      ${outstanding}, ${userId}, ${notes}
     )
     RETURNING *
   `) as Row[];

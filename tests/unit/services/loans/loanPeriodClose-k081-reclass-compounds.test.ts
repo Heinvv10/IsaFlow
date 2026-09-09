@@ -51,7 +51,7 @@ function loanRow(
   stLiability: number,
   closing: number,
   date: string,
-  priorStLiability: number | null = null,
+  overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
     id: LOAN,
@@ -66,16 +66,25 @@ function loanRow(
     snapshot_closing: String(closing),
     snapshot_stliability: String(stLiability),
     snapshot_date: date,
-    prior_stliability: priorStLiability == null ? null : String(priorStLiability),
+    ...overrides,
   };
 }
 
-/** Route the lock check to "not locked" and the loan sweep to the given row. */
-function primeMonth(row: Record<string, unknown>): void {
+/**
+ * Route the lock check to "not locked", the loan sweep to the given row, and
+ * loan_reclass_postings to whatever the previous close recorded. `prior` of
+ * null means no reclass was ever posted for this loan, which is the H2 case a
+ * period lock cannot express.
+ */
+function primeMonth(row: Record<string, unknown>, prior: number | null = null): void {
   sqlMock.mockImplementation((strings: TemplateStringsArray) => {
     const q = strings.join('?');
-    // The loan sweep now joins loan_period_locks to read the previous close,
-    // so match it before the standalone lock check.
+    if (q.includes('FROM loan_reclass_postings')) {
+      return Promise.resolve(
+        prior == null ? [] : [{ loan_id: LOAN, st_liability: String(prior) }],
+      );
+    }
+    if (q.includes('INSERT INTO loan_reclass_postings')) return Promise.resolve([]);
     if (q.includes('FROM loans l')) return Promise.resolve([row]);
     if (q.includes('FROM loan_period_locks')) return Promise.resolve([]);
     return Promise.resolve([]);
@@ -107,7 +116,7 @@ describe('closeLoanPeriod — closing a second month', () => {
     primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'));
     await closeLoanPeriod(COMPANY, '202501', USER);
 
-    primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28', JAN_ST));
+    primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28'), JAN_ST);
     await closeLoanPeriod(COMPANY, '202502', USER);
 
     expect(currentPortionBalance()).toBeCloseTo(FEB_ST, 2);
@@ -118,7 +127,7 @@ describe('closeLoanPeriod — closing a second month', () => {
     await closeLoanPeriod(COMPANY, '202501', USER);
     const afterJan = capturedLines().length;
 
-    primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28', JAN_ST));
+    primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28'), JAN_ST);
     await closeLoanPeriod(COMPANY, '202502', USER);
 
     const febLines = capturedLines().slice(afterJan);
@@ -139,7 +148,7 @@ describe('closeLoanPeriod — closing a second month', () => {
     await closeLoanPeriod(COMPANY, '202501', USER);
     const afterJan = createJournalEntryMock.mock.calls.length;
 
-    primeMonth(loanRow(JAN_ST, 890_000, '2025-02-28', JAN_ST));
+    primeMonth(loanRow(JAN_ST, 890_000, '2025-02-28'), JAN_ST);
     const result = await closeLoanPeriod(COMPANY, '202502', USER);
 
     expect(createJournalEntryMock.mock.calls.length).toBe(afterJan);
@@ -152,7 +161,7 @@ describe('closeLoanPeriod — closing a second month', () => {
     const afterJan = capturedLines().length;
 
     // February's twelve-month window is smaller than January's.
-    primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28', JAN_ST));
+    primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28'), JAN_ST);
     await closeLoanPeriod(COMPANY, '202502', USER);
 
     const febLines = capturedLines().slice(afterJan);
@@ -164,5 +173,57 @@ describe('closeLoanPeriod — closing a second month', () => {
       febLines.reduce((s, l) => s + l.credit, 0), 2,
     );
     expect(currentPortionBalance()).toBeCloseTo(FEB_ST, 2);
+  });
+});
+
+describe('closeLoanPeriod — a month that locked without reclassifying this loan', () => {
+  // Review H2. closeLoanPeriod writes the period lock unconditionally, after
+  // the `missing GL accounts`, `no schedule row` and zero-movement skips. The
+  // prior figure used to be read off any earlier lock, so a close that posted
+  // nothing for this loan still supplied a prior and the next close journalled
+  // a movement off a balance that was never there — driving the current-portion
+  // account to a DEBIT balance that never self-corrects.
+  it('reclassifies the full amount when the earlier close skipped this loan', async () => {
+    // January: the loan has no current-portion account, so the close skips it
+    // and posts nothing — but still locks the month.
+    primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31', { current_portion_account_id: null }));
+    const jan = await closeLoanPeriod(COMPANY, '202501', USER);
+    expect(jan.reclassEntries).toHaveLength(0);
+    expect(jan.skippedLoans).toEqual([{ loanId: LOAN, reason: 'missing GL accounts' }]);
+
+    // February: accounts are fixed. Nothing was reclassified in January, so
+    // February must post the FULL current portion, not a movement off it.
+    primeMonth(loanRow(FEB_ST, 890_000, '2025-02-28'));
+    await closeLoanPeriod(COMPANY, '202502', USER);
+
+    expect(currentPortionBalance()).toBeCloseTo(FEB_ST, 2);
+    const leg = capturedLines().find((l) => l.glAccountId === CURRENT_PORTION)!;
+    expect(leg.credit).toBeCloseTo(FEB_ST, 2);
+    expect(leg.debit).toBe(0);
+  });
+
+  it('records what it reclassified, so the next close reads a real figure', async () => {
+    primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'));
+    await closeLoanPeriod(COMPANY, '202501', USER);
+
+    const recorded = sqlMock.mock.calls
+      .map((c) => (c[0] as TemplateStringsArray).join('?'))
+      .filter((q) => q.includes('INSERT INTO loan_reclass_postings'));
+    expect(recorded).toHaveLength(1);
+    // company_id, loan_id, yyyymm, st_liability, journal_entry_id
+    const args = sqlMock.mock.calls.find(
+      (c) => (c[0] as TemplateStringsArray).join('?').includes('INSERT INTO loan_reclass_postings'),
+    )!.slice(1);
+    expect(args).toEqual([COMPANY, LOAN, '202501', JAN_ST, 'je-1']);
+  });
+
+  it('records nothing when the movement was zero and no journal posted', async () => {
+    primeMonth(loanRow(JAN_ST, 900_000, '2025-01-31'), JAN_ST);
+    await closeLoanPeriod(COMPANY, '202501', USER);
+
+    const recorded = sqlMock.mock.calls
+      .map((c) => (c[0] as TemplateStringsArray).join('?'))
+      .filter((q) => q.includes('INSERT INTO loan_reclass_postings'));
+    expect(recorded).toHaveLength(0);
   });
 });

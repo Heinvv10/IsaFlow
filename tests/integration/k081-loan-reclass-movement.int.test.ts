@@ -31,6 +31,7 @@ function tenant(): Tenant {
 
 const A = tenant();
 const B = tenant();
+const C = tenant();
 
 /** st_liability falls month on month as the twelve-month window shortens. */
 const MONTHS = [
@@ -84,6 +85,7 @@ async function seed(t: Tenant, label: string) {
 }
 
 async function cleanup(t: Tenant) {
+  await pool.query('DELETE FROM loan_reclass_postings WHERE company_id=$1', [t.company]);
   await pool.query('DELETE FROM loan_period_locks WHERE company_id=$1', [t.company]);
   await pool.query('DELETE FROM loan_gl_postings WHERE company_id=$1', [t.company]);
   await pool.query('DELETE FROM loan_schedule_rows WHERE run_id=$1', [t.runId]);
@@ -102,12 +104,18 @@ beforeAll(async () => {
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await seed(A, 'A');
   await seed(B, 'B');
+  await seed(C, 'C');
+  // Review H2: tenant C's loan has no current-portion account, so its first
+  // close skips the loan and posts nothing — while still locking the month.
+  await pool.query(
+    'UPDATE loans SET current_portion_account_id = NULL WHERE id=$1', [C.loan]);
 });
 
 afterAll(async () => {
   try {
     await cleanup(A);
     await cleanup(B);
+    await cleanup(C);
     await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }
 });
@@ -174,4 +182,72 @@ it('leaves the second tenant untouched', async () => {
   // Closing B's first period reclassifies its own full amount, unaffected by A.
   await close(B, MONTHS[0]!.yyyymm);
   expect(await balance(B.company, B.accounts['2410']!)).toBeCloseTo(MONTHS[0]!.st, 2);
+});
+
+it('reclassifies in full after a close that locked the month but skipped this loan', async () => {
+  // Review H2. closeLoanPeriod writes the period lock unconditionally, after
+  // the `missing GL accounts`, `no schedule row` and zero-movement skips. When
+  // the prior figure was read off any earlier LOCK, this loan supplied a prior
+  // of 100,000 for a reclass that never posted, and the next close journalled
+  // 92,000 - 100,000 = -8,000: a DEBIT balance of 8,000 on an account that
+  // should have held a credit of 92,000, sign inverted and never self-correcting.
+  const first = await close(C, MONTHS[0]!.yyyymm);
+  expect(first.reclassEntries).toHaveLength(0);
+  expect(first.skippedLoans).toEqual([{ loanId: C.loan, reason: 'missing GL accounts' }]);
+  expect(await balance(C.company, C.accounts['2410']!)).toBe(0);
+
+  // The month is locked all the same, which is what made the lock unusable as
+  // evidence that anything was reclassified.
+  const locks = await pool.query(
+    'SELECT COUNT(*)::int AS n FROM loan_period_locks WHERE company_id=$1', [C.company]);
+  expect(locks.rows[0].n).toBe(1);
+
+  // Nothing was recorded as reclassified, so the next close posts the FULL
+  // current portion, not a movement off a balance that was never there.
+  await pool.query(
+    'UPDATE loans SET current_portion_account_id=$1 WHERE id=$2', [C.accounts['2410'], C.loan]);
+  await close(C, MONTHS[1]!.yyyymm);
+
+  expect(await balance(C.company, C.accounts['2410']!)).toBeCloseTo(MONTHS[1]!.st, 2);
+  expect(await balance(C.company, C.accounts['2400']!)).toBeCloseTo(-MONTHS[1]!.st, 2);
+});
+
+it('records the figure each close reclassified to', async () => {
+  const { rows } = await pool.query(
+    `SELECT yyyymm, st_liability::float8 AS st FROM loan_reclass_postings
+      WHERE company_id=$1 AND loan_id=$2 ORDER BY yyyymm`, [A.company, A.loan]);
+  expect(rows.map((r: { yyyymm: string; st: number }) => [r.yyyymm.trim(), r.st]))
+    .toEqual(MONTHS.map((m) => [m.yyyymm, m.st]));
+});
+
+it('is unmoved by a schedule recomputed between two closes', async () => {
+  // Review M3. The prior figure used to come from the LATEST schedule run, so
+  // repricing a loan after a close silently restated the earlier month and the
+  // difference stuck in the current-portion account for good.
+  const before = await balance(C.company, C.accounts['2410']!);
+
+  // A reprice: a newer run gives the ALREADY CLOSED month a different figure.
+  const newRun = randomUUID();
+  await pool.query(
+    `INSERT INTO loan_schedule_runs(id,loan_id,company_id,engine_version,inputs_hash,computed_at)
+     VALUES($1,$2,$3,'test','k081-repriced',NOW() + interval '1 hour')`,
+    [newRun, C.loan, C.company]);
+  for (const m of MONTHS) {
+    await pool.query(
+      `INSERT INTO loan_schedule_rows(run_id,period,date,opening,rate,installment,interest,principal,
+         lump,skip_flag,payment,closing,st_liability,extrapolated,nca_flagged)
+       VALUES($1,$2,$3,100000,12,8884.88,1000,7884.88,0,false,8884.88,$4,$5,false,false)`,
+      [newRun, m.period, m.date, m.closing, m.st + 25000]);
+  }
+
+  await close(C, MONTHS[2]!.yyyymm);
+
+  // The movement is measured against what the previous close actually posted,
+  // so the account lands on the new run's figure exactly once.
+  const expected = MONTHS[2]!.st + 25000;
+  expect(await balance(C.company, C.accounts['2410']!)).toBeCloseTo(expected, 2);
+  expect(before).toBeCloseTo(MONTHS[1]!.st, 2);
+
+  await pool.query('DELETE FROM loan_schedule_rows WHERE run_id=$1', [newRun]);
+  await pool.query('DELETE FROM loan_schedule_runs WHERE id=$1', [newRun]);
 });
