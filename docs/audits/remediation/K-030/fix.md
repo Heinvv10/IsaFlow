@@ -47,3 +47,58 @@ invalidation write to `updateLoan`, and it does not touch the cache lookup's
 missing `company_id` predicate in `getOrComputeSchedule` (the loan row is already
 tenant-scoped by `fetchLoanData`, so that is unexploitable but worth a separate
 look). Historical figures are not restated; the next read simply recomputes.
+
+---
+
+# Round 2 — the five review findings on 1e41ba30
+
+**H1 (HIGH) — a revert left a superseded run newest, and the ledger reads newest.**
+`loanGlPostingService:164`, `loanComplianceService:259` and `loanPeriodCloseService:147`
+all pick the run by `ORDER BY computed_at DESC LIMIT 1`. A cache hit returned an
+older run and inserted nothing, so compute A, edit to B, revert to A left run B
+newest: the screen showed A while the ledger posted B. The cache-hit branch now
+`UPDATE loan_schedule_runs SET computed_at = now() WHERE id = ... AND company_id = ...`
+and returns the touched timestamp, so the newest run is always the current-inputs
+run. The revert test no longer treats run reuse as the whole story: it asserts the
+consumers' own latest-run query returns the reverted run.
+
+**M1 — the hash could move with SQL tie order.** `fetchEvents` and
+`fetchRatePoints` had no tiebreaker, so same-date rows could arrive in either
+order and hash differently, costing a full recompute and a new run on every read.
+Both queries now order by `(date, id)`, and `buildInputsHash` sorts the mapped
+arrays by date exactly as the compute path does.
+
+**M2 — the guard did not run without `DATABASE_URL`.** `scripts/ci/run-ci.sh:42`
+skips the integration step when `DATABASE_URL` is unset, so `bun run ci` was green
+with the fix reverted. `buildInputsHash` is now exported and
+`tests/unit/services/loanScheduleInputsHash.test.ts` covers it with no database:
+principal, rate, term, residual, start date and day count each move the key,
+identical inputs are stable, `updated_at`/`reference` do not move it, event
+amounts do, and date ordering is normalised.
+
+**L1 — module doc described the bug.** `src/modules/accounting/services/loans/.claude.md`
+now states the real hash contents, the `ENGINE_VERSION` bump rule and the
+cache-hit touch. `bun run agent-docs:generate` regenerated the mirror;
+`agent-docs:check` reports 74 mirrors matching.
+
+**L2 — `ENGINE_VERSION` had nothing tying it to the engine.** A comment at the
+constant now requires a bump on any behavioural change to
+`src/lib/amortisation/engine.ts`.
+
+**Tests.** 6 integration (real Postgres) + 10 new unit + the existing 8-test
+`tests/unit/services/loans/loanScheduleService.test.ts`, all passing. That existing
+file needed one mock added for the new UPDATE, and now asserts the touch. Targeted
+mutations, each with the rest of the fix intact: reset the file to `origin/master`
+and 3 of 6 integration plus 7 of 10 unit go red; remove only the H1 touch and the
+revert test alone goes red; remove only the M1 sort and the ordering unit test
+alone goes red. Recorded in `green.log`.
+
+**Still not done.** `updateLoan` still writes no invalidation of its own; the fix
+is entirely on the read path. The cache lookup at `:164` still has no
+`company_id` predicate (unexploitable, `fetchLoanData` already tenant-verified the
+loan). The production impact query still returns 0 rows, so nothing to restate.
+
+**Known-unstable, unrelated.** A full `tests/unit/services/` run fails 3 files, and
+which files fail changes between identical runs. They all pass in isolation and the
+same instability reproduces with this change's test file removed. Pre-existing
+cross-file mock pollution.
