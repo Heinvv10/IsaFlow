@@ -1,3 +1,4 @@
+import {readBankAllocationJournalRelationship} from './bankAllocationJournalRelationship';
 import { assertControlledEffectPermit } from './approvalExecutionService';
 import type { ControlTx } from './contracts';
 import type { ParentJournalControl } from './generatedJournalPermit';
@@ -6,6 +7,7 @@ import type { ParentJournalControl } from './generatedJournalPermit';
 export async function readPostingIntentJournalRelationship(ctx: ControlTx, control: ParentJournalControl,
   journalId: string, operation: 'journal.post' | 'journal.reverse'): Promise<unknown[]> {
   assertControlledEffectPermit(ctx, control.permit, control.parent);
+  if (control.parent.entityType === 'bank_allocation_intent') return readBankAllocationJournalRelationship(ctx,control,journalId,operation);
   if (operation !== 'journal.post') return [];
   const { parent, permit } = control, company = ctx.principal.companyId;
   if (parent.entityType === 'bank_transfer_intent' && parent.operation === 'bank_transfer.post') {
