@@ -378,7 +378,7 @@
     "K-009/validation.md"
    ],
    "fixCommit": "0882a6c3",
-   "pr": null,
+   "pr": "https://github.com/Heinvv10/IsaFlow/pull/375",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
@@ -1076,26 +1076,30 @@
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "7f92a7cb",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [
     "tests/integration/afs-pre-export-checks.int.test.ts",
     "tests/integration/k028-ppe-additions-include-prior-year.int.test.ts"
    ],
    "evidencePaths": [
+    "K-028/ci.log",
+    "K-028/fix.md",
+    "K-028/green.log",
     "K-028/red.log",
     "K-028/validation.md"
    ],
-   "fixCommit": "7f92a7cb",
+   "fixCommit": "280bc0be;a526d843;7f92a7cb",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/371",
    "deployedSha": null,
    "historicalDataImpact": "Read-side only and the endpoint has no consumer in the repo (reviewer-verified), so no issued AFS note was produced from it; the filed note comes from a separate generator (R-023).",
    "canonicalItem": null,
    "reportedSeverity": "critical",
    "branch": "fix/audit-k028-ppe-additions",
-   "reviewRounds": 2
+   "reviewRounds": 2,
+   "mergeCommit": "851f384f"
   },
   {
    "id": "K-029",
@@ -8660,22 +8664,26 @@
    "severityRationale": "Discovered during validation of the named K item; reachability described in that item's validation.md, not yet independently reproduced.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
    "currentSha": "7f92a7cb",
-   "status": "in-progress",
+   "status": "code-verified",
    "dependencies": [
-    "Review rounds complete; local CI, push, PR and merge in the serialised queue"
+    "Merged to master; production deployment pending (batch 2)"
    ],
    "testNames": [],
    "evidencePaths": [
+    "K-028/ci.log",
+    "K-028/fix.md",
+    "K-028/green.log",
     "K-028/validation.md"
    ],
-   "fixCommit": "7f92a7cb",
+   "fixCommit": "280bc0be;a526d843;7f92a7cb",
    "pr": "https://github.com/Heinvv10/IsaFlow/pull/371",
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
    "reportedSeverity": "medium",
    "branch": "fix/audit-k028-ppe-additions",
-   "reviewRounds": 2
+   "reviewRounds": 2,
+   "mergeCommit": "851f384f"
   },
   {
    "id": "R-008",
@@ -11054,6 +11062,7 @@
   }
  ],
  "processNotes": [
-  "Fixers for K-030 and K-036 each ran one read-only SELECT against the production database to size historical impact before the no-production-queries instruction was issued; no writes. Results are disclosed in K-030/fix.md and K-036/fix.md. All later impact SQL is unexecuted text."
+  "Fixers for K-030 and K-036 each ran one read-only SELECT against the production database to size historical impact before the no-production-queries instruction was issued; no writes. Results are disclosed in K-030/fix.md and K-036/fix.md. All later impact SQL is unexecuted text.",
+  "2026-09-09 batch-2a deploy attempt 1 was refused by the deploy lock (another session's VAT release from /tmp/isaflow-release-vat-20260909 was running); a waiter re-runs scripts/deploy.sh from current origin/master once the lock clears."
  ]
 }
