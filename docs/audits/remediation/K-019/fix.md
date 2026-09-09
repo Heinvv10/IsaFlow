@@ -31,25 +31,28 @@ exactly one bank line.
    `bankAllocationService` selects on it, so relinked rows were invisible to that guard.
 7. Both run inside one savepoint, and return `{ linked, failed }`. That signal now
    reaches consumers rather than stopping at the contract: a failed pass adds an entry to
-   the import result's `errors[]`, and the bank transactions page reads the relink
-   response and shows a non-blocking notice.
+   the import result's `errors[]`, which both import routes return as `warnings`, and the
+   bank transactions page reads the relink response and shows a non-blocking notice.
+   `passes` on the result reports how many linking statements a call ran, so a regression
+   to one row per pass is visible in the log and assertable.
 
 **Files.** `bankTransferLinkService.ts` (the import batch pass moved here from
 `bankImportService.ts`, which kept a second copy of the same defective SQL),
 `bankTransferLinkPasses.ts` (new — the shared savepoint and repeat loop, split out to
 keep both files under 300 lines), `bankImportService.ts`,
 `pages/api/accounting/bank-relink-transfers.ts`,
+`pages/api/accounting/bank-transactions-bulk-commit.ts`,
+`pages/api/accounting/bank-feeds/[id]/extension-ingest.ts`,
 `pages/accounting/bank-transactions/index.tsx`.
 
 **Tests.** 19 passed against the real fixture DB across
 `tests/integration/k019-transfer-relink-double-bind.int.test.ts` (10) and
 `tests/integration/k019-import-autolink-double-bind.int.test.ts` (9), plus
-`tests/unit/services/bank/bankImportService.bulk.test.ts` (9). Fifteen mutations, one per
+`tests/unit/services/bank/bankImportService.bulk.test.ts` (9). Seventeen mutations, one per
 production behaviour, each go RED; see `green.log`, which also records that two of them
-survived at first and what closed them. Full unit suite green at 9322 passed with the
-test timeout raised; at the default 10s it is flaky on this box and this branch trips
-more of it than origin/master — measured interleaved, and detailed in `green.log`. RED on
-origin/master in `red.log`.
+survived at first and what closed them. Full unit suite green at 9322 passed at both the default
+and a raised timeout once the box quietened; the earlier flakiness under load 140-175 is
+measured interleaved and written up in `green.log`. RED on origin/master in `red.log`.
 
 **Migration.** None. **Rollback.** Revert the commit; no schema or data change.
 
@@ -75,5 +78,6 @@ not a maximum matching: a partial overlap can still need a second pass, which is
 loop is for. Because the relink now writes `transfer_journal_entry_id`, rows it links
 become eligible SOURCES for a later import pass, where before they were invisible to it;
 the anti-join makes that safe, and it is the correct widening, but it is a behaviour
-change. This branch is measurably slower under heavy parallel load, enough to trip more
-10s test timeouts; no assertion fails.
+change. The two import routes' `warnings`
+pass-through is a one-line mapping in each with no route test harness in this repo, so it
+is the one change here that no mutation can fail.

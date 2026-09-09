@@ -19,6 +19,13 @@ export type Row = Record<string, unknown>;
  */
 export interface TransferLinkResult {
   linked: number;
+  /**
+   * Statements the pass ran that linked something. One means the rank pairing
+   * settled every contender in a single statement; more means a partial overlap
+   * needed a second look. Reported so a regression to one-row-per-pass is
+   * visible in the log and assertable in a test.
+   */
+  passes: number;
   failed: boolean;
 }
 
@@ -73,11 +80,11 @@ export async function runLinkPasses(
           break;
         }
       }
-      if (linked > 0) log.info(label, { ...context, linked }, 'accounting');
-      return { linked, failed: false };
+      if (linked > 0) log.info(label, { ...context, linked, passes }, 'accounting');
+      return { linked, passes, failed: false };
     });
   } catch (err) {
     log.warn(`${label} failed — non-fatal`, { ...context, error: err }, 'accounting');
-    return { linked: 0, failed: true };
+    return { linked: 0, passes: 0, failed: true };
   }
 }
