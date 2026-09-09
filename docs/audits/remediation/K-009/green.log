@@ -58,3 +58,47 @@ Run 2 of the baseline reproduces the SAME 6 failures as the branch, in the
 same 3 files. They are pre-existing order-dependent flakes (all 3 files pass
 in isolation on both trees) and none of them import migrationExecuteService.
 Baseline run 1 hit only 2 of the 6, which is what makes them flakes.
+
+=== K-009 round 3 (re-review findings M7 L8 L9 L10 L11) ===
+
+--- Targeted real-DB suite ---
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+--- Mocked unit (migrationExecuteSubtype + migrationOpeningBalances) ---
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+
+--- Mutation checks (6-test real-DB suite) ---
+### MUTATION A: drop the ON CONFLICT ... WHERE imported_from = EXCLUDED.imported_from guard (M3)
+ Test Files  2 failed (2)
+      Tests  3 failed | 3 passed (6)
+### MUTATION B: replace the per-account savepoint loop with one unqualified DELETE guarded only on gl_journal_lines (H1)
+ Test Files  1 failed | 1 passed (2)
+      Tests  2 failed | 4 passed (6)
+### MUTATION C: drop the imported_from = NULL update on retained accounts (M4)
+ Test Files  2 failed (2)
+      Tests  3 failed | 3 passed (6)
+### MUTATION D: drop AND imported_from = source from the opening-balance account lookup (M7)
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 5 passed (6)
+### MUTATION E: drop the set-based fast path, leaving only the per-account loop (L11)
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+### RESTORED
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+
+MUTATION E is an EQUIVALENT MUTANT: the fast path is a round-trip
+optimisation whose results are identical to the loop's. So is re-adding
+imported_from = EXCLUDED.imported_from (see round 2 above). The L8 zero-row
+branch has NO test: reproducing it needs a concurrent delete or an RLS
+session between the candidate SELECT and the DELETE.
+
+--- Full unit suite, no DATABASE_URL ---
+ Test Files  2 failed | 782 passed | 36 skipped (820)
+      Tests  2 failed | 9319 passed | 234 skipped (9555)
+ FAIL  tests/unit/services/bank/bankAllocationUnwind.test.ts
+ FAIL  tests/unit/services/cashFlowReport.test.ts
+Both reproduce on an origin/master baseline run of the same command
+(base-full-suite.log, round 2 above) and pass in isolation on either tree.

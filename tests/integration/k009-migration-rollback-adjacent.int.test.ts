@@ -8,9 +8,15 @@
  *     another company is untouched.
  *  4. Re-importing the same code from a second source neither re-tags the
  *     account nor silently overwrites it; it is reported and left alone.
+ *  5. An account the conflict guard refused is not resolvable for opening
+ *     balances either, so the source's trial balance is refused whole rather
+ *     than posted onto the company's own account.
+ *  6. Under a request transaction the savepoint keeps the transaction usable
+ *     after the foreign-key refusal, which is what the loop depends on.
  */
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { als } from '@/lib/als';
 import { assertDisposable } from './mfa-impersonation-postgres.helpers';
 import { executeMigration, rollbackMigration } from '../../src/modules/accounting/services/core/migrationExecuteService';
 import type { ParsedAccount } from '../../src/modules/accounting/services/core/migrationParserService';
@@ -18,7 +24,8 @@ import type { ParsedAccount } from '../../src/modules/accounting/services/core/m
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const owner = crypto.randomUUID(), neighbour = crypto.randomUUID(), user = crypto.randomUUID();
-const companies = [owner, neighbour];
+const blocked = crypto.randomUUID(), txCo = crypto.randomUUID();
+const companies = [owner, neighbour, blocked, txCo];
 const period = crypto.randomUUID();
 
 const parsed = (code: string, name: string): ParsedAccount => ({
@@ -27,7 +34,10 @@ const parsed = (code: string, name: string): ParsedAccount => ({
 });
 
 beforeAll(async () => {
-  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)', [owner, 'K009 owner fixture', neighbour, 'K009 neighbour fixture']);
+  await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4),($5,$6),($7,$8)',
+    [owner, 'K009 owner fixture', neighbour, 'K009 neighbour fixture', blocked, 'K009 blocked fixture', txCo, 'K009 tx fixture']);
+  await pool.query(`INSERT INTO gl_accounts(company_id,account_code,account_name,account_type,normal_balance,level,is_active)
+    VALUES($1,'7000','House cash','asset','debit',3,true)`, [blocked]);
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
   await pool.query(`INSERT INTO fiscal_periods(id,company_id,period_name,period_number,fiscal_year,start_date,end_date)
     VALUES($1,$2,'2026-02',2,2026,'2026-02-01','2026-02-28')`, [period, owner]);
@@ -96,4 +106,59 @@ it('does not re-tag or overwrite an account when a second source imports the sam
   await expect(rollbackMigration(neighbour, 'quickbooks')).resolves.toEqual({ deleted: 0, retained: 0, retainedCodes: [] });
   const survivors = await pool.query('SELECT count(*)::int AS n FROM gl_accounts WHERE company_id=$1', [neighbour]);
   expect(survivors.rows[0].n).toBe(3);
+});
+
+it('refuses the whole opening trial balance when the guard skipped one of its accounts', async () => {
+  const result = await executeMigration(blocked, user, 'xero', [
+    { sourceCode: '7000', sourceName: 'Cash at bank', sourceType: 'Asset', openingBalance: 100,
+      mappedType: 'asset', mappedNormalBalance: 'debit', mappedSubtype: 'current_asset' },
+    { sourceCode: '7100', sourceName: 'Sales', sourceType: 'Revenue', openingBalance: 100,
+      mappedType: 'revenue', mappedNormalBalance: 'credit', mappedSubtype: 'operating_revenue' },
+  ], [], []);
+
+  expect(result.errors).toEqual([
+    'Account "7000 Cash at bank": code already used by an account not imported from xero — left unchanged',
+    expect.stringContaining('no GL account was created for 7000 Cash at bank'),
+  ]);
+  expect(result.openingBalancesSet).toBe(0);
+
+  // "Left unchanged" has to mean unchanged: no opening balance may land on the
+  // company's own account, and the rest of the journal must not post either —
+  // half a trial balance is an out-of-balance chart.
+  const house = await pool.query('SELECT account_name,account_type,imported_from FROM gl_accounts WHERE company_id=$1 AND account_code=$2', [blocked, '7000']);
+  expect(house.rows).toEqual([{ account_name: 'House cash', account_type: 'asset', imported_from: null }]);
+  const lines = await pool.query('SELECT count(*)::int AS n FROM gl_journal_lines WHERE company_id=$1', [blocked]);
+  expect(lines.rows[0].n).toBe(0);
+  const entries = await pool.query('SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1', [blocked]);
+  expect(entries.rows[0].n).toBe(0);
+});
+
+it('keeps the request transaction usable after the foreign-key refusal', async () => {
+  await executeMigration(txCo, user, 'xero', [parsed('8000', 'Banked'), parsed('8100', 'Untouched')], [], []);
+  await pool.query(`INSERT INTO bank_accounts(company_id,account_name,gl_account_id)
+    SELECT $1,'Cheque',id FROM gl_accounts WHERE company_id=$1 AND account_code='8000'`, [txCo]);
+
+  // Called directly, withSavepoint degrades to a plain call and each query gets
+  // its own connection. Inside a request there is ONE transaction, and a 23503
+  // aborts it unless the savepoint rolls back — the property the loop rests on.
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await als.run(
+      { client, userId: user, companyId: txCo, claims: { sub: user } },
+      () => rollbackMigration(txCo, 'xero'),
+    );
+    expect(result).toEqual({ deleted: 1, retained: 1, retainedCodes: ['8000'] });
+    // The transaction survived the refusal: a poisoned one raises 25P02 here.
+    await expect(client.query('SELECT 1 AS ok')).resolves.toMatchObject({ rows: [{ ok: 1 }] });
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => { /* the original error is the one worth raising */ });
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  const survivors = await pool.query('SELECT account_code,imported_from FROM gl_accounts WHERE company_id=$1 ORDER BY account_code', [txCo]);
+  expect(survivors.rows).toEqual([{ account_code: '8000', imported_from: null }]);
 });

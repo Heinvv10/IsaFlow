@@ -3,12 +3,16 @@
  * Uses existing migrationCoaService and migrationContactService patterns.
  */
 
-import { sql, transaction, withSavepoint } from '@/lib/neon';
+import { sql, transaction } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import { postOpeningBalances } from './migrationOpeningBalanceService';
 import type { ParsedAccount, ParsedEntity, MigrationSource } from './migrationParserService';
 import type { DbRow } from '@/types/db';
 import { defaultIncomeStatementSubtype } from '../gl/accountSubtypeRules';
+
+// Rollback lives in its own file for the 300-line cap; re-exported so the API
+// route and the wizard keep importing it from here.
+export { rollbackMigration, type RollbackResult } from './migrationRollbackService';
 
 
 export interface ExecuteMigrationResult {
@@ -17,17 +21,6 @@ export interface ExecuteMigrationResult {
   suppliersImported: number;
   openingBalancesSet: number;
   errors: string[];
-}
-
-/**
- * Accounts the rollback could not remove because other rows still point at
- * them are RETAINED, not deleted — and the caller is told which, so the UI
- * never reports a partial rollback as a clean one.
- */
-export interface RollbackResult {
-  deleted: number;
-  retained: number;
-  retainedCodes: string[];
 }
 
 export interface VerifyEntry {
@@ -233,60 +226,4 @@ export async function verifyBalances(
   }
 
   return results;
-}
-
-// ── Rollback ─────────────────────────────────────────────────────────────────
-
-export async function rollbackMigration(
-  companyId: string,
-  source: MigrationSource,
-): Promise<RollbackResult> {
-  const retained: { id: string; code: string }[] = [];
-  let deleted = 0;
-
-  try {
-    const candidates = (await sql`
-      SELECT id, account_code FROM gl_accounts
-      WHERE company_id = ${companyId}::UUID AND imported_from = ${source}
-      ORDER BY account_code
-    `) as DbRow[];
-
-    // One savepoint per account. `gl_accounts` is the target of dozens of
-    // foreign keys and nearly all of them are NO ACTION, so a single DELETE
-    // over the whole set lets ONE blocking row — a bank account, an asset, a
-    // trigger-maintained balance row that outlives its journal lines — raise
-    // 23503 and abort the entire rollback. Enumerating the blockers by hand
-    // would go stale the first time a table is added; letting Postgres refuse
-    // the row cannot. A refusal retains that one account, nothing more.
-    for (const [i, row] of candidates.entries()) {
-      const id = String(row.id);
-      const code = String(row.account_code);
-      try {
-        await withSavepoint(`mig_rb_${i}`, async () => {
-          await sql`DELETE FROM gl_accounts WHERE id = ${id}::UUID AND company_id = ${companyId}::UUID`;
-        });
-        deleted += 1;
-      } catch (err) {
-        if ((err as { code?: string }).code !== '23503') throw err;
-        retained.push({ id, code });
-      }
-    }
-
-    // A retained account keeps nothing of the import. Leaving the tag on would
-    // leave the delete armed: once the blocking rows go, a later rollback of
-    // the same source would take an account that has been in normal use since.
-    if (retained.length > 0) {
-      await sql`
-        UPDATE gl_accounts SET imported_from = NULL
-        WHERE company_id = ${companyId}::UUID AND id = ANY(${retained.map(r => r.id)}::UUID[])
-      `;
-    }
-
-    log.info('Rollback complete', { companyId, source, deleted, retained: retained.length }, 'migration');
-  } catch (err) {
-    log.error('Rollback failed', { companyId, source, error: err }, 'migration');
-    throw err;
-  }
-
-  return { deleted, retained: retained.length, retainedCodes: retained.map(r => r.code) };
 }
