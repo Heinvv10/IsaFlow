@@ -21,3 +21,6 @@ Post-deploy verification (in addition to the deploy script's golden paths + inte
 - Golden path h-payroll-run covers K-022; j-fixed-assets-far covers K-027/K-029.
 - K-010 introduces src/lib/alsTransaction.ts for out-of-request reversals; the fixture role is a superuser that bypasses RLS, so confirm which role production connects as and that the new transaction sets the same GUCs/RLS context as withAuth before relying on it for cron/script callers.
 - Sage import admin page (K-038 SageCommitSummary panel) and the depreciation run page (K-029 "No charge"/"GL Failed" labels) load on Demo with the new panels rendered — browser proof required.
+
+## Dev/golden database note (2026-09-09)
+The blocking Golden Paths job boots against `isaflow_dev`, which was at migration 614 while master carries 615–618 and the batch-2 branches add 619–626. K-022's golden run failed on `column p.schedule_row_id does not exist` until 621 and 622 were applied to `isaflow_dev` by psql with hand-inserted `schema_migrations` rows (name, version, sha256). Other batch-2 migrations are indexes/triggers the golden paths do not depend on; 615–618 remain unapplied on dev (pre-existing gap, capture/WhatsApp only). Production is migrated by `scripts/deploy.sh`; this note is about the dev runner only.
