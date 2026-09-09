@@ -23,14 +23,19 @@ import type {
   DepreciationRunResultRow,
 } from '@/modules/accounting/services/items/depreciationRunService';
 
-type DepRun = Pick<DepreciationRunResult, 'processed' | 'skipped' | 'total' | 'results'>;
+type DepRun = Pick<DepreciationRunResult, 'processed' | 'skipped' | 'glFailed' | 'total' | 'results'>;
 
 /** Posted, no charge this period, or a real failure. Only the last is red. */
 function runOutcome(r: DepreciationRunResultRow): { label: string; className: string } {
+  // A rolled-back period comes FIRST. It shares `entryId: null` with an
+  // ordinary zero charge, so a life-expired asset that also failed to post read
+  // as a quiet "No charge" while the failure went unmentioned on the page.
+  if (r.glFailed) return { label: 'GL Failed', className: 'text-red-400 text-xs' };
   if (r.entryId) return { label: 'GL Posted', className: 'text-teal-400 text-xs' };
-  // A life-expired asset simply has no charge. Rendering it as "GL Failed"
-  // sent an operator hunting for a failure that never happened.
-  if (r.lifeExpiredNote) return { label: 'No charge', className: 'text-[var(--ff-text-tertiary)] text-xs' };
+  // No charge is not a failure: a life-expired asset, or one whose policy track
+  // is done while its tax track still posts. Rendering these red sent an
+  // operator hunting for a failure that never happened.
+  if (r.policyDep === 0) return { label: 'No charge', className: 'text-[var(--ff-text-tertiary)] text-xs' };
   return { label: 'GL Failed', className: 'text-red-400 text-xs' };
 }
 
@@ -53,16 +58,20 @@ const fmt = (n: number) =>
   new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR' }).format(n);
 
 /** The charge the run would post for this asset — its method, not straight line. */
-export function monthlyCharge(a: AssetRow, today: Date = new Date()): number {
+export function monthlyCharge(a: AssetRow, today: Date = new Date()): number | null {
   const pp = Number(a.purchase_price);
   const sv = Number(a.salvage_value || 0);
   const uly = Number(a.useful_life_years);
   if (!(pp > 0) || !(uly > 0)) return 0;
+  // Without a purchase date there is no schedule. Substituting today made the
+  // asset look bought this month, so the first-month pro-rate fired and the
+  // column showed a partial charge — a number, and the wrong one.
+  if (!a.purchase_date) return null;
   return calculatePolicyDepreciation({
     cost: pp,
     residualPct: sv / pp,
     usefulLifeYears: uly,
-    purchaseDate: fmtDate(a.purchase_date ?? today),
+    purchaseDate: fmtDate(a.purchase_date),
     periodDate: fmtDate(today),
     openingAccDep: Number(a.accumulated_depreciation || 0),
     method: toDepreciationMethod(a.depreciation_method),
@@ -188,6 +197,9 @@ export default function DepreciationPage() {
                 <span className="text-[var(--ff-text-secondary)]">
                   Skipped: {lastRun.skipped}
                 </span>
+                <span className={lastRun.glFailed > 0 ? 'text-red-400' : 'text-[var(--ff-text-secondary)]'}>
+                  GL Failed: {lastRun.glFailed}
+                </span>
                 <span className="text-[var(--ff-text-secondary)]">
                   Total Assets: {lastRun.total}
                 </span>
@@ -272,7 +284,9 @@ export default function DepreciationPage() {
                         {fmt(accum)}
                       </td>
                       <td className="px-4 py-3 text-[var(--ff-text-secondary)]">{uly}</td>
-                      <td className="px-4 py-3 text-right text-purple-400">{fmt(monthly)}</td>
+                      <td className="px-4 py-3 text-right text-purple-400">
+                        {monthly === null ? '—' : fmt(monthly)}
+                      </td>
                     </tr>
                   );
                 })}

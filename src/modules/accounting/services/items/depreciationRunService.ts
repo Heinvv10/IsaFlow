@@ -52,6 +52,13 @@ export interface DepreciationRunResultRow {
   taxDep: number;
   entryId: string | null;
   /**
+   * True when the period ROLLED BACK for this asset. `entryId: null` alone
+   * cannot say so — a zero charge posts no journal either — and a life-expired
+   * asset that also fails to post would otherwise read as an ordinary "no
+   * charge" on the page while its failure went unmentioned.
+   */
+  glFailed: boolean;
+  /**
    * Set when the asset's useful life ended with policy book value still on it.
    * The run charges it nothing — writing the balance off is a prior-period
    * correction, not a month of depreciation — so the amount is reported here
@@ -180,7 +187,7 @@ export async function executeDepreciationRun(
       // The whole period rolled back for this asset. Count it loudly — a silent
       // partial run understates accumulated depreciation until someone notices.
       glFailed += 1;
-      results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId: null, ...note });
+      results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId: null, glFailed: true, ...note });
       continue;
     }
     if (policyDep < 0.01 && taxDep < 0.01) {
@@ -191,12 +198,12 @@ export async function executeDepreciationRun(
       // row. `results` already carries glFailed rows, so it is the assets worth
       // naming, not the posted ones.
       if (row.lifeExpiredNote !== undefined) {
-        results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId: null, ...note });
+        results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId: null, glFailed: false, ...note });
       }
       continue;
     }
 
-    results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId, ...note });
+    results.push({ assetNumber: row.assetNumber, policyDep, taxDep, entryId, glFailed: false, ...note });
     processed += 1;
   }
 
