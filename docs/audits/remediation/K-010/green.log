@@ -78,3 +78,21 @@ bunx tsc --noEmit                                                       clean
 bunx eslint <4 changed src files>                                       clean
 src/lib/neon.ts diff vs branch base is now the getPool export only (stray blank line dropped)
 No production query was run.
+
+### After merging origin/master (merge commit 7d0e4636)
+Master's PR #363 added a business-unit reversal test whose sql queue predates the
+K-010 claim, so its first mocked response was consumed by the claim UPDATE and
+every later response landed one statement early — the inactive-account guard read
+the fiscal-period row and threw "Cannot post to deactivated GL account: undefined
+undefined". vi.clearAllMocks() does not drain an unconsumed mockResolvedValueOnce
+queue, so the surplus leaked forward and all 7 tests in the file failed.
+Fixture-only fix: the claim row is prepended to that test's queue, matching the
+two queues already in the file. No production change; the active-account guard is
+untouched and buId still flows through reversalLines (journalEntryPostingService:182).
+
+tests/unit/services/gl/journalEntryReversal.test.ts                     7 passed
+k010 integration (2 files)                                              7 passed
+full unit suite, DATABASE_URL unset, --testTimeout=30000     794 files / 9443 passed
+bunx tsc --noEmit                                                       clean
+bun run agent-docs:check                                                OK: 74 mirrors match
+No production query was run.
