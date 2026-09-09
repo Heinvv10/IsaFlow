@@ -1,3 +1,6 @@
+import {dispatchBankControlAction} from '@/lib/api/bankControlActions';
+import {bankControlActionRequired,isBankControlAction} from '@/lib/api/bankControlActionSchema';
+import {requireControlTx} from '@/modules/accounting/services/controls/context';
 /**
  * Bank Transaction Actions API
  * POST /api/accounting/bank-transactions-action
@@ -18,13 +21,8 @@ import {
   unmatchTransaction,
   excludeTransaction,
   autoMatchTransactions,
-  allocateTransaction,
-  splitAllocateTransaction,
   deleteTransactions,
   bulkAcceptTransactions,
-  reverseReconciledTransaction,
-  type AllocationType,
-  type SplitLine,
 } from '@/modules/accounting/services/bank/bankReconciliationService';
 
 const BankTxActionSchema = z.discriminatedUnion('action', [
@@ -32,23 +30,6 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('unmatch'), bankTransactionId: UUID }),
   z.object({ action: z.literal('exclude'), bankTransactionId: UUID, excludeReason: z.string().max(200).optional() }),
   z.object({ action: z.literal('auto_match'), bankAccountId: UUID, reconciliationId: UUID.optional() }),
-  z.object({
-    action: z.literal('allocate'),
-    bankTransactionId: UUID,
-    allocationType: z.enum(['account', 'supplier', 'customer', 'transfer']).optional(),
-    contraAccountId: UUID.optional(),
-    entityId: UUID.optional(),
-    description: z.string().max(500).optional(),
-    vatCode: z.string().max(20).optional(),
-    cc1Id: UUID.optional(),
-    cc2Id: UUID.optional(),
-    buId: UUID.optional(),
-  }),
-  z.object({
-    action: z.literal('split_allocate'),
-    bankTransactionId: UUID,
-    lines: z.array(z.object({ contraAccountId: UUID.optional(), amount: z.number(), description: z.string().max(500).optional() })).min(1),
-  }),
   z.object({ action: z.literal('delete'), bankTransactionId: UUID.optional(), bankTransactionIds: z.array(UUID).optional() }),
   z.object({ action: z.literal('bulk_accept'), bankTransactionIds: z.array(UUID).min(1) }),
   z.object({ action: z.literal('update_notes'), bankTransactionId: UUID, notes: z.string().max(1000).optional() }),
@@ -66,12 +47,20 @@ const BankTxActionSchema = z.discriminatedUnion('action', [
     cc2Id: UUID.optional(),
     buId: UUID.optional(),
   }),
-  z.object({ action: z.literal('reverse'), bankTransactionId: UUID }),
 ]);
 
 async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['POST']);
+  }
+
+  if(isBankControlAction(req.body?.action)){
+    const required=bankControlActionRequired(req.body);
+    if(required)return apiResponse.badRequest(res,'Prepare the bank action and obtain its approval before executing.',required);
+    try{return apiResponse.success(res,await dispatchBankControlAction(requireControlTx(),req.body));}
+    catch(error){
+      return apiResponse.badRequestFromError(res,error,'Bank action refused. Use a valid prepared intent and its matching approval.');
+    }
   }
 
   const parsed = BankTxActionSchema.safeParse(req.body);
@@ -83,8 +72,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
   const body = parsed.data;
   try {
-    const userId: string = req.user?.id || 'system';
-
     switch (body.action) {
       case 'match': {
         const tx = await matchTransaction(companyId, body.bankTransactionId, body.journalLineId, body.reconciliationId);
@@ -101,29 +88,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       case 'auto_match': {
         const result = await autoMatchTransactions(companyId, body.bankAccountId, body.reconciliationId);
         return apiResponse.success(res, result);
-      }
-      case 'allocate': {
-        const aType: AllocationType = body.allocationType || 'account';
-        if (aType === 'account' && !body.contraAccountId) {
-          return apiResponse.badRequest(res, 'contraAccountId is required for account allocation');
-        }
-        if ((aType === 'supplier' || aType === 'customer') && !body.entityId) {
-          return apiResponse.badRequest(res, 'entityId is required for supplier/customer allocation');
-        }
-        if (aType === 'transfer' && !body.contraAccountId) {
-          return apiResponse.badRequest(res, 'contraAccountId is required for transfer allocation (the counterparty bank account)');
-        }
-        const result = await allocateTransaction(
-          companyId, body.bankTransactionId, body.contraAccountId || null, userId,
-          body.description, aType, body.entityId, body.vatCode,
-          body.cc1Id, body.cc2Id, body.buId,
-        );
-        return apiResponse.success(res, result);
-      }
-      case 'split_allocate': {
-        const splitLines = body.lines as SplitLine[];
-        const splitResult = await splitAllocateTransaction(companyId, body.bankTransactionId, splitLines, userId);
-        return apiResponse.success(res, splitResult);
       }
       case 'delete': {
         const ids: string[] = body.bankTransactionIds || (body.bankTransactionId ? [body.bankTransactionId] : []);
@@ -169,10 +133,6 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
           WHERE id = ${body.bankTransactionId}::UUID AND company_id = ${companyId}
         `;
         return apiResponse.success(res, { saved: true });
-      }
-      case 'reverse': {
-        await reverseReconciledTransaction(companyId, body.bankTransactionId, userId);
-        return apiResponse.success(res, { reversed: true });
       }
     }
   } catch (err) {
