@@ -28,3 +28,19 @@ export async function prepareCashApplication(ctx:ControlTx,input:unknown){
   return{intentId:id,operation:{entityType:'cash_application_intent',entityId:id,operation:'cash_application.apply' as const}};
  });
 }
+
+export async function executeCashApplication(ctx:ControlTx,intentId:string,options?:{approvalId?:string}){
+ assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ const {loadCashApplicationIntent}=await import('./cashApplicationMaterial');
+ const {executeControlledOperation}=await import('../controls/approvalExecutionService');
+ const {replayKnownOperationEffect}=await import('../controls/operationReceiptReplay');
+ const {executeCashApplicationEffect}=await import('./cashApplicationEffect');
+ return withSavepoint('cash_application_execute',async()=>{
+  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
+  const material=await loadCashApplicationIntent(ctx,intentId);
+  if(material.intent.requester_person_id!==ctx.principal.personId)throw new Error('Cash application requester required');
+  const ref={entityType:'cash_application_intent',entityId:intentId,operation:'cash_application.apply' as const};
+  if(material.effect)return replayKnownOperationEffect<Awaited<ReturnType<typeof executeCashApplicationEffect>>>(ctx,ref,material.effect.id);
+  return executeControlledOperation(ctx,ref,options?.approvalId??null,permit=>executeCashApplicationEffect(ctx,ref,permit));
+ });
+}

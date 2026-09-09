@@ -1,8 +1,9 @@
+import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
 import {confirmCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
 import {getUnappliedReceipts} from '@/modules/accounting/services/ar/unappliedReceiptService';
 import {lockCustomerPaymentForUpdate} from '@/modules/accounting/services/core/paymentLock';
 import {loadCashApplicationSources} from '@/modules/accounting/services/shared/cashApplicationSources';
-import {prepareCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
+import {prepareCashApplication,executeCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
 import {planReceiptApplication,applyReceiptPlan} from '@/modules/accounting/services/ar/receiptApplicationService';
 import {afterAll,beforeAll,expect,it,vi} from 'vitest';
 import {randomUUID,randomBytes} from 'node:crypto';
@@ -144,4 +145,23 @@ it('binds fresh application approval to original maker and permits an independen
  await expect(actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'))).rejects.toThrow(/Self/);
  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
  expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
+});
+
+it('applies approved existing cash once and reverses only its retained allocation history',async()=>{
+ const {invoice,posted}=await postedCash();
+ const prepared=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ await expect(actor(()=>executeCashApplication(requireControlTx(),prepared.intentId))).rejects.toThrow(/approval/i);
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ const applied=await actor(()=>executeCashApplication(requireControlTx(),prepared.intentId,{approvalId:approval.id}));
+ expect(await actor(()=>executeCashApplication(requireControlTx(),prepared.intentId))).toEqual(applied);
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('115.00');
+ const reversal=await actor(()=>prepareCashApplicationReversal(requireControlTx(),{originalIntentId:prepared.intentId,reversalDate:'2026-09-11',reason:'Synthetic incorrect application'}));
+ const inverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),reversal.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),inverseApproval.id,'approved'),'u2');
+ const reversed=await actor(()=>executeCashApplicationReversal(requireControlTx(),reversal.intentId,{approvalId:inverseApproval.id}));
+ expect(await actor(()=>executeCashApplicationReversal(requireControlTx(),reversal.intentId))).toEqual(reversed);
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
+ expect((await pool.query('SELECT amount_allocated::text,reversal_intent_id FROM customer_payment_allocations WHERE application_intent_id=$1',[prepared.intentId])).rows).toEqual([{amount_allocated:'115.00',reversal_intent_id:reversal.intentId}]);
+ expect((await pool.query('SELECT gl_journal_entry_id,status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0]).toMatchObject({gl_journal_entry_id:posted.journalEntryId,status:'confirmed'});
 });

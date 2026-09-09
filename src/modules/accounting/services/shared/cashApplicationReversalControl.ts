@@ -24,3 +24,19 @@ export async function prepareCashApplicationReversal(ctx:ControlTx,input:unknown
   return{intentId:id,operation:{entityType:'cash_application_reversal_intent',entityId:id,operation:'cash_application.reverse' as const}};
  });
 }
+
+export async function executeCashApplicationReversal(ctx:ControlTx,intentId:string,options?:{approvalId?:string}){
+ assertControlTx(ctx);await assertEffectivePermission(ctx,'write:bank-tx');await assertEffectivePermission(ctx,'write:post');
+ const {loadCashApplicationReversal}=await import('./cashApplicationReversalMaterial');
+ const {executeControlledOperation}=await import('../controls/approvalExecutionService');
+ const {replayKnownOperationEffect}=await import('../controls/operationReceiptReplay');
+ const {executeCashApplicationReversalEffect}=await import('./cashApplicationReversalEffect');
+ return withSavepoint('cash_reversal_execute',async()=>{
+  await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
+  const material=await loadCashApplicationReversal(ctx,intentId);
+  if(material.intent.requester_person_id!==ctx.principal.personId)throw new Error('Cash application requester required');
+  const ref={entityType:'cash_application_reversal_intent',entityId:intentId,operation:'cash_application.reverse' as const};
+  if(material.effect)return replayKnownOperationEffect<Awaited<ReturnType<typeof executeCashApplicationReversalEffect>>>(ctx,ref,material.effect.id);
+  return executeControlledOperation(ctx,ref,options?.approvalId??null,permit=>executeCashApplicationReversalEffect(ctx,ref,permit));
+ });
+}
