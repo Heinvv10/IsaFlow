@@ -238,7 +238,9 @@ export async function assessLoan(
   if (loans.length === 0) throw new Error(`Loan ${loanId} not found`);
 
   const runs = (await sql`
-    SELECT id FROM loan_schedule_runs WHERE loan_id = ${loanId} ORDER BY computed_at DESC LIMIT 1
+    SELECT id FROM loan_schedule_runs
+    WHERE loan_id = ${loanId} AND company_id = ${companyId}
+    ORDER BY computed_at DESC LIMIT 1
   `) as Row[];
   if (runs.length === 0) throw new Error('No schedule run exists — compute schedule first');
 

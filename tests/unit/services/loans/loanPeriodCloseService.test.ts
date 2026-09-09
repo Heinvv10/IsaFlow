@@ -13,7 +13,7 @@ vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('@/modules/accounting/services/gl/journalEntryCrudService', () => ({
-  createJournalEntry: vi.fn().mockResolvedValue({ id: 'entry-reclass-0001', entryNumber: 'JE-R-001' }),
+  createJournalEntry: vi.fn().mockResolvedValue({ id: 'entry-reclass-0001', entryNumber: 'JE-R-001', fiscalPeriodId: 'fp-2026-04' }),
   resolveUserUuid: vi.fn().mockResolvedValue('user-uuid'),
 }));
 vi.mock('@/modules/accounting/services/gl/journalEntryPostingService', () => ({
@@ -154,6 +154,7 @@ describe('closeLoanPeriod', () => {
   it('processes each active loan: posts reclass, then locks period', async () => {
     sqlMock
       .mockResolvedValueOnce([])                                // 1. isPeriodLocked
+      .mockResolvedValueOnce([])                                // 1b. no later period closed
       .mockResolvedValueOnce([{                                  // 2. JOINed loans + snapshot
         ...makeLoanRow(),
         snapshot_closing: '200000',
@@ -175,6 +176,7 @@ describe('closeLoanPeriod', () => {
   it('completes even when no active loans exist', async () => {
     sqlMock
       .mockResolvedValueOnce([])                               // isPeriodLocked
+      .mockResolvedValueOnce([])                               // no later period closed
       .mockResolvedValueOnce([])                               // no active loans (JOINed query)
       .mockResolvedValueOnce([{                                 // lock insert
         company_id: COMPANY_ID,
@@ -226,6 +228,7 @@ describe('closeLoanPeriod', () => {
     const createMock = createJournalEntry as unknown as ReturnType<typeof vi.fn>;
     sqlMock
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])                                 // no later period closed
       .mockResolvedValueOnce([{
         ...makeLoanRow(),
         snapshot_closing: '200000', snapshot_stliability: '48000', snapshot_date: '2026-04-30',
@@ -245,6 +248,7 @@ describe('closeLoanPeriod', () => {
   it('skips loans missing required GL accounts and records them in result', async () => {
     sqlMock
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])                                 // no later period closed
       .mockResolvedValueOnce([{                                  // loan with NULL gl_account_id
         ...makeLoanRow({ gl_account_id: null }),
         snapshot_closing: '100000', snapshot_stliability: '20000', snapshot_date: '2026-04-30',

@@ -134,18 +134,29 @@ describe('computeEclAmount', () => {
 // ── computeDaysPastDue (pure) ──────────────────────────────────────────────
 
 describe('computeDaysPastDue', () => {
-  it('returns 0 when last payment is on or before scheduled date', () => {
-    // (lastPayment, asOf, scheduled) — paid on schedule → 0 DPD
+  // (lastPaymentDate, asOf, scheduled). `scheduled` is the OLDEST UNSETTLED
+  // instalment, so arrears run from that due date to the assessment date. The
+  // first argument is retained for the exported signature and deliberately
+  // ignored: measuring `paid − scheduled` reports 0 for a borrower who has
+  // simply stopped paying (K-082). Review L5 — these cases used to assert the
+  // removed semantics and passed only because `asOf` equalled `paid`.
+  it('returns 0 while the oldest unsettled instalment is not yet due', () => {
     expect(computeDaysPastDue('2026-04-15', '2026-04-15', '2026-04-15')).toBe(0);
-    expect(computeDaysPastDue('2026-04-10', '2026-04-15', '2026-04-15')).toBe(0);
+    expect(computeDaysPastDue('2026-04-10', '2026-04-10', '2026-04-15')).toBe(0);
   });
 
-  it('returns positive DPD when payment arrives after scheduled date', () => {
+  it('measures from the scheduled date to asOf, not from the last payment', () => {
     expect(computeDaysPastDue('2026-04-25', '2026-04-25', '2026-04-15')).toBe(10);
+    // A payment received EARLY does not reduce the arrears on an instalment
+    // that is still unsettled — the old `paid − scheduled` reading returned 0.
+    expect(computeDaysPastDue('2026-04-01', '2026-04-25', '2026-04-15')).toBe(10);
   });
 
-  it('handles nulls gracefully — no last payment means asOf - scheduled', () => {
-    expect(computeDaysPastDue(null, '2026-04-25', '2026-04-15')).toBe(10);
+  it('reports the same arrears whatever the last payment date is', () => {
+    const dates = ['2026-01-01', '2026-04-15', '2026-04-30', null];
+    for (const d of dates) {
+      expect(computeDaysPastDue(d, '2026-04-25', '2026-04-15')).toBe(10);
+    }
   });
 
   it('returns 0 when no scheduled date', () => {

@@ -187,7 +187,8 @@ export function amortise(
       if (extendedPeriods >= maxExtendedPeriods) {
         throw new Error(
           `Loan skips more periods than it repays: term extension exceeded ${maxExtendedPeriods} periods. ` +
-          'Reduce recurringSkipMonths to at most 11 calendar months, or use skipMode MAINTAIN_TERM.',
+          'Reduce recurringSkipMonths to at most 11 calendar months, remove SKIP rows from loan_events, ' +
+          'or use skipMode MAINTAIN_TERM.',
         );
       }
       extendedPeriods++;
