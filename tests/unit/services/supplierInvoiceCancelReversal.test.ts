@@ -52,11 +52,19 @@ vi.mock('@/modules/accounting/services/ap/supplierInvoiceService', () => ({
   getSupplierInvoiceById: vi.fn(),
 }));
 
+// postSupplierInvoiceToGL now takes the row lock before its read (audit K-014),
+// the same way approveSupplierInvoice does. The real helper needs a request
+// transaction; here the lock is granted so the guards under test still run.
+vi.mock('@/modules/accounting/services/ap/supplierInvoiceLock', () => ({
+  lockSupplierInvoiceForUpdate: vi.fn(),
+}));
+
 // ── Imports ───────────────────────────────────────────────────────────────────
 
 import { sql, withSavepoint } from '@/lib/neon';
 import { reverseJournalEntry } from '@/modules/accounting/services/gl/journalEntryService';
 import { getSupplierInvoiceById } from '@/modules/accounting/services/ap/supplierInvoiceService';
+import { lockSupplierInvoiceForUpdate } from '@/modules/accounting/services/ap/supplierInvoiceLock';
 import {
   cancelSupplierInvoice,
   postSupplierInvoiceToGL,
@@ -189,6 +197,8 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
   });
 
   it('postSupplierInvoiceToGL refuses cancelled invoices (link is NULL after cancel)', async () => {
+    (lockSupplierInvoiceForUpdate as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(lockRow({ status: 'cancelled', gl_journal_entry_id: null }));
     (getSupplierInvoiceById as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: INVOICE_ID,
       status: 'cancelled',
@@ -198,6 +208,18 @@ describe('cancelSupplierInvoice GL reversal (P1.1 sweep / audit C1)', () => {
     await expect(postSupplierInvoiceToGL(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
       /cancelled/i,
     );
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it('postSupplierInvoiceToGL refuses a bill the lock cannot find (wrong tenant)', async () => {
+    (lockSupplierInvoiceForUpdate as unknown as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(null);
+
+    await expect(postSupplierInvoiceToGL(COMPANY_ID, INVOICE_ID, USER_ID)).rejects.toThrow(
+      /not found/i,
+    );
+    // The read never happens, so nothing downstream of it can post.
+    expect(getSupplierInvoiceById).not.toHaveBeenCalled();
     expect(mockSql).not.toHaveBeenCalled();
   });
 });
