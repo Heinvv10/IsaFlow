@@ -165,3 +165,15 @@ it('applies approved existing cash once and reverses only its retained allocatio
  expect((await pool.query('SELECT amount_allocated::text,reversal_intent_id FROM customer_payment_allocations WHERE application_intent_id=$1',[prepared.intentId])).rows).toEqual([{amount_allocated:'115.00',reversal_intent_id:reversal.intentId}]);
  expect((await pool.query('SELECT gl_journal_entry_id,status FROM customer_payments WHERE company_id=$1 AND id=$2',[fixture.companyA,posted.paymentId])).rows[0]).toMatchObject({gl_journal_entry_id:posted.journalEntryId,status:'confirmed'});
 });
+
+it('executes the legacy receipt adapter only with its exact approved immutable intent',async()=>{
+ const {invoice,posted}=await postedCash();
+ const prepared=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ const preview=await actor(()=>planReceiptApplication(fixture.companyA,posted.paymentId!,[{invoiceId:invoice,amount:115}]));
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ const options={intentId:prepared.intentId,approvalId:approval.id};
+ await expect(actor(()=>applyReceiptPlan(fixture.companyA,{...preview,lines:preview.lines.map(line=>({...line,amount:114}))},fixture.u1.id,options))).rejects.toThrow(/immutable intent/);
+ await actor(()=>applyReceiptPlan(fixture.companyA,preview,fixture.u1.id,options));
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('115.00');
+});

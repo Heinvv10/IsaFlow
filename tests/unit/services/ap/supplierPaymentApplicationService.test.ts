@@ -247,93 +247,12 @@ describe('planSupplierPaymentApplication', () => {
 });
 
 describe('applySupplierPaymentPlan', () => {
-  async function plannedFor(amount: number) {
+  it('does not turn a legacy preview into financial authority', async () => {
     lockMock.mockResolvedValue(paymentRow());
     billRows([billRow(BILL_A)]);
-    const plan = await planSupplierPaymentApplication(COMPANY, PAYMENT, [
-      { invoiceId: BILL_A, amount },
-    ]);
-    sqlMock.mockResolvedValue([]);
-    return plan;
-  }
-
-  it('moves amount_paid by a RELATIVE update, never an absolute one', async () => {
-    const plan = await plannedFor(600);
-    await applySupplierPaymentPlan(COMPANY, plan, USER);
-
-    const updates = sqlMock.mock.calls
-      .map((c) => (c[0] as string[]).join('?'))
-      .filter((t) => t.includes('UPDATE supplier_invoices'));
-    // TWO now: the money write, then recomputeInvoiceStatus deriving status,
-    // paid_at and payment_matched from the balance it left. Asserted as exactly
-    // two — a third would mean a writer crept back in.
-    expect(updates).toHaveLength(2);
-
-    const moneyWrites = updates.filter((t) => /amount_paid\s*=/.test(t));
-    expect(moneyWrites).toHaveLength(1);
-    expect(moneyWrites[0]).toMatch(/amount_paid\s*=\s*COALESCE\(amount_paid,\s*0\)\s*\+/);
-    // NO statement may write it absolutely, not merely the one we picked.
-    for (const t of updates) expect(t).not.toMatch(/SET\s+amount_paid\s*=\s*\?/);
-    // The money write no longer carries the settlement rule with it.
-    expect(moneyWrites[0]).not.toMatch(/payment_matched/);
-    expect(moneyWrites[0]).not.toMatch(/status\s*=/);
-  });
-
-  it('DERIVES payment_matched from the settlement, so a wrongly-set flag is CORRECTED', async () => {
-    // allocateTransaction calls recordPaymentMatch with the FULL bank-line
-    // amount against the FIRST named invoice, so a R1000 line allocating R300
-    // to a R600 bill flags that bill matched before this ever runs. Preserving
-    // the existing flag would keep that lie; deriving it from the settlement
-    // state overwrites it. The flag must be an assignment, not a CASE that only
-    // ever sets TRUE.
-    const plan = await plannedFor(300);
-    await applySupplierPaymentPlan(COMPANY, plan, USER);
-    // Now written by recomputeInvoiceStatus, so look for the statement that
-    // carries the flag rather than assuming it is the first one.
-    const update = sqlMock.mock.calls
-      .map((c) => (c[0] as string[]).join('?'))
-      .find((t) => t.includes('UPDATE supplier_invoices') && t.includes('payment_matched'))!;
-    expect(update).toBeDefined();
-    expect(update).toMatch(/payment_matched\s*=\s*\(/);
-    expect(update).not.toMatch(/payment_matched\s*=\s*CASE[\s\S]*ELSE payment_matched/);
-    // And it clears the timestamp when the flag goes false, so a stale stamp
-    // cannot outlive its claim.
-    expect(update).toMatch(/payment_matched_at = CASE[\s\S]*ELSE NULL/);
-  });
-
-  it('SETS payment_matched when the bill is fully settled', async () => {
-    // The flag is the only thing the bank-allocation path used to set, and the
-    // four-way-match screen reads it. Leaving it behind while amount_paid moves
-    // reproduces the same split between GL and subledger from the other side.
-    const plan = await plannedFor(600);
-    await applySupplierPaymentPlan(COMPANY, plan, USER);
-    const updates = sqlMock.mock.calls
-      .map((c) => (c[0] as string[]).join('?'))
-      .filter((t) => t.includes('UPDATE supplier_invoices'));
-    // Exactly one of the two statements owns the flag — not zero (the bug this
-    // guards) and not both (two writers again).
-    expect(updates.filter((t) => t.includes('payment_matched'))).toHaveLength(1);
-  });
-
-  it('WRITES payment_allocations, never supplier_payment_allocations', async () => {
-    const plan = await plannedFor(600);
-    await applySupplierPaymentPlan(COMPANY, plan, USER);
-    const inserts = sqlMock.mock.calls
-      .map((c) => (c[0] as string[]).join('?'))
-      .filter((t) => t.includes('INSERT INTO'));
-    expect(inserts).toHaveLength(1);
-    expect(inserts[0]).toContain('INSERT INTO payment_allocations');
-    expect(inserts[0]).not.toContain('supplier_payment_allocations');
-  });
-
-  it('scopes every write to the company', async () => {
-    const plan = await plannedFor(600);
-    await applySupplierPaymentPlan(COMPANY, plan, USER);
-    for (const call of sqlMock.mock.calls) {
-      const text = (call[0] as string[]).join('?');
-      if (text.includes('UPDATE supplier_invoices') || text.includes('UPDATE supplier_payments')) {
-        expect(call.slice(1)).toContain(COMPANY);
-      }
-    }
+    const plan = await planSupplierPaymentApplication(COMPANY, PAYMENT, [{invoiceId:BILL_A,amount:100}]);
+    await expect(applySupplierPaymentPlan(COMPANY,plan,USER)).rejects.toThrow(/context|transaction|principal/i);
+    const texts = sqlMock.mock.calls.map((c) => (c[0] as string[]).join('?'));
+    expect(texts.some((t) => /INSERT|UPDATE|DELETE/.test(t))).toBe(false);
   });
 });
