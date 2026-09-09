@@ -12,16 +12,16 @@
 | Task | Status | Owner | Evidence / next action |
 | --- | --- | --- | --- |
 | 0 baseline/remediation reconciliation | verified_current_schema | root | f57f71a7 baseline CI green Node22; historical replay220 limitation classified |
-| 0 complete tool matrix | source_verified | inventory | forensic-evidence/tool-matrix.json: 131 tools,69 reads,62 writes,30 posting; runtime contract tests pending |
+| 0 complete tool matrix | baseline_verified; implementation coverage incomplete | root | Initial131-tool matrix retained as baseline; current133tools (71read/62write/30post), actual HTTP rejection coverage264calls; valid-handler and complete authorization coverage pending |
 | 0 preventive bypass map/subplans | source_verified | preventive_map | forensic-evidence/phase1-preventive-plan.md and entrypoint-matrix.tsv; runtime reproductions planned |
 | 0 evidence/detectors/subplans | source_verified | evidence_map | forensic-evidence/phase2-4-subplans.md |
 | 0 disposable PostgreSQL and baseline CI | verified | root/evidence_map | reviewed fixture+3rootPGtests pass; current-schema upgrades616-618; historical replay220 separately limited |
 | 0 shared contracts/requirement-test matrix | verified | root | 7e71e7d7 independent contract review clean;38requirements+22newtool contracts |
-| 1 preventive shared controls | in_progress | root/permissions/approval | canonical+context reviewed; event writer626 undergoing proof; permission core+APapproval kernel underway |
-| 2 change history/evidence | pending | unassigned | Minimal event writer required in Phase 1 |
-| 3 detective checks | pending | unassigned | Reuse verified existing sources |
-| 4 assurance/exceptions | pending | unassigned | Depends on consistent event/evidence contracts |
-| 5 integrated proof/review/CI/draft PR | pending | root | All acceptance scenarios mandatory |
+| 1 preventive shared controls | in_progress | root/invoice_evidence/snapshot_capture | Shared approval/current authority/beneficiary and many writer paths integrated; confirmed non-bank legacy void bypass and refund compatibility under correction; complete entrypoint closure still required |
+| 2 change history/evidence | in_progress | root | Shared committed changes, durable invocation attempts, cash history and16 capture source families integrated; all-writer/history reader and transport acceptance incomplete |
+| 3 detective checks | in_progress | root | Six shared detective families and exception integration implemented in reviewed slices; only two new forensic tools registered; complete asynchronous population/transport proof pending |
+| 4 assurance/exceptions | in_progress | root/exception_workflow | Snapshot capture/retention/comparison, worker cancellation/recovery, exceptions and export renderer integrated; bounded authenticated indexes integrated throughd600abcd1; durable async export delivery/resource isolation incomplete |
+| 5 integrated proof/review/CI/draft PR | in_progress; not passing | root | Actual local HTTP rejection matrix verified; last fullCI5f99823a4 failed136unit tests; complete supplier/payroll/close UI/REST/MCP workflows, finalCI/review/draftPRs pending |
 
 ## Migration reservations
 Root reservations after scanning all local/remote refs and existing worktree SQL filenames: 626 shared events/principal-lock helper; 627 operation approvals/policy versions; 628 beneficiary enforcement; 629 durable invocation/idempotency; 630 evidence/snapshot/exception jobs. Reservations627+ reordered centrally before any worker migration edits to match dependency order. Highest committed prefix was 625; no worktree file >=626 found. Recheck before commit/integration to avoid other-session races.
@@ -42,7 +42,7 @@ Root reservations after scanning all local/remote refs and existing worktree SQL
 Baseline CI and reviewed foundations are recorded below. Full programme acceptance remains pending. Production unchanged and unverified.
 
 ## Resume
-Read this ledger, worker report artifacts, and committed specification. Finish Phase 0 gate before dependent implementations. Never mark programme complete with pending capabilities/checks.
+Read the latest checkpoint at the END of this ledger first, then the current phase table, worker evidence and committed specification. Earlier chronological checkpoints describe historical states. Never mark programme complete with pending capabilities/checks.
 
 ## Runtime and fixture
 - Node v20.12.0 selected by nvm; Bun 1.3.9 installed (repo pin 1.3.2, minimum satisfied). Frozen install succeeded.
@@ -572,3 +572,13 @@ GLSage01e438e3c vs775aa3b2d now15actualPG/9unit/sourceTS/lintGREEN, supplierbody
 - Snapshot worker independent settlement243c0d88f vs5972786f8 review clean across4files plus unchanged shared recomputation and committed status constraints. No confirmed posted/partial status regression: actual schema refuses both23514; divergent external schemas unverified. Reviewed author10PG/sourceTS/lint evidence retained. Integrated exact stack697/248/243 as1376ab7f5/d38b6b71c/583947ae3 without conflict; root integrated PG pending.
 - Snapshot worker now owns bounded refund implementation from243 in new isolated branch: signed amount determines refund, empty applications, no child payments/invoice paid mutation, approved exact contra reversal. Invoice worker owns non-bank legacy void/unwind bypass validation and shared cancellation delegation from243; root approved existing AR/AP controls with actual successful lifecycle tests required. No new migration or operation contract authorized. Invoice owns DB lease; root awaits release before integrated verification.
 - Programme still incomplete: final CI last failed, full legitimate handler and supplier/payroll/close MCP/UI/REST workflows, async durable export/process resource isolation, wider registry integration, compatibility fixes, final independent review and draft PRs remain. Production untouched; all new DB evidence synthetic local only.
+
+
+## Indexed reader review and integration through d600abcd1
+
+- Root integrated settlement1147 terminal0:10actualPG on main583947ae3, log integrated-settlement-metadata-pg.log. No fixture/server/pool left active from run.
+- Independent exception review a30287638 vs760515809 clean across7files; source-only review did not claim performance. Broader author-root PG63331 initially24pass/1failed duplicate header fixture because real worker now creates it. Corrected63a65e61c asserts actual worker-created header; preserves foreign/different-maker/immutable/oversize tests. Independent exception review63a vs a302 clean.81210 terminal0 all25PG5suites(publication,runner,schema,legacyread,indexpublication), snapshot-index-regression-pg-green.log.
+- Integrated reviewed foundation/publication/readers and fixture aa/3dc/046/760/d087/a302/63a asbc32259a3/f5489e1a8/8f427dbda/d00459623/0848c0593/1e6ad58ff/d600abcd1; no conflicts. Integrated sourceTS85127 terminal0 and13unit1920 terminal0. Source snapshotPG suite not yet rerun on integrated main; currentmain renderer/logging changes remain intact.
+- Invoice actual RED58366 confirms journal-less non-bank payment void can mutate balances/delete original allocations with unissued ALS or without approval. Tests-first54169e3cc; source delegates existing approved AR/AP cancellation and retires raw helper mutation. Two initial legitimate fixtures were errors, not control findings; corrected fixtures await PG GREEN. SourceTS/lint46511 terminal0.
+- Refund tests-firstda71c7984 from243; actual52055 terminal1 eight direction-refusal business REDs plus two refusal-message specificity failures. Six owned source corrections underway; snapshot owns PG GREEN lease, invoice next then root integrated index/export regressions. Root heavy TS released.
+- Next: obtain/refine actual successful legacy/refund workflow evidence, independent named reviews, integrate only verified changes; run integrated retained index+export regression. Continue async export queue/storage/process isolation and full programme requirements. Main phase table refreshed from stale initial pending labels; historical chronology retained. No production verification or draft PR claim.
