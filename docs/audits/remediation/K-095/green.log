@@ -125,3 +125,29 @@ $ psql "$DATABASE_URL" -c "\d paystack_payment_requests"
   "paystack_payment_requests_paystack_reference_key" UNIQUE CONSTRAINT, btree (paystack_reference)
   (declared inline at scripts/migrations/sql/486_paystack_billing.sql:31 as `TEXT NOT NULL UNIQUE`)
 No migration written. Prefix 664 released, unused.
+
+=== ROUND 6 (LOW-1, unlinked failed fallback) ===
+RED (production file reverted to 5c6e1a50c, new test only)
+$ bunx vitest run --config vitest.integration.config.ts tests/integration/k095-r6-unlinked-failed-fallback.int.test.ts
+  Tests  2 failed | 2 passed (4)
+   - "reports the failure from its OWN request row, naming no mandate at all"
+       expected <other checkout's mandate id> to be null
+   - "a completed request that resolved nothing stays pending rather than borrowing a failure"
+       expected 'failed' to be 'pending'
+
+GREEN (fix restored) — all four K-095 integration files together
+$ bunx vitest run --config vitest.integration.config.ts \
+    tests/integration/k095-r6-unlinked-failed-fallback.int.test.ts \
+    tests/integration/k095-r5-verify-webhook-race.int.test.ts \
+    tests/integration/k095-r4-fallback-attribution.int.test.ts \
+    tests/integration/k095-mandate-activation-guards.int.test.ts
+  Test Files  4 passed (4)      Tests  17 passed (17)
+
+MUTATION M6 (applied, run, restored): drop `|| pr.status === 'failed'` from publicStatus
+  AssertionError: expected 'pending' to be 'failed'   (test 1 red)
+
+$ env -u DATABASE_URL bunx vitest run     -> 801 passed | 40 skipped (841 files); 9558 passed | 243 skipped
+$ bunx tsc --noEmit                       -> exit 0
+$ bunx eslint pages/api/billing/paystack/mandate/verify.ts -> exit 0
+   (eslint on tests/integration/*.int.test.ts reports "not found by the project service" for the new
+    file AND for the existing k095-r5 file — tests/** is outside tsconfig; environmental, not new.)

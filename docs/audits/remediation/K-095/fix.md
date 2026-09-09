@@ -275,3 +275,71 @@ ORDER  BY pr.completed_at DESC;
 still visible to anyone querying the table directly. Clearing it would need a status-predicated
 UPDATE on a GET, which is worse; the row is diagnostic and the payer-facing answer is now correct.
 The re-read costs one extra SELECT, and only on the path that already lost the race.
+
+---
+
+## Round 6 — blind review of 5c6e1a50c (0 HIGH, 0 MEDIUM, 1 LOW)
+
+**LOW-1 — FIXED. The pre-651 unlinked fallback could still name another checkout's FAILED row.**
+`verify.ts` ran a SECOND, unlinked lookup whenever `pr.mandate_id IS NULL` and
+`resolveAuthorisedMandate` resolved nothing — and that query admitted `status = 'failed'`. With no
+`failure_reason` recorded, the round-5 `own` gate (which keys off `failureReason`) let the row
+straight into the response, so the payer was shown the id, bank, card and ceiling of a mandate row
+some *other* checkout created: the mis-attribution migration 651 exists to retire, in the one shape
+the gate did not cover.
+*After:* the second lookup is gone entirely, not merely narrowed. `resolveAuthorisedMandate` has
+already run the pre-651 newest-first fallback over the company's `pending`/`active` rows; if it
+resolved nothing, every remaining row is one no live checkout owns — a failed/revoked row this
+reference cannot prove is its own, or a row a concurrent checkout inserted *after* that read.
+Restricting the list to `('active','pending')` would have left exactly that race as a fresh
+mis-attribution, so `fresh` is now read only for the mandate the request actually resolved.
+The failure signal is taken from THIS reference's own row instead: `publicStatus` falls back to
+`pr.status === 'failed'`, which `verify` itself writes on the failed/abandoned live path. Public
+status is therefore unchanged for a genuinely failed checkout; only the identifying fields go.
+
+**LOW-3 (round 5) — RULING RECORDED: the dispute is UPHELD, the finding was wrong.** The round-6
+reviewer executed `\d` against the fixture and read `486_paystack_billing.sql:31`
+(`paystack_reference TEXT NOT NULL UNIQUE`); the backing UNIQUE CONSTRAINT exists. No migration was
+needed and none was written. Prefix 664 stays released.
+
+**Files (round 6).** `pages/api/billing/paystack/mandate/verify.ts` (199 lines).
+
+**Tests (round 6).** New `tests/integration/k095-r6-unlinked-failed-fallback.int.test.ts` — 4 tests
+on the fixture DB: the reachable case (pre-651 request, `pr.status='failed'`, only another
+checkout's failed mandate for the company) still reports `failed` while naming nothing; a
+`completed` pre-651 request that resolved nothing stays `pending` rather than borrowing a
+neighbour's failure; a second tenant gets 404 for the same reference; and the surviving pre-651
+newest-first resolution of a LIVE row still attributes correctly (continuity guard).
+K-095 integration re-run together: 4 files / **17 passed**. Full unit suite, fixture env UNSET:
+**801 files / 9558 passed, 0 failed**. `bunx tsc --noEmit` clean; `bunx eslint` on the changed
+source file exit 0.
+
+**Mutation (round 6).** Reverting `verify.ts` to `5c6e1a50c` takes 2 of the 4 new tests red
+(`mandateId` leaked, and `pending` reported as `failed`); the finer mutation of dropping only
+`|| pr.status === 'failed'` takes the first test red on `expected 'pending' to be 'failed'`. Both
+restored; the round-5 suites still pass unchanged.
+
+**Historical-data impact (round 6).** No migration, no backfill — this is a read path only; no row
+was ever written wrongly by it. Pre-651 requests that could have been answered with a neighbour's
+failed row are listable (read-only, NOT executed here):
+
+```sql
+SELECT pr.company_id, pr.paystack_reference, pr.status, m.id AS row_that_would_have_been_shown
+FROM   paystack_payment_requests pr
+JOIN   LATERAL (SELECT id FROM subscription_mandates sm
+                WHERE sm.company_id = pr.company_id AND sm.gateway = 'paystack'
+                  AND sm.status = 'failed' ORDER BY sm.created_at DESC LIMIT 1) m ON true
+WHERE  pr.purpose = 'authorization'
+  AND  pr.mandate_id IS NULL
+  AND  pr.failure_reason IS NULL
+  AND  NOT EXISTS (SELECT 1 FROM subscription_mandates s
+                   WHERE s.company_id = pr.company_id AND s.gateway = 'paystack'
+                     AND s.status IN ('pending','active'))
+ORDER  BY pr.created_at DESC;
+```
+
+**Limits (round 6).** The pre-651 fallback that remains — `resolveAuthorisedMandate`'s newest-first
+pending/active resolution — is still a heuristic for a company with two open checkouts; round 4's
+different-code guard is what bounds it, and only time retires it as those rows age out. A pre-651
+request that completed but resolved nothing now answers `pending` rather than a borrowed `failed`;
+that is honest (nothing on the reference says it failed) but it is a status change for those rows.
