@@ -1,6 +1,5 @@
-# GREEN — K-015 + K-089 after the second blind review (N1-N6)
-# Fixture PostgreSQL (isaflow_schema_fixture), migration 625 applied in its
-# supplier-scoped form.
+# GREEN — K-015 + K-089 after the third blind review (R0-R4)
+# Fixture PostgreSQL (isaflow_schema_fixture), migration 625 applied.
 
 $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts" "tests/integration/k089-ar-migration-balance-due-column.int.test.ts"
 
@@ -8,48 +7,44 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
 
 
  Test Files  2 passed (2)
-      Tests  23 passed (23)
-   Start at  09:08:18
-   Duration  2.66s (transform 785ms, setup 0ms, import 1.45s, tests 2.98s, environment 0ms)
+      Tests  26 passed (26)
+   Start at  09:26:02
+   Duration  3.65s (transform 1.58s, setup 0ms, import 2.76s, tests 2.17s, environment 0ms)
 
 
-## Mutation checks — production code or schema reverted one at a time, then restored
+## Mutation checks — round 3 (R0-R4)
 
-Round 2 (findings N1-N6):
- N1.  unique index back to (company_id, duplicate_fingerprint), ON CONFLICT to match
-        -> k015: 1 failed | 12 passed (13)  ["lets two VAT-less suppliers hold the same
-           invoice number and amount" — the cross-supplier false duplicate is back]
- N1b. named 23505 translation removed from createSupplierInvoice
-        -> k015: 1 failed | 12 passed (13)
- N3.  rethrowIfDuplicateIndexMissing() call removed
-        -> k015: 1 failed | 12 passed (13)  [the run answers 200 with imported: 0 again]
- N4.  clearing account resolved per row again, falling back to null
-        -> k015: 1 failed | 12 passed (13)  [step no longer fails once, up front]
- N6.  errors back to a plain append
-        -> k089: 1 failed | 9 passed (10)   [a re-run reports the same row twice]
+ R0. errors filter back to the negated IN
+       -> k015: 1 failed | 14 passed (15)
+          ["keeps the other steps' errors when a new error carries no step key"]
+ R1. rethrowDuplicateFingerprint's constraint match disabled
+       -> k015: 2 failed | 13 passed (15)
+          [both the ordinary create path and the direct-INSERT paths]
+ R2. rethrowIfConflictTargetMissing removed from the AR catch
+       -> k089: 1 failed | 10 passed (11)
+          ["aborts the run with a named error when the arbiter index is absent"]
+ R3. no test: the settlement-account assertion is unreachable by construction
+     (the flag is derived from the same array), which is why it is an assertion
+     rather than a branch. The logging change is observable only in the log.
+ R4. no test: a module split, proved by tsc, eslint and the suite still passing.
+     migrationImportService.ts 284 -> 270 lines; migrationContactMatch.ts is 36.
 
-Round 1 (the earlier findings) is unchanged and still holds; those 14 checks are in the
-previous revision of this file, in commit fdcf3522.
+Rounds 1 and 2 are unchanged and still hold; their checks are in the previous
+revisions of this file (commits fdcf3522 and 46fca787).
 
-All mutations restored; the run above is 23/23 green.
+All mutations restored; the run above is 26/26 green.
 
-## Migration 625
+## R0 verified directly against the reviewer's own case
 
-Re-applied to the fixture in its supplier-scoped form after being dropped:
-  CREATE UNIQUE INDEX uq_supplier_invoices_supplier_fingerprint
-    ON public.supplier_invoices (company_id, supplier_id, duplicate_fingerprint)
-    WHERE duplicate_fingerprint IS NOT NULL AND deleted_at IS NULL
-Re-running the file is a no-op (IF NOT EXISTS).
-NOT run against production, read-only included — the pre-flight query is in fix.md for the
-deploy operator.
+  existing = [{"step":"suppliers","row":1}]   new = [{"row":2}]   stepsCompleted = {}
+  before (negated IN) -> [{"row": 2}]                                  -- suppliers lost
+  after  (NOT EXISTS) -> [{"row":1,"step":"suppliers"}, {"row":2}]     -- kept
+
+## Migration gates
 
 bun scripts/audit-migration-naming.ts   -> no new duplicate prefixes (338 files)
 bun scripts/ci/check-migration-rls.ts   -> OK
-
-## Unit tests
-
-`bunx vitest run tests/unit/migration/migrationRowSchemas.test.ts`         -> 11 passed
-`bunx vitest run tests/unit/services/core/migrationImportService.test.ts`  -> 2 passed
+Migration 625 unchanged this round; still NOT run against production.
 
 ## Full unit suite (clean shell, DATABASE_URL and the fixture env unset)
 
@@ -57,13 +52,12 @@ bun scripts/ci/check-migration-rls.ts   -> OK
   Test Files  785 passed | 36 skipped (821)
        Tests  9331 passed | 234 skipped (9565)
 
-The 60s timeout is deliberate. At the default 10s this box — shared with several other agents
-running suites at the same time — fails a different handful of unrelated tests on every run;
-each passes in isolation and none touch a file this branch changes.
+The 60s timeout is deliberate: at the default 10s this shared box fails a different handful of
+unrelated tests on every run, each passing in isolation.
 
 ## Gates
 
 bunx tsc --noEmit                            -> exit 0
-bunx eslint <changed src/ and pages/ files>  -> exit 0
-  (tests/** cannot be linted in this repo: tsconfig excludes it, so eslint reports a parse error
-   for any test file — pre-existing, not caused by this change)
+bunx eslint <the nine changed src/ files>    -> exit 0
+File sizes against the 300-line ceiling: migrationImportService 270, migrationApService 198,
+migrationContactMatch 36, migrationPostingSupport 62.

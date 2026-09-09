@@ -349,6 +349,31 @@ describeIfDb('K-089 AR migration import writes only real columns', () => {
     }
   }, 60000);
 
+  it('aborts the run with a named error when the arbiter index is absent', async () => {
+    // Same failure mode as the AP side: 42P10 inside the per-row savepoint is
+    // contained, so without this guard the step answers 200 with imported: 0
+    // and a raw Postgres message on every row.
+    const c = await pool.connect();
+    await c.query('BEGIN');
+    try {
+      await c.query('DROP INDEX uq_customer_invoices_company_number');
+
+      await expect(run(c, () => importARInvoices(COMPANY, sessionId, [
+        invoice({ invoiceNumber: `${TAG}-no-index` }),
+      ], USER))).rejects.toThrow(/uq_customer_invoices_company_number/);
+
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM customer_invoices
+          WHERE company_id = $1 AND invoice_number = $2`,
+        [COMPANY, `${TAG}-no-index`],
+      )).rows[0];
+      expect(rows.n).toBe(0);
+    } finally {
+      await c.query('ROLLBACK').catch(() => {});
+      c.release();
+    }
+  }, 60000);
+
   it('says why a row was skipped when the invoice number already exists', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');

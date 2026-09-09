@@ -140,17 +140,28 @@ export async function updateSession(
       -- report the same row again and grew the column without bound. The step
       -- being superseded is named by steps_completed, so a clean re-run clears
       -- the errors its previous attempt left behind.
+      -- Keep the OTHER steps' errors and replace this step's own. A whole-value
+      -- assignment erased every other step (an empty array is truthy in JS, so
+      -- even a clean run wrote '[]' over them); a plain append made a re-run
+      -- report the same row again and grew the column without bound. The step
+      -- being superseded is named by steps_completed, so a clean re-run clears
+      -- the errors its previous attempt left behind.
+      --
+      -- NOT EXISTS rather than a negated IN: an incoming error with no step
+      -- key puts a NULL in the IN-list, which makes the predicate NULL for
+      -- every non-matching row and silently deletes every other step's errors.
       errors               = (
                                SELECT COALESCE(jsonb_agg(e), '[]'::JSONB)
                                  FROM jsonb_array_elements(COALESCE(errors, '[]'::JSONB)) e
-                                WHERE e->>'step' IS NULL
-                                   OR NOT (e->>'step' IN (
-                                        SELECT k FROM jsonb_object_keys(
+                                WHERE NOT EXISTS (
+                                        SELECT 1 FROM jsonb_object_keys(
                                           COALESCE(${updates.stepsCompleted ? JSON.stringify(updates.stepsCompleted) : null}::JSONB, '{}'::JSONB)) k
-                                        UNION
-                                        SELECT n->>'step' FROM jsonb_array_elements(
+                                         WHERE k = e->>'step'
+                                        UNION ALL
+                                        SELECT 1 FROM jsonb_array_elements(
                                           COALESCE(${updates.errors?.length ? JSON.stringify(updates.errors) : null}::JSONB, '[]'::JSONB)) n
-                                      ))
+                                         WHERE n->>'step' = e->>'step'
+                                      )
                              ) || COALESCE(${updates.errors?.length ? JSON.stringify(updates.errors) : null}::JSONB, '[]'::JSONB),
       notes                = COALESCE(${updates.notes ?? null}, notes),
       completed_at         = COALESCE(${updates.completedAt ?? null}::TIMESTAMPTZ, completed_at)

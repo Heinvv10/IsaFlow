@@ -38,6 +38,43 @@ export function computeFingerprint(
   return `${vat}|${inv}|${amt}`.toLowerCase();
 }
 
+/**
+ * Translate the unique-violation raised by uq_supplier_invoices_supplier_fingerprint
+ * (migration 625) into a message that names the invoice.
+ *
+ * Migration 625 turned this column from an advisory duplicate flag into a
+ * constraint, so every path that stamps a fingerprint on INSERT can now be
+ * refused by it. Without this the refusal surfaces as a bare 23505.
+ *
+ * Returns normally when the error is anything else — the caller rethrows.
+ */
+export function rethrowDuplicateFingerprint(err: unknown, invoiceNumber: string): void {
+  const e = err as { code?: unknown; constraint?: unknown } | null;
+  if (e?.code === '23505' && e.constraint === 'uq_supplier_invoices_supplier_fingerprint') {
+    throw new Error(
+      `This supplier already has an invoice ${invoiceNumber} for the same amount. Change the invoice number or amount, or open the existing bill.`,
+    );
+  }
+}
+
+/**
+ * Run a supplier-invoice INSERT and name the duplicate if it is refused.
+ *
+ * The error is always rethrown — this only replaces the message, it never
+ * swallows the failure, and the transaction is aborted by the 23505 either way.
+ */
+export async function insertNamingDuplicate<T>(
+  invoiceNumber: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    rethrowDuplicateFingerprint(err, invoiceNumber);
+    throw err;
+  }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function daysDiff(a: string, b: string): number {
