@@ -11,7 +11,7 @@
  * is DESTROYED rather than handed to the next caller with an aborted
  * transaction still open on it.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { pgTypesMock } from '../helpers/pgTypesMock';
 
 const { clientQueryMock, releaseMock } = vi.hoisted(() => ({
@@ -38,8 +38,19 @@ const USER = 'uuuuuuuu-uuuu-4uuu-8uuu-uuuuuuuuuuuu';
 const COMPANY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 beforeEach(() => {
+  // `pg.Pool` above is a mock, so this connection string is never dialled --
+  // but `getPool()` still reads it, and CI passes DATABASE_URL through from a
+  // secret that is empty on this repo. An empty string is falsy, so
+  // getDatabaseUrl() throws before the pool is ever built and every assertion
+  // below sees that error instead of the one it is testing. It reproduces with
+  // `DATABASE_URL="" bunx vitest run` and only on a runner, never locally.
+  vi.stubEnv('DATABASE_URL', 'postgresql://dummy:dummy@dummy/test');
   clientQueryMock.mockReset().mockResolvedValue({ rows: [] });
   releaseMock.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 function statements(): string[] {
