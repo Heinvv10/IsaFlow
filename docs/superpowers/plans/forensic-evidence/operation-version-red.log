@@ -1,0 +1,25 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/integration/forensic-change-history.int.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/forensic-change-history.int.test.ts [ tests/integration/forensic-change-history.int.test.ts ]
+Error: Cannot find module '../../src/modules/accounting/services/controls/operationVersions' imported from /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/integration/forensic-change-history.int.test.ts
+ ❯ tests/integration/forensic-change-history.int.test.ts:9:1
+      7| import { recordCommittedChange } from '../../src/modules/accounting/se…
+      8| import { openProtectedChange } from '../../src/modules/accounting/serv…
+      9| import { readControlEntityVersion } from '../../src/modules/accounting…
+       | ^
+     10| import type { ControlTx, ChangeEventInput } from '../../src/modules/ac…
+     11|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  09:10:14
+   Duration  3.21s (transform 1.50s, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+

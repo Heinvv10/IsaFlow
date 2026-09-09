@@ -1,0 +1,24 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/changeProtection.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/changeProtection.test.ts [ tests/unit/services/controls/changeProtection.test.ts ]
+Error: Cannot find package '@/modules/accounting/services/controls/changeProtection' imported from /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909/tests/unit/services/controls/changeProtection.test.ts
+ ❯ tests/unit/services/controls/changeProtection.test.ts:2:1
+      1| import { afterEach, expect, it, vi } from 'vitest';
+      2| import { beneficiaryFingerprint, openProtectedChange, protectChangeVal…
+       | ^
+      3|
+      4| afterEach(() => vi.unstubAllEnvs());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  08:57:29
+   Duration  158ms (transform 19ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+

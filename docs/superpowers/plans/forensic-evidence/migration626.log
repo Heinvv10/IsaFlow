@@ -1,0 +1,28 @@
+CREATE FUNCTION
+ALTER FUNCTION
+REVOKE
+GRANT
+CREATE TABLE
+CREATE TABLE
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+NOTICE:  policy "tenant_isolation" for relation "control_entity_versions" does not exist, skipping
+CREATE POLICY
+NOTICE:  policy "tenant_isolation" for relation "control_protected_evidence" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+NOTICE:  policy "tenant_isolation" for relation "control_change_events" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+GRANT
+GRANT
+GRANT
+INSERT 0 6

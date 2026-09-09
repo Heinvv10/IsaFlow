@@ -1,0 +1,11 @@
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+{"level":"warn","message":"Derived-key decrypt failed — retrying with legacy raw key","timestamp":"2026-09-09T07:05:53.860Z","component":"encryption","data":{}}
+{"level":"error","message":"withAuth: transaction finalize failed after handler responded","timestamp":"2026-09-09T07:05:54.705Z","component":"Auth","data":{"url":"/api/test","status":200,"handlerFailed":false,"message":"commit failed: serialization"}}
+
+ Test Files  6 passed (6)
+      Tests  90 passed (90)
+   Start at  09:05:51
+   Duration  3.44s (transform 4.67s, setup 0ms, import 6.33s, tests 2.66s, environment 0ms)
+
