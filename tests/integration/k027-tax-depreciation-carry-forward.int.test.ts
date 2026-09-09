@@ -95,11 +95,21 @@ afterAll(async () => {
   } finally { await pool.end(); }
 });
 
+async function journalCount() {
+  const { rows } = await pool.query(
+    'SELECT count(*)::int AS n FROM gl_journal_entries WHERE company_id=$1',
+    [company],
+  );
+  return rows[0].n as number;
+}
+
 it('January posts one period of tax depreciation', async () => {
   const jan = await runPeriod('2026-01-31');
   expect(jan.glFailed).toBe(0);
   expect(jan.processed).toBe(1);
   expect(jan.results[0]!.taxDep).toBeCloseTo(MONTHLY_TAX_DEP, 2);
+  // Exactly one journal — not zero (silently stopped posting) and not two.
+  expect(await journalCount()).toBe(1);
 });
 
 it('the run writes the tax accumulation back to the asset', async () => {
@@ -127,10 +137,13 @@ it('February opens on January closing tax accumulated depreciation, not on zero'
   expect(rows[1].opening).toBeCloseTo(MONTHLY_TAX_DEP, 2);
   expect(rows[1].closing).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
   expect(rows[1].carrying).toBeCloseTo(COST - MONTHLY_TAX_DEP * 2, 2);
+  expect(await journalCount()).toBe(2);
 });
 
 it('re-running a posted period does not double the tax accumulation', async () => {
-  // `already_posted` skips the asset in the plan, so the SET never re-applies.
+  // This asset has policy depreciation, so a journal exists and `already_posted`
+  // skips it. The zero-policy case, where no journal is ever written, is covered
+  // in k027-tax-depreciation-idempotency.int.test.ts.
   const rerun = await runPeriod('2026-01-31');
   expect(rerun.processed).toBe(0);
   expect(rerun.skipped).toBe(1);
@@ -139,6 +152,7 @@ it('re-running a posted period does not double the tax accumulation', async () =
     [asset],
   );
   expect(rows[0].tax_acc).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
+  expect(await journalCount()).toBe(2);
 });
 
 it('a dry run (plan without execute) writes nothing', async () => {
@@ -156,6 +170,7 @@ it('a dry run (plan without execute) writes nothing', async () => {
   );
   expect(rows[0].tax_acc).toBeCloseTo(MONTHLY_TAX_DEP * 2, 2);
   expect(rows[0].tax_bv).toBeCloseTo(COST - MONTHLY_TAX_DEP * 2, 2);
+  expect(await journalCount()).toBe(2);
 });
 
 it("leaves a second company's assets untouched", async () => {
