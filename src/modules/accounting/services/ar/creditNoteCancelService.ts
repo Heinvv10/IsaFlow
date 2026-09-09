@@ -18,6 +18,7 @@ import { recomputeInvoiceStatus } from './invoiceStatusRecompute';
 import { mapRow } from './creditNoteMapper';
 import { actorMeta, type PostingActorOpts } from '../gl/journalEntryMeta';
 import {mutateArRelatedEntity} from './arRelatedEntityEffect';
+import {assertPostedCreditTarget} from './creditTargetEligibility';
 import {registerGeneratedJournal} from '../controls/generatedJournalPermit';
 import {requireArControl,runArControlled,type ArApprovalOptions} from './arControlBoundary';
 import type {ArParentControl} from './customerInvoiceFinancialEffect';
@@ -157,6 +158,7 @@ async function applyCreditNoteEffect(
   `) as Record<string, unknown>[];
   if (invRows.length === 0) throw new Error('Invoice not found');
   const inv = invRows[0]!;
+  await assertPostedCreditTarget(requireArControl(companyId,userId),'customer',invoiceId);
 
   const clientMatch = String(inv.client_id || inv.customer_id) === String(cn.client_id);
   if (!clientMatch) throw new Error('Invoice and credit note must belong to the same customer');

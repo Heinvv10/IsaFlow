@@ -3,6 +3,7 @@ import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
 import {requireArControl} from './arControlBoundary';
 import {lockArCreditSources} from '../controls/arCreditMaterial';
 import {lockArInvoiceSources} from '../controls/arSourceMaterial';
+import {assertPostedCreditTarget} from './creditTargetEligibility';
 /** Preparation is explicit and durable, so independent approval can bind the exact target. */
 export async function prepareCreditNoteApplication(companyId:string,creditNoteId:string,invoiceId:string,userId:string,applicationId?:string){
  const ctx=requireArControl(companyId,userId);
@@ -10,6 +11,7 @@ export async function prepareCreditNoteApplication(companyId:string,creditNoteId
  const {header}=await lockArCreditSources(ctx,creditNoteId);
  const {header:invoice}=await lockArInvoiceSources(ctx,invoiceId);
  if(header.type!=='customer'||invoice.owned_customer_id!==header.client_id)throw new Error('Invoice and credit note must belong to the same customer');
+ await assertPostedCreditTarget(ctx,'customer',invoiceId);
  if(applicationId){
   const rows=await ctx.sql`SELECT id FROM control_credit_note_applications WHERE company_id=${companyId}::uuid AND id=${applicationId}::uuid
    AND credit_note_id=${creditNoteId}::uuid AND customer_invoice_id=${invoiceId}::uuid`;

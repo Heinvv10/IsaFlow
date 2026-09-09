@@ -5,6 +5,7 @@ import type {NextApiHandler,NextApiRequest,NextApiResponse} from 'next';
 import {fixtureConfigFromEnv} from '../../../scripts/forensic/fixture-bootstrap';
 import {provisionForensicFixture,validateFixtureTarget,type ForensicFixture} from '../forensic-fixture';
 import {withControlRequest,requireControlTx} from '@/modules/accounting/services/controls/context';
+import {createJournalEntry} from '@/modules/accounting/services/gl/journalEntryService';
 import {approveCustomerInvoice} from '@/modules/accounting/services/ar/customerInvoiceApprovalService';
 import {cancelCustomerInvoice} from '@/modules/accounting/services/ar/customerInvoiceCancelService';
 import {confirmCustomerPayment,cancelCustomerPayment} from '@/modules/accounting/services/ar/customerPaymentAllocationService';
@@ -178,4 +179,39 @@ it('serializes simultaneous fresh requests to one posted invoice and one effect'
 it('refuses foreign tenant AR services with no foreign effect',async()=>{
  const id=await invoice();await expect(actor(()=>approveCustomerInvoice(fixture.companyB,id,fixture.u3.id),'u3')).rejects.toThrow('not found');
  expect((await pool.query('SELECT gl_journal_entry_id FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,id])).rows[0].gl_journal_entry_id).toBeNull();
+});
+
+it.each(['draft','reversed','unrelated'])('refuses a new invoice posting approval adopting a %s journal link',async kind=>{
+ const id=await invoice();
+ const accounts=await pool.query("SELECT id,account_subtype FROM gl_accounts WHERE company_id=$1 AND account_subtype IN ('receivable','default_revenue')",[fixture.companyA]);
+ const receivable=accounts.rows.find(row=>row.account_subtype==='receivable').id,revenue=accounts.rows.find(row=>row.account_subtype==='default_revenue').id;
+ const journal=await actor(()=>createJournalEntry(fixture.companyA,{entryDate:'2026-09-09',description:'Synthetic malformed invoice link',source:kind==='unrelated'?'manual':'auto_invoice',sourceRecordId:id,
+  lines:[{glAccountId:receivable,debit:115,credit:0},{glAccountId:revenue,debit:0,credit:115}]},fixture.u1.id));
+ if(kind!=='draft')await pool.query("UPDATE gl_journal_entries SET status='posted',reversed_at=CASE WHEN $3='reversed' THEN clock_timestamp() ELSE NULL END WHERE company_id=$1 AND id=$2",[fixture.companyA,journal.id,kind]);
+ await pool.query('UPDATE customer_invoices SET gl_journal_entry_id=$1 WHERE company_id=$2 AND id=$3',[journal.id,fixture.companyA,id]);
+ const approvalId=await approval(invoiceRef(id));
+ await expect(actor(()=>approveCustomerInvoice(fixture.companyA,id,fixture.u1.id,{approvalId}))).rejects.toThrow('journal');
+ expect((await pool.query('SELECT status FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,id])).rows[0].status).toBe('draft');
+});
+it.each(['draft','cancelled'])('refuses preparing a credit application against a %s invoice',async status=>{
+ const id=await invoice(),credit=await note(id);
+ await pool.query('UPDATE credit_notes SET customer_invoice_id=NULL WHERE company_id=$1 AND id=$2',[fixture.companyA,credit]);
+ await actor(()=>approveCreditNote(fixture.companyA,credit,fixture.u1.id));
+ if(status==='cancelled')await actor(()=>cancelCustomerInvoice(fixture.companyA,id,fixture.u1.id));
+ await expect(actor(()=>prepareCreditNoteApplication(fixture.companyA,credit,id,fixture.u1.id))).rejects.toThrow('posted');
+ expect((await pool.query('SELECT amount_paid FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,id])).rows[0].amount_paid).toBe('0.00');
+});
+it('refuses linked credit auto-application against an invoice without a live posted journal',async()=>{
+ const id=await invoice(),credit=await note(id);
+ await expect(actor(()=>approveCreditNote(fixture.companyA,credit,fixture.u1.id))).rejects.toThrow('posted');
+ expect((await pool.query('SELECT status,gl_journal_entry_id FROM credit_notes WHERE company_id=$1 AND id=$2',[fixture.companyA,credit])).rows[0]).toMatchObject({status:'draft',gl_journal_entry_id:null});
+});
+
+it('invalidates a credit application approval when the target posted journal changes',async()=>{
+ const id=await invoice();const posted=await actor(()=>approveCustomerInvoice(fixture.companyA,id,fixture.u1.id));const credit=await note(id);
+ await pool.query('UPDATE credit_notes SET customer_invoice_id=NULL WHERE company_id=$1 AND id=$2',[fixture.companyA,credit]);
+ await actor(()=>approveCreditNote(fixture.companyA,credit,fixture.u1.id));
+ const ref=await actor(()=>prepareCreditNoteApplication(fixture.companyA,credit,id,fixture.u1.id)),approvalId=await approval(ref);
+ await pool.query("UPDATE gl_journal_entries SET description='Synthetic edited source journal' WHERE company_id=$1 AND id=$2",[fixture.companyA,posted.glJournalEntryId]);
+ await expect(actor(()=>applyCreditNoteToInvoice(fixture.companyA,credit,id,fixture.u1.id,{applicationId:ref.entityId,approvalId}))).rejects.toThrow('changed');
 });
