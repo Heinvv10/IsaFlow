@@ -19,3 +19,5 @@ export function cashApplicationTotal(plan:CashApplicationPlan):string{
 export function parseCashApplicationPlan(input:unknown):CashApplicationPlan{
  const plan=schema.parse(input);cashApplicationTotal(plan);return plan;
 }
+const reversalSchema=z.object({originalIntentId:uuid,reversalDate:z.string().refine(isRealCalendarDate),reason:z.string().trim().min(1).max(1000)}).strict();
+export function parseCashApplicationReversalPlan(input:unknown){return reversalSchema.parse(input);}

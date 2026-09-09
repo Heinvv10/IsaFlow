@@ -1,3 +1,4 @@
+import {fmtDate} from '@/lib/fmtDate';
 import Decimal from 'decimal.js';
 import type {ControlTx} from '../controls/contracts';
 import {assertControlTx} from '../controls/context';
@@ -17,7 +18,7 @@ export async function loadCashApplicationInvoices(ctx:ControlTx,plan:CashApplica
    WHERE company_id=${company}::uuid AND id=${invoice.gl_journal_entry_id}::uuid FOR SHARE` as Row[];
   if(!journal||journal.status!=='posted'||journal.reversed_at||journal.source_record_id!==invoice.id||journal.source!==(plan.kind==='customer'?'auto_invoice':'auto_supplier_invoice'))throw new Error('Live invoice source journal required');
   const material=await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:String(journal.id),operation:'journal.post'});
-  if(material.binding.currency!=='ZAR'||!new D(String(material.binding.amount)).eq(String(invoice.total_amount)))throw new Error('Invoice journal denomination or amount changed');
+  if(material.binding.accountingDate!==fmtDate(invoice.invoice_date as string|Date)||material.binding.currency!=='ZAR'||!new D(String(material.binding.amount)).eq(String(invoice.total_amount)))throw new Error('Invoice journal date, denomination or amount changed');
   items.push({allocation,invoice,journal,observedSources:material.observedSources});
  }
  return items;

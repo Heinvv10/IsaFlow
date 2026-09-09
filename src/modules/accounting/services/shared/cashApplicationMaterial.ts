@@ -1,3 +1,4 @@
+import {materializeCashApplicationReversal} from './cashApplicationReversalMaterial';
 import Decimal from 'decimal.js';
 const D=Decimal.clone({precision:80});
 import {createHash} from 'node:crypto';
@@ -24,6 +25,7 @@ export async function loadCashApplicationIntent(ctx:ControlTx,id:string){
  return{intent,plan,sources,effect};
 }
 export async function materializeCashApplicationOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
+ if(ref.entityType==='cash_application_reversal_intent')return materializeCashApplicationReversal(ctx,ref);
  if(ref.entityType!=='cash_application_intent'||String(ref.operation)!=='cash_application.apply')throw new Error('Unsupported cash application operation');
  const material=await loadCashApplicationIntent(ctx,ref.entityId),prior=await readControlEntityVersion(ctx,ref);
  const {effect:_effect,...facts}=material;

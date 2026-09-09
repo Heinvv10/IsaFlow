@@ -1,3 +1,4 @@
+import {verifyCashBankOrigin} from './cashApplicationBankOrigin';
 import {createHash} from 'node:crypto';
 import Decimal from 'decimal.js';
 import {fmtDate} from '@/lib/fmtDate';
@@ -32,8 +33,9 @@ export async function loadCashApplicationSources(ctx:ControlTx,plan:CashApplicat
  const origin=origins[0]??null;
  if(!journal||journal.status!=='posted'||journal.reversed_at||journal.source!==(plan.kind==='customer'?'auto_payment':'auto_supplier_payment')
   ||journal.source_record_id!==(origin?origin.result.bankTransactionId:plan.paymentId)||(origin&&origin.result.journalEntryId!==journal.id))throw new Error('Live original cash source journal required');
+ const bankOriginProof=origin?await verifyCashBankOrigin(ctx,origin.id,origin.entity_id,plan.kind,payment,journal):null;
  const cashJournal=await materializeGlOperation(ctx,{entityType:'journal_entry',entityId:String(journal.id),operation:'journal.post'});
- if(cashJournal.binding.currency!=='ZAR'||!new D(String(cashJournal.binding.amount)).eq(String(payment.total_amount)))throw new Error('Cash journal amount or denomination changed');
+ if(cashJournal.binding.accountingDate!==fmtDate(payment.payment_date as string|Date)||cashJournal.binding.currency!=='ZAR'||!new D(String(cashJournal.binding.amount)).eq(String(payment.total_amount)))throw new Error('Cash journal date, amount or denomination changed');
  const allocations=(plan.kind==='customer'?await ctx.sql`SELECT a.*,i.currency_code AS invoice_currency FROM customer_payment_allocations a JOIN customer_payments p ON p.id=a.payment_id LEFT JOIN customer_invoices i ON i.company_id=p.company_id AND i.id=a.invoice_id
   WHERE p.company_id=${company}::uuid AND p.id=${plan.paymentId}::uuid ORDER BY a.id LIMIT 10001 FOR SHARE OF a`
   :await ctx.sql`SELECT a.*,i.currency AS invoice_currency FROM payment_allocations a JOIN supplier_payments p ON p.id=a.payment_id LEFT JOIN supplier_invoices i ON i.company_id=p.company_id AND i.id=a.invoice_id
@@ -51,6 +53,6 @@ export async function loadCashApplicationSources(ctx:ControlTx,plan:CashApplicat
  const periods=await ctx.sql`SELECT * FROM fiscal_periods WHERE company_id=${company}::uuid AND start_date<=${plan.accountingDate}::date AND end_date>=${plan.accountingDate}::date ORDER BY id FOR UPDATE` as Row[];
  const vatLocks=await ctx.sql`SELECT * FROM vat_period_locks WHERE company_id=${company}::uuid AND period_start<=${plan.accountingDate}::date AND period_end>=${plan.accountingDate}::date ORDER BY id FOR SHARE` as Row[];
  const beneficiary=plan.kind==='supplier'?await getVerifiedBeneficiary(ctx,{entityType:'supplier',entityId:String(party.id)}):null;
- const facts={ledger,payment,party,journal,cashJournal:cashJournal.observedSources,origin,allocations,originalInvoices,invoices,periods,vatLocks,beneficiary};
+ const facts={ledger,payment,party,journal,cashJournal:cashJournal.observedSources,origin,bankOriginProof,allocations,originalInvoices,invoices,periods,vatLocks,beneficiary};
  return{...facts,fingerprint:createHash('sha256').update(canonicalJson(facts)).digest('hex')};
 }
