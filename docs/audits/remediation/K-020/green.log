@@ -1,0 +1,23 @@
+== GREEN (fix applied) ==
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k020-reconciled-balance-double-count.int.test.ts" "tests/integration/k020-reconciled-balance-recompute.int.test.ts"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-020
+
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+   Start at  05:57:50
+   Duration  1.80s (transform 1.34s, setup 0ms, import 2.01s, tests 748ms, environment 0ms)
+
+
+== MUTATION CHECK: production file reverted to origin/master ==
+3 of 4 tests went RED (2000 vs 1050; 800 vs 400 twice); the tenant/date-boundary test
+stays green on master because it asserts the freshly-computed snapshot with no matched rows.
+File restored to the fixed version afterwards; tsc --noEmit and eslint both clean.
+
+== FULL UNIT SUITE (no fixture env; DATABASE_URL unset) ==
+$ env -u DATABASE_URL bunx vitest run
+ Test Files  784 passed | 36 skipped (820)
+      Tests  9320 passed | 234 skipped (9554)
+   Duration  73.69s
+No mocked fixture elsewhere broke on the SET-clause rewrite.
