@@ -66,3 +66,52 @@ export function verifyAuditEvidenceBundle(bundle:AuditEvidenceBundle,expected:{c
  return manifest;
 }
 export {copySnapshotArtifacts};
+
+export interface ExportOptions{signal?:AbortSignal;deadlineAt?:number}
+export function exportExecution(options:ExportOptions={}){
+ const deadline=options.deadlineAt;
+ if(deadline!==undefined&&!Number.isFinite(deadline))throw new Error('Invalid export deadline');
+ const deadlineAt=Math.min(Date.now()+EXPORT_LIMITS.seconds*1000,deadline??Infinity),signal=options.signal;
+ const check=()=>{signal?.throwIfAborted();if(Date.now()>=deadlineAt)throw new Error('Export runtime deadline');};
+ return{deadlineAt,signal,check,async checkpoint(){check();await new Promise<void>(resolve=>setImmediate(resolve));check();}};
+}
+export type ExportExecution=ReturnType<typeof exportExecution>;
+export async function exportByteHash(bytes:Uint8Array,execution:ExportExecution){
+ const hash=createHash('sha256');
+ for(let offset=0;offset<bytes.byteLength;offset+=1024*1024){
+  execution.check();hash.update(bytes.subarray(offset,offset+1024*1024));await execution.checkpoint();
+ }
+ execution.check();return hash.digest('hex');
+}
+export async function copyExportArtifacts(value:readonly {id:string;bytes:Uint8Array}[],execution:ExportExecution){
+ if(!Array.isArray(value)||value.length>100000)throw new Error('Invalid snapshot artifacts');
+ // Capture array descriptors without invoking accessors. Each copied byte is subsequently authenticated against the sealed snapshot.
+ const items=Array.from({length:value.length},(_,index)=>{
+  const item=Object.getOwnPropertyDescriptor(value,String(index));if(!item||!('value'in item))throw new Error('Invalid snapshot artifact');return item.value;
+ });
+ const result:{id:string;bytes:Uint8Array}[]=[],ids=new Set<string>();let total=0,batchBytes=0;
+ for(const item of items){
+  execution.check();const copied=copySnapshotArtifacts([item])[0]!;
+  total+=copied.bytes.byteLength;batchBytes+=copied.bytes.byteLength;
+  if(total>100*1024*1024||ids.has(copied.id))throw new Error('Snapshot artifact resource limit or duplicate identity');
+  ids.add(copied.id);result.push(copied);
+  if(result.length%64===0||batchBytes>=1024*1024){await execution.checkpoint();batchBytes=0;}
+ }
+ execution.check();return result;
+}
+export async function exportCsvRows(headers:readonly string[],rows:Iterable<readonly unknown[]>,execution:ExportExecution){
+ const quote=(value:string)=>`"${value.replace(/"/g,'""')}"`,parts=[headers.map(quote).join(',')];
+ let count=0,size=Buffer.byteLength(parts[0]!)+2,batchBytes=0;
+ for(const row of rows){
+  execution.check();const line=row.map(cell=>quote(canonicalJson(cell))).join(',');
+  const length=Buffer.byteLength(line)+2;size+=length;batchBytes+=length;
+  if(size>EXPORT_LIMITS.bundleBytes)throw new Error('Export resource limit');parts.push(line);
+  if(++count%128===0||batchBytes>=1024*1024){await execution.checkpoint();batchBytes=0;}
+ }
+ await execution.checkpoint();return Buffer.from(parts.join('\r\n')+'\r\n');
+}
+export async function sealExportManifestBounded(value:ExportManifest,execution:ExportExecution):Promise<AuthenticatedExportManifest>{
+ await execution.checkpoint();const canonicalData=canonicalJson(value);
+ const canonicalHash=await exportByteHash(Buffer.from(canonicalData),execution),keyId=process.env.CONTROL_SNAPSHOT_KEY_ID??'current';
+ execution.check();return{version:1,keyId,canonicalData,canonicalHash,authentication:authentication(keyId,canonicalHash)};
+}
