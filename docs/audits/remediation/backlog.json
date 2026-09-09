@@ -1759,8 +1759,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "873daa11",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k048-recurring-journal-no-due-date-no-lock.int.test.ts"
@@ -1769,12 +1769,14 @@
     "K-048/red.log",
     "K-048/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "873daa11",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k048-k049-recurring-journal-guards",
+   "reviewRounds": 1
   },
   {
    "id": "K-049",
@@ -1790,8 +1792,8 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "0f16391e",
-   "status": "confirmed",
+   "currentSha": "873daa11",
+   "status": "in-progress",
    "dependencies": [],
    "testNames": [
     "tests/integration/k049-recurring-journal-400-commits-draft.int.test.ts"
@@ -1800,12 +1802,14 @@
     "K-049/red.log",
     "K-049/validation.md"
    ],
-   "fixCommit": null,
+   "fixCommit": "873daa11",
    "pr": null,
    "deployedSha": null,
    "historicalDataImpact": "Not assessed",
    "canonicalItem": null,
-   "reportedSeverity": "high"
+   "reportedSeverity": "high",
+   "branch": "fix/audit-k048-k049-recurring-journal-guards",
+   "reviewRounds": 1
   },
   {
    "id": "K-050",
@@ -3119,11 +3123,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k091-cash-flow-reconciliation-bank-subtype.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-091/red.log",
+    "K-091/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3145,11 +3154,15 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
+   "currentSha": "31fc2f10",
+   "status": "false-positive",
+   "dependencies": [
+    "No server-side fetch sink reads afs_uploaded_images.url; defence-in-depth checkPublicUrl suggested before anything renders these rows"
+   ],
    "testNames": [],
-   "evidencePaths": [],
+   "evidencePaths": [
+    "K-092/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3171,11 +3184,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k093-sales-by-customer-legacy-customer-id.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-093/red.log",
+    "K-093/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3197,11 +3215,19 @@
    "correctedTrigger": "Approved correction rejects ExcelJS string-cell formula injection using inputs/comparison-exceljs-reproduction.json. Record a false-positive disposition only with reviewed reproduction evidence.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "31fc2f10",
+   "status": "false-positive",
+   "dependencies": [
+    "Plan correction H10 applied with an independent XLSX round-trip: every payload written by addLineItem reloads as ValueType.String with no formula (exceljs 4.4.0); the test is the tripwire"
+   ],
+   "testNames": [
+    "tests/unit/api/k094-xlsx-formula-injection.test.ts"
+   ],
+   "evidencePaths": [
+    "K-094/red.log",
+    "K-094/validation.md",
+    "K-094/xlsx-xml.log"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3223,11 +3249,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k095-flow-purchase-fails-open-without-paystack.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-095/red.log",
+    "K-095/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3250,11 +3281,18 @@
    "correctedTrigger": "Migration 429 defines ux_sub_mandates_company_active. Multiple pending activations fail the unique index; they do not leave multiple active mandates.",
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
+   "dependencies": [
+    "Plan correction H50/F13 applied: ux_sub_mandates_company_active raises 23505, so the consequence is a 500 (25P02) not multiple active mandates"
+   ],
+   "testNames": [
+    "tests/integration/k096-mandate-verify-activates-all-pending.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-096/red.log",
+    "K-096/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3276,11 +3314,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k097-audit-log-failure-poisons-admin-tx.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-097/red.log",
+    "K-097/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3456,11 +3499,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k104-k105-invitation-token-encoding.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-104/red.log",
+    "K-104/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3483,11 +3531,18 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "31fc2f10",
+   "status": "false-positive",
+   "dependencies": [
+    "RLS invites_by_token already enforces expiry/acceptance; but the route never returns 200 (R-030)"
+   ],
+   "testNames": [
+    "tests/integration/k104-k105-invitation-token-encoding.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-105/red.log",
+    "K-105/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3510,11 +3565,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k106-invitation-502-rollback.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-106/red.log",
+    "K-106/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3539,11 +3599,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k107-recurring-invoice-number-collision.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-107/red.log",
+    "K-107/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3566,11 +3631,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k108-k109-approval-rules.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-108/red.log",
+    "K-108/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3593,11 +3663,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k108-k109-approval-rules.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-109/red.log",
+    "K-109/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3620,11 +3695,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k110-cost-centre-delete-unassigns.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-110/red.log",
+    "K-110/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3647,11 +3727,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k111-merge-and-timesheet-row-counts.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-111/red.log",
+    "K-111/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3892,11 +3977,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k120-invoice-numbering-bypasses-sequence.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-120/red.log",
+    "K-120/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3919,11 +4009,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k121-quote-convert-to-order-no-status-guard.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-121/red.log",
+    "K-121/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3946,11 +4041,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k122-dunning-portal-link-404.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-122/red.log",
+    "K-122/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -3973,11 +4073,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k123-list-disputes-total.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-123/red.log",
+    "K-123/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -4000,11 +4105,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k124-dispute-credit-legacy-customer-id.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-124/red.log",
+    "K-124/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -4027,11 +4137,18 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
-   "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
+   "dependencies": [
+    "Latent: no writer produces NULL amount_paid; severity hinges on production rows (read-only SQL in validation.md)"
+   ],
+   "testNames": [
+    "tests/integration/k125-debtors-null-amount-paid.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-125/red.log",
+    "K-125/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -4054,11 +4171,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/integration/k126-invoice-pdf-line-vat-header-rate.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-126/red.log",
+    "K-126/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -4081,11 +4203,16 @@
    "correctedTrigger": null,
    "severityRationale": "Source priority only; impact and reachability not yet validated.",
    "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "currentSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
-   "status": "candidate",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
    "dependencies": [],
-   "testNames": [],
-   "evidencePaths": [],
+   "testNames": [
+    "tests/unit/services/ar/k127-portal-chatbot-sanitiser.test.ts"
+   ],
+   "evidencePaths": [
+    "K-127/red.log",
+    "K-127/validation.md"
+   ],
    "fixCommit": null,
    "pr": null,
    "deployedSha": null,
@@ -9154,6 +9281,36 @@
    "historicalDataImpact": "Deleted rows since launch are all still present.",
    "canonicalItem": null,
    "reportedSeverity": "low"
+  },
+  {
+   "id": "R-030",
+   "claim": "The /accept-invite flow (invitation system 1) is dead: the token route's join to companies is filtered by the companies_member_read RLS policy, so every valid invitation answers 410.",
+   "area": "auth",
+   "affectedPaths": [
+    "pages/api/invitations/[token]"
+   ],
+   "sourceLabel": "K-105 validation",
+   "sourceIds": [],
+   "correctedTrigger": "Executed under app_user on the fixture: a fresh valid invitation returns 410 (K-104/K-105 test).",
+   "severityRationale": "System-1 invitations have been unusable since RLS was forced on companies.",
+   "auditedSha": "5661d6f0f5f2212705151e95455a3f681ddf840e",
+   "currentSha": "31fc2f10",
+   "status": "confirmed",
+   "dependencies": [
+    "Fix on the K-041 branch alongside K-104/K-106"
+   ],
+   "testNames": [
+    "tests/integration/k104-k105-invitation-token-encoding.int.test.ts"
+   ],
+   "evidencePaths": [
+    "K-105/validation.md"
+   ],
+   "fixCommit": null,
+   "pr": null,
+   "deployedSha": null,
+   "historicalDataImpact": "No data impact; invitations could not be accepted through this path.",
+   "canonicalItem": null,
+   "reportedSeverity": "high"
   }
  ],
  "sourceInventory": [
