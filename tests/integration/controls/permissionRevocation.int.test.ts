@@ -33,6 +33,7 @@ afterAll(async () => {
       await pool.query('DELETE FROM control_mandatory_import_policies WHERE company_id=ANY($1::uuid[])', companies);
       await pool.query('DELETE FROM control_mandatory_match_override_policies WHERE company_id=ANY($1::uuid[])', companies);
       await pool.query('DELETE FROM control_mandatory_statement_policies WHERE company_id=ANY($1::uuid[])', companies);
+      await pool.query('DELETE FROM control_mandatory_compensation_policies WHERE company_id=ANY($1::uuid[])', companies);
       await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [[fixture.companyA, fixture.companyB]]);
       await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[fixture.u1.id, fixture.u2.id, fixture.u3.id]]);
     }
