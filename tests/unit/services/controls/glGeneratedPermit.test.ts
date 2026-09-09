@@ -48,3 +48,10 @@ it('allows reversing the owned original with a different original date',async()=
   const parent={entityType:'supplier_invoice',entityId:journal,operation:'supplier_invoice.cancel'} as OperationRef;
   await expect(registerGeneratedJournal(ctx,{permit,parent},journal,'journal.reverse')).resolves.toBeUndefined();
 });
+it.each(['payroll_run.post','payroll_run.reopen'] as const)('registers only a persisted owned %s journal',async operation=>{
+ const parent={entityType:'payroll_run',entityId:journal,operation};
+ await expect(registerGeneratedJournal(ctx,{permit,parent},journal,'journal.post')).resolves.toBeUndefined();
+ expect(sql.mock.calls.map(call=>String(call[0])).join(' ')).toContain('payroll_run_headers');
+ sql.mockResolvedValue([]);
+ await expect(registerGeneratedJournal(ctx,{permit,parent},journal,'journal.post')).rejects.toThrow('parent');
+});
