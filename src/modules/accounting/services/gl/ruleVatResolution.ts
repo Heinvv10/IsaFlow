@@ -23,6 +23,7 @@
  */
 
 import { applyVatDenial, resolveVatCodeForAccount } from './inputVatDenial';
+import { isControlAccountSettlement } from './settlementVat';
 import { applyNonSupplyGuard, resolveNonSupplyForAccount } from './nonSupplyVatGuard';
 import type { NonSupplyContext } from './nonSupplyVatGuard';
 
@@ -53,6 +54,15 @@ export async function resolveRuleVatCode(input: RuleVatInput): Promise<RuleVatDe
     allocType, companyId, requestedVatCode, glAccountId,
     ruleGlAccountVatDenied, ruleGlAccountName, denialContext, guardContext,
   } = input;
+
+  // K-017: a rule with a supplier or customer on it settles a document that
+  // already accounted for the VAT, so the code is dropped rather than passed
+  // through — `isControlAccountSettlement` carries the reasoning, and
+  // `allocateTransaction` applies the same predicate on the attended path.
+  // Neither guard below applies: there is no contra account to judge.
+  if (isControlAccountSettlement(allocType)) {
+    return { vatCode: 'none', denied: false, nonSupplyCoerced: false };
+  }
 
   if (allocType !== 'account') {
     return { vatCode: requestedVatCode, denied: false, nonSupplyCoerced: false };
