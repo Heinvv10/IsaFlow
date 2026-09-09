@@ -10,7 +10,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { NextApiResponse } from 'next';
-
 const h = vi.hoisted(() => ({
   auth: {
     user: { id: 'user-gotrue-1' },
@@ -20,7 +19,10 @@ const h = vi.hoisted(() => ({
     authMethod: 'pat' as const,
   },
 }));
-
+// This suite isolates HTTP dispatch; real authority/receipt durability is covered by PostgreSQL and HTTP acceptance.
+vi.mock('@/lib/mcp/invocationBoundary',()=>({withMcpInvocation:async(_name:string,_args:unknown,run:(mark:()=>void)=>Promise<unknown>)=>run(()=>undefined)}));
+vi.mock('@/lib/mcp/currentToolAuthority',()=>({assertCurrentToolAuthority:vi.fn(async()=>undefined)}));
+vi.mock('@/lib/mcp/flowMetering',()=>({debitForTool:vi.fn(async()=>({ok:true,handle:null})),refundForTool:vi.fn()}));
 vi.mock('@/lib/neon', () => {
   const sqlFn = Object.assign(vi.fn().mockResolvedValue([]), { transaction: vi.fn() });
   return {
@@ -28,12 +30,10 @@ vi.mock('@/lib/neon', () => {
     withTransaction: vi.fn((cb: (tx: typeof sqlFn) => unknown) => cb(sqlFn)),
   };
 });
-
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
   apiLogger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
-
 vi.mock('@/lib/auth/withBearerAuth', () => ({
   // Simulates a successfully authenticated Bearer request: attaches the auth
   // context and calls through. Auth-failure paths are covered by the
@@ -44,26 +44,21 @@ vi.mock('@/lib/auth/withBearerAuth', () => ({
       return handler(req, res);
     },
 }));
-
 vi.mock('@/modules/admin/services/featureFlagService', () => ({
   hasFeature: vi.fn(async () => true),
 }));
-
 vi.mock('@/lib/rateLimit', () => ({
   checkRateLimit: vi.fn(async () => true),
   getClientIp: vi.fn(() => '10.0.0.1'),
 }));
-
 import { hasFeature } from '@/modules/admin/services/featureFlagService';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { mcpRegistry } from '@/lib/mcp/toolIndex';
 import { CLIENT_MCP_TOOL_NAMES } from '@/lib/mcp/clientMetadata';
 import type { McpToolContext } from '@/lib/mcp/types';
 import route from '../../../pages/api/mcp/index';
-
 const COMPANY_ID = h.auth.companyId;
-
-// One controlled tool on the real (otherwise empty at this task) registry.
+// One controlled tool on the real registry isolates HTTP context propagation.
 const seenContexts: McpToolContext[] = [];
 mcpRegistry.register({
   name: 'echo_ctx',
@@ -76,14 +71,12 @@ mcpRegistry.register({
     return { content: [{ type: 'text', text: JSON.stringify({ company: ctx.companyId }) }] };
   },
 });
-
 interface FakeRes {
   statusCode: number;
   body?: unknown;
   headers: Record<string, unknown>;
   ended: boolean;
 }
-
 function makeRes(): NextApiResponse & FakeRes {
   const res = {
     statusCode: 200,
@@ -97,7 +90,6 @@ function makeRes(): NextApiResponse & FakeRes {
   };
   return res as unknown as NextApiResponse & FakeRes;
 }
-
 function makeReq(method: string, body?: unknown): Record<string, unknown> {
   return {
     method,
@@ -187,7 +179,8 @@ describe('/api/mcp transport', () => {
     await route(
       makeReq('POST', rpc('tools/call', {
         name: 'echo_ctx',
-        arguments: { company_id: '99999999-9999-9999-9999-999999999999' },
+        company_id: '99999999-9999-9999-9999-999999999999',
+        arguments: {},
       })) as never,
       res,
     );
@@ -197,6 +190,13 @@ describe('/api/mcp transport', () => {
     expect(seenContexts[0]!.tokenJti).toBe('pat-jti-1');
     const result = (res.body as { result: { content: Array<{ text: string }> } }).result;
     expect(result.content[0]!.text).toContain(COMPANY_ID);
+  });
+
+  it('rejects company injection inside tool arguments before the handler',async()=>{
+    const res=makeRes();
+    await route(makeReq('POST',rpc('tools/call',{name:'echo_ctx',arguments:{company_id:'99999999-9999-9999-9999-999999999999'}})) as never,res);
+    expect(seenContexts).toHaveLength(0);
+    expect(res.body).toMatchObject({result:{isError:true}});
   });
 
   it('tools/call without a name → -32602', async () => {
