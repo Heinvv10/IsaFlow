@@ -463,6 +463,7 @@ describe('write-tool manifest invariants', () => {
       // and locks every period behind it; reopening removes a posting lock; and
       // completing a reconciliation marks transactions terminally reconciled.
       'close_fiscal_period',
+      'execute_bank_operation',
       'finalize_invoice',
       // lock_vat_period posts no journal, and requires write:post anyway: it
       // freezes a filed return, and a control an agent can set without the
@@ -473,6 +474,7 @@ describe('write-tool manifest invariants', () => {
       // gates changing what is in the ledger, so it gates this too.
       'merge_gl_accounts',
       'perform_bank_reconciliation',
+      'prepare_bank_operation',
       'post_journal',
       // create_pay_run opens an empty period and posts nothing; posting the
       // payroll journal writes to gl_journal_entries, so only this one posts.
@@ -543,6 +545,12 @@ describe('write-tool manifest invariants', () => {
 
     const argsByTool: Record<string, Record<string, unknown>> = {
       // Scan real validation refusals; successful jobs require issued authority and actual storage.
+      // Issued control services have dedicated successful DTO and actual HTTP tests;
+      // this suite scans their strict argument-refusal envelopes, as with other controls below.
+      prepare_bank_operation: { ...KEY },
+      execute_bank_operation: { ...KEY },
+      request_operation_approval: { ...KEY },
+      propose_supplier_bank_change: { ...KEY },
       audit_snapshot: { cutoff: '2026-09-09', sources: [], checks: [], ...KEY },
       export_audit_evidence: { snapshot_id: 'not-a-uuid', ...KEY },
       create_draft_invoice: { customer_id: 'd0ac03be-abe5-44c4-80a2-0d99d9d3e3e6', items: [{ description: 'x', unit_price: 1 }], ...KEY },
