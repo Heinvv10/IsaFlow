@@ -12,7 +12,7 @@ import { sql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import type { DbRow } from '@/types/db';
 import { recordEmployeeChange } from '../payroll/payrollEmployeeHistoryService';
-import { assertCostCentreUnused, cannotDeleteMessage, FK_VIOLATION } from './costCentreUsageGuard';
+import { assertCostCentreUnused, cannotDeleteMessage, CostCentreActionError, FK_VIOLATION } from './costCentreUsageGuard';
 
 // ── GL / Accounting cost centre types ─────────────────────────────────────────
 
@@ -77,19 +77,23 @@ export async function updateGlCostCentre(companyId: string, id: string, input: P
 
 export async function toggleCostCentre(companyId: string, id: string, isActive: boolean): Promise<void> {
   const result = (await sql`UPDATE cost_centres SET is_active = ${isActive} WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
-  if (result.length === 0) throw new Error(`Cost centre not found: ${id}`);
+  if (result.length === 0) throw new CostCentreActionError(`Cost centre not found: ${id}`);
 }
 
 export async function deleteCostCentre(companyId: string, id: string): Promise<void> {
   await assertCostCentreUnused(companyId, id);
+  let deleted: Record<string, unknown>[];
   try {
-    await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId}`;
+    deleted = (await sql`DELETE FROM cost_centres WHERE id = ${id}::UUID AND company_id = ${companyId} RETURNING id`) as Record<string, unknown>[];
   } catch (err) {
     // Guard is tenant-scoped, the RESTRICT FKs are not: another company's row
     // is invisible above and reaches us as a 23503.
-    if ((err as { code?: string }).code === FK_VIOLATION) throw new Error(cannotDeleteMessage([]));
+    if ((err as { code?: string }).code === FK_VIOLATION) throw new CostCentreActionError(cannotDeleteMessage([]));
     throw err;
   }
+  // A scoped DELETE that matched nothing is another tenant's id, or an id that
+  // is already gone; either way reporting success is a lie. Mirrors toggleCostCentre.
+  if (deleted.length === 0) throw new CostCentreActionError(`Cost centre not found: ${id}`);
 }
 
 function mapGlRow(row: Record<string, unknown>): CostCentre {

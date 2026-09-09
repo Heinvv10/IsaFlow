@@ -3,8 +3,10 @@
 // for every id the operator sent — including rows the status predicate skipped.
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { Pool } from 'pg';
+import { SignJWT } from 'jose';
+import bankTransactionsAction from '../../pages/api/accounting/bank-transactions-action';
 import { bulkAcceptTransactions } from '../../src/modules/accounting/services/bank/bankTransactionQueryService';
-import { assertDisposable } from './mfa-impersonation-postgres.helpers';
+import { assertDisposable, request, response } from './mfa-impersonation-postgres.helpers';
 
 assertDisposable();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -17,6 +19,19 @@ const allocated = crypto.randomUUID();
 const alreadyMatched = crypto.randomUUID();
 const excluded = crypto.randomUUID();
 const foreignTx = crypto.randomUUID();
+const user = crypto.randomUUID();
+let token = '';
+
+async function callBulkAccept(body: Record<string, unknown>) {
+  const req = request({ 'sb-access-token': token, active_company_id: company }, 'POST') as never as
+    { body: unknown; query: Record<string, string>; url: string };
+  req.body = { action: 'bulk_accept', ...body };
+  req.query = {};
+  req.url = '/api/accounting/bank-transactions-action';
+  const result = response();
+  await bankTransactionsAction(req as never, result.res);
+  return result;
+}
 
 beforeAll(async () => {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2),($3,$4)',
@@ -36,13 +51,20 @@ beforeAll(async () => {
     `INSERT INTO bank_transactions(id,company_id,bank_account_id,transaction_date,amount,description,status)
      VALUES($1,$2,$3,'2026-08-05',500,'Other tenant','imported')`,
     [foreignTx, other, foreignAccount]);
+  await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)", [user, `${user}@test.local`]);
+  await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin')", [company, user]);
+  token = await new SignJWT({ sub: user, aal: 'aal2' })
+    .setProtectedHeader({ alg: 'HS256' }).setExpirationTime('1h')
+    .sign(new TextEncoder().encode(process.env.JWT_SECRET));
 });
 
 afterAll(async () => {
   try {
     await pool.query('DELETE FROM bank_transactions WHERE company_id=ANY($1)', [[company, other]]);
     await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1)', [[company, other]]);
+    await pool.query('DELETE FROM company_users WHERE company_id=$1', [company]);
     await pool.query('DELETE FROM companies WHERE id=ANY($1)', [[company, other]]);
+    await pool.query('DELETE FROM users WHERE id=$1', [user]);
   } finally { await pool.end(); }
 });
 
@@ -62,4 +84,17 @@ it('does not count or touch another tenant\'s transaction', async () => {
 
 it('reports zero for an empty id list without touching the table', async () => {
   expect(await bulkAcceptTransactions(company, [])).toBe(0);
+});
+
+it('rejects a bulk_accept with no id list before it reaches the service', async () => {
+  // Round 2 LOW-6 claimed an omitted list reaches ids.length on undefined and
+  // 500s. It does not: BankTxActionSchema requires bankTransactionIds .min(1),
+  // so the request is refused as 422 at validation, ahead of the switch.
+  const result = await callBulkAccept({});
+  expect(result.state.statusCode).toBe(422);
+});
+
+it('rejects a bulk_accept with an empty id list', async () => {
+  const result = await callBulkAccept({ bankTransactionIds: [] });
+  expect(result.state.statusCode).toBe(422);
 });
