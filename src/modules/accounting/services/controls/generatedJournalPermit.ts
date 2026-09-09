@@ -17,21 +17,31 @@ export async function registerGeneratedJournal(ctx: ControlTx, control: ParentJo
     related = await ctx.sql`SELECT je.id FROM gl_journal_entries je JOIN supplier_invoices p
       ON p.company_id=je.company_id AND p.id=${parent.entityId}::uuid
       WHERE je.company_id=${company}::uuid AND je.id=${journalId}::uuid
-        AND ((${operation}='journal.post' AND je.status='draft' AND je.source='auto_supplier_invoice' AND je.source_record_id=p.id)
+        AND ((${operation}='journal.post' AND ${parent.operation} IN ('supplier_invoice.post','supplier_invoice.approve')
+          AND je.status='draft' AND je.source='auto_supplier_invoice' AND je.source_record_id=p.id)
+          OR (${operation}='journal.post' AND ${parent.operation}='supplier_invoice.cancel' AND je.status='draft'
+            AND je.reversal_of_id=p.gl_journal_entry_id AND EXISTS(SELECT 1 FROM gl_journal_entries original
+              WHERE original.company_id=je.company_id AND original.id=je.reversal_of_id
+                AND original.status='posted' AND original.source=je.source FOR SHARE))
           OR (${operation}='journal.reverse' AND ${parent.operation}='supplier_invoice.cancel' AND p.gl_journal_entry_id=je.id AND je.status='posted'))
       FOR SHARE OF p,je`;
   } else if (parent.entityType === 'supplier_payment' && ['supplier_payment.process', 'supplier_payment.void'].includes(parent.operation)) {
     related = await ctx.sql`SELECT je.id FROM gl_journal_entries je JOIN supplier_payments p
       ON p.company_id=je.company_id AND p.id=${parent.entityId}::uuid
       WHERE je.company_id=${company}::uuid AND je.id=${journalId}::uuid
-        AND ((${operation}='journal.post' AND je.status='draft' AND je.source='auto_supplier_payment' AND je.source_record_id=p.id)
+        AND ((${operation}='journal.post' AND ${parent.operation}='supplier_payment.process'
+          AND je.status='draft' AND je.source='auto_supplier_payment' AND je.source_record_id=p.id)
+          OR (${operation}='journal.post' AND ${parent.operation}='supplier_payment.void' AND je.status='draft'
+            AND je.reversal_of_id=p.gl_journal_entry_id AND EXISTS(SELECT 1 FROM gl_journal_entries original
+              WHERE original.company_id=je.company_id AND original.id=je.reversal_of_id
+                AND original.status='posted' AND original.source=je.source FOR SHARE))
           OR (${operation}='journal.reverse' AND ${parent.operation}='supplier_payment.void' AND p.gl_journal_entry_id=je.id AND je.status='posted'))
       FOR SHARE OF p,je`;
   } else if (parent.entityType === 'journal_entry' && parent.operation === 'journal.reverse' && operation === 'journal.post') {
     related = await ctx.sql`SELECT je.id FROM gl_journal_entries je JOIN gl_journal_entries p
       ON p.company_id=je.company_id AND p.id=je.reversal_of_id
       WHERE je.company_id=${company}::uuid AND je.id=${journalId}::uuid AND p.id=${parent.entityId}::uuid
-        AND je.status='draft' AND p.status='posted' FOR SHARE OF p,je`;
+        AND je.status='draft' AND p.status='posted' AND je.source=p.source FOR SHARE OF p,je`;
   }
   if (related.length !== 1) throw new Error('Generated journal has no authorized parent relationship');
   // A lazy query may have yielded beyond the callback lifetime.
