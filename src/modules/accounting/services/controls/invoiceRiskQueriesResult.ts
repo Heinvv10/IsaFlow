@@ -14,10 +14,10 @@ export function riskOptions(input:RiskCheckOptions){
  if(input.cursor!==undefined&&(typeof input.cursor!=='string'||input.cursor.length>1024))throw new Error('Invalid risk cursor');
  return{...input,limit,cutoff:input.cutoff??null};
 }
-export function riskResult(input:{id:string;options:RiskCheckOptions;populationCount:number;excludedCount:number;findings:RiskFinding[];
+export function riskResult(input:{companyId:string;id:string;options:RiskCheckOptions;populationCount:number;excludedCount:number;findings:RiskFinding[];
  missing:string[];coverage:string[];capturedAt:string;sourceVersions:EntityVersionRef[];sourceHash:string}):ControlCheckResult{
  const options=riskOptions(input.options),findings=[...input.findings].sort((a,b)=>a.finding.key<b.finding.key?-1:a.finding.key>b.finding.key?1:0);
- const signature=riskHash({check:input.id,cutoff:options.cutoff,source:input.sourceHash});let offset=0;
+ const signature=riskHash({companyId:input.companyId,check:input.id,cutoff:options.cutoff,source:input.sourceHash});let offset=0;
  if(options.cursor){
   try{const cursor=JSON.parse(Buffer.from(options.cursor,'base64url').toString('utf8')) as {offset:number;signature:string};
    if(!Number.isSafeInteger(cursor.offset)||cursor.offset<0||cursor.offset>findings.length||cursor.signature!==signature)throw new Error('changed');offset=cursor.offset;

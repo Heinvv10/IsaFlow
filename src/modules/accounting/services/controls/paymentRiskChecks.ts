@@ -17,7 +17,7 @@ export function paymentRiskCurrency(row:PaymentRiskRow):string|null{
 export function detectPaymentPatterns(rows:readonly PaymentRiskRow[]):RiskFinding[]{
  const findings:RiskFinding[]=[],groups=new Map<string,PaymentRiskRow[]>();
  for(const row of rows){
-  if(!['approved','processed','reconciled'].includes(row.status)||!paymentRiskCurrency(row))continue;
+  if(row.supplier_owned===false||!['approved','processed','reconciled'].includes(row.status)||!paymentRiskCurrency(row))continue;
   const currency=paymentRiskCurrency(row)!,amount=canonicalMoney(row.total_amount);
   const signature=riskHash({supplier:row.supplier_id,amount,currency,allocations:[...row.allocations].sort((a,b)=>a.invoice_id<b.invoice_id?-1:1)});
   const group=groups.get(signature)??[];group.push(row);groups.set(signature,group);
@@ -59,6 +59,8 @@ export async function checkPaymentRisks(ctx:ControlTx,options:RiskCheckOptions={
  if(eligible.length!==rows.length)missing.push('payment_allocation_currency_or_bounded_attempt_evidence_unavailable');
  if(rows.some(row=>row.version===null))missing.push('historical_entity_versions_unavailable');
  if(rows.some(row=>['processed','reconciled'].includes(row.status)&&!row.attempts.length))missing.push('legacy_payment_intent_or_external_confirmation_unavailable');
+ if(rows.some(row=>row.supplier_owned===false))missing.push('owned_supplier_parent_unavailable');
+ if(rows.some(row=>row.attempts.some(a=>!a.verified_at)))missing.push('release_beneficiary_version_history_unavailable');
  const findings=detectPaymentPatterns(eligible);
  if(findings.some(f=>f.finding.kind==='repeated_payment_candidate'))missing.push('independent_installment_authorization_unavailable');
  let beneficiarySources:unknown=[];const bankVersions:EntityVersionRef[]=[];let bankAllowed=true;
@@ -71,7 +73,7 @@ export async function checkPaymentRisks(ctx:ControlTx,options:RiskCheckOptions={
     if(row.version!==null)bankVersions.push({entityType:'beneficiary_supplier',entityId:row.id,version:Number(row.version),fingerprint});
     return{id:row.id,version:row.version,fingerprint,pending:row.pending};});}
  }
- return riskResult({id:'payment_risk_checks',options,populationCount:population.populationCount,excludedCount:rows.filter(r=>!['approved','processed','reconciled'].includes(r.status)).length,
+ return riskResult({companyId:ctx.principal.companyId,id:'payment_risk_checks',options,populationCount:population.populationCount,excludedCount:rows.filter(r=>r.supplier_owned===false||!['approved','processed','reconciled'].includes(r.status)).length,
   findings,missing,coverage:['owned_supplier_payments','same_invoice_allocations_within_7_days','immutable_release_preparation_attempts','supplier_verified_account_reuse_requires_write_bank_tx',
    'verified_change_within_48_hours_before_activity','current_values_at_accounting_cutoff','synchronous_population_limit_10000','amount_totals_are_signal_exposures_and_can_overlap'],
   capturedAt:population.capturedAt,sourceHash:riskHash({rows,beneficiaries:beneficiarySources}),sourceVersions:[...bankVersions,...rows.filter(r=>r.version!==null).map(r=>({entityType:'supplier_payment',entityId:r.id,version:Number(r.version),fingerprint:riskHash(r)}))]});
