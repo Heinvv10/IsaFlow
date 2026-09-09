@@ -49,3 +49,13 @@ it('observes timers during bounded byte-copy and incremental hashing batches',as
   }finally{clearTimeout(timer);}
  }
 });
+it('removes the PDF abort listener on success and cancellation',async()=>{
+ const sealed=input(2),snapshot=verifyAuditSnapshot(sealed,expected);
+ for(const cancel of [false,true]){
+  const controller=new AbortController(),added=vi.spyOn(controller.signal,'addEventListener'),removed=vi.spyOn(controller.signal,'removeEventListener');
+  const pending=renderEvidencePdf(snapshot,sealed.canonicalHash,Date.now()+60000,{signal:controller.signal});
+  if(cancel){controller.abort(new Error('Stop PDF'));await expect(pending).rejects.toThrow('Stop PDF');}else await pending;
+  const callback=added.mock.calls.find(call=>call[0]==='abort')![1];
+  expect(removed.mock.calls.filter(call=>call[0]==='abort'&&call[1]===callback)).toHaveLength(1);
+ }
+});
