@@ -6,6 +6,9 @@ ALTER TABLE control_audit_jobs DROP CONSTRAINT IF EXISTS control_audit_jobs_chec
 ALTER TABLE control_audit_jobs DROP CONSTRAINT IF EXISTS control_audit_jobs_result_check;
 ALTER TABLE control_audit_jobs ADD CONSTRAINT control_audit_jobs_result_check
  CHECK(num_nonnulls(result_snapshot_id,result_export_id)<=1 AND ((state='succeeded')=(num_nonnulls(result_snapshot_id,result_export_id)=1)));
+ALTER TABLE control_audit_jobs DROP CONSTRAINT IF EXISTS control_audit_jobs_export_identity_check;
+ALTER TABLE control_audit_jobs ADD CONSTRAINT control_audit_jobs_export_identity_check
+ CHECK(result_export_id IS NULL OR result_export_id=job_id);
 GRANT UPDATE(result_export_id) ON control_audit_jobs TO app_user;
 
 CREATE TABLE IF NOT EXISTS control_audit_export_results (
