@@ -31,16 +31,6 @@ vi.mock('@/lib/neon', () => {
   });
   return {
     sql: sqlMock,
-    // reverseJournalEntry wraps itself in a transaction (withReversalTransaction)
-    // so the reversal claim cannot outlive the contra. Outside a request it
-    // opens one on a pool client and binds it into ALS, so this suite hands it
-    // a client whose BEGIN/COMMIT and lock_timeout statements are no-ops.
-    getPool: () => ({
-      connect: async () => ({
-        query: async () => ({ rows: [{ v: '0' }] }),
-        release: () => undefined,
-      }),
-    }),
     withTransaction: vi.fn(),
     // The real fmtDate: local calendar getters, strings passed through.
     fmtDate: (val: unknown) => {
@@ -57,6 +47,25 @@ vi.mock('@/lib/neon', () => {
   };
 });
 
+vi.mock('@/lib/alsTransaction', async () => {
+  const { als } = await import('@/lib/als');
+  return {
+    // reverseJournalEntry wraps itself in a transaction (withAlsTransaction) so
+    // the reversal claim cannot outlive the contra, and the claim REFUSES to run
+    // without one. Bind a client whose BEGIN/COMMIT and lock_timeout statements
+    // are no-ops, so this suite keeps asserting reversal semantics.
+    withAlsTransaction: (userId: string, companyId: string | undefined, fn: () => Promise<unknown>) =>
+      als.run(
+        {
+          client: { query: async () => ({ rows: [{ v: '0' }] }) } as never,
+          userId,
+          companyId,
+          claims: {},
+        },
+        fn,
+      ),
+  };
+});
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));

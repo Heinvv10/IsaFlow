@@ -20,6 +20,14 @@
 --           WHERE reversal_of_id IS NOT NULL;
 --       then run this file, whose IF NOT EXISTS turns the CREATE into a no-op
 --       while the guard below still runs.
+--       CHECK THE BUILD SUCCEEDED FIRST. A CONCURRENTLY build that fails or is
+--       cancelled leaves an INVALID index of that name behind, and IF NOT EXISTS
+--       matches on name regardless of validity — so the migration would skip the
+--       CREATE and leave an index enforcing nothing:
+--         SELECT c.relname, i.indisvalid FROM pg_index i
+--           JOIN pg_class c ON c.oid = i.indexrelid
+--          WHERE c.relname = 'ux_gl_je_reversal_of';
+--       Drop an invalid leftover before running this file.
 
 -- Fail closed, and say why. K-010 was reachable in production by a double-click,
 -- so duplicate contras are the expected case rather than the exotic one. Without

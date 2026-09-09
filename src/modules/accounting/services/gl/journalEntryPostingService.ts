@@ -161,7 +161,7 @@ export async function reverseJournalEntry(
   // commits its own. That is what keeps the claim below from outliving the
   // contra it stands for: a crash anywhere in between rolls both back, and a
   // rerun repairs the entry instead of finding it permanently marked reversed.
-  return withReversalTransaction(async () => {
+  return withReversalTransaction(companyId, userId, async () => {
   try {
     const entry = await getJournalEntryById(companyId, id);
     if (!entry) throw new Error(`Journal entry ${id} not found`);

@@ -30,7 +30,8 @@
  * race for the exact callers the design targets.
  */
 
-import { sql, getPool } from '@/lib/neon';
+import { sql } from '@/lib/neon';
+import { withAlsTransaction } from '@/lib/alsTransaction';
 import type { DbRow } from '@/lib/neon';
 import { als, assertTxUsable } from '@/lib/als';
 import { log } from '@/lib/logger';
@@ -57,42 +58,25 @@ function isLockTimeout(err: unknown): boolean {
 }
 
 /**
- * Run the whole reversal in one transaction.
+ * Run the whole reversal in one transaction that every nested `sql` call joins.
  *
- * Inside a request (`withAuth`, the MCP bearer pipeline) one is already open on
- * the ALS-bound client and `fn` simply runs on it — opening a second would take
- * a separate pool client and deadlock against the rows this request already
- * holds. Outside one, this opens a client, binds it into ALS so every nested
- * `sql` call routes to it, and commits or rolls back as a unit. That is what
- * makes the claim crash-safe: a death anywhere between the claim and the posted
- * contra rolls both back, and a rerun repairs the entry instead of finding it
- * permanently marked.
+ * Inside a request one is already open on the ALS-bound client and `fn` simply
+ * runs on it. Outside one — `scripts/fixes/reverse-cancelled-invoice-journals.ts`
+ * runs `reverseJournalEntry` in a bare loop, and cron paths do the same — this
+ * opens one and commits or rolls back as a unit. That is what makes the claim
+ * crash-safe: a death anywhere between the claim and the posted contra rolls
+ * both back, and a rerun repairs the entry instead of finding it permanently
+ * marked.
+ *
+ * The tenant and user are passed through rather than synthesised, so anything
+ * nested that reads the request context sees real values.
  */
-export async function withReversalTransaction<T>(fn: () => Promise<T>): Promise<T> {
-  if (als.getStore()?.client) {
-    assertTxUsable();
-    return fn();
-  }
-
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    const result = await als.run(
-      { client, userId: 'service:reverseJournalEntry', claims: {} },
-      fn,
-    );
-    await client.query('COMMIT');
-    return result;
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch (rollbackErr) {
-      log.error('Reversal transaction rollback failed', { error: rollbackErr }, 'accounting');
-    }
-    throw err;
-  } finally {
-    client.release();
-  }
+export function withReversalTransaction<T>(
+  companyId: string,
+  userId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withAlsTransaction(userId, companyId, fn);
 }
 
 /**
