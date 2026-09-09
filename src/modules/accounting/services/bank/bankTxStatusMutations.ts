@@ -150,6 +150,23 @@ function isMatchedLineUniqueViolation(err: unknown): boolean {
   return e?.code === '23505' && e?.constraint === 'uq_bank_tx_matched_line';
 }
 
+/**
+ * The same race, seen slowly.
+ *
+ * Before migration 657 the two racers locked different bank rows and never
+ * blocked. The unique index makes them block on the INDEX instead, and that
+ * wait is bounded by the 5s `SET LOCAL lock_timeout` that
+ * `lockBankTransactionForUpdate` issued on this same connection — so a peer
+ * that holds its transaction longer than 5s hands this UPDATE a raw 55P03
+ * rather than the 23505 above. Unmapped it escapes as a bare pg error,
+ * `autoMatchTransactions` does not recognise it, the route 400s and `withAuth`
+ * COMMITs the partial run. `lock_timeout` is a wait on THIS statement, so
+ * inside this UPDATE it can only mean the line is claimed.
+ */
+function isMatchedLineLockTimeout(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === '55P03';
+}
+
 export async function matchTransaction(
   companyId: string, bankTxId: string, journalLineId: string, reconciliationId?: string
 ): Promise<BankTransaction> {
@@ -181,7 +198,7 @@ export async function matchTransaction(
           SET status = 'matched', matched_journal_line_id = ${journalLineId}::UUID
           WHERE id = ${bankTxId}::UUID AND company_id = ${companyId}::UUID RETURNING *`) as Row[];
       } catch (writeErr) {
-        if (isMatchedLineUniqueViolation(writeErr)) {
+        if (isMatchedLineUniqueViolation(writeErr) || isMatchedLineLockTimeout(writeErr)) {
           throw new BankMatchTargetError(
             'LINE_CLAIMED',
             `Journal line ${journalLineId} is already matched to another bank transaction`,

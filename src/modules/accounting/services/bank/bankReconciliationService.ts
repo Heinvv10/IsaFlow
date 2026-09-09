@@ -9,6 +9,7 @@ import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { matchTransaction, BankTransactionAllocatedError, BankMatchTargetError } from './bankTransactionQueryService';
+import { BankTransactionLockTimeoutError } from './bankTxLock';
 import type { BankReconciliation, AutoMatchResult } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
@@ -247,7 +248,13 @@ export async function autoMatchTransactions(
           // lines, so it can only fire when a peer bound this line between that
           // read and this write — including via `uq_bank_tx_matched_line`,
           // which is what catches the pair that both passed the check.
+          // BankTransactionLockTimeoutError is the same race seen slowly: the
+          // peer is holding the bank row past the 5s lock_timeout. Skipping it
+          // is the same decision as the two above — the run reports it and a
+          // re-run picks the row up — and letting it escape is the one outcome
+          // that loses the matches already applied.
           const raced = matchErr instanceof BankTransactionAllocatedError
+            || matchErr instanceof BankTransactionLockTimeoutError
             || (matchErr instanceof BankMatchTargetError && matchErr.code === 'LINE_CLAIMED');
           if (!raced) throw matchErr;
           skippedRaced++;

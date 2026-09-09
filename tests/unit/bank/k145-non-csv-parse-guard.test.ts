@@ -96,6 +96,17 @@ describe('K-145 a non-CSV import that parses nothing must not report success', (
     expect(res.transactions).toEqual([]);
   });
 
+  // Adjacent case (review r2 L-D): a QIF carrying real transaction records but
+  // no `^` at all — an unterminated export whose records the parser could not
+  // read — has no `^`, so the terminator test alone called it an empty period
+  // and imported it silently as zero rows. That is the misleading success this
+  // guard exists to stop. `D`/`T` lines are what make "carried records" true.
+  it('QIF: unreadable records with no terminator are NOT an empty period', async () => {
+    const qif = ['!Type:Bank', 'DNOT-A-DATE', 'Tnot-an-amount', 'PWOOLWORTHS'].join('\n');
+    await expect(parseStatement({ fileType: 'qif', csvContent: qif }))
+      .rejects.toThrow(/Parsed no transactions/);
+  });
+
   it('MT940: a statement with no :61: line is an empty period', async () => {
     const mt940 = [
       ':20:K145EMPTY',
