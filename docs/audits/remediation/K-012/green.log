@@ -1,28 +1,45 @@
-=== GREEN (fixed) ===
+=== GREEN: real DB ===
+      Tests  7 passed (7)
+   Start at  05:56:28
+   Duration  1.27s (transform 722ms, setup 0ms, import 1.31s, tests 448ms, environment 0ms)
 
- Test Files  2 passed (2)
-      Tests  6 passed (6)
-   Start at  05:46:26
-   Duration  1.04s (transform 582ms, setup 0ms, import 981ms, tests 437ms, environment 2ms)
+=== GREEN: full unit suite ===
+   Duration  63.45s (transform 918.46s, setup 0ms, import 1477.39s, tests 101.38s, environment 163ms)
 
+error: script "test:unit" exited with code 1
 === MUTATION 1: restore the allocation-based credit ===
- Test Files  1 failed | 1 passed (2)
-      Tests  1 failed | 5 passed (6)
-   Start at  05:46:28
-   Duration  928ms (transform 508ms, setup 0ms, import 960ms, tests 433ms, environment 0ms)
+   Start at  05:57:34
+   Duration  1.07s (transform 502ms, setup 0ms, import 1.07s, tests 464ms, environment 0ms)
 
 error: script "test:integration" exited with code 1
 === MUTATION 2: drop the company_id predicate ===
- Test Files  1 failed (1)
-      Tests  2 failed | 3 passed (5)
-   Start at  05:46:29
-   Duration  882ms (transform 269ms, setup 0ms, import 426ms, tests 200ms, environment 0ms)
+   Start at  05:57:36
+   Duration  1.16s (transform 452ms, setup 0ms, import 643ms, tests 254ms, environment 0ms)
 
 error: script "test:integration" exited with code 1
+=== MUTATION 3: revert the unit fixture rename (proves the H1 coupling) ===
+      Tests  3 failed | 7 passed (10)
+   Start at  05:57:38
+   Duration  708ms (transform 122ms, setup 0ms, import 149ms, tests 18ms, environment 0ms)
+
 === RESTORED ===
+      Tests  7 passed (7)
+   Start at  05:57:39
+   Duration  1.14s (transform 664ms, setup 0ms, import 1.30s, tests 439ms, environment 0ms)
 
- Test Files  2 passed (2)
-      Tests  6 passed (6)
-   Start at  05:46:31
-   Duration  862ms (transform 501ms, setup 0ms, import 808ms, tests 384ms, environment 0ms)
+      Tests  10 passed (10)
+   Start at  05:57:41
+   Duration  512ms (transform 138ms, setup 0ms, import 203ms, tests 21ms, environment 0ms)
 
+
+=== NOTE on the "GREEN: full unit suite" line above ===
+That step was piped through `tail -3`, which cut the counts and left only a bare
+exit code 1. It is NOT reproducible: `bun run test:unit` was then run three more
+times from this worktree at this tree state, each time
+  Test Files  784 passed | 36 skipped (820)
+       Tests  9320 passed | 234 skipped (9554)
+  EXIT=0
+with no FAIL line (full output: scratchpad/k012-unit3.log). The suite runs ~9.5k
+tests in ~46-63s while other agents share this box, so a load-induced flake is
+the likely cause, but the failing test was not captured and I cannot name it.
+Recorded rather than dropped.

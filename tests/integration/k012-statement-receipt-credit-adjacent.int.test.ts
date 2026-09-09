@@ -15,6 +15,7 @@ const customer = crypto.randomUUID();
 const invoice = crypto.randomUUID();
 const unallocated = crypto.randomUUID(), full = crypto.randomUUID();
 const foreign = crypto.randomUUID(), draft = crypto.randomUUID(), late = crypto.randomUUID();
+const cancelled = crypto.randomUUID();
 
 async function receipt(id: string, co: string, cust: string, num: string, amount: number, status: string, date: string) {
   await pool.query(`INSERT INTO customer_payments(id,company_id,client_id,payment_number,payment_date,total_amount,status,created_by)
@@ -37,6 +38,7 @@ beforeAll(async () => {
   await receipt(foreign, other, customer, 'K012-RCT-OTHER', 900, 'confirmed', '2026-03-07');
   await receipt(draft, company, customer, 'K012-RCT-DRAFT', 500, 'draft', '2026-03-08');
   await receipt(late, company, customer, 'K012-RCT-LATE', 999, 'confirmed', '2026-04-01');
+  await receipt(cancelled, company, customer, 'K012-RCT-CANCELLED', 800, 'cancelled', '2026-03-09');
 });
 
 afterAll(async () => {
@@ -76,6 +78,14 @@ it('names an unconfirmed receipt as excluded at the amount received', async () =
   const ex = s!.excluded.find(e => e.documentNumber === 'K012-RCT-DRAFT');
   expect(ex?.reason).toBe('payment_not_confirmed');
   expect(ex?.amount).toBe(500);
+});
+
+it('names a cancelled receipt as excluded at the amount received, crediting nothing', async () => {
+  const s = await fetchStatementData(company, customer, '2026-03-31');
+  expect(s!.transactions.map(t => t.reference)).not.toContain('K012-RCT-CANCELLED');
+  const ex = s!.excluded.find(e => e.documentNumber === 'K012-RCT-CANCELLED');
+  expect(ex?.reason).toBe('payment_not_confirmed');
+  expect(ex?.amount).toBe(800);
 });
 
 it('leaves out a receipt dated after the as-at date, and totals the rest', async () => {
