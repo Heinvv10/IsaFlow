@@ -43,6 +43,7 @@ const LEGACY = 750;
 const SPLIT = 400;
 const LEGACY_ONLY = 250;
 const OTHER = 9999;
+const FOREIGN = 600;
 
 let customer: string;
 let otherCustomer: string;
@@ -73,6 +74,14 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
          status, total_amount, amount_paid, created_by)
       VALUES
         (${OTHER_COMPANY}::UUID, NULL, ${otherCustomer}::UUID, ${TAG + '-OTHER'}, '2026-01-15', '2026-02-15', 'approved', ${OTHER}, 0, ${USER}::UUID)`;
+    // Company A's own invoice, but pointing at company B's customer. client_id has
+    // no FK and customer_id's FK is not tenant-scoped, so this row is storable.
+    await sql`
+      INSERT INTO customer_invoices
+        (company_id, client_id, customer_id, invoice_number, invoice_date, due_date,
+         status, total_amount, amount_paid, created_by)
+      VALUES
+        (${COMPANY}::UUID, NULL, ${otherCustomer}::UUID, ${TAG + '-FOREIGN'}, '2026-01-15', '2026-02-15', 'approved', ${FOREIGN}, 0, ${USER}::UUID)`;
   }, 60000);
 
   afterAll(async () => {
@@ -84,6 +93,7 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
   it('AR aging already counts the NULL client_id invoice', async () => {
     const buckets = await getARAging(COMPANY);
     const row = buckets.find((b) => b.entityId === customer);
+    expect(row).toBeDefined();
     expect(row!.total).toBeCloseTo(LINKED + LEGACY, 2);
   });
 
@@ -106,6 +116,8 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
     const summary = await getDebtorsSummary(COMPANY);
     const byCustomer = summary.find((d) => d.clientId === customer);
     const byBillTo = summary.find((d) => d.clientId === billTo);
+    expect(byCustomer).toBeDefined();
+    expect(byBillTo).toBeDefined();
     // COALESCE takes client_id first, so the SPLIT invoice stays with billTo and
     // does NOT collapse into the customer_id group.
     expect(byCustomer!.totalOutstanding).toBeCloseTo(LINKED + LEGACY, 2);
@@ -125,10 +137,27 @@ describeIfDb('K-058 debtors dashboard drops invoices with a NULL client_id', () 
 
   it('collection stats count the legacy invoice customer exactly once', async () => {
     const stats = await getCollectionStats(COMPANY);
-    expect(stats.totalOutstanding).toBeCloseTo(LINKED + LEGACY + SPLIT + LEGACY_ONLY, 2);
+    // FOREIGN is company A's money, so it stays in the total; only the NAME of
+    // company B's customer is withheld, by dropping the row from the table.
+    expect(stats.totalOutstanding).toBeCloseTo(LINKED + LEGACY + SPLIT + LEGACY_ONLY + FOREIGN, 2);
     // customer, billTo and legacyOnly. Before the fix the NULL client_id rows
     // were invisible to COUNT DISTINCT and legacyOnly went missing entirely.
     expect(stats.clientCount).toBe(3);
+  });
+
+  it('never renders a customer name owned by another company', async () => {
+    const summary = await getDebtorsSummary(COMPANY);
+    const overdue = await getOverdueInvoices(COMPANY);
+    // The FOREIGN invoice belongs to company A but names company B's customer.
+    // The join is tenant-scoped, so the row is dropped rather than rendered with
+    // the foreign name. Fail closed: no name of another company's customer appears.
+    expect(summary.some((d) => d.clientId === otherCustomer)).toBe(false);
+    expect(summary.map((d) => d.clientName)).not.toContain('K058 other ' + TAG);
+    expect(overdue.map((i) => i.invoiceNumber)).not.toContain(TAG + '-FOREIGN');
+    expect(overdue.map((i) => i.clientName)).not.toContain('K058 other ' + TAG);
+    // And the stat tile agrees with the table: the foreign id is not a debtor here.
+    const stats = await getCollectionStats(COMPANY);
+    expect(stats.clientCount).toBe(summary.length);
   });
 
   it('does not leak the other company\'s NULL client_id invoice', async () => {

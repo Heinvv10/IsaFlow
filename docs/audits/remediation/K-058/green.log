@@ -26,3 +26,44 @@ K-058 GREEN
 
 4. $ bunx tsc --noEmit                                              -> exit 0, no output
    $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts -> exit 0, no output
+
+────────────────────────────────────────────────────────────────────────────
+Review follow-up (tenant-scoped joins + the four LOWs)
+
+5. Integration test, 8 tests (the leak case added):
+   $ bun run test:integration -- tests/integration/k058-debtors-drops-null-client-id.int.test.ts
+   Test Files  1 passed (1)
+        Tests  8 passed (8)
+
+6. Targeted mutations, one predicate at a time:
+   a. `AND c.company_id = ci.company_id` stripped from both joins (sed) ->
+      Tests  5 failed | 3 passed (8)
+      including "never renders a customer name owned by another company".
+   b. `FILTER (WHERE EXISTS ...)` removed from clientCount only ->
+      Tests  2 failed | 6 passed (8)
+      ("collection stats count the legacy invoice customer exactly once" and
+       "never renders a customer name owned by another company").
+   c. Whole change reverted (recorded above) -> 6 failed | 1 passed (7 at the time).
+   Production file restored after each; 8/8 reproduced.
+
+7. $ bunx tsc --noEmit                                              -> exit 0, no output
+   $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts -> exit 0, no output
+   File is 299 lines (<= 300).
+
+8. Full unit suite, DATABASE_URL unset. THE SUITE IS CURRENTLY FLAKY IN THIS
+   WORKTREE AND THE FLAKINESS IS NOT MINE. Successive identical runs:
+     with my change      12 failed | 9422 passed
+     with my change      10 failed | 9424 passed
+     with my change      10 failed | 9424 passed
+     at 7352734c exactly  6 failed | 9428 passed   <- my own earlier commit,
+                                                      which measured 0 failed
+                                                      a few minutes before
+   The failing files are bankAllocationService, bankAllocationDateShift,
+   bankAllocationUnwind, cashFlowReport and trackerExclusion. None imports
+   debtorsManagerService, and all five pass when run together in isolation:
+     $ bunx vitest run <those five files>  ->  Test Files 5 passed, Tests 27 passed
+   The set and count vary run to run, and the same instability reproduces on a
+   commit that was clean earlier, so the cause is outside this change. Most
+   likely the node_modules symlinked from the shared remediation worktree being
+   mutated by a parallel fixer, or scheduler contention exposing mock leakage
+   across workers. Flagged, not fixed here.
