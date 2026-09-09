@@ -1,3 +1,4 @@
+import {assertBankPaymentInverseIdentity} from '../controls/bankChildReversalGuard';
 /** Payment-addressed inverse adapter. All economic writes belong to approved domain services. */
 import {sql,withSavepoint} from '@/lib/neon';
 import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
@@ -71,6 +72,7 @@ export async function voidPaymentDocument(companyId:string,kind:PaymentKind,paym
   if(bankLines.length>1)return{refusal:'ambiguous_bank_lines',count:bankLines.length};
   const bankTransactionId=bankLines[0]?.id??null;
   if(bankTransactionId){
+   await assertBankPaymentInverseIdentity(ctx,kind,payment.id,bankTransactionId,payment.journalEntryId!);
    const result=await reverseReconciledTransaction(companyId,bankTransactionId,userId,opts);
    return{paymentId:payment.id,paymentNumber:payment.paymentNumber,kind,invoicesReopened:result.invoicesReopened,
     amountUnapplied:result.amountUnapplied,journalEntryId:payment.journalEntryId,bankTransactionId};

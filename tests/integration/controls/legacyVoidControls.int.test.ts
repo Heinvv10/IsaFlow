@@ -1,3 +1,5 @@
+import {assertEffectivePermission} from '@/lib/auth/effectivePermissions';
+import {approvalAuthorities} from '@/modules/accounting/services/controls/approvalQueries';
 import {prepareBankAllocation,executeBankAllocation} from '@/modules/accounting/services/bank/bankAllocationControl';
 import {prepareBankAllocationReversal} from '@/modules/accounting/services/bank/bankAllocationReversal';
 import {als} from '@/lib/als';
@@ -37,7 +39,7 @@ beforeAll(async()=>{
  await pool.query("INSERT INTO bank_accounts(company_id,account_name,gl_account_id,currency) VALUES($1,'Synthetic allocation bank',$2,'ZAR')",[fixture.companyA,bank]);
 });
 afterAll(async()=>{await pool.end();});
-async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u2'='u1',bearer=false){
+async function actor<T>(fn:()=>Promise<T>,person:'u1'|'u2'|'u3'='u1',bearer=false){
  const client=await pool.connect(),user=fixture[person];
  try{
   await client.query('BEGIN');await client.query('SET LOCAL ROLE app_user');
@@ -240,10 +242,14 @@ for(const kind of ['customer','supplier'] as const)it(`${kind}: bank journal sib
 it('adapter and direct approved cancellation share policy-before-payment lock order',async()=>{
  const doc=await document('customer');
  const originalJournal=(await state('customer',doc.payment,doc.invoice)).payment[0].gl_journal_entry_id;
+ await pool.query("INSERT INTO company_users(company_id,user_id,role) VALUES($1,$2,'admin') ON CONFLICT(company_id,user_id) DO UPDATE SET role='admin'",[fixture.companyA,fixture.u3.id]);
  const approved=await approval({entityType:'customer_payment',entityId:doc.payment,operation:'customer_payment.cancel',reversalDate:'2026-09-12'});
  let policyReady!:()=>void,allowDirect!:()=>void,adapterReady!:(pid:number)=>void;
  const held=new Promise<void>(resolve=>{policyReady=resolve;}),proceed=new Promise<void>(resolve=>{allowDirect=resolve;}),started=new Promise<number>(resolve=>{adapterReady=resolve;});
  const direct=actor(async()=>{
+  // Reproduce the executor's real authority-before-policy order, including sorted approvers.
+  await approvalAuthorities(requireControlTx(),approved);
+  await assertEffectivePermission(requireControlTx(),'write:invoices');await assertEffectivePermission(requireControlTx(),'write:post');
   await requireControlTx().sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${fixture.companyA}`},0))`;
   policyReady();await proceed;
   return cancelCustomerPayment(fixture.companyA,doc.payment,fixture.u1.id,undefined,{approvalId:approved,reversalDate:'2026-09-12'});
@@ -251,13 +257,13 @@ it('adapter and direct approved cancellation share policy-before-payment lock or
  await held;
  const adapter=actor(async()=>{
   const [row]=await requireControlTx().sql`SELECT pg_backend_pid() AS pid` as {pid:number}[];adapterReady(row!.pid);
-  return voidPaymentDocument(fixture.companyA,'customer',doc.payment,fixture.u1.id,{approvalId:approved,reversalDate:'2026-09-12'});
- });
- // Observe the real contender waiting for the held advisory lock before releasing the direct caller.
+  return voidPaymentDocument(fixture.companyA,'customer',doc.payment,fixture.u3.id,{approvalId:approved,reversalDate:'2026-09-12'});
+ },'u3');
+ // Observe the real contender waiting for a held authority/policy lock before releasing the direct caller.
  const pid=await started;let waiting=false;
  try{
   for(let attempt=0;attempt<100&&!waiting;attempt++){
-   waiting=(await pool.query("SELECT 1 FROM pg_locks WHERE pid=$1 AND locktype='advisory' AND NOT granted",[pid])).rowCount===1;
+   waiting=(await pool.query("SELECT 1 FROM pg_locks WHERE pid=$1 AND NOT granted",[pid])).rowCount===1;
    if(!waiting)await new Promise(resolve=>setTimeout(resolve,10));
   }
  }finally{allowDirect();}
