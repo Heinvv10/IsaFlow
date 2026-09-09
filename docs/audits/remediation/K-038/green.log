@@ -1,0 +1,30 @@
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k-038"
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-038
+
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-09-09T08:04:03.286Z","component":"accounting","data":{"invoiceId":"66ca4750-4fcf-4199-8fd9-14b4d655615e","invoiceNumber":"a5480224-AP-PART"}}
+{"level":"info","message":"Created fiscal year","timestamp":"2026-09-09T08:04:03.328Z","component":"accounting","data":{"companyId":"a5480224-59e5-4d54-a258-9fda73f7f639","year":2027,"startMonth":3,"range":{"startDate":"2026-03-01","endDate":"2027-02-28"}}}
+{"level":"info","message":"Auto-created fiscal year for a journal date","timestamp":"2026-09-09T08:04:03.328Z","component":"accounting","data":{"companyId":"a5480224-59e5-4d54-a258-9fda73f7f639","year":2027}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T08:04:03.340Z","component":"accounting","data":{"entryId":"818ef99d-f625-4acb-9476-84362615cecc","entryNumber":"JE-2026-00001","lineCount":3}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-09-09T08:04:03.383Z","component":"accounting","data":{"invoiceId":"3bd78cc4-537c-4902-917c-6c73161f1e28","invoiceNumber":"a5480224-AP-FULL"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T08:04:03.404Z","component":"accounting","data":{"entryId":"f4525db2-e466-4847-9244-5261b5921ed8","entryNumber":"JE-2026-00002","lineCount":3}}
+{"level":"info","message":"Created supplier invoice","timestamp":"2026-09-09T08:04:03.439Z","component":"accounting","data":{"invoiceId":"4d41088c-4178-4cd2-81b9-6e391d5a0bc5","invoiceNumber":"a5480224-AP-OPEN"}}
+{"level":"info","message":"Created journal entry","timestamp":"2026-09-09T08:04:03.449Z","component":"accounting","data":{"entryId":"cbb0319f-fbf6-4bec-bdc5-775eec4d2190","entryNumber":"JE-2026-00003","lineCount":3}}
+
+ Test Files  2 passed (2)
+      Tests  9 passed (9)
+   Start at  10:04:01
+   Duration  1.77s (transform 886ms, setup 0ms, import 1.49s, tests 848ms, environment 0ms)
+
+
+=== Mutation check (production change reverted to origin/master, tests kept) ===
+Tests  6 failed | 3 passed (9)
+The 3 that stay green are the invariance cases (unpaid AR, unpaid AP, second
+tenant untouched) — they must hold both before and after.
+
+=== Full unit suite, DATABASE_URL unset (env -u DATABASE_URL bunx vitest run) ===
+Test Files  790 passed | 36 skipped (826)
+     Tests  9391 passed | 234 skipped (9625)
+
+=== bunx tsc --noEmit ===  exit 0
+=== bunx eslint src/modules/admin/services/sageMigration{CommitService,Types}.ts ===  exit 0

@@ -14,6 +14,7 @@ import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntr
 import { getSystemAccount } from '@/modules/accounting/services/gl/systemAccountResolver';
 import { assertNoInactiveAccountLines } from '@/modules/accounting/services/gl/journalEntryPostingService';
 import { postCustomerInvoiceToGL } from '@/modules/accounting/services/ar/customerPaymentAllocationService';
+import { recomputeInvoiceStatus } from '@/modules/accounting/services/ar/invoiceStatusRecompute';
 import type {
   Row,
   MappedCustomer,
@@ -90,6 +91,14 @@ async function resolveSupplierId(companyId: string, name: string): Promise<strin
   return rows.length ? String(rows[0]!.id) : null;
 }
 
+// The source system's already-settled portion. Clamped to [0, total] because a
+// Sage credit or overpayment can make `Total - AmountDue` fall outside it, and
+// `balance` is a GENERATED column (total_amount - amount_paid) that would then
+// go negative.
+function settledAtSource(amountPaid: number | undefined, totalAmount: number): number {
+  return Math.min(Math.max(amountPaid ?? 0, 0), totalAmount);
+}
+
 // ── Public commit functions ───────────────────────────────────────────────────
 
 export async function commitARInvoice(
@@ -105,17 +114,18 @@ export async function commitARInvoice(
   if (!customerId) throw new Error(`Customer not found: ${inv.customerName}`);
 
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
+  const amountPaid = settledAtSource(inv.amountPaid, inv.totalAmount);
 
   const inserted = (await sql`
     INSERT INTO customer_invoices (
       company_id, invoice_number, customer_id, client_id,
       invoice_date, due_date, subtotal, tax_rate, tax_amount, total_amount,
-      status, notes, created_by, currency_code, exchange_rate, functional_total
+      amount_paid, status, notes, created_by, currency_code, exchange_rate, functional_total
     ) VALUES (
       ${companyId}::UUID, ${inv.invoiceNumber}, ${customerId}::UUID, ${customerId}::UUID,
       ${inv.invoiceDate}, ${inv.dueDate ?? null},
       ${inv.subtotal}, ${taxRate}, ${inv.taxAmount}, ${inv.totalAmount},
-      'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}
+      ${amountPaid}, 'approved', ${inv.reference ?? null}, ${userId}, 'ZAR', 1.0, ${inv.totalAmount}
     ) RETURNING id
   `) as Row[];
   const invoiceId = String(inserted[0]!.id);
@@ -131,6 +141,9 @@ export async function commitARInvoice(
   // is usually closed. Without this the canonical path would refuse it, and
   // refusing is right everywhere except here.
   await postCustomerInvoiceToGL(companyId, invoiceId, userId, { historicalImport: true });
+  // 'approved' above is only the open-invoice default; the canonical helper
+  // narrows it to partially_paid/paid (and sets paid_at) from amount_paid.
+  if (amountPaid > 0) await recomputeInvoiceStatus(companyId, 'customer', invoiceId);
   return { invoiceId, created: true };
 }
 
@@ -147,6 +160,7 @@ export async function commitAPInvoice(
   if (!supplierId) throw new Error(`Supplier not found: ${inv.supplierName}`);
 
   const taxRate = inv.subtotal > 0 ? Math.round(((inv.taxAmount || 0) / inv.subtotal) * 10000) / 100 : 0;
+  const amountPaid = settledAtSource(inv.amountPaid, inv.totalAmount);
 
   const created = await createSupplierInvoice(companyId, {
     supplierId, invoiceNumber: inv.invoiceNumber, invoiceDate: inv.invoiceDate,
@@ -177,7 +191,9 @@ export async function commitAPInvoice(
 
   await assertNoInactiveAccountLines(companyId, je.id);
   await sql`UPDATE gl_journal_entries SET status = 'posted', posted_at = NOW() WHERE id = ${je.id}::UUID AND company_id = ${companyId}::UUID`;
-  await sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`;
+  await sql`UPDATE supplier_invoices SET status = 'approved', approved_at = NOW(), amount_paid = ${amountPaid}, gl_journal_entry_id = ${je.id}::UUID WHERE id = ${created.id}::UUID AND company_id = ${companyId}::UUID`;
+  // Same as AR: 'approved' is the open default, narrowed from amount_paid.
+  if (amountPaid > 0) await recomputeInvoiceStatus(companyId, 'supplier', created.id);
   return { invoiceId: created.id, created: true };
 }
 
