@@ -72,44 +72,14 @@ describe('GLEntrySource ↔ gl_journal_entries_source_check', () => {
     expect(GL_ENTRY_SOURCES).toContain('auto_expense_receipt');
   });
 
-  /**
-   * SCOPE WARNING — this test does NOT prove "no unvalidated INSERT-at-posted
-   * path exists". It proves only that these three specific sources stay
-   * rejected. The constraint can never gate a path that uses an ALREADY-VALID
-   * source, so a green run here says nothing about those.
-   *
-   * sageImportService.importLedgerTransactions was one such path
-   * (status='posted', source='manual', no validateJournalEntry) and HAS since
-   * been converted to createJournalEntry/postJournalEntry — see
-   * tests/unit/services/sageLedgerImport.test.ts. postAssetDepreciationToGLThrows
-   * still INSERTs at posted with 'auto_depreciation'; it is balanced by
-   * construction and savepoint-atomic, and its deterministic entry_number is
-   * load-bearing for idempotency, so it was deliberately left alone.
-   *
-   * These three are emitted by live code and rejected by the constraint, so
-   * those features are dead — and they must STAY dead until their code is
-   * converted.
-   *
-   *   'opening_balance' — pages/api/accounting/opening-balances.ts
-   *   'bank_transfer'   — pages/api/accounting/bank-transfers.ts
-   *   'year_end'        — gl/yearEndService.ts
-   *
-   * Each still INSERTs its header straight to status='posted' without
-   * validateJournalEntry, and trg_gl_je_balanced is BEFORE UPDATE only, so
-   * nothing would check the result. Admitting the source would un-gate an
-   * unvalidated posting path — exactly what happened when migration 509 added
-   * 'auto_expense_receipt' and receipt-to-journal.ts had to be converted in the
-   * same change to stay safe.
-   *
-   * The constraint is currently the only thing protecting the ledger from
-   * these three. Without this test the next person debugging their 23514 fixes
-   * it by widening the list, which is the trap. Convert the code first, then
-   * delete the relevant line here.
-   */
-  it('keeps the three unconverted direct-INSERT sources OUT of the union and the constraint', () => {
+  // These legacy source labels remain unsupported. Bank transfers now use
+  // auto_bank_transfer. year_end is admitted by637 for controlledYearEnd's
+  // draft/shared-post path, proven by glYearEndWriters.int.test.ts. A source
+  // catalogue alone is not evidence that every writer enforces controls.
+  it('keeps unsupported opening balance and old bank transfer labels out', () => {
     const allowed = new Set(sourcesInConstraint(latestSourceConstraintSql()));
 
-    for (const dead of ['opening_balance', 'bank_transfer', 'year_end']) {
+    for (const dead of ['opening_balance', 'bank_transfer']) {
       expect(
         GL_ENTRY_SOURCES as readonly string[],
         `${dead}: convert its writer to createJournalEntry before adding it`,
