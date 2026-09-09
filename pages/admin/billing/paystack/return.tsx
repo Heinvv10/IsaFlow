@@ -122,7 +122,11 @@ export default function PaystackMandateReturn() {
                 href="/admin/billing"
                 className="mt-6 inline-block rounded-lg bg-indigo-600 px-5 py-2.5 text-white text-sm font-medium hover:bg-indigo-700"
               >
-                Try again
+                {/* A charged-but-unattached authorisation usually means the
+                    company already HAS an active mandate, and the create route
+                    answers 400 until it is revoked — so don't invite a retry
+                    that cannot succeed. */}
+                {data?.failureReason?.startsWith('authorisation_') ? 'Back to billing' : 'Try again'}
               </Link>
             </div>
           )}

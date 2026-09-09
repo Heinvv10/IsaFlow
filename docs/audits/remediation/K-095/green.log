@@ -89,3 +89,39 @@ Mutation proof (production code reverted, then restored):
   - drop `failureReason ? 'failed'` from publicStatus
       integration k095-mandate-activation-guards: 1 failed | 3 passed
   All production files restored from backup and re-verified GREEN above.
+
+=== Round 5 (blind review of 1d5aa28fd: 1 HIGH, 4 LOW) ===
+$ bun run test:integration -- tests/integration/k095-r5-verify-webhook-race.int.test.ts
+  Test Files  1 passed (1)   Tests  6 passed (6)
+$ bun run test:integration -- <k095 x5, k096 x4, k097 x2>
+  Test Files  11 passed (11)  Tests  46 passed (46)
+$ env -u DATABASE_URL bunx vitest run tests/unit/services/paystackMandateActivation.test.ts
+  Test Files  1 passed (1)   Tests  10 passed (10)
+$ bunx vitest run --config vitest.components.config.ts tests/unit/components/paystackMandateReturn.test.tsx
+  Test Files  1 passed (1)   Tests  2 passed (2)
+$ bun run test:components
+  Test Files  68 passed (68)  Tests  443 passed (443)
+$ env -u DATABASE_URL bunx vitest run      # FULL unit suite, fixture env UNSET
+  Test Files  801 passed | 40 skipped (841)
+  Tests  9558 passed | 243 skipped (9801)
+$ bunx tsc --noEmit                        -> clean
+$ bun run lint                             -> 0 errors, 11 pre-existing warnings (none in changed files)
+$ bun run agent-docs:check                 -> OK: 74 mirrors match
+
+MUTATIONS (each applied, run, then restored; git diff empty afterwards)
+ M1 reclassifyAfterNoUpdate(...) -> return 'blocked'
+      integration 2 failed | 3 passed (5, pre-heal-test)  unit 3 failed | 7 passed (10)
+ M2 publicStatus reordered so failureReason outranks an active own mandate
+      integration 1 failed | 5 passed (6)
+ M3 `const own = fresh[0]` (LOW-1 gating removed)
+      integration 1 failed | 4 passed (5)
+ M4 failureReason: undefined in the response
+      2 files: 3 failed | 7 passed (10)
+ M5 return.tsx link label forced back to "Try again"
+      components 1 failed | 1 passed (2)
+
+LOW-3 DISPUTED — executed against the fixture DB:
+$ psql "$DATABASE_URL" -c "\d paystack_payment_requests"
+  "paystack_payment_requests_paystack_reference_key" UNIQUE CONSTRAINT, btree (paystack_reference)
+  (declared inline at scripts/migrations/sql/486_paystack_billing.sql:31 as `TEXT NOT NULL UNIQUE`)
+No migration written. Prefix 664 released, unused.

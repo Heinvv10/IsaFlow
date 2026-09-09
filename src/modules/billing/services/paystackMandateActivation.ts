@@ -17,8 +17,10 @@
  * So the activation is written as a conditional UPDATE and the constraint is
  * left as the arbiter: the NOT EXISTS settles the sequential case, and a
  * concurrent loser (both statements pass NOT EXISTS, the index blocks the
- * second) surfaces as 23505 inside a SAVEPOINT and is reported as `blocked`
- * rather than aborting the caller's transaction.
+ * second) surfaces as 23505 inside a SAVEPOINT rather than aborting the
+ * caller's transaction. Neither zero rows nor that 23505 is read as `blocked`
+ * on its own: both are ambiguous with "this row was just activated by the
+ * other observer", so the outcome is decided by re-reading the row.
  */
 
 import { sql, withSavepoint } from '@/lib/neon';
@@ -117,21 +119,73 @@ export async function resolveAuthorisedMandate(
   return rows[0] ? toMandateRow(rows[0], false) : null;
 }
 
+/**
+ * How an ACTIVE row is reported. Active-first ordering in the fallback is what
+ * makes a REDELIVERY of the event that activated this row resolve
+ * idempotently. A different authorization code on an UNLINKED row means this
+ * is not that redelivery — the pending row this reference actually paid for is
+ * still pending and unnameable, so reporting success would discard a captured,
+ * charged authorisation. A LINKED row is never second-guessed: the payment
+ * request named this mandate, so whatever activated it activated the payer's
+ * own mandate.
+ */
+function classifyActive(
+  authorizationCode: string | null,
+  linked: boolean,
+  auth: AuthorisationDetails,
+): ActivationOutcome {
+  if (!linked && authorizationCode !== auth.authorizationCode) {
+    return 'already_active_other_code';
+  }
+  return 'already_active';
+}
+
+/**
+ * The conditional UPDATE writing zero rows is ambiguous: `status = 'pending'`
+ * fails identically whether a DIFFERENT row holds the company's active slot
+ * (genuinely `blocked`) or THIS row was activated in the meantime by the other
+ * observer of the same transition — the charge.success webhook landing while
+ * verify's outbound `verifyTransaction` call is in flight. Concluding `blocked`
+ * from the stale up-front read defamed a mandate that is active and chargeable,
+ * and `failure_reason` is durable and payer-visible, so the conclusion is taken
+ * from a fresh read of the row instead of from the absence of a state the
+ * webhook had not yet written.
+ *
+ * Safe on both callers: the zero-row path never errored, and on the 23505 path
+ * `withSavepoint` has already rolled back to its savepoint, so the transaction
+ * is usable either way.
+ */
+async function reclassifyAfterNoUpdate(
+  companyId: string,
+  mandate: MandateRow,
+  auth: AuthorisationDetails,
+): Promise<ActivationOutcome> {
+  const rows = await sql<ResolvedRow>`
+    SELECT id, status, paystack_authorization_code FROM subscription_mandates
+    WHERE id = ${mandate.id}
+      AND company_id = ${companyId}
+    LIMIT 1
+  `;
+  const row = rows[0];
+  // Gone (concurrent delete): not activatable, and not "some other row is
+  // active" either — the only terminal outcome that fits is not_pending.
+  if (!row) return 'not_pending';
+  if (row.status === 'active') {
+    return classifyActive(row.paystack_authorization_code, mandate.linked, auth);
+  }
+  // Still pending: nothing about THIS row changed, so the predicate that
+  // failed was the NOT EXISTS (or the unique index) — genuinely blocked.
+  if (row.status === 'pending') return 'blocked';
+  return 'not_pending';
+}
+
 export async function activateAuthorisedMandate(
   companyId: string,
   mandate: MandateRow,
   auth: AuthorisationDetails,
 ): Promise<ActivationOutcome> {
   if (mandate.status === 'active') {
-    // Active-first ordering in the fallback is what makes a REDELIVERY of the
-    // event that activated this row resolve idempotently. A different
-    // authorization code means this is not that redelivery — the pending row
-    // this reference actually paid for is still pending and unnameable, so
-    // reporting success would discard a captured, charged authorisation.
-    if (!mandate.linked && mandate.authorizationCode !== auth.authorizationCode) {
-      return 'already_active_other_code';
-    }
-    return 'already_active';
+    return classifyActive(mandate.authorizationCode, mandate.linked, auth);
   }
   if (mandate.status !== 'pending') return 'not_pending';
 
@@ -160,11 +214,11 @@ export async function activateAuthorisedMandate(
         )
       RETURNING id
     `);
-    return rows[0] ? 'activated' : 'blocked';
+    if (rows[0]) return 'activated';
   } catch (err) {
-    if (isActiveMandateConflict(err)) return 'blocked';
-    throw err;
+    if (!isActiveMandateConflict(err)) throw err;
   }
+  return reclassifyAfterNoUpdate(companyId, mandate, auth);
 }
 
 /**

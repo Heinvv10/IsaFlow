@@ -109,11 +109,11 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       mandateId,
     });
   } catch (err) {
-    await sql`
-      UPDATE subscription_mandates SET status = 'failed', updated_at = now()
-      WHERE id = ${mandateId}
-        AND company_id = ${req.companyId}
-    `;
+    // Nothing to mark: this answers 500, and withAuth ROLLBACKs the request
+    // transaction on >= 500 — which discards the INSERT that created the
+    // pending mandate too, so no row survives to be 'failed'. A marking UPDATE
+    // here would be dead work, and on a SQL failure it would raise 25P02 out
+    // of the catch block with no savepoint to absorb it.
     log.error(
       'Paystack mandate authorisation failed to initialise',
       { mandateId, err: err instanceof Error ? err.message : String(err) },

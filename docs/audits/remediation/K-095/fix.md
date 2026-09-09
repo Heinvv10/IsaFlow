@@ -199,3 +199,79 @@ ORDER  BY pr.completed_at DESC;
 and no ticket is raised, which stays a commercial decision. The different-code test is only possible
 for rows where `paystack_authorization_code` was recorded; a pre-651 request whose code column is
 NULL compares as different and is labelled conservatively.
+
+---
+
+## Round 5 — blind review of 1d5aa28fd (1 HIGH, 4 LOW)
+
+**HIGH-1 — FIXED. `verify` racing the webhook reported an ACTIVE mandate as permanently `failed`.**
+Round 4's own regression. `activateAuthorisedMandate` read the mandate once, at the top of the
+request, then treated its conditional UPDATE writing zero rows as proof that a *different* row held
+the company's active slot. `status = 'pending'` fails identically when the `charge.success` webhook
+activated *this* row in the meantime — a window exactly as long as verify's outbound
+`verifyTransaction` call, which is when the webhook lands. Round 4 made that durable and
+payer-visible: `authorisation_blocked` persisted to `failure_reason`, the route answered `failed`,
+and the return page told the payer their card was charged but no mandate exists.
+*After:* `reclassifyAfterNoUpdate` (`paystackMandateActivation.ts`) re-reads the row before the
+conclusion is drawn — on the zero-row path and on the absorbed 23505 alike. Active + same code (or
+linked) → `already_active`; active + different code on an unlinked row → `already_active_other_code`;
+still pending → `blocked` (the NOT EXISTS or the index really did stop us); gone/other →
+`not_pending`. Belt and braces at the boundary: `verify` no longer lets a persisted `failure_reason`
+outrank *this reference's own* mandate being `active`, so a reason written by any future path — or
+already on disk — heals instead of defaming a chargeable mandate.
+
+**LOW-1 — FIXED.** `verify.ts` nulled only `mandateId` for an unattributable fallback and still
+returned that row's bank, card and ceiling. One `own` binding now gates the whole mandate view.
+**LOW-2 — FIXED.** The dead `status='failed'` UPDATE in `create.ts`'s catch is gone: the 500 makes
+`withAuth` ROLLBACK, discarding it *and* the INSERT it referred to, and on a SQL error it would have
+raised 25P02 out of the catch with no savepoint.
+**LOW-3 — DISPUTED, no change. `paystack_reference` IS unique.** `486_paystack_billing.sql:31`
+declares `paystack_reference TEXT NOT NULL UNIQUE`; the backing index is a UNIQUE CONSTRAINT, which
+`\d` lists under a separate heading from the plain indexes. Executed against the fixture DB:
+`paystack_payment_requests_paystack_reference_key" UNIQUE CONSTRAINT, btree (paystack_reference)`.
+No migration is needed and none was written; migration prefix 664 is RELEASED, unused.
+**LOW-4 — FIXED.** The failed panel labels its link "Back to billing" when the reason starts
+`authorisation_`, since `create.ts:44-53` answers 400 while an active mandate exists.
+
+**Files (round 5).** `src/modules/billing/services/paystackMandateActivation.ts` (244),
+`pages/api/billing/paystack/mandate/verify.ts` (202),
+`pages/api/billing/paystack/mandate/create.ts` (126),
+`pages/admin/billing/paystack/return.tsx` (157), `src/modules/billing/.claude.md` + `AGENTS.md`.
+
+**Tests (round 5).** New `tests/integration/k095-r5-verify-webhook-race.int.test.ts` — 6 tests on
+the fixture DB with two pool clients: webhook committing *during* verify's Paystack call
+(webhook-after-read, the proved defect); verify first then a webhook redelivery, plus a later poll;
+a second observer calling `activateAuthorisedMandate` with a stale `pending` read; a genuinely
+blocked activation that must stay `blocked`; a `failure_reason` already on disk against an active
+linked mandate (healed); an unattributable fallback returning no card/bank/ceiling.
+`tests/unit/services/paystackMandateActivation.test.ts` 7 → 10.
+New `tests/unit/components/paystackMandateReturn.test.tsx` — 2 rendered tests for LOW-4.
+k095/k096/k097 integration: **11 files / 46 tests**. Full unit suite, fixture env UNSET:
+**801 files / 9558 tests, 0 failed**. Components: 68 files / 443 tests. `bun run lint` 0 errors
+(11 pre-existing warnings, none in these files); `bunx tsc --noEmit` clean; agent-docs 74 mirrors OK.
+
+**Mutation (round 5), each reverted then restored.** `reclassifyAfterNoUpdate` → hardcoded
+`'blocked'`: 2 integration + 3 unit red. `publicStatus` heal reordered so `failureReason` outranks an
+active own mandate: 1 integration red. `own` gating removed (LOW-1): 1 integration red.
+`failureReason` dropped from the response: 3 red across 2 files. Return-page label forced back to
+"Try again": 1 component red. Round 4's four mutations still hold.
+
+**Historical-data impact (round 5).** No migration. A wrongly persisted `authorisation_blocked` can
+only have been written by round-4 code, which lives solely on this unmerged branch — production has
+never run it, so no production row can carry one. Should any exist, the route now heals them on
+read; to find them (read-only, NOT executed here):
+
+```sql
+SELECT pr.company_id, pr.paystack_reference, pr.failure_reason, m.status AS mandate_status
+FROM   paystack_payment_requests pr
+JOIN   subscription_mandates m ON m.id = pr.mandate_id
+WHERE  pr.purpose = 'authorization'
+  AND  pr.failure_reason IN ('authorisation_blocked', 'authorisation_not_pending')
+  AND  m.status = 'active'
+ORDER  BY pr.completed_at DESC;
+```
+
+**Limits (round 5).** The heal is read-side only: a stale `failure_reason` stays on the row and is
+still visible to anyone querying the table directly. Clearing it would need a status-predicated
+UPDATE on a GET, which is worse; the row is diagnostic and the payer-facing answer is now correct.
+The re-read costs one extra SELECT, and only on the path that already lost the race.
