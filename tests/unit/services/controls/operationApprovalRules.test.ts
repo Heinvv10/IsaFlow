@@ -24,3 +24,11 @@ it.each([
 ])('fails closed for unsupported/malformed active policy %j', patch => {
   expect(() => matchApprovalRules([{ ...rule, ...patch }], '1', new Map())).toThrow();
 });
+it('evaluates unconditional nonfinancial policies without inventing an amount',()=>{
+  expect(matchApprovalRules([{...rule,condition_operator:'any'}],null,new Map())).toHaveLength(1);
+  expect(matchApprovalRules([],null,new Map())).toEqual([]);
+});
+it('refuses monetary and aggregate policies for nonfinancial material',()=>{
+  expect(()=>matchApprovalRules([rule],null,new Map())).toThrow();
+  expect(()=>matchApprovalRules([{...rule,condition_operator:'any',aggregate_window_days:1,aggregate_by:'supplier'}],null,new Map())).toThrow();
+});

@@ -1,0 +1,71 @@
+$ node scripts/check-runtime.mjs && bun run check:routes && vitest run tests/unit/services/controls/periodOperationReference.test.ts
+$ node scripts/check-duplicate-next-routes.mjs
+No duplicate Next.js pages routes found in pages.
+
+ RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/mcp-forensic-integration-20260909
+
+ ❯ tests/unit/services/controls/periodOperationReference.test.ts (13 tests | 9 failed) 33ms
+   × accepts typed owned reference payroll_run.post 7ms
+   × accepts typed owned reference payroll_run.reopen 1ms
+   × accepts typed owned reference fiscal_period.close 0ms
+   × accepts typed owned reference fiscal_period.lock 7ms
+   × accepts typed owned reference fiscal_period.reopen 1ms
+   × accepts typed owned reference year.close 3ms
+   × accepts typed owned reference vat_period.lock 0ms
+   × accepts typed owned reference company_lockdown.change 0ms
+   × reconstructs payroll reopen target date from persisted approval binding 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > accepts typed owned reference payroll_run.post
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > accepts typed owned reference payroll_run.reopen
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > accepts typed owned reference fiscal_period.close
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > accepts typed owned reference fiscal_period.lock
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > accepts typed owned reference fiscal_period.reopen
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > accepts typed owned reference company_lockdown.change
+Error: Unsupported controlled operation
+ ❯ canonicalOperationRef src/modules/accounting/services/controls/operationMaterializer.ts:17:50
+     15|     : ref.entityType === 'supplier_payment' ? ['supplier_payment.proce…
+     16|       : ref.entityType === 'journal_entry' ? ['journal.post','journal.…
+     17|   if (!operations.includes(ref.operation)) throw new Error('Unsupporte…
+       |                                                  ^
+     18|   const reverses = ['journal.reverse','supplier_payment.void','supplie…
+     19|   const reversalDate = ref.reversalDate ?? (reverses && 'accountingDat…
+ ❯ tests/unit/services/controls/periodOperationReference.test.ts:10:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > accepts typed owned reference year.close
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > accepts typed owned reference vat_period.lock
+Error: Invalid operation reference
+ ❯ canonicalOperationRef src/modules/accounting/services/controls/operationMaterializer.ts:12:100
+     10| export function canonicalOperationRef(ref: OperationRef): OperationRef…
+     11|   canonicalJson(ref);
+     12|   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$…
+       |                                                                                                    ^
+     13|   const operations = ref.entityType === 'supplier_invoice'
+     14|     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_…
+ ❯ tests/unit/services/controls/periodOperationReference.test.ts:10:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+ FAIL  tests/unit/services/controls/periodOperationReference.test.ts > reconstructs payroll reopen target date from persisted approval binding
+Error: Unsupported controlled operation
+ ❯ canonicalOperationRef src/modules/accounting/services/controls/operationMaterializer.ts:17:50
+     15|     : ref.entityType === 'supplier_payment' ? ['supplier_payment.proce…
+     16|       : ref.entityType === 'journal_entry' ? ['journal.post','journal.…
+     17|   if (!operations.includes(ref.operation)) throw new Error('Unsupporte…
+       |                                                  ^
+     18|   const reverses = ['journal.reverse','supplier_payment.void','supplie…
+     19|   const reversalDate = ref.reversalDate ?? (reverses && 'accountingDat…
+ ❯ tests/unit/services/controls/periodOperationReference.test.ts:21:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/9]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  9 failed | 4 passed (13)
+   Start at  10:42:08
+   Duration  900ms (transform 356ms, setup 0ms, import 466ms, tests 33ms, environment 0ms)
+
+error: script "test:unit" exited with code 1

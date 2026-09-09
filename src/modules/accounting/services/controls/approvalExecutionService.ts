@@ -1,4 +1,4 @@
-import { operationPermission } from './operationPermissions';
+import { operationPermission,operationRequiresPosting } from './operationPermissions';
 import { randomUUID } from 'node:crypto';
 import { withSavepoint } from '@/lib/neon';
 import type { ControlTx, OperationRef } from './contracts';
@@ -34,7 +34,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   const authorities = approvalId ? await approvalAuthorities(ctx, approvalId) : [];
   const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
   await assertEffectivePermission(ctx, operationPermission(ref.operation,'write'));
-  await assertEffectivePermission(ctx, 'write:post');
+  if(operationRequiresPosting(ref.operation)) await assertEffectivePermission(ctx, 'write:post');
   return withSavepoint('controlled_ap_operation', async () => {
     // Preserve policy-before-approval lock order, including replay lookups.
     await ctx.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`control-policy:${ctx.principal.companyId}`},0))`;
@@ -77,7 +77,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     `;
     await reserveOperationExposure(ctx, material, row?.id ?? null, 'committed');
     const { recordCommittedChange } = await import('./changeEventService');
-    const after = await materializeOperation(ctx, ['journal.reverse','supplier_payment.void','supplier_invoice.cancel'].includes(ref.operation) ? {...ref,reversalDate:accountingDate} : ref);
+    const after = await materializeOperation(ctx, ['journal.reverse','supplier_payment.void','supplier_invoice.cancel','payroll_run.reopen'].includes(ref.operation) ? {...ref,reversalDate:accountingDate} : ref);
     const parent = (sources: typeof after.observedSources) => sources.find(source => source.entityType === ref.entityType && source.entityId === ref.entityId)!.facts;
     await recordCommittedChange(ctx, { entityType: ref.entityType, entityId: ref.entityId,
       previousVersion: material.binding.entityVersion, newVersion: material.binding.entityVersion + 1,
