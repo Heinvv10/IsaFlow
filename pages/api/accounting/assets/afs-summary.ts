@@ -10,6 +10,7 @@ import { apiResponse } from '@/lib/apiResponse';
 import { withAuth, type AuthenticatedNextApiRequest, type CompanyAuthedRequest } from '@/lib/auth';
 import { sql } from '@/lib/neon';
 import { aggregatePpeMovements, type AssetPriorYearSnapshot, type AssetCurrentYearMovement } from '@/modules/accounting/services/items/farAfsService';
+import { fiscalYearStart, getFiscalYearStartMonth } from '@/modules/accounting/services/gl/fiscalYearBasis';
 
 type Row = Record<string, unknown>;
 
@@ -23,12 +24,17 @@ async function handler(req: AuthenticatedNextApiRequest, res: NextApiResponse) {
     return apiResponse.badRequest(res, 'period must be YYYYMM (e.g. 202312)');
   }
 
-  // Derive prior year end period (same month, prior year)
-  const year = parseInt(period.slice(0, 4), 10);
-  const month = period.slice(4, 6);
-  const priorYYYYMM = `${year - 1}${month}`;
-  // Current year range: from Jan of current year to the period
-  const currentYearStart = `${year}01`;
+  // The financial year is the company's own, not January-December. Refuse rather
+  // than assume March: an AFS note is signed and filed under the customer's name.
+  const fyStartMonth = await getFiscalYearStartMonth(companyId);
+  const fyStart = fiscalYearStart(`${period.slice(0, 4)}-${period.slice(4, 6)}-01`, fyStartMonth);
+  const fyStartYear = parseInt(fyStart.slice(0, 4), 10);
+  // Current year range: from the first period of the financial year to the period
+  const currentYearStart = `${fyStartYear}${fyStart.slice(5, 7)}`;
+  // Prior year end is the period immediately before the financial year opens
+  const priorYYYYMM = fyStartMonth === 1
+    ? `${fyStartYear - 1}12`
+    : `${fyStartYear}${String(fyStartMonth - 1).padStart(2, '0')}`;
 
   // Prior year closing snapshot per asset (last available period ≤ priorYYYYMM)
   const priorRows = (await sql`
