@@ -24,3 +24,18 @@ export function TypeBadge({ type }: { type: string }) {
   );
 }
 
+
+export interface SupplierInfo {
+  id: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface Summary {
+  totalInvoiced: number;
+  totalPaid: number;
+  totalReturns: number;
+  balance: number;
+}
+
