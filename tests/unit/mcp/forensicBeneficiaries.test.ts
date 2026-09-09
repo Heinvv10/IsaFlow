@@ -1,3 +1,4 @@
+import {validateToolArguments} from '@/lib/mcp/inputValidation';
 import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({ctx:{principal:{personId:'person'}},permission:vi.fn(),propose:vi.fn(),status:vi.fn()}));
 vi.mock('@/modules/accounting/services/controls/context',()=>({requireControlTx:()=>m.ctx}));
@@ -35,4 +36,16 @@ it('rejects nested getters and unsupported actor authority without invoking gett
  expect(getter).not.toHaveBeenCalled();
  expect((await forensicBeneficiaryTools[0].handler({...input,verified:true},ctx)).isError).toBe(true);
  expect(m.propose).not.toHaveBeenCalled();
+});
+it('rechecks invoice source access when evidence is supplied and refuses oversized evidence',async()=>{
+ const evidence={store:'captured',entityType:'supplier_invoice',entityId:id,evidenceId:id,version:null,hash:'a'.repeat(64)};
+ await forensicBeneficiaryTools[0].authorize!({...input,evidence_refs:[evidence]},ctx);
+ expect(m.permission).toHaveBeenCalledWith(m.ctx,'read:invoices');
+ expect((await forensicBeneficiaryTools[0].handler({...input,evidence_refs:Array(11).fill(evidence)},ctx)).isError).toBe(true);
+});
+
+it('admits actual bank and nullable evidence contracts through the registry validator',()=>{
+ const evidence={store:'captured',entityType:'supplier_invoice',entityId:id,evidenceId:id,version:null,hash:'a'.repeat(64)};
+ expect(validateToolArguments(forensicBeneficiaryTools[0],{...input,evidence_refs:[evidence]}).ok).toBe(true);
+ expect(validateToolArguments(forensicBeneficiaryTools[1],{supplier_id:id}).ok).toBe(true);
 });

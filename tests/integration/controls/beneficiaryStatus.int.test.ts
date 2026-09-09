@@ -34,3 +34,12 @@ it('retains cancelled proposal status and refuses authenticated envelope corrupt
  await pool.query("UPDATE control_beneficiary_proposals SET details_fingerprint=repeat('0',64) WHERE company_id=$1 AND id=$2",[f.companyA,p.proposalId]);
  await expect(actor(f.u1.id,ctx=>readSupplierBankChangeStatus(ctx,{supplierId}))).rejects.toThrow();
 });
+it('permits a current read-only reviewer and refuses current source read revocation',async()=>{
+ const f=statusFixture(),s=await source();
+ await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read,can_write) VALUES($1,$2,'beneficiaries',true,false)",[f.companyA,f.u2.id]);
+ try{
+  expect(await actor(f.u2.id,ctx=>readSupplierBankChangeStatus(ctx,{supplierId:s.ref.entityId}))).toMatchObject({currentBank:{verification:'legacy_unverified'}});
+  await pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read,can_write) VALUES($1,$2,'suppliers',false,false)",[f.companyA,f.u2.id]);
+  await expect(actor(f.u2.id,ctx=>readSupplierBankChangeStatus(ctx,{supplierId:s.ref.entityId}))).rejects.toThrow();
+ }finally{await pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key=ANY($3::text[])",[f.companyA,f.u2.id,['beneficiaries','suppliers']]);}
+});
