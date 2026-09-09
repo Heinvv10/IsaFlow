@@ -28,6 +28,13 @@ export function useTrialBalanceFilters() {
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
+    const query = Object.fromEntries(new URL(queryKey, 'https://report.invalid').searchParams);
+    setCostCentreId(queryText(query, 'cost_centre_id'));
+    setShowMovement(query.show_movement === 'true');
+  }, [ready, queryKey]);
+
+  useEffect(() => {
     if (!ready || !periodsLoaded) return;
     const query = Object.fromEntries(new URL(queryKey, 'https://report.invalid').searchParams);
     const today = new Date().toISOString().slice(0, 10);
@@ -36,9 +43,7 @@ export function useTrialBalanceFilters() {
     const best = requested ?? dated ?? periods.find(p => p.status === 'open' && p.startDate.slice(0, 10) <= today && p.endDate.slice(0, 10) >= today)
       ?? periods.find(p => p.status === 'open') ?? periods[0];
     setSelectedPeriod(best?.id ?? '');
-    setCostCentreId(queryText(query, 'cost_centre_id'));
     setComparePeriodId(periods.some(p => p.id === query.compare_period_id && p.id !== best?.id) ? query.compare_period_id! : '');
-    setShowMovement(query.show_movement === 'true');
     setRestoredKey(queryKey);
   }, [ready, periodsLoaded, periods, queryKey]);
 
