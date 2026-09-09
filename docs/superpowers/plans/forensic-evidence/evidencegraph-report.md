@@ -43,7 +43,7 @@ node node_modules/typescript/bin/tsc --noEmit --pretty false
 node node_modules/eslint/bin/eslint.js src/modules/accounting/services/controls/transactionEvidence*.ts tests/unit/services/controls/transactionEvidence*.test.ts tests/integration/controls/transactionEvidence.int.test.ts
 ```
 
-TypeScript and focused lint clean. No CI/build, deploy, production data or external communication. Initial/final local logs: `/tmp/evidencegraph-unit.log`, `/tmp/evidencegraph-pg.log`, `/tmp/evidencegraph-pg7.log`, `/tmp/evidencegraph-ts.log`, `/tmp/evidencegraph-lint.log`.
+TypeScript and focused source lint clean. Including the two new test files in the lint command encounters the repository project-service exclusion (`was not found by the project service`); those tests are executed by Vitest, and no test-lint success is claimed. No CI/build, deploy, production data or external communication. Initial/final local logs: `/tmp/evidencegraph-unit.log`, `/tmp/evidencegraph-pg.log`, `/tmp/evidencegraph-pg7.log`, `/tmp/evidencegraph-ts.log`, `/tmp/evidencegraph-lint.log`, `/tmp/evidencegraph-source-lint.log`.
 
 ## Integration boundaries
 
