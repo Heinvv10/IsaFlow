@@ -1,3 +1,5 @@
+import {applyLegacyCashPlan} from '@/modules/accounting/services/shared/cashApplicationLegacyAdapter';
+import {prepareCashApplicationReversal,executeCashApplicationReversal} from '@/modules/accounting/services/shared/cashApplicationReversalControl';
 import {requireControlTx} from '@/modules/accounting/services/controls/context';
 import {prepareCashApplication,executeCashApplication} from '@/modules/accounting/services/shared/cashApplicationControl';
 import {requestOperationApproval,decideOperationApproval} from '@/modules/accounting/services/controls/approvalRequestService';
@@ -60,3 +62,45 @@ it('rolls back financial effects and committed child history with the surroundin
  expect((await pool.query('SELECT status FROM control_operation_approvals WHERE company_id=$1 AND id=$2',[fixture.companyA,approval.id])).rows[0].status).toBe('approved');
 });
 
+it('refuses another tenant attempting to execute an owned cash intent',async()=>{
+ const {prepared,approval,invoice}=await approvedApplication();
+ await expect(actor(()=>executeCashApplication(requireControlTx(),prepared.intentId,{approvalId:approval.id}),'u3')).rejects.toThrow(/owned|not found|permission/i);
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
+});
+it('refuses accounting dates before original cash and invoice dates',async()=>{
+ const {invoice,posted}=await postedCash();
+ await expect(actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-08',applications:[{invoiceId:invoice,amount:'115.00'}]}))).rejects.toThrow(/predate/i);
+ expect((await pool.query('SELECT id FROM control_cash_application_intents WHERE company_id=$1 AND payment_id=$2',[fixture.companyA,posted.paymentId])).rows).toHaveLength(0);
+});
+it('supports approved reapplication after inverse without deleting original history',async()=>{
+ const {prepared,approval,invoice,posted}=await approvedApplication();
+ await actor(()=>executeCashApplication(requireControlTx(),prepared.intentId,{approvalId:approval.id}));
+ const inverse=await actor(()=>prepareCashApplicationReversal(requireControlTx(),{originalIntentId:prepared.intentId,reversalDate:'2026-09-11',reason:'Synthetic reapplication'}));
+ const inverseApproval=await actor(()=>requestOperationApproval(requireControlTx(),inverse.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),inverseApproval.id,'approved'),'u2');
+ await actor(()=>executeCashApplicationReversal(requireControlTx(),inverse.intentId,{approvalId:inverseApproval.id}));
+ const next=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-12',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ const nextApproval=await actor(()=>requestOperationApproval(requireControlTx(),next.operation));
+ await actor(()=>decideOperationApproval(requireControlTx(),nextApproval.id,'approved'),'u2');
+ await actor(()=>executeCashApplication(requireControlTx(),next.intentId,{approvalId:nextApproval.id}));
+ expect((await pool.query('SELECT count(*)::int AS count,sum(amount_allocated)::text AS all_amount,sum(amount_allocated) FILTER(WHERE reversed_at IS NULL)::text AS active_amount FROM customer_payment_allocations WHERE payment_id=$1',[posted.paymentId])).rows[0]).toEqual({count:2,all_amount:'230.00',active_amount:'115.00'});
+});
+it('does not overapply cash when two distinct approved plans execute concurrently',async()=>{
+ const {invoice,posted}=await postedCash(),plans=[];
+ for(let n=0;n<2;n++){
+  const prepared=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'60.00'}]}));
+  const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation));
+  await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');plans.push({prepared,approval});
+ }
+ const results=await Promise.allSettled(plans.map(({prepared,approval})=>actor(()=>executeCashApplication(requireControlTx(),prepared.intentId,{approvalId:approval.id}))));
+ expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(results.filter(r=>r.status==='rejected')).toHaveLength(1);
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('60.00');
+});
+
+it('rejects mutable accessor authority rather than executing a second approved cash intent',async()=>{
+ const first=await approvedApplication(),second=await approvedApplication();let reads=0;
+ const options={get intentId(){return ++reads<3?first.prepared.intentId:second.prepared.intentId;},get approvalId(){return second.approval.id;}};
+ await expect(actor(()=>applyLegacyCashPlan(fixture.companyA,fixture.u1.id,'customer',{paymentId:first.posted.paymentId!,lines:[{invoiceId:first.invoice,amount:115}]},options))).rejects.toThrow(/property|descriptor/i);
+ expect(reads).toBe(0);
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=ANY($2::uuid[])',[fixture.companyA,[first.invoice,second.invoice]])).rows.map(row=>row.amount_paid)).toEqual(['0.00','0.00']);
+});
