@@ -15,19 +15,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// `previewDepreciationJournals` is left REAL — it is the thing under test. Only
-// its one database dependency is stubbed, so the journal lines and amounts the
-// dry run reports are computed by the same pure calculator the live path uses.
-vi.mock('@/modules/accounting/services/gl/systemAccountResolver', () => ({
-  getSystemAccount: vi.fn(async (key: string) => ({
-    id: `acc-${key}`,
-    accountCode: key === 'depreciation_expense' ? '5800' : '1230',
-    accountName: key === 'depreciation_expense' ? 'Depreciation Expense' : 'Accumulated Depreciation',
-    accountType: key === 'depreciation_expense' ? 'expense' : 'asset',
-    accountSubtype: key,
-    createdAt: 0,
-  })),
-  getSystemAccountId: vi.fn(async (key: string) => `acc-${key}`),
+// Transport tests stub the authenticated source-preview boundary. Its persisted
+// amounts, authorization, and no-write behavior are tested in glBypassAssetPreview
+// and glBypassMaterials.int, including actual PostgreSQL execution parity.
+vi.mock('@/modules/accounting/services/items/depreciationRunPreview',()=>({
+  previewDepreciationJournals:vi.fn(async()=>({journals:[{
+    date:'2026-09-30',description:'Depreciation: Server (AST-001)',fiscalPeriodId:'fp-1',
+    lines:[{accountId:'expense',debit:2361.11,credit:0},{accountId:'accumulated',debit:0,credit:2361.11}],
+    totalDebit:2361.11,totalCredit:2361.11,
+  }],writesWithoutJournal:[]})),
 }));
 
 vi.mock('@/modules/accounting/services/items/depreciationRunService', async () => {
@@ -173,8 +169,7 @@ describe('dry run', () => {
     const out = json(await runDepreciationTool.handler(
       { period_date: '2026-09-30', dry_run: true, idempotency_key: 'k1' }, ctx,
     ));
-    // planDepreciationRun is the ONLY place guards live, and the dry run calls
-    // exactly it — so it cannot pass where the live call would refuse.
+    // The transport retains planner skips; shared preview also rechecks persisted eligibility.
     expect(planDepreciationRun).toHaveBeenCalledTimes(1);
     const skip = out.skipped.find((s: { id: string }) => s.id === 'a2');
     expect(skip.reason).toBe('not_in_service');

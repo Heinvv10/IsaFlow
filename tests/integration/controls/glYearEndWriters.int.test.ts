@@ -109,3 +109,18 @@ it('rechecks original approver authority for both supplied and unsupplied year a
  }finally{await pool.query("UPDATE company_users SET role='admin' WHERE company_id=$1 AND user_id=$2",[fixture.companyA,fixture.u2.id]);}
  expect((await pool.query("SELECT id FROM control_operation_effects WHERE company_id=$1 AND operation='year.close' AND entity_id='2024'",[fixture.companyA])).rows).toHaveLength(1);
 });
+
+it('preserves missing-year, retained-role, and fiscal-range diagnostics without effects',async()=>{
+ const preview=()=>actor('u1',()=>closeFiscalYear(fixture.companyA,'2025',fixture.u1.id,{dryRun:true}));
+ expect(await actor('u1',()=>closeFiscalYear(fixture.companyA,'2023',fixture.u1.id,{dryRun:true}))).toEqual({error:'year_not_found'});
+ const effectsBefore=(await pool.query('SELECT count(*)::int AS count FROM control_operation_effects WHERE company_id=$1',[fixture.companyA])).rows[0].count;
+ try{
+  await pool.query('UPDATE gl_accounts SET is_system_account=false WHERE company_id=$1 AND id=$2',[fixture.companyA,accounts[2]!.id]);
+  expect(await preview()).toEqual({error:'no_retained_earnings'});
+ }finally{await pool.query('UPDATE gl_accounts SET is_system_account=true WHERE company_id=$1 AND id=$2',[fixture.companyA,accounts[2]!.id]);}
+ try{
+  await pool.query('UPDATE companies SET financial_year_start=3 WHERE id=$1',[fixture.companyA]);
+  expect(await preview()).toMatchObject({error:'period_range_mismatch',expected:{startDate:'2024-03-01',endDate:'2025-02-28'},actual:{startDate:'2025-01-01',endDate:'2025-12-31'}});
+ }finally{await pool.query('UPDATE companies SET financial_year_start=1 WHERE id=$1',[fixture.companyA]);}
+ expect((await pool.query('SELECT count(*)::int AS count FROM control_operation_effects WHERE company_id=$1',[fixture.companyA])).rows[0].count).toBe(effectsBefore);
+});

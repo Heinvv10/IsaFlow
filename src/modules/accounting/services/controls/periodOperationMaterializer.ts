@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import {YearEndEligibilityError} from './yearEndEligibilityError';
 import { buildYearEndFinancialMaterial } from './yearEndFinancialMaterial';
 import { isRealCalendarDate, UUID_RE } from '@/lib/validation';
 import { canonicalJson } from './canonical';
@@ -42,7 +43,10 @@ export async function materializePeriodOperation(ctx: ControlTx, ref: OperationR
     if (!/^[1-9][0-9]{3}$/.test(ref.entityId)) throw new Error('Invalid fiscal year reference');
     periods = await ctx.sql`SELECT * FROM fiscal_periods WHERE company_id=${companyId}::uuid AND fiscal_year=${Number(ref.entityId)}
       ORDER BY id FOR UPDATE` as Row[];
-    if (!periods.length) throw new Error('Operation not found');
+    if (!periods.length) {
+      if(ref.operation==='year.close') throw new YearEndEligibilityError({error:'year_not_found'});
+      throw new Error('Operation not found');
+    }
     start = periods.map(row => date(row.start_date)).sort()[0]!;
     end = periods.map(row => date(row.end_date)).sort().at(-1)!;
   } else if (ref.entityType === 'vat_period') {
