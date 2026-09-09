@@ -42,6 +42,8 @@ it('refuses another occupant and a changed original journal',async()=>{
  const other=await f.bank(f.to,'115.23');await f.pool.query("UPDATE bank_transactions SET matched_journal_line_id=$3 WHERE company_id=$1 AND id=$2",[f.f.companyA,other,receipt.toLine]);
  await expect(read(plan,true)).rejects.toThrow();
  await f.pool.query('UPDATE bank_transactions SET matched_journal_line_id=NULL WHERE company_id=$1 AND id=$2',[f.f.companyA,other]);
+ await f.pool.query("UPDATE bank_transactions SET status='allocated',allocation_type='transfer',matched_journal_line_id=$3,transfer_journal_entry_id=$4,counterparty_account_id=$5 WHERE company_id=$1 AND id=$2",[f.f.companyA,bank,receipt.toLine,receipt.journal,f.from]);
+ expect((await read(plan,true)).original?.originalIntentId).toBe(receipt.intentId);
  await f.pool.query('UPDATE gl_journal_lines SET credit=100 WHERE company_id=$1 AND id=$2',[f.f.companyA,receipt.fromLine]);await expect(read(plan,true)).rejects.toThrow();
 });
 

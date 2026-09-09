@@ -16,7 +16,7 @@ export async function transferJournalCandidates(ctx:ControlTx,bank:Row,counterpa
  if(rows.some(row=>typeof row.source_record_id!=='string'||!UUID_RE.test(row.source_record_id)))throw new Error('Existing transfer lacks bank-bound provenance');
  return rows;
 }
-export async function readExistingTransferFacts(ctx:ControlTx,bank:Row,counterpartyAccountId:string,observed:Row,lockedBanks:Row[]){
+export async function readExistingTransferFacts(ctx:ControlTx,bank:Row,counterpartyAccountId:string,observed:Row,lockedBanks:Row[],allowedDestinationBankId?:string){
  const company=ctx.principal.companyId;
  const [journal]=await ctx.sql`SELECT id,source,source_record_id,status,reversed_at,entry_date::text FROM gl_journal_entries
   WHERE company_id=${company}::uuid AND id=${observed.id}::uuid FOR SHARE` as Row[];
@@ -36,7 +36,10 @@ export async function readExistingTransferFacts(ctx:ControlTx,bank:Row,counterpa
    AND action='bank_allocation.post' AND operation_id=${effect.operation_id}::uuid AND binding_hash=${effect.binding_hash} LIMIT 2` as Row[];
  const destination=lines.find(line=>line.gl_account_id===bank.bank_account_id);
  const occupied=destination?await ctx.sql`SELECT id FROM bank_transactions WHERE company_id=${company}::uuid
-  AND matched_journal_line_id=${destination.id}::uuid ORDER BY id LIMIT 1`:[];
+  AND matched_journal_line_id=${destination.id}::uuid ORDER BY id LIMIT 2` as Row[]:[];
+ const allowed=allowedDestinationBankId===bank.id&&occupied.length===1&&occupied[0]!.id===bank.id
+  &&['allocated','matched','reconciled'].includes(String(bank.status))&&bank.allocation_type==='transfer'
+  &&bank.matched_journal_line_id===destination?.id&&bank.transfer_journal_entry_id===journal.id&&bank.counterparty_account_id===counterpartyAccountId;
  return proveBankTransferCandidate({bank,counterpartyAccountId,journal,lines,originalBank:lockedBanks.find(b=>b.id===journal.source_record_id)??null,
-  intent:intent??null,effect,events,occupied:occupied.length>0});
+  intent:intent??null,effect,events,occupied:occupied.length>0&&!allowed});
 }
