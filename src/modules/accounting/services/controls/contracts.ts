@@ -26,6 +26,10 @@ export interface ControlPrincipal {
   delegatedByPersonId: string | null;
   /** Null for cookies; bearer/job grant is an authority ceiling, never proof. */
   grantedScopes: readonly string[] | null;
+  /** Present only on a job principal issued from protected delegation and an active server lease. */
+  jobId?: string;
+  jobLeaseId?: string;
+  jobGeneration?: number;
 }
 export interface ControlTx { sql: TxSql; principal: ControlPrincipal }
 export interface EntityRef { entityType: string; entityId: string }

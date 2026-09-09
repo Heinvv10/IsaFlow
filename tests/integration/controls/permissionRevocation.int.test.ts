@@ -26,6 +26,13 @@ beforeEach(async () => {
 afterAll(async () => {
   try {
     if (fixture) {
+      // Company creation now seeds immutable mandatory policies. Only the local
+      // synthetic fixture administrator removes these before deleting its tenants.
+      const companies = [[fixture.companyA, fixture.companyB]];
+      await pool.query('DELETE FROM control_mandatory_release_policies WHERE company_id=ANY($1::uuid[])', companies);
+      await pool.query('DELETE FROM control_mandatory_import_policies WHERE company_id=ANY($1::uuid[])', companies);
+      await pool.query('DELETE FROM control_mandatory_match_override_policies WHERE company_id=ANY($1::uuid[])', companies);
+      await pool.query('DELETE FROM control_mandatory_statement_policies WHERE company_id=ANY($1::uuid[])', companies);
       await pool.query('DELETE FROM companies WHERE id=ANY($1::uuid[])', [[fixture.companyA, fixture.companyB]]);
       await pool.query('DELETE FROM users WHERE id=ANY($1::text[])', [[fixture.u1.id, fixture.u2.id, fixture.u3.id]]);
     }

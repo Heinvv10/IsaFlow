@@ -2,6 +2,7 @@ import { assertControlTx } from '@/modules/accounting/services/controls/context'
 import type { ControlTx } from '@/modules/accounting/services/controls/contracts';
 import type { ModulePermission } from './permissionService';
 import { isActiveUserAccount, type UserAccountRow } from './userAccountStatus';
+import {loadStoredAuditJobDelegation} from '@/modules/accounting/services/controls/auditJobDelegation';
 
 export class EffectivePermissionError extends Error {
   readonly code = 'CONTROL_FORBIDDEN';
@@ -17,9 +18,16 @@ interface Membership extends UserAccountRow {
  */
 export async function loadPermissionState(ctx: ControlTx) {
   assertControlTx(ctx);
-  const { companyId, personId, authMethod, grantedScopes, connectionId, grantId } = ctx.principal;
-  if (!companyId || !personId || authMethod === 'job'
-    || !['cookie', 'pat', 'oauth'].includes(authMethod)) throw new EffectivePermissionError();
+  const { companyId, personId, connectionId, grantId } = ctx.principal;
+  let {authMethod,grantedScopes}=ctx.principal;
+  let jobPermissions:readonly string[]|null=null;
+  if(authMethod==='job'){
+    const saved=await loadStoredAuditJobDelegation(ctx.sql,companyId,personId,{jobId:ctx.principal.jobId??'',
+      leaseId:ctx.principal.jobLeaseId??'',generation:ctx.principal.jobGeneration??0});
+    if(connectionId!==saved.authority.connectionId||grantId!==saved.authority.grantId)throw new EffectivePermissionError();
+    authMethod=saved.authority.authMethod;grantedScopes=saved.authority.grantedScopes;jobPermissions=saved.permissions;
+  }
+  if (!companyId || !personId || !['cookie', 'pat', 'oauth'].includes(authMethod)) throw new EffectivePermissionError();
   const rows = await ctx.sql`
     SELECT * FROM public.control_lock_permission_principal(${companyId}::uuid, ${personId}::text)
   ` as Membership[];
@@ -50,6 +58,7 @@ export async function loadPermissionState(ctx: ControlTx) {
       || grant.scopes.some(s => typeof s !== 'string')) throw new EffectivePermissionError();
     scopes = grantedScopes.filter(s => (grant.scopes as string[]).includes(s));
   }
+  if(jobPermissions)scopes=scopes===null?jobPermissions:scopes.filter(scope=>jobPermissions.includes(scope));
   const overrides = await ctx.sql`
     SELECT module_key, can_read, can_write, can_delete, can_export, can_approve,
       account_range_from, account_range_to, restrictions

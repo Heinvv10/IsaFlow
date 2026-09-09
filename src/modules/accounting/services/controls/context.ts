@@ -3,6 +3,8 @@ import type { PoolClient } from 'pg';
 import { als, assertTxUsable, type RequestContext } from '@/lib/als';
 import { sql } from '@/lib/neon';
 import type { ControlPrincipal, ControlTx } from './contracts';
+import type {AuditJobLease} from './auditJobLease';
+import {loadStoredAuditJobDelegation} from './auditJobDelegation';
 
 interface Lifetime { active: boolean; store: RequestContext; client: PoolClient; principal: ControlPrincipal }
 export class ControlIntegrityError extends Error {
@@ -92,8 +94,32 @@ export async function withControlRequest<T>(store: RequestContext, identity: Aut
   if (store.userId !== identity.personId || store.companyId !== identity.companyId) {
     throw new Error('Authenticated identity does not match transaction');
   }
+  return withPrincipal(store,makeControlPrincipal(identity),handler);
+}
+
+/** A background context retains original delegation and current grant checks, never a synthetic cookie. */
+export async function withControlJobRequest<T>(store:RequestContext,lease:AuditJobLease,handler:()=>Promise<T>):Promise<T>{
+  const {assertIssuedAuditJobLease}=await import('./auditJobLease');
+  assertIssuedAuditJobLease(lease,store.companyId,store.userId);
+  if(activeRequests.get(store)?.active)throw new Error('Control request already active');
+  return als.run(store,async()=>{
+    const saved=await loadStoredAuditJobDelegation(sql,lease.companyId,lease.personId,lease);
+    const principal:ControlPrincipal=Object.freeze({companyId:lease.companyId,personId:lease.personId,
+      connectionId:saved.authority.connectionId,grantId:saved.authority.grantId,actingFirmId:saved.authority.actingFirmId,
+      authMethod:'job',provenance:'job',delegatedByPersonId:lease.personId,requestId:randomUUID(),operationId:randomUUID(),
+      grantedScopes:Object.freeze([...saved.permissions]),jobId:lease.jobId,jobLeaseId:lease.leaseId,jobGeneration:lease.generation});
+    return withPrincipal(store,principal,async()=>{
+      const {assertEffectivePermission}=await import('@/lib/auth/effectivePermissions');
+      const ctx=requireControlTx();
+      for(const permission of saved.permissions)await assertEffectivePermission(ctx,permission);
+      return handler();
+    });
+  });
+}
+
+async function withPrincipal<T>(store:RequestContext,principal:ControlPrincipal,handler:()=>Promise<T>):Promise<T>{
   if (activeRequests.get(store)?.active) throw new Error('Control request already active');
-  store.controlPrincipal = makeControlPrincipal(identity);
+  store.controlPrincipal = principal;
   const lifetime: Lifetime = { active: true, store, client: store.client, principal: store.controlPrincipal };
   activeRequests.set(store, lifetime);
   return als.run(store, async () => {
