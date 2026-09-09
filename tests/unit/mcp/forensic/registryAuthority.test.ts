@@ -24,3 +24,13 @@ it('refuses a revoked principal before replay, metering or handler execution', a
   expect(mock.audit).toHaveBeenCalledWith(expect.objectContaining({status:'rejected'}));
   expect(JSON.stringify(result)).not.toContain('revoked role');
 });
+it('rechecks request-specific source authority before looking up an otherwise authorized cached result',async()=>{
+ mock.authority.mockResolvedValue(undefined);
+ const authorize=vi.fn(async()=>{throw new Error('Payroll access revoked');}),handler=vi.fn(),registry=new McpRegistry();
+ registry.register({name:'source_bound',scope:'write:invoices',write:true,description:'Source-bound work',authorize,
+  inputSchema:{type:'object',properties:{idempotency_key:{type:'string'}},additionalProperties:false},handler});
+ const args={idempotency_key:'same-intent'},result=await registry.call('source_bound',args,ctx);
+ expect(result.isError).toBe(true);expect(authorize).toHaveBeenCalledWith(args,ctx);
+ expect(mock.replay).not.toHaveBeenCalled();expect(mock.lock).not.toHaveBeenCalled();expect(handler).not.toHaveBeenCalled();
+ expect(JSON.stringify(result)).not.toContain('Payroll access revoked');
+});
