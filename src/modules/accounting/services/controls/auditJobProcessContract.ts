@@ -11,4 +11,6 @@ export interface AuditProcessConfig {nodePath:string;entryPath:string}
 export interface AuditProcessObservation {
  unitName:string;exitCode:number|null;signal:string|null;
  elapsedMs:number;memoryPeakBytes:number|null;oomKilled:boolean;
+ /** Sampled resident bytes for the dedicated child PID, distinct from the kernel cgroup peak. */
+ peakRssBytes:number|null;
 }
