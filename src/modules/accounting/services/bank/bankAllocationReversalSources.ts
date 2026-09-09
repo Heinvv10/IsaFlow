@@ -25,8 +25,9 @@ export async function loadBankAllocationOriginal(ctx:ControlTx,originalIntentId:
   ||journal.source!==(plan.kind==='customer'?'auto_payment':plan.kind==='supplier'?'auto_supplier_payment':'auto_bank_recon')
   ||!matchesBankAllocationJournalLines(sources.lines,lines))throw new Error('Original allocation journal changed');
  if(isBankAllocationRefund(plan.kind,String(sources.bank.amount))){
-  if(receipt.result.paymentId!==null||sources.receipts.length||sources.disbursements.length
-   ||sources.receiptAllocations.length||sources.paymentAllocations.length)throw new Error('Refund must not have payment or application children');
+  // Prior reversed allocations retain their children; absence belongs to this exact refund journal.
+  const currentChildren=[...sources.receipts,...sources.disbursements].filter(p=>p.gl_journal_entry_id===journal.id);
+  if(receipt.result.paymentId!==null||currentChildren.length)throw new Error('Refund must not have payment or application children');
  }else if('applications' in plan){
   const payments=plan.kind==='customer'?sources.receipts:sources.disbursements;
   const payment=payments.find(p=>p.id===receipt.result.paymentId);
