@@ -15,3 +15,8 @@ it('refuses missing company currency instead of inventing ZAR', async () => {
   const ctx = {principal:{companyId:'company'},sql} as unknown as ControlTx;
   await expect(materializeGlOperation(ctx,ref)).rejects.toThrow(/currency/i);
 });
+
+it('keeps exact sums beyond the default decimal arithmetic precision',()=>{
+  expect(deriveJournalAmount([{debit:'99999999999999999999.99',credit:'0'},{debit:'0.01',credit:'0'},
+    {debit:'0',credit:'100000000000000000000'}])).toBe('100000000000000000000');
+});
