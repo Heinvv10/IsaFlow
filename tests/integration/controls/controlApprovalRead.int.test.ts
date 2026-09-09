@@ -67,3 +67,19 @@ it('actual REST handler requests and independently decides a real bound operatio
  expect(res.status).toHaveBeenCalledWith(200);expect(res.json.mock.calls[0]![0].data.items.some((item:{id:string})=>item.id===requested.id)).toBe(true);
  expect((await pool.query('SELECT id FROM control_operation_effects WHERE company_id=$1 AND entity_id=$2',[fixture.companyA,prepared.intentId])).rows).toHaveLength(0);
 });
+it('retains exact microseconds and UUID tie-breaking across equal request timestamps',async()=>{
+ const before=(await pool.query('SELECT id,requested_at::text AS requested_at FROM control_operation_approvals WHERE company_id=$1 AND id=ANY($2::uuid[])',[fixture.companyA,pendingIds])).rows;
+ await pool.query("UPDATE control_operation_approvals SET requested_at='2026-09-09T10:00:00.123456Z' WHERE company_id=$1 AND id=ANY($2::uuid[])",[fixture.companyA,pendingIds]);
+ try{
+  const first=await actor(()=>listOperationApprovals(requireControlTx(),{status:'pending',limit:2}));expect(first.nextCursor).toBeTruthy();
+  const second=await actor(()=>listOperationApprovals(requireControlTx(),{status:'pending',limit:2,cursor:first.nextCursor!}));
+  expect([...first.items,...second.items].map(item=>item.id)).toEqual([...pendingIds].sort().reverse());expect(second.nextCursor).toBeNull();
+ }finally{for(const row of before)await pool.query('UPDATE control_operation_approvals SET requested_at=$3::timestamptz WHERE company_id=$1 AND id=$2',[fixture.companyA,row.id,row.requested_at]);}
+});
+
+it('REST maps a current permission refusal to 403 without approving anything',async()=>{
+ await deny('approvals',async()=>{
+  const res=response();await actor(()=>controlApprovalsHandler({method:'GET',query:{}} as NextApiRequest,res as unknown as NextApiResponse));
+  expect(res.status).toHaveBeenCalledWith(403);
+ });
+});
