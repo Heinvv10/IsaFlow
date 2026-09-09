@@ -2124,7 +2124,7 @@
         "docs/audits/remediation/K-058/ci.log"
       ],
       "fixCommit": "18b1b738",
-      "pr": null,
+      "pr": "https://github.com/Heinvv10/IsaFlow/pull/392",
       "deployedSha": null,
       "historicalDataImpact": "Not assessed",
       "canonicalItem": null,
