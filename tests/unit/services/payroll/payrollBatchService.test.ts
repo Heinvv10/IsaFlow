@@ -347,6 +347,8 @@ describe('postBatch', () => {
             batch_type: 'component_values',
             component_id: COMPONENT_ID,
             status: 'validated',
+            period_year: 2026,
+            period_month: 4,
             is_recurring: false,
           },
         ],
@@ -386,6 +388,8 @@ describe('postBatch', () => {
             batch_type: 'reimbursive_travel',
             component_id: null,
             status: 'validated',
+            period_year: 2026,
+            period_month: 4,
             is_recurring: false,
           },
         ]);

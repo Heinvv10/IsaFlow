@@ -108,6 +108,17 @@ function toIso(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * A once-off batch must apply to its own period only. The batch UI never sets a
+ * line `effective_to`, so without this the assignment is open-ended and the
+ * amount is paid again in every later run. Recurring batches stay open-ended.
+ */
+function closeOnceOffAt(batch: PayrollBatch, effectiveFrom: Date, effectiveTo: Date | null): Date | null {
+  if (effectiveTo || batch.isRecurring) return effectiveTo;
+  const periodEnd = new Date(Date.UTC(batch.periodYear, batch.periodMonth, 0));
+  return periodEnd < effectiveFrom ? effectiveFrom : periodEnd;
+}
+
 function mapBatch(r: Row): PayrollBatch {
   return {
     id: String(r.id),
@@ -404,12 +415,13 @@ export async function postBatch(
     const componentId = batch.componentId;
     if (!componentId) throw new Error('component_values batch missing componentId');
     for (const line of lines) {
+      const effectiveFrom = toDate(line.effective_from);
       await insertAssignment({
         employeeId: String(line.employee_id),
         componentId,
         amount: Number(line.value ?? 0),
-        effectiveFrom: toDate(line.effective_from),
-        effectiveTo: toDateOrNull(line.effective_to),
+        effectiveFrom,
+        effectiveTo: closeOnceOffAt(batch, effectiveFrom, toDateOrNull(line.effective_to)),
         isRecurring: batch.isRecurring,
       });
       inserted += 1;
@@ -424,7 +436,7 @@ export async function postBatch(
       const taxable = Number(line.taxable_portion ?? 0);
       const nonTaxable = Number(line.non_taxable_portion ?? 0);
       const effectiveFrom = toDate(line.effective_from);
-      const effectiveTo = toDateOrNull(line.effective_to);
+      const effectiveTo = closeOnceOffAt(batch, effectiveFrom, toDateOrNull(line.effective_to));
 
       if (taxable > 0) {
         await insertAssignment({
