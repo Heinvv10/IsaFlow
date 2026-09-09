@@ -1,6 +1,6 @@
 import {describe,it,expect} from 'vitest';
 import type {ControlCheckResult} from '@/modules/accounting/services/controls/contracts';
-import {canFixException,parseExceptionCheck,parseExceptionResolution} from '@/modules/accounting/services/controls/controlExceptionTypes';
+import {canFixException,exceptionCheckSummary,parseExceptionCheck,parseExceptionResolution} from '@/modules/accounting/services/controls/controlExceptionTypes';
 const pass:ControlCheckResult={checkId:'three_way_match_exceptions',checkVersion:1,status:'pass',populationCount:1,excludedCount:0,
  findingCount:0,amountTotals:{},findings:[],nextCursor:null,coverage:['complete'],missingSources:[],capturedAt:new Date().toISOString(),cutoff:null,sourceVersions:[]};
 describe('server recheck closure gate',()=>{
@@ -21,4 +21,17 @@ describe('bounded exception inputs',()=>{
   expect(parseExceptionResolution(input).reason).toBe(input.reason);
   for(const change of [{reason:''},{expiresAt:'2000-01-01T00:00:00Z'},{expiresAt:'2099-02-31T00:00:00Z'},{expectedVersion:0},{result:pass}])expect(()=>parseExceptionResolution({...input,...change})).toThrow();
  });
+});
+it('rejects resolution accessors without invoking them, including expiry-bypass getters',()=>{
+ let reads=0;const input={exceptionId:'ad27508a-1f27-4ed3-9ad3-a5e14a47a6ba',expectedVersion:1,reason:'Review',expiresAt:'2000-01-01T00:00:00Z',
+ get resolution(){return ++reads===2?'fixed':'accepted_risk';}};
+ expect(()=>parseExceptionResolution(input)).toThrow();expect(reads).toBe(0);
+});
+it('rejects check accessors without invoking them',()=>{
+ let reads=0;expect(()=>parseExceptionCheck({get checkId(){reads++;return 'three_way_match_exceptions';}})).toThrow();expect(reads).toBe(0);
+});
+
+it('refuses retention overflow instead of discarding recheck source fingerprints',()=>{
+ const result={...pass,sourceVersions:Array.from({length:10000},(_,index)=>({entityType:'supplier_invoice',entityId:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,version:1,fingerprint:'a'.repeat(64)}))};
+ expect(()=>exceptionCheckSummary(result)).toThrow(/asynchronous retained evidence/);
 });
