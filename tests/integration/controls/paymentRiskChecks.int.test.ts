@@ -1,3 +1,4 @@
+import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeAll,beforeEach,expect,it} from 'vitest';
 import {randomBytes,randomUUID,createHash} from 'node:crypto';
 import {Pool} from 'pg';
@@ -30,8 +31,8 @@ async function invoice(supplierId:string,date='2026-09-09',bytes?:Buffer){
  const id=randomUUID(),doc=bytes?randomUUID():null,hash=bytes?createHash('sha256').update(bytes).digest('hex'):null;
  await pool.query(`INSERT INTO supplier_invoices(id,company_id,supplier_id,invoice_number,invoice_date,subtotal,tax_amount,total_amount,currency,status,created_by)
  VALUES($1,$2,$3,$4,$5,1000,150,1150,'ZAR','approved',$6)`,[id,fixture.companyA,supplierId,id,date,fixture.u1.id]);
- if(bytes){await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,matched_invoice_id,raw_bytes,raw_bytes_sha256)
- VALUES($1,$2,'synthetic.pdf','pdf','matched',$3,$4,$5)`,[doc,fixture.companyA,id,bytes,hash]);
+ if(bytes){await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,matched_invoice_id) VALUES($1,$2,'synthetic.pdf','pdf','matched',$3)`,[doc,fixture.companyA,id]);
+ await capturedStorage().seed(pool,fixture.companyA,doc,bytes);
  await pool.query('UPDATE supplier_invoices SET source_document_id=$1,source_document_hash=$2 WHERE company_id=$3 AND id=$4',[doc,hash,fixture.companyA,id]);}
  return id;
 }
@@ -96,7 +97,8 @@ it('reports exact oversized populations as unknown rather than truncating to a p
 });
 it('does not confirm duplicate source bytes from mutable hash metadata alone',async()=>{
  const s=await supplier(),bytes=Buffer.from('original synthetic bytes');await invoice(s,'2026-09-09',bytes);const changed=await invoice(s,'2026-09-09',bytes);
- await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND matched_invoice_id=$3',[Buffer.from('changed synthetic bytes'),fixture.companyA,changed]);
+ const changedDocument=(await pool.query('SELECT source_document_id FROM supplier_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,changed])).rows[0].source_document_id;
+ capturedStorage().put(fixture.companyA,changedDocument,Buffer.from('changed synthetic bytes'));
  const result=await actor(ctx=>checkDuplicateInvoices(ctx,{}));expect(result.findings[0]?.classification).toBe('candidate');expect(result.missingSources).toContain('verified_source_file_bytes_unavailable');
 });
 it('counts owned invoices and payments with foreign supplier parents as unknown, never hidden passes',async()=>{

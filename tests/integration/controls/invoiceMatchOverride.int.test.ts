@@ -1,3 +1,4 @@
+import {capturedStorage} from './capturedEvidenceTestStorage';
 import {afterAll,beforeAll,beforeEach,expect,it} from 'vitest';
 import {randomUUID,randomBytes,createHash} from 'node:crypto';
 import {Pool} from 'pg';
@@ -49,8 +50,8 @@ async function overrideCase(){
  const data=await flatCase(),invoiceId=data.invoices[0]!,document=randomUUID(),bytes=Buffer.from('Synthetic signed price exception');
  await pool.query('UPDATE supplier_invoice_items SET unit_price=103 WHERE supplier_invoice_id=$1',[invoiceId]);
  const hash=createHash('sha256').update(bytes).digest('hex');
- await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,matched_invoice_id,raw_bytes,raw_bytes_sha256)
- VALUES($1,$2,'synthetic.pdf','pdf','matched',$3,$4,$5)`,[document,fixture.companyA,invoiceId,bytes,hash]);
+ await pool.query(`INSERT INTO captured_documents(id,company_id,file_name,file_type,status,matched_invoice_id) VALUES($1,$2,'synthetic.pdf','pdf','matched',$3)`,[document,fixture.companyA,invoiceId]);
+ await capturedStorage().seed(pool,fixture.companyA,document,bytes);
  const match=await actor(ctx=>queryThreeWayMatch(ctx,{invoiceId}));
  return{...data,invoiceId,document,input:{invoiceId,expectedMatchFingerprint:match.materialFingerprint,reason:'Synthetic agreed price exception',
  evidenceRefs:[{store:'captured' as const,evidenceId:document,entityType:'supplier_invoice',entityId:invoiceId,version:null,hash}]}};
@@ -58,7 +59,7 @@ async function overrideCase(){
 it('prepares immutable same-invoice evidence and refuses tampered bytes before a new intent',async()=>{
  const data=await overrideCase();const prepared=await actor(ctx=>prepareInvoiceMatchOverride(ctx,data.input));
  expect((await pool.query('SELECT invoice_id,reason FROM control_invoice_match_override_intents WHERE company_id=$1 AND id=$2',[fixture.companyA,prepared.intentId])).rows[0]).toEqual({invoice_id:data.invoiceId,reason:data.input.reason});
- await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND id=$3',[Buffer.from('tampered'),fixture.companyA,data.document]);
+ capturedStorage().put(fixture.companyA,data.document,Buffer.from('tampered'));
  await expect(actor(ctx=>prepareInvoiceMatchOverride(ctx,data.input))).rejects.toThrow('evidence bytes');
  expect((await pool.query('SELECT id FROM control_invoice_match_override_intents WHERE company_id=$1',[fixture.companyA])).rows).toHaveLength(1);
 });
@@ -131,7 +132,7 @@ it('keeps numeric mismatches visible, ignores identical cache recomputation and 
 it.each(['source','evidence','requester','approver'] as const)('refuses stale or revoked %s before annotation',async kind=>{
  const data=await approvedOverride(0);
  if(kind==='source')await pool.query('UPDATE po_items SET quantity=11 WHERE id=$1',[data.line]);
- if(kind==='evidence')await pool.query('UPDATE captured_documents SET raw_bytes=$1 WHERE company_id=$2 AND id=$3',[Buffer.from('Changed'),fixture.companyA,data.document]);
+ if(kind==='evidence')capturedStorage().put(fixture.companyA,data.document,Buffer.from('Changed'));
  if(kind==='requester')await pool.query('UPDATE personal_access_tokens SET revoked_at=clock_timestamp() WHERE id=$1',[fixture.u1.tokens[0]!.id]);
  if(kind==='approver')await pool.query('DELETE FROM company_users WHERE company_id=$1 AND user_id=$2',[fixture.companyA,fixture.u2.id]);
  await expect(actor(ctx=>executeInvoiceMatchOverride(ctx,data.intentId,data.approvalId),'u1',0)).rejects.toThrow();
