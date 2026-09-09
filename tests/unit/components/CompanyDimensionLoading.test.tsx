@@ -94,3 +94,35 @@ it('ignores late dimension responses from the previous company', async () => {
   await act(async () => { oldCC.resolve(setting(ccKey, 'true')); oldBU.resolve(setting(buKey, 'true')); });
   for (const toggle of screen.getAllByRole('switch')) expect(toggle).toHaveAttribute('aria-checked', 'false');
 });
+
+it('keeps an in-flight save locked and receives its result across a tab round-trip', async () => {
+  const pendingSave = deferred();
+  const normalFetch = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation((url, options) => options?.method === 'PUT'
+    ? pendingSave.promise : normalFetch(url, options));
+  render(<CompanySettingsPage />);
+  await screen.findAllByRole('switch');
+  fireEvent.click(screen.getAllByRole('switch')[0]!);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Company Details', exact: true })[0]!);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Dimensions', exact: true })[0]!);
+  await screen.findAllByRole('switch');
+  expect(screen.getAllByRole('switch')[0]).toBeDisabled();
+  await act(async () => { pendingSave.resolve(Response.json({ success: true, data: { updated: true } })); });
+  expect(screen.getAllByRole('switch')[0]).toHaveAttribute('aria-checked', 'false');
+  expect(screen.getAllByRole('switch')[0]).not.toBeDisabled();
+});
+
+it('does not apply a previous company save result to the new company', async () => {
+  const pendingSave = deferred();
+  const normalFetch = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation((url, options) => options?.method === 'PUT'
+    ? pendingSave.promise : normalFetch(url, options));
+  const view = render(<CompanySettingsPage />);
+  await screen.findAllByRole('switch');
+  fireEvent.click(screen.getAllByRole('switch')[0]!);
+  context.activeCompany = { id: 'company-b' };
+  view.rerender(<CompanySettingsPage />);
+  await screen.findAllByRole('switch');
+  await act(async () => { pendingSave.resolve(Response.json({ success: true, data: { updated: true } })); });
+  expect(screen.getAllByRole('switch')[0]).toHaveAttribute('aria-checked', 'true');
+});
