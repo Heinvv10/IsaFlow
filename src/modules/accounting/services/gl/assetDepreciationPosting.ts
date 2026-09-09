@@ -235,14 +235,31 @@ export async function postDualDepreciationToLedger(
       // next period's opening balance from `assets.tax_accumulated_depreciation`
       // (depreciationRunPlan.ts), and nothing else writes it — so without this
       // every period after the first opened at the seeded value and the tax
-      // column never accumulated. SET, not increment: it mirrors the ledger row
-      // the upsert just wrote, so it stays correct if a period is re-posted.
+      // column never accumulated.
+      //
+      // It reads the asset's LATEST subledger row back rather than SETting the
+      // figures just computed in JavaScript, for two reasons. `period_date` is
+      // caller-supplied, so posting February and then January would otherwise
+      // leave the asset carrying JANUARY's closing balance and the next run
+      // would double-count a month. And the value computed here came from a
+      // snapshot taken BEFORE this transaction (`loadDepreciationAssets`), so
+      // two concurrent runs for different periods would both write an absolute
+      // figure and the later commit would silently drop the earlier one. The
+      // subquery re-reads inside the transaction, which is what makes it
+      // atomic in the way the policy increment at :137-143 already is.
       await sql`
-        UPDATE assets SET
-          tax_accumulated_depreciation = ${tax.closingTaxAccDep},
-          tax_book_value = ${tax.taxCarryingAmount},
+        UPDATE assets a SET
+          tax_accumulated_depreciation = l.tax_closing_acc_dep,
+          tax_book_value = l.tax_carrying_amount,
           updated_at = NOW()
-        WHERE id = ${assetId} AND company_id = ${companyId}::UUID
+        FROM (
+          SELECT tax_closing_acc_dep, tax_carrying_amount
+          FROM asset_period_ledger
+          WHERE company_id = ${companyId}::UUID AND asset_id = ${assetId}::UUID
+          ORDER BY yyyymm DESC
+          LIMIT 1
+        ) l
+        WHERE a.id = ${assetId}::UUID AND a.company_id = ${companyId}::UUID
       `;
       return postAssetDepreciationToGLThrows(
         companyId, assetId, policy.monthlyDep, userId, input.periodDate,

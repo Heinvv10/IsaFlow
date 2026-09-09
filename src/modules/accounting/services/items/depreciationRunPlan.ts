@@ -28,7 +28,8 @@ export type DepreciationSkipReason =
   | 'no_purchase_price'
   | 'below_capitalisation_threshold'
   | 'no_useful_life'
-  | 'already_posted';
+  | 'already_posted'
+  | 'already_in_subledger';
 
 export interface DepreciationPlanRow {
   assetId: string;
@@ -132,6 +133,20 @@ async function alreadyPosted(companyId: string, numbers: string[]): Promise<Set<
 }
 
 /**
+ * Assets already holding an `asset_period_ledger` row — the run’s ON CONFLICT
+ * key. `alreadyPosted` misses these: the GL post returns early on a policy charge
+ * of zero, so an asset at policy 0 with tax still running takes no entry number
+ * and would re-run for ever off the balance the last run wrote.
+ */
+async function alreadyInSubledger(companyId: string, yyyymm: string): Promise<Set<string>> {
+  const rows = (await sql`
+    SELECT asset_id FROM asset_period_ledger
+    WHERE company_id = ${companyId}::UUID AND yyyymm = ${yyyymm}
+  `) as DbRow[];
+  return new Set(rows.map((r) => String(r.asset_id)));
+}
+
+/**
  * The fiscal period covering the date, and whether it blocks the run.
  *
  * `postAssetDepreciationToGLThrows` INSERTs `gl_journal_entries` directly at
@@ -190,6 +205,7 @@ export async function planDepreciationRun(
     (a) => depreciationEntryNumber(String(a.asset_number ?? ''), periodDate),
   );
   const posted = await alreadyPosted(companyId, numbers);
+  const inSubledger = await alreadyInSubledger(companyId, yyyymmFor(periodDate));
 
   const rows: DepreciationPlanRow[] = [];
   let eligibleTotal = 0;
@@ -260,6 +276,12 @@ export async function planDepreciationRun(
     }
     if (posted.has(entryNumber)) {
       skip('already_posted', `${entryNumber} is already posted for this period and has not been reversed.`);
+      continue;
+    }
+    // Its own reason: no live journal means no policy charge, or a reversal.
+    if (inSubledger.has(String(a.id))) {
+      skip('already_in_subledger', `The subledger already holds ${yyyymmFor(periodDate)} for `
+        + 'this asset; a re-run would recompute it from the balance the first run wrote.');
       continue;
     }
 

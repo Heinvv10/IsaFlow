@@ -18,3 +18,27 @@ $ node scripts/check-runtime.mjs && vitest run --config vitest.integration.confi
 ⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
  Test Files  1 failed (1)
       Tests  4 failed | 2 passed (6)
+
+================================================================
+== Review follow-up (2 HIGH, 2 MEDIUM, 2 LOW on 71c70ece)     ==
+================================================================
+
+-- Both k027 suites, real Postgres --
+ Test Files  2 passed (2)
+      Tests  10 passed (10)
+
+-- MUTATION: production files reverted to 71c70ece --
+   × re-running that period does NOT double the tax accumulation 63ms
+   × posting February then January leaves the asset on the LATEST period 114ms
+   × March then opens on February closing, not on a doubled balance 38ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected null to be 'already_in_subledger' // Object.is equality
+AssertionError: expected 4000 to be close to 2000, received difference is 2000, but expected 0.005
+AssertionError: expected 4000 to be close to 2000, received difference is 2000, but expected 0.005
+      Tests  3 failed | 1 passed (4)
+
+-- restored; tsc --noEmit and eslint clean; runDepreciationDb.test.ts 15/15 on a
+   disposable clone named isaflow_test (its own guard rejects the fixture name).
+-- full unit suite, no fixture env: 9318 passed, 2 failed — cashFlowReport and
+   bankAllocationUnwind, both 10s timeouts under parallel load, both pass in
+   isolation, neither touches a changed file.
