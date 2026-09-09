@@ -1,56 +1,61 @@
-# GREEN — K-015 + K-089 after migration 625 was withdrawn as a unique index
-# Fixture PostgreSQL (isaflow_schema_fixture), 625 applied in its non-unique form.
+# GREEN — K-015 / K-089 plus R-001 / R-002 / R-020 take-on posting
+# Fixture PostgreSQL (isaflow_schema_fixture), migration 625 re-applied (non-unique).
 
-$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts" "tests/integration/k089-ar-migration-balance-due-column.int.test.ts" "tests/integration/k015-sage-import-duplicate-savepoint.int.test.ts"
+$ node scripts/check-runtime.mjs && vitest run --config vitest.integration.config.ts "tests/integration/k015-ap-migration-balance-due-column.int.test.ts" "tests/integration/k089-ar-migration-balance-due-column.int.test.ts" "tests/integration/r001-r002-r020-takeon-posting.int.test.ts" "tests/integration/k015-sage-import-duplicate-savepoint.int.test.ts"
 
  RUN  v4.1.2 /home/hein/Workspace/IsaFlow/.worktrees/fix-K-015
 
 
- Test Files  3 passed (3)
-      Tests  28 passed (28)
-   Start at  11:25:28
-   Duration  1.61s (transform 918ms, setup 0ms, import 1.39s, tests 1.68s, environment 0ms)
+ Test Files  4 passed (4)
+      Tests  37 passed (37)
+   Start at  11:46:35
+   Duration  4.12s (transform 3.64s, setup 0ms, import 5.75s, tests 4.77s, environment 3ms)
 
 
-## Why the unique index is gone
+## Mutation checks — take-on posting
 
-A read-only pre-flight probe against PRODUCTION, run by the team lead (this session does not
-touch the production database at all), found the Demo company alone holding five or more groups
-of 55-79 approved or paid supplier invoices sharing one duplicate_fingerprint. CREATE UNIQUE
-INDEX would have failed, and deploy.sh applies migrations before the rsync, so the deploy would
-have aborted. The column cannot carry a constraint.
+ T1. buildTakeOnLines posts even a zero outstanding (`<= 0` -> `< 0`)
+       -> r001: 1 failed | 8 passed  ["a document settled in full ... posts nothing at all"]
+ T2. a VAT line added back to the AR take-on entry
+       -> r001: 4 failed | 5 passed  [the no-VAT assertion, both sub-ledger checks,
+          the VAT201 snapshot, and the equity balance]
+ T3. the R-020 control-account refusal removed
+       -> r001: 1 failed | 8 passed  ["refuses an opening trial balance that carries a
+          control account"]
+ T4. R-002 tolerance back to half a cent
+       -> r001: 1 failed | 8 passed  ["imports a cent of rounding with a warning and
+          refuses half a rand"]
+ T5. the completeSession clearing-residual check removed
+       -> r001: 1 failed | 8 passed  ["records the clearing residual on the session ..."]
 
-## Mutation checks — this round
+Earlier rounds' checks are in previous revisions of this file. All mutations restored;
+the run above is 37/37 green across four files.
 
- M1. the idempotency lookup removed from importAPInvoices
-       -> k015: 1 failed | 13 passed (14)
-          ["re-running the same file does not import the bill a second time"]
- M2. the lookup's `deleted_at IS NULL` predicate removed
-       -> k015: 1 failed | 13 passed (14)
-          ["a soft-deleted bill does not block re-importing a corrected one"]
- M3. sage per-record savepoint removed
-       -> no mutation run: removing it does not typecheck (the IIFE changes the
-          outcome's type). The hazard is asserted directly instead, by
-          "without the savepoint the follow-up UPDATE dies with 25P02", which
-          measures the 22007 -> 25P02 sequence the savepoint prevents.
+## What the take-on tests assert on the real database
 
-Earlier rounds' checks are in previous revisions of this file (fdcf3522, 46fca787,
-47ead2b2, 5672a828). The checks that exercised the unique index are retired with it.
+- receivable/payable net movement = total - amountPaid; default_revenue, default_expense,
+  vat_output and vat_input net movement exactly 0; every entry exactly two lines and balanced.
+- A fully paid document: zero journal lines, status `paid`, gl_journal_entry_id null.
+- arSubLedgerCheck and apSubLedgerCheck both `pass` after a mixed file of part-paid, unpaid
+  and fully paid documents. Under the previous shape both failed.
+- getVATReturn over the period: every box amount, every transaction list, both totals and
+  netVAT byte-identical before and after an import. standardRatedSupplies and
+  standardRatedPurchases DO move (+1000 each) because they are read from the invoice tables,
+  not the GL — asserted explicitly rather than left to be discovered.
+- R-002 boundary: 0.01 imports with a warning, 0.50 is refused naming all three amounts.
+- R-020: a trial balance carrying a receivable or a payable control line is refused and
+  writes nothing; the clearing residual is recorded on the session at completeSession, and
+  not recorded when take-on and the trial balance agree.
 
-All mutations restored; the run above is 28/28 green.
+## Migration 625
 
-## The fingerprint collapses — measured on the real database
-
-`no-vat|no-inv|0` accepts as many rows as are inserted (test: "the fingerprint column takes many
-rows with the same value, as production has"). Both producers build the same string: migration
-412's backfill and computeFingerprint. Registered as its own finding; NOT changed here.
-
-## Migration gates
+Re-applied to the fixture; already present, so a no-op (IF NOT EXISTS). Non-unique:
+  CREATE INDEX idx_supplier_invoices_supplier_fingerprint
+    ON supplier_invoices (company_id, supplier_id, duplicate_fingerprint)
+    WHERE duplicate_fingerprint IS NOT NULL
 
 bun scripts/audit-migration-naming.ts   -> no new duplicate prefixes
 bun scripts/ci/check-migration-rls.ts   -> OK
-625 re-applied to the fixture; it is now CREATE INDEX (non-unique), so it neither locks the table
-for a unique build nor needs a production pre-flight.
 
 ## Full unit suite (clean shell, DATABASE_URL and the fixture env unset)
 
@@ -58,11 +63,9 @@ for a unique build nor needs a production pre-flight.
   Test Files  792 passed | 36 skipped (828)
        Tests  9426 passed | 234 skipped (9660)
 
-Zero failures. The first run of this gate failed 2 tests in
-tests/unit/services/ap/migrationApService.test.ts: its mocked `sql` queue is positional and the
-new idempotency lookup shifted it. Repaired, and that is exactly what this gate is for.
-
 ## Gates
 
 bunx tsc --noEmit                      -> exit 0
 bunx eslint <the changed src/ files>   -> exit 0
+File sizes against the 300-line ceiling: migrationImportService 261, migrationService 227,
+migrationApService 187, migrationPostingSupport 114.

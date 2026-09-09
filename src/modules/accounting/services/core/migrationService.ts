@@ -47,6 +47,15 @@ export interface ImportResult {
   imported: number;
   skipped: number;
   errors: MigrationError[];
+  /**
+   * Rows that imported, but with something the operator should look at — a
+   * source file whose subtotal, tax and total disagree by a few cents. Separate
+   * from `errors` because those rows did NOT import.
+   *
+   * Optional so the wizard's other steps, which raise none, stay unchanged.
+   * Read it as `warnings ?? []`.
+   */
+  warnings?: MigrationError[];
 }
 
 // ── DbRow mapper ───────────────────────────────────────────────────────────────
@@ -165,10 +174,48 @@ export async function updateSession(
   return mapSessionRow(rows[0]!);
 }
 
+/**
+ * R-020. Opening balance equity is a clearing account: the trial balance puts
+ * the opening figures in, the take-on documents put their contras in, and once
+ * the wizard is complete the two sides cancel. A residual means the trial
+ * balance and the documents disagree — most often a control total left in the
+ * trial balance, or a document list that does not match it.
+ *
+ * Recorded, not enforced. The wizard is finished at this point and refusing to
+ * mark it complete would strand the operator with imported data and no way
+ * forward. The residual is written to the session's errors so it is visible
+ * where every other migration problem is.
+ */
+async function recordClearingResidual(sessionId: string, companyId: string): Promise<void> {
+  const rows = (await sql`
+    SELECT COALESCE(SUM(l.debit - l.credit), 0) AS residual
+    FROM gl_journal_lines l
+    JOIN gl_accounts a ON a.id = l.gl_account_id AND a.company_id = ${companyId}::UUID
+    JOIN gl_journal_entries e ON e.id = l.journal_entry_id AND e.company_id = ${companyId}::UUID
+    WHERE l.company_id = ${companyId}::UUID
+      AND a.account_subtype = 'opening_balance_equity'
+      AND e.status = 'posted'
+      AND e.source = 'auto_migration'
+  `) as DbRow[];
+  const residual = Number(rows[0]?.residual ?? 0);
+  if (Math.abs(residual) <= 0.005) return;
+
+  log.warn('Migration left a non-zero opening balance equity residual', {
+    sessionId, companyId, residual,
+  }, 'migration');
+  await updateSession(sessionId, companyId, {
+    errors: [{
+      step: 'complete',
+      message: `Opening Balance Equity does not net to zero after take-on: ${residual.toFixed(2)} remains. The opening trial balance and the imported documents disagree — usually a receivable or payable control total left in the trial balance, or an invoice list that does not match it.`,
+    }],
+  });
+}
+
 export async function completeSession(
   sessionId: string,
   companyId: string,
 ): Promise<MigrationSession> {
+  await recordClearingResidual(sessionId, companyId);
   const rows = (await sql`
     UPDATE migration_sessions
     SET status = 'completed', completed_at = NOW()

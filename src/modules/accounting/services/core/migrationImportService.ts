@@ -10,7 +10,7 @@ import { log } from '@/lib/logger';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 import { updateSession, type ImportResult, type MigrationError } from './migrationService';
-import { resolveSettlementAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
+import { buildTakeOnLines, resolveTakeOnClearingAccountId, rethrowIfConflictTargetMissing } from './migrationPostingSupport';
 import { matchContact } from './migrationContactMatch';
 import type { DbRow } from '@/types/db';
 
@@ -64,13 +64,25 @@ export async function importOpeningBalances(
     if (bal.debit === 0 && bal.credit === 0) continue;
 
     const acctRows = (await sql`
-      SELECT id FROM gl_accounts
+      SELECT id, account_subtype FROM gl_accounts
       WHERE account_code = ${bal.accountCode} AND company_id = ${companyId}::UUID
     `) as DbRow[];
 
     if (acctRows.length === 0) {
       errors.push({ step: 'opening_balances', row: i, field: 'accountCode', message: `Account ${bal.accountCode} not found` });
       continue;
+    }
+
+    // R-020. The AR and AP control balances come from the documents the invoice
+    // steps take on, one line per document, against opening balance equity. A
+    // trial balance that ALSO carries a control total posts the same money a
+    // second time: both control accounts end at roughly twice the truth, and
+    // nothing says so. Refuse the row and name the step that owns it.
+    const subtype = String(acctRows[0]!.account_subtype ?? '');
+    if (subtype === 'receivable' || subtype === 'payable') {
+      throw new Error(
+        `Opening trial balance carries ${bal.accountCode}, a ${subtype} control account. Those balances come from the customer and supplier invoice steps, one line per outstanding document. Remove the control account rows from the trial balance and import the open invoices instead.`,
+      );
     }
 
     lines.push({
@@ -113,17 +125,14 @@ export async function importARInvoices(
   userId: string,
 ): Promise<ImportResult> {
   const errors: MigrationError[] = [];
+  const warnings: MigrationError[] = [];
   let imported = 0;
   let skipped = 0;
 
-  const arAccountId      = await getSystemAccountId('receivable', companyId);
-  const revenueAccountId = await getSystemAccountId('default_revenue', companyId);
-  const vatOutputId      = await getSystemAccountId('vat_output', companyId);
-
-  const settlementAccountId = await resolveSettlementAccountId(
-    companyId,
-    invoices.some(inv => (inv.amountPaid ?? 0) > 0),
-  );
+  // No default_revenue and no vat_output: a take-on document posts neither. See
+  // migrationPostingSupport for why re-declaring the VAT is the deciding reason.
+  const arAccountId       = await getSystemAccountId('receivable', companyId);
+  const clearingAccountId = await resolveTakeOnClearingAccountId(companyId);
 
   const custRows = (await sql`
     SELECT id, name FROM customers WHERE company_id = ${companyId}::UUID
@@ -148,18 +157,26 @@ export async function importARInvoices(
         continue;
       }
 
-      // M4/R-002: the journal is built from subtotal + tax and debited with
-      // totalAmount, so a source file whose three amounts disagree by a cent
-      // produces an unbalanced entry that postJournalEntry rejects — losing the
-      // document with a raw Postgres-flavoured message. Reject it here instead,
-      // naming all three amounts so the operator can correct the file.
-      if (Math.abs(inv.subtotal + inv.taxAmount - inv.totalAmount) > 0.005) {
-        errors.push({
+      // R-002. A take-on entry carries ONE figure — the outstanding amount — so
+      // subtotal and tax never have to balance against anything, and cents of
+      // drift in a source export cost nothing. Refusing at a cent lost real
+      // invoices over the exporter's own rounding. Import up to 5c with a
+      // warning; refuse beyond that, where the file is wrong rather than rounded.
+      const amountsDrift = Math.abs(inv.subtotal + inv.taxAmount - inv.totalAmount);
+      if (amountsDrift > 0.005) {
+        const detail = `subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`;
+        if (amountsDrift > 0.05) {
+          errors.push({
+            step: 'ar_invoices', row: i, field: 'totalAmount',
+            message: `Amounts do not add up for ${inv.invoiceNumber}: ${detail}`,
+          });
+          skipped++;
+          continue;
+        }
+        warnings.push({
           step: 'ar_invoices', row: i, field: 'totalAmount',
-          message: `Amounts do not add up for ${inv.invoiceNumber}: subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`,
+          message: `Imported with a rounding difference: ${inv.invoiceNumber} — ${detail}`,
         });
-        skipped++;
-        continue;
       }
 
       const amountPaid = inv.amountPaid ?? 0;
@@ -200,13 +217,13 @@ export async function importARInvoices(
         }
         const invoiceId = String(invRows[0]!.id);
 
-        const journalLines = [
-          { glAccountId: arAccountId,      debit: inv.totalAmount, credit: 0,             description: `AR — ${inv.invoiceNumber}` },
-          { glAccountId: revenueAccountId, debit: 0,               credit: inv.subtotal,  description: `Revenue — ${inv.invoiceNumber}` },
-        ];
-        if (inv.taxAmount > 0) {
-          journalLines.push({ glAccountId: vatOutputId, debit: 0, credit: inv.taxAmount, description: `VAT — ${inv.invoiceNumber}` });
-        }
+        // One take-on entry for what is still outstanding. An invoice settled in
+        // full before the cutover has nothing to take on: it is created as a
+        // document, with amount_paid, and posts nothing.
+        const journalLines = buildTakeOnLines(
+          arAccountId, clearingAccountId, balance, 'receivable', inv.invoiceNumber,
+        );
+        if (journalLines.length === 0) return true;
 
         // No sourceDocumentId: gl_journal_entries.source_document_id has an FK
         // to captured_documents(id) only (migration 409); the invoice's own id
@@ -217,7 +234,7 @@ export async function importARInvoices(
         // pre-approved and never goes through that flow afterward.
         const entry = await createJournalEntry(companyId, {
           entryDate: inv.invoiceDate,
-          description: `Migrated AR invoice ${inv.invoiceNumber}`,
+          description: `Take-on AR invoice ${inv.invoiceNumber}`,
           source: 'auto_migration',
           lines: journalLines,
         }, userId);
@@ -227,32 +244,6 @@ export async function importARInvoices(
           WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         `;
 
-        // The origination entry debits receivable with the FULL total, but the
-        // invoice is stored with the amount already settled before the cutover.
-        // Without this leg the AR control account and the AR subledger disagree
-        // by exactly amountPaid. The contra is opening balance equity — the
-        // clearing account for everything that happened before the cutover; a
-        // bank leg would invent a cash movement the bank's own opening balance
-        // already accounts for. The account is resolved once for the whole
-        // step, so a company without one fails the step with a single message
-        // instead of failing once per part-paid row.
-        if (amountPaid > 0) {
-          if (!settlementAccountId) {
-            // Unreachable: settlementAccountId is resolved from this same array.
-            // Fail loudly rather than skip the leg H1 exists to guarantee.
-            throw new Error('Settlement account was not resolved for a part-paid invoice');
-          }
-          const settlement = await createJournalEntry(companyId, {
-            entryDate: inv.invoiceDate,
-            description: `Migrated AR invoice ${inv.invoiceNumber} — settled before cutover`,
-            source: 'auto_migration',
-            lines: [
-              { glAccountId: settlementAccountId, debit: amountPaid, credit: 0,   description: `Opening balance equity — ${inv.invoiceNumber}` },
-              { glAccountId: arAccountId,  debit: 0,          credit: amountPaid, description: `AR settled — ${inv.invoiceNumber}` },
-            ],
-          }, userId);
-          await postJournalEntry(companyId, settlement.id, userId);
-        }
         return true;
       });
       if (rowImported) imported++; else skipped++;
@@ -266,5 +257,5 @@ export async function importARInvoices(
 
   await updateSession(sessionId, companyId, { arInvoicesImported: imported, stepsCompleted: { ar_invoices: true }, errors });
   log.info('AR invoices imported', { companyId, imported, skipped }, 'migration');
-  return { imported, skipped, errors };
+  return { imported, skipped, errors, warnings };
 }

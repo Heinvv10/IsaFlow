@@ -181,12 +181,12 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
           WHERE company_id = $1 AND journal_entry_id = $2`,
         [COMPANY, inv[0].gl_journal_entry_id],
       )).rows[0];
-      expect(Number(je.dr)).toBe(115);
-      expect(Number(je.cr)).toBe(115);
+      // A take-on entry carries the OUTSTANDING amount only: two lines at 75.
+      expect(Number(je.dr)).toBe(75);
+      expect(Number(je.cr)).toBe(75);
 
-      // Both journals together must leave the AP control account carrying the
-      // OUTSTANDING balance, not the full total: the 40 was settled before the
-      // cutover, so it is cleared against opening balance equity.
+      // The control account carries the OUTSTANDING balance: the 40 settled
+      // before the cutover never enters this ledger at all.
       const payable = (await c.query(
         `SELECT COALESCE(SUM(l.credit - l.debit), 0) AS net
            FROM gl_journal_lines l
@@ -204,7 +204,9 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
           WHERE l.company_id = $1 AND a.account_subtype = 'opening_balance_equity'`,
         [COMPANY],
       )).rows[0];
-      expect(Number(equity.net)).toBe(40);
+      // AP take-on is DR opening_balance_equity / CR payable, so measured as
+      // credit - debit the clearing account sits at -75.
+      expect(Number(equity.net)).toBe(-75);
 
       // Every posted entry balances.
       const unbalanced = (await c.query(
@@ -377,15 +379,22 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
-  it('still imports unpaid invoices for a company with no clearing account', async () => {
+  it('refuses the step for a company with no clearing account, even for unpaid rows', async () => {
+    // Under take-on posting EVERY outstanding document needs the clearing
+    // account, not only the part-paid ones, so the step is refused up front
+    // rather than failing per row.
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
-      const result = await run(c, () => importAPInvoices(NO_EQUITY_COMPANY, noEquitySessionId, [
+      await expect(run(c, () => importAPInvoices(NO_EQUITY_COMPANY, noEquitySessionId, [
         bill({ invoiceNumber: `${TAG}-noeq-unpaid`, amountPaid: 0 }),
-      ], USER), NO_EQUITY_COMPANY);
-      expect(result.imported).toBe(1);
-      expect(result.errors).toEqual([]);
+      ], USER), NO_EQUITY_COMPANY)).rejects.toThrow(/opening_balance_equity/);
+
+      const rows = (await c.query(
+        `SELECT COUNT(*)::INT AS n FROM supplier_invoices WHERE company_id = $1`,
+        [NO_EQUITY_COMPANY],
+      )).rows[0];
+      expect(rows.n).toBe(0);
     } finally {
       await c.query('ROLLBACK').catch(() => {});
       c.release();
@@ -519,12 +528,12 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
     }
   }, 60000);
 
-  it('rejects a row whose amounts do not add up, naming all three', async () => {
+  it('rejects a row whose amounts are wrong by more than rounding, naming all three', async () => {
     const c = await pool.connect();
     await c.query('BEGIN');
     try {
       const result = await run(c, () => importAPInvoices(COMPANY, sessionId, [
-        bill({ invoiceNumber: `${TAG}-round`, subtotal: 33.33, taxAmount: 5, totalAmount: 38.34 }),
+        bill({ invoiceNumber: `${TAG}-round`, subtotal: 33.33, taxAmount: 5, totalAmount: 38.90 }),
       ], USER));
 
       expect(result.imported).toBe(0);
@@ -532,7 +541,7 @@ describeIfDb('K-015 AP migration import writes only real columns', () => {
       expect(result.errors[0]!.field).toBe('totalAmount');
       expect(result.errors[0]!.message).toContain('33.33');
       expect(result.errors[0]!.message).toContain('5.00');
-      expect(result.errors[0]!.message).toContain('38.34');
+      expect(result.errors[0]!.message).toContain('38.90');
 
       const rows = (await c.query(
         `SELECT COUNT(*)::INT AS n FROM supplier_invoices

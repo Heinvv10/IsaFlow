@@ -1,30 +1,82 @@
 /**
- * Shared guards for the migration wizard's invoice steps.
+ * Shared posting rules for the migration wizard's take-on documents.
  *
- * Both live here rather than in either service because the AP and AR steps hit
- * the same two failure modes and must report them identically.
+ * A document imported by the wizard is a TAKE-ON, not an origination. It was
+ * raised, and often partly settled, before the cutover, in the system being
+ * migrated from. Only what is still outstanding belongs in this ledger.
+ *
+ * So the entry is two lines at `total - amountPaid`, against
+ * `opening_balance_equity`, and it carries no revenue, expense or VAT line at
+ * all. Posting the full invoice and settling the paid part back out would:
+ *
+ *   - RE-DECLARE THE VAT. getVATReturn is GL-based and sweeps every posted line
+ *     on a vat_input/vat_output account into the return; lines with a NULL
+ *     vat_type land in boxes 1 and 15. Neither import passes a vat_type, so
+ *     every take-on document would declare its VAT a second time, in a period
+ *     that is usually already filed. `no_vat` does not help — it maps to box 18.
+ *   - RESTATE PRE-CUTOVER P&L into a closed period, visible in every income
+ *     statement, AFS and pack that spans it.
+ *   - Require a permanent `source <> 'auto_migration'` filter in every future
+ *     VAT and P&L reader.
+ *
+ * Lines that are never written need no filter. This is what Xero's conversion
+ * balances and Sage's take-on do.
  */
 
 import { log } from '@/lib/logger';
 import { getSystemAccountId } from '../gl/systemAccountResolver';
 
+export interface TakeOnLine {
+  glAccountId: string;
+  debit: number;
+  credit: number;
+  description: string;
+}
+
 /**
- * The clearing account the settlement leg posts against, resolved ONCE for the
+ * The two lines of a take-on entry.
+ *
+ * `receivable`: DR the control account, CR the clearing account — the customer
+ * owes us what is outstanding. `payable` mirrors it.
+ *
+ * Returns an empty array when nothing is outstanding: a document settled in full
+ * before the cutover has no balance to take on, so it is created as a document
+ * and posts nothing.
+ */
+export function buildTakeOnLines(
+  controlAccountId: string,
+  clearingAccountId: string,
+  outstanding: number,
+  side: 'receivable' | 'payable',
+  documentNumber: string,
+): TakeOnLine[] {
+  if (outstanding <= 0) return [];
+  const control = {
+    glAccountId: controlAccountId,
+    debit: side === 'receivable' ? outstanding : 0,
+    credit: side === 'receivable' ? 0 : outstanding,
+    description: `Take-on ${side === 'receivable' ? 'AR' : 'AP'} — ${documentNumber}`,
+  };
+  const clearing = {
+    glAccountId: clearingAccountId,
+    debit: side === 'receivable' ? 0 : outstanding,
+    credit: side === 'receivable' ? outstanding : 0,
+    description: `Opening balance equity — ${documentNumber}`,
+  };
+  return side === 'receivable' ? [control, clearing] : [clearing, control];
+}
+
+/**
+ * The clearing account every take-on entry posts against, resolved ONCE for the
  * whole step.
  *
- * Resolving it per row turned one missing account into a failure repeated for
- * every part-paid invoice in the file, each rolling back after its INSERT had
- * already succeeded. A company either has the account or it does not, so ask
- * once and fail the step with a single message naming the remedy.
- *
- * Returns null when no row in the file is part-paid: an import of nothing but
- * unpaid invoices needs no clearing account, and must not be blocked by one.
+ * Unconditional now: under the take-on shape EVERY document with an outstanding
+ * balance needs it, not only the part-paid ones. Resolving it per row turned one
+ * missing account into a failure repeated for every row, each rolling back after
+ * its INSERT had already succeeded. A company either has the account or it does
+ * not, so ask once and fail the step with a single message naming the remedy.
  */
-export async function resolveSettlementAccountId(
-  companyId: string,
-  anyRowIsPartPaid: boolean,
-): Promise<string | null> {
-  if (!anyRowIsPartPaid) return null;
+export async function resolveTakeOnClearingAccountId(companyId: string): Promise<string> {
   try {
     return await getSystemAccountId('opening_balance_equity', companyId);
   } catch (err) {
@@ -38,7 +90,7 @@ export async function resolveSettlementAccountId(
       'migration',
     );
     throw new Error(
-      'This file contains invoices with an amount already paid, which post against the Opening Balance Equity account. This company has no account with the opening_balance_equity role — add one to its chart of accounts and run the step again.',
+      'Imported documents are taken on against the Opening Balance Equity account. This company has no account with the opening_balance_equity role — add one to its chart of accounts and run the step again.',
     );
   }
 }
