@@ -1,0 +1,174 @@
+K-058 GREEN
+
+1. Integration test, fixed build (fixture DB, real schema):
+   $ bun run test:integration -- tests/integration/k058-debtors-drops-null-client-id.int.test.ts
+   Test Files  1 passed (1)
+        Tests  7 passed (7)
+
+2. Mutation check — production change reverted
+   (`git checkout -- src/modules/accounting/services/ar/debtorsManagerService.ts`),
+   same test file rerun:
+     × the debtors summary agrees with AR aging
+     × the overdue list shows the NULL client_id invoice
+     × groups the legacy invoice under customer_id and leaves an explicit client_id alone
+     × the drill-down from the summary row returns the legacy invoice
+     × collection stats count the legacy invoice customer exactly once
+     × does not leak the other company's NULL client_id invoice
+   Test Files  1 failed (1)
+        Tests  6 failed | 1 passed (7)
+   The single pass is the control: getARAging already COALESCEs, so it is
+   unaffected by the debtors-service change in either direction.
+   Production file then restored and the 7/7 pass reproduced.
+
+3. Full unit suite, DATABASE_URL unset (`env -u DATABASE_URL bunx vitest run`):
+   Test Files  792 passed | 36 skipped (828)
+        Tests  9434 passed | 234 skipped (9668)
+
+4. $ bunx tsc --noEmit                                              -> exit 0, no output
+   $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts -> exit 0, no output
+
+────────────────────────────────────────────────────────────────────────────
+Review follow-up (tenant-scoped joins + the four LOWs)
+
+5. Integration test, 8 tests (the leak case added):
+   $ bun run test:integration -- tests/integration/k058-debtors-drops-null-client-id.int.test.ts
+   Test Files  1 passed (1)
+        Tests  8 passed (8)
+
+6. Targeted mutations, one predicate at a time:
+   a. `AND c.company_id = ci.company_id` stripped from both joins (sed) ->
+      Tests  5 failed | 3 passed (8)
+      including "never renders a customer name owned by another company".
+   b. `FILTER (WHERE EXISTS ...)` removed from clientCount only ->
+      Tests  2 failed | 6 passed (8)
+      ("collection stats count the legacy invoice customer exactly once" and
+       "never renders a customer name owned by another company").
+   c. Whole change reverted (recorded above) -> 6 failed | 1 passed (7 at the time).
+   Production file restored after each; 8/8 reproduced.
+
+7. $ bunx tsc --noEmit                                              -> exit 0, no output
+   $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts -> exit 0, no output
+   File is 299 lines (<= 300).
+
+8. Full unit suite, DATABASE_URL unset. THE SUITE IS CURRENTLY FLAKY IN THIS
+   WORKTREE AND THE FLAKINESS IS NOT MINE. Successive identical runs:
+     with my change      12 failed | 9422 passed
+     with my change      10 failed | 9424 passed
+     with my change      10 failed | 9424 passed
+     at 7352734c exactly  6 failed | 9428 passed   <- my own earlier commit,
+                                                      which measured 0 failed
+                                                      a few minutes before
+   The failing files are bankAllocationService, bankAllocationDateShift,
+   bankAllocationUnwind, cashFlowReport and trackerExclusion. None imports
+   debtorsManagerService, and all five pass when run together in isolation:
+     $ bunx vitest run <those five files>  ->  Test Files 5 passed, Tests 27 passed
+   The set and count vary run to run, and the same instability reproduces on a
+   commit that was clean earlier, so the cause is outside this change. Most
+   likely the node_modules symlinked from the shared remediation worktree being
+   mutated by a parallel fixer, or scheduler contention exposing mock leakage
+   across workers. Flagged, not fixed here.
+
+──────────────────────────────────────────────────────────────────────────────
+9. FOLLOW-UP after the blind re-review of 6b887576 (scratchpad/review-k058-followup.md).
+
+   Review finding (MEDIUM): the tenant-scoped INNER JOIN withheld the foreign
+   customer's name by DISCARDING the whole row, so company A's own R600 of AR
+   vanished from the debtors table and the overdue list while still counting in
+   getCollectionStats.totalOutstanding — i.e. the K-058 defect class reproduced
+   in a narrower slice. Applied the reviewer's recommended form.
+
+   Change: both `JOIN customers c` -> `LEFT JOIN customers c` (tenant predicate
+   kept), projection `c.name` -> `COALESCE(c.name, 'Unknown customer')`, and the
+   `FILTER (WHERE EXISTS ...)` guard on clientCount dropped (no longer needed:
+   with an outer join every debtor group is listed, so a plain COUNT(DISTINCT)
+   equals summary.length — collection-stats WHERE is character-identical to the
+   summary WHERE, and COALESCE(client_id, customer_id) is never NULL because
+   customer_id is NOT NULL).
+
+9a. Integration, real schema, fixture DB:
+    $ bun run test:integration -- tests/integration/k058-debtors-drops-null-client-id.int.test.ts
+      Test Files 1 passed (1) | Tests 9 passed (9)
+
+9b. Mutation proof, three separate mutations, each restored afterwards:
+      LEFT JOIN -> JOIN (undo this follow-up)          5 failed | 4 passed
+      drop `AND c.company_id = ci.company_id` (both)   1 failed | 8 passed
+      COALESCE(client_id, customer_id) -> client_id    5 failed | 4 passed
+    All three RED. The tenant-predicate mutation now fails only the name
+    assertion (1 test) rather than 5, because with an outer join the row and its
+    money stay visible either way — only the NAME leaks. That is the correct
+    narrower blast radius, not a weaker test.
+
+9c. $ bunx tsc --noEmit                                                exit 0
+    $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts
+                                                          exit 0, no output
+    File is 297 lines (<= 300).
+
+9d. Full unit suite, DATABASE_URL unset, in this worktree:
+      Test Files  792 passed | 36 skipped (828)
+      Tests      9434 passed | 234 skipped (9668)   0 FAILED
+    The §8 flakiness did NOT reproduce on this run. It was contention in the
+    shared worktree, as suspected there; the suite is clean with this change in.
+
+──────────────────────────────────────────────────────────────────────────────
+10. ROUND-3 review of 7cc4c7a5 (scratchpad/review-k058-r3.md): 3 LOW, all addressed.
+
+    LOW 1 — the outer join re-opens a debtors-vs-aging disagreement in the
+    OPPOSITE direction: arAgingService.ts:49 still joins customers with an
+    unscoped INNER JOIN, so an id matching no customers row anywhere is now
+    listed by the debtors dashboard and still dropped by aging.
+    DOCUMENTED, NOT ALIGNED — and asserted, which the review offered as the
+    alternative. Reason for not aligning: arAgingService.ts is K-053's
+    affectedPath in docs/audits/remediation/backlog.json
+    ("src/modules/accounting/services/ar/arAgingService.ts:53") and two K-053
+    fixers are editing it on parallel branches right now. Editing the same
+    statement from K-058's branch would conflict at integration and take another
+    item's scope. Recorded in fix.md Limits AND pinned by a new test so a future
+    change to either surface fails rather than drifting silently.
+
+    LOW 2 — "the debtors summary agrees with AR aging" never called getARAging;
+    it compared a sum against a hardcoded constant. FIXED: the test now calls
+    getARAging(COMPANY), sums the buckets and compares the two surfaces, then
+    keeps the constant as a second assertion so a change that moves BOTH
+    surfaces together is still caught.
+
+    LOW 3 — two different un-nameable debtors both rendered "Unknown customer",
+    indistinguishable in the table and in the dashboard's clientName search
+    (pages/accounting/debtors-manager/index.tsx:143). FIXED as suggested:
+    COALESCE(c.name, 'Unknown customer ' || left(COALESCE(ci.client_id,
+    ci.customer_id)::text, 8)) on both projections. The inner COALESCE is the
+    summary's own grouping expression, so GROUP BY is unaffected.
+
+10a. Integration, real schema, fixture DB:
+     $ bun run test:integration -- tests/integration/k058-debtors-drops-null-client-id.int.test.ts
+       Test Files 1 passed (1) | Tests 11 passed (11)   (was 9)
+     New fixture: a third company holding two un-nameable debtors — one orphan
+     client_id (no customers row anywhere), one customer_id naming company B's
+     customer. It is deliberately a SEPARATE company so the debtors-vs-aging
+     agreement above is still asserted on a book with no orphan in it, rather
+     than being weakened to accommodate one.
+     Measured divergence on that third book: debtors R1,200, aging R800, gap
+     R400 = exactly the orphan row. That is LOW 1, reproduced and pinned.
+
+10b. Mutation proof, five mutations, each reverted; file byte-identical to the
+     committed one afterwards (diff -q clean):
+       LEFT JOIN -> JOIN                                7 failed | 4 passed
+       COALESCE(client_id, customer_id) -> client_id    6 failed | 5 passed
+       drop `AND c.company_id = ci.company_id` (both)   2 failed | 9 passed
+       drop the id fragment from the placeholder        2 failed | 9 passed
+       COUNT(DISTINCT ...) -> COUNT(...) on clientCount 2 failed | 9 passed
+     All five RED. The placeholder mutation is the one that pins LOW 3.
+
+10c. $ bunx tsc --noEmit                                              exit 0
+     $ bunx eslint src/modules/accounting/services/ar/debtorsManagerService.ts
+                                                         exit 0, no output
+     File is 299 lines (<= 300). Two lines of headroom left; any further edit
+     to this file needs an extraction first.
+
+10d. Full unit suite, DATABASE_URL unset, two runs:
+       run 1   790 passed | 2 failed   (cashFlowReport, bankAllocationUnwind)
+       run 2   792 passed | 0 failed   Tests 9434 passed | 234 skipped
+     Run 1's two failures are the §8 flakiness again, not this change: neither
+     file imports debtorsManagerService (grep, no match), both pass in isolation
+     ($ bunx vitest run <the two files> -> 2 passed | 17 tests), and the host
+     load average was 90 at the time of run 1 against 48 for the clean run at
+     7cc4c7a5. Run 2 on the identical tree is clean.
