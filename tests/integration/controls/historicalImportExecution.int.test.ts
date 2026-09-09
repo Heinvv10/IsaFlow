@@ -175,3 +175,20 @@ it('rechecks the exact registered historical child plan at the final shared post
  }))).rejects.toThrow();
  expect((await pool.query('SELECT id FROM gl_journal_entries WHERE company_id=$1 AND id=$2',[fixture.companyA,journal])).rows).toHaveLength(0);
 });
+it('retains an original multi-date CSV artifact and independently approves each exact extracted group',async()=>{
+ const {extractHistoricalCsvGroups}=await import('@/modules/accounting/services/controls/historicalImportCsvAdapter');
+ const bytes=Buffer.from('date,reference,accountCode,debit,credit,description\r\n2023-02-28,ORIGINAL,HI-C,115,0,"Original, receivable"\r\n2023-02-28,ORIGINAL,HI-R,0,115,Original revenue\r\n2023-03-01,ORIGINAL,HI-C,10,0,Second receivable\r\n2023-03-01,ORIGINAL,HI-R,0,10,Second revenue');
+ const options={sourceKey:randomUUID(),sourceSystem:'csv' as const,kind:'gl' as const},extracted=extractHistoricalCsvGroups(bytes,options);
+ expect(extracted.groups).toHaveLength(2);const journals:string[]=[];
+ for(const group of extracted.groups){
+  const stored=await actor('u1',ctx=>storeHistoricalImportSource(ctx,{bytes,mimeType:'text/csv',artifact:{artifactVersion:2,extractor:{id:'gl_csv',version:1},evidenceKind:'original_upload',extraction:{options,groupKey:group.groupKey}}}));
+  const source=await actor('u2',ctx=>readHistoricalImportSource(ctx,stored.sourceId));expect(source.bytes.equals(bytes)).toBe(true);expect(source.normalized).toEqual(group.normalized);
+  const preparedGroup=await actor('u1',ctx=>prepareHistoricalImport(ctx,{sourceSystem:'csv',sourceKey:source.normalized.sourceKey,kind:'gl',mode:'post_journal',accountingDate:source.normalized.accountingDate,evidenceId:stored.sourceId,sourceRecordIds:group.sourceRecordIds}));
+  const ref:OperationRef={entityType:'historical_import',entityId:preparedGroup.importId,operation:'historical_import.post'};
+  await expect(actor('u1',ctx=>executeHistoricalImport(ctx,ref))).rejects.toThrow('Independent');
+  const approval=await approved(ref),result=await actor('u1',ctx=>executeHistoricalImport(ctx,ref,approval));journals.push(result.journalEntryId);
+  expect(result.accountingDate).toBe(source.normalized.accountingDate);
+  expect(await actor('u1',ctx=>executeHistoricalImport(ctx,ref))).toEqual(result);
+ }
+ expect(new Set(journals).size).toBe(2);
+});
