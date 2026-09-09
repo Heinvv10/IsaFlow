@@ -10,6 +10,10 @@ import { ArrowLeft, Package, Loader2, AlertCircle, Trash2, Calendar, CheckCircle
 import { AssetDualTrackPanel } from '@/components/assets/AssetDualTrackPanel';
 import { apiFetch } from '@/lib/apiFetch';
 import { log } from '@/lib/logger';
+import {
+  annualPolicyCharge,
+  toDepreciationMethod,
+} from '@/modules/accounting/services/items/farDepreciationService';
 
 // ---- Types ----
 
@@ -20,6 +24,7 @@ interface Asset {
   status: string | null; location: string | null; serial_number: string | null;
   supplier_name: string | null; sars_category: string | null; sars_rate: number | null;
   tax_life: number | null; created_at: string | Date;
+  salvage_value: number | null; depreciation_method: string | null;
 }
 
 interface DepRow { year: number; open: number; dep: number; close: number; accum: number; }
@@ -35,16 +40,28 @@ const fmtD = (v: string | Date | null | undefined): string => {
   return (v instanceof Date ? v.toISOString() : v).split('T')[0] ?? '—';
 };
 
+/**
+ * The schedule the monthly run will actually post, not a straight-line
+ * approximation of it. It used to charge cost / years flat and ignore both the
+ * asset's method and its residual, so a reducing-balance asset's own page
+ * contradicted the journals in the GL.
+ */
 function buildSchedule(a: Asset): DepRow[] {
   const yrs = a.useful_life_years; const cost = Number(a.purchase_price ?? 0);
   if (!yrs || yrs <= 0 || cost <= 0) return [];
-  const cap = Math.min(yrs, 30); const ann = cost / yrs;
+  const cap = Math.min(Math.ceil(yrs), 30);
+  const residual = Number(a.salvage_value ?? 0);
+  const method = toDepreciationMethod(a.depreciation_method);
   let accum = 0;
   return Array.from({ length: cap }, (_, i) => {
     const yr = i + 1; const open = cost - accum;
-    const dep = yr < cap ? ann : open;
+    const charge = annualPolicyCharge({
+      method, cost, residual, usefulLifeYears: yrs, monthsElapsed: i * 12,
+    });
+    // Final year trues the schedule up onto the residual, as the run does.
+    const dep = Math.max(0, Math.min(yr < cap ? charge : open - residual, open - residual));
     accum += dep;
-    return { year: yr, open, dep, close: Math.max(0, cost - accum), accum };
+    return { year: yr, open, dep, close: Math.max(residual, cost - accum), accum };
   });
 }
 
@@ -63,8 +80,10 @@ function DepTable({ asset }: { asset: Asset }) {
   return (
     <div className="bg-[var(--ff-bg-secondary)] rounded-lg border border-[var(--ff-border-light)] overflow-hidden">
       <div className="px-4 py-3 border-b border-[var(--ff-border-light)]">
-        <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Straight-Line Depreciation Schedule</h2>
-        <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">{asset.useful_life_years}-year life · Cost {fmtC(asset.purchase_price)}</p>
+        <h2 className="text-sm font-semibold text-[var(--ff-text-primary)]">Depreciation Schedule</h2>
+        <p className="text-xs text-[var(--ff-text-tertiary)] mt-0.5">
+          {toDepreciationMethod(asset.depreciation_method).replace(/_/g, ' ')} · {asset.useful_life_years}-year life · Cost {fmtC(asset.purchase_price)}
+        </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

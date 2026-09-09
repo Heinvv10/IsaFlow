@@ -8,6 +8,7 @@
 // per-asset method pushed this file past the 300-line cap. Re-exported so every
 // existing importer of this module is unchanged.
 export {
+  annualPolicyCharge,
   calculatePolicyDepreciation,
   toDepreciationMethod,
   type DepreciationMethod,

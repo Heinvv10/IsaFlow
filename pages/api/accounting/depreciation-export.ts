@@ -9,6 +9,11 @@ import { withAuth, withWriteAccess} from '@/lib/auth';
 import { log } from '@/lib/logger';
 import { withErrorHandler } from '@/lib/api-error-handler';
 import { csvCell } from '@/lib/csv';
+import { fmtDate } from '@/lib/fmtDate';
+import {
+  calculatePolicyDepreciation,
+  toDepreciationMethod,
+} from '@/modules/accounting/services/items/farDepreciationService';
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET']);
@@ -25,12 +30,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       .filter((a: Record<string, unknown>) => Number(a.purchase_price) > 0 && Number(a.useful_life_years) > 0);
 
     const csvLines = [
-      'Asset Number,Name,Purchase Price,Book Value,Accum Depreciation,Useful Life (yrs),Salvage Value,Monthly Depreciation',
+      'Asset Number,Name,Purchase Price,Book Value,Accum Depreciation,Useful Life (yrs),Salvage Value,Method,Monthly Depreciation',
       ...assets.map((a: Record<string, unknown>) => {
         const pp = Number(a.purchase_price);
         const sv = Number(a.salvage_value || 0);
         const uly = Number(a.useful_life_years);
-        const monthly = Math.round(((pp - sv) / uly / 12) * 100) / 100;
+        const method = toDepreciationMethod(a.depreciation_method);
+        // Same calculator the monthly run posts from, so the CSV cannot quote a
+        // number the GL disagrees with. It used to hard-code straight line.
+        const { monthlyDep: monthly } = calculatePolicyDepreciation({
+          cost: pp,
+          residualPct: pp > 0 ? sv / pp : 0,
+          usefulLifeYears: uly,
+          purchaseDate: fmtDate(a.purchase_date as string | Date),
+          periodDate: fmtDate(new Date()),
+          openingAccDep: Number(a.accumulated_depreciation || 0),
+          method,
+          ...(a.disposal_date ? { disposalDate: fmtDate(a.disposal_date as string | Date) } : {}),
+        });
         return [
           csvCell(String(a.asset_number)),
           csvCell(String(a.name)),
@@ -39,6 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           Number(a.accumulated_depreciation || 0).toFixed(2),
           String(uly),
           sv.toFixed(2),
+          csvCell(method),
           monthly.toFixed(2),
         ].join(',');
       }),

@@ -5,6 +5,7 @@ import {
   calculateDeferredTax,
   checkCapitalizationThreshold,
   toDepreciationMethod,
+  type DepreciationMethod,
   type PolicyDepreciationInput,
   type TaxDepreciationInput,
   type DeferredTaxInput,
@@ -286,7 +287,7 @@ describe('calculatePolicyDepreciation — depreciation method (K-029)', () => {
     residualPct: 0,
     usefulLifeYears: 5,
     purchaseDate: '2024-01-15',
-    periodDate: '2026-09-30',
+    periodDate: '2026-09-30',   // month 32 → depreciation year 3
     openingAccDep: 20_000,
   };
 
@@ -297,23 +298,40 @@ describe('calculatePolicyDepreciation — depreciation method (K-029)', () => {
       .toBeCloseTo(1_666.67, 2);
   });
 
-  it('charges reducing balance off the carrying amount', () => {
-    // (100 000 − 20 000) × 2/5 / 12 = 2 666.67
-    expect(calculatePolicyDepreciation({ ...base, method: 'reducing_balance' }).monthlyDep)
-      .toBeCloseTo(2_666.67, 2);
+  it('charges reducing balance off the year-opening carrying amount', () => {
+    // Year 1 opens at 100 000: × 2/5 = 40 000 → 3 333.33 per month.
+    const y1 = calculatePolicyDepreciation({
+      ...base, periodDate: '2024-06-30', openingAccDep: 0, method: 'reducing_balance',
+    });
+    expect(y1.annualDep).toBeCloseTo(40_000, 2);
+    expect(y1.monthlyDep).toBeCloseTo(3_333.33, 2);
+    // Year 3 opens at 36 000: × 2/5 = 14 400 → 1 200 per month.
+    const y3 = calculatePolicyDepreciation({ ...base, method: 'reducing_balance' });
+    expect(y3.annualDep).toBeCloseTo(14_400, 2);
+    expect(y3.monthlyDep).toBeCloseTo(1_200, 2);
   });
 
-  it('reduces the reducing-balance charge as accumulated depreciation grows', () => {
-    // (100 000 − 60 000) × 2/5 / 12 = 1 333.33 — lower than the year-one charge.
-    expect(
-      calculatePolicyDepreciation({ ...base, openingAccDep: 60_000, method: 'reducing_balance' })
-        .monthlyDep,
-    ).toBeCloseTo(1_333.33, 2);
+  it('holds the declining charge flat across a year rather than compounding it monthly', () => {
+    // Every month of year 1 charges the same, whatever the accumulated balance
+    // has reached. Compounding monthly charged 33 423.51 in year one against a
+    // stated 40% rate.
+    const args = { ...base, periodDate: '2024-06-30', method: 'reducing_balance' as const };
+    expect(calculatePolicyDepreciation({ ...args, openingAccDep: 0 }).monthlyDep)
+      .toBeCloseTo(calculatePolicyDepreciation({ ...args, openingAccDep: 16_666.65 }).monthlyDep, 2);
+  });
+
+  it('switches reducing balance to straight line over the remaining life', () => {
+    // Year 4 opens at 21 600. Declining would take 8 640; spreading the
+    // remaining 21 600 over the last 2 years takes 10 800, so the schedule
+    // switches and lands on the residual at the end of the life.
+    const y4 = calculatePolicyDepreciation({
+      ...base, periodDate: '2027-06-30', openingAccDep: 78_400, method: 'reducing_balance',
+    });
+    expect(y4.annualDep).toBeCloseTo(10_800, 2);
   });
 
   it('caps reducing balance at the residual, never below it', () => {
     // Depreciable = 100 000 × 0.8 = 80 000; already 79 900 taken, so 100 left.
-    // Reducing balance would charge (100 000 − 79 900) × 2/5 / 12 = 670.
     const result = calculatePolicyDepreciation({
       ...base, residualPct: 0.2, openingAccDep: 79_900, method: 'reducing_balance',
     });
@@ -339,21 +357,23 @@ describe('calculatePolicyDepreciation — depreciation method (K-029)', () => {
         ...base, cost: 60_000, usefulLifeYears: 3, openingAccDep: 0,
         periodDate: '2024-06-30', method: 'sum_of_years',
       }).monthlyDep,
-    ).toBeCloseTo(2_500, 2);
+    ).toBe(2_500);
   });
 
-  it('charges nothing under sum-of-years once the life has run out', () => {
-    expect(
-      calculatePolicyDepreciation({
-        ...base, cost: 60_000, usefulLifeYears: 3, openingAccDep: 0,
-        periodDate: '2028-09-30', method: 'sum_of_years',
-      }).monthlyDep,
-    ).toBe(0);
+  it('charges nothing under any method once the schedule is complete', () => {
+    for (const method of ['straight_line', 'reducing_balance', 'sum_of_years'] as const) {
+      expect(
+        calculatePolicyDepreciation({
+          ...base, cost: 60_000, usefulLifeYears: 3, openingAccDep: 60_000,
+          periodDate: '2028-09-30', method,
+        }).monthlyDep,
+      ).toBe(0);
+    }
   });
 
   it('pro-rates the first month under every method', () => {
-    // Purchased 2024-01-15 → 17 of 31 days. Reducing balance full month is
-    // 100 000 × 2/5 / 12 = 3 333.33; pro-rated = 1 827.96.
+    // Purchased 2024-01-15 → 17 of 31 days. Reducing balance year one is
+    // 100 000 × 2/5 = 40 000 → 3 333.33 full month; pro-rated = 1 827.96.
     expect(
       calculatePolicyDepreciation({
         ...base, openingAccDep: 0, periodDate: '2024-01-31', method: 'reducing_balance',
@@ -369,6 +389,56 @@ describe('calculatePolicyDepreciation — depreciation method (K-029)', () => {
   });
 });
 
+/**
+ * The schedule must terminate. Declining balance without a crossover only
+ * approaches the residual (13.1% of cost was still on the books at the end of a
+ * five-year life, and the run posted a journal for it every month after), and
+ * sum-of-years hard-stopped at the life while the pro-rated first month was
+ * still unrecovered.
+ */
+describe('calculatePolicyDepreciation — the full life (K-029)', () => {
+  const COST = 100_000;
+  const LIFE = 5;
+
+  /** Runs one journal per month from acquisition to well past the life. */
+  function runToExhaustion(method: DepreciationMethod, residualPct: number) {
+    let accDep = 0;
+    const charges: number[] = [];
+    for (let m = 0; m < LIFE * 12 + 24; m += 1) {
+      // Purchased 2024-01-15; period = last day of the month m months later.
+      const period = new Date(2024, 0 + m + 1, 0);
+      const result = calculatePolicyDepreciation({
+        cost: COST,
+        residualPct,
+        usefulLifeYears: LIFE,
+        purchaseDate: '2024-01-15',
+        periodDate: period.toISOString().slice(0, 10),
+        openingAccDep: accDep,
+        method,
+      });
+      charges.push(result.monthlyDep);
+      accDep = result.closingAccDep;
+    }
+    return { charges, accDep, afterLife: charges.slice(LIFE * 12) };
+  }
+
+  for (const method of ['straight_line', 'reducing_balance', 'sum_of_years'] as const) {
+    it(`${method} charges the depreciable amount exactly and then stops`, () => {
+      const { charges, accDep, afterLife } = runToExhaustion(method, 0);
+      expect(charges.reduce((t, c) => t + c, 0)).toBeCloseTo(COST, 2);
+      expect(accDep).toBeCloseTo(COST, 2);
+      // Not one journal after the useful life expires.
+      expect(afterLife.filter((c) => c > 0)).toEqual([]);
+    });
+
+    it(`${method} stops exactly on a 10% residual`, () => {
+      const { accDep, afterLife } = runToExhaustion(method, 0.1);
+      expect(accDep).toBeCloseTo(90_000, 2);
+      expect(afterLife.filter((c) => c > 0)).toEqual([]);
+    });
+  }
+});
+
 describe('toDepreciationMethod', () => {
   it('accepts the three asset methods', () => {
     expect(toDepreciationMethod('straight_line')).toBe('straight_line');
@@ -377,7 +447,8 @@ describe('toDepreciationMethod', () => {
   });
 
   it('folds the asset_categories vocabulary onto the asset one', () => {
-    // Migration 360 calls reducing balance `diminishing_balance`.
+    // Defensive only: migration 360 calls reducing balance `diminishing_balance`
+    // on asset_categories, and no run path reads the method from there.
     expect(toDepreciationMethod('diminishing_balance')).toBe('reducing_balance');
   });
 
