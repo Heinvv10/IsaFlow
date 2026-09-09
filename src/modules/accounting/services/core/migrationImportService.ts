@@ -27,7 +27,8 @@ export interface ARInvoiceRow {
   subtotal: number;
   taxAmount: number;
   totalAmount: number;
-  amountPaid: number;
+  /** Optional: absent and 0 mean the same thing — nothing has been paid. */
+  amountPaid?: number;
   reference?: string;
 }
 
@@ -117,6 +118,15 @@ export async function importARInvoices(
     SELECT id, name FROM customers WHERE company_id = ${companyId}::UUID
   `) as DbRow[];
 
+  // Migration 530 stores the origin of a document IsaFlow did not create as a
+  // pair: external_ref plus the system it came from. Writing the reference
+  // without the system leaves it unattributable.
+  const sessRows = (await sql`
+    SELECT source_system FROM migration_sessions
+    WHERE id = ${sessionId}::UUID AND company_id = ${companyId}::UUID
+  `) as DbRow[];
+  const sourceSystem = sessRows.length > 0 ? String(sessRows[0]!.source_system) : 'csv_import';
+
   for (let i = 0; i < invoices.length; i++) {
     const inv = invoices[i]!;
     try {
@@ -127,8 +137,23 @@ export async function importARInvoices(
         continue;
       }
 
-      const balance = inv.totalAmount - (inv.amountPaid ?? 0);
-      const status  = balance <= 0 ? 'paid' : inv.amountPaid > 0 ? 'partially_paid' : 'approved';
+      // M4/R-002: the journal is built from subtotal + tax and debited with
+      // totalAmount, so a source file whose three amounts disagree by a cent
+      // produces an unbalanced entry that postJournalEntry rejects — losing the
+      // document with a raw Postgres-flavoured message. Reject it here instead,
+      // naming all three amounts so the operator can correct the file.
+      if (Math.abs(inv.subtotal + inv.taxAmount - inv.totalAmount) > 0.005) {
+        errors.push({
+          step: 'ar_invoices', row: i, field: 'totalAmount',
+          message: `Amounts do not add up for ${inv.invoiceNumber}: subtotal ${inv.subtotal.toFixed(2)} + tax ${inv.taxAmount.toFixed(2)} != total ${inv.totalAmount.toFixed(2)}`,
+        });
+        skipped++;
+        continue;
+      }
+
+      const amountPaid = inv.amountPaid ?? 0;
+      const balance = inv.totalAmount - amountPaid;
+      const status  = balance <= 0 ? 'paid' : amountPaid > 0 ? 'partially_paid' : 'approved';
 
       // customer_invoices has no `reference` column: migration 530 added
       // external_ref for exactly this — the source system's own reference on
@@ -141,19 +166,27 @@ export async function importARInvoices(
           INSERT INTO customer_invoices (
             company_id, customer_id, invoice_number, invoice_date, due_date,
             subtotal, tax_amount, total_amount, amount_paid,
-            status, external_ref, created_by
+            status, external_ref, external_system, created_by
           ) VALUES (
             ${companyId}::UUID, ${customerId}::UUID, ${inv.invoiceNumber},
             ${inv.invoiceDate}::DATE, ${inv.dueDate}::DATE,
             ${inv.subtotal}, ${inv.taxAmount}, ${inv.totalAmount},
-            ${inv.amountPaid ?? 0}, ${status},
-            ${inv.reference ?? null}, ${userId}::UUID
+            ${amountPaid}, ${status},
+            ${inv.reference ?? null}, ${inv.reference ? sourceSystem : null}, ${userId}::UUID
           )
-          ON CONFLICT DO NOTHING
+          ON CONFLICT (company_id, invoice_number) DO NOTHING
           RETURNING id
         `) as DbRow[];
 
-        if (invRows.length === 0) return false;
+        // uq_customer_invoices_company_number swallowed the row silently; the
+        // operator saw a skip count with no reason and no invoice number.
+        if (invRows.length === 0) {
+          errors.push({
+            step: 'ar_invoices', row: i, field: 'invoiceNumber',
+            message: `Invoice number already exists: ${inv.invoiceNumber}`,
+          });
+          return false;
+        }
         const invoiceId = String(invRows[0]!.id);
 
         const journalLines = [
@@ -182,6 +215,28 @@ export async function importARInvoices(
           UPDATE customer_invoices SET gl_journal_entry_id = ${entry.id}::UUID
           WHERE id = ${invoiceId}::UUID AND company_id = ${companyId}::UUID
         `;
+
+        // The origination entry debits receivable with the FULL total, but the
+        // invoice is stored with the amount already settled before the cutover.
+        // Without this leg the AR control account and the AR subledger disagree
+        // by exactly amountPaid. The contra is opening balance equity — the
+        // clearing account for everything that happened before the cutover; a
+        // bank leg would invent a cash movement the bank's own opening balance
+        // already accounts for. Resolved here rather than above so a company
+        // with no such account can still import unpaid invoices.
+        if (amountPaid > 0) {
+          const obeAccountId = await getSystemAccountId('opening_balance_equity', companyId);
+          const settlement = await createJournalEntry(companyId, {
+            entryDate: inv.invoiceDate,
+            description: `Migrated AR invoice ${inv.invoiceNumber} — settled before cutover`,
+            source: 'auto_migration',
+            lines: [
+              { glAccountId: obeAccountId, debit: amountPaid, credit: 0,          description: `Opening balance equity — ${inv.invoiceNumber}` },
+              { glAccountId: arAccountId,  debit: 0,          credit: amountPaid, description: `AR settled — ${inv.invoiceNumber}` },
+            ],
+          }, userId);
+          await postJournalEntry(companyId, settlement.id, userId);
+        }
         return true;
       });
       if (rowImported) imported++; else skipped++;

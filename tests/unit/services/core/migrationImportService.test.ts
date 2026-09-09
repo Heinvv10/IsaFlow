@@ -94,6 +94,7 @@ describe('importARInvoices — no sourceDocumentId, linked via gl_journal_entry_
   it('does not pass sourceDocumentId to createJournalEntry (would violate fk_gl_je_source_document)', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: CUSTOMER_ID, name: 'Acme Corp' }]) // customers lookup
+      .mockResolvedValueOnce([{ source_system: 'sage' }]) // migration_sessions source_system
       .mockResolvedValueOnce([{ id: INVOICE_ID }]) // INSERT customer_invoices RETURNING id
       .mockResolvedValueOnce([]); // UPDATE customer_invoices SET gl_journal_entry_id
 
@@ -108,12 +109,13 @@ describe('importARInvoices — no sourceDocumentId, linked via gl_journal_entry_
   it('persists gl_journal_entry_id on the migrated invoice', async () => {
     mockSql
       .mockResolvedValueOnce([{ id: CUSTOMER_ID, name: 'Acme Corp' }])
+      .mockResolvedValueOnce([{ source_system: 'sage' }])
       .mockResolvedValueOnce([{ id: INVOICE_ID }])
       .mockResolvedValueOnce([]);
 
     await importARInvoices(COMPANY_ID, SESSION_ID, [invoiceRow], USER_ID);
 
-    const linkageCall = mockSql.mock.calls[2]!;
+    const linkageCall = mockSql.mock.calls[3]!;
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', JE_ID)).toBe(true);
     expect(sqlCallTouches(linkageCall, 'gl_journal_entry_id', INVOICE_ID)).toBe(true);
   });
