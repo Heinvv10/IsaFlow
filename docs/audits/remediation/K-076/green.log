@@ -87,3 +87,50 @@ recorded here because the first run of each looked like a passing mutation check
 FULL UNIT SUITE, fixture env UNSET (env -u DATABASE_URL -u JWT_SECRET bunx vitest run)
  Test Files  796 passed | 36 skipped (832)
       Tests  9493 passed | 234 skipped (9727)
+
+=============================================================================
+ROUND 3 — post-expense.ts back under the 300-line cap (pure extraction)
+=============================================================================
+
+pages/api/accounting/capture/[id]/post-expense.ts   329 -> 214 lines
+src/modules/accounting/services/capture/pettyCashJournalService.ts  NEW, 181
+
+Behaviour-preserving move of the anonymous petty-cash branch. The existing route
+tests are the check on that, and they were not edited:
+
+$ bunx vitest run tests/unit/services/{postExpenseZeroVatLine,closedFiscalPeriodErrorContract,glEntrySourceConstraint,bankRulesClosedPeriod}.test.ts
+ Test Files  4 passed (4)
+      Tests  26 passed (26)
+
+$ source fixture.env; bun run test:integration -- tests/integration/k072-receipt-entertainment-vat.int.test.ts
+      Tests  5 passed (5)
+
+$ bun scripts/ci/check-vat-guard-coverage.ts
+[vat-guard] OK — 1910 files scanned, 14 attended/no-claim paths allowlisted.
+
+The gate's scope followed the DECISION out of the route, which is the correct
+outcome and not a loss of coverage. inspectVatGuardCoverage now returns:
+  pages/api/accounting/receipt-to-journal.ts                  in scope, guarded
+  src/.../capture/pettyCashJournalService.ts                  in scope, guarded
+  pages/api/accounting/capture/[id]/post-expense.ts           null — it decides
+    nothing any more; it resolves the account and delegates.
+
+MUTATION I — every inputVatDenial binding removed from pettyCashJournalService,
+vatType kept:
+  [vat-guard] These decide or forward a VAT claim without a guard:
+    src/modules/accounting/services/capture/pettyCashJournalService.ts
+  gate exit=1.  Restored -> exit 0.
+
+$ bunx tsc --noEmit                → clean
+$ bunx eslint <both files>         → clean
+$ bun run agent-docs:check         → OK: 74 mirrors match (capture/.claude.md updated
+                                     with the new service, mirror regenerated)
+
+FULL UNIT SUITE, fixture env UNSET
+ Test Files  1 failed | 795 passed | 36 skipped (832)
+      Tests  1 failed | 9492 passed | 234 skipped (9727)
+
+The one failure is tests/unit/services/cashFlowReport.test.ts, a 10009ms timeout
+on a 10s limit, recorded here rather than glossed. It is unrelated to this branch:
+the machine load average was 118 (parallel agent sessions), the test touches no
+file this branch changes, and it passes 2/2 when run on its own immediately after.

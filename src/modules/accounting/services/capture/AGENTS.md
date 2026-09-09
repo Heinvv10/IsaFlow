@@ -13,6 +13,12 @@ PRD-05 autonomous capture + evidence-first ledger. Pure business logic — HTTP 
 - **Provisional posting (Phase 5)**: `provisionalPostingService.ts` (`postProvisional` stamps `ai-provisional:v1`, `needs_evidence=true`), `evidenceAttachmentService.ts` (flips to `ai-evidenced`).
 - **Matching (Phase 4/6)**: `fourWayMatchService.ts` (`recordPaymentMatch` idempotent), `supplierGraphService.ts`, `expectationEngineService.ts` (learn supplier cadence), `missingInvoiceChaseService.ts`, `alertResolutionService.ts`, `expectationCronService.ts` (daily orchestrator).
 - **Supplier statement recon (Phase 7)**: `supplierStatementMatchHelper.ts`, `supplierStatementReconDb.ts`, `supplierStatementReconService.ts`.
+- **Petty-cash posting**: `pettyCashJournalService.ts` — `postReceiptAsPettyCashJournal`, the
+  anonymous branch of `capture/[id]/post-expense` (no employee attached). Resolves
+  `gl_accounts.vat_input_denied` on the coded account and hands it to
+  `buildExpenseJournalFromReceipt`, so s17(2)(a) entertainment claims are denied on a path
+  that auto-posts unattended. It tags `vatType` and posts, so it — not the route — is what
+  `scripts/ci/check-vat-guard-coverage.ts` governs.
 - **Audit**: `auditTrailExportService.ts`.
 - **Bank-Tx Attach (Workstream G)**: `captureBankTxAttachService.ts` — tenant-preflighted link of captured doc → bank tx + ≤2MB data-URL mirror into bank_transaction_attachments, dedupe key `${documentId}_${fileName}`, mirror fail-soft link-only.
 

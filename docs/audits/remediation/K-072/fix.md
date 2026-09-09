@@ -24,12 +24,18 @@ the expense account they resolved, reading the `gl_accounts.vat_input_denied` ma
 migration 521 sets, and the builder ORs that with its heuristic. The authoritative input decides;
 the heuristic only adds to it.
 
-**Files.** `receiptToJournalService.ts`, `pages/api/accounting/receipt-to-journal.ts` and
-`pages/api/accounting/capture/[id]/post-expense.ts`. The lines carry `vatType` and both routes
-import and use the denial funnel, so `check-vat-guard-coverage.ts` now sees them as in-scope and
-guarded. The gate file itself is untouched and still lists 14 allowlisted paths — no exemption
-was added. Before this, both routes returned `null` from the inspector: unattended posters the
-gate could not see.
+**Files.** `receiptToJournalService.ts`, `pages/api/accounting/receipt-to-journal.ts`,
+`pages/api/accounting/capture/[id]/post-expense.ts` and
+`src/modules/accounting/services/capture/pettyCashJournalService.ts`. The last is the anonymous
+petty-cash branch, moved out of the route unchanged so the route returns to 214 lines and back
+under the 300-line cap; the 26 existing route tests pass untouched across the move.
+
+The lines carry `vatType`, and the two files that now DECIDE the claim — `receipt-to-journal.ts`
+and `pettyCashJournalService.ts` — import and use the denial funnel, so
+`check-vat-guard-coverage.ts` sees both as in-scope and guarded. `post-expense.ts` drops out of
+scope because it no longer decides anything; it delegates. The gate file is untouched and still
+lists 14 allowlisted paths — no exemption was added. Before this round, both routes returned
+`null` from the inspector: unattended posters the gate could not see.
 
 **Tests.** `tests/unit/services/k072-receipt-entertainment-vat.test.ts` (12) and
 `tests/integration/k072-receipt-entertainment-vat.int.test.ts` (5, real Postgres). Adjacent
@@ -57,6 +63,24 @@ WHERE je.company_id = $1
 
 Each hit needs a correcting journal and a VAT201 adjustment. The population is small: the
 `auto_expense_receipt` source only became postable at migration 509.
+
+**Declined findings from the blind review, both accepted by the team lead.**
+
+*Negative and refund totals are not extracted (LOW-9).* Measured on this branch:
+`extractAmounts('Total Due: -1150.00')` returns `{subtotal: null, vatAmount: null,
+totalAmount: null}`, and `validateReceiptExtraction` then returns `valid: false,
+errors: ['totalAmount is required']`, so the route answers 400 and writes nothing. Admitting the
+minus sign would change that outcome to a journal, and `shouldAutoPostReceipt` would auto-post a
+reversal nobody asked for. A credit note against the original expense needs its own path with its
+own approval, not a sign admitted into a regex. Refusing the document is the safer failure and it
+is the one in place.
+
+*Telecoms map to the Meals & entertainment account (LOW-13).* `MERCHANT_PATTERNS` routes
+`mtn|vodacom|telkom|cell c|rain|afrihost` to code 5600 with type `general`. The VAT treatment is
+correct — `general` claims its input tax, which is right for telecoms — so this is not a VAT
+defect and not what these three items cover. The account is wrong, and changing it moves where
+live spend lands for every company on the platform. Flagged for its own item; the reviewer raised
+it as "mentioned, not a fix request".
 
 **Limits.** A restaurant that the regex does not know AND whose account carries no
 `vat_input_denied` flag still claims. Setting the flag is a per-company act, so the marker only
