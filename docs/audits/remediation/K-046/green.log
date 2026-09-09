@@ -244,3 +244,29 @@ GATES
 
 NOT DONE
   Migration 627 still deliberately NOT renumbered — merge-time action, see fix.md.
+
+=== ROUND 6 (review-k046-r5.md: 0 HIGH / 1 MEDIUM / 3 LOW) ===
+Integration (fixture DB, real Postgres, migration 627 applied):
+  k-046-year-end-entry-number-taken + k113-year-end-close-rerun
+  + k-046-year-end-contra-balance-negative-debit + k-046-year-end-close-adjacent
+  + k-046-year-end-squatter-race  -> 21 passed (5 files)
+Unit (full suite, DATABASE_URL UNSET): 800 files passed | 40 skipped, 9566 tests passed | 243 skipped, 0 failed
+Components (vitest.components.config.ts): yearEndCloseMessage.test.tsx -> 5 passed
+bunx tsc --noEmit -> clean
+bunx eslint <6 changed src files> -> clean
+bun run agent-docs:check -> OK: 74 agent document mirror(s) match canonical sources.
+
+Round-6 mutations (one per finding), each RED then restored:
+  MU-R6-A (MEDIUM-1) put the two setHeader calls back inside the refund try, unguarded
+    -> withFlowMeter.test.ts FAILS: log.error called once with
+       "Cannot set headers after they are sent to the client"
+  MU-R6-B (LOW-1) added `| { error: 'MUTATION_PROBE' }` to CloseYearError
+    -> tsc FAILS at yearEndCloseRefusal.ts:84 AND pages/api/accounting/year-end.ts:131
+       (Type '{ error: "MUTATION_PROBE"; }' is not assignable to type 'never')
+  MU-R6-C (LOW-2) alreadyClosedResult `netIncome: unclosedNetIncome` -> `netIncome: 0`
+    -> int test FAILS: expected +0 to be 150 (both the re-read test and the k113 re-run)
+  MU-R6-D (LOW-3) dry-run closed branch `preview: null` -> `preview`
+    -> int tests FAIL: expected { entryDate: '2026-12-31', ... } to be null (x2)
+
+NOTE: one run of the three-file integration set timed out (30s test / 10s hooks) at load
+average 16 while other fixer agents were running; re-run at load 12 it is green 21/21.

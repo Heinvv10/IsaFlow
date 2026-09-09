@@ -199,13 +199,14 @@ export const yearEndCloseTool: McpTool = {
           dry_run: true,
           net_income: result.netIncome,
           // NULL when the year is ALREADY closed, because the live call would
-          // post nothing. The preview is non-empty in exactly one such case —
-          // P&L that landed in the year AFTER its close — and it is a residual,
-          // not an offer: the entry number is taken, so no close can ever sweep
-          // it up. Returning it under `would_post` promised an agent a balanced
-          // journal the live call refuses to write. `unclosed_net_income` below
-          // is that money, as a number.
-          would_post: result.alreadyClosed ? null : {
+          // post nothing — and now null BY CONSTRUCTION: the service hands back
+          // `preview: null` on that branch and names the stranded movement
+          // `residualPreview`, so this cannot be got wrong here. The residual
+          // is non-empty in exactly one case — P&L that landed in the year AFTER
+          // its close — and it is not an offer: the entry number is taken, so no
+          // close can ever sweep it up. `unclosed_net_income` below is that
+          // money, as a number.
+          would_post: result.preview === null ? null : {
             entry_number: result.preview.entryNumber,
             entry_date: result.preview.entryDate,
             description: result.preview.description,

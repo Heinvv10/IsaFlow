@@ -31,6 +31,7 @@ import {
   InsufficientFlowsError,
 } from '@/modules/billing/services/flowWalletService';
 import { withFlowMeter, markFlowNoOp } from '@/lib/billing/withFlowMeter';
+import { log } from '@/lib/logger';
 
 const mockGetPlan = getCompanyPlan as MockedFunction<typeof getCompanyPlan>;
 const mockDeduct  = deductFlows as MockedFunction<typeof deductFlows>;
@@ -38,14 +39,25 @@ const mockRefund  = refundFlows as MockedFunction<typeof refundFlows>;
 const mockTopup   = triggerAutoTopup as MockedFunction<typeof triggerAutoTopup>;
 const mockNudge   = recalculateNudge as MockedFunction<typeof recalculateNudge>;
 
+/**
+ * `headersSent` is modelled because it is the whole story on the refund path:
+ * the refund runs AFTER the handler, and a handler that has answered has
+ * flushed. On a real ServerResponse `setHeader` then throws
+ * ERR_HTTP_HEADERS_SENT — a mock whose setHeader always succeeds asserts a
+ * header the client never receives.
+ */
 function mockRes() {
   const res = {
     statusCode: 200,
+    headersSent: false,
     headers: {} as Record<string, string>,
-    setHeader(k: string, v: string) { this.headers[k] = v; },
+    setHeader(k: string, v: string) {
+      if (this.headersSent) throw new Error('Cannot set headers after they are sent to the client');
+      this.headers[k] = v;
+    },
     status(code: number) { this.statusCode = code; return this; },
-    json: vi.fn(),
-    end: vi.fn(),
+    json: vi.fn(function (this: { headersSent: boolean }) { this.headersSent = true; }),
+    end: vi.fn(function (this: { headersSent: boolean }) { this.headersSent = true; }),
   };
   return res;
 }
@@ -208,10 +220,10 @@ describe('withFlowMeter', () => {
 
     expect(mockRefund).toHaveBeenCalledOnce();
     expect(res.headers['X-Flow-Refunded']).toBe('true');
-    // And the balance header tells the truth about the wallet. It was set from
-    // the DEBIT (97) before the handler ran; leaving it there on a refunded
-    // 2xx — the one refund path that reaches a response a client renders an
-    // "X Flows used" toast on — advertises a charge that was reversed.
+    // Where the response is still open, the balance header is re-stated from
+    // the REFUND rather than left at the debit (97). A handler that has already
+    // flushed cannot be corrected — see the headers-sent test below, which is
+    // what the real HTTP path does.
     expect(res.headers['X-Flow-Balance-After']).toBe('100');
   });
 
@@ -226,6 +238,32 @@ describe('withFlowMeter', () => {
     await wrapped({ companyId: 'co-1' } as never, res as never);
 
     expect(res.headers['X-Flow-Balance-After']).toBe('100');
+  });
+
+  it('does NOT log a refund failure when the handler has already answered', async () => {
+    // The refund branch runs after the handler, so on a real response the
+    // headers are gone by then. Re-stating the balance there used to sit inside
+    // the try whose catch logs 'flow refund failed after handler error': a
+    // SUCCESSFUL refund emitted an ERROR claiming it failed, on every PAYG
+    // already-closed re-run — exactly the retry loop markFlowNoOp exists for.
+    mockGetPlan.mockResolvedValueOnce({ planCode: 'payg', planId: 'p', subscriptionId: 's' });
+    mockDeduct.mockResolvedValueOnce({ balanceAfter: 97 });
+    mockRefund.mockResolvedValueOnce({ balanceAfter: 100 });
+
+    const handler = vi.fn(async (req, res: ReturnType<typeof mockRes>) => {
+      markFlowNoOp(req as never);
+      res.status(200).json({ ok: true });
+    });
+    const wrapped = withFlowMeter('invoice.create', 3)(handler);
+    const res = mockRes();
+    await wrapped({ companyId: 'co-1' } as never, res as never);
+
+    expect(mockRefund).toHaveBeenCalledOnce();
+    expect(log.error).not.toHaveBeenCalled();
+    // The client keeps the pre-refund figure — the response was already gone.
+    // The wallet is still right, and the next request reads the true balance.
+    expect(res.headers['X-Flow-Balance-After']).toBe('97');
+    expect(res.headers['X-Flow-Refunded']).toBeUndefined();
   });
 
   it('leaves the debit balance standing when the refund itself FAILS', async () => {

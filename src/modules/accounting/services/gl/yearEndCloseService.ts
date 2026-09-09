@@ -149,14 +149,31 @@ export async function closeFiscalYear(
     const unclosedNetIncome = existingEntry
       ? roundToCents(await reloadNetIncome(companyId, yearRange.start_date, yearRange.end_date))
       : 0;
-    return {
-      dryRun: true, netIncome, preview, alreadyClosed: existingEntry !== null, existingEntry,
-      unclosedNetIncome,
-    };
+    // Two shapes, not one shape plus a flag: an already-closed year hands back
+    // `preview: null` and names its journal `residualPreview`, so a consumer
+    // cannot read money the close will never sweep up as an offer to post.
+    // `netIncome` follows the same rule as `alreadyClosedResult` — once the
+    // year is known to be closed it is the figure read AFTER the lookup, not
+    // the stale pre-lookup one a racing close would leave holding its own
+    // movement.
+    return existingEntry
+      ? {
+        dryRun: true,
+        netIncome: unclosedNetIncome,
+        preview: null,
+        residualPreview: preview,
+        alreadyClosed: true,
+        existingEntry,
+        unclosedNetIncome,
+      }
+      : {
+        dryRun: true, netIncome, preview, alreadyClosed: false, existingEntry: null,
+        unclosedNetIncome,
+      };
   }
 
   if (existingEntry) {
-    return alreadyClosedResult(companyId, yearLabel, existingEntry, netIncome, yearRange);
+    return alreadyClosedResult(companyId, yearLabel, existingEntry, yearRange);
   }
 
   let closingEntry: Record<string, unknown> | null;
@@ -198,7 +215,7 @@ export async function closeFiscalYear(
     if (refusal) return refusal;
     log.info('Year-end close lost the race for the closing entry number; reporting the winner',
       { companyId, year: yearLabel, entryId: winner.id, module: 'accounting' });
-    return alreadyClosedResult(companyId, yearLabel, winner, netIncome, yearRange);
+    return alreadyClosedResult(companyId, yearLabel, winner, yearRange);
   }
 
   log.info('Year-end processed', {

@@ -207,3 +207,47 @@ blinding the FIRST `findClosingJournal` only). `k-046-year-end-entry-number-take
 (the deterministic residual re-read, and dry-run/live agreement on a closed year carrying R150).
 Unit: `yearEndClosePostingGuard.test.ts` +2, `fiscalPeriodTools.test.ts` +1,
 `withFlowMeter.test.ts` +2. Four round-5 mutations, each RED — see `green.log`.
+
+## Round 6 — the four findings of `review-k046-r5.md` (0 HIGH / 1 MEDIUM / 3 LOW)
+
+- **MEDIUM-1 FIXED, and the round-5 LOW-6 claim WITHDRAWN.** The refund branch runs after the
+  handler, so on a real `ServerResponse` the headers are already sent: both `setHeader` calls
+  threw `ERR_HTTP_HEADERS_SENT` *inside* the try whose catch logs `'flow refund failed after
+  handler error'`, so a SUCCESSFUL refund emitted a false ERROR on every PAYG already-closed
+  re-run — the very retry loop `markFlowNoOp` exists to make cheap. `refundFlows` now stands alone
+  in the try (only genuine rejections reach the catch) and the header re-statement is guarded by
+  `!res.headersSent`. The honest statement is therefore: **a client that has already been answered
+  keeps the pre-refund balance**; the wallet is still correct and the next request reads the true
+  figure. The round-5 claim that "a refunded no-op 2xx no longer advertises the charge it reversed"
+  did not hold in production and is retracted. The mock `res` now models `headersSent` (and
+  `json`/`end` set it), which is what made the dead assertion detectable.
+- **LOW-1 FIXED** — `yearEndCloseRefusal` is a `switch (result.error)` with `year_not_found` as a
+  named case and a `default` holding `const unhandled: never = result`, mirroring the REST route.
+  A `CloseYearError` member added later now fails typecheck instead of reaching an unattended agent
+  as the flatly false "Fiscal year N has no periods".
+- **LOW-2 FIXED** — `netIncome` on the already-closed branches comes from the same post-lookup
+  re-read that produces `unclosedNetIncome`, on the live path (`alreadyClosedResult` no longer
+  takes it as a parameter) and on the dry run. A correctly closed year now reports
+  `net_income: 0` beside `already_closed: true` instead of the racing caller's stale figure. The
+  race test's loser assertion is consequently PINNED at 0 rather than `[0, 700]`.
+- **LOW-3 FIXED at the service, not the tool** — `CloseYearDryRunResult` is a discriminated union
+  on `alreadyClosed`: the closed branch is `preview: null` + `residualPreview`, the open branch
+  `preview` + `existingEntry: null`. `writeFiscalPeriods` derives `would_post` from
+  `result.preview === null`, so the null is structural. This also exposed the shape the finding
+  predicted: `fiscalPeriodTools.test.ts` was proving `would_post: null` against a mock the service
+  can no longer produce; its already-closed fixtures are now a typed `closedDryRun()` builder that
+  points at the real-service integration cover.
+
+**Round-6 files.** `withFlowMeter.ts`, `yearEndCloseRefusal.ts`, `writeFiscalPeriods.ts`,
+`yearEndCloseService.ts`, `yearEndCloseTypes.ts`, `yearEndJournalPoster.ts`, `gl/.claude.md` +
+mirror. No migration; 627 unchanged (see the prefix note above — a rename is a merge-time action
+and must move this file, the `.claude.md`/`AGENTS.md` entries and
+`tests/unit/services/glEntrySourceConstraint.test.ts`, which resolves the owning migration by
+HIGHEST numeric prefix, together).
+
+**Round-6 tests.** `withFlowMeter.test.ts` +1 (a handler that actually flushes: refund called,
+NO error logged, balance header left at the debit). `k-046-year-end-entry-number-taken.int.test.ts`
+— the residual re-read is now proved by MOVING the ledger between two calls on the same entry
+(150 → 190 → restored) rather than by a 999999 sentinel the new signature cannot carry, plus
+`preview === null` / `residualPreview` on the dry run. `k113-year-end-close-rerun.int.test.ts`
+pins `preview === null`. `fiscalPeriodTools.test.ts` fixtures rebuilt on the union.

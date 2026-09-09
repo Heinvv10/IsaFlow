@@ -233,7 +233,6 @@ export async function alreadyClosedResult(
   companyId: string,
   yearLabel: string,
   existingEntry: Record<string, unknown>,
-  netIncome: number,
   yearRange: FiscalYearRange,
 ): Promise<CloseYearResult> {
   const lockedRows = (await sql`
@@ -249,7 +248,14 @@ export async function alreadyClosedResult(
     closingEntry: existingEntry,
     periodsLockedInYear: lockedRows[0]?.n ?? 0,
     alreadyClosed: true,
-    netIncome,
+    // Read HERE, after the closing journal is known to exist — the same re-read
+    // `unclosedNetIncome` uses, and for the same reason. The caller's figure was
+    // taken before the lookup, so a close that committed in between left it
+    // holding the winner's own movement: `net_income: 620` beside
+    // `already_closed: true` on a year with nothing stranded, which reads as a
+    // hole in the books. A closed year's aggregates are flat, so on the ordinary
+    // path this is 0, and where it is not, it is the residual.
+    netIncome: unclosedNetIncome,
     unclosedNetIncome,
     message: `Year ${yearLabel} was already closed. Its closing journal ${entryNumber} is `
       + 'unchanged and nothing was posted.'

@@ -337,6 +337,18 @@ describe('reopen_fiscal_period', () => {
  * outside tsconfig.json, so tsc cannot catch that — a builder with a declared
  * return type is the only thing that does.
  */
+function preview(): CloseYearDryRunResult['preview'] & object {
+  return {
+    entryDate: '2027-02-28', entryNumber: 'YE-2027', description: 'Year-End Closing: 2027',
+    totalDebit: 1000000, totalCredit: 1000000,
+    lines: [
+      { accountId: 'r', accountCode: '4000', accountName: 'Sales', debit: 1000000, credit: 0 },
+      { accountId: 'e', accountCode: '5000', accountName: 'Wages', debit: 0, credit: 400000 },
+      { accountId: 're', accountCode: '3200', accountName: 'RE', debit: 0, credit: 600000 },
+    ],
+  };
+}
+
 function dryRun(o: Partial<CloseYearDryRunResult> = {}): CloseYearDryRunResult {
   return {
     dryRun: true, netIncome: 600000, alreadyClosed: false, existingEntry: null,
@@ -351,7 +363,30 @@ function dryRun(o: Partial<CloseYearDryRunResult> = {}): CloseYearDryRunResult {
       ],
     },
     ...o,
-  };
+  } as CloseYearDryRunResult;
+}
+
+/**
+ * The ALREADY-CLOSED dry run is a different shape, not the same shape with a
+ * flag flipped: `preview` is null by construction and the stranded movement is
+ * `residualPreview`. Building it by hand from `dryRun()` is what let a mock
+ * carry a populated `preview` beside `alreadyClosed: true` — a shape the
+ * service can no longer produce, so the tool's `would_post: null` was being
+ * proved against a fiction. The real service is pinned in
+ * tests/integration/k-046-year-end-entry-number-taken.int.test.ts.
+ */
+function closedDryRun(
+  residual: Partial<ReturnType<typeof preview>> = {},
+  o: Partial<CloseYearDryRunResult> = {},
+): CloseYearDryRunResult {
+  return {
+    dryRun: true, netIncome: 0, unclosedNetIncome: 0,
+    alreadyClosed: true,
+    existingEntry: { id: 'je-old', entry_number: 'YE-2027' },
+    preview: null,
+    residualPreview: { ...preview(), totalDebit: 0, totalCredit: 0, lines: [], ...residual },
+    ...o,
+  } as CloseYearDryRunResult;
 }
 
 function live(o: Partial<CloseYearResult> = {}): CloseYearResult {
@@ -430,11 +465,7 @@ describe('year_end_close', () => {
     // dormant one — its own closing journal is what flattened the aggregates.
     // This read is the one an agent makes before authorising the irreversible
     // half, so the two must not look alike.
-    vi.mocked(closeFiscalYear).mockResolvedValue(dryRun({
-      netIncome: 0, alreadyClosed: true,
-      existingEntry: { id: 'je-old', entry_number: 'YE-2027' },
-      preview: { ...dryRun().preview, totalDebit: 0, totalCredit: 0, lines: [] },
-    }));
+    vi.mocked(closeFiscalYear).mockResolvedValue(closedDryRun());
 
     const b = body(await yearEndCloseTool.handler(
       { fiscal_year: 2027, dry_run: true, ...KEY }, ctx,
@@ -454,17 +485,16 @@ describe('year_end_close', () => {
     // under `would_post` handed the agent a complete, balanced journal that the
     // authorising read is supposed to describe and the live path will never
     // write. It is a residual, and it is reported as one.
-    vi.mocked(closeFiscalYear).mockResolvedValue(dryRun({
-      netIncome: 150, alreadyClosed: true, unclosedNetIncome: 150,
-      existingEntry: { id: 'je-old', entry_number: 'YE-2027' },
-      preview: {
-        ...dryRun().preview, totalDebit: 150, totalCredit: 150,
+    vi.mocked(closeFiscalYear).mockResolvedValue(closedDryRun(
+      {
+        totalDebit: 150, totalCredit: 150,
         lines: [
           { accountId: 'r', accountCode: '4000', accountName: 'Sales', debit: 150, credit: 0 },
           { accountId: 're', accountCode: '3200', accountName: 'RE', debit: 0, credit: 150 },
         ],
       },
-    }));
+      { netIncome: 150, unclosedNetIncome: 150 },
+    ));
 
     const b = body(await yearEndCloseTool.handler(
       { fiscal_year: 2027, dry_run: true, ...KEY }, ctx,

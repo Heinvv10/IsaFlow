@@ -181,15 +181,13 @@ describe('two closes fired at once', () => {
     // Exactly one of them did the writing.
     expect([one.alreadyClosed, two.alreadyClosed].filter(Boolean)).toHaveLength(1);
 
-    // And the LOSER raises no false alarm. Its own `netIncome` is deliberately
-    // NOT pinned: depending on where its balance read fell relative to the
-    // winner's COMMIT it is either R700 or 0, and asserting either would be
-    // asserting a race. The residual IS pinned, because it is re-read after the
-    // closing journal is known to exist — reporting the R700 the winner has
-    // just moved into equity as money left outside it would send an operator
+    // And the LOSER raises no false alarm. BOTH numbers are re-read after the
+    // closing journal is known to exist, so both are pinned and neither is a
+    // scheduling artefact: reporting the R700 the winner has just moved into
+    // equity — as `net_income` or as the residual — would send an operator
     // hunting for a hole in a year that is correctly closed.
     const loser = one.alreadyClosed ? one : two;
-    expect([0, 700]).toContain(loser.netIncome);
+    expect(loser.netIncome).toBe(0);
     expect(loser.unclosedNetIncome).toBe(0);
     expect(loser.message).not.toMatch(/WARNING/);
 
@@ -207,27 +205,40 @@ describe('two closes fired at once', () => {
 describe('P&L that landed in a year AFTER its close', () => {
   const range = { start_date: '2026-01-01', end_date: '2026-12-31' };
 
-  it('is re-read from the LEDGER, not taken from the netIncome the caller carried in', async () => {
-    // The deterministic cover for the residual re-read. The race test cannot
-    // provide it — it deliberately does not pin `netIncome`, because which
-    // value the loser read is a scheduling artefact — so an implementation that
-    // reported the netIncome it was handed would pass there under the common
-    // interleaving. Here the number handed in is one the ledger cannot produce:
-    // if it comes back as the residual, the re-read is gone.
+  it('is re-read from the LEDGER on every call, never frozen at the first one', async () => {
+    // The deterministic cover for the re-read. The race test cannot provide it:
+    // whichever value the loser's pre-lookup read caught is a scheduling
+    // artefact. Here the ledger MOVES between two calls on the same entry, so
+    // an implementation that computed the residual once — or carried a number
+    // in from the caller — reports the first figure twice and fails.
     const entry = (await pool.query(
       "SELECT * FROM gl_journal_entries WHERE company_id=$1 AND source='year_end'",
       [residual.company])).rows[0];
 
-    const result = await alreadyClosedResult(
-      residual.company, '2026', entry, 999999, range,
-    );
+    const first = await alreadyClosedResult(residual.company, '2026', entry, range);
+    expect(first.unclosedNetIncome).toBe(150);
+    // `netIncome` is the SAME re-read, so it agrees rather than reporting a
+    // stale pre-lookup figure beside a correct residual.
+    expect(first.netIncome).toBe(150);
+    expect(first.alreadyClosed).toBe(true);
+    expect(first.message).toMatch(/WARNING: R150\.00/);
 
-    expect(result.unclosedNetIncome).toBe(150);
-    // `netIncome` still reports what THIS call read — it is the caller's own
-    // number, and only the residual is re-read.
-    expect(result.netIncome).toBe(999999);
-    expect(result.alreadyClosed).toBe(true);
-    expect(result.message).toMatch(/WARNING: R150\.00/);
+    await post(residual, residual.bank, residual.revenue, 40, 'RES-LATER');
+    try {
+      const second = await alreadyClosedResult(residual.company, '2026', entry, range);
+      expect(second.unclosedNetIncome).toBe(190);
+      expect(second.netIncome).toBe(190);
+      expect(second.message).toMatch(/WARNING: R190\.00/);
+    } finally {
+      // The later tests in this block pin R150, so put the ledger back.
+      await pool.query(
+        `DELETE FROM gl_journal_lines WHERE company_id=$1 AND journal_entry_id IN
+           (SELECT id FROM gl_journal_entries WHERE company_id=$1 AND entry_number='RES-LATER')`,
+        [residual.company]);
+      await pool.query(
+        "DELETE FROM gl_journal_entries WHERE company_id=$1 AND entry_number='RES-LATER'",
+        [residual.company]);
+    }
   });
 
   it('is reported by the DRY RUN as a residual, never as a journal it would post', async () => {
@@ -237,13 +248,16 @@ describe('P&L that landed in a year AFTER its close', () => {
     // path will never make.
     const dry = await closeFiscalYear(residual.company, '2026', user, { dryRun: true }) as
       { alreadyClosed: boolean; unclosedNetIncome: number; netIncome: number;
-        preview: { lines: unknown[]; totalDebit: number } };
+        preview: null; residualPreview: { lines: unknown[]; totalDebit: number } };
 
     expect(dry.alreadyClosed).toBe(true);
     expect(dry.unclosedNetIncome).toBe(150);
-    // The preview IS the residual: non-empty, balanced, and unpostable.
-    expect(dry.preview.lines.length).toBeGreaterThan(0);
-    expect(dry.preview.totalDebit).toBe(150);
+    // `preview` — the field a consumer reads as "the journal this would post" —
+    // is NULL by construction on this branch, not merely documented as unsafe.
+    expect(dry.preview).toBeNull();
+    // The residual is non-empty, balanced, and unpostable, under its own name.
+    expect(dry.residualPreview.lines.length).toBeGreaterThan(0);
+    expect(dry.residualPreview.totalDebit).toBe(150);
 
     // And the live call agrees with it — same number, and it writes nothing.
     const live = await closeFiscalYear(residual.company, '2026', user) as

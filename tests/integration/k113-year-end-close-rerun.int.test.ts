@@ -108,10 +108,12 @@ describe('K-113: the dry run of an already-closed year says so', () => {
     const dry = await closeFiscalYear(traded.company, '2026', user, { dryRun: true }) as {
       dryRun: true; netIncome: number; alreadyClosed: boolean;
       existingEntry: { id: string; entry_number: string } | null;
-      preview: { lines: unknown[] };
+      preview: null; residualPreview: { lines: unknown[] };
     };
     expect(dry.dryRun).toBe(true);
     expect(dry.alreadyClosed).toBe(true);
+    // Nothing to post, and the shape says so rather than a comment saying so.
+    expect(dry.preview).toBeNull();
     expect(dry.existingEntry?.entry_number).toBe('YE-2026');
     expect(dry.existingEntry?.id).toBe(first.closingEntry.id);
 
@@ -121,7 +123,7 @@ describe('K-113: the dry run of an already-closed year says so', () => {
       netIncome: number; alreadyClosed: boolean; existingEntry: unknown; preview: { lines: unknown[] };
     };
     expect(dormantDry.netIncome).toBe(dry.netIncome);
-    expect(dormantDry.preview.lines).toEqual(dry.preview.lines);
+    expect(dormantDry.preview.lines).toEqual(dry.residualPreview.lines);
     expect(dormantDry.alreadyClosed).toBe(false);
     expect(dormantDry.existingEntry).toBeNull();
   });
