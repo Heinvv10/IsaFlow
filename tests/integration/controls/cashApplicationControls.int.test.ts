@@ -135,3 +135,13 @@ it('refuses legacy direct receipt source after balanced cash journal direction t
  await pool.query('UPDATE gl_journal_lines SET debit=credit,credit=debit WHERE company_id=$1 AND journal_entry_id=$2',[fixture.companyA,payment.glJournalEntryId]);
  await expect(actor(()=>loadCashApplicationSources(requireControlTx(),{version:1,kind:'customer',paymentId,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}))).rejects.toThrow(/journal|direction|source|receivable/i);
 });
+
+it('binds fresh application approval to original maker and permits an independent decision',async()=>{
+ const {invoice,posted}=await postedCash();
+ const prepared=await actor(()=>prepareCashApplication(requireControlTx(),{version:1,kind:'customer',paymentId:posted.paymentId!,accountingDate:'2026-09-10',applications:[{invoiceId:invoice,amount:'115.00'}]}));
+ await expect(actor(()=>requestOperationApproval(requireControlTx(),prepared.operation as Parameters<typeof requestOperationApproval>[1]),'u2')).rejects.toThrow('Original intent requester');
+ const approval=await actor(()=>requestOperationApproval(requireControlTx(),prepared.operation as Parameters<typeof requestOperationApproval>[1]));
+ await expect(actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'))).rejects.toThrow(/Self/);
+ await actor(()=>decideOperationApproval(requireControlTx(),approval.id,'approved'),'u2');
+ expect((await pool.query('SELECT amount_paid::text FROM customer_invoices WHERE company_id=$1 AND id=$2',[fixture.companyA,invoice])).rows[0].amount_paid).toBe('0.00');
+});

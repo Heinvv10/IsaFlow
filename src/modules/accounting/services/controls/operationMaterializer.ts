@@ -1,3 +1,4 @@
+import {materializeCashApplicationOperation} from '../shared/cashApplicationMaterial';
 import {materializeBankStatementAttestation} from './bankStatementAttestationMaterial';
 import {materializePayrollCompensationOperation} from './payrollCompensationMaterial';
 import {materializeBankAllocationOperation} from '../bank/bankAllocationMaterial';
@@ -30,6 +31,8 @@ export function canonicalOperationRef(ref: OperationRef): OperationRef {
   if(!validId)throw new Error('Invalid operation reference');
   const operations = ref.entityType==='payroll_compensation_intent'?['payroll_compensation.change']:ref.entityType==='bank_statement_attestation_intent'?['bank_statement.attest']:ref.entityType==='historical_import'?['historical_import.post']:ref.entityType==='invoice_match_override_intent'?['invoice_match.override']:ref.entityType === 'supplier_invoice'
     ? ['supplier_invoice.approve', 'supplier_invoice.post', 'supplier_invoice.cancel']
+    : ref.entityType === 'cash_application_intent' ? ['cash_application.apply']
+    : ref.entityType === 'cash_application_reversal_intent' ? ['cash_application.reverse']
     : ref.entityType === 'bank_allocation_reversal_intent' ? ['bank_allocation.reverse']
     : ref.entityType === 'bank_allocation_intent' ? ['bank_allocation.post']
     : ref.entityType === 'bank_transfer_intent' ? ['bank_transfer.post']
@@ -103,6 +106,7 @@ export async function reserveOperationExposure(ctx: ControlTx, material: Operati
 
 /** Authoritative source material is shared by approval, execution and after-effect evidence. */
 export async function materializeOperation(ctx:ControlTx,ref:OperationRef):Promise<ApMaterial>{
+  if(['cash_application_intent','cash_application_reversal_intent'].includes(ref.entityType))return materializeCashApplicationOperation(ctx,ref);
   if(ref.entityType==='bank_statement_attestation_intent')return materializeBankStatementAttestation(ctx,ref);
   if(ref.entityType==='payroll_compensation_intent')return materializePayrollCompensationOperation(ctx,ref);
   if(['bank_allocation_intent','bank_allocation_reversal_intent'].includes(ref.entityType))return materializeBankAllocationOperation(ctx,ref);

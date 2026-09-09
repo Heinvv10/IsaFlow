@@ -7,6 +7,7 @@ export const CONTROL_OPERATIONS = [
   'payroll_compensation.change', 'journal.post', 'journal.reverse', 'fiscal_period.close',
   'fiscal_period.lock', 'fiscal_period.reopen', 'year.close', 'year.periods_close', 'company_lockdown.change',
   'vat_period.lock', 'beneficiary.propose', 'beneficiary.verify', 'beneficiary.activate',
+  'cash_application.apply', 'cash_application.reverse',
   'bank_statement.attest', 'bank_allocation.post', 'bank_allocation.reverse', 'invoice_match.override',
   'historical_import.post', 'bank_transfer.post', 'asset_depreciation.post',
   'customer_invoice.post', 'customer_invoice.cancel', 'customer_payment.confirm', 'customer_payment.cancel',

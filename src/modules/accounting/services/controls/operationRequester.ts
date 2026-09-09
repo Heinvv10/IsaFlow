@@ -7,6 +7,10 @@ export async function assertOperationRequester(ctx:ControlTx,ref:OperationRef,re
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
  else if(ref.entityType==='bank_allocation_reversal_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_bank_allocation_reversal_intents
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
+ else if(ref.entityType==='cash_application_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_cash_application_intents
+  WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
+ else if(ref.entityType==='cash_application_reversal_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_cash_application_reversal_intents
+  WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
  else if(ref.entityType==='payroll_compensation_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_payroll_compensation_intents
   WHERE company_id=${ctx.principal.companyId}::uuid AND id=${ref.entityId}::uuid`;
  else if(ref.entityType==='bank_statement_attestation_intent')rows=await ctx.sql`SELECT requester_person_id FROM control_bank_statement_attestation_intents
