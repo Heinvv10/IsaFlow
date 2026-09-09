@@ -23,5 +23,5 @@ it('returns the durable intent result after current authority checks without ano
         { operation: 'supplier_payment.process', entityType: 'supplier_payment', entityId }, null, callback)).resolves.toEqual(storedResult);
     });
   expect(callback).not.toHaveBeenCalled();
-  expect(permission.mock.calls.map(args => args[1])).toEqual(['write:invoices', 'write:post']);
+  expect(permission.mock.calls.map(args => args[1])).toEqual(['write:bank-tx', 'write:post']);
 });

@@ -1,14 +1,15 @@
+import { operationPermission } from './operationPermissions';
 import { randomUUID } from 'node:crypto';
 import { withSavepoint } from '@/lib/neon';
 import type { ControlTx, OperationRef } from './contracts';
 import { assertControlTx } from './context';
 import { canonicalJson } from './canonical';
 import { approvalAuthorities, approvalDecisions, assertRequesterAuthority, lockApproval, validateDecisions, type ApprovalRow } from './approvalQueries';
-import { canonicalOperationRef, loadOperationMaterial, reserveOperationExposure } from './operationMaterializer';
-import { materializeApOperation } from './apOperationMaterializer';
+import { canonicalOperationRef, loadOperationMaterial, materializeOperation, reserveOperationExposure } from './operationMaterializer';
+
 import { initializeOperationObservations } from './approvalRequestService';
 
-export interface ControlledEffectPermit { readonly operationId: string; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }
+export interface ControlledEffectPermit { readonly operationId: string; readonly accountingDate: string; readonly operation: OperationRef['operation']; readonly entityType: string; readonly entityId: string }
 const permits = new WeakMap<ControlledEffectPermit, ControlTx>();
 const executing = new WeakSet<ControlTx['principal']>();
 export function assertControlledEffectPermit(ctx: ControlTx, permit: ControlledEffectPermit, parent: OperationRef): void {
@@ -32,7 +33,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
   const ref = canonicalOperationRef(input);
   const authorities = approvalId ? await approvalAuthorities(ctx, approvalId) : [];
   const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
-  await assertEffectivePermission(ctx, 'write:invoices');
+  await assertEffectivePermission(ctx, operationPermission(ref.operation,'write'));
   await assertEffectivePermission(ctx, 'write:post');
   return withSavepoint('controlled_ap_operation', async () => {
     // Preserve policy-before-approval lock order, including replay lookups.
@@ -62,7 +63,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     `;
     if (prior.length) throw new Error('Operation effect already committed');
     await initializeOperationObservations(ctx, material);
-    const permit = Object.freeze({ operationId, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId });
+    const permit = Object.freeze({ operationId, accountingDate: material.binding.accountingDate, operation: ref.operation, entityType: ref.entityType, entityId: ref.entityId });
     permits.set(permit, ctx); executing.add(ctx.principal);
     let result: T;
     try { result = await effect(permit); } finally { permits.delete(permit); executing.delete(ctx.principal); }
@@ -74,7 +75,7 @@ export async function executeControlledOperation<T>(ctx: ControlTx, input: Opera
     `;
     await reserveOperationExposure(ctx, material, row?.id ?? null, 'committed');
     const { recordCommittedChange } = await import('./changeEventService');
-    const after = await materializeApOperation(ctx, ref);
+    const after = await materializeOperation(ctx, ref.operation === 'journal.reverse' ? {...ref,reversalDate:material.binding.accountingDate} : ref);
     const parent = (sources: typeof after.observedSources) => sources.find(source => source.entityType === ref.entityType && source.entityId === ref.entityId)!.facts;
     await recordCommittedChange(ctx, { entityType: ref.entityType, entityId: ref.entityId,
       previousVersion: material.binding.entityVersion, newVersion: material.binding.entityVersion + 1,

@@ -1,20 +1,22 @@
+import type { ApMaterial } from './apOperationMaterializer';
+import { operationPermission } from './operationPermissions';
 import { withSavepoint } from '@/lib/neon';
 import type { ControlTx, EvidenceRef, OperationRef } from './contracts';
 import { assertControlTx } from './context';
-import { canonicalOperationRef, loadOperationMaterial, reserveOperationExposure, type OperationMaterial } from './operationMaterializer';
+import { canonicalOperationRef, loadOperationMaterial, reserveOperationExposure } from './operationMaterializer';
 import { approvalAuthorities, approvalDecisions, approvalSummary, assertRequesterAuthority, lockApproval,
   pendingPolicies, validateApprovalEvidence, type ApprovalRow } from './approvalQueries';
 
 export async function getApprovalRequirements(ctx: ControlTx, ref: OperationRef) {
   assertControlTx(ctx);
   const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
-  await assertEffectivePermission(ctx, 'read:invoices');
+  await assertEffectivePermission(ctx, operationPermission(ref.operation,'read'));
   const material = await loadOperationMaterial(ctx, ref);
   return { requiresApproval: material.binding.policies.length > 0, policies: material.binding.policies,
     amount: material.binding.amount, currency: material.binding.currency, entityVersion: material.binding.entityVersion,
     versionBasis: material.versionBasis };
 }
-export async function initializeOperationObservations(ctx: ControlTx, material: OperationMaterial): Promise<void> {
+export async function initializeOperationObservations(ctx: ControlTx, material: Pick<ApMaterial, 'observedSources' | 'binding'>): Promise<void> {
   const { recordCommittedChange } = await import('./changeEventService');
   for (const source of material.observedSources.filter(row => !row.tracked)) {
     await recordCommittedChange(ctx, { entityType: source.entityType, entityId: source.entityId,
@@ -27,7 +29,7 @@ export async function requestOperationApproval(ctx: ControlTx, input: OperationR
   const ref = canonicalOperationRef(input);
   const { assertEffectivePermission } = await import('@/lib/auth/effectivePermissions');
   await assertEffectivePermission(ctx, 'write:approvals');
-  await assertEffectivePermission(ctx, 'write:invoices');
+  await assertEffectivePermission(ctx, operationPermission(ref.operation,'write'));
   return withSavepoint('control_approval_request', async () => {
     const material = await loadOperationMaterial(ctx, ref);
     await initializeOperationObservations(ctx, material);
@@ -61,7 +63,7 @@ export async function decideOperationApproval(ctx: ControlTx, id: string,
   const authorities = await approvalAuthorities(ctx, id); // Sorted people before policy/domain locks.
   const { assertEffectivePermission, resolveEffectivePermissions } = await import('@/lib/auth/effectivePermissions');
   await assertEffectivePermission(ctx, 'write:approvals');
-  await assertEffectivePermission(ctx, 'read:invoices');
+  await assertEffectivePermission(ctx, operationPermission(ref.operation,'read'));
   const actor = await resolveEffectivePermissions(ctx);
   return withSavepoint('control_approval_decision', async () => {
     const [initial] = await ctx.sql`

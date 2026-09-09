@@ -1,3 +1,4 @@
+import { operationPermission } from './operationPermissions';
 import { isActiveUserAccount } from '@/lib/auth/userAccountStatus';
 import type { ModulePermission } from '@/lib/auth/permissionService';
 import { assertControlTx } from './context';
@@ -67,7 +68,7 @@ export async function assertRequesterAuthority(row: ApprovalRow, authorities: Au
     || (row.requester_auth_method !== 'cookie' && !Array.isArray(requester?.current_scopes))) {
     throw new Error('Requester grant authority is no longer valid');
   }
-  await assertApprovalAuthority(requester, 'write:invoices');
+  await assertApprovalAuthority(requester, operationPermission(row.operation,'write'));
   await assertApprovalAuthority(requester, 'write:approvals');
 }
 export async function validateDecisions(ctx: ControlTx, row: ApprovalRow, decisions: DecisionRow[], authorities: AuthorityRow[]): Promise<void> {
@@ -76,7 +77,7 @@ export async function validateDecisions(ctx: ControlTx, row: ApprovalRow, decisi
     if (!decision || decision.decision !== 'approved' || decision.person_id === row.requester_person_id) throw new Error('Independent approval is required');
     const authority = authorities.find(person => person.person_id === decision.person_id);
     await assertApprovalAuthority(authority, 'write:approvals', policy.approverRole);
-    await assertApprovalAuthority(authority, 'read:invoices');
+    await assertApprovalAuthority(authority, operationPermission(row.operation,'read'));
     await validateApprovalEvidence(ctx, row.binding, decision.evidence_refs);
   }
 }

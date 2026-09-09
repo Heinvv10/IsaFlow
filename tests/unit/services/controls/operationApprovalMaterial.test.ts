@@ -1,3 +1,4 @@
+import { canonicalOperationRef } from '@/modules/accounting/services/controls/operationMaterializer';
 import { expect, it } from 'vitest';
 import { deriveInvoiceAmount, derivePaymentAmount } from '@/modules/accounting/services/controls/apOperationMaterializer';
 
@@ -11,4 +12,11 @@ it('derives payment amount and currency from complete owned invoice allocations'
   expect(() => derivePaymentAmount('1000', allocations)).toThrow();
   expect(() => derivePaymentAmount('115', [])).toThrow();
   expect(() => derivePaymentAmount('115', [{ ...allocations[0]!, invoice_currency: 'USD' }, allocations[1]!])).toThrow();
+});
+
+it('retains explicit reversal dates and reconstructs them from a persisted binding', () => {
+  const ref = { operation:'journal.reverse',entityType:'journal_entry',entityId:'11111111-1111-4111-8111-111111111111' } as const;
+  expect(canonicalOperationRef({...ref,reversalDate:'2026-09-10'})).toMatchObject({reversalDate:'2026-09-10'});
+  expect(canonicalOperationRef({...ref,accountingDate:'2026-09-10'} as typeof ref)).toMatchObject({reversalDate:'2026-09-10'});
+  expect(()=>canonicalOperationRef({...ref,reversalDate:'2026-02-31'})).toThrow();
 });
