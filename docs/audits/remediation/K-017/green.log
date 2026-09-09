@@ -26,3 +26,46 @@ corrected behaviour (see fix.md). With DATABASE_URL exported the suite reports
 200 failures in tests/unit/**/*Db.test.ts — those files opt into a seeded
 database and the disposable fixture has none. Unrelated to this change: the
 named failures are VAT-submission-journal exclusion and system-account roles.
+
+================================================================
+REVIEW ROUND — 2 MEDIUM + 3 LOW from the blind review of 87bee9d7/e0b1aab1
+================================================================
+
+M1 rules modal offers a discarded VAT treatment — FIXED (CreateRuleModal.tsx)
+M2 the drop was invisible on all three paths     — FIXED (settlementDropped + 2 logs + reason 'settlement')
+L1 prepayment out of scope, undocumented         — FIXED (settlementVat.ts doc block + K-016 fix.md Limits)
+L2 entityId asymmetry undocumented               — FIXED (settlementVat.ts doc block)
+L3 bankAllocationService.ts 683 > 300 line cap   — NOT FIXED, noted in K-016 fix.md Limits.
+   Pre-existing (673 on master) and splitting the allocation arms is a
+   different change; this round adds 10 lines to it.
+
+=== gates, after the review round ===
+bunx tsc --noEmit                                     clean
+bun run test:unit (no DATABASE_URL)   784 files, 9329 passed | 234 skipped
+bun run test:components                56 files,  390 passed
+integration (real DB, fixture)          3 files,    7 passed
+bun scripts/ci/check-vat-guard-coverage.ts  OK, 1899 files, 13 allowlisted
+bun run agent-docs:check                    OK, 74 mirrors match
+
+=== mutation, review-round changes ===
+CreateRuleModal: drop the `setVatCode('none')` effect line AND force the VAT
+  block to render unconditionally -> 3 of 6 component tests RED
+  (both N/A cases and the stale-code-on-save case).
+CreateRuleModal: seed vatCode from `selection.vatCode` regardless of its type
+  -> 'seeds no treatment when it opens onto a supplier selection' RED. The
+  effect only fires on a CHANGE of alloc type, so a modal opened straight onto
+  a supplier row never runs it and the seed has to be correct by itself.
+ruleVatResolution: delete the log.info    -> 'logs the drop once' RED
+bankAllocationService: delete the log.info -> 'logs the code it discarded' RED
+allocationVatGuard: drop settlementDropped from the early-return condition
+  -> 'reports a settlement drop as its own reason' RED
+All four restored; the three suites go back to green.
+
+=== one pre-existing test corrected ===
+tests/unit/mcp/writeBankBulkAllocate.posting.test.ts asserted that a supplier
+line's 'standard' reached `allocateTransaction` unchanged. It runs the REAL
+resolver, so reporting the drop at the MCP layer now hands 'none' down instead.
+The posted journal is identical either way — `allocateTransaction` drops it too
+— so this is a reporting change, not a posting one. The test now asserts the
+'none' handed down AND the `vat_coerced` reason, with a new `account`-line case
+alongside it proving a real claim still passes through unreported.

@@ -77,6 +77,7 @@ import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccou
 import { recordPaymentMatch } from '@/modules/accounting/services/capture/fourWayMatchService';
 import type { JournalLineInput } from '@/modules/accounting/types/gl.types';
 import { enterFakeRequestCtx } from '../helpers/requestCtx';
+import { log } from '@/lib/logger';
 
 beforeEach(() => enterFakeRequestCtx());
 
@@ -226,6 +227,23 @@ describe('allocateTransaction — supplier lines follow the sign', () => {
     expect(Number(bank.debit) + Number(bank.credit)).toBeCloseTo(115, 2);
     expect(ap.vatType).toBeUndefined();
     expect(lines).toHaveLength(2);
+  });
+
+  // Review, MEDIUM: the drop was invisible on the attended path too. The screen
+  // renders N/A for these types, so the caller who can still send a code is an
+  // MCP agent or an API client — and a correct posting with a silent discard is
+  // how one keeps sending it.
+  it('logs the code it discarded, and only when there was one', async () => {
+    await allocate('supplier', -115, 'standard');
+    const dropped = vi.mocked(log.info).mock.calls.filter(
+      (c) => String(c[0]).includes('VAT code dropped'));
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]![1]).toMatchObject({ allocType: 'supplier', requestedVatCode: 'standard' });
+
+    vi.clearAllMocks();
+    await allocate('supplier', -115);
+    expect(vi.mocked(log.info).mock.calls.filter(
+      (c) => String(c[0]).includes('VAT code dropped'))).toHaveLength(0);
   });
 
   it('does not 4-way match a refund against an unpaid bill', async () => {

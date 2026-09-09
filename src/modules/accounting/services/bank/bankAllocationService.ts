@@ -151,6 +151,16 @@ export async function allocateTransaction(
   // `account` arm (including a supplier/customer call with no entity, which
   // falls through to it) keeps the caller's code untouched.
   const isSettlement = isControlAccountSettlement(allocType) && Boolean(entityId);
+  // Say so when a code actually goes away. The screen already renders N/A for
+  // these types, so this is for the MCP tools and anyone reading the log after
+  // the fact — a value the caller sent and the ledger did not use.
+  if (isSettlement && effectiveVatCode && effectiveVatCode !== 'none') {
+    log.info(
+      'VAT code dropped: allocation settles a control account, not a supply',
+      { companyId, bankTxId, allocType, requestedVatCode: effectiveVatCode },
+      'accounting',
+    );
+  }
 
   const hasVat = effectiveVatCode === 'standard' && !isSettlement;
   const vatRate = hasVat ? SA_VAT_RATE_PCT : 0;
