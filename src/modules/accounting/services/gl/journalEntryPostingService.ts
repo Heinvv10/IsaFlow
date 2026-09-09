@@ -16,6 +16,7 @@ import {
   mapEntryRow,
 } from './journalEntryCrudService';
 import { defaultHumanMeta, actorMeta, type PostingActorOpts } from './journalEntryMeta';
+import { claimJournalReversal, releaseJournalReversalClaim } from './journalEntryReversalClaim';
 import { getPeriodStatusForDate } from './periodStatusService';
 
 type Row = DbRow;
@@ -277,12 +278,31 @@ export async function reverseJournalEntry(
     const originalDate = fmtDate(entry.entryDate);
     const reversalDate = await resolveReversalDate(companyId, originalDate, opts?.reversalDate);
 
-    const reversalEntry = await createJournalEntry(companyId, {
-      entryDate: reversalDate,
-      description: `Reversal of ${entry.entryNumber}`,
-      source: entry.source,
-      lines: reversalLines,
-    }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
+    // Claim the reversal BEFORE any contra is written. The `entry.reversedAt`
+    // guard above reads an unlocked row, so two overlapping callers both saw
+    // NULL, both cleared it, and both posted a contra — leaving the reversed
+    // accounts at the NEGATIVE of the original instead of zero. The claim is a
+    // single predicated UPDATE: the loser gets zero rows and refuses here,
+    // before it has created anything to clean up.
+    if (!await claimJournalReversal(companyId, id, userId)) {
+      throw new Error('Journal entry already reversed');
+    }
+
+    let reversalEntry: JournalEntry;
+    try {
+      reversalEntry = await createJournalEntry(companyId, {
+        entryDate: reversalDate,
+        description: `Reversal of ${entry.entryNumber}`,
+        source: entry.source,
+        lines: reversalLines,
+      }, userId, actorMeta(opts) ?? defaultHumanMeta(userId));
+    } catch (err) {
+      // Nothing exists yet, but the claim does. Inside a request transaction the
+      // rollback undoes it; outside one (cron, scripts) this is what stops a
+      // failed attempt from leaving the entry permanently un-reversible.
+      await releaseJournalReversalClaim(companyId, id);
+      throw err;
+    }
 
     try {
       await postJournalEntry(companyId, reversalEntry.id, userId);
@@ -306,6 +326,7 @@ export async function reverseJournalEntry(
           AND company_id = ${companyId}::UUID
           AND status     = 'draft'
       `;
+      await releaseJournalReversalClaim(companyId, id);
       throw err;
     }
 
@@ -317,16 +338,12 @@ export async function reverseJournalEntry(
     // reports while the contra stayed, driving accounts to the NEGATIVE of the
     // original instead of zero.
     //
-    // Both link-back UPDATEs must succeed together. We use the request-scoped
+    // reversed_at / reversed_by were already written by the claim above; only
+    // the contra's link back to the original is left. We use the request-scoped
     // sql client (auto-routed via AsyncLocalStorage) instead of withTransaction
     // here — withTransaction would acquire a separate pool client and deadlock
     // against the rows already locked by the request-scoped tx (e.g. the
     // reversal JE we just inserted/posted in this same request).
-    await sql`
-      UPDATE gl_journal_entries
-      SET reversed_by = ${userId}::UUID, reversed_at = NOW()
-      WHERE id = ${id} AND company_id = ${companyId}
-    `;
     await sql`
       UPDATE gl_journal_entries
       SET reversal_of_id = ${id}::UUID

@@ -100,14 +100,17 @@ describe('reverseJournalEntry — semantics', () => {
       .mockResolvedValueOnce(originalEntry()) // reverseJournalEntry: load original
       .mockResolvedValueOnce(contraEntryDraft()); // postJournalEntry: load the contra
     mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID, entryNumber: 'JE-2026-00002' });
-    // postJournalEntry sql: fiscal-period check, then UPDATE->posted;
-    // then reverseJournalEntry's two link-back UPDATEs.
+    // reverseJournalEntry's reversal claim; postJournalEntry's fiscal-period
+    // check, inactive guard and UPDATE->posted; then the contra link-back.
     mockSql
+      // reverseJournalEntry claims the reversal BEFORE creating the contra: one
+      // row back means this caller won it (see journalEntryReversalClaim).
+      .mockResolvedValueOnce([{ id: ENTRY_ID }])
       .mockResolvedValueOnce([{ status: 'open' }])
       // postJournalEntry's inactive-account guard: none on the contra
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ entry_number: 'JE-2026-00002', status: 'posted' }])
-      .mockResolvedValueOnce([])
+      // reverseJournalEntry's link-back UPDATE
       .mockResolvedValueOnce([]);
 
     const result = await reverseJournalEntry(COMPANY_ID, ENTRY_ID, USER_ID);
@@ -148,11 +151,14 @@ describe('reverseJournalEntry — contra attribution', () => {
       .mockResolvedValueOnce(contraEntryDraft());
     mockCreate.mockResolvedValueOnce({ id: REVERSAL_ID, entryNumber: 'JE-2026-00002' });
     mockSql
+      // reverseJournalEntry claims the reversal BEFORE creating the contra: one
+      // row back means this caller won it (see journalEntryReversalClaim).
+      .mockResolvedValueOnce([{ id: ENTRY_ID }])
       .mockResolvedValueOnce([{ status: 'open' }])
       // postJournalEntry's inactive-account guard: none on the contra
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ entry_number: 'JE-2026-00002', status: 'posted' }])
-      .mockResolvedValueOnce([])
+      // reverseJournalEntry's link-back UPDATE
       .mockResolvedValueOnce([]);
   }
 
