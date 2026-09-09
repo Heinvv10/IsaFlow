@@ -1,13 +1,22 @@
 import {afterAll,beforeAll,expect,it} from 'vitest';
 import {randomUUID} from 'node:crypto';
 import {bankControlReadFixture} from './bankControlReadFixture';
+import {readBankControlState} from '@/modules/accounting/services/bank/bankControlReadService';
+import {requireControlTx} from '@/modules/accounting/services/controls/context';
 let f:Awaited<ReturnType<typeof bankControlReadFixture>>;
 beforeAll(async()=>{f=await bankControlReadFixture();});afterAll(async()=>{if(f)await f.close();});
 it('actual GET recovers own exact saved instructions and linked approved summary',async()=>{
- const p=await f.prepare(),approvalId=await f.approve(p.operation),response=await f.read(p.bankTransactionId,p.intentId);
+ const p=await f.prepare(),pending=await f.pending(p.operation);expect(pending.status).toBe(200);
+ expect((await f.read(p.bankTransactionId,p.intentId)).body.data.selected.approval).toMatchObject({id:pending.body.data.id,status:'pending'});
+ const approvalId=await f.approve(p.operation),response=await f.read(p.bankTransactionId,p.intentId);
  expect(response.status).toBe(200);expect(response.body.data).toMatchObject({currentOriginalIntentId:null,legacyProvenanceUnavailable:false,prepared:{total:1,hasMore:false}});
  expect(response.body.data.selected).toMatchObject({intentId:p.intentId,executed:false,plan:{kind:'account',lines:[{accountId:f.contra,amount:'115.23'}]},approval:{id:approvalId,status:'approved'},approvalVisibility:'visible'});
  expect(JSON.stringify(response.body.data)).not.toMatch(/source_fingerprint|binding_hash|beneficiaries/);
+});
+it('missing parent receipt with controlled journal history refuses rather than claims legacy',async()=>{
+ const p=await f.prepare(),approval_id=await f.approve(p.operation);expect((await f.request({action:'allocate',bankTransactionId:p.bankTransactionId,intent_id:p.intentId,approval_id})).status).toBe(200);
+ await expect(f.withoutReceipt(p.intentId,()=>readBankControlState(requireControlTx(),{bankTransactionId:p.bankTransactionId}))).rejects.toThrow(/provenance|receipt/i);
+ expect((await f.read(p.bankTransactionId)).body.data.currentOriginalIntentId).toBe(p.intentId);
 });
 it('current original follows actual allocate, reverse, reallocation and executed detail',async()=>{
  const p=await f.prepare(),approval_id=await f.approve(p.operation);
@@ -41,4 +50,21 @@ it('current rights revoke bank visibility and separately hide approval summary',
  await f.pool.query("INSERT INTO company_user_permissions(company_id,user_id,module_key,can_read) VALUES($1,$2,'banking',false)",[f.fixture.companyA,f.fixture.u1.id]);
  try{expect((await f.read(p.bankTransactionId)).status).toBeGreaterThanOrEqual(400);}
  finally{await f.pool.query("DELETE FROM company_user_permissions WHERE company_id=$1 AND user_id=$2 AND module_key='banking'",[f.fixture.companyA,f.fixture.u1.id]);}
+});
+it('refund receipt with no payment child remains a proven current original',async()=>{
+ const bankTransactionId=await f.source();
+ const p=await f.request({action:'prepare_allocate',bankTransactionId,allocationType:'customer',entityId:f.customer});expect(p.status).toBe(200);
+ const approval_id=await f.approve(p.body.data.operation),posted=await f.request({action:'allocate',bankTransactionId,intent_id:p.body.data.intentId,approval_id});
+ expect(posted.status).toBe(200);expect(posted.body.data.paymentId).toBeNull();
+ expect((await f.read(bankTransactionId)).body.data).toMatchObject({currentOriginalIntentId:p.body.data.intentId,legacyProvenanceUnavailable:false});
+});
+it('missing legacy receipt is explicit unknown but inconsistent controlled matched line refuses',async()=>{
+ const legacy=await f.source(),journal=randomUUID(),line=randomUUID();
+ await f.pool.query("INSERT INTO gl_journal_entries(id,company_id,entry_date,description,source,status,created_by) VALUES($1,$2,'2026-09-09','Synthetic legacy reader','manual','posted',$3)",[journal,f.fixture.companyA,f.fixture.u1.id]);
+ await f.pool.query('INSERT INTO gl_journal_lines(id,company_id,journal_entry_id,gl_account_id,debit,credit) VALUES($1,$2,$3,$4,0,115.23)',[line,f.fixture.companyA,journal,f.bank]);
+ await f.pool.query("UPDATE bank_transactions SET status='matched',matched_journal_line_id=$3 WHERE company_id=$1 AND id=$2",[f.fixture.companyA,legacy,line]);
+ expect((await f.read(legacy)).body.data).toMatchObject({currentOriginalIntentId:null,legacyProvenanceUnavailable:true});
+ const p=await f.prepare(),approval_id=await f.approve(p.operation);expect((await f.request({action:'allocate',bankTransactionId:p.bankTransactionId,intent_id:p.intentId,approval_id})).status).toBe(200);
+ await f.pool.query('UPDATE bank_transactions SET matched_journal_line_id=$3 WHERE company_id=$1 AND id=$2',[f.fixture.companyA,p.bankTransactionId,line]);
+ expect((await f.read(p.bankTransactionId)).status).toBe(400);
 });
