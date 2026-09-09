@@ -20,8 +20,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { withErrorHandler } from '@/lib/api-error-handler';
-import { sql, getDbPool } from '@/lib/neon';
-import { als } from '@/lib/als';
+import { sql } from '@/lib/neon';
+import { withPublicRouteTransaction } from '@/lib/publicRouteTx';
+import { recordGatewayInvoiceReceipt } from '@/modules/accounting/services/ar/gatewayInvoiceReceiptService';
 import { log } from '@/lib/logger';
 import {
   completeBundlePurchase,
@@ -171,28 +172,14 @@ async function processEventInTransaction(
   eventType: string,
   event: PaystackWebhookEvent,
 ): Promise<void> {
-  const client = await getDbPool().connect();
-  try {
-    await client.query('BEGIN');
-    await als.run({ client, userId: '', claims: {} }, async () => {
-      await processEvent(eventType, event);
-      await sql`
-        UPDATE paystack_webhook_events
-        SET processed = TRUE, processed_at = now()
-        WHERE id = ${eventLogId}
-      `;
-    });
-    await client.query('COMMIT');
-  } catch (err) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      log.warn('Paystack webhook ROLLBACK failed', { eventLogId }, 'PaystackWebhook');
-    }
-    throw err;
-  } finally {
-    client.release();
-  }
+  await withPublicRouteTransaction('paystack-webhook', async () => {
+    await processEvent(eventType, event);
+    await sql`
+      UPDATE paystack_webhook_events
+      SET processed = TRUE, processed_at = now()
+      WHERE id = ${eventLogId}
+    `;
+  });
 }
 
 async function processEvent(
@@ -265,17 +252,14 @@ async function handleChargeSuccess(
   }
 
   if (pr.purpose === 'customer_invoice' && pr.customer_invoice_id) {
-    const amountRand = Number(pr.amount_cents) / 100;
-    await sql`
-      UPDATE customer_invoices
-      SET amount_paid = LEAST(total_amount, COALESCE(amount_paid, 0) + ${amountRand}),
-          status = CASE
-            WHEN COALESCE(amount_paid, 0) + ${amountRand} >= total_amount THEN 'paid'
-            ELSE status
-          END,
-          updated_at = now()
-      WHERE id = ${pr.customer_invoice_id} AND company_id = ${pr.company_id}
-    `;
+    // Records the receipt through the canonical AR path — a customer_payments
+    // row plus DR Bank / CR Receivable — instead of bumping amount_paid alone.
+    await recordGatewayInvoiceReceipt({
+      companyId: pr.company_id,
+      invoiceId: pr.customer_invoice_id,
+      amountRand: Number(pr.amount_cents) / 100,
+      reference,
+    });
     return;
   }
 
