@@ -4,7 +4,7 @@ Root owner; base8c561e15 plus64253f89a18. Existing phase2-4-subplans remains the
 
 ## Owned files and interfaces
 
-- Migration630: control_audit_job_intents (immutable protected request/delegation), control_audit_jobs (bounded leases/status/attempts), control_audit_snapshots (immutable sealed metadata), control_audit_snapshot_records (materialized owned source records), control_audit_snapshot_artifacts (retained bytes and authenticated manifest). Migration643 now owns control_exceptions and immutable occurrences/decisions separately. Root allocates all prefixes; no reuse of reserved640/642.
+- Migration630: control_audit_job_intents (immutable protected request/delegation), control_audit_jobs (bounded leases/status/attempts). Migration645 owns control_audit_snapshots (encrypted complete sealed material, including all records) and control_audit_snapshot_artifacts (encrypted exact retained bytes authenticated by the sealed manifest). Indexed record paging remains to be implemented separately; full retained loads are background-only. Migration643 owns control_exceptions and immutable occurrences/decisions separately. Root allocates all prefixes; no reuse of reserved640/642.
 - controls/auditJobContract.ts validates bounded snapshot requests; auditJobService.ts enqueues immutable request plus initial status atomically and returns status without processing. auditJobLease.ts claims owned jobs with SKIP LOCKED, generation+expiry fencing and bounded retries; stale workers cannot publish. auditJobRunner.ts obtains an actual fresh transaction and trusted persisted delegation, rechecks current membership, grant expiry/revocation and all required domain permissions. No role/scopes supplied in job request. Status and paging reads never execute work.
 - controls/context.ts and lib/auth/effectivePermissionQueries.ts acquire job authority only from an authenticated, tenant-bound stored delegation and active lease. Forged object/authMethod job remains rejected. Preserve original grant ceiling, actual provenance job and original person; no synthetic cookie to bypass revoked bearer grants. Jobs cannot decide independent approvals.
 - auditSnapshotQueries.ts captures explicit owned source columns/relationships under one REPEATABLE READ transaction; pages1000 with total hard bound100000 records and bounded60s runtime. Exceeding bounds fails explicitly without publishing a partial ready snapshot. Initial source families journal/header/line, supplier/customer invoice/payment/allocation, bank sources and requested payroll with separate payroll permission. Capture accounting cutoff and actual capture time separately.
@@ -42,3 +42,15 @@ No synthetic cookie, caller-supplied grants or injected worker callback are acce
 Tests: cold claim and later job context, foreign tenant refusal with untouched queue,
 revoked authority with no committed attempt, concurrent claim, expired takeover and retries.
 This does not yet supply polling, consistent capture, retained storage or publication.
+
+## Atomic retained publication
+
+Root auditSnapshotPublication.ts and auditSnapshotPublicationMaterial.ts own exact request/population/check validation,
+artifact detachment and completeness, protected retained writes, and terminal success under the active lease.
+Snapshot identity equals job identity. A fresh cookie cannot replace original job delegation during publication.
+readRetainedAuditSnapshot rechecks current reader source permissions, authenticates the retained snapshot and every
+artifact, and never reloads financial source rows. It is for bounded background comparison/export, not status or paging.
+The complete sealed snapshot is encrypted with the evidence key; its independent HMAC remains outside database control.
+Tests begin with missing publication capability and actual absent storage, then verify successful retention, wrong/missing
+artifact refusal, foreign reader refusal, rollback/retry, complete population and original job-context requirements.
+Further real capture-to-publication, tamper/concurrency/recovery, paging and complete export workflow verification remains required.
