@@ -20,6 +20,10 @@ vi.mock('@/lib/neon', () => ({
   sql: sqlMock,
   transaction: vi.fn(),
   withTransaction: withTransactionMock,
+  // The auto-post sweep runs inside a savepoint (K-071). Outside a request
+  // withSavepoint just runs the callback, which is what this pass-through
+  // reproduces.
+  withSavepoint: (_name: string, fn: () => Promise<unknown>) => fn(),
 }));
 vi.mock('@/lib/logger', () => ({
   log: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
@@ -243,5 +247,21 @@ describe('importParsedTransactions — post-import side-effect gate', () => {
       'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
     );
     expect(result.errors).toHaveLength(0);
+  });
+
+  it('reports a failed auto-post sweep instead of a clean import', async () => {
+    // Same reasoning as the transfer pass above: the sweep's catch keeps the
+    // import non-fatal, so without this the caller is told the import was
+    // clean and the failure lives only in a log line.
+    const { sweep } = await import('@/modules/accounting/services/bank/autoPostGateService');
+    vi.mocked(sweep).mockRejectedValueOnce(new Error('sweep exploded'));
+
+    const result = await importParsedTransactions(
+      'company-1', makeParseResult(), 'gl-bank-acct-1', '2025-01-31',
+    );
+
+    expect(result.transactionCount).toBe(2);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].error).toMatch(/Auto-posting of imported outflows failed/);
   });
 });

@@ -116,10 +116,13 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       const newBalance = invoiceTotal - newPaid;
       const newStatus = newBalance <= 0.01 ? 'paid' : 'partially_paid';
 
+      // `balance` is GENERATED ALWAYS AS (total_amount - amount_paid) STORED
+      // (migration 201). Assigning it is rejected outright with 428C9 — which
+      // is why this branch could never reach its own subledger write. The
+      // column follows amount_paid on its own.
       await sql`
         UPDATE supplier_invoices
         SET amount_paid = ${newPaid}::NUMERIC,
-            balance = ${newBalance}::NUMERIC,
             status = ${newStatus},
             updated_at = NOW()
         WHERE id = ${candidateId}::UUID AND company_id = ${companyId}::UUID
@@ -264,9 +267,16 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
 
     return apiResponse.success(res, { matched: true, candidateType, candidateId });
   } catch (err) {
+    // 500, not 400. Every throw reachable here happens at or after
+    // `allocateTransaction`, which has already posted a journal, touched
+    // `bank_transactions` and may have written a payment document. `withAuth`
+    // decides COMMIT vs ROLLBACK on `statusCode >= 500`, so answering 400 here
+    // committed exactly the half-finished match this route must not leave
+    // behind. The pre-write refusals above are plain `return`s and keep their
+    // 4xx.
     const message = err instanceof Error ? err.message : 'Match confirmation failed';
     log.error('Failed to confirm bank match', { bankTransactionId, candidateType, candidateId, error: err }, 'accounting-api');
-    return apiResponse.badRequest(res, message);
+    return apiResponse.internalError(res, err, message);
   }
 }
 
