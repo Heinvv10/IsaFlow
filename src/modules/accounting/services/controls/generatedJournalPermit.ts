@@ -15,7 +15,14 @@ export async function registerGeneratedJournal(ctx: ControlTx, control: ParentJo
   if (!UUID_RE.test(journalId) || !['journal.post', 'journal.reverse'].includes(operation)) throw new Error('Invalid generated journal');
   const { parent } = control, company = ctx.principal.companyId;
   let related: unknown[] = [];
-  if (parent.entityType === 'supplier_invoice' && ['supplier_invoice.post', 'supplier_invoice.approve', 'supplier_invoice.cancel'].includes(parent.operation)) {
+  if (parent.entityType === 'supplier_payment_batch' && parent.operation === 'supplier_payment_batch.process' && operation === 'journal.post') {
+    related = await ctx.sql`SELECT je.id,je.entry_date::text AS entry_date FROM gl_journal_entries je
+      JOIN supplier_payment_batches p ON p.company_id=je.company_id AND p.id=${parent.entityId}::uuid
+      WHERE je.company_id=${company}::uuid AND je.id=${journalId}::uuid AND je.status='draft'
+        AND je.source='auto_batch_payment' AND je.source_record_id=p.id AND p.status='approved'
+        AND je.entry_date=p.batch_date AND je.entry_date=${control.permit.accountingDate}::date
+      FOR SHARE OF je,p`;
+  } else if (parent.entityType === 'supplier_invoice' && ['supplier_invoice.post', 'supplier_invoice.approve', 'supplier_invoice.cancel'].includes(parent.operation)) {
     related = await ctx.sql`SELECT je.id, je.entry_date::text AS entry_date FROM gl_journal_entries je JOIN supplier_invoices p
       ON p.company_id=je.company_id AND p.id=${parent.entityId}::uuid
       WHERE je.company_id=${company}::uuid AND je.id=${journalId}::uuid
