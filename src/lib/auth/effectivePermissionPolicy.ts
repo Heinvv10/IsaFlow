@@ -28,6 +28,7 @@ export const EFFECTIVE_PERMISSION_RULES: Readonly<Record<string, PermissionRule>
   'read:access': rule(['access'], 'canRead', true),
   'read:audit': rule(['audit'], 'canRead'),
   'write:audit': rule(['audit'], 'canWrite', true),
+  'write:release': rule(['release'], 'canApprove', true),
   'write:locks': rule(['locks'], 'canApprove', true),
   'write:controls': rule(['controls'], 'canApprove', true),
   'read:payroll-sensitive': { ...rule(['payroll_sensitive'], 'canRead', true), requires: ['read:payroll'] },

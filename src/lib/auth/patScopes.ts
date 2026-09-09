@@ -30,6 +30,7 @@ export const PAT_SCOPES = [
   'write:audit',
   'write:controls',
   'write:locks',
+  'write:release',
   'read:payroll-sensitive',
 ] as const;
 
