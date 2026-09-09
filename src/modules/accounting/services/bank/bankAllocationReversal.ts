@@ -1,3 +1,4 @@
+import {resolveBankTransferOriginal} from './bankAllocationTransferOriginal';
 import type {PostingActorOpts} from '../gl/journalEntryMeta';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
@@ -18,13 +19,14 @@ async function authority(ctx:ControlTx){assertControlTx(ctx);await assertEffecti
 export async function prepareBankAllocationReversal(ctx:ControlTx,input:unknown){
  assertControlTx(ctx);const plan=schema.parse(input);
  return withSavepoint('bank_reversal_prepare',async()=>{
-  await authority(ctx);const original=await assertOriginalAllocationReversible(ctx,plan.originalIntentId),id=randomUUID();
+  await authority(ctx);const originalIntentId=await resolveBankTransferOriginal(ctx,plan.originalIntentId);
+  const original=await assertOriginalAllocationReversible(ctx,originalIntentId),id=randomUUID();
   await ctx.sql`INSERT INTO control_bank_allocation_reversal_intents(company_id,id,requester_person_id,original_intent_id,bank_transaction_id,reversal_date,reason)
-   VALUES(${ctx.principal.companyId}::uuid,${id}::uuid,${ctx.principal.personId},${plan.originalIntentId}::uuid,${original.plan.bankTransactionId}::uuid,${plan.reversalDate}::date,${plan.reason})`;
+   VALUES(${ctx.principal.companyId}::uuid,${id}::uuid,${ctx.principal.personId},${originalIntentId}::uuid,${original.plan.bankTransactionId}::uuid,${plan.reversalDate}::date,${plan.reason})`;
   const state=await loadBankAllocationReversal(ctx,id);
   if(state.periods.length!==1||state.periods[0]!.status!=='open')throw new Error('Open reversal period required');
   await recordCommittedChange(ctx,{entityType:'bank_allocation_reversal_intent',entityId:id,previousVersion:null,newVersion:1,action:'bank_allocation.reversal_prepared',accountingDate:plan.reversalDate,
-   before:null,after:{originalIntentId:plan.originalIntentId,bankTransactionId:original.plan.bankTransactionId,reversalDate:plan.reversalDate,reason:plan.reason},bindingHash:null,protectedEvidenceRef:null});
+   before:null,after:{originalIntentId,bankTransactionId:original.plan.bankTransactionId,reversalDate:plan.reversalDate,reason:plan.reason},bindingHash:null,protectedEvidenceRef:null});
   return{intentId:id,operation:{entityType:'bank_allocation_reversal_intent',entityId:id,operation:'bank_allocation.reverse' as const}};
  });
 }

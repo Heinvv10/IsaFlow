@@ -1,3 +1,4 @@
+import {loadBankTransferOriginalBanks,assertTransferBankLinks} from './bankAllocationTransferOriginal';
 import Decimal from 'decimal.js';
 const D=Decimal.clone({precision:80});
 import {fmtDate} from '@/lib/fmtDate';
@@ -13,7 +14,7 @@ export async function loadBankAllocationOriginal(ctx:ControlTx,originalIntentId:
  assertControlTx(ctx);const company=ctx.principal.companyId;
  const [intent]=await ctx.sql`SELECT *,accounting_date::text,amount::text FROM control_bank_allocation_intents WHERE company_id=${company}::uuid AND id=${originalIntentId}::uuid` as Row[];
  if(!intent)throw new Error('Original controlled allocation intent required');
- const plan=parseBankAllocationPlan(intent.payload),sources=await loadBankAllocationSources(ctx,plan);
+ const plan=parseBankAllocationPlan(intent.payload),sources=await loadBankAllocationSources(ctx,plan,{postExecution:true});
  const [receipt]=await ctx.sql`SELECT id,result FROM control_operation_effects WHERE company_id=${company}::uuid AND operation='bank_allocation.post'
   AND entity_type='bank_allocation_intent' AND entity_id=${originalIntentId} ORDER BY committed_at DESC LIMIT 1` as {id:string;result:{intentId:string;journalEntryId:string;paymentId:string|null}}[];
  if(!receipt||receipt.result.intentId!==originalIntentId||plan.bankTransactionId!==intent.bank_transaction_id)throw new Error('Original bank allocation receipt required');
@@ -22,7 +23,7 @@ export async function loadBankAllocationOriginal(ctx:ControlTx,originalIntentId:
   WHERE company_id=${company}::uuid AND journal_entry_id=${receipt.result.journalEntryId}::uuid ORDER BY id FOR SHARE` as (Row&Parameters<typeof matchesBankAllocationJournalLines>[1][number])[];
  if(!new D(String(sources.bank.amount)).abs().eq(String(intent.amount))||fmtDate(sources.bank.transaction_date as string|Date)!==intent.accounting_date)throw new Error('Original bank source changed');
  if(!journal||journal.status!=='posted'||fmtDate(journal.entry_date as string|Date)!==intent.accounting_date||journal.source_record_id!==plan.bankTransactionId
-  ||journal.source!==(plan.kind==='customer'?'auto_payment':plan.kind==='supplier'?'auto_supplier_payment':'auto_bank_recon')
+  ||journal.source!==(plan.kind==='transfer'?'auto_bank_transfer':plan.kind==='customer'?'auto_payment':plan.kind==='supplier'?'auto_supplier_payment':'auto_bank_recon')
   ||!matchesBankAllocationJournalLines(sources.lines,lines))throw new Error('Original allocation journal changed');
  if(isBankAllocationRefund(plan.kind,String(sources.bank.amount))){
   // Prior reversed allocations retain their children; absence belongs to this exact refund journal.
@@ -38,10 +39,12 @@ export async function loadBankAllocationOriginal(ctx:ControlTx,originalIntentId:
   const expected=plan.applications.map(a=>shape(a.invoiceId,a.amount)).sort(),actual=rows.map(a=>shape(a.invoice_id,a.amount_allocated)).sort();
   if(canonicalJson(expected)!==canonicalJson(actual))throw new Error('Original allocation applications changed');
  }
- return{intent,plan,sources,receipt,journal,lines};
+ const transfer=plan.kind==='transfer'?await loadBankTransferOriginalBanks(ctx,intent,plan,journal,lines):null;
+ return{intent,plan,sources,receipt,journal,lines,...(transfer?{transfer}:{})};
 }
 export async function assertOriginalAllocationReversible(ctx:ControlTx,originalIntentId:string){
  const material=await loadBankAllocationOriginal(ctx,originalIntentId);
+ if(material.transfer)assertTransferBankLinks(material.transfer.banks,material.journal,material.lines,false);
  if(material.journal.reversed_at||!['allocated','matched','reconciled'].includes(String(material.sources.bank.status))
   ||!material.lines.some(l=>l.id===material.sources.bank.matched_journal_line_id&&l.gl_account_id===material.sources.bank.bank_account_id))throw new Error('Original allocation is no longer reversible');
  if('applications' in material.plan&&!isBankAllocationRefund(material.plan.kind,String(material.sources.bank.amount))){
