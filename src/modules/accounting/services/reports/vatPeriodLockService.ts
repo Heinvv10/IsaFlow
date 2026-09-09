@@ -20,6 +20,9 @@
  * here are monthly against an arbitrary year end, and the two do not line up.
  * Filing a return and closing a month are different decisions.
  */
+import { assertEffectivePermission } from '@/lib/auth/effectivePermissions';
+import { requirePeriodControl, runPeriodControl, type PeriodControlOptions } from '../controls/periodControl';
+import { materializePeriodOperation, parseVatPeriodId } from '../controls/periodOperationMaterializer';
 import { sql } from '@/lib/neon';
 import type { DbRow } from '@/lib/neon';
 import { log } from '@/lib/logger';
@@ -140,7 +143,7 @@ export async function isVatPeriodLocked(companyId: string, date: string): Promis
  * a record of what was filed that a later call can rewrite records nothing at
  * all. `created` tells the caller which of the two happened.
  */
-export async function lockVatPeriod(
+async function insertVatPeriodLock(
   companyId: string,
   periodStart: string,
   periodEnd: string,
@@ -181,4 +184,24 @@ export async function lockVatPeriod(
     throw new Error('VAT period lock could not be read back after insert');
   }
   return { lock: existing, created: false };
+}
+
+/** The legacy figures argument is retained for caller compatibility; the ledger owns stored figures. */
+export async function lockVatPeriod(companyId: string, periodStart: string, periodEnd: string,
+  _figures: VatLockFigures, actor: VatLockActor, notes?: string, options?: PeriodControlOptions): Promise<LockVatPeriodResult> {
+  const ctx = requirePeriodControl(companyId, actor.userId);
+  await assertEffectivePermission(ctx, 'write:locks');
+  await assertEffectivePermission(ctx, 'read:vat');
+  const entityId = `${periodStart}/${periodEnd}`;
+  parseVatPeriodId(entityId);
+  const existing = await getVatPeriodLock(companyId, periodStart, periodEnd);
+  if (existing) return { lock: existing, created: false };
+  const ref = { entityType: 'vat_period', entityId, operation: 'vat_period.lock' as const };
+  return runPeriodControl(companyId, ref, options, async () => {
+    const material = await materializePeriodOperation(ctx, ref);
+    const facts = material.observedSources.find(row => row.entityType === ref.entityType && row.entityId === entityId)!.facts;
+    const figures = (facts.vat as { figures: VatLockFigures }).figures;
+    return insertVatPeriodLock(companyId, periodStart, periodEnd, figures,
+      { userId: ctx.principal.personId, actorType: ctx.principal.provenance === 'human' ? 'human' : 'agent', tokenJti: ctx.principal.grantId }, notes);
+  });
 }

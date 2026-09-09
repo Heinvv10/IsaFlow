@@ -70,6 +70,7 @@ export class PeriodCloseBlockedError extends Error {
 }
 
 export interface ClosePeriodOptions {
+  approvalId?: string;
   /** Run every guard and report, but do not write. */
   dryRun?: boolean;
 }
@@ -125,7 +126,9 @@ export async function closePeriodWithReadiness(
     return { period, closed: false, dryRun: true, checklist: readiness.items, warnings };
   }
 
-  const closedPeriod = await closePeriod(companyId, periodId, userId);
+  const closedPeriod = options.approvalId
+    ? await closePeriod(companyId, periodId, userId, { approvalId: options.approvalId })
+    : await closePeriod(companyId, periodId, userId);
   log.info('Fiscal period closed after readiness checks', {
     companyId, periodId, warnings: warnings.length,
   }, 'accounting');
