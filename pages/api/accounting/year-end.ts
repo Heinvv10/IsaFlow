@@ -13,6 +13,7 @@ import { withCsrf } from '@/lib/auth/withCsrf';
 import { withFlowMeter } from '@/lib/billing/withFlowMeter';
 import { getFlowCost } from '@/modules/billing/services/flowOperationCatalog';
 import { log } from '@/lib/logger';
+import { UUID_RE } from '@/lib/validation';
 import { listFiscalYears, closeFiscalYear } from '@/modules/accounting/services/gl/yearEndService';
 
 /**
@@ -54,7 +55,7 @@ async function getHandler(req: NextApiRequest, res: NextApiResponse) {
 async function postHandler(req: NextApiRequest, res: NextApiResponse) {
   const { companyId } = req as CompanyAuthedRequest;
   const userId = (req as AuthenticatedNextApiRequest).user.id;
-  const { yearLabel, action } = req.body;
+  const { yearLabel, action, approvalId, dryRun } = req.body;
 
   if (action !== 'close') {
     return apiResponse.badRequest(res, 'Only "close" action is supported');
@@ -64,8 +65,13 @@ async function postHandler(req: NextApiRequest, res: NextApiResponse) {
     return apiResponse.validationError(res, { yearLabel: 'Fiscal year label required' });
   }
 
+  if ((approvalId !== undefined && (typeof approvalId !== 'string' || !UUID_RE.test(approvalId)))
+    || (dryRun !== undefined && typeof dryRun !== 'boolean')) return apiResponse.badRequest(res, 'Invalid year-close approval or preview option');
+
   try {
-    const result = await closeFiscalYear(companyId, String(yearLabel), userId);
+    const result = await closeFiscalYear(companyId, String(yearLabel), userId, {
+      ...(approvalId === undefined ? {} : { approvalId }), ...(dryRun === undefined ? {} : { dryRun }),
+    });
 
     if ('error' in result) {
       switch (result.error) {
@@ -104,7 +110,7 @@ const meteredPost = withFlowMeter('yearend.close', getFlowCost('yearend.close'))
 
 async function mux(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') return getHandler(req, res);
-  if (req.method === 'POST') return meteredPost(req, res);
+  if (req.method === 'POST') return req.body?.dryRun === true ? postHandler(req, res) : meteredPost(req, res);
   return apiResponse.methodNotAllowed(res, req.method || 'UNKNOWN', ['GET', 'POST']);
 }
 

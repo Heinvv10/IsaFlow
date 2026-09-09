@@ -40,7 +40,7 @@ function changeClosedPeriod(companyId: string, id: string, target: 'open' | 'loc
   });
 }
 export function closeYear(companyId: string, fiscalYear: number, userId: string, options?: PeriodControlOptions): Promise<FiscalPeriod[]> {
-  return runPeriodControl(companyId, { entityType: 'fiscal_year', entityId: String(fiscalYear), operation: 'year.close' }, options, async (ctx, permit) => {
+  return runPeriodControl(companyId, { entityType: 'fiscal_year', entityId: String(fiscalYear), operation: 'year.periods_close' }, options, async (ctx, permit) => {
     const before = await ctx.sql`SELECT * FROM fiscal_periods WHERE company_id=${companyId}::uuid AND fiscal_year=${fiscalYear} ORDER BY id FOR UPDATE` as DbRow[];
     if (!before.length) throw new Error('No fiscal periods found');
     if (before.every(row => row.status === 'closed' || row.status === 'locked')) throw new Error('Fiscal year is already closed');

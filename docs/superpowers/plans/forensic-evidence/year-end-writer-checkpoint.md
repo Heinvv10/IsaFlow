@@ -1,0 +1,13 @@
+# Controlled financial year writer checkpoint
+
+This is an implementation checkpoint awaiting central guards and real PostgreSQL proof; it is not ready for integration or delivery.
+
+`closeFiscalYear(companyId, yearLabel, userId, {dryRun?, approvalId?})` is re-exported by yearEndCloseService/yearEndService. It requires the current authenticated person/company; preview requires read:reports, execution requires write:locks and write:post. year.close binds the exact closing material from periodOperationMaterializer; year.periods_close remains the separate bulk-period operation. Preview includes existing numeric display fields and exact decimal fields; actual posting uses only decimal text.
+
+Execution loads current owned year facts, requires every period closed, selects the final period whose end exactly equals the approved accounting date, creates a draft source year_end journal with deterministic YE-year number, registers the generated parent relationship and calls shared postJournalEntry. It then locks periods and records their protected change events within the parent effect. Existing effect replay checks current permission and surviving posted journal. Empty P&L locks the year without inventing a zero journal.
+
+Root prerequisites: migration637 admits dedicated year_end source while preserving the full allowed-source set; mark year.close monetary/requires-post; narrow shared posting exception to an actually registered year.close child in the closed final period, preserving company lockdown and all other guards. The relationship helper must exclude any later period. Worker did not alter schema or weaken the shared journal guard.
+
+TDD logs: /tmp/gl-year-writer-red.log (missing writer), /tmp/gl-year-writer-green.log (two actor tests), /tmp/gl-year-route-red.log (approval/preview not forwarded), /tmp/gl-year-preview-meter-red.log (preview entered charging wrapper). REST now validates and forwards approval/preview and does not meter read-only previews. Combined source/unit verification is recorded in /tmp/gl-preview-year-unit.log (9 tests), /tmp/gl-preview-year-ts.log and /tmp/gl-preview-year-lint.log (both clean).
+
+Actual test file `tests/integration/controls/glYearEndWriters.int.test.ts` is prepared but not run. It uses owned synthetic company with financial_year_start=1, fiscal year2025 spanning2025-01-01 through2025-12-31, closed final period and a123.45 posted synthetic prior sale. Expected source year_end, number YE-2025, date2025-12-31, balanced123.45, one parent effect and period lock. No production data is involved. Earlier closed-period/direct-source adversarial cases must be added before acceptance; current two cases alone are insufficient.
