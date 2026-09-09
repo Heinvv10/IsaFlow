@@ -105,9 +105,23 @@ describe('K-072 adjacent cases', () => {
       .toBe(journal.lines.find(l => l.accountId === accountIds.bankAccountId)?.credit);
   });
 
-  it('tags no line as a standard-rated claim once the claim is denied', () => {
+  it('tags the denial as a classification, never as a standard-rated claim', () => {
     const journal = buildExpenseJournalFromReceipt(receipt(), accountIds);
-    expect(journal.lines.every(l => l.vatType === undefined)).toBe(true);
+    expect(journal.lines.some(l => l.vatType === 'standard')).toBe(false);
+    // Recorded, not merely absent: an undefined vat_type reads as "nobody
+    // classified this line", which is a different fact from "s17(2)(a) took
+    // the claim away" and leaves the description string as the only evidence.
+    expect(journal.lines.find(l => l.accountId === accountIds.expenseAccountId)?.vatType)
+      .toBe('no_vat');
+  });
+
+  it('tags a claimable receipt standard on both expense and VAT legs', () => {
+    const office = receipt({ vendorName: 'Waltons Stationery' });
+    const journal = buildExpenseJournalFromReceipt(office, accountIds);
+    expect(journal.lines.find(l => l.accountId === accountIds.expenseAccountId)?.vatType)
+      .toBe('standard');
+    expect(journal.lines.find(l => l.accountId === accountIds.vatInputAccountId)?.vatType)
+      .toBe('standard');
   });
 
   it('reports the denial to the caller instead of only logging it', () => {

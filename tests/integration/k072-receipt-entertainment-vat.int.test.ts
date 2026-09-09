@@ -158,7 +158,10 @@ describe('K-072 entertainment input VAT reaches the ledger denied', () => {
     // Two legs only: the zero VAT line is dropped before posting.
     expect(posted.count).toBe(2);
     expect(posted.byAccount.get(vatInput)).toBeUndefined();
-    expect(posted.byAccount.get(meals)).toEqual({ dr: 1150, cr: 0, vatType: null });
+    // 'no_vat', not NULL: a denial is a classification, and an exception
+    // report cannot tell "s17(2)(a) took the claim" from "nobody classified
+    // this line" if the only record of the decision is the description string.
+    expect(posted.byAccount.get(meals)).toEqual({ dr: 1150, cr: 0, vatType: 'no_vat' });
     expect(posted.byAccount.get(bank)).toEqual({ dr: 0, cr: 1150, vatType: null });
     // No line anywhere on the entry touches VAT Input.
     // Balanced, and the expense carries exactly what left the bank.
@@ -209,6 +212,27 @@ describe('K-072 entertainment input VAT reaches the ledger denied', () => {
     expect(posted.byAccount.get(vatInput)).toBeUndefined();
     expect(posted.byAccount.get(defaultExpense)!.dr).toBe(1150);
     expect(posted.totalDebit).toBe(posted.totalCredit);
+  });
+
+  it('refuses a SECOND post of a document it already journalised', async () => {
+    // The handler stamps the document 'matched' and used to refuse nothing, so
+    // a double-click or a client retry posted the same receipt twice — the
+    // expense and the bank credit doubled against one source document.
+    const before = (await pool.query(
+      'SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source_document_id=$2',
+      [company, mealsDoc],
+    )).rows[0].n;
+    expect(before).toBe(1);
+
+    const repeat = await post(mealsDoc, token, company);
+    expect(repeat.state.statusCode).toBe(400);
+
+    expect((await pool.query(
+      'SELECT COUNT(*)::int AS n FROM gl_journal_entries WHERE company_id=$1 AND source_document_id=$2',
+      [company, mealsDoc],
+    )).rows[0].n).toBe(before);
+    // And the ledger is unchanged: still the two legs of the first post.
+    expect((await legs(mealsDoc)).count).toBe(2);
   });
 
   it('refuses another tenant and writes no journal at all', async () => {

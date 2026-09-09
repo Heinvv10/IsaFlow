@@ -143,3 +143,107 @@ describe('K-076 a split VAT summary', () => {
     expect(extractAmounts(text).vatAmount).toBe(150);
   });
 });
+
+describe('K-076 the subtotal guard holds for MORE THAN ONE separator character', () => {
+  // Round 2 of the blind review: the guard was `(?<!Sub[-\s])`, fixed-width-one,
+  // so it rejected `Sub Total` and `Sub-Total` and let through every column that
+  // prints the label with two or more spaces. Every case above uses exactly one
+  // separator, which is why they were green on a live defect.
+  //
+  // This is the worst shape of it: with no VAT line the builder derives 15% of
+  // whatever it was handed, so the entry BALANCES at the subtotal — the payable
+  // total is silently R150 short and the bank credit can never match the
+  // statement line.
+  it.each([
+    ['two spaces', 'Sub  Total 1000.00\nTotal 1150.00'],
+    ['three spaces, upper case', 'SUB   TOTAL   1000.00\nTOTAL   1150.00'],
+    ['a tab', 'Sub\tTotal 1000.00\nTotal 1150.00'],
+    ['a non-breaking space', 'Sub  Total 1000.00\nTotal 1150.00'],
+    ['a hyphen and a space', 'Sub - Total 1000.00\nTotal 1150.00'],
+    ['the joined spelling', 'SubTotal 1000.00\nTotal 1150.00'],
+  ])('does not read a %s subtotal label as the invoice total', (_label, text) => {
+    const result = extractAmounts(text);
+    expect(result.totalAmount).toBe(1150);
+    expect(result.subtotal).toBe(1000);
+  });
+
+  it('still reads a plain Total that merely follows a subtotal line', () => {
+    // The guard must not become "any Total after the word Sub": the payable
+    // total is printed below the subtotal on every invoice there is.
+    expect(extractAmounts('Sub  Total 1000.00\nGrand Total 1150.00').totalAmount).toBe(1150);
+  });
+});
+
+describe('K-076 a non-VAT tax line must not outrank the VAT line', () => {
+  it('reads the VAT, not the levy, on a hotel bill printing both', () => {
+    // `Tax` ranked ABOVE the bare `VAT` column, and the first pattern yielding
+    // any candidate wins — so a tourism levy beat the tax. 12.00 has a decimal
+    // part, so the plausibility test waves it through, and with the subtotal
+    // derived as total − 12 the entry balances and auto-posts: R138 of input
+    // tax never claimed, and the VAT201 input box short by the same.
+    const text = 'Room 1000.00\nTourism Levy Tax 12.00\nVAT 150.00\nTotal Due 1162.00';
+    const result = extractAmounts(text);
+    expect(result.vatAmount).toBe(150);
+    expect(result.subtotal).toBe(1012);
+    expect(result.totalAmount).toBe(1162);
+  });
+
+  it('still reads a document whose only tax label is "Tax Amount"', () => {
+    expect(extractAmounts('Tax Amount: 150.00\nTotal 1150.00').vatAmount).toBe(150);
+  });
+
+  it('prefers the candidate the document\'s own arithmetic endorses', () => {
+    const text = 'Subtotal 1000.00\nTax 12.00\nTax 150.00\nTotal Due 1150.00';
+    expect(extractAmounts(text).vatAmount).toBe(150);
+  });
+});
+
+describe('K-076 "Excluding VAT" / "Including VAT" are total labels, not VAT labels', () => {
+  it.each([
+    ['Excluding', 'Total Excluding VAT 1000.00\nVAT 150.00\nTotal Including VAT 1150.00'],
+    ['Excl.', 'Total Excl. VAT 1000.00\nVAT 150.00\nTotal Incl. VAT 1150.00'],
+    ['Excl', 'Total Excl VAT 1000.00\nVAT 150.00\nTotal Incl VAT 1150.00'],
+  ])('reads the real VAT line past a %s VAT label', (_label, text) => {
+    const result = extractAmounts(text);
+    expect(result.subtotal).toBe(1000);
+    expect(result.vatAmount).toBe(150);
+    expect(result.totalAmount).toBe(1150);
+    // The whole point: these three figures reconcile, so the journal balances.
+    expect(result.subtotal! + result.vatAmount!).toBe(result.totalAmount);
+  });
+});
+
+describe('K-076 a malformed amount fails rather than being half-read', () => {
+  it.each(['Total 1150.000', 'Total 1150.005', 'Total 1150.0001'])(
+    'refuses to read %s as 1150.00',
+    (text) => {
+      expect(extractAmounts(text).totalAmount).toBeNull();
+    },
+  );
+
+  it('still reads the ordinary two-decimal and thousands forms', () => {
+    expect(extractAmounts('Total 1150.00').totalAmount).toBe(1150);
+    expect(extractAmounts('Total 1 150,00').totalAmount).toBe(1150);
+    expect(extractAmounts('Total 1,234.56').totalAmount).toBe(1234.56);
+    expect(extractAmounts('Total 1150').totalAmount).toBe(1150);
+  });
+});
+
+describe('K-076 an exclusive label with no recognisable subtotal line', () => {
+  // Where a subtotal IS extracted the reconciliation arithmetic can pick the
+  // tax out of the candidates on its own. These layouts print the exclusive
+  // figure under a label SUBTOTAL_PATTERNS does not know, so there is no
+  // subtotal to reconcile against and the label guard is the only thing
+  // standing between the reader and an inverted split: without it the VAT came
+  // back as 1000.00 and the subtotal as 150.00 — balanced at 1150, and an
+  // R1 000 input-tax claim on an R1 150 invoice.
+  it.each([
+    ['Amount Excluding VAT', 'Amount Excluding VAT 1000.00\nVAT 150.00\nTotal Due 1150.00'],
+    ['Price Excl VAT', 'Price Excl VAT 1000.00\nVAT 150.00\nTotal Due 1150.00'],
+  ])('does not read the %s figure as the VAT', (_label, text) => {
+    const result = extractAmounts(text);
+    expect(result.vatAmount).toBe(150);
+    expect(result.subtotal).toBe(1000);
+    expect(result.totalAmount).toBe(1150);
+  });
+});

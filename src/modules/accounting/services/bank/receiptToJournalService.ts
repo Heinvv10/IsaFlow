@@ -29,7 +29,10 @@ export interface JournalLine {
   credit: number;
   description: string;
   /**
-   * Undefined where no input tax is claimed. Tagging matters beyond reporting:
+   * `'standard'` where input tax is claimed, `'no_vat'` where s17(2)(a) took
+   * the claim away — never absent on the expense legs, so a denial is a
+   * recorded classification rather than the absence of one. Undefined only on
+   * the cash leg, which classifies no supply. Tagging matters beyond reporting:
    * `vatType` is what puts a posting route inside the scope of
    * `scripts/ci/check-vat-guard-coverage.ts`, and a path this gate cannot see
    * is a path the next unattended VAT claim can be added to silently.
@@ -174,6 +177,18 @@ export function buildExpenseJournalFromReceipt(
     VAT_CODE_STANDARD,
     { vendorName: extracted.vendorName, source: 'receipt_to_journal' },
   );
+  // A denial is a CLASSIFICATION, so it is recorded as one. Leaving `vatType`
+  // undefined made "denied under s17(2)(a)" indistinguishable from "nobody
+  // classified this line", with the only trace of the decision a description
+  // string — an exception report cannot read prose.
+  //
+  // The value is `'no_vat'`, not the `'none'` that `applyVatDenial` returns.
+  // Those are two vocabularies: `'none'` is the BANK vat_code, and `VatType` —
+  // what `gl_journal_lines.vat_type` stores and VAT201 reads — spells the same
+  // fact `'no_vat'`. `bankAllocationService` maps the code to the type the same
+  // way rather than writing the code through. Writing `'none'` into the column
+  // would put a token in the ledger that no reader recognises.
+  const deniedVatType: VatType = 'no_vat';
   // The gross stays on the expense leg as subtotal + vatAmount, never `total`:
   // the three figures are extracted independently and the callers' pre-check
   // rejects an entry where they disagree. Collapsing to `total` would hide it.
@@ -190,7 +205,7 @@ export function buildExpenseJournalFromReceipt(
         debit: expenseDebit,
         credit: 0,
         description: denied ? `${merchantDesc} (input VAT denied — s17(2)(a))` : merchantDesc,
-        ...(denied ? {} : { vatType: 'standard' as VatType }),
+        vatType: denied ? deniedVatType : ('standard' as VatType),
       },
       // Zero on a denial. Both callers drop zero-value legs before posting, so
       // the entry reaches the ledger with no VAT-input line at all.
@@ -199,7 +214,7 @@ export function buildExpenseJournalFromReceipt(
         debit: denied ? 0 : vatAmount,
         credit: 0,
         description: 'VAT Input',
-        ...(denied ? {} : { vatType: 'standard' as VatType }),
+        vatType: denied ? deniedVatType : ('standard' as VatType),
       },
       { accountId: accountIds.bankAccountId, debit: 0, credit: total, description: `Payment: ${merchantDesc}` },
     ],

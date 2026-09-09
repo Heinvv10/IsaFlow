@@ -54,6 +54,16 @@ Invoked by `withCompany`-wrapped API routes in `pages/api/accounting/**`. Most f
 
 ## Recent changes
 
+- 2026-09-09: `ocrAmountPatterns` — the label guards are VARIABLE-WIDTH, because the labels are.
+  `(?<!Sub[-\s])` was fixed-width-one, so `Sub  Total` (any OCR column with more than one space)
+  was still read as the payable total and the journal BALANCED at the VAT-exclusive figure.
+  `NOT_A_SUBTOTAL` and the subtotal grammar now spell the same `Sub[\s-]*Total`. A new
+  `NOT_A_TOTAL_LABEL` keeps "Total/Price Excluding VAT" out of the VAT candidates — without it a
+  layout with no recognisable subtotal read VAT = 1000 and subtotal = 150 on an R1 150 invoice.
+  The generic `Tax` form now ranks BELOW the bare `VAT` column so a tourism levy cannot outrank the
+  tax, and `extractVatAmount` prefers the candidate the document's own arithmetic endorses
+  (`subtotal + c === total`) over the first one printed. `AMOUNT` refuses to half-read a malformed
+  figure: "1150.005" fails to match rather than coming back as 1150.00.
 - 2026-09-02: `migrationCoaService.importChartOfAccounts` validates before writing: `validateSystemAccountMap` refuses the WHOLE import on an unknown role key, a code not in the payload, or an account whose type cannot carry the role (an expense as `vat_input`) — the map's keys become `account_subtype` + `is_system_account = true` verbatim and the resolver hands those rows to every auto-posting path. Each non-mapped row's own `accountSubtype` goes through `subtypeErrorFor` like every other write path. `clearSystemAccountCache(companyId)`, not the whole cache.
 - 2026-08-31: **the categorisation defaults no longer invent a VAT claim.** `learnFromAllocation` wrote `vat_code = vatCode || 'standard'`, so learning a restaurant into Staff Welfare minted a pattern claiming input tax on entertainment, which the rule auto-post path then honoured on every future charge; `findPatternMatch` had the same `p.vat_code || 'standard'` fallback. Both now default to 'none' — a missing code is not evidence of a claimable supply — and `learnFromAllocation` runs the account's own denial (`resolveVatCodeForAccount`) over an explicit 'standard'. Migration 521 rewrites the patterns already learned against denied accounts.
 - 2026-08-15: `companyAccessService` added (`userBelongsToCompany` / `userBelongsToGroup`), replacing four duplicated inline guards in `company-groups.ts`, `consolidated-reports.ts`, `intercompany-transactions.ts` and `permissions.ts`. **16** `text = uuid` sites fixed — 13 `company_users.user_id = ${x}::UUID`, 2 `users.id = ${x}::UUID`, and 1 uncast `users.id` join. Each threw a 500 on every call, killing group access (so the consolidation dashboard was unreachable even after its queries were repaired in #249), company user management, the pentest-H4 permission guard, POPIA export **and erasure**, and credit-note PDFs. `approvalService` and `practiceReportsService` already carried the correct `::TEXT` and were NOT broken — an earlier draft of this note claimed 18 sites and named them; blind review caught it. New CI step `user-id-casts` blocks the class, with its rules unit-tested in `tests/unit/ci/userIdCastRules.test.ts`.

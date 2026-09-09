@@ -180,7 +180,6 @@ export function extractAmounts(text: string): ExtractedAmounts {
   return result;
 }
 
-
 export function extractLineItems(lines: string[]): RegexLineItem[] {
   const items: RegexLineItem[] = [];
   const lineItemPattern = /^(.+?)\s+(\d+(?:\.\d+)?)\s+(?:R?\s*)?(\d[\d,]*(?:\.\d{2})?)\s+(?:R?\s*)?(\d[\d,]*(?:\.\d{2})?)$/;
@@ -196,7 +195,9 @@ export function extractLineItems(lines: string[]): RegexLineItem[] {
       if (match) itemsStarted = true;
     }
     if (!itemsStarted) continue;
-    if (/^(Sub\s*[-\s]?Total|Total|VAT|Tax|Amount\s*Due|Balance\s*Due|Grand\s*Total)/i.test(line)) break;
+    // Same subtotal spelling as ocrAmountPatterns — a summary line the grammar
+    // there recognises must stop item collection here too.
+    if (/^(Sub[\s-]*Total|Total|VAT|Tax|Amount\s*Due|Balance\s*Due|Grand\s*Total)/i.test(line)) break;
 
     const fullMatch = lineItemPattern.exec(line);
     if (fullMatch) {

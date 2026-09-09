@@ -21,7 +21,15 @@ import {
   type ReceiptAccountMapping,
 } from '@/modules/accounting/services/bank/receiptToJournalService';
 import { getSystemAccountId } from '@/modules/accounting/services/gl/systemAccountResolver';
-import { postReceiptAsPettyCashJournal } from '@/modules/accounting/services/capture/pettyCashJournalService';
+import {
+  postReceiptAsPettyCashJournal,
+  ReceiptDoesNotBalanceError,
+} from '@/modules/accounting/services/capture/pettyCashJournalService';
+import {
+  INPUT_VAT_DENIED_ADVICE,
+  resolveVatCodeForAccount,
+  VAT_CODE_STANDARD,
+} from '@/modules/accounting/services/gl/inputVatDenial';
 import {
   createClaim,
   submitClaim,
@@ -128,8 +136,29 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
   // ------------------------------------------------------------------
   if (employeeId) {
     const total = extracted.totalAmount ?? 0;
-    const vatAmt = extracted.vatAmount ?? Math.round((total / 1.15 * 0.15) * 100) / 100;
     const lineDate = extracted.date ?? new Date().toISOString().slice(0, 10);
+
+    // s17(2)(a) applies to a claim exactly as it applies to the journal. It did
+    // not: this branch put the machine-derived VAT on the claim line, and
+    // `expenseClaimService.postClaim` debits VAT Input with the SUM of the line
+    // `vatAmount`s — so the same entertainment receipt that the anonymous
+    // branch denies produced the identical R150 input-tax claim through a
+    // different table, and no advice was surfaced to the approver either.
+    //
+    // The account is what carries the marker, so resolve it against
+    // `resolvedGlAccountId` before the amounts are built. On a denial the line
+    // keeps the GROSS on `amount` and drops `vatAmount` to zero, which is the
+    // same shape the journal branch posts: the whole cost lands on the expense
+    // account and no VAT leg is created.
+    const claimDenial = await resolveVatCodeForAccount(
+      companyId,
+      resolvedGlAccountId,
+      VAT_CODE_STANDARD,
+      { eventId, documentId, employeeId, source: 'capture_post_expense_claim' },
+    );
+    const vatAmt = claimDenial.denied
+      ? 0
+      : extracted.vatAmount ?? Math.round((total / 1.15 * 0.15) * 100) / 100;
 
     const line: ExpenseClaimLine = {
       lineDate,
@@ -137,7 +166,7 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       merchant: extracted.vendorName ?? null,
       amount: total,
       vatAmount: vatAmt,
-      vatCode: null,
+      vatCode: claimDenial.vatCode,
       glAccountId: resolvedGlAccountId,
       costCentreId: costCentreId ?? null,
       projectId: null,
@@ -191,22 +220,35 @@ async function handler(req: CompanyAuthedRequest, res: NextApiResponse) {
       expenseClaim: { id: submitted?.id ?? claim.id, claimNumber: submitted?.claimNumber ?? claim.claimNumber },
       merchant: extracted.vendorName,
       amount: extracted.totalAmount,
+      inputVatDenied: claimDenial.denied,
+      warnings: claimDenial.denied ? [INPUT_VAT_DENIED_ADVICE] : [],
     });
   }
 
   // ------------------------------------------------------------------
   // 3b. Anonymous path → direct GL journal (petty cash / company card)
   // ------------------------------------------------------------------
-  const result = await postReceiptAsPettyCashJournal({
-    companyId,
-    userId,
-    eventId,
-    documentId,
-    extracted,
-    resolvedGlAccountId,
-    vatInputAccountId,
-    costCentreId,
-  });
+  // A mis-extracted receipt is a 400, not a 500. The service throws before its
+  // first write, so answering 4xx here commits nothing — see the error's own
+  // doc-comment for why that ordering is what makes this safe.
+  let result;
+  try {
+    result = await postReceiptAsPettyCashJournal({
+      companyId,
+      userId,
+      eventId,
+      documentId,
+      extracted,
+      resolvedGlAccountId,
+      vatInputAccountId,
+      costCentreId,
+    });
+  } catch (err) {
+    if (err instanceof ReceiptDoesNotBalanceError) {
+      return apiResponse.badRequest(res, err.message);
+    }
+    throw err;
+  }
 
   return apiResponse.success(res, result);
 }

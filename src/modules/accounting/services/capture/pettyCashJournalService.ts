@@ -28,6 +28,7 @@ import {
   VAT_CODE_STANDARD,
 } from '@/modules/accounting/services/gl/inputVatDenial';
 import { createJournalEntry } from '@/modules/accounting/services/gl/journalEntryCrudService';
+import { validateJournalEntry } from '@/modules/accounting/utils/doubleEntry';
 import {
   postJournalEntry,
   ClosedFiscalPeriodError,
@@ -42,6 +43,27 @@ export interface PettyCashJournalInput {
   resolvedGlAccountId: string;
   vatInputAccountId: string;
   costCentreId?: string;
+}
+
+/**
+ * The extraction does not balance — a caller-facing 400, not a 500.
+ *
+ * `withErrorHandler` masks every throw as a generic internal error, so without
+ * a type the route cannot tell "the OCR read three figures that disagree" from
+ * "the database is down" and the operator is shown "an unexpected error
+ * occurred" on a document that is merely mis-extracted. `receipt-to-journal.ts`
+ * already answers 400 on exactly this input; this is the same answer on the
+ * path that was extracted out of the route.
+ *
+ * Safe to answer 4xx with, and only because of WHERE it is thrown:
+ * `withAuth` COMMITs the request transaction on a 4xx, and nothing on this path
+ * has written anything by then — the account reads above it are all SELECTs.
+ */
+export class ReceiptDoesNotBalanceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReceiptDoesNotBalanceError';
+  }
 }
 
 export interface PettyCashJournalResult {
@@ -83,6 +105,37 @@ export async function postReceiptAsPettyCashJournal(
     { accountVatDenied: accountDenial.denied },
   );
 
+  // Drop zero-value legs — buildExpenseJournalFromReceipt always emits a VAT
+  // leg, and a zero-rated or exempt receipt extracts vatAmount = 0, which
+  // validateJournalLine rejects. Dropping it cannot unbalance the entry.
+  // Pre-existing here (this path was already dead on the source CHECK, so it
+  // never surfaced); fixed alongside receipt-to-journal.ts, which migration 509
+  // makes live.
+  const postableLines = journalInput.lines
+    .filter(l => l.debit !== 0 || l.credit !== 0)
+    .map(l => ({
+      glAccountId: l.accountId,
+      debit: l.debit,
+      credit: l.credit,
+      description: l.description,
+      costCenterId: costCentreId,
+      vatType: l.vatType,
+    }));
+
+  // Balance-check BEFORE the first write, the same pre-check
+  // `receipt-to-journal.ts` runs and for the same reason: the legs come from
+  // OCR — subtotal, vatAmount and totalAmount are extracted independently with
+  // no enforced invariant — so a till slip mixing zero-rated and standard-rated
+  // items yields subtotal + vat != total. `createJournalEntry` would reject it,
+  // but as a plain `Error` that surfaces as a 500. Extracting this branch out
+  // of the route left the two paths asymmetric; this restores the answer.
+  const preCheck = validateJournalEntry(postableLines);
+  if (!preCheck.valid) {
+    throw new ReceiptDoesNotBalanceError(
+      `Receipt does not balance — check the extracted amounts: ${preCheck.errors.join('; ')}`,
+    );
+  }
+
   const jeEntry = await createJournalEntry(
     companyId,
     {
@@ -90,22 +143,7 @@ export async function postReceiptAsPettyCashJournal(
       description: journalInput.description,
       source: 'auto_expense_receipt',
       sourceDocumentId: documentId,
-      // Drop zero-value legs — buildExpenseJournalFromReceipt always emits a
-      // VAT leg, and a zero-rated or exempt receipt extracts vatAmount = 0,
-      // which validateJournalLine rejects. Dropping it cannot unbalance the
-      // entry. Pre-existing here (this path was already dead on the source
-      // CHECK, so it never surfaced); fixed alongside receipt-to-journal.ts,
-      // which migration 509 makes live.
-      lines: journalInput.lines
-        .filter(l => l.debit !== 0 || l.credit !== 0)
-        .map(l => ({
-          glAccountId: l.accountId,
-          debit: l.debit,
-          credit: l.credit,
-          description: l.description,
-          costCenterId: costCentreId,
-          vatType: l.vatType,
-        })),
+      lines: postableLines,
     },
     userId,
   );
