@@ -193,3 +193,24 @@ just read inside the write — the same arithmetic in two places on purpose.
 
 **LOW-1 and LOW-3 are K-071's; see `../K-071/fix.md`.** LOW-1's residual is now gone: the module
 doc is 44 lines, and the one rule the earlier compaction had dropped is back.
+
+---
+
+## Round 5 — the customer arm
+
+The round-4 review's MEDIUM-1: the customer branch of this same route was the unfixed mirror of
+the HIGH the supplier arm closed. `allocateTransaction(… 'customer', { autoApply: false })`
+followed by an ABSOLUTE `customer_invoices.amount_paid` write, with no
+`customer_payment_allocations` row — so `unwindOnePayment` found nothing to reverse, and a
+reversal returned the credit to AR control while the invoice went on reading as paid. The JS
+absolute value was a lost update as well.
+
+The arm moved to `src/modules/accounting/services/bank/confirmCustomerMatch.ts` and settles
+through `ar/receiptMatchConfirmService#confirmReceiptMatch` — the same service the receipt-match
+screen and the MCP apply tool use. Refusals are decided from READS
+(`validateBankReceiptApplication`) before the first write, because `withAuth` COMMITs a 4xx;
+a throw from `confirmReceiptMatch` onward is never converted to a 4xx. An over-receipt is
+REFUSED, not capped, on the same evidence as the AP side: `debtorsManagerService` builds the
+aging from `customer_invoices` alone, so a capped remainder parts control from aging invisibly.
+
+Full disposition table and evidence: `../K-071/fix.md` and `green.log`, ROUND 5.

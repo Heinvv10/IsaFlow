@@ -213,3 +213,70 @@ $ bun run agent-docs:check                                   -> 74 mirrors OK
 File sizes: bank-match-confirm.ts 284, confirmSupplierMatch.ts 118,
 supplierBankPaymentService.ts 265, bankImportService.ts 294,
 supplierPaymentRefusal.ts 35, bankAllocationRefusal.ts 28 — all <= 300.
+
+================================================================================
+ROUND 5 — review-k071-r4.md (0 HIGH, 2 MEDIUM, 4 LOW). Worktree fix-K-071.
+================================================================================
+
+$ bunx vitest run tests/unit/services/bank/confirmCustomerMatch.test.ts
+  Test Files  1 passed (1)      Tests  8 passed (8)
+
+$ bunx vitest run tests/unit/services/bank/confirmSupplierMatch.test.ts
+  Test Files  1 passed (1)      Tests  8 passed (8)
+
+$ bunx vitest run tests/unit/api/bankMatchConfirmRefusalStatus.test.ts
+  Test Files  1 passed (1)      Tests  5 passed (5)
+
+$ bunx vitest run tests/unit/api/bankMatchConfirmSignGuard.test.ts
+  Test Files  1 passed (1)      Tests  7 passed (7)
+
+$ source fixture.env
+$ bunx vitest run --config vitest.integration.config.ts \
+    k074-bank-match-confirm-customer k074-bank-match-confirm-adjacent \
+    k074-bank-match-confirm-supplier-balance k071-bank-import-autopost-adjacent \
+    k071-bank-import-best-effort-savepoint
+  Test Files  5 passed (5)      Tests  27 passed (27)
+
+MUTATION 1 (MEDIUM-1) — restore the pre-fix customer behaviour inside
+confirmCustomerMatch.ts: allocateTransaction(autoApply:false) + an absolute
+`amount_paid` UPDATE, no allocation row.
+  × settles the invoice with a receipt document, and the journal balances
+      AssertionError: expected +0 to be 1150   (allocated on the receipt)
+  × unallocating the line reverses the subledger, not just the GL
+      AssertionError: expected +0 to be 1      (invoicesReopened)
+  × settles a partial receipt for exactly the line
+      AssertionError: expected +0 to be 400
+  × names the receipt document it created in the response
+  Tests  4 failed | 6 passed (10)
+  → restored; 10 passed again.
+
+MUTATION 2 (LOW-2) — revert the cancelled-bill refusal in
+ap/supplierAllocationLines.ts#buildLine from SupplierPaymentRefusal to a bare Error.
+  × classifies a refusal raised inside planSupplierAllocationLines, not just one
+    the validator threw   (the bare Error is re-thrown instead of classified)
+  Tests  1 failed | 7 passed (8)
+  → restored; 8 passed again.
+
+$ bunx tsc --noEmit
+  clean (no output)
+
+$ bunx eslint pages/api/accounting/bank-match-confirm.ts \
+    src/modules/accounting/services/bank/confirmCustomerMatch.ts \
+    src/modules/accounting/services/bank/bankAllocationService.ts
+  clean. (tests/** are outside tsconfig and eslint's project service refuses
+  them — unchanged from every previous round.)
+
+$ bun run agent-docs:check
+  OK: 74 agent document mirror(s) match canonical sources.
+
+$ env -u DATABASE_URL -u PLATFORM_ADMIN_DATABASE_URL -u ISAFLOW_DISPOSABLE_AUTH_TEST bunx vitest run
+  Test Files  795 passed | 36 skipped (831)
+  Tests  9460 passed | 234 skipped (9694)      Duration 13.50s
+
+FILE SIZES: bank-match-confirm.ts 264, confirmCustomerMatch.ts 135,
+confirmSupplierMatch.ts 118 — all <= 300.
+
+LOW-1 MEASUREMENT (the review's premise, checked):
+  git show abf06bc6b:.../bank/.claude.md | wc -c      -> 14185   (44 lines, longest bullet 830)
+  git show d99dfc505:.../bank/.claude.md | wc -c      -> 52636   (86 lines, longest bullet 3476)
+  after restoring the seven dropped rules              -> 16502  (45 lines, longest bullet 893)

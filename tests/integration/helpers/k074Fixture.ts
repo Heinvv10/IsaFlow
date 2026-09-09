@@ -19,8 +19,10 @@ export interface K074Fixture {
   otherCompany: string;
   user: string;
   supplier: string;
+  customer: string;
   bankAccount: string;
   apAccount: string;
+  arAccount: string;
 }
 
 let seq = 0;
@@ -48,6 +50,7 @@ export async function seedK074(pool: Pool): Promise<K074Fixture> {
   const otherCompany = crypto.randomUUID();
   const user = crypto.randomUUID();
   const supplier = crypto.randomUUID();
+  const customer = crypto.randomUUID();
 
   await pool.query("INSERT INTO users(id,email,role,is_active) VALUES($1,$2,'admin',true)",
     [user, `${user}@test.local`]);
@@ -55,10 +58,17 @@ export async function seedK074(pool: Pool): Promise<K074Fixture> {
   await pool.query('INSERT INTO companies(id,name) VALUES($1,$2)', [otherCompany, 'K074 other']);
   await pool.query('INSERT INTO suppliers(id,company_id,name) VALUES($1,$2,$3)',
     [supplier, company, 'K074 supplier']);
+  // `auto_allocate_strategy` stays 'off': the customer arm names the invoice it
+  // settles, and a strategy running beside it would apply the same receipt
+  // twice. The default is 'off', asserted here rather than assumed.
+  await pool.query("INSERT INTO customers(id,company_id,name,auto_allocate_strategy) VALUES($1,$2,$3,'off')",
+    [customer, company, 'K074 customer']);
 
   const bankAccount = await account(pool, company, code('K74B'), 'K074 Bank', 'asset', 'bank', 'debit');
   const apAccount = await account(pool, company, code('K74P'), 'K074 Accounts Payable',
     'liability', 'payable', 'credit');
+  const arAccount = await account(pool, company, code('K74R'), 'K074 Accounts Receivable',
+    'asset', 'receivable', 'debit');
   await account(pool, company, code('K74E'), 'K074 Expense', 'expense', 'default_expense', 'debit');
 
   // The route refuses a line whose date no OPEN period covers, from a read.
@@ -69,7 +79,7 @@ export async function seedK074(pool: Pool): Promise<K074Fixture> {
     [company],
   );
 
-  return { company, otherCompany, user, supplier, bankAccount, apAccount };
+  return { company, otherCompany, user, supplier, customer, bankAccount, apAccount, arAccount };
 }
 
 /** A bill for `total`, at `status`, owned by `companyId`. */
@@ -83,6 +93,22 @@ export async function seedBill(
        due_date,subtotal,tax_amount,total_amount,amount_paid,status,created_by)
      VALUES($1,$2,$3,$4,$5::DATE - 10,$5::DATE + 20,$6,0,$6,0,$7,$8)`,
     [id, opts.companyId ?? fx.company, fx.supplier, `K074-${id.slice(0, 8)}`, DAY,
+      total, opts.status ?? 'approved', fx.user],
+  );
+  return id;
+}
+
+/** A customer invoice for `total`, at `status`, owned by `companyId`. */
+export async function seedInvoice(
+  pool: Pool, fx: K074Fixture, total: number,
+  opts: { companyId?: string; status?: string } = {},
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await pool.query(
+    `INSERT INTO customer_invoices(id,company_id,customer_id,invoice_number,invoice_date,
+       due_date,subtotal,tax_amount,total_amount,amount_paid,status,created_by)
+     VALUES($1,$2,$3,$4,$5::DATE - 10,$5::DATE + 20,$6,0,$6,0,$7,$8)`,
+    [id, opts.companyId ?? fx.company, fx.customer, `K074C-${id.slice(0, 8)}`, DAY,
       total, opts.status ?? 'approved', fx.user],
   );
   return id;
@@ -139,6 +165,9 @@ export async function confirmMatch(
 
 export async function cleanupK074(pool: Pool, fx: K074Fixture): Promise<void> {
   const ids = [fx.company, fx.otherCompany];
+  await pool.query('DELETE FROM customer_payment_allocations WHERE payment_id IN (SELECT id FROM customer_payments WHERE company_id=ANY($1::UUID[]))', [ids]);
+  await pool.query('DELETE FROM customer_payments WHERE company_id=ANY($1::UUID[])', [ids]);
+  await pool.query('DELETE FROM customer_invoices WHERE company_id=ANY($1::UUID[])', [ids]);
   await pool.query('DELETE FROM payment_allocations WHERE payment_id IN (SELECT id FROM supplier_payments WHERE company_id=ANY($1::UUID[]))', [ids]);
   await pool.query('DELETE FROM supplier_payments WHERE company_id=ANY($1::UUID[])', [ids]);
   await pool.query('DELETE FROM bank_transactions WHERE company_id=ANY($1::UUID[])', [ids]);
@@ -149,6 +178,7 @@ export async function cleanupK074(pool: Pool, fx: K074Fixture): Promise<void> {
   await pool.query('DELETE FROM gl_accounts WHERE company_id=ANY($1::UUID[])', [ids]);
   await pool.query('DELETE FROM fiscal_periods WHERE company_id=ANY($1::UUID[])', [ids]);
   await pool.query('DELETE FROM suppliers WHERE company_id=ANY($1::UUID[])', [ids]);
+  await pool.query('DELETE FROM customers WHERE company_id=ANY($1::UUID[])', [ids]);
   await pool.query('DELETE FROM companies WHERE id=ANY($1::UUID[])', [ids]);
   await pool.query('DELETE FROM users WHERE id=$1', [fx.user]);
 }

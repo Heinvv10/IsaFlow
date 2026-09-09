@@ -29,6 +29,10 @@ vi.mock('@/modules/accounting/services/ap/supplierBankPaymentService', () => ({
 
 import { confirmSupplierInvoiceMatch } from '@/modules/accounting/services/bank/confirmSupplierMatch';
 import { SupplierPaymentRefusal } from '@/modules/accounting/services/ap/supplierPaymentRefusal';
+import {
+  planSupplierAllocationLines,
+  type SupplierAllocationInput,
+} from '@/modules/accounting/services/ap/supplierAllocationLines';
 
 const COMPANY = 'company-1';
 const TX = 'tx-1';
@@ -120,17 +124,32 @@ describe('confirmSupplierInvoiceMatch', () => {
     expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
   });
 
-  // A refusal raised from `planSupplierAllocationLines` beneath the validator
+  // A refusal raised from `planSupplierAllocationLines` BENEATH the validator
   // must be classified the same way — the class is on the refusal, not on the
   // function that happens to raise it.
-  it('treats a refusal raised deeper in the plan as a refusal', async () => {
+  //
+  // The validator runs FOR REAL here (only its DB read is stubbed) so
+  // `buildLine` is the thing that throws. Mocking the rejection instead would
+  // have asserted nothing about `supplierAllocationLines.ts`: the test stayed
+  // green with every refusal in that file still a bare `Error`.
+  it('classifies a refusal raised inside planSupplierAllocationLines, not just one the validator threw', async () => {
     bill(600);
-    validateBankSupplierPayment.mockRejectedValueOnce(
-      new SupplierPaymentRefusal('Invoice INV-9 is cancelled and cannot receive a payment.'),
+    validateBankSupplierPayment.mockImplementationOnce(
+      (async (companyId: string, _txId: string, allocations: SupplierAllocationInput[]) =>
+        planSupplierAllocationLines(companyId, allocations, { paymentId: null, supplierId: null })
+      ) as unknown as () => Promise<typeof VALIDATION>,
     );
+    // The one read `planSupplierAllocationLines` makes: the bill is cancelled,
+    // which `buildLine` refuses.
+    sqlMock.mockResolvedValueOnce([{
+      id: BILL, invoice_number: 'INV-9', supplier_id: 'sup-1',
+      total_amount: '600', amount_paid: '0', status: 'cancelled', already_allocated: 0,
+    }]);
+
     const outcome = await confirmSupplierInvoiceMatch(COMPANY, TX, BILL, USER, 600);
     expect(outcome).toMatchObject({ kind: 'refused' });
-    expect((outcome as { message: string }).message).toMatch(/cancelled/);
+    expect((outcome as { message: string }).message).toMatch(/INV-9 is cancelled/);
+    expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
   });
 
   it('refuses a bill with nothing outstanding', async () => {

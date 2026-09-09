@@ -37,9 +37,16 @@ vi.mock('@/modules/accounting/services/bank/bankReconciliationService', () => ({
   allocateTransaction: vi.fn(),
   matchTransaction: vi.fn(),
 }));
+// The customer arm settles through the AR service now (it used to post and
+// UPDATE inline), so that is where a throw enters the route's catch from.
+vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
+  validateBankReceiptApplication: vi.fn(async () => ({})),
+  confirmReceiptMatch: vi.fn(async () => ({ customerPaymentId: 'cp-1', allocatedTotal: 1000 })),
+}));
 
 import { sql } from '@/lib/neon';
 import { allocateTransaction } from '@/modules/accounting/services/bank/bankReconciliationService';
+import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import { BankTransactionLockTimeoutError } from '@/modules/accounting/services/bank/bankTxLock';
 import { BankAllocationRefusal } from '@/modules/accounting/services/bank/bankAllocationRefusal';
 import handler from '../../../pages/api/accounting/bank-match-confirm';
@@ -51,19 +58,25 @@ const CANDIDATE = '44444444-4444-4444-8444-444444444444';
 type SqlMock = ReturnType<typeof vi.fn>;
 const mockSql = sql as unknown as SqlMock;
 const allocate = allocateTransaction as unknown as ReturnType<typeof vi.fn>;
+const confirmReceipt = confirmReceiptMatch as unknown as ReturnType<typeof vi.fn>;
 
-/** A money-IN line against a customer invoice: the direction agrees, so the
- *  route reaches `allocateTransaction` and the catch is what decides. */
+/** A money-OUT line against a purchase order: the direction agrees, so the
+ *  route reaches `allocateTransaction` DIRECTLY and the catch is what decides.
+ *  The two invoice arms reach it through their settlement services instead —
+ *  the customer one is exercised on its own below. */
+const PO = { id: CANDIDATE, supplier_id: '22222222-2222-4222-8222-222222222222', total: '1000.00' };
+
+/** A money-IN line against a customer invoice, for the arm that goes through AR. */
 const INVOICE = {
   id: CANDIDATE, customer_id: '22222222-2222-4222-8222-222222222222',
   total_amount: '1000.00', amount_paid: '0.00',
 };
 
-function mockReqRes() {
+function mockReqRes(candidateType = 'purchase_order') {
   const req = {
     method: 'POST',
     query: {},
-    body: { bankTransactionId: BANK_TX, candidateType: 'customer_invoice', candidateId: CANDIDATE },
+    body: { bankTransactionId: BANK_TX, candidateType, candidateId: CANDIDATE },
     companyId: COMPANY,
     user: { id: '99999999-9999-4999-8999-999999999999' },
   } as unknown as NextApiRequest;
@@ -92,7 +105,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockSql.mockReset();
   allocate.mockReset();
-  mockSql.mockResolvedValueOnce([{ amount: 1000 }]).mockResolvedValueOnce([INVOICE]).mockResolvedValue([]);
+  confirmReceipt.mockReset();
+  mockSql.mockResolvedValueOnce([{ amount: -1000 }]).mockResolvedValueOnce([PO]).mockResolvedValue([]);
 });
 
 describe('bank-match-confirm — the status code the trailing catch answers', () => {
@@ -129,6 +143,23 @@ describe('bank-match-confirm — the status code the trailing catch answers', ()
     // 500 is what makes `withAuth` ROLLBACK. A 400 here would COMMIT the
     // half-finished match.
     expect(res.statusCode).toBe(500);
+  });
+
+  // The customer arm reaches `allocateTransaction` through `confirmReceiptMatch`
+  // rather than calling it itself, so its refusals have to travel two frames
+  // further before the catch sees them. Same answer, or the arm that now settles
+  // correctly would answer a contended line with a bare 500.
+  it('answers 409 for a contended line raised through the customer settlement service', async () => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValueOnce([{ amount: 1000 }]).mockResolvedValueOnce([INVOICE]).mockResolvedValue([]);
+    confirmReceipt.mockRejectedValueOnce(new BankTransactionLockTimeoutError(BANK_TX));
+
+    const { req, res } = mockReqRes('customer_invoice');
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(409);
+    expect(JSON.stringify(res.sent)).toMatch(/retry/i);
+    expect(writeCount()).toBe(0);
   });
 
   // The classification is on the error's `code`, not on `instanceof`: module

@@ -541,8 +541,15 @@ export async function splitAllocateTransaction(
   companyId: string, bankTxId: string, lines: SplitLine[], userId: string,
 ): Promise<{ journalEntryId: string; bankTransaction: BankTransaction }> {
   const tx = await lockBankTransactionForUpdate(companyId, bankTxId); // see allocateTransaction
-  if (!tx) throw new Error(`Bank transaction ${bankTxId} not found`);
-  if (tx.status !== 'imported') throw new Error(`Transaction already ${tx.status} — cannot split allocate`);
+  // Same two pre-write refusals as `allocateTransaction`, and the same class:
+  // both are decided from the locked row before anything is written, so a
+  // caller that can show that ordering may answer them with a 4xx. Left as bare
+  // Errors here they would have to be told apart by message text — which is
+  // exactly what `BankAllocationRefusal` exists to stop.
+  if (!tx) throw new BankAllocationRefusal(`Bank transaction ${bankTxId} not found`);
+  if (tx.status !== 'imported') {
+    throw new BankAllocationRefusal(`Transaction already ${tx.status} — cannot split allocate`);
+  }
   if (!lines || lines.length === 0) throw new Error('At least one split line is required');
 
   const totalAmount = Math.abs(Number(tx.amount));

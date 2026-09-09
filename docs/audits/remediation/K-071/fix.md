@@ -86,3 +86,39 @@ holder keeps the row's `FOR UPDATE` while the route runs);
 no path that wrote before now writes, and no path that wrote now refuses. The 4xx branches are
 safe only because nothing was written — asserted directly (`committed === true` with the row
 still `imported` and no `supplier_payments`), not argued.
+
+---
+
+## Round 5 (blind review `review-k071-r4.md`: 0 HIGH, 2 MEDIUM, 4 LOW)
+
+Every finding is dispositioned below; evidence is in `green.log` under ROUND 5.
+
+| Finding | Disposition |
+|---|---|
+| MEDIUM-1 — the customer branch is the unfixed mirror of the supplier HIGH | **Fixed, not documented away.** `src/modules/accounting/services/bank/confirmCustomerMatch.ts` routes the arm through `confirmReceiptMatch`, so the settlement writes `customer_payments` + `customer_payment_allocations` and `amount_paid` moves RELATIVELY in SQL. Proved on the fixture: `unwindBankAllocationApplication` now reports `invoicesReopened: 1` and returns `amount_paid` to 0 with `paid_at` NULL. Mutation-proved by restoring the old pair (allocate + absolute UPDATE) — 4 of the 10 integration cases go red, including the reversal one. |
+| MEDIUM-2 — the doc compaction dropped rules and `fix.md` said it did not | **Fixed; the round-4 claim was wrong and is withdrawn.** All seven named rules are back, compressed into the existing bullets: attachment ordering (no `company_id` on that table), LIVE batch counts, WHY `getBankTransactionStatus` exists, `findBankTransactionAllocationStates` reading BOTH columns, `recordAllocationBatchLines` / `getAllocationBatchLines`, cancel's `dry_run` + posted-adjustment block, `bankTxRefCandidateQuery` exported UNRUN. Plus the three smaller drops: `bankGlAccountBelongsToCompany`, `reversalOfId`, `deactivatedWithBalance`. |
+| LOW-1 — 44 lines met by count, not by content | **Partly disputed, with the measurement.** The premise is wrong: at `abf06bc6b` the longest bullet was **830 chars**, not >1,000, and the file was **14,185 bytes** against the 86-line version's **52,636** — a 73% reduction, not "comparable". The underlying point is fair, so after ADDING the seven rules back the longest bullet is 893 chars (45 lines, 16.4 KB). Not trimmed further: cutting prose to hit a character target is what dropped the rules in the first place. |
+| LOW-2 — the "deeper in the plan" unit test tested nothing | **Fixed.** `validateBankSupplierPayment` now runs `planSupplierAllocationLines` FOR REAL (only its DB read is stubbed) against a cancelled bill, so `buildLine` is what throws. Mutation-proved: reverting that one refusal to a bare `Error` takes the test red. |
+| LOW-3 — `apiResponse.conflict` exists and was not used | **Fixed.** `apiResponse.conflict(res, err.message)`; the now-unused `ErrorCode` import is gone. |
+| LOW-4 — `splitAllocateTransaction` kept bare `Error`s | **Fixed.** Both of its pre-write refusals throw `BankAllocationRefusal`, like `allocateTransaction`'s. `BankAllocationRefusal extends Error`, and its only caller (`bank-transactions-action`) does not classify by type, so no caller behaviour changes. |
+
+**Tests this round.** `tests/integration/k074-bank-match-confirm-customer.int.test.ts` (10, real
+DB — settlement + balanced journal, reversal round-trip, partial, over-receipt refused, foreign
+tenant, cancelled, fully paid, already-allocated line, 409 with two interleaved clients, response
+names the document); `tests/unit/services/bank/confirmCustomerMatch.test.ts` (8);
+`bankMatchConfirmRefusalStatus.test.ts` +1 (409 raised through the customer service).
+
+**Migration.** None.
+
+**Historical-data impact.** The customer defect is PRE-EXISTING and its rows are already in
+production — `bankAllocationUnwind.ts:43-46` records 40 invoices where dated settlement exceeds
+`amount_paid` by R124,960.37. This change stops new ones; it corrects nothing already written.
+Read-only impact SQL (production, never run from here):
+
+```sql
+-- Customer invoices settled by a bank match with no allocation row behind them.
+SELECT ci.id, ci.invoice_number, ci.amount_paid, ci.status
+FROM customer_invoices ci
+WHERE ci.company_id = $1 AND COALESCE(ci.amount_paid,0) > 0
+  AND NOT EXISTS (SELECT 1 FROM customer_payment_allocations cpa WHERE cpa.invoice_id = ci.id);
+```

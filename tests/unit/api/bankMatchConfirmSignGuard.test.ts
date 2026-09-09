@@ -62,6 +62,13 @@ vi.mock('@/modules/accounting/services/ap/supplierBankPaymentService', () => ({
     supplierPaymentId: 'payment-1', allocatedTotal: 1000, unappliedRemainder: 0,
   })),
 }));
+// The customer branch settles through the AR service for the same reason
+// (MEDIUM-1 of the round-4 review): a bare `amount_paid` write leaves no
+// allocation row for a reversal to unwind.
+vi.mock('@/modules/accounting/services/ar/receiptMatchConfirmService', () => ({
+  validateBankReceiptApplication: vi.fn(async () => ({})),
+  confirmReceiptMatch: vi.fn(async () => ({ customerPaymentId: 'receipt-1', allocatedTotal: 1000 })),
+}));
 
 import { sql } from '@/lib/neon';
 import {
@@ -71,6 +78,7 @@ import {
 import {
   applyBankLineToSupplierInvoices,
 } from '@/modules/accounting/services/ap/supplierBankPaymentService';
+import { confirmReceiptMatch } from '@/modules/accounting/services/ar/receiptMatchConfirmService';
 import handler from '../../../pages/api/accounting/bank-match-confirm';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
@@ -150,6 +158,7 @@ describe('bank-match-confirm — a line pointing the wrong way is refused', () =
     // commit a journal or a settled document.
     expect(allocateTransaction).not.toHaveBeenCalled();
     expect(applyBankLineToSupplierInvoices).not.toHaveBeenCalled();
+    expect(confirmReceiptMatch).not.toHaveBeenCalled();
     // Two reads and no more — the guard fires before the UPDATE.
     const writes = mockSql.mock.calls.filter(
       (c) => /UPDATE|INSERT/.test((c[0] as unknown as TemplateStringsArray).join('')),
@@ -169,10 +178,11 @@ describe('bank-match-confirm — a line pointing the wrong way is refused', () =
     await handler(req, res);
 
     expect(res.statusCode).not.toBe(400);
-    // The supplier branch reaches the AP settlement service; the other two
-    // still post through allocateTransaction directly.
-    const settler = candidateType === 'supplier_invoice'
-      ? applyBankLineToSupplierInvoices
+    // Each invoice arm reaches its own settlement service; the purchase order
+    // still posts through allocateTransaction directly, because a PO is not a
+    // document a settlement can be applied to.
+    const settler = candidateType === 'supplier_invoice' ? applyBankLineToSupplierInvoices
+      : candidateType === 'customer_invoice' ? confirmReceiptMatch
       : allocateTransaction;
     expect(settler).toHaveBeenCalledTimes(1);
   });
