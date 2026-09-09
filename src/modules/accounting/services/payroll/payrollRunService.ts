@@ -34,6 +34,8 @@ export interface PayrollRunSummary {
   totalEti: number;
   totalNet: number;
   employeeCount: number;
+  /** The GL entry posted at approval, still set after reopenPayrollRun. */
+  journalEntryId: string | null;
 }
 
 export function mapRunRow(r: Row): PayrollRunSummary {
@@ -50,6 +52,7 @@ export function mapRunRow(r: Row): PayrollRunSummary {
     totalEti: Number(r.total_eti) || 0,
     totalNet: Number(r.total_net) || 0,
     employeeCount: Number(r.employee_count) || 0,
+    journalEntryId: r.journal_entry_id == null ? null : String(r.journal_entry_id),
   };
 }
 

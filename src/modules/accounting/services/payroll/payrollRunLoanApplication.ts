@@ -21,7 +21,7 @@
  * with a journal nothing will re-post.
  */
 
-import { withTransaction } from '@/lib/neon';
+import { sql, withTransaction } from '@/lib/neon';
 import type { DbRow, TxSql } from '@/lib/neon';
 import { log } from '@/lib/logger';
 import {
@@ -70,6 +70,30 @@ async function setLocalLockTimeout(tx: TxSql, value: string): Promise<string> {
            set_config('lock_timeout', ${value}, true) AS applied
   `) as DbRow[];
   return String(rows[0]?.previous ?? '0');
+}
+
+/**
+ * Would a live GL journal block the loan work on this run? The live path and
+ * the MCP dry run must answer this the same way, so both call this rather than
+ * re-deriving the condition — `dry_run` has to run every row-state guard the
+ * live path runs, or it promises an action the real call refuses.
+ *
+ * Reads with the caller's executor: inside applyRunLoans that is the locked
+ * transaction; from a dry run it is the request client.
+ */
+export async function runHasLoanWork(
+  companyId: string,
+  runId: string,
+  periodYear: number,
+  periodMonth: number,
+  db: TxSql = sql,
+): Promise<boolean> {
+  const reversible = await listReversibleLoanPayments(
+    companyId, runId, periodYear, periodMonth, db,
+  );
+  if (reversible.length > 0) return true;
+  const due = await listLoansWithInstalmentDue(companyId, periodYear, periodMonth, db);
+  return due.length > 0;
 }
 
 export interface RunLoanInput {
