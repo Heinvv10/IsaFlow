@@ -1,0 +1,39 @@
+psql:scripts/migrations/sql/629_forensic_invocations_idempotency.sql:10: NOTICE:  relation "mcp_idempotency_results" already exists, skipping
+CREATE TABLE
+INSERT 0 0
+ALTER TABLE
+ALTER TABLE
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
+CREATE TABLE
+CREATE INDEX
+CREATE TABLE
+CREATE TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:scripts/migrations/sql/629_forensic_invocations_idempotency.sql:65: NOTICE:  policy "tenant_read" for relation "mcp_invocation_attempts" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:scripts/migrations/sql/629_forensic_invocations_idempotency.sql:68: NOTICE:  policy "authenticated_admission" for relation "mcp_invocation_attempts" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:scripts/migrations/sql/629_forensic_invocations_idempotency.sql:71: NOTICE:  policy "tenant_read" for relation "mcp_invocation_receipts" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:scripts/migrations/sql/629_forensic_invocations_idempotency.sql:75: NOTICE:  policy "original_transaction" for relation "mcp_invocation_receipts" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:scripts/migrations/sql/629_forensic_invocations_idempotency.sql:80: NOTICE:  policy "tenant_read" for relation "mcp_invocation_outcomes" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+psql:scripts/migrations/sql/629_forensic_invocations_idempotency.sql:84: NOTICE:  policy "authenticated_outcome" for relation "mcp_invocation_outcomes" does not exist, skipping
+DROP POLICY
+CREATE POLICY
+REVOKE
+GRANT
