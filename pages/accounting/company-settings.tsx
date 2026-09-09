@@ -183,7 +183,7 @@ export default function CompanySettingsPage() {
       case 'customer-zone':
         return <CustomerZoneTab company={company} onChange={update} />;
       case 'dimensions':
-        return activeCompany?.id ? <DimensionSettings key={activeCompany.id} /> : null;
+        return null; // Kept mounted below so pending saves survive tab navigation.
       case 'udf':
         return <UdfTab />;
       case 'regional':
@@ -231,24 +231,29 @@ export default function CompanySettingsPage() {
           </div>
         )}
 
-        {loading ? (
+        {loading && (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
           </div>
-        ) : company ? (
-          /*
+        )}
+        <div hidden={loading || !company}>
+          {/*
            * Layout:
            *   mobile  → flex-col: the mobile nav strip (inside SettingsSidebar,
            *             md:hidden) stacks above the content area
            *   desktop → flex-row: sticky sidebar (240 px) left, content (flex-1) right
-           */
+           */}
           <div className="flex flex-col md:flex-row gap-6 items-start">
             <SettingsSidebar activeTab={activeTab} onTabChange={setActiveTab} />
             <div className="flex-1 min-w-0 space-y-6">
               {renderContent()}
+              <div hidden={activeTab !== 'dimensions'}>
+                {activeCompany?.id && <DimensionSettings key={activeCompany.id} />}
+              </div>
             </div>
           </div>
-        ) : (
+        </div>
+        {!loading && !company && (
           <div className="text-center py-12 text-[var(--ff-text-secondary)]">No company configured</div>
         )}
       </div>
