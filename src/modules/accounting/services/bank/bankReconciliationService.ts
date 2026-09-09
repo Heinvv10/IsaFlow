@@ -8,7 +8,7 @@ import { fmtDate } from '@/lib/fmtDate';
 import { log } from '@/lib/logger';
 import { runAutoMatch } from '../../utils/autoMatch';
 import { createJournalEntry, postJournalEntry } from '../gl/journalEntryService';
-import { matchTransaction, BankTransactionAllocatedError } from './bankTransactionQueryService';
+import { matchTransaction, BankTransactionAllocatedError, BankMatchTargetError } from './bankTransactionQueryService';
 import type { BankReconciliation, AutoMatchResult } from '../../types/bank.types';
 import type { JournalLineInput } from '../../types/gl.types';
 import type { DbRow } from '@/types/db';
@@ -242,7 +242,14 @@ export async function autoMatchTransactions(
           // returns (the route catches and 400s), the matches already applied
           // would persist while the remaining ones were silently dropped.
           // Anything else is a real failure and must still reach the caller.
-          if (!(matchErr instanceof BankTransactionAllocatedError)) throw matchErr;
+          // BankMatchTargetError/LINE_CLAIMED is the same race seen from the
+          // other side: the candidate query above excludes already-claimed
+          // lines, so it can only fire when a peer bound this line between that
+          // read and this write — including via `uq_bank_tx_matched_line`,
+          // which is what catches the pair that both passed the check.
+          const raced = matchErr instanceof BankTransactionAllocatedError
+            || (matchErr instanceof BankMatchTargetError && matchErr.code === 'LINE_CLAIMED');
+          if (!raced) throw matchErr;
           skippedRaced++;
         }
       }

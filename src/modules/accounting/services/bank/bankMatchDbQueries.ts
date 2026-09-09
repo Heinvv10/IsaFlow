@@ -54,6 +54,7 @@ export async function fetchSupplierInvoiceCandidates(
     FROM supplier_invoices si
     JOIN suppliers s ON s.id = si.supplier_id
     WHERE si.status IN ('approved', 'partially_paid')
+      AND si.deleted_at IS NULL
       AND si.company_id = ${companyId}
     ORDER BY ABS(si.total_amount - COALESCE(si.amount_paid, 0) - ${absAmount}::NUMERIC) ASC
     LIMIT 50
@@ -112,6 +113,7 @@ export async function fetchCustomerInvoiceCandidates(
     FROM customer_invoices ci
     JOIN customers c ON c.id = ci.customer_id
     WHERE ci.status IN ('approved', 'sent', 'partially_paid', 'overdue')
+      AND ci.deleted_at IS NULL
       AND ci.company_id = ${companyId}
     ORDER BY ABS(ci.total_amount - ci.amount_paid - ${absAmount}::NUMERIC) ASC
     LIMIT 50
@@ -159,12 +161,16 @@ export async function fetchPurchaseOrderCandidates(
   extractedEntity: string,
   invoiceRefs: string[],
 ): Promise<MatchCandidate[]> {
+  // purchase_orders_status_check allows draft/submitted/approved/
+  // partially_received/received/cancelled. 'partially_paid' was a dead literal
+  // no row can carry, and 'partially_received' — the status a part-delivered PO
+  // actually holds — was never offered as a candidate.
   const allRows = (await sql`
     SELECT po.id, po.po_number, COALESCE(s.company_name, s.name) AS supplier_name,
            po.total, po.created_at
     FROM purchase_orders po
     JOIN suppliers s ON s.id = po.supplier_id
-    WHERE po.status IN ('approved', 'partially_paid')
+    WHERE po.status IN ('approved', 'partially_received')
       AND po.company_id = ${companyId}
     ORDER BY ABS(po.total - ${absAmount}::NUMERIC) ASC
     LIMIT 50

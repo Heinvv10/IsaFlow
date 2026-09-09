@@ -110,7 +110,10 @@ describeIfDb('K-144 a matched journal line must belong to the caller company', (
   });
 
   it('refuses a journal line belonging to another company', async () => {
-    await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA, foreignLine))).rejects.toThrow();
+    // Pinned to the message, not a bare toThrow: the old code raised a raw FK
+    // violation here too, so any-throw would pass without the tenant check.
+    await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA, foreignLine)))
+      .rejects.toThrow(/not found/i);
     const row = await admin.query(
       'SELECT status, matched_journal_line_id FROM bank_transactions WHERE id = $1', [bankTxA]);
     expect(row.rows[0].matched_journal_line_id).toBeNull();
@@ -125,7 +128,8 @@ describeIfDb('K-144 a matched journal line must belong to the caller company', (
 
   it('refuses to bind one journal line to a second bank transaction', async () => {
     await inTx(() => matchTransaction(COMPANY_A, bankTxA, ownLine));
-    await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA2, ownLine))).rejects.toThrow();
+    await expect(inTx(() => matchTransaction(COMPANY_A, bankTxA2, ownLine)))
+      .rejects.toThrow(/already matched to/i);
   });
 
   // Adjacent case: the reconciliation the match is filed under is stamped from
